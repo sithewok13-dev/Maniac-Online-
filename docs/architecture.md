@@ -18,8 +18,9 @@ upstream symbols, not proposed APIs. Initial content target: **original DOS V1**
 
 ## Implemented boundary
 
-Startup, a narrow edition check at engine creation, and iOS application metadata change. The interpreter, rendering,
-audio, scripts, actors, and resource loaders remain upstream code. The patch
+Startup, a narrow edition check at engine creation, and iOS application metadata change. The first exploration patch
+also clears seven audited passage locks immediately before their original OPEN handlers.
+Rendering, audio, actors and resource loaders remain upstream code. The startup patch
 selects Maniac Mansion/original DOS V1 when launched normally, validates the selected game,
 sets direct touch and landscape defaults, and terminates the game loop on exit or
 failure. The launcher entry is replaced by a diagnostic guard. Diagnostics still
@@ -32,7 +33,13 @@ candidate with version 1 and DOS platform before the upstream platform override.
 forces V2 resources through the V1 interpreter. This improves reuse potential
 for later DOS worlds but does not eliminate per-game adapters or script analysis.
 
-## Next investigation: exploration (not implemented)
+## Exploration investigation
+
+The supplied English DOS V1 index has MD5 `7f45ddd6dbfbf8f80c0c0efea4c295bc`.
+Its 176 indexed global scripts and room object/entry/exit handlers were inspected
+locally with upstream `descumm -1u`; game scripts and resources are not published.
+The first adapter is documented in [exploration.md](exploration.md). Capture and
+death overrides remain pending: caller cleanup must be verified before suppression.
 
 1. Detect the supplied DOS resource revision and record hashes locally, not the assets.
 2. Run with `--debugflags=SCRIPTS,ACTORS,RESOURCE` on desktop; trace startup,

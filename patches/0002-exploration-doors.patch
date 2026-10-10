@@ -1,0 +1,66 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 9315dcbd..c6dd86fc 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -126,6 +126,29 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 
+ 	obcd = getOBCDOffs(object);
+ 
++	// SCUMMVERSE exploration preview: remove only audited passage locks just
++	// before their original OPEN handlers run. Those handlers still update
++	// both sides, play sounds and use the original room-transition scripts.
++	// State 04 is not universally a lock: never clear it on arbitrary objects.
++	if (_scummverseExplorationDoors && where == WIO_ROOM &&
++		(entry == 1 || (entry == 10 && (object == 143 || object == 108)))) {
++		static const struct { int room; int object; } doors[] = {
++			{1, 61},   // Front door.
++			{1, 53},   // Rusted grate.
++			{6, 137},  // Pool / garage passage, both sides.
++			{36, 125},
++			{16, 143}, // Pool gate.
++			{30, 255}, // Outer laboratory door.
++			{52, 108}  // Alternate pool gate room.
++		};
++		for (uint i = 0; i < ARRAYSIZE(doors); ++i) {
++			if (_roomResource == doors[i].room && object == doors[i].object) {
++				putState(object, getState(object) & ~kObjectStateLocked);
++				break;
++			}
++		}
++	}
++
+ 	// Find a free object slot, unless one was specified
+ 	if (slot == -1)
+ 		slot = getScriptSlot();
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index ab2bf6e1..61e6bb4a 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -153,6 +153,15 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	}
+ 	_res = new ResourceManager(this);
+ 
++	// This first exploration adapter is audited against the English DOS V1
++	// index. Other editions retain their original behavior.
++	ConfMan.registerDefault("scummverse_exploration_doors", true);
++	_scummverseExplorationDoors = _game.id == GID_MANIAC &&
++		_game.version == 1 && _game.platform == Common::kPlatformDOS &&
++		!(_game.features & GF_DEMO) &&
++		dr.md5 == "7f45ddd6dbfbf8f80c0c0efea4c295bc" &&
++		ConfMan.getBool("scummverse_exploration_doors");
++
+ 	// Convert MD5 checksum back into a digest
+ 	for (int i = 0; i < 16; ++i) {
+ 		char tmpStr[3] = "00";
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 802cb252..1f9309d8 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1562,6 +1562,7 @@ protected:
+ 	int _saveSound = 0;
+ 	bool _native_mt32 = false;
+ 	bool _copyProtection = false;
++	bool _scummverseExplorationDoors = false;
+ 	bool _shadowPalRemap = false;
+ 
+ 	// Indy4 Amiga specific

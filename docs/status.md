@@ -1,9 +1,10 @@
 # Milestone status and verification
 
 Initial work targets the **original DOS V1** edition, as selected by the
-project owner. Work deliberately stops before exploration and multiplayer code.
+project owner. The baseline now works on iPhone; the first exploration preview
+adds seven passage-lock overrides. Multiplayer is not implemented.
 
-## Milestone 0 — baseline: partial
+## Milestone 0 — baseline: device-confirmed
 
 - Actual official ScummVM v2.9.1 source downloaded and inspected.
 - Exact upstream commit: `9d9b9e93108a276c551aeffa390169ccc5148e15`.
@@ -12,10 +13,10 @@ project owner. Work deliberately stops before exploration and multiplayer code.
   v0–v6 support. V1 contains the original DOS Maniac Mansion implementation.
 - Repeatable source preparation, desktop build tools and iOS project generation
   are included. No game assets are tracked.
-- Still required: run the original DOS V1 game, verify audio/graphics and compile /
-  deploy the iOS target with Apple's toolchain.
+- Apple arm64 iPhoneOS build passed in GitHub Actions; the owner installed the
+  unsigned IPA via sideloading and confirmed baseline gameplay works.
 
-## Milestone 1 — direct launch: implemented, gameplay validation pending
+## Milestone 1 — direct launch: device-confirmed
 
 The source patch selects Maniac Mansion/original DOS V1 using the existing startup machinery.
 No normal launch, engine-identification failure or return path opens the standard
@@ -27,24 +28,29 @@ filtering controls. Xcode signing and bundle identifiers remain developer choice
 The upstream iOS quit method does not terminate the app; relaunch is required
 after an error. There is no asset import/retry UI in this milestone.
 
-## Milestones 2–6 — not implemented
+## Milestone 2 — first exploration preview
 
-- Free exploration and edition-specific progression overrides.
+Seven audited passage locks are bypassed by the second source patch. See
+[exploration.md](exploration.md) for scope and verification. Capture, death and
+remaining progression barriers are still active.
+
+## Milestones 3–6 — not implemented
+
 - Authoritative server, independent players and authentic remote avatar rendering.
 - Independent room membership, movement synchronization and shared NPC state.
 - Two-iPhone tests, interruption/reconnection behavior.
 - Private internet hosting.
 
-These require the original DOS V1 data and the preceding milestone validations.
+These require further engine work and exploration validation.
 The null backend is not a network server and no multiplayer success is claimed.
 
 ## Validation limits
 
-This workspace is Linux without Xcode, iPhone hardware, SDL2 development headers
-or proprietary DOS resource files. Headless compilation and startup checks cannot prove
-gameplay, screen scaling, sound, iOS execution, or networking. The GitHub workflow
-also includes an SDL build for an environment with SDL2 installed; adding that
-workflow is not evidence that its remote run has passed.
+Local checks use Linux and the null backend with the owner's privately supplied
+DOS resources. Apple builds run on hosted macOS GitHub Actions. Device validation
+is reported by the owner, not performed remotely by the assistant. Headless tests
+do not prove visual behavior, audio playback or networking. Historical results
+below describe the state at the time of each earlier milestone.
 
 See the validation results recorded below and the device checklist in [ios.md](ios.md).
 

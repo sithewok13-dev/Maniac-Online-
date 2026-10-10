@@ -3,9 +3,11 @@
 A small, reproducible source fork of **real ScummVM**, starting with the original
 DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 
-**Current scope:** baseline engine build and standalone direct-launch implementation.
-This is not yet a multiplayer client. Exploration overrides, networking, and physical
-iPhone validation are later milestones. No proprietary game data is included.
+**Current scope:** working standalone DOS V1 iPhone prototype and the first
+exploration preview: seven audited passage locks can be opened without keys or
+character prerequisites. The owner confirmed the baseline on iPhone. Capture,
+death, remaining progression barriers and multiplayer are still unfinished.
+No proprietary game data is included.
 
 ## Source layout
 
@@ -40,7 +42,8 @@ checks detected version/platform/demo status before applying platform overrides;
 setting DOS alone does not establish that the files are V1.
 The original game introduction and character selection remain unchanged in this
 milestone; direct launch means bypassing ScummVM's game library, not skipping the
-game's own scripts. No puzzle or death prevention has been implemented yet.
+game's own scripts. See [exploration preview](docs/exploration.md) for the exact
+door changes, supported data revision, tests and remaining limitations.
 
 Launching the binary with no arguments uses `maniac/` beneath the current working
 directory. `--path=/path/to/data` overrides that location. Startup always selects

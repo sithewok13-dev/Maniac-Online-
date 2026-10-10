@@ -77,7 +77,14 @@ does not appear. iOS does not terminate itself on exit; the upstream `quit()` is
 a no-op, so the game thread ends and the app must be relaunched. A native import /
 retry screen is a future UX improvement, not an implemented feature.
 
-## Device acceptance checklist (not yet executed)
+The directory name must be lowercase **`maniac`**, not `Maniac`. On iPhone, use
+Files → On My iPhone → SCUMMVERSE → maniac. The owner resolved the initial
+"Path does not exist" error by correcting this capitalization.
+
+## Device acceptance checklist
+
+The owner confirmed baseline gameplay works on iPhone after the data-path fix.
+Exploration-preview device checks remain pending; see [exploration.md](exploration.md).
 
 - Fresh install with no data: clear error, never the ScummVM launcher.
 - Valid original DOS V1 files: authentic title, audio, rooms and animations.
@@ -87,6 +94,6 @@ retry screen is a future UX improvement, not an implemented feature.
 - End/return-to-launcher never opens the game-selection frontend.
 - Invalid/missing resource files fails visibly, without a silent fallback.
 
-Only after these checks pass should exploration overrides be enabled. Two-device
-networking, independent actors, free exploration and reconnection are not part
-of this direct-launch milestone and cannot yet be acceptance-tested.
+Two-device networking, independent actors and reconnection are not implemented.
+The exploration preview removes only the documented locks; it is not yet full
+free exploration or protection against capture and death.
