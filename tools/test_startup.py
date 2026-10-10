@@ -24,7 +24,7 @@ class StartupTests(unittest.TestCase):
 
     def assert_data_failure(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("SCUMMVERSE: could not start Maniac Mansion (C64)", result.stdout)
+        self.assertIn("SCUMMVERSE: could not start Maniac Mansion (original DOS V1)", result.stdout)
         self.assertIn("game ID 'maniac'", result.stdout)
 
     def test_version_remains_available(self):
@@ -52,7 +52,7 @@ class StartupTests(unittest.TestCase):
     def test_other_game_is_rejected(self):
         result = self.run_game("scumm:monkey")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("only Maniac Mansion (C64) is supported", result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) is supported", result.stdout)
 
     def test_saved_launcher_preference_does_not_open_launcher(self):
         self.config.write_text("[scummvm]\ngui_return_to_launcher_at_exit=true\n")
@@ -62,7 +62,25 @@ class StartupTests(unittest.TestCase):
         self.config.write_text("[scummvm]\n\n[other]\nengineid=scumm\ngameid=monkey\npath=.\n")
         result = self.run_game("other")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("only Maniac Mansion (C64) is supported", result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) is supported", result.stdout)
+
+    def assert_edition_rejected(self, filename, header):
+        # Synthetic detector signatures only, never copyrighted game fixtures.
+        data = self.root / "maniac"
+        data.mkdir()
+        (data / filename).write_bytes(header + bytes(30))
+        result = self.run_game()
+        self.assert_data_failure(result)
+        self.assertIn("requires one full original DOS V1 edition", result.stdout)
+
+    def test_enhanced_v2_is_rejected(self):
+        self.assert_edition_rejected("00.LFL", bytes([0xff, 0xfe]))
+
+    def test_nes_v1_is_rejected(self):
+        self.assert_edition_rejected("00.LFL", bytes([0xbc, 0xb9]))
+
+    def test_dos_v1_demo_is_rejected(self):
+        self.assert_edition_rejected("00.MAN", bytes([0xce, 0xf5]))
 
 
 if __name__ == "__main__":

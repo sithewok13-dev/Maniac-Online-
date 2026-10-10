@@ -26,22 +26,25 @@ SCUMMVERSE and declare landscape orientations. It uses existing backend settings
 `orientation_games=landscape`, `orientation_menus=landscape`,
 `touch_mode_2d_games=direct`, and `filtering=false`.
 
-## Supply the authentic C64 data
+## Supply the authentic original DOS V1 data
 
 Install the app, then use Finder file sharing or Xcode's device container tools
-to place your original disk images here:
+to place your original DOS V1 resource files here:
 
 ```text
 Documents/
   maniac/
-    maniac1.d64
-    maniac2.d64
+    00.LFL
+    01.LFL
+    ... (all .LFL files from the release)
 ```
 
 The existing iOS entry point changes the working directory to Documents, and its
 filesystem is rooted there. No absolute desktop path is embedded into the app.
-The files must contain the actual original game data; renaming unrelated images
-will not make them compatible. Relaunch after transferring data.
+The files must contain the actual original game data; renaming unrelated files
+will not make them compatible. Include files from every disk, preserving names.
+Enhanced DOS V2 and demo data are rejected; use an unmixed V1 directory. Relaunch
+after transferring data.
 
 Without valid data, a minimal error dialog explains the required location.
 Dismiss it and relaunch after correcting the files. The ScummVM game library
@@ -52,12 +55,12 @@ retry screen is a future UX improvement, not an implemented feature.
 ## Device acceptance checklist (not yet executed)
 
 - Fresh install with no data: clear error, never the ScummVM launcher.
-- Valid original C64 disks: authentic title, audio, rooms and animations.
+- Valid original DOS V1 files: authentic title, audio, rooms and animations.
 - Original game selection completes and touch movement works in landscape.
 - Pixel filtering remains off; inspect aspect and device-safe-area scaling.
 - Background/foreground, phone interruptions and rotation behave correctly.
 - End/return-to-launcher never opens the game-selection frontend.
-- Invalid/missing second disk fails visibly, without a silent fallback.
+- Invalid/missing resource files fails visibly, without a silent fallback.
 
 Only after these checks pass should exploration overrides be enabled. Two-device
 networking, independent actors, free exploration and reconnection are not part

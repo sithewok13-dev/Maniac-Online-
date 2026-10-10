@@ -1,7 +1,7 @@
 # SCUMMVERSE / Maniac Online
 
 A small, reproducible source fork of **real ScummVM**, starting with the original
-Commodore 64 Maniac Mansion. No replacement engine or recreated graphics.
+DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 
 **Current scope:** baseline engine build and standalone direct-launch implementation.
 This is not yet a multiplayer client. Exploration overrides, networking, and physical
@@ -32,15 +32,19 @@ python3 tools/build.py --backend sdl
 python3 tools/run.py /absolute/path/to/your/maniac-data
 ```
 
-Use your legally obtained C64 images, named **`maniac1.d64`** and
-**`maniac2.d64`**, together in the data directory. Do not add them to Git.
+Copy **all `.LFL` files** from your legally obtained original DOS V1 release,
+including **`00.LFL`**, into one data directory. Keep filenames intact and include
+files from every disk. Do not add them to Git. The enhanced DOS V2 release, C64
+release, NES release and demos are not supported by this first world. The engine
+checks detected version/platform/demo status before applying platform overrides;
+setting DOS alone does not establish that the files are V1.
 The original game introduction and character selection remain unchanged in this
 milestone; direct launch means bypassing ScummVM's game library, not skipping the
 game's own scripts. No puzzle or death prevention has been implemented yet.
 
 Launching the binary with no arguments uses `maniac/` beneath the current working
 directory. `--path=/path/to/data` overrides that location. Startup always selects
-Maniac Mansion/C64. Diagnostic commands such as `--version`, `--list-games`, and
+Maniac Mansion/original DOS V1. Diagnostic commands such as `--version`, `--list-games`, and
 `--detect` remain available. Errors and game exit cannot open the ScummVM launcher.
 
 ## Headless verification
@@ -63,3 +67,20 @@ its copyrights and component-specific licenses in `engine/COPYRIGHT` and
 `engine/LICENSES/`. When distributing binaries, provide the corresponding pinned
 source, patches, build instructions, and required notices under the applicable
 licenses. Game assets remain separate and are not licensed by this project.
+
+## Updating an existing C64 checkout
+
+Before pulling this change, reverse the old patch without discarding local edits:
+
+```sh
+git -C engine apply --reverse ../patches/0001-standalone-maniac-c64.patch
+git pull --ff-only
+python3 tools/bootstrap.py
+```
+
+If you already pulled, recover the old patch with
+`git show 0085605d508df8a256d2f861ecf4b9da5a3f0c3d:patches/0001-standalone-maniac-c64.patch > /tmp/scummverse-c64.patch`,
+then use `git -C engine apply --reverse /tmp/scummverse-c64.patch` before bootstrap.
+If reverse application reports conflicts, preserve and reconcile your local engine
+edits first; do not reset the checkout. Replace C64 disk images with the original
+DOS `.LFL` files. A fresh checkout needs only the normal build command.

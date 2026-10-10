@@ -2,32 +2,39 @@
 
 Inspected revision: `9d9b9e93108a276c551aeffa390169ccc5148e15` (v2.9.1).
 Paths below are relative to the materialized `engine/` checkout. These are actual
-upstream symbols, not proposed APIs. Initial content target: **C64 original**.
+upstream symbols, not proposed APIs. Initial content target: **original DOS V1**.
 
 | Responsibility | Existing implementation | Consequence |
 | --- | --- | --- |
-| Game identity | `engines/scumm/detection_tables.h`: `maniac`, `GID_MANIAC`, C64, version 0 | Preserve disk detection; DOS V1 is not the chosen initial adapter. |
-| C64 resource access | `engines/scumm/file.cpp`: `ScummDiskImage` | Keep original disk decoding and resources; do not extract/recreate artwork. |
-| Startup | `base/main.cpp`: `scummvm_main`, `identifyGame`, `runGame`; `base/commandLine.cpp`: `processSettings` | Use normal `scumm:maniac` temporary target and C64 platform setting. |
+| Game identity | `engines/scumm/detection_tables.h`: `maniac`, `GID_MANIAC`, DOS, version 1 | Validate the detected full V1 edition before any platform override; reject V2 and demos. |
+| DOS resource access | `engines/scumm/resource.cpp`, `resource_v2.cpp`, `file.cpp`: `ScummFile` | Load original numbered `.LFL` resources; keep upstream decoding and artwork. |
+| Startup | `base/main.cpp`: `scummvm_main`, `identifyGame`, `runGame`; `base/commandLine.cpp`: `processSettings` | Use normal `scumm:maniac` temporary target and DOS platform setting. |
 | iOS entry | `backends/platform/ios7/ios7_osys_main.cpp`: `iOS7_main` | Already changes directory to Documents before `scummvm_main`; defaults can be shared. |
-| Actors | `engines/scumm/actor.h`, `actor.cpp`: `Actor_v0`, `Actor_v2`, `startWalkActor`, `walkActors` | Actor IDs belong to original scripts; do not assign network player IDs to them. |
+| Actors | `engines/scumm/actor.h`, `actor.cpp`: `Actor_v2`, `startWalkActor`, `walkActors` | Actor IDs belong to original scripts; do not assign network player IDs to them. |
 | Drawing | `actor.cpp`: `ScummEngine::processActors`, `costume.cpp`, `gfx.cpp` | Only actors in `_currentRoom` are drawn and depth-sorted; remote avatars need compatible masking, costume and sorting behavior. |
 | Room changes | `room.cpp`: `ScummEngine::startScene` | Runs exit/entry scripts and unloads room resources. A peer changing rooms must not call this for the local player. |
-| Walkability | `boxes.cpp`, `Actor::adjustXYToBeInBox`, versioned movement code | Walkbox/path validation must be adapted to V0 and measured with actual C64 data. |
-| Input/scripts | `input.cpp`, `verbs.cpp`, `script_v0.cpp`, `script.cpp` | Single-player ego and script scheduling cannot be treated as an authoritative shared simulation. |
+| Walkability | `boxes.cpp`, `Actor::adjustXYToBeInBox`, versioned movement code | Walkbox/path validation must be adapted to V1 and measured with actual DOS data. |
+| Input/scripts | `input.cpp`, `verbs.cpp`, `script_v2.cpp`, `script.cpp` | Single-player ego and script scheduling cannot be treated as an authoritative shared simulation. |
 
 ## Implemented boundary
 
-Only startup and iOS application metadata change. The interpreter, rendering,
+Startup, a narrow edition check at engine creation, and iOS application metadata change. The interpreter, rendering,
 audio, scripts, actors, and resource loaders remain upstream code. The patch
-selects Maniac Mansion/C64 when launched normally, validates the selected game,
+selects Maniac Mansion/original DOS V1 when launched normally, validates the selected game,
 sets direct touch and landscape defaults, and terminates the game loop on exit or
 failure. The launcher entry is replaced by a diagnostic guard. Diagnostics still
 use the normal upstream CLI. Missing/incorrect data is never replaced with a mock.
 
+V1 uses `ScummEngine_v2` and `Actor_v2` in this upstream revision: the class names
+cover both V1 and V2; they do not imply the enhanced V2 edition was selected.
+The edition check requires unambiguous detection of a single full Maniac Mansion
+candidate with version 1 and DOS platform before the upstream platform override. It never
+forces V2 resources through the V1 interpreter. This improves reuse potential
+for later DOS worlds but does not eliminate per-game adapters or script analysis.
+
 ## Next investigation: exploration (not implemented)
 
-1. Detect the supplied disk-image revision and record hashes locally, not the assets.
+1. Detect the supplied DOS resource revision and record hashes locally, not the assets.
 2. Run with `--debugflags=SCRIPTS,ACTORS,RESOURCE` on desktop; trace startup,
    character selection, room exits, door prerequisites, capture/death and cutscenes.
 3. Record room relationships and walkboxes from that edition. Identify exact
@@ -46,7 +53,7 @@ the peer's network record and visibility, not the local engine's room.
 Keep transport/session management independent from the world adapter. Player IDs
 and NPC IDs must be distinct from SCUMM actor slots. Prototype authentic costume
 rendering through a separate avatar layer before deciding whether any reserved
-actor slots can safely be reused. The V0 `Actor_v0` behavior must be tested, not
+actor slots can safely be reused. The V1 `Actor_v2` behavior must be tested, not
 inferred from later SCUMM versions. Account for foreground masks and depth order.
 
 Do not serialize VM memory or synchronize unrelated single-player scripts.

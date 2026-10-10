@@ -1,5 +1,5 @@
 diff --git a/base/main.cpp b/base/main.cpp
-index 40b7d2c2..9f48bcea 100644
+index 40b7d2c2..39ef80aa 100644
 --- a/base/main.cpp
 +++ b/base/main.cpp
 @@ -99,25 +99,16 @@
@@ -26,9 +26,9 @@ index 40b7d2c2..9f48bcea 100644
 -		GUI::LauncherChooser dlg;
 -		dlg.selectLauncher();
 +static void reportStandaloneError(const Common::Error &result) {
-+	warning("SCUMMVERSE: could not start Maniac Mansion (C64): %s", result.getDesc().c_str());
++	warning("SCUMMVERSE: could not start Maniac Mansion (original DOS V1): %s", result.getDesc().c_str());
 +#ifndef USE_NULL_DRIVER
-+	GUI::displayErrorDialog(result, _("SCUMMVERSE could not run Maniac Mansion (C64). Check your original maniac1.d64 and maniac2.d64 files in Documents/maniac on iOS, or use --path on desktop, then relaunch."));
++	GUI::displayErrorDialog(result, _("SCUMMVERSE could not run Maniac Mansion (original DOS V1). Check all original DOS V1 .LFL files, including 00.LFL, in Documents/maniac on iOS, or use --path on desktop, then relaunch."));
  #endif
 -		status = (dlg.runModal() != -1);
 -	} while (noQuit && nullptr == ConfMan.getActiveDomain());
@@ -46,7 +46,7 @@ index 40b7d2c2..9f48bcea 100644
 +		command = "scumm:maniac";
 +	if (!settings.contains("path") && !ConfMan.hasGameDomain(command))
 +		settings["path"] = "maniac";
-+	settings["platform"] = "c64";
++	settings["platform"] = "dos";
 +
  	if (Base::processSettings(command, settings, res)) {
  		if (res.getCode() != Common::kNoError)
@@ -56,7 +56,7 @@ index 40b7d2c2..9f48bcea 100644
  	}
  
 +	if (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac") {
-+		warning("SCUMMVERSE: only Maniac Mansion (C64) is supported");
++		warning("SCUMMVERSE: only Maniac Mansion (original DOS V1) is supported");
 +		PluginManager::destroy();
 +		return Common::kUnsupportedGameidError;
 +	}
@@ -196,3 +196,31 @@ index 247e7f0d..b374983d 100644
  	</array>
  </dict>
  </plist>
+diff --git a/engines/scumm/metaengine.cpp b/engines/scumm/metaengine.cpp
+index a1e882f2..73f8dd96 100644
+--- a/engines/scumm/metaengine.cpp
++++ b/engines/scumm/metaengine.cpp
+@@ -294,6 +294,23 @@ Common::Error ScummMetaEngine::createInstance(OSystem *syst, Engine **engine,
+ 	if (results.empty())
+ 		return Common::kNoGameDataFoundError;
+ 
++	// SCUMMVERSE's first world is the full original DOS V1 release.
++	// Validate detected data before the platform override below: setting DOS
++	// alone can otherwise relabel C64 data or accept the enhanced V2 release.
++	if (!strcmp(gameid, "maniac")) {
++		Common::List<DetectorResult> originalDOS;
++		for (Common::List<DetectorResult>::const_iterator x = results.begin(); x != results.end(); ++x) {
++			if (x->game.id == GID_MANIAC && x->game.version == 1 &&
++			    x->game.platform == Common::kPlatformDOS && !(x->game.features & GF_DEMO))
++				originalDOS.push_back(*x);
++		}
++		// Do not turn ambiguous fallback detection into a claimed V1 match.
++		if (results.size() != 1 || originalDOS.size() != 1)
++			return Common::Error(Common::kUnsupportedGameidError,
++				"SCUMMVERSE requires one full original DOS V1 edition; enhanced V2, C64 and demos are not supported. Use an unmixed directory of original .LFL files.");
++		results = originalDOS;
++	}
++
+ 	// No unique match found. If a platform override is present, try to
+ 	// narrow down the list a bit more.
+ 	if (results.size() > 1 && ConfMan.hasKey("platform")) {
