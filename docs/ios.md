@@ -4,6 +4,31 @@ Use the existing ScummVM iOS backend, not SDL on iOS. The pinned upstream guide 
 `engine/doc/docportal/other_platforms/ios_build.rst`. This repository does not
 include a signed app or claim physical-device validation.
 
+## Download an IPA without owning a Mac
+
+The **iOS unsigned IPA** GitHub Actions workflow uses a hosted `macos-15` runner.
+It runs on relevant pushes to the development branch and main. After it reaches
+green, open the run's **Artifacts** section and download **SCUMMVERSE-unsigned-IPA**.
+Unzip that artifact to get `SCUMMVERSE-unsigned.ipa`. The separate corresponding
+source artifact contains the patched engine and build instructions.
+
+Import the IPA into your sideloading/signing tool, such as AltStore or SideStore,
+and follow that tool's signing steps. The IPA is unsigned: tapping it in Files
+will not install it. No Apple credentials or provisioning profiles are stored in
+this repository. Sideloading tools may require initial setup on a computer.
+
+The build targets arm64 iPhones/iPads running iOS 13 or later. It contains the
+original DOS V1 direct-launch prototype, with no multiplayer and no game files.
+After first launch, use the iPhone **Files** app, **On My iPhone > SCUMMVERSE**, to
+create `maniac` and copy all your original `.LFL` files there. Force-close and
+reopen SCUMMVERSE. Finder file sharing on a Mac or Apple Devices file sharing on
+Windows is another way to populate the same Documents directory.
+
+The workflow checks that the app targets iPhoneOS and contains arm64 code, then
+checks IPA ZIP integrity. Those checks do not establish successful installation
+or gameplay on your device. The build log is available as a diagnostic artifact.
+Artifacts expire after 14 days; rerun the workflow when another build is needed.
+
 ## Generate and build on a Mac
 
 Requirements: Xcode with iOS SDK, Python 3, Git, a C++ compiler, an Apple signing

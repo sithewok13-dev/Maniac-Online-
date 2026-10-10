@@ -1,0 +1,83 @@
+name: iOS unsigned IPA
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths:
+      - '.github/workflows/ios-ipa.yml'
+      - 'tools/**'
+      - 'patches/**'
+      - 'upstream.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Apple toolchain
+        run: xcodebuild -version
+      - name: Generate pinned native iOS project
+        run: python3 tools/generate_ios.py
+      - name: Download upstream iOS dependencies
+        run: |
+          curl --fail --location --retry 3 --output build/ios-libs.zip \
+            https://downloads.scummvm.org/frs/build/scummvm-ios7-libs-v3.zip
+          echo '21a385fd2553708732b864ff15e40fea78b9b0b70da45e230ff722ddc9ef1d36  build/ios-libs.zip' | shasum -a 256 -c -
+          unzip -q build/ios-libs.zip -d build/ios
+          test -d build/ios/frameworks
+      - name: Build unsigned arm64 device app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project build/ios/scummvm.xcodeproj \
+            -scheme ScummVM-iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios-derived \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            PRODUCT_BUNDLE_IDENTIFIER=dev.sithewok13.scummverse \
+            CONFIGURATION_BUILD_DIR="$PWD/build/ios-products" \
+            | tee build/ios-build.log
+      - name: Package and validate IPA
+        run: python3 tools/package_ipa.py build/ios-products/scummvm.app build/ipa
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCUMMVERSE-unsigned-IPA
+          path: build/ipa/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Archive corresponding source
+        run: |
+          tar --exclude='engine/.git' -czf build/SCUMMVERSE-source.tar.gz \
+            engine patches tools upstream.json README.md COPYING docs .github
+      - name: Upload corresponding source
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCUMMVERSE-corresponding-source
+          path: build/SCUMMVERSE-source.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-build-diagnostics
+          path: build/ios-build.log
+          if-no-files-found: ignore
+          retention-days: 14
