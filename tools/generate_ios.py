@@ -17,12 +17,16 @@ def main():
     source = ROOT / "engine/devtools/create_project"
     files = ["cmake.cpp", "create_project.cpp", "codeblocks.cpp", "msvc.cpp",
              "msbuild.cpp", "xcode.cpp"]
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++11", "-O2",
+    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++11", "-O2", "-DPOSIX",
                     *[str(source / name) for name in files], "-o", str(tool)], check=True)
     subprocess.run([str(tool), str(ROOT / "engine"), "--xcode", "--use-xcframework",
+                    "--output-dir", str(output),
                     "--disable-all-engines", "--enable-engine=scumm",
                     "--disable-nasm", "--disable-taskbar", "--disable-tts"],
                    cwd=output, check=True)
+    project = (output / "scummvm.xcodeproj/project.pbxproj").read_text()
+    if 'path = "/frameworks/' in project:
+        raise SystemExit("Generator produced invalid root-relative framework paths")
     print(f"Generated {output / 'scummvm.xcodeproj'}")
     print("Next: place upstream iOS frameworks in build/ios/frameworks and follow docs/ios.md")
 

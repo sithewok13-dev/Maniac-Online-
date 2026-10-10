@@ -52,7 +52,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             PRODUCT_BUNDLE_IDENTIFIER=dev.sithewok13.scummverse \
             CONFIGURATION_BUILD_DIR="$PWD/build/ios-products" \
-            | tee build/ios-build.log
+            2>&1 | tee build/ios-build.log
       - name: Package and validate IPA
         run: python3 tools/package_ipa.py build/ios-products/scummvm.app build/ipa
       - name: Upload unsigned IPA
