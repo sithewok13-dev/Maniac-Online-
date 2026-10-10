@@ -24,7 +24,7 @@ def main():
     if info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
         raise SystemExit("Expected a device build, not an iOS simulator app")
     executable = app / info["CFBundleExecutable"]
-    subprocess.run(["lipo", "-verify_arch", "arm64", str(executable)], check=True)
+    subprocess.run(["lipo", str(executable), "-verify_arch", "arm64"], check=True)
     if any(p.suffix.lower() in {".lfl", ".d64"} for p in app.rglob("*")):
         raise SystemExit("Refusing to package proprietary game resource files")
     if not os.access(executable, os.X_OK):
