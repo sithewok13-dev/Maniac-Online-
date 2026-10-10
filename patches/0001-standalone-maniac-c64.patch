@@ -1,0 +1,198 @@
+diff --git a/base/main.cpp b/base/main.cpp
+index 40b7d2c2..9f48bcea 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -99,25 +99,16 @@
+ #include "gui/dump-all-dialogs.h"
+ 
+ static bool launcherDialog() {
++	// SCUMMVERSE is standalone, including on error paths.
++	warning("SCUMMVERSE: no game selected; the ScummVM launcher is disabled");
++	return false;
++}
+ 
+-	// Discard any command line options. Those that affect the graphics
+-	// mode and the others (like bootparam etc.) should not
+-	// blindly be passed to the first game launched from the launcher.
+-	ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+-
+-	// If the backend does not allow quitting, loop on the launcher until a game is started
+-	bool noQuit = g_system->hasFeature(OSystem::kFeatureNoQuit);
+-	bool status = true;
+-	do {
+-#if defined(__DC__)
+-		DCLauncherDialog dlg;
+-#else
+-		GUI::LauncherChooser dlg;
+-		dlg.selectLauncher();
++static void reportStandaloneError(const Common::Error &result) {
++	warning("SCUMMVERSE: could not start Maniac Mansion (C64): %s", result.getDesc().c_str());
++#ifndef USE_NULL_DRIVER
++	GUI::displayErrorDialog(result, _("SCUMMVERSE could not run Maniac Mansion (C64). Check your original maniac1.d64 and maniac2.d64 files in Documents/maniac on iOS, or use --path on desktop, then relaunch."));
+ #endif
+-		status = (dlg.runModal() != -1);
+-	} while (noQuit && nullptr == ConfMan.getActiveDomain());
+-	return status;
+ }
+ 
+ static Common::Error identifyGame(const Common::String &debugLevels, const Plugin **detectionPlugin, DetectedGame &game, const void **descriptor) {
+@@ -515,6 +506,14 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	Common::Error res;
+ 
+ 	// TODO: deal with settings that require plugins to be loaded
++	// SCUMMVERSE: retain upstream CLI diagnostics and temporary targets.
++	// iOS7_main has already changed cwd to the app's Documents directory.
++	if (command.empty())
++		command = "scumm:maniac";
++	if (!settings.contains("path") && !ConfMan.hasGameDomain(command))
++		settings["path"] = "maniac";
++	settings["platform"] = "c64";
++
+ 	if (Base::processSettings(command, settings, res)) {
+ 		if (res.getCode() != Common::kNoError)
+ 			warning("%s", res.getDesc().c_str());
+@@ -524,6 +523,23 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		return res.getCode();
+ 	}
+ 
++	if (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac") {
++		warning("SCUMMVERSE: only Maniac Mansion (C64) is supported");
++		PluginManager::destroy();
++		return Common::kUnsupportedGameidError;
++	}
++	if (!configLoadStatus) {
++		warning("SCUMMVERSE: invalid configuration file; repair or remove it before relaunching");
++		PluginManager::destroy();
++		return Common::kUnknownError;
++	}
++	ConfMan.setBool("gui_return_to_launcher_at_exit", false, Common::ConfigManager::kTransientDomain);
++	ConfMan.setBool("filtering", false, Common::ConfigManager::kSessionDomain);
++	ConfMan.set("orientation_games", "landscape", Common::ConfigManager::kTransientDomain);
++	ConfMan.set("orientation_menus", "landscape", Common::ConfigManager::kTransientDomain);
++	ConfMan.set("touch_mode_2d_games", "direct", Common::ConfigManager::kTransientDomain);
++	int standaloneExitCode = Common::kNoError;
++
+ 	if (settings.contains("dump-midi")) {
+ 		// Store this command line setting in ConfMan, since all transient settings are destroyed
+ 		ConfMan.registerDefault("dump_midi", true);
+@@ -746,6 +762,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		DetectedGame game;
+ 		const void *meDescriptor = nullptr;
+ 		Common::Error result = identifyGame(specialDebug, &plugin, game, &meDescriptor);
++		standaloneExitCode = result.getCode();
+ 
+ 		if (result.getCode() == Common::kNoError) {
+ 			Common::String engineId = plugin->getName();
+@@ -758,6 +775,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			enginePlugin = PluginMan.findEnginePlugin(engineId);
+ 			if (enginePlugin == nullptr) {
+ 				result = Common::kEnginePluginNotFound;
++				standaloneExitCode = result.getCode();
+ 			}
+ 		}
+ 
+@@ -794,6 +812,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			}
+ 			// Try to run the game
+ 			result = runGame(enginePlugin, system, game, meDescriptor);
++			standaloneExitCode = result.getCode();
+ 			if (ttsMan != nullptr) {
+ 				ttsMan->popState();
+ 			}
+@@ -818,8 +837,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 
+ 			// Did an error occur ?
+ 			if (result.getCode() != Common::kNoError && result.getCode() != Common::kUserCanceled) {
+-				// Shows an informative error dialog if starting the selected game failed.
+-				GUI::displayErrorDialog(result, _("Error running game:"));
++				reportStandaloneError(result);
+ 			}
+ 
+ 			// Quit unless an error occurred, or Return to launcher was requested
+@@ -868,17 +886,15 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		} else {
+ 			DebugMan.removeAllDebugChannels();
+ 
+-			GUI::displayErrorDialog(_("Could not find any engine capable of running the selected game"));
++			reportStandaloneError(result);
+ 
+ 			// Clear the active domain
+ 			ConfMan.setActiveDomain("");
+ 		}
+ 
+-		// reset the graphics to default
+-		setupGraphics(system);
+-		if (nullptr == ConfMan.getActiveDomain()) {
+-			launcherDialog();
+-		}
++		// SCUMMVERSE: failure or return-to-launcher ends this session.
++		// Preserve normal manager teardown below; never open a library.
++		break;
+ 	}
+ #ifdef USE_CLOUD
+ #ifdef USE_SDL_NET
+@@ -911,5 +927,5 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	EngineManager::destroy();
+ 	Graphics::YUVToRGBManager::destroy();
+ 
+-	return 0;
++	return standaloneExitCode;
+ }
+diff --git a/dists/ios7/Info.plist b/dists/ios7/Info.plist
+index b51e7cb1..49b6433b 100644
+--- a/dists/ios7/Info.plist
++++ b/dists/ios7/Info.plist
+@@ -15,7 +15,7 @@
+ 	<key>CFBundleInfoDictionaryVersion</key>
+ 	<string>6.0</string>
+ 	<key>CFBundleName</key>
+-	<string>ScummVM</string>
++	<string>SCUMMVERSE</string>
+ 	<key>CFBundlePackageType</key>
+ 	<string>APPL</string>
+ 	<key>CFBundleShortVersionString</key>
+@@ -60,15 +60,11 @@
+ 	<array>
+ 		<string>UIInterfaceOrientationLandscapeLeft</string>
+ 		<string>UIInterfaceOrientationLandscapeRight</string>
+-		<string>UIInterfaceOrientationPortrait</string>
+-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+ 	</array>
+ 	<key>UISupportedInterfaceOrientations~ipad</key>
+ 	<array>
+ 		<string>UIInterfaceOrientationLandscapeLeft</string>
+ 		<string>UIInterfaceOrientationLandscapeRight</string>
+-		<string>UIInterfaceOrientationPortrait</string>
+-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+ 	</array>
+ </dict>
+ </plist>
+diff --git a/dists/ios7/Info.plist.in b/dists/ios7/Info.plist.in
+index 247e7f0d..b374983d 100644
+--- a/dists/ios7/Info.plist.in
++++ b/dists/ios7/Info.plist.in
+@@ -15,7 +15,7 @@
+ 	<key>CFBundleInfoDictionaryVersion</key>
+ 	<string>6.0</string>
+ 	<key>CFBundleName</key>
+-	<string>ScummVM</string>
++	<string>SCUMMVERSE</string>
+ 	<key>CFBundlePackageType</key>
+ 	<string>APPL</string>
+ 	<key>CFBundleShortVersionString</key>
+@@ -60,15 +60,11 @@
+ 	<array>
+ 		<string>UIInterfaceOrientationLandscapeLeft</string>
+ 		<string>UIInterfaceOrientationLandscapeRight</string>
+-		<string>UIInterfaceOrientationPortrait</string>
+-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+ 	</array>
+ 	<key>UISupportedInterfaceOrientations~ipad</key>
+ 	<array>
+ 		<string>UIInterfaceOrientationLandscapeLeft</string>
+ 		<string>UIInterfaceOrientationLandscapeRight</string>
+-		<string>UIInterfaceOrientationPortrait</string>
+-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+ 	</array>
+ </dict>
+ </plist>
