@@ -600,7 +600,7 @@ index d82f32d4..8196f390 100644
  		int room = 0, previousRoom = 0, exit = -1;
  		int wait = 0, elapsed = 0, speech = 0, lastLine = -1;
 diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
-index ba8ee0e9..aee7fdde 100644
+index ba8ee0e9..51e72fe9 100644
 --- a/engines/scumm/scummverse_roaming.inc
 +++ b/engines/scumm/scummverse_roaming.inc
 @@ -194,9 +194,43 @@ void ScummEngine::scummverseStartRoaming() {
@@ -647,7 +647,7 @@ index ba8ee0e9..aee7fdde 100644
  	Actor *player = derefActor(VAR(VAR_EGO), "sandbox player");
  	if (_scummverseLastEgo != VAR(VAR_EGO)) {
  		player->stopActorMoving();
-@@ -237,11 +271,13 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+@@ -237,14 +271,20 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
  			int line = _rnd.getRandomNumber(2);
  			if (line >= r.lastLine && r.lastLine >= 0) ++line;
  			r.lastLine = line;
@@ -660,9 +660,16 @@ index ba8ee0e9..aee7fdde 100644
 +			if (!_scummverseAIActor && scummverseAIRequest(id, _currentRoom, VAR(VAR_EGO))) {
 +				_scummverseAIActor = id; _scummverseAIRoom = _currentRoom;
 +				_scummverseAIWait = 0; _scummverseAIFallback = fallback;
++				// Let this NPC greet the player without walking away before the
++				// result arrives. Other actors and the player keep moving.
++				a->stopActorMoving(); r.walking = false;
 +			} else {
 +				scummverseSay(id, fallback);
 +			}
  			r.speech = 1200 + _rnd.getRandomNumber(1200);
  		}
  		r.nearPlayer = nearby;
++		if (_scummverseAIActor == id) continue;
+ 		if (getTalkingActor() == id && VAR(VAR_HAVE_MSG)) continue;
+ 		if (r.wait > 0) { r.wait -= delta; continue; }
+ 		if (r.exit < 0) {

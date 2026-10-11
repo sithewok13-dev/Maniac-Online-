@@ -39,7 +39,8 @@ A shared worker accepts one request at a time. It uses a 512-token context, 64-t
 prompt batches, at most 48 output tokens, and a five-second inference deadline.
 CPU decoding checks cancellation internally; GPU work is checked between decode
 batches, so a running Metal command cannot be interrupted instantaneously.
-The game continues while it waits and falls back after six seconds of game time.
+The greeting NPC pauses briefly while it waits; other actors and player controls
+continue. The encounter falls back after six seconds of game time.
 Responses for departed characters, another room, or a different selected player
 are discarded. Existing speech is not interrupted. Unsafe renderer control bytes,
 role prefixes, tags, incomplete sentences and overly long/non-ASCII output are
@@ -59,7 +60,7 @@ builds retain a no-model bridge and do not require llama.cpp. Source artifacts
 include the pinned runtime; model weights and original game files stay excluded.
 Runtime/model notices are in `LOCAL_AI_LICENSES.txt` inside the IPA and its ZIP.
 
-Local checks include real CPU generation with the pinned Small model, output
+Local checks include real CPU generation with both pinned models, output
 filtering, bounded queueing, cancellation, missing-model/off fallback, plus a real
 DOS VM probe with controlled asynchronous responses for display, timeout, camera/
 control isolation and stale-room/player cancellation. The existing roaming probe

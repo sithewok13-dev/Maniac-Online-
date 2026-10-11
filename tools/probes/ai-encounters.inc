@@ -17,7 +17,7 @@
 	FakeAI::accept = false; encounter();
 	if (_scummverseAIActor || getTalkingActor() != 10) error("Missing-model fallback failed");
 	FakeAI::accept = true; encounter();
-	if (_scummverseAIActor != 10) error("AI encounter was not submitted");
+	if (_scummverseAIActor != 10 || edna->_moving) error("AI encounter was not submitted");
 	Common::Point position = player->getPos(), cameraPosition = camera._cur;
 	FakeAI::complete = true; scummverseUpdateDialogue(4);
 	if (_scummverseAIActor || getTalkingActor() != 10 || player->getPos() != position || camera._cur != cameraPosition || !_userPut)
