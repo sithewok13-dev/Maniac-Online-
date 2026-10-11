@@ -84,7 +84,7 @@ Files → On My iPhone → SCUMMVERSE → maniac. The owner resolved the initial
 ## Device acceptance checklist
 
 The owner confirmed baseline gameplay works on iPhone after the data-path fix.
-Exploration-preview device checks remain pending; see [exploration.md](exploration.md).
+The owner also confirmed the door preview; capture/death protection checks remain pending; see [exploration.md](exploration.md).
 
 - Fresh install with no data: clear error, never the ScummVM launcher.
 - Valid original DOS V1 files: authentic title, audio, rooms and animations.
@@ -95,5 +95,7 @@ Exploration-preview device checks remain pending; see [exploration.md](explorati
 - Invalid/missing resource files fails visibly, without a silent fallback.
 
 Two-device networking, independent actors and reconnection are not implemented.
-The exploration preview removes only the documented locks; it is not yet full
-free exploration or protection against capture and death.
+The exploration preview removes documented locks and protects audited capture/death
+paths. Start a fresh game when testing the new protection: it does not repair an
+older save taken midway through capture or death. Other progression barriers
+remain, so this is not yet full free exploration.

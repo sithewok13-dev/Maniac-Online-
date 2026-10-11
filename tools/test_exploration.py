@@ -78,23 +78,17 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('data', type=Path)
-    args = parser.parse_args()
-    data = args.data.resolve()
-    if hashlib.md5((data/'00.LFL').read_bytes()).hexdigest() != '7f45ddd6dbfbf8f80c0c0efea4c295bc':
-        parser.error('This probe requires the audited English DOS V1 edition')
+def run_probe(data, probe_code, config_key, marker, label):
     build = ROOT/'build/null'
     source = ROOT/'engine/engines/scumm/scumm.cpp'
-    with tempfile.TemporaryDirectory(prefix='scummverse-doors-', dir=ROOT/'build') as tmp:
+    with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
         work = Path(tmp)
         code = source.read_text()
-        marker = '\n}\n\n#ifdef ENABLE_HE\nvoid ScummEngine_v90he::runBootscript()'
-        if code.count(marker) != 1:
+        boundary = '\n}\n\n#ifdef ENABLE_HE\nvoid ScummEngine_v90he::runBootscript()'
+        if code.count(boundary) != 1:
             raise RuntimeError('Pinned runBootscript boundary changed')
         probe = work/'scumm.cpp'
-        probe.write_text(code.replace(marker, '\n' + PROBE + marker))
+        probe.write_text(code.replace(boundary, '\n' + probe_code + boundary))
         cmd = command_for(build, source, 'engines/scumm/scumm.o')
         cmd[cmd.index(str(source))] = str(probe)
         cmd[cmd.index('-o')+1] = str(work/'scumm.o')
@@ -110,16 +104,26 @@ def main():
         subprocess.run(cmd, cwd=build, check=True)
         for enabled in (False, True):
             config = work/'probe.ini'
-            config.write_text('[scummvm]\nscummverse_exploration_doors=' + str(enabled).lower() + '\n')
+            config.write_text('[scummvm]\n' + config_key + '=' + str(enabled).lower() + '\n')
             result = subprocess.run([str(exe), f'--config={config}', f'--path={data}',
                                      f'--savepath={work}', '--debuglevel=1'],
-                                    cwd=work, capture_output=True, text=True, timeout=45)
+                                    cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)
             output = result.stdout + result.stderr
-            (ROOT/f'build/door-probe-{enabled}.log').write_text(output)
-            if result.returncode or f'SCUMMVERSE_DOOR_PROBE_PASS enabled={int(enabled)}' not in output:
+            (ROOT/f'build/{label}-probe-{enabled}.log').write_text(output)
+            if result.returncode or f'{marker} enabled={int(enabled)}' not in output:
                 raise RuntimeError(output[-6000:])
-            print(f'PASS: seven original door handlers, override enabled={enabled}')
-        print('PASS: original front-door entry and exit scripts; normal build unchanged')
+            print(f'PASS: {label} real-script probe, override enabled={enabled}')
+        print('Normal source, executable, game data and saves unchanged')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('data', type=Path)
+    args = parser.parse_args()
+    data = args.data.resolve()
+    if hashlib.md5((data/'00.LFL').read_bytes()).hexdigest() != '7f45ddd6dbfbf8f80c0c0efea4c295bc':
+        parser.error('This probe requires the audited English DOS V1 edition')
+    run_probe(data, PROBE, 'scummverse_exploration_doors', 'SCUMMVERSE_DOOR_PROBE_PASS', 'door')
 
 
 if __name__ == '__main__':

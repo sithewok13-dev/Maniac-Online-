@@ -38,8 +38,10 @@ for later DOS worlds but does not eliminate per-game adapters or script analysis
 The supplied English DOS V1 index has MD5 `7f45ddd6dbfbf8f80c0c0efea4c295bc`.
 Its 176 indexed global scripts and room object/entry/exit handlers were inspected
 locally with upstream `descumm -1u`; game scripts and resources are not published.
-The first adapter is documented in [exploration.md](exploration.md). Capture and
-death overrides remain pending: caller cleanup must be verified before suppression.
+The first adapter is documented in [exploration.md](exploration.md). The third patch adds caller-aware capture/death protection: scoped variable reads
+select original non-hostile branches, and a script-start guard suppresses audited
+destructive routines. Headless tests exercise original hostile paths with the
+protection on and off; physical-device validation remains pending.
 
 1. Detect the supplied DOS resource revision and record hashes locally, not the assets.
 2. Run with `--debugflags=SCRIPTS,ACTORS,RESOURCE` on desktop; trace startup,

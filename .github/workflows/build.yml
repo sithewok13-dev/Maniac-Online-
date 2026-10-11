@@ -18,6 +18,9 @@ jobs:
         run: python3 tools/build.py --backend ${{ matrix.backend }} --jobs 2
       - name: Verify source preparation is idempotent
         run: python3 tools/bootstrap.py
+      - name: Verify dependent patches and preservation of local edits
+        if: matrix.backend == 'null'
+        run: python3 tools/test_bootstrap.py
       - name: Exercise real startup without proprietary assets
         if: matrix.backend == 'null'
         run: python3 tools/test_startup.py build/null/scummvm

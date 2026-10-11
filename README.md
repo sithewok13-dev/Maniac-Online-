@@ -4,9 +4,10 @@ A small, reproducible source fork of **real ScummVM**, starting with the origina
 DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 
 **Current scope:** working standalone DOS V1 iPhone prototype and the first
-exploration preview: seven audited passage locks can be opened without keys or
-character prerequisites. The owner confirmed the baseline on iPhone. Capture,
-death, remaining progression barriers and multiplayer are still unfinished.
+exploration preview: seven passage locks plus protection against audited capture
+and death paths. The owner confirmed the baseline and door preview on iPhone.
+The new protection needs device validation; remaining progression barriers and
+multiplayer are still unfinished.
 No proprietary game data is included.
 
 ## Source layout

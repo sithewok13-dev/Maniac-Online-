@@ -1,9 +1,9 @@
-# Exploration preview 1: passage locks
+# Exploration previews: passage locks and capture/death protection
 
-This preview lets OPEN work without a key or character prerequisite for seven
+The first preview lets OPEN work without a key or character prerequisite for seven
 confirmed passage objects. Original sounds, paired door states, close actions,
-walkboxes and room-transition scripts remain in use. It does not yet provide full
-free exploration: NPC capture, death, other puzzle barriers and endings still run.
+walkboxes and room-transition scripts remain in use. The second preview adds the capture/death protection described below. Other
+puzzle barriers and successful endings remain; this is not yet full free exploration.
 
 The adapter is enabled by default only for the full English DOS V1 edition whose
 `00.LFL` MD5 is `7f45ddd6dbfbf8f80c0c0efea4c295bc`. Other accepted DOS V1 revisions
@@ -52,14 +52,67 @@ then OPEN the front door without picking up the key. Walk inside, close/reopen
 the door, and return outside. Check the original animation, sound and touch input.
 The grate should also open without a strong character or the rust remover.
 
-## Remaining exploration work
+## Preview 2: capture/death protection
 
-Local script inspection confirmed Edna's capture monitor (36) and transfer (37),
-Weird Ed's monitor (91), chase (88) and transfer (89), and Purple Tentacle's
-chase/transfer (49). Some callers stop patrol scripts, change input state, or
-freeze characters before the transfer. Suppressing only the transfer is unsafe.
-The death routine (61) and game-over sequence (62) also have callers that change
-rooms or controls first. None of these routines is suppressed in this preview.
+Enabled by default for the same audited English DOS V1 edition. The independent
+`scummverse_exploration_safety=false` configuration setting restores original
+behavior after relaunch. **Start a fresh game to test this build.** A save made
+mid-capture or mid-death can contain already-frozen actors, disabled controls or
+running destructive scripts; this patch does not reconstruct that prior state.
 
-Next work needs caller-aware capture/death handling, remaining puzzle passages,
-and room-by-room verification before describing the mode as free exploration.
+The adapter chooses existing non-hostile branches through scoped variable reads.
+It does not rewrite the stored puzzle variables, edit resource files, change actor
+movement, or turn off the script scheduler. The scope includes global-script type
+as well as script number, because object scripts can have the same numeric IDs.
+
+| Global script | Scoped read | Result |
+| --- | --- | --- |
+| 36 | 73 → no target (255) | Edna's monitor loops without stopping patrols or capturing. |
+| 91 | 113 → no target (255) | Ed's monitor loops without starting the chase. Monitor greetings are also skipped. |
+| 48 | 200 → no target (255) | Purple Tentacle performs the empty-room search and returns without switching the active kid. |
+| 116 | 106 → permitted (1) | Ed's normal pickup branch runs before any capture/control changes. |
+| 107 | 157: lethal tape (25) → ordinary negative review (0) | Original dialogue and control/camera restoration finish without leaving the room for death. |
+| 110 | 101: hostile contracts (1/2) → neutral (0) | Avoids disabling input before the death call. Other contract paths are unchanged. |
+
+The script-start guard suppresses reactor countdowns 7/12, Edna imprisonment 37,
+Purple Tentacle chase/imprisonment 49, death 61, game over 62, Ed chase/imprisonment
+88/89, lab capture trigger 117, self-destruct countdown 123, and meteor projectile
+128. Some surrounding story dialogue can still mention danger. Successful endings
+and other puzzle conditions are not disabled.
+
+## Protection verification
+
+Run `python3 tools/test_safety.py /path/to/maniac` after the null-backend build.
+The isolated probe compiles a temporary engine translation unit and executes the
+original DOS resource scripts. No probe code is part of the shipped IPA.
+
+- Edna and Ed monitors: hostile target decisions differ with protection on/off;
+  protected monitors remain running while the player keeps their room and controls.
+- Ed's guarded pickup: original object 34 invokes script 116; protected pickup
+  succeeds without persisting the permission override or locking the controls.
+- Both hostile contracts: original behavior disables input; protected behavior
+  leaves it available and preserves the contract variable.
+- Purple Tentacle: original search captures the kid when disabled; protected
+  search finishes with the kid in the same room and Tentacle back in room 31.
+- Bad tape: original behavior removes the kid's costume on death; protected
+  dialogue finishes with costume, room and input intact, without changing the tape.
+- Edna's hallway-to-bedroom patrol completes with protection enabled.
+- All suppressed destructive entries leave player room, costume and controls
+  intact; the checks include all six death-reason values.
+- Original radioactive microwave, pool-refill and reactor-button handlers complete
+  without killing the player or entering game over.
+- Existing seven-door scripts, front-door round trip, and 11 startup checks pass.
+
+The probe accelerates script delays and clears dialogue waits; its evidence covers
+VM state and original-script completion, not real-time pacing or audiovisual
+behavior. The owner already confirmed preview 1 on iPhone; preview 2 needs its
+own physical-device check.
+
+## iPhone protection check
+
+Sideload the new IPA and start a fresh game with the same lowercase `maniac` data
+folder. Enter Edna's kitchen area, approach Weird Ed, and try taking an item in
+his room. Confirm that no kid is imprisoned and that walking, changing kids and
+leaving the room still work. Recheck a door transition and normal sound/animation.
+Where accessible, test the pool/refill and microwave hazards. Original puzzle
+barriers still apply; protection does not provide a teleport or solve every puzzle.

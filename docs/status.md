@@ -2,7 +2,7 @@
 
 Initial work targets the **original DOS V1** edition, as selected by the
 project owner. The baseline now works on iPhone; the first exploration preview
-adds seven passage-lock overrides. Multiplayer is not implemented.
+adds seven passage-lock overrides and audited capture/death protection. Multiplayer is not implemented.
 
 ## Milestone 0 — baseline: device-confirmed
 
@@ -30,9 +30,11 @@ after an error. There is no asset import/retry UI in this milestone.
 
 ## Milestone 2 — first exploration preview
 
-Seven audited passage locks are bypassed by the second source patch. See
-[exploration.md](exploration.md) for scope and verification. Capture, death and
-remaining progression barriers are still active.
+Seven audited passage locks are bypassed by the second source patch; the owner
+confirmed this door preview works on iPhone. The third patch protects audited
+capture/death paths, with real-script tests both enabled and disabled. See
+[exploration.md](exploration.md) for scope and verification. Protection still
+needs iPhone validation; remaining progression barriers are active.
 
 ## Milestones 3–6 — not implemented
 
@@ -89,3 +91,23 @@ been tested. Startup tests use only empty directories and configuration files.
   including `00.LFL`; documented migration for existing C64 engine checkouts.
 - Original DOS gameplay, graphics/audio and physical iOS validation remain pending.
   Earlier Xcode-generation checks still concern project structure only.
+
+## Capture/death protection — 2026-10-11
+
+The real DOS script probe checks Edna and Ed's hostile target decisions, Ed's
+guarded pickup, both lethal contract variants, Purple Tentacle's complete search,
+the fatal tape interaction, and Edna's completed hallway-to-bedroom patrol.
+With protection disabled the original capture, death and disabled-input outcomes
+are observed; with protection enabled the player keeps their room/costume/controls.
+The guarded destructive entries are checked for absence of side effects, including
+all six death-reason values. Door and startup regression checks also pass.
+
+No new iPhone gameplay success is claimed until the owner tests this build. The
+probe advances script delays and dialogue waits to test VM outcomes; it does not
+measure real-time pacing, rendering, sound or touch input. Original data remains
+local and is not included in source or binary artifacts.
+
+Source preparation now recognizes a dependent patch stack by reversing it in a
+disposable copy, rather than trying to reverse each old patch against the final
+tree. Tests cover pristine source, every applied prefix, a complete stack,
+unrelated local edits and conflicting edits; the real checkout is never reversed.
