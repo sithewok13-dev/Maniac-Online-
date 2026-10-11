@@ -160,3 +160,23 @@ six-second timeout fallback, and stale room/player cancellation. The full roamin
 probe and all 11 startup checks pass. Six-patch source bootstrap tests pass.
 Physical-iPhone download UI, Metal generation, thermal behavior and response times
 remain unmeasured; Linux timings are not presented as iPhone benchmarks.
+
+## Shared local conversations — 2026-10-11
+
+Patch 7 adds one-to-one Talk, the optional 2,497 MB Qwen3 4B download, a scrolling
+AI settings screen and specific download failures. Patch 8 adds **Talk to everyone
+here** when at least two NPCs are in the room. It keeps a single shared, attributed
+transcript; up to two NPCs reply serially per player message, with the second
+receiving the first's actual reply. Leading speakers rotate. Six recent messages
+are retained, within the existing 1,024-token budget and single resident model.
+
+All current room participants pause, new arrivals can join, and departures remove
+stale queued replies. Room/player changes and closing/loading/backgrounding cancel
+work. Group output uses a bounded queue and waits for existing game speech before
+displaying the next speaker. Private chats remain available. Characters still
+cannot execute game actions through dialogue. See [local dialogue](local-ai.md).
+
+Real DOS VM checks cover group pause/release, speech serialization and speaker
+attribution, in addition to the existing encounter tests. Eight-patch bootstrap
+and 11 startup checks pass. Physical-device UI, performance and thermal behavior
+remain to be tested; model responses are not guaranteed to be coherent or novel.

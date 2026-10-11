@@ -16,7 +16,7 @@ conversation preview on phones with sufficient memory.
 
 The inference worker receives a character identity/personality, the current room,
 the selected player identity, and at most one prior generated line for ambient encounters.
-Explicit conversations also include the last two successful question/reply pairs,
+Explicit conversations also include the last six attributed messages,
 held only in memory until the conversation closes.
 It has no movement, door, inventory, script-execution or network capability.
 **NPC movement still uses the roaming engine.** Model-driven intentions are not
@@ -29,7 +29,22 @@ and tap Send (or the keyboard Send key). Keyboard dictation can be used if enabl
 on the phone; its processing is managed by iOS, not this app's local model.
 Replies appear in the scrollable panel and are delivered to the normal game speech
 renderer on the game thread. Tap Done to close the panel and resume wandering.
-The selected NPC pauses; the rest of the mansion continues. A room or player change,
+The selected NPC pauses; the rest of the mansion continues.
+When at least two characters are present, **Talk to everyone here** starts a shared
+group conversation. Everyone in the room joins and pauses. Up to two characters
+reply per player message, in sequence, with a rotating first speaker. The second
+speaker receives the first speaker's exact successful reply in the same shared
+transcript. They can agree, disagree, or add to it; quality is model-dependent.
+New arrivals join the group and become eligible on the next player message.
+Departed characters cannot deliver late replies. If the current speaker leaves,
+that round is cancelled but the remaining group can continue. Done releases all
+participants. Individual chats remain available in the same picker.
+
+Only one model is loaded. Two replies can take up to 30 seconds each. The panel
+labels every reply with its actual speaker. The game speech renderer waits for an
+existing line to finish before presenting the next queued line. There is no
+unbounded NPC-to-NPC chatter after a player message. Shared history is capped at
+six recent messages, with older entries dropped if needed to fit the token budget. A room or player change,
 loading a save, entering the background, or disabling the model ends the conversation.
 There is no voice synthesis, persistent relationship memory, or model-controlled action.
 

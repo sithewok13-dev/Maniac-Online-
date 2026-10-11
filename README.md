@@ -94,3 +94,7 @@ DOS `.LFL` files. A fresh checkout needs only the normal build command.
 The **Talk preview** adds a native character picker and keyboard conversation panel.
 Qwen3 4B is an optional 2,497 MB download for high-memory phones; Small/Larger
 remain available. See [local dialogue](docs/local-ai.md) for limits and instructions.
+
+**Group Talk:** choose **Talk to everyone here** when two or more characters are
+in the room. Characters share one transcript and take turns responding to you
+and each other, using the same downloaded model. Individual chats remain available.

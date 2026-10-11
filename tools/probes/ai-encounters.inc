@@ -51,5 +51,20 @@
 	_scummverseRoamers[10].wait = 0; _scummverseRoamers[10].exit = -1;
 	scummverseUpdateRoaming(4);
 	if (_scummverseRoamers[10].exit < 0) error("Closing Talk did not resume roaming");
+	// Two participants pause together. Queued speech must not interrupt a line.
+	Actor *fred = derefActor(9, "group test"); fred->setActorCostume(9); fred->putActor(32,56,7);
+	fred->startWalkActor(40,56,-1); edna->startWalkActor(40,56,-1);
+	FakeAI::group = (1u<<9) | (1u<<10); FakeAI::talk = 10; FakeAI::reply = true;
+	scummverseSay(9, "My experiment is perfectly normal!");
+	scummverseUpdateRoaming(4);
+	if (fred->_moving || edna->_moving || getTalkingActor() != 9 || !FakeAI::reply)
+		error("Group pause or serialized speech failed");
+	stopTalk(); VAR(VAR_HAVE_MSG) = 0; scummverseUpdateRoaming(4);
+	if (getTalkingActor() != 10 || FakeAI::reply) error("Queued group speaker attribution failed");
+	FakeAI::group = 0; FakeAI::talk = 0; stopTalk(); VAR(VAR_HAVE_MSG) = 0;
+	for (int id : {9,10}) { _scummverseRoamers[id].wait = 0; _scummverseRoamers[id].exit = -1; }
+	scummverseUpdateRoaming(4);
+	if (_scummverseRoamers[9].exit < 0 || _scummverseRoamers[10].exit < 0)
+		error("Closing group did not release all participants");
 	warning("SCUMMVERSE_AI_ENCOUNTER_PASS enabled=1");
 	quitGame();
