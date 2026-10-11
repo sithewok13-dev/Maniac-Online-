@@ -1,4 +1,5 @@
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_WORLDS_PASS enabled=0"); quitGame(); return; }
+	ConfMan.setPath("scummverse_zak_path", Common::Path("/nonexistent/zak"));
 	// Complete the original character picker so input variables are initialized.
 	_scummVars[47] = 3; _scummVars[48] = 2; _scummVars[49] = 5;
 	_scummVars[110] = 1; _scummVars[111] = 3;

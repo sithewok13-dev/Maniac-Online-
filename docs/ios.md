@@ -110,10 +110,14 @@ The hosted build includes the runtime, not model weights. Manual builds must als
 run `python3 tools/build_local_ai.py` and use the local-AI compiler/linker flags
 from `.github/workflows/ios-ipa.yml`.
 
-## Connected-world preview
+## Connected worlds and free airport travel
 
-Create a separate lowercase `zak` folder beside `maniac` and put all the original
-English Zak DOS V1 `.LFL` files directly inside. Tap **Worlds → Visit Zak's
-apartment**, then **Worlds → Return to Maniac Mansion** to come back. Keep both
-data folders when loading saves. See [worlds.md](worlds.md) (also packaged as
-WORLDS.md) for folder layout, Talk setup and the apartment-only scope.
+Create a separate lowercase `zak` folder beside `maniac` and copy all original
+English Zak DOS V1 `.LFL` files directly inside, including **08.LFL**. Walk beyond
+the outer mansion grounds to reach the airport. Walk to the gate or Use the
+reservations terminal to choose a free destination. NPCs, including Zak, choose
+random destinations and pause travel while talking. **Worlds → Go to airport**
+is also available as a testing shortcut.
+
+Keep both data folders when loading saves. See [worlds.md](worlds.md) (packaged as
+WORLDS.md) for the exact walking routes and current airport/apartment scope.

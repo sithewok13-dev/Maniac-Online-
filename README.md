@@ -10,9 +10,10 @@ when upgrading. See [roaming behavior and validation](docs/roaming.md).
 An optional on-device dialogue preview adds separately downloaded Small/Larger
 models through the iPhone **AI** button; Classic remains the default. See
 [local dialogue setup and limits](docs/local-ai.md). Movement remains engine-driven.
-The **Worlds** preview lets a Maniac kid visit Zak McKracken's original DOS V1
-apartment, meet Zak, and return. See [connected worlds](docs/worlds.md) for setup
-and the apartment-only scope.
+The outer mansion grounds now connect to Zak's original DOS V1 airport. Travel
+is free; you choose a destination while NPCs choose randomly. Zak and the mansion
+cast can roam between the connected airport, apartment and mansion. See
+[connected worlds](docs/worlds.md) for setup and current destinations.
 Multiplayer remains unimplemented. No proprietary game data or model weights are included.
 
 ## Source layout

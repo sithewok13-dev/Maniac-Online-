@@ -7,7 +7,7 @@ from test_exploration import ROOT, run_probe
 PRELUDE = r'''
 #define SCUMMVERSE_LOCAL_AI 1
 #include <cstring>
-namespace FakeAI { bool accept = false, complete = false; int actor = 0, room = 0, cancels = 0, talk = 0; unsigned roster = 0, group = 0; bool reply = false; }
+namespace FakeAI { bool accept = false, complete = false; int actor = 0, room = 0, cancels = 0, talk = 0; unsigned roster = 0, group = 0; bool reply = false; int worldRequest = 0, airportOffers = 0; }
 bool scummverseAIRequest(int actor, int room, int) {
  if (!FakeAI::accept) return false;
  FakeAI::actor = actor; FakeAI::room = room; return true;
@@ -23,8 +23,9 @@ unsigned scummverseTalkScene(int, int, unsigned actors, bool canSpeak, int &spea
  if (FakeAI::talk && FakeAI::reply && canSpeak) { std::strncpy(line, "Keep out of my refrigerator!", capacity); speaker = FakeAI::talk; FakeAI::reply = false; }
  return (FakeAI::group ? FakeAI::group : FakeAI::talk ? 1u << FakeAI::talk : 0) & actors;
 }
-void scummverseWorldRequest(int) {}
-int scummverseWorldPoll() { return 0; }
+void scummverseAirportOffer(int) { ++FakeAI::airportOffers; }
+void scummverseWorldRequest(int destination) { FakeAI::worldRequest=destination; }
+int scummverseWorldPoll() { int request=FakeAI::worldRequest; FakeAI::worldRequest=0; return request; }
 void scummverseWorldReport(const char *) {}
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
 '''
