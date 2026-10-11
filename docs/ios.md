@@ -99,3 +99,13 @@ The exploration preview removes documented locks and protects audited capture/de
 paths. Start a fresh game when testing the new protection: it does not repair an
 older save taken midway through capture or death. Other progression barriers
 remain, so this is not yet full free exploration.
+
+## Optional on-device dialogue
+
+The **AI** button opens model settings. Start with **Small** (491 MB), downloaded
+over Wi-Fi. **Larger** (1.12 GB) is available when memory/temperature checks allow
+it. Both run offline afterward; **Classic** requires no model. Stay in the app
+while downloading. See [local dialogue](local-ai.md) for limits and fallbacks.
+The hosted build includes the runtime, not model weights. Manual builds must also
+run `python3 tools/build_local_ai.py` and use the local-AI compiler/linker flags
+from `.github/workflows/ios-ipa.yml`.

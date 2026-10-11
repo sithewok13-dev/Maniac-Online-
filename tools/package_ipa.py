@@ -25,12 +25,16 @@ def main():
         raise SystemExit("Expected a device build, not an iOS simulator app")
     executable = app / info["CFBundleExecutable"]
     subprocess.run(["lipo", str(executable), "-verify_arch", "arm64"], check=True)
-    if any(p.suffix.lower() in {".lfl", ".d64"} for p in app.rglob("*")):
+    if any(p.suffix.lower() in {".lfl", ".d64", ".gguf"} for p in app.rglob("*")):
         raise SystemExit("Refusing to package proprietary game resource files")
     if not os.access(executable, os.X_OK):
         raise SystemExit("App executable is missing executable permission")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    ai = ROOT / "local-ai.json"
+    if ai.exists():
+        shutil.copyfile(ROOT / "docs/LOCAL_AI_LICENSES.txt", app / "LOCAL_AI_LICENSES.txt")
+        shutil.copyfile(ai, app / "local-ai.json")
     ipa = output / "SCUMMVERSE-unsigned.ipa"
     with tempfile.TemporaryDirectory(prefix="scummverse-ipa-") as temp:
         payload = Path(temp) / "Payload"
@@ -51,11 +55,16 @@ def main():
         "architecture": "arm64",
         "signed": False,
         "game_data_included": False,
+        "model_weights_included": False,
+        "local_ai": json.loads(ai.read_text()) if ai.exists() else None,
         "sha256": hashlib.sha256(ipa.read_bytes()).hexdigest(),
     }
     (output / "build-info.json").write_text(json.dumps(metadata, indent=2) + "\n")
     shutil.copyfile(ROOT / "COPYING", output / "COPYING")
     shutil.copyfile(ROOT / "docs/ios.md", output / "INSTALL.md")
+    if ai.exists():
+        shutil.copyfile(ROOT / "docs/LOCAL_AI_LICENSES.txt", output / "LOCAL_AI_LICENSES.txt")
+        shutil.copyfile(ROOT / "docs/local-ai.md", output / "LOCAL_AI.md")
     print(f"Validated unsigned device IPA: {ipa}")
     print(json.dumps(metadata, indent=2))
 

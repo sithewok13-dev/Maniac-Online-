@@ -7,7 +7,10 @@ DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 between rooms, open doors, and speak randomized offline encounter lines. Story
 cutscenes are disabled; the original character picker remains. Start a new game
 when upgrading. See [roaming behavior and validation](docs/roaming.md).
-Multiplayer remains unimplemented. No proprietary game data is included.
+An optional on-device dialogue preview adds separately downloaded Small/Larger
+models through the iPhone **AI** button; Classic remains the default. See
+[local dialogue setup and limits](docs/local-ai.md). Movement remains engine-driven.
+Multiplayer remains unimplemented. No proprietary game data or model weights are included.
 
 ## Source layout
 

@@ -8,6 +8,7 @@ on:
       - 'tools/**'
       - 'patches/**'
       - 'upstream.json'
+      - 'local-ai.json'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +38,8 @@ jobs:
           echo '21a385fd2553708732b864ff15e40fea78b9b0b70da45e230ff722ddc9ef1d36  build/ios-libs.zip' | shasum -a 256 -c -
           unzip -q build/ios-libs.zip -d build/ios
           test -d build/ios/frameworks
+      - name: Build pinned local dialogue runtime
+        run: python3 tools/build_local_ai.py
       - name: Build unsigned arm64 device app
         run: |
           set -o pipefail
@@ -48,6 +51,9 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/ios-derived \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            'GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SCUMMVERSE_LOCAL_AI=1' \
+            "HEADER_SEARCH_PATHS=\$(inherited) $PWD/build/llama-src/include $PWD/build/llama-src/ggml/include" \
+            "OTHER_LDFLAGS=\$(inherited) $PWD/build/llama-ios/libscummverse-ai.a -framework Metal -framework MetalKit -framework Accelerate" \
             IPHONEOS_DEPLOYMENT_TARGET=13.0 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             PRODUCT_BUNDLE_IDENTIFIER=dev.sithewok13.scummverse \
@@ -64,8 +70,8 @@ jobs:
           retention-days: 14
       - name: Archive corresponding source
         run: |
-          tar --exclude='engine/.git' -czf build/SCUMMVERSE-source.tar.gz \
-            engine patches tools upstream.json README.md COPYING docs .github
+          tar --exclude='engine/.git' --exclude='build/llama-src/.git' -czf build/SCUMMVERSE-source.tar.gz \
+            engine patches tools upstream.json local-ai.json README.md COPYING docs .github build/llama-src
       - name: Upload corresponding source
         uses: actions/upload-artifact@v4
         with:

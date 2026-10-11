@@ -143,3 +143,20 @@ for earlier safety and seven-door behavior explicitly disable roaming to keep
 those configuration paths independently testable. New iPhone validation remains
 pending. See [roaming details](roaming.md). No game data or extracted scripts are
 included in the patch or test sources.
+
+## Optional local dialogue — 2026-10-11
+
+Patch 6 adds an opt-in iOS dialogue worker backed by pinned llama.cpp, with separately
+downloaded and SHA-256-verified Qwen2.5 Small/Larger models. The default remains
+Classic. Memory/temperature gates select availability; CPU uses two threads and
+higher-memory devices use Metal. Backgrounding/pressure cancels work and unloads
+weights. No model controls walking or sends dialogue to an external service.
+
+The pinned Small model generated lines in a real Linux CPU inference test. That
+test also passed output filtering, single-request queueing, cancellation, and
+missing/off fallback. The real DOS VM with controlled worker replies passed
+immediate Classic fallback, generated display without control/camera changes,
+six-second timeout fallback, and stale room/player cancellation. The full roaming
+probe and all 11 startup checks pass. Six-patch source bootstrap tests pass.
+Physical-iPhone download UI, Metal generation, thermal behavior and response times
+remain unmeasured; Linux timings are not presented as iPhone benchmarks.

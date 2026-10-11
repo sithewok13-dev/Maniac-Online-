@@ -78,12 +78,12 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def run_probe(data, probe_code, config_key, marker, label):
+def run_probe(data, probe_code, config_key, marker, label, prelude=""):
     build = ROOT/'build/null'
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
         work = Path(tmp)
-        code = source.read_text()
+        code = prelude + source.read_text()
         boundary = '\n}\n\n#ifdef ENABLE_HE\nvoid ScummEngine_v90he::runBootscript()'
         if code.count(boundary) != 1:
             raise RuntimeError('Pinned runBootscript boundary changed')
