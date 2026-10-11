@@ -600,7 +600,7 @@ index d82f32d4..8196f390 100644
  		int room = 0, previousRoom = 0, exit = -1;
  		int wait = 0, elapsed = 0, speech = 0, lastLine = -1;
 diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
-index ba8ee0e9..51e72fe9 100644
+index ba8ee0e9..7dcb1551 100644
 --- a/engines/scumm/scummverse_roaming.inc
 +++ b/engines/scumm/scummverse_roaming.inc
 @@ -194,9 +194,43 @@ void ScummEngine::scummverseStartRoaming() {
@@ -662,7 +662,7 @@ index ba8ee0e9..51e72fe9 100644
 +				_scummverseAIWait = 0; _scummverseAIFallback = fallback;
 +				// Let this NPC greet the player without walking away before the
 +				// result arrives. Other actors and the player keep moving.
-+				a->stopActorMoving(); r.walking = false;
++				a->stopActorMoving(); a->startAnimActor(a->_standFrame); r.walking = false;
 +			} else {
 +				scummverseSay(id, fallback);
 +			}
