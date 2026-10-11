@@ -120,3 +120,26 @@ suppresses Green Tentacle's gate/pushback/Bernard retreat. Both Dave and Bernard
 now reach Weird Ed through the original hallway/stairs/door scripts in headless
 tests, with Green Tentacle still present. Edna's original departure resumes after
 leaving the kitchen. Physical-device confirmation of this correction is pending.
+
+## Autonomous roaming sandbox — 2026-10-11
+
+The owner reported idle NPCs after capture prevention and requested unrestricted
+roaming, encounter dialogue and no cutscenes. Patch 5 replaces the story patrols
+with independent routes through 36 navigable rooms. The character picker remains;
+story cinematics, including the introduction and endings, are disabled. The
+active player is excluded from roaming. Door traversal, the drained pool ladder,
+and the grown/safe plant route are available without campaign prerequisites.
+
+Local real-resource probes passed original boot cleanup, guarded cutscene starts,
+all 73 directed passage records, visible NPC traversal across each passage, all
+12 inactive/mobile cast members walking out of the kitchen, camera/player
+isolation, kid switching, dialogue cooldowns, and real save/load followed by
+resumed roaming. A normal engine frame is rendered before saving in the test so
+camera/screen state is consistent. Timers are accelerated; this is not a physical
+iPhone visual/audio/touch result. Offline dialogue has 52 newly authored lines.
+
+The complete five-patch bootstrap test and all 11 startup checks passed. Tests
+for earlier safety and seven-door behavior explicitly disable roaming to keep
+those configuration paths independently testable. New iPhone validation remains
+pending. See [roaming details](roaming.md). No game data or extracted scripts are
+included in the patch or test sources.

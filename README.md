@@ -3,12 +3,11 @@
 A small, reproducible source fork of **real ScummVM**, starting with the original
 DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 
-**Current scope:** working standalone DOS V1 iPhone prototype and the first
-exploration preview: seven passage locks plus protection against audited capture
-and death paths, plus passage past Green Tentacle. The owner confirmed the baseline and door preview on iPhone.
-The new protection needs device validation; remaining progression barriers and
-multiplayer are still unfinished.
-No proprietary game data is included.
+**Current scope:** standalone DOS V1 iPhone exploration sandbox. Characters roam
+between rooms, open doors, and speak randomized offline encounter lines. Story
+cutscenes are disabled; the original character picker remains. Start a new game
+when upgrading. See [roaming behavior and validation](docs/roaming.md).
+Multiplayer remains unimplemented. No proprietary game data is included.
 
 ## Source layout
 
@@ -41,10 +40,10 @@ files from every disk. Do not add them to Git. The enhanced DOS V2 release, C64
 release, NES release and demos are not supported by this first world. The engine
 checks detected version/platform/demo status before applying platform overrides;
 setting DOS alone does not establish that the files are V1.
-The original game introduction and character selection remain unchanged in this
-milestone; direct launch means bypassing ScummVM's game library, not skipping the
-game's own scripts. See [exploration preview](docs/exploration.md) for the exact
-door changes, supported data revision, tests and remaining limitations.
+The character picker remains, followed by immediate exploration with the intro
+and story cutscenes disabled. [Roaming sandbox](docs/roaming.md) describes the new
+default; [earlier exploration changes](docs/exploration.md) records the prior
+seven-door and capture-protection milestones.
 
 Launching the binary with no arguments uses `maniac/` beneath the current working
 directory. `--path=/path/to/data` overrides that location. Startup always selects

@@ -104,7 +104,7 @@ def run_probe(data, probe_code, config_key, marker, label):
         subprocess.run(cmd, cwd=build, check=True)
         for enabled in (False, True):
             config = work/'probe.ini'
-            config.write_text('[scummvm]\n' + config_key + '=' + str(enabled).lower() + '\n')
+            config.write_text('[scummvm]\n' + ('scummverse_roaming=false\n' if config_key != 'scummverse_roaming' else '') + config_key + '=' + str(enabled).lower() + '\n')
             result = subprocess.run([str(exe), f'--config={config}', f'--path={data}',
                                      f'--savepath={work}', '--debuglevel=1'],
                                     cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)

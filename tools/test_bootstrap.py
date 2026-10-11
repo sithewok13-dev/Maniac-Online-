@@ -17,11 +17,15 @@ def main():
         for name in paths:
             path = source/name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(subprocess.check_output(['git', 'show', 'HEAD:'+name], cwd=ROOT/'engine'))
+            original = subprocess.run(['git', 'show', 'HEAD:'+name], cwd=ROOT/'engine', capture_output=True)
+            if original.returncode == 0:
+                path.write_bytes(original.stdout)
+            else:
+                assert any('new file mode' in p.read_text() and '+++ b/'+name in p.read_text() for p in patches), name
         for count in range(len(patches)+1):
-            before = {n: (source/n).read_bytes() for n in paths}
+            before = {n: ((source/n).read_bytes() if (source/n).exists() else None) for n in paths}
             assert applied_prefix(source, patches) == count, f'prefix {count}'
-            assert before == {n: (source/n).read_bytes() for n in paths}, 'source changed during detection'
+            assert before == {n: ((source/n).read_bytes() if (source/n).exists() else None) for n in paths}, 'source changed during detection'
             if count < len(patches):
                 subprocess.run(['git', 'apply', str(patches[count])], cwd=source, check=True)
         target = source/'engines/scumm/scumm.cpp'
