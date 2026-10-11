@@ -37,5 +37,19 @@
 	VAR(VAR_EGO) = 2; derefActor(2, "AI test")->putActor(30, 56, 7);
 	FakeAI::complete = true; scummverseUpdateDialogue(4);
 	if (_scummverseAIActor || FakeAI::complete) error("Stale-player response was not cancelled");
+	// Explicit conversations pause only the selected NPC and render on the game thread.
+	VAR(VAR_EGO) = 3; _scummverseLastEgo = 3; stopTalk(); VAR(VAR_HAVE_MSG) = 0;
+	FakeAI::talk = 10; edna->startWalkActor(40,56,-1);
+	_scummverseRoamers[10].walking = true; FakeAI::reply = true;
+	position = player->getPos(); cameraPosition = camera._cur;
+	scummverseUpdateRoaming(4);
+	if (!(FakeAI::roster & (1u<<10)) || (FakeAI::roster & (1u<<3)) || edna->_moving ||
+		_scummverseRoamers[10].walking || getTalkingActor() != 10 ||
+		player->getPos() != position || camera._cur != cameraPosition || !_userPut)
+		error("Talk roster/pause/speech/control isolation failed");
+	FakeAI::talk = 0; stopTalk(); VAR(VAR_HAVE_MSG) = 0;
+	_scummverseRoamers[10].wait = 0; _scummverseRoamers[10].exit = -1;
+	scummverseUpdateRoaming(4);
+	if (_scummverseRoamers[10].exit < 0) error("Closing Talk did not resume roaming");
 	warning("SCUMMVERSE_AI_ENCOUNTER_PASS enabled=1");
 	quitGame();

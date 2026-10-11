@@ -1,11 +1,12 @@
 # Optional local dialogue preview
 
 Tap **AI** in the upper-right controls. The default is **Classic**, which needs
-no model and keeps the existing randomized lines. Choose **Small** first; choose
-**Larger** only if it is enabled and Small is comfortable on your phone.
+no model and keeps the existing randomized lines. Choose Small or Larger for lower memory use, or **Qwen3 4B** for the experimental
+conversation preview on phones with sufficient memory.
 
 - **Small:** Qwen2.5-0.5B-Instruct Q4_K_M, 491,400,032 download bytes.
 - **Larger:** Qwen2.5-1.5B-Instruct Q4_K_M, 1,117,320,736 download bytes.
+- **Qwen3 4B:** Q4_K_M, 2,497,280,256 download bytes (2,497 MB). Thinking is disabled.
 - First download requires Wi-Fi. Keep the app in the foreground until it finishes;
   backgrounding cancels the download, and retry starts over. Tap AI to see progress.
 - Downloads are optional and are not included in each IPA. After downloading,
@@ -14,17 +15,41 @@ no model and keeps the existing randomized lines. Choose **Small** first; choose
   disk storage. Switching models loads only one at a time.
 
 The inference worker receives a character identity/personality, the current room,
-the selected player identity, and at most one prior generated line for that actor.
+the selected player identity, and at most one prior generated line for ambient encounters.
+Explicit conversations also include the last two successful question/reply pairs,
+held only in memory until the conversation closes.
 It has no movement, door, inventory, script-execution or network capability.
 **NPC movement still uses the roaming engine.** Model-driven intentions are not
 part of this first dialogue integration.
+
+## Talk preview
+
+Tap **Talk** below AI, choose a character currently in the room, then type a message
+and tap Send (or the keyboard Send key). Keyboard dictation can be used if enabled
+on the phone; its processing is managed by iOS, not this app's local model.
+Replies appear in the scrollable panel and are delivered to the normal game speech
+renderer on the game thread. Tap Done to close the panel and resume wandering.
+The selected NPC pauses; the rest of the mansion continues. A room or player change,
+loading a save, entering the background, or disabling the model ends the conversation.
+There is no voice synthesis, persistent relationship memory, or model-controlled action.
+
+Messages are limited to 160 characters / 512 UTF-8 bytes. Only one request can be
+active. A failed/slow reply is explicitly reported; no fabricated answer is inserted.
+The model's replies can be inaccurate or out of character. A larger model is not a
+guarantee of reasoning or reliable game knowledge.
+
+The AI settings screen now scrolls in landscape and updates download progress while
+open. Failures distinguish network error codes, HTTP errors, storage failures and
+size/hash mismatches. A download still requires Wi-Fi and restarts after cancellation.
 
 ## Compatibility and fallback
 
 The app's iOS 13 arm64 baseline remains. Model availability is checked against
 actual physical/free memory and temperature, not an assumed phone model name.
 Small initially requires 3 GiB physical memory and 800 MiB available; Larger
-requires 6 GiB physical and 1,600 MiB available. These conservative gates are not
+requires 6 GiB physical and 1,600 MiB available. Qwen3 4B requires at least
+10 GiB physical memory and 3,500 MiB available. This targets high-memory phones
+such as the 17 Pro; actual on-device compatibility remains unverified. These conservative gates are not
 claims of tested device compatibility or protection against every OS memory kill.
 
 Lower-memory phones use CPU inference with two threads. Phones reporting at least
@@ -35,8 +60,9 @@ cancel inference and unload the model asynchronously. Returning to the foregroun
 attempts to reload the selected downloaded model; after a pressure warning, select
 a model again to retry while remaining in the foreground.
 
-A shared worker accepts one request at a time. It uses a 512-token context, 64-token
-prompt batches, at most 48 output tokens, and a five-second inference deadline.
+A shared worker accepts one request at a time. It uses a 1,024-token context, 64-token
+prompt batches, at most 80 output tokens, and a five-second ambient inference deadline.
+An explicit chat reply gets up to 30 seconds; short ASCII sentences are still required.
 CPU decoding checks cancellation internally; GPU work is checked between decode
 batches, so a running Metal command cannot be interrupted instantaneously.
 The greeting NPC pauses briefly while it waits; other actors and player controls
@@ -48,7 +74,7 @@ rejected. This is a text-format safeguard, not a guarantee of dialogue quality.
 
 ## Reproducibility and validation
 
-`local-ai.json` pins llama.cpp b6500 to an exact commit and pins both model
+`local-ai.json` pins llama.cpp b6500 to an exact commit and pins all three model
 revisions, byte counts, and SHA-256 hashes. Downloads are verified before being
 moved into the model directory or loaded. Interrupted downloads never become the
 active model. Models live in Application Support, excluded from iCloud backup.

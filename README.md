@@ -90,3 +90,7 @@ then use `git -C engine apply --reverse /tmp/scummverse-c64.patch` before bootst
 If reverse application reports conflicts, preserve and reconcile your local engine
 edits first; do not reset the checkout. Replace C64 disk images with the original
 DOS `.LFL` files. A fresh checkout needs only the normal build command.
+
+The **Talk preview** adds a native character picker and keyboard conversation panel.
+Qwen3 4B is an optional 2,497 MB download for high-memory phones; Small/Larger
+remain available. See [local dialogue](docs/local-ai.md) for limits and instructions.

@@ -26,10 +26,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-Optional separately downloaded Qwen2.5 Instruct GGUF models
+Optional separately downloaded Qwen2.5 Instruct and Qwen3 GGUF models
 Copyright Qwen team, Alibaba Cloud. Apache License 2.0.
 https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
 https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
+https://huggingface.co/Qwen/Qwen3-4B-GGUF
 No model weights are bundled with the application.
 
 
