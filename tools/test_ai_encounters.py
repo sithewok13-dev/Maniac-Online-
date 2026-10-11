@@ -27,6 +27,7 @@ void scummverseAirportOffer(int) { ++FakeAI::airportOffers; }
 void scummverseWorldRequest(int destination) { FakeAI::worldRequest=destination; }
 int scummverseWorldPoll() { int request=FakeAI::worldRequest; FakeAI::worldRequest=0; return request; }
 void scummverseWorldReport(const char *) {}
+void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
 '''
 

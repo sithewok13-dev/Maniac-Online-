@@ -36,6 +36,8 @@ if __name__ == '__main__':
         shutil.copyfile(data/'00.LFL',root/'00.LFL')
         (root/'missing').mkdir(); (root/'bad').mkdir()
         (root/'bad/00.LFL').write_bytes(b'wrong edition')
+        (root/'space/ zak ').mkdir(parents=True)
+        shutil.copyfile(zak/'00.LFL',root/'space/ zak /00.LFL')
         (root/'case/Zak').mkdir(parents=True)
         shutil.copyfile(zak/'00.LFL',root/'case/Zak/00.LFL')
         (root/'Zak').mkdir()

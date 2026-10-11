@@ -14,6 +14,7 @@
 	if (!readZakFile(folder,0,"7020931d5a2be0a49d68e7a1882363e4",bytes,problem) || bytes.size()!=1896) error("Sandbox index read failed or loose Maniac file shadowed it");
 	if (!readZakFile(folder,1,"2e30571757edc1cd0f2a450ba5c89153",bytes,problem) || !readZakFile(folder,3,"25a9e059a9df572554ee8ceffc08cb9f",bytes,problem) || !readZakFile(folder,8,"5337090e7a6ebdbfb698ebda3750d926",bytes,problem)) error("Sandbox world resources inaccessible");
 	if (scummverseZakFolder(root.getChild("case")).getName()!="Zak") error("Capitalized Zak folder not discovered");
+	if (scummverseZakFolder(root.getChild("space")).getName()!=" zak ") error("Whitespace Zak folder not discovered");
 	// Native imported paths must bypass the virtual filesystem's Documents prefix.
 	Common::FSNode imported=AbstractFSNode::makeFSNode(new POSIXFilesystemNode("@ROOT@/zak"));
 	if (!readZakFile(imported,0,"7020931d5a2be0a49d68e7a1882363e4",bytes,problem)) error("Native imported folder cannot be read");

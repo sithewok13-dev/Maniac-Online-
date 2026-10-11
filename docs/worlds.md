@@ -33,14 +33,14 @@ SCUMMVERSE/
 - Walk all the way left on the mansion's front grounds, or all the way right
   on the driveway/opening exterior, to reach the airport. The existing path
   between those two exterior screens remains intact.
-- At the airport, walk to the **gate to planes**, or **Use** the reservations
-  terminal, to choose **Maniac Mansion** or **Free bus to Zak's street**. **Stay here**
-  cancels. The airport's right-hand door also takes the free bus to Zak's street.
+- **Use** the airport reservations computer to open the purple pixel destination
+  panel. Select **Maniac Mansion** or **San Francisco**, then **OK**. Selection
+  does not move the player: walk to the **gate to planes** to depart. **Cancel**
+  leaves the previous selection intact. The right-hand door still takes the free bus.
 - Leave the apartment through its door, walk right along the street, then
   **Walk to** the **bus** for a free airport ride. No CashCard is needed.
 - On the street, **Walk to** the **stairs** to enter Zak's apartment.
-- Arrivals are placed inside the destination, away from automatic exits. After
-  canceling a gate choice, step away and approach again, or use the terminal.
+- Arrivals are placed inside the destination, away from automatic exits. Use the computer again to change the selected destination.
 - **Worlds** remains a shortcut for testing. Its **Return to Maniac Mansion**
   option retains the selected kid's saved departure point; the airport's mansion
   destination always arrives safely on the front grounds.
@@ -115,7 +115,7 @@ rooms after boarding; it does not play the original driving cutscene.
 ## Zak file lookup troubleshooting
 
 On iPhone the app now looks directly in its own `Documents/zak`, independently
-of the saved Maniac game path. A capitalized `Zak` folder and lowercase `.lfl`
+of the saved Maniac game path. Leading/trailing folder whitespace, a capitalized `Zak` folder and lowercase `.lfl`
 filenames are accepted too. Desktop sibling-folder discovery supports both
 absolute paths and a bare relative `maniac` path; `scummverse_zak_path` remains
 an explicit override.
@@ -146,3 +146,31 @@ When no folder has been imported, native Documents/zak discovery remains the
 fallback. The desktop path override does not override an iPhone folder selection.
 Repeated successful imports keep prior private copies; there is no removal UI
 for those copies yet. The picker and file-provider behavior need device testing.
+
+## Connected-world controls
+
+Worlds shows verified installation status for Maniac and the supported Zak resources.
+Use **Import Zak from this app** for the local folder; it tolerates surrounding
+spaces and case differences. Exact `zak` wins when both spellings exist.
+
+Choose an individual character in **Talk**, then **Come with me**. No model is
+required for this button. The companion follows the selected kid through rooms,
+free buses and airport departures. **Travel on your own** releases them to roaming.
+Multiple characters can accompany one kid. Switching kids does not reassign their
+companions: they wait for their original leader. Companion assignments and each
+kid's selected destination are saved. Followers enter rooms at the player's
+arrival, then walk behind them; no separate boarding animation or plane cabin is
+implemented in this round.
+
+Zak's imported sprite renders at 120% around his feet in every room, with nearest
+neighbour pixels, existing palettes and room masks. Other characters retain their
+individual proportions. A private comparison measured Dave at 72 pixels tall and
+normalized Zak close to that height. Fractional scaling produces unequal pixel
+widths; it does not replace or redraw the supplied artwork.
+
+`tools/test_companions.py` checks selection versus boarding, stale menus, joining,
+dismissing, bus/world/door following, selected-kid isolation, saved assignments,
+arrival facts and sprite clipping. It passes null and AddressSanitizer probes.
+`tools/test_travel_context.cpp` checks scene-specific AI arrival facts without a
+model. Native/chroot folder tests cover leading and trailing spaces. UIKit touch,
+keyboard and visual acceptance still require a physical iPhone.

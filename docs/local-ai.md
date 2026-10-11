@@ -17,7 +17,9 @@ conversation preview on phones with sufficient memory.
 The inference worker receives a character identity/personality, the current room,
 the selected player identity, and at most one prior generated line for ambient encounters.
 Explicit conversations also include the last six attributed messages,
-held only in memory until the conversation closes.
+held only in memory until the conversation closes. The prompt also receives the
+player's latest arrival origin and the characters recorded as arriving with them.
+These are engine facts; no additional journeys or relationships are inferred.
 It has no movement, door, inventory, script-execution or network capability.
 **NPC movement still uses the roaming engine.** Model-driven intentions are not
 part of this first dialogue integration.
@@ -27,7 +29,9 @@ part of this first dialogue integration.
 Tap **Talk** below AI, choose a character currently in the room, then type a message
 and tap Send (or the keyboard Send key). Keyboard dictation can be used if enabled
 on the phone; its processing is managed by iOS, not this app's local model.
-Replies appear in the scrollable panel and are delivered to the normal game speech
+The compact, translucent lower panel keeps the scene visible. While typing, it
+collapses to a header and composer above the keyboard; sending dismisses the
+keyboard and restores the transcript. Replies appear in the scrollable panel and are delivered to the normal game speech
 renderer on the game thread. Tap Done to close the panel and resume wandering.
 The selected NPC pauses; the rest of the mansion continues.
 When at least two characters are present, **Talk to everyone here** starts a shared
@@ -119,3 +123,7 @@ libraries and pass a verified GGUF path. The game integration probe is:
 ```
 python3 tools/test_ai_encounters.py /path/to/original-dos-v1
 ```
+
+Individual Talk headers also offer **Come with me** / **Travel on your own**.
+These explicit buttons command the game engine; dialogue itself still cannot
+move characters. Group conversations retain their shared, attributed transcript.
