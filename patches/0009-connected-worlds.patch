@@ -1,0 +1,396 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index c4580723..c8ac6f8f 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -92,6 +92,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 	UIButton *_scummverseAIButton;
+ 	UIButton *_scummverseTalkButton;
++	UIButton *_scummverseWorldsButton;
+ #endif
+ 	UIButton *_menuButton;
+ 	UIButton *_toggleTouchModeButton;
+@@ -412,6 +413,11 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ 	_scummverseTalkButton.accessibilityLabel = @"Talk to a character";
+ 	[_scummverseTalkButton addTarget:self action:@selector(showScummverseTalk) forControlEvents:UIControlEventTouchUpInside];
+ 	[self addSubview:_scummverseTalkButton];
++	_scummverseWorldsButton = [[UIButton buttonWithType:UIButtonTypeSystem] retain];
++	[_scummverseWorldsButton setTitle:@"Worlds" forState:UIControlStateNormal];
++	[_scummverseWorldsButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
++	[_scummverseWorldsButton addTarget:self action:@selector(showScummverseWorlds) forControlEvents:UIControlEventTouchUpInside];
++	[self addSubview:_scummverseWorldsButton];
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+ #endif
+@@ -484,13 +490,24 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #endif
+ 
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
++- (void)showScummverseWorlds {
++	UIResponder *responder = self;
++	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
++	UIViewController *controller = (UIViewController *)responder;
++	if (!controller || controller.presentedViewController) return;
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithUTF8String:ScummverseLocalAI::worldStatus().c_str()] preferredStyle:UIAlertControllerStyleAlert];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Visit Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(1); }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Return to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(2); }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
+ - (void)showScummverseTalk { scummverseShowTalk(self); }
+ - (void)showScummverseAI { [[ScummverseAISettings shared] showFrom:self]; }
+ #endif
+ 
+ - (void)dealloc {
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
+-	[_scummverseAIButton release]; [_scummverseTalkButton release];
++	[_scummverseAIButton release]; [_scummverseTalkButton release]; [_scummverseWorldsButton release];
+ #endif
+ 	[_keyboardView release];
+ 
+@@ -584,6 +601,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
++	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
+ #endif
+ #endif
+ 		self.frame = newFrame;
+@@ -679,6 +697,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
++	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
+ #endif
+ 
+ 	[self addEvent:InternalEvent(kInputOrientationChanged, screenOrientation, 0)];
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 618f8bbb..ded4adf3 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -18,9 +18,14 @@
+ #include <vector>
+ 
+ namespace ScummverseLocalAI {
++static std::atomic<int> worldRequest{0};
++static std::mutex worldMutex;
++static std::string worldNotice = "First connection: Zak's apartment. Put original English Zak DOS V1 .LFL files in Documents/zak.";
++static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex); return worldNotice; }
++
+ static const char *actorName(int id) {
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+-	return id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
++	return id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
+ 	switch (id) {
+@@ -36,12 +41,14 @@ static const char *personality(int id) {
+ 	case 11: return "a suspicious military enthusiast devoted to his hamster";
+ 	case 13: return "a pompous purple tentacle taking a break from guard duty";
+ 	case 14: return "a friendly green tentacle who loves music and snacks";
++	case 24: return "a curious tabloid reporter investigating aliens, with a dry sense of humor";
+ 	case 23: return "a resourceful young woman relieved to explore freely";
+ 	default: return "an eccentric mansion resident";
+ 	}
+ }
+ static const char *roomName(int room) {
+ 	switch (room) {
++	case 54: return "Zak McKracken's San Francisco apartment, in Zak's world";
+ 	case 1: return "front yard"; case 2: return "drained swimming pool";
+ 	case 3: return "living room"; case 4: return "dungeon";
+ 	case 5: return "library"; case 6: return "poolside";
+@@ -92,7 +99,7 @@ static std::string cleanReply(const std::string &raw, int actor) {
+ 	size_t start = text.find_first_not_of(" \r\n\t\"");
+ 	if (start == std::string::npos) return "";
+ 	text.erase(0, start);
+-	const char *shortName = actor == 9 ? "Fred" : actor == 10 ? "Edna" : actor == 11 ? "Ed" : actorName(actor);
++	const char *shortName = actor == 9 ? "Fred" : actor == 10 ? "Edna" : actor == 11 ? "Ed" : actor == 24 ? "Zak" : actorName(actor);
+ 	const std::string prefixes[] = {std::string(actorName(actor)) + ":", std::string(shortName) + ":", actor == 9 ? "Dr. Fred:" : ""};
+ 	for (const auto &prefix : prefixes) {
+ 		if (!prefix.empty() && text.compare(0, prefix.size(), prefix) == 0) { text.erase(0, prefix.size()); break; }
+@@ -108,7 +115,7 @@ struct ChatLine {
+ static std::string chatPrompt(int actor, int room, int visitor, unsigned participants,
+ 	const std::vector<ChatLine> &history, bool noThinking) {
+ 	std::string system = "You are "; system += actorName(actor); system += ", "; system += personality(actor);
+-	system += ". In a spooky comic mansion, speak ONE English sentence, at most 18 words. Use ASCII punctuation. Be playful, not explicit. No speaker prefix, narration or stage directions. Stay in character. You cannot move, give items or perform game actions.";
++	system += ". In a comic adventure world, speak ONE English sentence, at most 18 words. Use ASCII punctuation. Be playful, not explicit. No speaker prefix, narration or stage directions. Stay in character. You cannot move, give items or perform game actions.";
+ 	system += " You are in the "; system += roomName(room); system += ". Present: "; system += actorName(visitor);
+ 	for (int id = 1; id < 25; ++id) if (participants & (1u << id)) { system += ", "; system += actorName(id); }
+ 	system += ". This is ONE shared conversation. React to the player AND what other characters just said; agree, disagree or add something new. Do not repeat their answer. Speak only as ";
+@@ -401,3 +408,7 @@ bool scummverseAIPoll(int &actor, int &room, char *text, int capacity) { return
+ void scummverseAICancel() { ScummverseLocalAI::runtime().cancel(); }
+ 
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity) { return ScummverseLocalAI::runtime().scene(room, visitor, actors, canSpeak, speaker, line, capacity); }
++
++void scummverseWorldRequest(int destination) { ScummverseLocalAI::worldRequest.store(destination); }
++int scummverseWorldPoll() { return ScummverseLocalAI::worldRequest.exchange(0); }
++void scummverseWorldReport(const char *notice) { std::lock_guard<std::mutex> guard(ScummverseLocalAI::worldMutex); ScummverseLocalAI::worldNotice = notice; }
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 17a35512..c68c743f 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -5,11 +5,17 @@
+ bool scummverseAIRequest(int actor, int room, int visitor);
+ bool scummverseAIPoll(int &actor, int &room, char *text, int capacity);
+ void scummverseAICancel();
++void scummverseWorldRequest(int destination);
++int scummverseWorldPoll();
++void scummverseWorldReport(const char *notice);
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity);
+ #else
+ inline bool scummverseAIRequest(int, int, int) { return false; }
+ inline bool scummverseAIPoll(int &, int &, char *, int) { return false; }
+ inline void scummverseAICancel() {}
++inline void scummverseWorldRequest(int) {}
++inline int scummverseWorldPoll() { return 0; }
++inline void scummverseWorldReport(const char *) {}
+ inline unsigned scummverseTalkScene(int, int, unsigned, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+ #endif
+ #endif
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index d514853c..6da7cf57 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -360,13 +360,13 @@ void ClassicCostumeRenderer::procC64(ByleRLEData &compData, int actor) {
+ 	// Set up the palette data
+ 	byte palette[4] = { 0, 0, 0, 0 };
+ 	if (_vm->getCurrentLights() & LIGHTMODE_actor_use_colors) {
+-		if (_vm->_game.id == GID_MANIAC) {
++		if (_vm->_game.id == GID_MANIAC && !(actor == 24 && _loaded._id == 34)) {
+ 			palette[1] = _vm->_gdi->remapColorToRenderMode(v1MMActorPalatte1[actor]);
+ 			palette[2] = _vm->_gdi->remapColorToRenderMode(v1MMActorPalatte2[actor]);
+ 		} else {
+ 			// Adjust for C64 version of Zak McKracken
+ 			palette[1] = _vm->_gdi->remapColorToRenderMode(_vm->_game.platform == Common::kPlatformC64 ? 10 : 8);
+-			palette[2] = _vm->_gdi->remapColorToRenderMode(_palette[actor]);
++			palette[2] = _vm->_gdi->remapColorToRenderMode(_palette[(actor == 24 && _loaded._id == 34) ? 1 : actor]);
+ 		}
+ 	} else {
+ 		palette[2] = _vm->_gdi->remapColorToRenderMode(11);
+diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
+index 7e97aa33..ac79731e 100644
+--- a/engines/scumm/resource.cpp
++++ b/engines/scumm/resource.cpp
+@@ -640,6 +640,8 @@ void ScummEngine::ensureResourceLoaded(ResType type, ResId idx) {
+ }
+ 
+ int ScummEngine::loadResource(ResType type, ResId idx) {
++	int imported = scummverseWorldResource(type, idx);
++	if (imported >= 0) return imported;
+ 	int roomNr;
+ 	uint32 fileOffs;
+ 	uint32 size, tag;
+diff --git a/engines/scumm/room.cpp b/engines/scumm/room.cpp
+index 5633ec0d..b55e5f1c 100644
+--- a/engines/scumm/room.cpp
++++ b/engines/scumm/room.cpp
+@@ -78,6 +78,12 @@ void ScummEngine::startScene(int room, Actor *a, int objectNr) {
+ 	runExitScript();
+ 
+ 	killScriptsAndResources();
++	// Original Zak DOS V1 has a 128-pixel scene; Maniac uses 136.
++	// Resize before drawing so masks and background buffers agree.
++	if (_scummverseRoaming && (room == 54 || _currentRoom == 54)) {
++		initScreens(16, room == 54 ? 144 : 152);
++		_completeScreenRedraw = true;
++	}
+ 	if (_game.version >= 4 && _game.heversion <= 62)
+ 		stopCycle(0);
+ 
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 0144d896..4d7ddc0f 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -138,6 +138,12 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ }
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
++	if (_scummverseRoamingReady && _currentRoom == 54) {
++		// The apartment's original puzzle scripts reference Zak's private VM.
++		// Never execute them as mansion scripts. This first adapter is for visits.
++		if (entry != 13) scummverseSay(VAR(VAR_EGO), "I'm just visiting. I'll leave Zak's things alone.");
++		return;
++	}
+ 	// The lab suit is an irreversible ending handoff: it removes all seven
+ 	// kids and disables switching before any cutscene script is called.
+ 	if (_scummverseRoamingReady && _currentRoom == 30 && object == 269 && (entry == 11 || entry == 14)) {
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 5a83a11c..309b0f15 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -4209,6 +4209,7 @@ void ScummEngine::errorString(const char *buf1, char *buf2, int buf2Size) {
+ }
+ 
+ 
++#include "scumm/scummverse_worlds.inc"
+ #include "scumm/scummverse_roaming.inc"
+ 
+ } // End of namespace Scumm
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 8196f390..0271f3c7 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1566,6 +1566,13 @@ protected:
+ 	bool _scummverseExplorationSafety = false;
+ 	bool _scummverseRoaming = false;
+ 	bool _scummverseRoamingReady = false;
++	bool _scummverseZakMounted = false;
++	Common::Array<byte> _scummverseZakRoom, _scummverseZakCostume;
++	byte _scummverseZakStates[33] = {};
++	Common::String _scummverseWorldNotice;
++	bool scummverseMountZak();
++	int scummverseWorldResource(ResType type, ResId id);
++	bool scummverseTravel(int destination);
+ 	int _scummverseLastEgo = 0;
+ 	int _scummverseAIActor = 0, _scummverseAIRoom = 0, _scummverseAIWait = 0;
+ 	Common::String _scummverseAIFallback;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 44776409..9cdb91c9 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -230,9 +230,12 @@ void ScummEngine::scummverseUpdateDialogue(int delta) {
+ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	if (!_scummverseRoaming || !_scummverseRoamingReady || !_userPut ||
+ 		_currentScript != 0xFF || _currentRoom == 0 || _currentRoom == 45) return;
++	int destination = scummverseWorldPoll();
++	if (destination) { scummverseTravel(destination); scummverseWorldReport(_scummverseWorldNotice.c_str()); }
+ 	unsigned talkMask = 0;
+ 	for (int id : mansionCast)
+ 		if (id != VAR(VAR_EGO) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
++	if (_scummVars[760] && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
+ 	char talkLine[160];
+ 	int talkSpeaker = 0;
+ 	unsigned chatting = scummverseTalkScene(_currentRoom, VAR(VAR_EGO), talkMask, !VAR(VAR_HAVE_MSG), talkSpeaker, talkLine, sizeof(talkLine));
+@@ -240,6 +243,16 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		_scummverseAIActor = 0;
+ 		if (talkSpeaker && talkLine[0]) scummverseSay(talkSpeaker, talkLine);
+ 	} else scummverseUpdateDialogue(delta);
++	if (_scummVars[760] && _currentRoom == 54) {
++		Actor *zak = derefActor(24, "Zak apartment walk");
++		Roamer &z = _scummverseRoamers[24];
++		if ((chatting & (1u << 24)) || (getTalkingActor() == 24 && VAR(VAR_HAVE_MSG))) {
++			zak->stopActorMoving(); zak->startAnimActor(zak->_standFrame); z.wait = 180;
++		} else if (z.wait > 0) z.wait -= delta;
++		else if (!zak->_moving) {
++			zak->startWalkActor(9 + _rnd.getRandomNumber(26), 56, -1); z.wait = 180 + _rnd.getRandomNumber(180);
++		}
++	}
+ 	Actor *player = derefActor(VAR(VAR_EGO), "sandbox player");
+ 	if (_scummverseLastEgo != VAR(VAR_EGO)) {
+ 		player->stopActorMoving();
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+new file mode 100644
+index 00000000..94e9bd36
+--- /dev/null
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -0,0 +1,110 @@
++// First cross-world adapter. GPL-3.0-or-later. No original game data included.
++// Stable identities: maniac:<native room>, zak:apartment, zak:zak.
++// Audited unused Maniac V1 slots keep existing save-array sizes unchanged:
++// room 54, costume 34, actor 24, object IDs 650..682, variables 700..723/760.
++static bool readZakFile(const Common::FSNode &directory, int number, const char *md5, Common::Array<byte> &data) {
++	Common::File file;
++	Common::String name = Common::String::format("%02d.LFL", number);
++	Common::FSNode node = directory.getChild(name);
++	if (!node.exists()) {
++		Common::FSList children;
++		directory.getChildren(children, Common::FSNode::kListFilesOnly);
++		for (const auto &child : children) if (child.getName().equalsIgnoreCase(name)) { node = child; break; }
++	}
++	if (!file.open(node) || file.size() < 2 || file.size() > 65535) return false;
++	if (Common::computeStreamMD5AsString(file) != md5) return false;
++	file.seek(0); data.resize(file.size());
++	if (file.read(data.data(), data.size()) != data.size()) return false;
++	for (uint i = 0; i < data.size(); ++i) data[i] ^= 0xFF;
++	return true;
++}
++
++bool ScummEngine::scummverseMountZak() {
++	if (_scummverseZakMounted) return true;
++	if (!_scummverseRoaming) return false;
++	Common::FSNode directory = ConfMan.hasKey("scummverse_zak_path") ?
++		Common::FSNode(ConfMan.getPath("scummverse_zak_path")) :
++		Common::FSNode(ConfMan.getPath("path")).getParent().getChild("zak");
++	Common::Array<byte> index, source;
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index) ||
++		!readZakFile(directory, 1, "2e30571757edc1cd0f2a450ba5c89153", source)) {
++		_scummverseWorldNotice = "Add the original English Zak DOS V1 files to Documents/zak, then retry Worlds.";
++		return false;
++	}
++	// Read the original apartment and playable Zak costume from the verified
++	// user's files. Numeric offsets are derived from that edition's directory.
++	const uint roomSize = READ_LE_UINT16(source.data());
++	const uint costumeTable = 2 + 775 + 61 * 3;
++	const uint costumeOffset = READ_LE_UINT16(index.data() + costumeTable + 37 + 2);
++	if (index[costumeTable + 1] != 1 || costumeOffset + 2 > source.size()) return false;
++	const uint costumeSize = READ_LE_UINT16(source.data() + costumeOffset);
++	if (roomSize < 28 || roomSize > source.size() || costumeSize < 8 || costumeOffset + costumeSize > source.size()) return false;
++	const uint count = source[20];
++	if (count != 33 || 28 + count * 4 > roomSize) return false;
++	_scummverseZakRoom.resize(roomSize);
++	memcpy(_scummverseZakRoom.data(), source.data(), roomSize);
++	_scummverseZakCostume.resize(costumeSize);
++	memcpy(_scummverseZakCostume.data(), source.data() + costumeOffset, costumeSize);
++	for (uint i = 0; i < count; ++i) {
++		uint offset = READ_LE_UINT16(source.data() + 28 + count * 2 + i * 2);
++		if (offset + 15 > roomSize) return false;
++		uint original = READ_LE_UINT16(source.data() + offset + 4);
++		if (original >= 775) return false;
++		_scummverseZakStates[i] = index[2 + original] >> 4;
++		WRITE_LE_UINT16(_scummverseZakRoom.data() + offset + 4, 650 + i);
++	}
++	// Room art, objects and walkboxes stay authentic. Foreign script/sound
++	// references must never resolve into the mansion's resource namespace.
++	_scummverseZakRoom[22] = _scummverseZakRoom[23] = 0;
++	WRITE_LE_UINT16(_scummverseZakRoom.data() + 24, 0);
++	WRITE_LE_UINT16(_scummverseZakRoom.data() + 26, 0);
++	_scummverseZakMounted = true;
++	return true;
++}
++
++int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
++	if (!_scummverseRoaming || !((type == rtRoom && id == 54) || (type == rtCostume && id == 34))) return -1;
++	if (!scummverseMountZak()) return 0;
++	const Common::Array<byte> &data = type == rtRoom ? _scummverseZakRoom : _scummverseZakCostume;
++	memcpy(_res->createResource(type, id, data.size()), data.data(), data.size());
++	return 1;
++}
++
++bool ScummEngine::scummverseTravel(int destination) {
++	if (!_scummverseRoamingReady || !_userPut || (destination != 1 && destination != 2)) return false;
++	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
++	if (VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 7) return false;
++	if (destination == 1 && _currentRoom == 54) return true;
++	if (destination == 2 && _currentRoom != 54) return true;
++	// Validate before touching the current scene, camera or inventory.
++	if (destination == 1 && !scummverseMountZak()) {
++		scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false;
++	}
++	const int key = 700 + VAR(VAR_EGO) * 3;
++	int room, x, y;
++	if (destination == 1) {
++		_scummVars[key] = _currentRoom; _scummVars[key + 1] = player->getRealPos().x; _scummVars[key + 2] = player->getRealPos().y;
++		room = 54; x = 21; y = 56;
++		if (!_scummVars[760]) {
++			for (int i = 0; i < 33; ++i) { putState(650 + i, _scummverseZakStates[i]); _objectOwnerTable[650+i] = OF_OWNER_ROOM; }
++			Actor *zak = derefActor(24, "zak:zak");
++			zak->setActorCostume(34); zak->_talkColor = 13; zak->setPalette(1, 13);
++			zak->putActor(30, 56, 54); zak->startAnimActor(zak->_standFrame);
++			const char *name = "Zak McKracken";
++			memcpy(_res->createResource(rtActorName, 24, strlen(name)+1), name, strlen(name)+1);
++			_scummVars[760] = 1;
++		}
++	} else {
++		room = _scummVars[key]; x = _scummVars[key + 1]; y = _scummVars[key + 2];
++		if (room < 1 || room > 52) { room = 10; x = 20; y = 60; }
++	}
++	scummverseAICancel(); _scummverseAIActor = 0; stopTalk();
++	player->stopActorMoving(); player->putActor(x, y, room);
++	startScene(room, player, 0);
++	AdjustBoxResult point = player->adjustXYToBeInBox(x, y);
++	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
++	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
++	resetSentence(); _fullRedraw = true;
++	_scummverseWorldNotice = room == 54 ? "Zak's apartment. Walk around, or use Talk to meet Zak. Worlds returns you to the mansion." : "Back in Maniac Mansion.";
++	return true;
++}

@@ -180,3 +180,23 @@ Real DOS VM checks cover group pause/release, speech serialization and speaker
 attribution, in addition to the existing encounter tests. Eight-patch bootstrap
 and 11 startup checks pass. Physical-device UI, performance and thermal behavior
 remain to be tested; model responses are not guaranteed to be coherent or novel.
+
+## First Zak DOS V1 connection — 2026-10-11
+
+- Verified the supplied original English DOS V1 edition privately; no resources
+  are committed or packaged.
+- Added an apartment-only adapter, native Worlds menu, original Zak costume,
+  local wandering, and Zak's identity/location in individual and group Talk.
+- Real-resource tests pass for missing-data rejection before transfer, native
+  click-to-walk, independent actor/object IDs, inventory ownership, two visiting
+  kids and their separate return points, Talk roster/pause/speech, and saving,
+  reloading and returning from the foreign location.
+- The same probe passes AddressSanitizer with leak detection disabled; the scene
+  resize fixes the differing 136/128-pixel background and mask heights.
+- Inspected a locally rendered apartment frame containing Dave and Zak. This
+  does not establish device touch layout or animation quality.
+- Mansion roaming, asynchronous dialogue integration, startup tests, patch
+  whitespace, Python syntax, and clean/prefix/idempotent bootstrap checks pass.
+- Apple build and physical iPhone acceptance remain separate checks. The full
+  Zak campaign, other locations and autonomous NPC cross-world travel are not
+  implemented; see [worlds.md](worlds.md).

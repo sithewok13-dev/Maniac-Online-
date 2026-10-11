@@ -109,3 +109,11 @@ while downloading. See [local dialogue](local-ai.md) for limits and fallbacks.
 The hosted build includes the runtime, not model weights. Manual builds must also
 run `python3 tools/build_local_ai.py` and use the local-AI compiler/linker flags
 from `.github/workflows/ios-ipa.yml`.
+
+## Connected-world preview
+
+Create a separate lowercase `zak` folder beside `maniac` and put all the original
+English Zak DOS V1 `.LFL` files directly inside. Tap **Worlds → Visit Zak's
+apartment**, then **Worlds → Return to Maniac Mansion** to come back. Keep both
+data folders when loading saves. See [worlds.md](worlds.md) (also packaged as
+WORLDS.md) for folder layout, Talk setup and the apartment-only scope.

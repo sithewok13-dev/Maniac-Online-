@@ -16,6 +16,11 @@ int main(int argc, char **argv) {
 	assert(prompt.find("Dave: What is that noise?") != std::string::npos);
 	assert(prompt.find("Dr Fred: My experiment has developed a snore!") != std::string::npos);
 	assert(prompt.find("Now reply as Nurse Edna only.") != std::string::npos);
+	std::string crossing = chatPrompt(24,54,3,(1u<<24)|(1u<<5),{{0,"Where have I ended up?"}},true);
+	assert(crossing.find("Zak McKracken") != std::string::npos);
+	assert(crossing.find("San Francisco") != std::string::npos);
+	assert(crossing.find("Bernard") != std::string::npos);
+	assert(crossing.find("Dave: Where have I ended up?") != std::string::npos);
 	Runtime &r = runtime(); int speaker = 0; char speech[160];
 	r.scene(7,3,1u<<10,true,speaker,speech,sizeof(speech)); assert(!r.beginGroup());
 	r.scene(7,3,group,true,speaker,speech,sizeof(speech)); assert(r.beginGroup());
@@ -64,6 +69,15 @@ int main(int argc, char **argv) {
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 	assert(!r.readTalk(speaker,reply) && !r.talkingWith() && !r.waitingForTalk());
 	assert(r.beginGroup()); r.cancel(); assert(!r.talkingWith());
+	// The new actor participates in the same real model runtime and transcript.
+	r.scene(54,3,1u<<24,true,speaker,speech,sizeof(speech));
+	assert(r.beginTalk(24)); assert(r.sendTalk("Hi Zak! I just came from a mansion full of tentacles. What is your job?"));
+	bool zakReplied=false;
+	for (int n=0;n<400 && !zakReplied;++n) {
+		if (r.readTalk(speaker,reply)) { assert(speaker==24 && !reply.empty() && reply[0]!='['); zakReplied=true; std::cout << "ZAK_REPLY " << reply << std::endl; }
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+	assert(zakReplied); r.endTalk(); r.scene(7,3,group,true,speaker,speech,sizeof(speech));
 	assert(r.beginGroup()); r.configure("",false); assert(!r.talkingWith());
 	std::cout << "PASS: real shared group conversation, attributed rotating replies, serialized speech, join/leave, close/load/off cancellation\n";
 }

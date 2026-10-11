@@ -62,6 +62,7 @@ def main():
     (output / "build-info.json").write_text(json.dumps(metadata, indent=2) + "\n")
     shutil.copyfile(ROOT / "COPYING", output / "COPYING")
     shutil.copyfile(ROOT / "docs/ios.md", output / "INSTALL.md")
+    shutil.copyfile(ROOT / "docs/worlds.md", output / "WORLDS.md")
     if ai.exists():
         shutil.copyfile(ROOT / "docs/LOCAL_AI_LICENSES.txt", output / "LOCAL_AI_LICENSES.txt")
         shutil.copyfile(ROOT / "docs/local-ai.md", output / "LOCAL_AI.md")

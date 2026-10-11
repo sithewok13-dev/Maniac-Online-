@@ -23,6 +23,9 @@ unsigned scummverseTalkScene(int, int, unsigned actors, bool canSpeak, int &spea
  if (FakeAI::talk && FakeAI::reply && canSpeak) { std::strncpy(line, "Keep out of my refrigerator!", capacity); speaker = FakeAI::talk; FakeAI::reply = false; }
  return (FakeAI::group ? FakeAI::group : FakeAI::talk ? 1u << FakeAI::talk : 0) & actors;
 }
+void scummverseWorldRequest(int) {}
+int scummverseWorldPoll() { return 0; }
+void scummverseWorldReport(const char *) {}
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
 '''
 

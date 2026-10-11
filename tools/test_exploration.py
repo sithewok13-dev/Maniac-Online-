@@ -78,8 +78,8 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def run_probe(data, probe_code, config_key, marker, label, prelude=""):
-    build = ROOT/'build/null'
+def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null"):
+    build = ROOT/'build'/build_name
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
         work = Path(tmp)

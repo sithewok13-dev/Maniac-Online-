@@ -10,6 +10,9 @@ when upgrading. See [roaming behavior and validation](docs/roaming.md).
 An optional on-device dialogue preview adds separately downloaded Small/Larger
 models through the iPhone **AI** button; Classic remains the default. See
 [local dialogue setup and limits](docs/local-ai.md). Movement remains engine-driven.
+The **Worlds** preview lets a Maniac kid visit Zak McKracken's original DOS V1
+apartment, meet Zak, and return. See [connected worlds](docs/worlds.md) for setup
+and the apartment-only scope.
 Multiplayer remains unimplemented. No proprietary game data or model weights are included.
 
 ## Source layout
