@@ -1,0 +1,101 @@
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index c0c694b3..d01957af 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -1,8 +1,31 @@
+ // User-selected Zak resource import. GPL-3.0-or-later. No game data bundled.
+ // Import into a new private directory before publishing its relative name.
++static NSString *scummverseZakFolderReport(NSURL *selected, NSString *result) {
++	NSFileManager *fm = [NSFileManager defaultManager];
++	NSURL *documents = [[fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
++	NSMutableString *report = [NSMutableString stringWithFormat:@"SCUMMVERSE folder diagnostic v1\nResult: %@\nBundle: %@\nHome: %@\nDocuments: %@\nEngine Documents: %s\nWorking directory: %@\nSelected: %@\n", result, [NSBundle mainBundle].bundleIdentifier, NSHomeDirectory(), documents.path, iOS7_getDocumentsDir().c_str(), fm.currentDirectoryPath, selected.path];
++	for (NSURL *directory in @[documents, selected]) {
++		NSError *error = nil;
++		NSArray<NSURL *> *children = [fm contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:0 error:&error];
++		[report appendFormat:@"\nListing %@ (%lu entries):\n", directory.path, (unsigned long)children.count];
++		if (!children) [report appendFormat:@"%@\n", error];
++		NSUInteger count = 0;
++		for (NSURL *child in children) {
++			if (++count > 150) { [report appendString:@"Listing truncated at 150 entries.\n"]; break; }
++			NSError *attributeError = nil;
++			NSDictionary *attributes = [fm attributesOfItemAtPath:child.path error:&attributeError];
++			[report appendFormat:@"name=%@ UTF8=%@ type=%@ bytes=%@ error=%@\n", child.lastPathComponent, [child.lastPathComponent dataUsingEncoding:NSUTF8StringEncoding], attributes[NSFileType], attributes[NSFileSize], attributeError];
++		}
++	}
++	NSError *writeError = nil;
++	[report writeToURL:[documents URLByAppendingPathComponent:@"SCUMMVERSE-folder-report.txt"] atomically:YES encoding:NSUTF8StringEncoding error:&writeError];
++	if (writeError) [report appendFormat:@"\nCould not save report: %@\n", writeError];
++	return report;
++}
+ @interface ScummverseZakImporter : NSObject <UIDocumentPickerDelegate> {
+ 	BOOL _busy;
+ 	UIViewController *_presenter;
++	NSString *_report;
+ }
+ + (ScummverseZakImporter *)shared;
+ - (void)chooseFrom:(UIViewController *)controller;
+@@ -20,6 +43,7 @@
+ - (void)chooseFrom:(UIViewController *)controller {
+ 	if (_busy) return;
+ 	_busy = YES;
++	[_report release]; _report = nil;
+ 	_presenter = [controller retain];
+ 	UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
+ 		initWithDocumentTypes:@[@"public.folder"] inMode:UIDocumentPickerModeOpen];
+@@ -32,6 +56,7 @@
+ - (void)importLocalFrom:(UIViewController *)controller {
+ 	if (_busy) return;
+ 	_busy = YES;
++	[_report release]; _report = nil;
+ 	_presenter = [controller retain];
+ 	NSFileManager *fm = [NSFileManager defaultManager];
+ 	NSURL *documents = [[fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
+@@ -47,6 +72,20 @@
+ 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Zak game files" message:message preferredStyle:UIAlertControllerStyleAlert];
+ 	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+ 	UIViewController *presenter = [_presenter autorelease]; _presenter = nil;
++	if (_report) {
++		NSString *report = [[_report copy] autorelease];
++		[alert addAction:[UIAlertAction actionWithTitle:@"Copy folder report" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[UIPasteboard generalPasteboard].string = report;
++		}]];
++		[alert addAction:[UIAlertAction actionWithTitle:@"Share folder report" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[presenter dismissViewControllerAnimated:YES completion:^{
++				UIActivityViewController *share = [[[UIActivityViewController alloc] initWithActivityItems:@[report] applicationActivities:nil] autorelease];
++				share.popoverPresentationController.sourceView = presenter.view;
++				share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1, 1);
++				[presenter presentViewController:share animated:YES completion:nil];
++			}];
++		}]];
++	}
+ 	void (^show)(void) = ^{ [presenter presentViewController:alert animated:YES completion:nil]; };
+ 	if (presenter.presentedViewController) [presenter dismissViewControllerAnimated:YES completion:show];
+ 	else show();
+@@ -78,8 +117,11 @@
+ 			void (^copyFolder)(NSURL *) = ^(NSURL *folder) {
+ 				NSError *error = nil;
+ 				NSArray<NSURL *> *children = [fm contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:&error];
+-				if (!children || ![fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&error]) {
+-					fail([NSString stringWithFormat:@"Cannot read or copy that folder: %@", error.localizedDescription]); return;
++				if (!children) {
++					fail([NSString stringWithFormat:@"Cannot read Zak folder: %@\n%@", folder.path, error]); return;
++				}
++				if (![fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&error]) {
++					fail([NSString stringWithFormat:@"Cannot create import destination: %@\n%@", stage.path, error]); return;
+ 				}
+ 				NSMutableDictionary<NSString *, NSURL *> *files = [NSMutableDictionary dictionary];
+ 				for (NSURL *child in children) files[[child.lastPathComponent uppercaseString]] = child;
+@@ -129,7 +171,12 @@
+ 				[[NSUserDefaults standardUserDefaults] setObject:relative forKey:@"SCUMMVERSEZakImport"];
+ 			}
+ 			NSString *message = failure ?: [NSString stringWithFormat:@"Imported %lu Zak files. Open Worlds and choose Go to airport. Your original folder was left untouched.", (unsigned long)copied];
+-			dispatch_async(dispatch_get_main_queue(), ^{ [self finish:message]; });
++			BOOL failed = failure != nil;
++			NSString *report = failure ? scummverseZakFolderReport(selected, failure) : nil;
++			dispatch_async(dispatch_get_main_queue(), ^{
++				[_report release]; _report = [report copy];
++				[self finish:failed ? @"Zak import failed. Tap Copy folder report, then paste it into our chat. It includes folder paths, filenames and the exact error; no game file contents." : message];
++			});
+ 			[failure release];
+ 		}
+ 	});
