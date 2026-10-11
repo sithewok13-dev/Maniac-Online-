@@ -6,7 +6,8 @@ verified English original DOS V1 edition (index MD5
 story/safety preview. Existing mid-cutscene or capture saves are not repaired.
 
 The original character picker remains. The introduction and story cinematics are
-disabled, including timed interruptions and endings. This is an exploration
+disabled, including timed interruptions and endings. The radiation suit ending
+handoff is also disabled so it cannot remove the team or lock character switching. This is an exploration
 sandbox, not a completable original campaign.
 
 ## Behavior

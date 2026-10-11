@@ -34,6 +34,12 @@
 		if (isScriptRunning(script) || _currentRoom != 30 || !_userPut)
 			error("Story script %d escaped sandbox guard", script);
 	}
+	// The radiation suit's object script is also an ending handoff, even
+	// though it does not contain a cutscene opcode.
+	int team[] = {_scummVars[47], _scummVars[48], _scummVars[49]};
+	runObjectScript(269, 11, false, false, nullptr);
+	if (VAR(VAR_EGO) != 3 || !_userPut || _scummVars[47] != team[0] || _scummVars[48] != team[1] || _scummVars[49] != team[2])
+		error("Suit ending handoff removed player/team");
 	startScene(7, nullptr, 0);
 	Actor *player = derefActor(3, "probe");
 	player->putActor(30, 56, 7);
