@@ -111,3 +111,17 @@ the player, free CashCard-reader interactions, return buses, imported object
 isolation, inventory preservation and street save/reload. The airport probe
 also checks every roaming NPC on both street connections. Bus travel changes
 rooms after boarding; it does not play the original driving cutscene.
+
+## Zak file lookup troubleshooting
+
+On iPhone the app now looks directly in its own `Documents/zak`, independently
+of the saved Maniac game path. A capitalized `Zak` folder and lowercase `.lfl`
+filenames are accepted too. Desktop sibling-folder discovery supports both
+absolute paths and a bare relative `maniac` path; `scummverse_zak_path` remains
+an explicit override.
+
+A failed import reports whether the folder is unavailable, a named file is
+missing/unreadable, or its contents do not match the supported English DOS V1
+edition. Open **Worlds** again after a failed trip to read that status. The log
+includes the game path and resolved Zak folder when available, and suppresses
+repeated identical warnings. All edition checks remain enabled.

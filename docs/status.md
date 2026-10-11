@@ -247,3 +247,21 @@ remain to be tested; model responses are not guaranteed to be coherent or novel.
 - Privately inspected the rendered original bus scene. Physical iPhone testing
   remains outstanding; no game assets or model weights are included in source
   or build artifacts.
+
+## Zak discovery repair — 2026-10-11
+
+- A phone report showed `zak` beside `maniac` with 59 files, but repeated generic
+  file-not-found warnings. That log does not identify the failing path or prove
+  whether the phone's saved path or installed app container caused the failure.
+- iOS now resolves Zak from its Documents filesystem root, independent of the
+  saved Maniac path. Folder names are accepted case-insensitively. Desktop bare
+  relative paths now resolve siblings correctly instead of looking inside Maniac.
+- Import failures distinguish unavailable folders, missing/unreadable files,
+  invalid sizes, edition mismatches and incomplete reads. The Worlds status and
+  deduplicated log report the problem; logs include game and available Zak paths.
+- The real iOS chroot filesystem implementation reads all four verified world
+  resources in tests, even with loose Maniac resources in the same parent.
+  Relative paths, case variations, explicit overrides and diagnostic reasons
+  pass in null and AddressSanitizer probes. Bus, airport, prior-save migration
+  and apartment regression probes pass. No edition verification was relaxed.
+- Phone confirmation of this repair remains outstanding.
