@@ -43,6 +43,63 @@
 		warning("Safety probe passed: %s (enabled=%d)", label, safe);
 	};
 
+	// Reproduce the reported kitchen disappearance through its original scene.
+	if (safe) {
+		setup(7);
+		derefActor(10, "kitchen probe")->putActor(62, 56, 7);
+		derefActor(3, "kitchen probe")->putActor(60, 56, 7);
+		VAR(VAR_CAMERA_POS_X) = 47;
+		_scummVars[126] = 0;
+		runScript(153, false, false, nullptr);
+		pump(50);
+		check(derefActor(10, "kitchen probe")->_room == 7 &&
+			isScriptRunning(153) && !isScriptRunning(38) && _userPut == 1,
+			"Edna stays during kitchen encounter");
+		check(_scummVars[126] == 0, "kitchen wait does not set chase flag");
+		startScene(10, nullptr, 0);
+		pump(120);
+		check(!isScriptRunning(153) && derefActor(10, "kitchen probe")->_room == 19,
+			"Edna resumes original departure after kitchen exit");
+	}
+
+	// Walk across Green Tentacle's original hallway, including Bernard.
+	for (int kid : {3, 5}) {
+		setup(12);
+		VAR(VAR_EGO) = kid;
+		derefActor(3, "hallway probe")->putActor(0, 0, 0);
+		Actor *player = derefActor(kid, "hallway probe");
+		player->setActorCostume(kid);
+		player->putActor(38, 52, 12);
+		derefActor(11, "hallway probe")->putActor(5, 52, 26);
+		_scummVars[98] = _scummVars[99] = _scummVars[105] = 0;
+		runEntryScript();
+		int x, y, dir;
+		getObjectXYPos(457, x, y, dir);
+		const AdjustBoxResult dest = player->adjustXYToBeInBox(x, y);
+		player->startWalkActor(x, y, dir);
+		pump(200);
+		if (safe) {
+			check(!isScriptRunning(51) && !isScriptRunning(161) && _userPut == 1 &&
+				player->getPos().x == dest.x * V12_X_MULTIPLIER &&
+				player->getPos().y == dest.y * V12_Y_MULTIPLIER &&
+				derefActor(14, "hallway probe")->_room == 12,
+				"kid passes visible Green Tentacle without food or drink");
+			check(_scummVars[98] == 0 && _scummVars[99] == 0,
+				"hallway bypass preserves food and drink puzzle state");
+			VAR(VAR_ACTIVE_OBJECT1) = 457;
+			runObjectScript(457, 13, false, false, nullptr);
+			check(_currentRoom == 38 && player->_room == 38, "original upstairs transition");
+			VAR(VAR_ACTIVE_OBJECT1) = 462;
+			runObjectScript(462, 1, false, false, nullptr);
+			runObjectScript(462, 13, false, false, nullptr);
+			check(_currentRoom == 26 && player->_room == 26 && _userPut == 1,
+				"original route reaches Weird Ed with controls");
+		} else {
+			check(isScriptRunning(51) && (player->getPos().x != dest.x * V12_X_MULTIPLIER || _userPut == 0),
+				"original hallway gate remains when disabled");
+		}
+	}
+
 	// Edna's real monitor with a kid within capture distance.
 	setup(19);
 	derefActor(10, "safety probe")->putActor(160, 120, 19);

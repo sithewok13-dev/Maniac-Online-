@@ -111,3 +111,12 @@ Source preparation now recognizes a dependent patch stack by reversing it in a
 disposable copy, rather than trying to reverse each old patch against the final
 tree. Tests cover pristine source, every applied prefix, a complete stack,
 unrelated local edits and conflicting edits; the real checkout is never reversed.
+
+## Kitchen disappearance and hallway gate — 2026-10-11
+
+The owner's iPhone test found two gaps in the protection preview. The fourth
+patch keeps Edna's kitchen scene waiting while the player remains there and
+suppresses Green Tentacle's gate/pushback/Bernard retreat. Both Dave and Bernard
+now reach Weird Ed through the original hallway/stairs/door scripts in headless
+tests, with Green Tentacle still present. Edna's original departure resumes after
+leaving the kitchen. Physical-device confirmation of this correction is pending.

@@ -5,7 +5,7 @@ DOS V1 Maniac Mansion. No replacement engine or recreated graphics.
 
 **Current scope:** working standalone DOS V1 iPhone prototype and the first
 exploration preview: seven passage locks plus protection against audited capture
-and death paths. The owner confirmed the baseline and door preview on iPhone.
+and death paths, plus passage past Green Tentacle. The owner confirmed the baseline and door preview on iPhone.
 The new protection needs device validation; remaining progression barriers and
 multiplayer are still unfinished.
 No proprietary game data is included.

@@ -116,3 +116,32 @@ his room. Confirm that no kid is imprisoned and that walking, changing kids and
 leaving the room still work. Recheck a door transition and normal sound/animation.
 Where accessible, test the pool/refill and microwave hazards. Original puzzle
 barriers still apply; protection does not provide a teleport or solve every puzzle.
+
+## Kitchen and hallway correction — 2026-10-11
+
+The owner reported that Edna disappeared immediately in the kitchen and Green
+Tentacle prevented reaching Weird Ed. Edna's kitchen script 153 waits on chase
+flag 126; with capture disabled that flag stays clear, so the script immediately
+starts her departure through script 38. The fourth patch makes only that scoped
+read report "still waiting" while the current room is the kitchen (7). It leaves
+the stored flag clear. Once the player leaves, the original departure resumes.
+Edna's normal timed departure before the encounter is not removed.
+
+Green Tentacle's gate script 51 launches pushback script 161, requires food/drink,
+and contains Bernard's forced retreat. Both starts are suppressed under the same
+edition-gated exploration-safety setting. The original room-entry script still
+places Green Tentacle at his resting position, and his food/drink state is not
+falsified. He remains visible; normal walkboxes and exit scripts handle passage.
+
+The real-script probe first reproduced the Edna regression before the fix. It now
+checks that she stays through the kitchen greeting, keeps controls available and
+resumes her normal departure after the player leaves. For both Dave and Bernard,
+it runs the original hallway entry, walks to the stairs with no food/drink, checks
+Green Tentacle remains present, then executes the original transitions through
+room 38 into Weird Ed's room (26). With protection off, the original gate remains.
+The earlier capture/death, patrol, door and startup tests still pass. These are
+headless VM checks; the corrected IPA needs confirmation on iPhone.
+
+Start a fresh game with the corrected IPA. Check Edna's kitchen greeting, then
+walk past Green Tentacle and up to Weird Ed. Old saves may retain already-running
+blocking scripts or an Edna departure that began in the previous build.
