@@ -125,3 +125,24 @@ missing/unreadable, or its contents do not match the supported English DOS V1
 edition. Open **Worlds** again after a failed trip to read that status. The log
 includes the game path and resolved Zak folder when available, and suppresses
 repeated identical warnings. All edition checks remain enabled.
+
+## Choose the Zak folder on iPhone
+
+Open **Worlds → Choose Zak folder...**. In the iPhone Files picker, navigate to
+and select the extracted `zak` folder containing `00.LFL` directly. Choose the
+folder, not the ZIP or its parent. The app checks 00.LFL, 01.LFL, 03.LFL and
+08.LFL against the supported original English DOS V1 edition, then imports
+available 00.LFL–58.LFL files. After the import succeeds, open **Worlds → Go to
+airport**. Files stored in iCloud may need to download during import.
+
+The original folder and previous imports are preserved. A cancelled or failed
+import never changes the active import. A complete, verified copy is stored
+inside this app's Application Support directory, and its relative location is
+saved so app-container UUID changes do not leave a stale absolute path. The
+engine reads this native location directly without adding another Documents
+prefix. You do not need to edit Preferences or move the source folder.
+
+When no folder has been imported, native Documents/zak discovery remains the
+fallback. The desktop path override does not override an iPhone folder selection.
+Repeated successful imports keep prior private copies; there is no removal UI
+for those copies yet. The picker and file-provider behavior need device testing.

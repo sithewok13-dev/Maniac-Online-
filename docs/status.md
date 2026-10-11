@@ -265,3 +265,19 @@ remain to be tested; model responses are not guaranteed to be coherent or novel.
   pass in null and AddressSanitizer probes. Bus, airport, prior-save migration
   and apartment regression probes pass. No edition verification was relaxed.
 - Phone confirmation of this repair remains outstanding.
+
+## Native Zak folder selector — 2026-10-11
+
+- Added Worlds → Choose Zak folder with the iOS Files folder picker. Scoped,
+  coordinated reads run off the game/UI threads. Missing resources, incompatible
+  edition hashes and copy failures report a specific error.
+- Imports are staged in a fresh private folder. Only a complete verified copy
+  becomes active. Selection/cancellation never deletes the source or previous
+  working imports. Relative storage survives application-container UUID changes.
+- iPhone engine reads Foundation-resolved native paths as native filesystem
+  nodes, avoiding virtual filesystem prefix interpretation. Native Documents/zak
+  remains the fallback. Desktop configuration behavior is retained.
+- Native/chroot resource reading, invalid-data diagnostics and bus regressions
+  pass with private game data; memory-checking path probes pass. Thirteen-patch
+  source preparation passes. File-picker presentation, file-provider downloads
+  and the complete import interaction still need physical iPhone validation.

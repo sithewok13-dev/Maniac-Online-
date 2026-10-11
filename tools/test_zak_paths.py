@@ -13,6 +13,7 @@ EXTRA = r'''
 #include <unistd.h>
 #include "common/file.h"
 #include "backends/fs/abstract-fs.h"
+#include "backends/fs/posix/posix-fs.h"
 #include "backends/fs/chroot/chroot-fs-factory.h"
 namespace Scumm {
 static Common::FSNode scummverseZakFolder(const Common::FSNode &);
