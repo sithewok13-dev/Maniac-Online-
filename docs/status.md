@@ -226,3 +226,24 @@ remain to be tested; model responses are not guaranteed to be coherent or novel.
 - A private rendered airport frame was inspected. Hosted Apple/native build
   results are recorded on the PR; physical iPhone travel/menu testing remains.
 - Connected Zak locations are still limited to the airport and apartment.
+
+## Free Zak bus — 2026-10-11
+
+- Added Zak's original DOS V1 San Francisco street and visible airport bus from
+  the user's verified 03.LFL. The apartment door now leads to the street; the
+  bus goes to the airport, whose right-hand exit takes the return bus. Street
+  stairs return to the apartment. Boarding skips the original driving cutscene.
+- All seven playable kids and all 13 inactive cast members, including Zak, use
+  the same free connection. CashCard, ticket and payment scripts never execute.
+  Airport destination selection now offers the street's free return bus.
+- Added room 55 without changing native index consumption. Remapped street
+  objects into 712–731; variable 762 migrates street state independently of Zak.
+  Travel hotspots and verb availability support normal Walk to input.
+- Real-resource tests cover every kid's round trip, all NPC walking routes,
+  native bus/stairs clicks, missing data rejection without moving the player,
+  inventory preservation, street saves, conversation pauses and old apartment
+  saves. Null and AddressSanitizer probes pass. Startup, roaming, world and AI
+  encounter regressions also pass; the full patch stack applies cleanly.
+- Privately inspected the rendered original bus scene. Physical iPhone testing
+  remains outstanding; no game assets or model weights are included in source
+  or build artifacts.

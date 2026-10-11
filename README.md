@@ -12,7 +12,7 @@ models through the iPhone **AI** button; Classic remains the default. See
 [local dialogue setup and limits](docs/local-ai.md). Movement remains engine-driven.
 The outer mansion grounds now connect to Zak's original DOS V1 airport. Travel
 is free; you choose a destination while NPCs choose randomly. Zak and the mansion
-cast can roam between the connected airport, apartment and mansion. See
+cast can roam between the connected airport, free bus street, apartment and mansion. See
 [connected worlds](docs/worlds.md) for setup and current destinations.
 Multiplayer remains unimplemented. No proprietary game data or model weights are included.
 

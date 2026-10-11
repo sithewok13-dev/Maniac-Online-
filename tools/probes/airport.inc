@@ -22,6 +22,7 @@
 			derefActor(id,"park NPC")->stopActorMoving();
 		}
 	};
+	scummverseMountStreet(); scummverseInitVisitors();
 	freezeOthers(); stopTalk(); VAR(VAR_HAVE_MSG)=0;
 	// Render the real room and exercise the existing floor-click input script.
 	_mouse.x=160; _mouse.y=136; _virtualMouse.x=160; _virtualMouse.y=120;
@@ -53,14 +54,16 @@
 	scummverseWorldRequest(((53*32+3)<<8)|1); scummverseUpdateRoaming(4);
 	if (_currentRoom!=54) error("Free apartment selection failed");
 	runObjectScript(655,13,false,false,nullptr);
-	if (_currentRoom!=53) error("Apartment door did not return to airport");
+	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
+	runObjectScript(724,13,false,false,nullptr);
+	if (_currentRoom!=53) error("Free bus did not reach airport");
 	scummverseWorldRequest(((53*32+5)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53) error("Stale passenger selection moved another kid");
 	runObjectScript(683,13,false,false,nullptr);
 	scummverseWorldRequest(((53*32+3)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=1 || player->getRealPos().x<4 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Free mansion return changed inventory or landed on an exit");
 	// Visible NPCs walk to each connection; they never move the player's camera.
-	const int routes[][3]={{73,1,53},{74,44,53},{75,53,1},{76,53,54},{77,54,53}};
+	const int routes[][3]={{73,1,53},{74,44,53},{75,53,1},{76,53,55},{77,54,55},{78,55,53},{79,55,54}};
 	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24}) {
 		player->putActor(20,60,route[1]); startScene(route[1],player,0); freezeOthers();
 		Actor *zak=derefActor(actorId,"travelling NPC"); zak->putActor(20,60,route[1]);
@@ -83,7 +86,7 @@
 		Common::Point cameraPos=camera._cur, playerPos=player->getRealPos();
 		scummverseUpdateRoaming(4); r.elapsed=10000; scummverseUpdateRoaming(4);
 		if (_currentRoom!=7 || camera._cur!=cameraPos || player->getRealPos()!=playerPos) error("Offscreen flight stole scene");
-		if (zak->_room==1) visited|=1; else if(zak->_room==54) visited|=2; else error("Random flight did not reach a connected destination");
+		if (zak->_room==1) visited|=1; else if(zak->_room==55) visited|=2; else error("Random flight did not reach a connected destination");
 	}
 	if (visited!=3) error("Random airport routing omitted a destination");
 	// A group conversation prevents departures, including the new actor.

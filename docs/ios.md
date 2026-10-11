@@ -120,4 +120,8 @@ random destinations and pause travel while talking. **Worlds → Go to airport**
 is also available as a testing shortcut.
 
 Keep both data folders when loading saves. See [worlds.md](worlds.md) (packaged as
-WORLDS.md) for the exact walking routes and current airport/apartment scope.
+WORLDS.md) for the exact walking routes and current airport/street/apartment scope.
+
+Leave Zak's apartment through the door and walk right to the bus for a free
+airport ride. The airport's right-hand door takes the return bus. Keep 03.LFL
+in the `zak` folder for the street scene. The street stairs return to the apartment.
