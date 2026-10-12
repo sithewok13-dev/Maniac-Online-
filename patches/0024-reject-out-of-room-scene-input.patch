@@ -1,0 +1,17 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 02341627..fae9a9d2 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -1523,6 +1523,12 @@ void ScummEngine_v0::runSentenceScript() {
+ }
+ 
+ void ScummEngine_v2::runInputScript(int clickArea, int val, int mode) {
++	// Scene coordinates are room-relative. Reject letterbox/stale touch input
++	// before actor hit testing indexes the renderer's strip usage table.
++	if (_scummverseRoamingReady && clickArea == kSceneClickArea &&
++	    (_virtualMouse.x < 0 || _virtualMouse.x >= _roomWidth ||
++	     _virtualMouse.y < 0 || _virtualMouse.y >= _roomHeight))
++		return;
+ 	if(_scummverseRoamingReady && clickArea==kVerbClickArea && (val==7 || (val>=20 && val<=22))) { scummverseRosterOffer(); return; }
+ 	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseTalkPick(getActorFromPos(_virtualMouse.x, _virtualMouse.y))) return;
+ 	if(_scummverseRoamingReady && clickArea==kSceneClickArea && _currentRoom>=56) {

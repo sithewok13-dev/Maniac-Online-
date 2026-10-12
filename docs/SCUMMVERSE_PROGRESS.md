@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 0 audit and first Phase 1 portrait repair.
+Active milestone: Phase 1; portrait repair and out-of-room scene input guard implemented.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -47,8 +47,8 @@ Most objects are ordinary inventory items. No pay-to-win or speculative token wo
 
 ## Continuation
 
-Read AGENTS.md and SCUMMVERSE_ARCHITECTURE.md. First isolate the renderer strip
-assertion recorded in TEST_STATUS; do not skip this failed regression. The next
+Read AGENTS.md and SCUMMVERSE_ARCHITECTURE.md. Patch 0024 resolves the renderer
+strip assertion; full expansion tests now pass in null and ASan. The next
 substantive content slice is a logical
 Zak scene identity/setup audit with private reference comparisons and one faithful
 scene proving geometry, scale and transitions. Existing private descumm output

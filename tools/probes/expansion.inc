@@ -21,7 +21,14 @@
 		if(!scummverseTravel(3) || VAR(VAR_EGO)!=id) error("Actor cannot travel %d",id);
 		Actor *a=derefActor(id,"switch test"); int x=a->getRealPos().x;
 		_currentScript=1;if(scummverseOwnsActor(id)) error("Player commands blocked");_currentScript=0xFF;
-		_virtualMouse.x=(x-3)*8;_virtualMouse.y=120;VAR(VAR_VIRT_MOUSE_X)=x-3;VAR(VAR_VIRT_MOUSE_Y)=60;VAR(VAR_ACTIVE_VERB)=13;
+		// Invalid scene clicks must not start scripts, travel or index graphics strips.
+		const auto before=a->getPos();
+		for(const auto &bad : {Common::Point(-8,120),Common::Point(-1,120),Common::Point(_roomWidth,120),Common::Point(0,-1),Common::Point(0,_roomHeight)}) {
+			_virtualMouse=bad;runInputScript(kSceneClickArea,0,1);
+			if(a->getPos()!=before || _currentRoom!=53) error("Invalid scene click mutated player %d",id);
+		}
+		int targetX=x>=3 ? x-3 : x+3;
+		_virtualMouse.x=targetX*8;_virtualMouse.y=120;VAR(VAR_VIRT_MOUSE_X)=targetX;VAR(VAR_VIRT_MOUSE_Y)=60;VAR(VAR_ACTIVE_VERB)=13;
 		runInputScript(kSceneClickArea,0,1);for(int n=0;n<100;++n) scummLoop(4);
 		if(a->getRealPos().x==x) error("Player cannot walk %d",id);
 		_scummVars[730+(id<=7?id:0)]=27;scummverseBoard();
