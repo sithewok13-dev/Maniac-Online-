@@ -64,6 +64,7 @@ def main():
     shutil.copyfile(ROOT / "docs/ios.md", output / "INSTALL.md")
     shutil.copyfile(ROOT / "docs/worlds.md", output / "WORLDS.md")
     shutil.copyfile(ROOT / "docs/flights-and-scene-chat.md", output / "FLIGHTS_AND_CHAT.md")
+    shutil.copyfile(ROOT / "docs/expanded-worlds.md", output / "EXPANDED_WORLDS.md")
     if ai.exists():
         shutil.copyfile(ROOT / "docs/LOCAL_AI_LICENSES.txt", output / "LOCAL_AI_LICENSES.txt")
         shutil.copyfile(ROOT / "docs/local-ai.md", output / "LOCAL_AI.md")
