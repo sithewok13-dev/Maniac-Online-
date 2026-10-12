@@ -55,7 +55,8 @@
 	if (_currentRoom!=54) error("Free apartment selection failed");
 	runObjectScript(655,13,false,false,nullptr);
 	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
-	runObjectScript(724,13,false,false,nullptr);
+	player->putActor(92,59,55); _scummverseBusClock=156;
+	runObjectScript(724,13,false,false,nullptr); scummverseServiceBus(4);
 	if (_currentRoom!=53) error("Free bus did not reach airport");
 	scummverseWorldRequest(((53*32+5)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53) error("Stale passenger selection moved another kid");
@@ -63,7 +64,7 @@
 	scummverseWorldRequest(((53*32+3)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=1 || player->getRealPos().x<4 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Free mansion return changed inventory or landed on an exit");
 	// Visible NPCs walk to each connection; they never move the player's camera.
-	const int routes[][3]={{73,1,53},{74,44,53},{75,53,1},{76,53,55},{77,54,55},{78,55,53},{79,55,54}};
+	const int routes[][3]={{73,1,53},{74,44,53},{77,54,55},{78,55,53},{79,55,54}};
 	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24}) {
 		player->putActor(20,60,route[1]); startScene(route[1],player,0); freezeOthers();
 		Actor *zak=derefActor(actorId,"travelling NPC"); zak->putActor(20,60,route[1]);
@@ -76,7 +77,7 @@
 		}
 		if (!walked || zak->_room!=route[2] || zak->_costume!=(actorId==24 ? 34 : actorId)) error("Visible NPC %d route failed: %d -> %d",actorId,route[1],route[2]);
 	}
-	// Random airport planning may choose either connected destination, even the
+	// Random airport planning may choose any connected destination, even the
 	// place an NPC just left. Offscreen travel must not load a scene or walkbox.
 	player->putActor(30,56,7); startScene(7,player,0); freezeOthers();
 	Actor *zak=derefActor(24,"random passenger"); unsigned visited=0;
@@ -84,11 +85,11 @@
 	for(int round=0;round<40;++round) {
 		zak->putActor(20,60,53); Roamer &r=_scummverseRoamers[24]; r=Roamer(); r.room=53; r.previousRoom=1;
 		Common::Point cameraPos=camera._cur, playerPos=player->getRealPos();
-		scummverseUpdateRoaming(4); r.elapsed=10000; scummverseUpdateRoaming(4);
+		_scummverseNpcDestination[24]=0; scummverseUpdateRoaming(4); _scummverseNpcBoarding[24]=0; scummverseUpdateRoaming(4);
 		if (_currentRoom!=7 || camera._cur!=cameraPos || player->getRealPos()!=playerPos) error("Offscreen flight stole scene");
-		if (zak->_room==1) visited|=1; else if(zak->_room==55) visited|=2; else error("Random flight did not reach a connected destination");
+		if (zak->_room==1) visited|=1; else if(zak->_room==53) visited|=2; else if(zak->_room==57) visited|=4; else if(zak->_room==60) visited|=8; else error("Random flight did not reach a connected destination");
 	}
-	if (visited!=3) error("Random airport routing omitted a destination");
+	if (visited!=15) error("Random airport routing omitted a destination");
 	// A group conversation prevents departures, including the new actor.
 	scummverseTravel(3); zak->putActor(15,60,53); Actor *edna=derefActor(10,"airport group"); edna->putActor(18,60,53);
 	for(int id : {10,24}) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=53; r.elapsed=10000; }
