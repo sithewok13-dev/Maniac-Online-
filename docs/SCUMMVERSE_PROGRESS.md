@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; portrait repair and out-of-room scene input guard implemented.
+Active milestone: Phase 1; portrait repair, scene input bounds and Seattle cave hotspot implemented.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -44,6 +44,13 @@ atomic discovery history → secure optional testnet ownership → economy proto
 and desktop adapters. Complete vertical slices; do not start all systems together.
 Canonical assets remain protected. Player content uses approved physical entrances.
 Most objects are ordinary inventory items. No pay-to-win or speculative token work.
+
+## Latest scene repair
+
+Patch 0025 replaces the Mt. Rainier scenery route with original loose-dirt object
+267 (sandbox 737), enables its original open artwork, and removes duplicated
+Seattle object handlers. Shared connection metadata governs the route. See
+SCUMMVERSE_SCENE_AUDIT.md for verified source evidence and remaining limitations.
 
 ## Continuation
 

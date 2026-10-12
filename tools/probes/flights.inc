@@ -17,7 +17,7 @@
 		}
 	}
 
-	for(const auto &transition : {Common::Point(57,733),Common::Point(58,738),Common::Point(59,732),Common::Point(58,732)}) {
+	for(const auto &transition : {Common::Point(57,733),Common::Point(58,737),Common::Point(59,732),Common::Point(58,732)}) {
 		scummverseTravel(transition.x-50); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4);
 		int slot=getObjectIndex(transition.y); if(slot<1) error("Missing exit hotspot");
 		_virtualMouse.x=_objs[slot].x_pos+_objs[slot].width/2; _virtualMouse.y=_objs[slot].y_pos+_objs[slot].height/2;
@@ -44,7 +44,11 @@
 	scummverseArrive();
 	if(_currentRoom!=57 || zak->_room!=57 || ed->_room!=57) error("Flight arrival split passengers");
 	runObjectScript(733,13,false,false,nullptr); if(_currentRoom!=58) error("Seattle outside failed");
-	runObjectScript(738,13,false,false,nullptr); if(_currentRoom!=59) error("Rainier failed");
+	if(!(getState(737)&8)) error("Seattle cave opening is covered");
+	runObjectScript(738,13,false,false,nullptr); if(_currentRoom!=58) error("Mountain scenery incorrectly enters cave");
+	player->putActor(38,60,58);scummverseUpdateTransit(4);
+	if(_currentRoom!=58) error("Forest edge incorrectly enters cave");
+	runObjectScript(737,13,false,false,nullptr); if(_currentRoom!=59) error("Rainier failed");
 	runObjectScript(732,13,false,false,nullptr); if(_currentRoom!=58) error("Cave return failed");
 	runObjectScript(732,13,false,false,nullptr); if(_currentRoom!=57) error("Airport return failed");
 	_scummVars[733]=10; scummverseBoard(); scummverseArrive(); if(_currentRoom!=60) error("Miami failed");

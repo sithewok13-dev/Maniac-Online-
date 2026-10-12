@@ -22,3 +22,12 @@
 - iOS simulator and physical iPhone verification: not performed this milestone.
 - Multiplayer, new-game adapter acceptance, persistent AI memory, creators,
   Curator and testnet ownership: not implemented or demonstrated.
+
+## Patch 0025 — Seattle cave
+
+- Null and ASan engine builds pass; flight probes pass disabled/enabled on both.
+- Native cave-opening clicks and round trip pass; mountain scenery and walking
+  to the forest edge do not enter the cave. Original opening state is asserted.
+- Full expansion probe passes on null; all 25 patch prefixes reconstruct cleanly.
+- No iOS or visual-reference acceptance claimed. Scene audit records unresolved
+  walkbox restrictions, perspective, source puzzle differences and arrival placement.

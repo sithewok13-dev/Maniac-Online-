@@ -1,0 +1,88 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index fae9a9d2..8e79ea10 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -155,10 +155,7 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 				if(object==732) scummverseBoard();
+ 				if(object==736) scummverseAirportOffer();
+ 				if(object==733 && _currentRoom==57) scummverseTravel(8);
+-			} else if (_currentRoom==58) {
+-				if(object==732) scummverseTravel(7);
+-				if(object==738) scummverseTravel(9);
+-			} else if (_currentRoom==59 && object==732) scummverseTravel(8);
++			}
+ 			return;
+ 		}
+ 		if (_currentRoom == 55 && (entry == 13 || entry == 11 || entry == 1)) {
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 17a6b157..d02374c1 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -53,7 +53,7 @@ struct ZakLink { int room, object, destination; };
+ static const ZakLink zakLinks[] = {
+ 	{57, 733, 58},
+ 	{58, 732, 57},
+-	{58, 738, 59},
++	{58, 737, 59},
+ 	{59, 732, 58},
+ 	{59, 734, 92},
+ 	{92, 732, 59},
+@@ -133,3 +133,11 @@ static bool zakPadObject(int room,int object) {
+ 	return ((room==65 || room==89 || room==92 || room==98) && (object==734 || object==735)) ||
+ 		(room==84 && object==745) || (room==69 && object==734) || (room==76 && object==747);
+ }
++
++// Audited DOS V1 sandbox scene setup, expressed in original resource IDs.
++// Seattle's loose dirt (267) has original open-cave artwork in state bit 8.
++// Sandbox travel keeps the opening uncovered; it does not run foreign puzzles.
++struct ZakSceneObjectState { int file, object, setBits, clearBits; };
++static const ZakSceneObjectState zakSceneObjectStates[] = {
++	{12, 267, 8, 0},
++};
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index bd71f08d..afb11739 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -86,8 +86,8 @@ static const MansionPassage mansionPassages[] = {
+ 	{55, 712, 54, 655, false, 43, 36, 30, 56, true},
+ 	{57,733,58,732,false,37,60,6,60,true},
+ 	{58,732,57,733,false,1,60,30,60,true},
+-	{58,738,59,732,false,35,60,6,60,true},
+-	{59,732,58,738,false,1,60,30,60,true},
++	{58,737,59,732,false,35,60,6,60,true},
++	{59,732,58,737,false,1,60,30,60,true},
+ };
+ 
+ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y) {
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 11124e59..c082f638 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -271,6 +271,9 @@ bool ScummEngine::scummverseMountExtra(int room) {
+ 		if (off+15>size) return false;
+ 		uint original=READ_LE_UINT16(data.data()+off+4); if (original>=775) return false;
+ 		_scummverseExtraStates[slot][i]=index[2+original]>>4;
++		for (const auto &state : zakSceneObjectStates)
++			if (state.file == zakPlaces[slot].file && state.object == (int)original)
++				_scummverseExtraStates[slot][i] = (_scummverseExtraStates[slot][i] | state.setBits) & ~state.clearBits;
+ 		WRITE_LE_UINT16(data.data()+off+4,732+i);
+ 	}
+ 	data[22]=data[23]=0; WRITE_LE_UINT16(data.data()+24,0); WRITE_LE_UINT16(data.data()+26,0);
+@@ -352,7 +355,7 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 	VAR(VAR_CURRENT_LIGHTS)=LIGHTMODE_room_lights_on|LIGHTMODE_actor_use_colors;
+ 	if(room>=56) for(int i=1;i<_numLocalObjects;++i) {
+ 		int object=_objs[i].obj_nr;
+-		bool exit=zakAirport(room) || room>=61 || (room==57 || room==60) ? (object==732 || object==733 || object==736) : room==58 ? (object==732 || object==738) : room==59 && object==732;
++		bool exit=zakAirport(room) || room>=61 || (room==57 || room==60) ? (object==732 || object==733 || object==736) : room==58 ? (object==732 || object==737) : room==59 && object==732;
+ 		if(exit) {
+ 			AdjustBoxResult target=player->adjustXYToBeInBox(_objs[i].walk_x/8,_objs[i].walk_y/2);
+ 			_objs[i].walk_x=target.x*8; _objs[i].walk_y=target.y*2;
+@@ -364,7 +367,7 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+-	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Visit Mt. Rainier or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
++	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+ 		room == 54 ? "Zak's apartment. Walk through the door to reach the street and free airport bus." : "Back in Maniac Mansion.";
+ 	if(room>=61) _scummverseWorldNotice=zakPlaces[room-56].name;
