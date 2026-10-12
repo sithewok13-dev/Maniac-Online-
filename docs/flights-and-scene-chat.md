@@ -65,3 +65,9 @@ indefinite flights, save/load, connected exits, and bus waiting/cancellation.
 and no-model failures. The real-model group test checks player speech followed by
 attributed, serial NPC replies. Native compilation and address-sanitizer probes
 do not replace touch/keyboard testing on an iPhone.
+
+The bus carries the original awake driver from Zak’s DOS street graphics. His cab
+image and mask move with the bus during arrival and departure, and disappear
+with it offscreen. The original sleeping and talking overlays stay disabled so
+they cannot leave a second driver behind. The driver is scenery, not a roaming
+conversation participant.

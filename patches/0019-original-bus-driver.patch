@@ -1,0 +1,47 @@
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index e4343152..a0cbc838 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -330,6 +330,20 @@ void GdiV1::scummverseBusImage(const byte *room, int shift) {
+ 	byte original[3][4096], pavement[22*13*3];
+ 	for(int layer=0;layer<3;++layer) decodeV1Gfx(room+READ_LE_UINT16(room+12+layer*2),original[layer],cols*rows);
+ 	decodeV1Gfx(room+READ_LE_UINT16(room+28+12*2),pavement,sizeof(pavement));
++	// Zak object 145 (local 15) is the awake driver's original cab image.
++	// Composite into the bus before translating it so clipping and masks move
++	// together, including when the cab crosses either edge of the street.
++	const uint driverCode = READ_LE_UINT16(room + 28 + 20 * 2 + 15 * 2);
++	const int driverX = room[driverCode + 7], driverY = room[driverCode + 8] & 0x7f;
++	const int driverWidth = room[driverCode + 9], driverHeight = (room[driverCode + 13] & 0xf8) / 8;
++	if (driverX == 109 && driverY == 6 && driverWidth == 5 && driverHeight == 4) {
++		byte driver[5 * 4 * 3];
++		decodeV1Gfx(room + READ_LE_UINT16(room + 28 + 15 * 2), driver, sizeof(driver));
++		for (int layer = 0; layer < 3; ++layer)
++			for (int y = 0; y < driverHeight; ++y)
++				for (int x = 0; x < driverWidth; ++x)
++					original[layer][(driverX + x) * rows + driverY + y] = driver[layer * 20 + y * driverWidth + x];
++	}
+ 	byte *maps[]={_V1.picMap,_V1.colorMap,_V1.maskMap};
+ 	for(int layer=0;layer<3;++layer) {
+ 		memcpy(maps[layer],original[layer],cols*rows);
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 2e6e98e6..dacdb2d6 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -447,7 +447,7 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 	Actor *queuePlayer=derefActor(VAR(VAR_EGO),"bus stop");
+ 	if(ABS(queuePlayer->getRealPos().x-92)>6) _scummverseBusArmed=true;
+ 	else if(_scummverseBusArmed && !queuePlayer->_moving) { _scummverseBusEgo=VAR(VAR_EGO); _scummverseBusArmed=false; }
+-	// Move the original bus and its attached driver objects, never fabricated art.
++	// The original awake driver is composited into the moving bus tile maps.
+ 	int shift=phase<60 ? (60-phase)*8 : phase<180 ? 0 : phase<240 ? -(phase-180)*16 : -1600;
+ 	_gdi->scummverseBusImage(_scummverseStreetRoom.data(),shift);
+ 	for(int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr>=724 && _objs[i].obj_nr<=728) {
+@@ -455,7 +455,7 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 		uint off=READ_LE_UINT16(_scummverseStreetRoom.data()+28+40+n*2);
+ 		int base=_scummverseStreetRoom[off+7]*8;
+ 		int x=MAX(0,base+shift);
+-		int state = (phase>=240 || n==12) ? (_scummverseStreetStates[n] & ~kObjectStateIntrinsic) : _scummverseStreetStates[n];
++		int state = (phase>=240 || n==12 || (n>=14 && n<=16)) ? (_scummverseStreetStates[n] & ~kObjectStateIntrinsic) : _scummverseStreetStates[n];
+ 		if(getState(_objs[i].obj_nr)!=state) { putState(_objs[i].obj_nr,state); _fullRedraw=true; }
+ 		if (_objs[i].x_pos!=x) { _objs[i].x_pos=x; _fullRedraw=true; }
+ 	}
