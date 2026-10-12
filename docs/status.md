@@ -281,3 +281,18 @@ remain to be tested; model responses are not guaranteed to be coherent or novel.
   pass with private game data; memory-checking path probes pass. Thirteen-patch
   source preparation passes. File-picker presentation, file-provider downloads
   and the complete import interaction still need physical iPhone validation.
+
+## Expanded Zak cast — automated verification, device acceptance pending
+
+Annie Larris, Melissa China and Leslie Bennett use original DOS costumes 2–4
+from verified 06.LFL/28.LFL, imported as costumes 35–37. Reserved ending actors
+20–22 preserve the 25-actor save layout. The native costume directory still reads
+35 entries; added resources do not shift script/sound offsets. A separate saved
+initialization flag adds the cast to older saves without resetting existing NPCs.
+
+Original-data probes cover four facings, walking, script ownership, recruiting,
+shared flight manifests, save/load, simultaneous arrival and independent travel.
+The same cast probe passes AddressSanitizer; airport route and older-save probes
+cover all three new guests. Scene-chat tests cover their names and participant masks.
+No original resources or extracted scripts are distributed. iPhone touch behavior
+and performance still need device acceptance.

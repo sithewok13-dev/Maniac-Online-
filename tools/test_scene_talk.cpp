@@ -21,5 +21,11 @@ int main() {
  r.armPick(false); r.scene(58,3,nearby,true,speaker,text,sizeof(text));
  assert(r.pick(9) && !r.talkingWith()); // Stale selection cannot target next room.
  r.armPick(false); r.endTalk(); assert(!r.picking());
+ r.scene(54,3,(1u<<20)|(1u<<21)|(1u<<22),true,speaker,text,sizeof(text));
+ r.armPick(false); assert(r.pick(20)); r.armPick(true); assert(r.pick(21)); r.armPick(true); assert(r.pick(22));
+ assert(r.talkingWith()==((1u<<20)|(1u<<21)|(1u<<22)));
+ assert(std::string(actorName(20))=="Annie Larris");
+ assert(std::string(actorName(21))=="Melissa China");
+ assert(std::string(actorName(22))=="Leslie Bennett");
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections and no-model feedback\n";
 }

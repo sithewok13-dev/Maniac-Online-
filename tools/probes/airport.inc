@@ -17,7 +17,7 @@
 		error("Airport resource import failed");
 	for (int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr && (_objs[i].obj_nr<683 || _objs[i].obj_nr>711)) error("Airport object collision");
 	auto freezeOthers = [&]() {
-		for (int id : {1,2,3,4,5,6,7,9,10,11,13,14,23,24}) if (id!=VAR(VAR_EGO)) {
+		for (int id : {1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22}) if (id!=VAR(VAR_EGO)) {
 			Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"park NPC")->_room; r.wait=60000; r.speech=60000;
 			derefActor(id,"park NPC")->stopActorMoving();
 		}
@@ -65,7 +65,7 @@
 	if (_currentRoom!=1 || player->getRealPos().x<4 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Free mansion return changed inventory or landed on an exit");
 	// Visible NPCs walk to each connection; they never move the player's camera.
 	const int routes[][3]={{73,1,53},{74,44,53},{77,54,55},{78,55,53},{79,55,54}};
-	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24}) {
+	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24,20,21,22}) {
 		player->putActor(20,60,route[1]); startScene(route[1],player,0); freezeOthers();
 		Actor *zak=derefActor(actorId,"travelling NPC"); zak->putActor(20,60,route[1]);
 		Roamer &r=_scummverseRoamers[actorId]; r=Roamer(); r.room=route[1]; r.exit=route[0]; r.speech=60000;
@@ -75,7 +75,7 @@
 			walked |= zak->getRealPos()!=zakPos;
 			if (_currentRoom!=route[1] || player->getRealPos()!=playerPos || camera._cur!=cameraPos || !_userPut) error("NPC travel stole player control");
 		}
-		if (!walked || zak->_room!=route[2] || zak->_costume!=(actorId==24 ? 34 : actorId)) error("Visible NPC %d route failed: %d -> %d",actorId,route[1],route[2]);
+		if (!walked || zak->_room!=route[2] || zak->_costume!=(actorId==24 ? 34 : actorId>=20 && actorId<=22 ? actorId+15 : actorId)) error("Visible NPC %d route failed: %d -> %d",actorId,route[1],route[2]);
 	}
 	// Random airport planning may choose any connected destination, even the
 	// place an NPC just left. Offscreen travel must not load a scene or walkbox.
@@ -116,7 +116,8 @@
 		if(!loadState(3,false) || _currentRoom!=54 || !_scummVars[760] || _scummVars[761]) error("Previous-build save did not load");
 		Common::Point savedZak=zak->getRealPos(); int savedZakRoom=zak->_room;
 		scummverseUpdateTransit(4);
-		if(!_scummVars[761] || zak->getRealPos()!=savedZak || zak->_room!=savedZakRoom) error("Airport migration reset saved Zak");
+		if(!_scummVars[761] || !_scummVars[763] || zak->getRealPos()!=savedZak || zak->_room!=savedZakRoom) error("Airport migration reset saved Zak");
+		for(int id=20;id<=22;++id) if(derefActor(id,"migrated guest")->_costume!=id+15) error("Old save missing new Zak guest");
 		if(!scummverseTravel(3) || _currentRoom!=53) error("Previous-build save cannot use airport");
 	}
 	warning("SCUMMVERSE_AIRPORT_PASS enabled=1"); quitGame();

@@ -3,7 +3,22 @@
 Zak's original San Francisco airport connects the Maniac Mansion grounds and
 Zak's street, free airport bus and apartment, Seattle forest/cave, Miami airport and the original plane cabin. Travel is free: no tickets, cash, purchases or puzzle checks.
 The selected kid keeps their appearance, identity and inventory. NPCs, including
-Zak, choose destinations randomly and can wander between the connected worlds.
+Zak, Annie, Melissa and Leslie, choose destinations randomly and can wander between the connected worlds.
+
+## Zak companions
+
+Annie Larris, Melissa China and Leslie Bennett start in Zak's apartment on their
+first initialization, then roam the connected world. They use their original DOS
+walking costumes, normalized to the same 120% scale as Zak. Tap **Talk**, select
+a character, and use **+** to include others. **Follow** brings them through doors,
+on the bus and onto your flight; **Unfollow** lets them explore independently.
+They have individual local-AI personalities and newly written offline greetings.
+They are NPC companions, not additional playable kids.
+
+Existing saves gain the three visitors without resetting Zak or the mansion cast.
+Keep the full original Zak file set installed: their sprites require **06.LFL**
+and **28.LFL**. Missing/unsupported optional sprite files leave the existing worlds
+usable and produce a diagnostic; installation is retried periodically.
 
 ## iPhone setup
 
@@ -80,7 +95,7 @@ The importer verifies original English DOS V1 files before decoding:
 | 08.LFL | `5337090e7a6ebdbfb698ebda3750d926` | San Francisco airport |
 
 Audited unused Maniac slots represent airport room 53, apartment room 54, Zak
-actor 24/costume 34, and imported objects 650–731. Room 55 is added for the
+actor 24/costume 34, Annie/Melissa/Leslie in reserved ending-actor slots 20–22 with added costumes 35–37, and imported objects 650–731. Room 55 is added for the
 street; native directory reads retain their original room count. Variables
 703–723 retain per-kid return points; 760–762 record world initialization.
 The existing indexed resource save format supports the additional room. Transient routes are replanned on load; original actor locations are

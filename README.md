@@ -103,3 +103,7 @@ remain available. See [local dialogue](docs/local-ai.md) for limits and instruct
 **Group Talk:** tap **Talk**, then a character. Use **+** and tap another character
 to share the conversation. Send collapses the bar; tap the recipient to write again.
 See [scene chat, destinations, flights and bus](docs/flights-and-scene-chat.md).
+
+**Expanded Zak cast:** Annie, Melissa and Leslie start at Zak's apartment and join
+roaming, group conversations and companion travel. Their original sprites come
+from your installed Zak files; existing saves migrate automatically.
