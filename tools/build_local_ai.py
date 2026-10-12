@@ -22,6 +22,14 @@ def main():
     head = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     if head != pin['commit']:
         raise SystemExit(f'Refusing unexpected llama.cpp revision: {head}')
+    # Apply audited local fixes to the pinned runtime, idempotently. Reject
+    # conflicts rather than silently building without the ownership repair.
+    for patch in sorted((ROOT/'tools/runtime-patches').glob('*.patch')):
+        applied = subprocess.run(['git', '-C', str(source), 'apply', '--reverse', '--check', str(patch)], capture_output=True)
+        if applied.returncode:
+            run('git', '-C', source, 'apply', '--check', patch)
+            run('git', '-C', source, 'apply', patch)
+    run(sys.executable, ROOT/'tools/test_metal_ownership.py', source)
     output = ROOT/'build/llama-ios'
     run('cmake', '-S', source, '-B', output,
         '-DCMAKE_SYSTEM_NAME=iOS', '-DCMAKE_OSX_SYSROOT=iphoneos',

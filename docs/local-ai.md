@@ -127,3 +127,22 @@ python3 tools/test_ai_encounters.py /path/to/original-dos-v1
 Individual Talk headers also offer **Come with me** / **Travel on your own**.
 These explicit buttons command the game engine; dialogue itself still cannot
 move characters. Group conversations retain their shared, attributed transcript.
+
+## Metal model-unload repair
+
+The pinned runtime's mapped-buffer cleanup previously used the owned shared-buffer
+destructor. On iOS that calls `free()` on a borrowed mmap pointer. A physical-device
+crash report identified `POINTER_BEING_FREED_WAS_NOT_ALLOCATED` in this exact path
+while unloading Qwen3. This is distinct from an iOS Jetsam memory termination.
+
+`tools/runtime-patches/0001-metal-mapped-ownership.patch` assigns mapped buffers
+a destructor that releases Metal/residency objects and their wrapper without
+freeing the borrowed model storage. Owned shared allocations retain their original
+destructor. The builder applies this patch idempotently to the pinned revision
+and rejects conflicts. Corresponding source includes both the patch and the
+modified runtime. Model weights and inference settings are unchanged.
+
+`tools/test_metal_ownership.py build/llama-src` executes the actual cleanup bodies
+with mocked Metal-object releases and real malloc/mmap storage under AddressSanitizer.
+It checks 100 borrowed/owned cleanup cycles and destructor dispatch. It does not
+exercise a physical GPU; on-device Qwen3 activation/unloading still needs retesting.
