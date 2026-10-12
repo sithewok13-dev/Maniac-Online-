@@ -1,0 +1,40 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 43d791a4..1df1dbe9 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -523,8 +523,8 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Choose Zak folder..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] chooseFrom:controller]; }];
+ 	}]];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Choose character" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(ScummverseLocalAI::sceneToken() | 63); }]];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Crystal teleport pads" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(ScummverseLocalAI::sceneToken() | 62); }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Choose character" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 63); }]; }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Crystal teleport pads" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 62); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to airport" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(3); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(1); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Return to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(2); }]];
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index b3ab6513..67dbd13e 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -465,6 +465,7 @@ void ScummEngine::scummverseArrive() {
+ }
+ void ScummEngine::scummverseWaitBus() {
+ 	if (_currentRoom!=55 || _scummVars[765]>60) return;
++	if(!scummverseMountAirport()) { scummverseSay(VAR(VAR_EGO),_scummverseWorldNotice.c_str()); return; }
+ 	_scummVars[767]=VAR(VAR_EGO); _scummverseBusEgo=VAR(VAR_EGO);
+ 	if(!_scummVars[765]) _scummVars[765]=1;
+ 	scummverseSay(VAR(VAR_EGO),"A ride to the airport, please!");
+@@ -483,10 +484,12 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 			for(int id : mansionCast) if(_scummVars[770+id]==ego) passengers |= 1u<<id;
+ 		}
+ 		_scummVars[766]=passengers;
++		if(_currentRoom==55 && (passengers & (1u<<VAR(VAR_EGO)))) setCameraAt(108*8,60*2);
+ 	}
+ 	if(phase>60 && phase<150) for(int id : mansionCast) if(_scummVars[766] & (1u<<id)) {
+ 		Actor *a=derefActor(id,"bus passenger");a->stopActorMoving();
+ 		a->putActor(103,51+(phase-60),55);
++		a->hideActor(); // Riders are inside the cab, never floating above it.
+ 	}
+ 	if(phase>=150) {
+ 		unsigned passengers=_scummVars[766]; int ego=_scummVars[767];

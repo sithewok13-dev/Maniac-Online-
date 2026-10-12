@@ -63,7 +63,9 @@
 	for(int n=0;n<300;++n) scummverseServiceBus(4);
 	if(_scummVars[765] || _currentRoom!=55) error("Bus departed without request");
 	scummverseWaitBus();if(!_scummVars[765]) error("Bus ignored request");
-	for(int n=0;n<40;++n) scummverseServiceBus(4);
+	for(int n=0;n<20;++n) scummverseServiceBus(4);
+	if(derefActor(VAR(VAR_EGO),"boarded rider")->_visible) error("Passenger drawn outside moving bus");
+	for(int n=0;n<20;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || _scummVars[765]) error("Bus did not deliver passenger");
 	// Switching to an NPC already aboard must follow its bus to the airport.
 	_scummVars[765]=70;_scummVars[766]=1u<<18;_scummVars[767]=0;derefActor(18,"NPC bus rider")->putActor(103,61,55);
