@@ -49,11 +49,11 @@
 	runObjectScript(732,13,false,false,nullptr); if(_currentRoom!=57) error("Airport return failed");
 	_scummVars[733]=10; scummverseBoard(); scummverseArrive(); if(_currentRoom!=60) error("Miami failed");
 	_scummVars[733]=3; scummverseBoard(); scummverseArrive(); if(_currentRoom!=53) error("SFO failed");
-	scummverseTravel(5); player->putActor(92,59,55); _scummverseBusClock=240; scummverseWaitBus();
-	for(int n=0;n<100;++n) scummverseServiceBus(4);
-	if(_currentRoom!=55) error("Bus boarded before stopping");
-	for(int n=0;n<50 && _currentRoom==55;++n) { scummverseServiceBus(4); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(0); }
-	if(_currentRoom!=53 || zak->_room!=53) error("Timed bus failed");
-	scummverseTravel(5); player->putActor(92,59,55); scummverseWaitBus(); player->putActor(80,59,55); scummverseServiceBus(4);
-	if(_scummverseBusEgo) error("Walking away did not cancel bus");
+	scummverseTravel(5); player->putActor(92,59,55);
+	for(int n=0;n<500;++n) scummverseServiceBus(4);
+	if(_currentRoom!=55 || _scummVars[765]) error("Sleeping bus left without request");
+	scummverseWaitBus(); scummverseServiceBus(4);
+	if(_currentRoom!=55) error("Bus skipped boarding");
+	for(int n=0;n<40;++n) scummverseServiceBus(4);
+	if(_currentRoom!=53 || zak->_room!=53) error("Requested bus failed");
 	warning("SCUMMVERSE_FLIGHTS_PASS enabled=1"); quitGame();

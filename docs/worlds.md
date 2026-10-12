@@ -2,7 +2,7 @@
 
 Zak's original San Francisco airport connects the Maniac Mansion grounds and
 Zak's street, free airport bus and apartment, Seattle forest/cave, Miami airport and the original plane cabin. Travel is free: no tickets, cash, purchases or puzzle checks.
-The selected kid keeps their appearance, identity and inventory. NPCs, including
+The selected character keeps their appearance, identity and inventory. NPCs, including
 Zak, Annie, Melissa and Leslie, choose destinations randomly and can wander between the connected worlds.
 
 ## Zak companions
@@ -13,7 +13,7 @@ walking costumes, normalized to the same 120% scale as Zak. Tap **Talk**, select
 a character, and use **+** to include others. **Follow** brings them through doors,
 on the bus and onto your flight; **Unfollow** lets them explore independently.
 They have individual local-AI personalities and newly written offline greetings.
-They are NPC companions, not additional playable kids.
+They are also selectable players in the new character gallery. See [expanded worlds](expanded-worlds.md) for the complete available roster and travel map.
 
 Existing saves gain the three visitors without resetting Zak or the mansion cast.
 Keep the full original Zak file set installed: their sprites require **06.LFL**
@@ -53,8 +53,7 @@ SCUMMVERSE/
   does not move the player: walk to the **gate to planes** to enter the plane; **Arrive** lands at your destination. **Cancel**
   leaves the previous selection intact. The right-hand door still takes the free bus.
 - Leave the apartment through its door, walk right along the street, then
-  walk into the **bus stop** area to wait for the ten-second service. Walk away to
-  cancel. No CashCard is needed.
+  tap the **bus** to wake the driver and request a ride. No CashCard is needed.
 - On the street, **Walk to** the **stairs** to enter Zak's apartment.
 - Arrivals are placed inside the destination, away from automatic exits. Use the computer again to change the selected destination.
 - **Worlds** remains a shortcut for testing. Its **Return to Maniac Mansion**

@@ -56,7 +56,7 @@
 	runObjectScript(655,13,false,false,nullptr);
 	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
 	player->putActor(92,59,55); _scummverseBusClock=156;
-	runObjectScript(724,13,false,false,nullptr); scummverseServiceBus(4);
+	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53) error("Free bus did not reach airport");
 	scummverseWorldRequest(((53*32+5)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53) error("Stale passenger selection moved another kid");
@@ -82,14 +82,17 @@
 	player->putActor(30,56,7); startScene(7,player,0); freezeOthers();
 	Actor *zak=derefActor(24,"random passenger"); unsigned visited=0;
 	_rnd.setSeed(12345);
-	for(int round=0;round<40;++round) {
+	for(int round=0;round<400;++round) {
 		zak->putActor(20,60,53); Roamer &r=_scummverseRoamers[24]; r=Roamer(); r.room=53; r.previousRoom=1;
 		Common::Point cameraPos=camera._cur, playerPos=player->getRealPos();
 		_scummverseNpcDestination[24]=0; scummverseUpdateRoaming(4); _scummverseNpcBoarding[24]=0; scummverseUpdateRoaming(4);
 		if (_currentRoom!=7 || camera._cur!=cameraPos || player->getRealPos()!=playerPos) error("Offscreen flight stole scene");
-		if (zak->_room==1) visited|=1; else if(zak->_room==53) visited|=2; else if(zak->_room==57) visited|=4; else if(zak->_room==60) visited|=8; else error("Random flight did not reach a connected destination");
+		const int airports[]={1,53,57,60,61,66,70,77,85,94};
+		bool connected=zak->_room==55;
+		for(int i=0;i<10;++i) if(zak->_room==airports[i]) { visited|=1u<<i;connected=true; }
+		if(!connected) error("Random flight did not reach a connected destination");
 	}
-	if (visited!=15) error("Random airport routing omitted a destination");
+	if (visited!=1023) error("Random airport routing omitted a destination");
 	// A group conversation prevents departures, including the new actor.
 	scummverseTravel(3); zak->putActor(15,60,53); Actor *edna=derefActor(10,"airport group"); edna->putActor(18,60,53);
 	for(int id : {10,24}) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=53; r.elapsed=10000; }

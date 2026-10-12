@@ -107,3 +107,5 @@ See [scene chat, destinations, flights and bus](docs/flights-and-scene-chat.md).
 **Expanded Zak cast:** Annie, Melissa and Leslie start at Zak's apartment and join
 roaming, group conversations and companion travel. Their original sprites come
 from your installed Zak files; existing saves migrate automatically.
+
+The latest sandbox expansion adds a playable face gallery, portrait game/chat layout, on-request sleeping-driver bus, and more original Zak locations. See [controls and scope](docs/expanded-worlds.md).

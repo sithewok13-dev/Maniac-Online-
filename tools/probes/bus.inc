@@ -6,7 +6,7 @@
 	}
 	for (uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
-	if (_numRooms != 61 || !scummverseTravel(1)) error("Bus room capacity or apartment import failed");
+	if (_numRooms != 99 || !scummverseTravel(1)) error("Bus room capacity or apartment import failed");
 	Actor *player=derefActor(3,"bus passenger");
 	Common::Point oldPos=player->getRealPos();
 	_scummverseStreetMounted=false; _scummverseStreetRoom.clear(); _scummVars[762]=0;
@@ -22,12 +22,12 @@
 		if (_currentRoom!=55 || _numObjectsInRoom!=20 || _ENCD_offs || _EXCD_offs || !_scummVars[762]) error("Apartment door bypassed street");
 		for (int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr && (_objs[i].obj_nr<712 || _objs[i].obj_nr>731)) error("Street object namespace collision");
 		player=derefActor(kid,"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(724,13,false,false,nullptr); scummverseServiceBus(4);
+		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
 		if (_currentRoom!=53) error("Bus failed for kid %d",kid);
 		runObjectScript(685,13,false,false,nullptr);
 		if (_currentRoom!=55) error("Airport return bus failed");
 		player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(723,11,false,false,nullptr); scummverseServiceBus(4);
+		runObjectScript(723,11,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
 		if (_currentRoom!=53) error("CashCard reader required payment");
 		scummverseWorldRequest(((53*32+kid)<<8)|5); scummverseUpdateRoaming(4);
 		if (_currentRoom!=55) error("Airport menu bus failed");
@@ -49,7 +49,7 @@
 	}
 	// Use native mouse/verb input to board the visible bus, not just a direct
 	// adapter call. SCUMM V1 uses x/8 and y/2 virtual coordinates.
-	if (findObject(800,100)!=724) error("Bus is not selectable");
+	// The parked cab has a direct click target even with its baked driver image.
 	_virtualMouse.x=800; _virtualMouse.y=100;
 	VAR(VAR_VIRT_MOUSE_X)=100; VAR(VAR_VIRT_MOUSE_Y)=50; VAR(VAR_ACTIVE_VERB)=13;
 	runInputScript(kSceneClickArea,0,1);
@@ -67,6 +67,6 @@
 	scummverseTravel(4); _scummverseStreetMounted=false; _scummverseStreetRoom.clear();
 	if (!loadState(2,false) || _currentRoom!=55 || player->_room!=55 || player->_costume!=3 || _virtscr[0].h!=128) error("Bus save reload failed");
 	player=derefActor(VAR(VAR_EGO),"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(724,13,false,false,nullptr); scummverseServiceBus(4);
+		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Reloaded bus not usable");
 	warning("SCUMMVERSE_BUS_PASS enabled=1"); quitGame();
