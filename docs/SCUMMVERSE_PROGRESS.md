@@ -1,0 +1,57 @@
+# Current development handoff — Purple Meteor
+
+## Scope and baseline
+
+Active milestone: Phase 0 audit and first Phase 1 portrait repair.
+Previous delivered baseline: patch 0022, project commit
+25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
+this lineage. Existing original-data tests validate the sandbox's own mappings;
+they do not establish source-game authenticity or real multiplayer correctness.
+
+## Audited defects / next queue
+
+1. Portrait cropping: extraction chose a top square based on body width. Replaced
+   with full visible sprite bounds fitted into a padded square. This deliberately
+   shows whole character portraits until explicit source face metadata exists.
+2. Navigation: scummverseTravel clears every imported room's box flags. Original
+   entry scripts are suppressed. Restore audited scene restrictions through an
+   edition adapter, with safe spawn/exit tests; do not merely remove the loop and
+   assume rooms whose setup never ran will work. Peru bird-only traversal needs
+   explicit capability checks.
+3. Room identity: physical Zak resources are reused by different logical rooms.
+   Catalog entries map resource files, omitting script-controlled object states,
+   scroll regions and costume variants. Audit Mexico, Mars, Peru and Egypt from
+   original logical scene setup before correcting room connections or scale.
+4. Scaling: imported costumes use a fixed 6:5 renderer; original scene-specific
+   costume changes are omitted. Investigate V1 costume variants, not assumptions
+   about later SCUMM depth scaling. No arbitrary room-scale constants.
+5. Portrait phone UI: current half-window rendering and native panel positioning
+   need real rotation, safe-area, keyboard and input-coordinate validation.
+6. Transport: local manifests, standing plane actors, single active flight; no
+   authoritative server. Reproduce reported bus ghosts with visibility/state
+   transitions before introducing shared vehicle instances/seats.
+7. Chat/AI: platform-owned runtime, limited context, no durable messaging contract.
+   Preserve the prior Metal buffer ownership crash fix and model integrity checks.
+8. Missing NPCs: verify Elvis-related content, Guru levitation and Nepal guards
+   using supplied resources; do not invent identity or animation mappings.
+
+## Roadmap and limits
+
+Phase 1 existing bugs → portable module contracts → game-pack acceptance test →
+real authoritative multiplayer/persistence → bounded AI memory/providers →
+protected expansions → crafting and validated adventures → external Curator →
+atomic discovery history → secure optional testnet ownership → economy prototype
+and desktop adapters. Complete vertical slices; do not start all systems together.
+Canonical assets remain protected. Player content uses approved physical entrances.
+Most objects are ordinary inventory items. No pay-to-win or speculative token work.
+
+## Continuation
+
+Read AGENTS.md and SCUMMVERSE_ARCHITECTURE.md. First isolate the renderer strip
+assertion recorded in TEST_STATUS; do not skip this failed regression. The next
+substantive content slice is a logical
+Zak scene identity/setup audit with private reference comparisons and one faithful
+scene proving geometry, scale and transitions. Existing private descumm output
+under build/zak-analysis can inform analysis; never publish those scripts/assets.
+Record verification evidence in SCUMMVERSE_TEST_STATUS.md. No automatic claim of
+complete Mars, multiplayer support, device acceptance or future background work.
