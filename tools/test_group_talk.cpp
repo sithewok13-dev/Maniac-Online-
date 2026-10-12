@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
 	int round = 0;
 	for (const char *message : {"Hello Fred and Edna. What is making that noise upstairs?", "Do you two agree about what we should do?"}) {
 		assert(r.sendTalk(message)); assert(!r.sendTalk("Another message")); assert(!r.request(14,7,3));
+		assert(r.scene(7,3,group,true,speaker,speech,sizeof(speech))==group && speaker==3 && std::string(speech)==message);
 		std::vector<ChatLine> replies;
 		for (int n=0; n<700 && (r.waitingForTalk() || replies.size()<2); ++n) {
 			std::string text; int actor;

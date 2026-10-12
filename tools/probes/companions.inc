@@ -10,7 +10,9 @@
 	scummverseCompanionCommand(88);
 	if (_scummVars[794]!=3) error("Companion did not join");
 	runObjectScript(683,13,false,false,nullptr);
-	if (_currentRoom!=1 || zak->_room!=1 || _scummVars[733] || _scummVars[743]!=53 || !(_scummVars[753] & (1u<<24))) error("Boarding lost companion or arrival facts");
+	if(_currentRoom!=56 || zak->_room!=56) error("Companions missed the cabin");
+	scummverseArrive();
+	if (_currentRoom!=1 || zak->_room!=1 || _scummVars[733] || _scummVars[743]!=56 || !(_scummVars[753] & (1u<<24))) error("Boarding lost companion or arrival facts");
 	for (int destination : {3,5,1,5,3,4}) {
 		if (!scummverseTravel(destination) || zak->_room!=_currentRoom) error("Companion lost across worlds/bus");
 	}

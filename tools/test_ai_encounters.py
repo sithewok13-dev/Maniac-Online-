@@ -8,6 +8,7 @@ PRELUDE = r'''
 #define SCUMMVERSE_LOCAL_AI 1
 #include <cstring>
 namespace FakeAI { bool accept = false, complete = false; int actor = 0, room = 0, cancels = 0, talk = 0; unsigned roster = 0, group = 0; bool reply = false; int worldRequest = 0, airportOffers = 0; }
+bool scummverseTalkPick(int) { return false; }
 bool scummverseAIRequest(int actor, int room, int) {
  if (!FakeAI::accept) return false;
  FakeAI::actor = actor; FakeAI::room = room; return true;
