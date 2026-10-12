@@ -26,23 +26,18 @@ part of this first dialogue integration.
 
 ## Talk preview
 
-Tap **Talk** below AI, choose a character currently in the room, then type a message
-and tap Send (or the keyboard Send key). Keyboard dictation can be used if enabled
-on the phone; its processing is managed by iOS, not this app's local model.
-The compact, translucent lower panel keeps the scene visible. While typing, it
-collapses to a header and composer above the keyboard; sending dismisses the
-keyboard and restores the transcript. Replies appear in the scrollable panel and are delivered to the normal game speech
-renderer on the game thread. Tap Done to close the panel and resume wandering.
-The selected NPC pauses; the rest of the mansion continues.
-When at least two characters are present, **Talk to everyone here** starts a shared
-group conversation. Everyone in the room joins and pauses. Up to two characters
-reply per player message, in sequence, with a rotating first speaker. The second
-speaker receives the first speaker's exact successful reply in the same shared
-transcript. They can agree, disagree, or add to it; quality is model-dependent.
-New arrivals join the group and become eligible on the next player message.
-Departed characters cannot deliver late replies. If the current speaker leaves,
-that round is cancelled but the remaining group can continue. Done releases all
-participants. Individual chats remain available in the same picker.
+Tap **Talk**, then a character directly in the scene. Type in the small message
+bar and use Send or the keyboard Send key. Sending dismisses the keyboard and
+collapses the bar; tap the recipient to write again. Failed sends retain the draft
+and show an error. Player and NPC lines appear in the scene. **History** expands
+recent messages; **Close** ends the conversation. Keyboard dictation uses iOS.
+
+Use **+**, then tap another character to add them to the same conversation.
+Participants pause their wandering; the rest of the room continues. Bystanders
+are not added automatically. Up to two characters reply per message, sequentially,
+with a rotating first speaker. The second sees the first speaker's successful
+reply. Departed characters cannot deliver late replies. Room/player changes end
+the conversation. See [scene chat and travel](flights-and-scene-chat.md).
 
 Only one model is loaded. Two replies can take up to 30 seconds each. The panel
 labels every reply with its actual speaker. The game speech renderer waits for an
@@ -124,7 +119,7 @@ libraries and pass a verified GGUF path. The game integration probe is:
 python3 tools/test_ai_encounters.py /path/to/original-dos-v1
 ```
 
-Individual Talk headers also offer **Come with me** / **Travel on your own**.
+Individual Talk headers also offer **Follow** / **Unfollow**.
 These explicit buttons command the game engine; dialogue itself still cannot
 move characters. Group conversations retain their shared, attributed transcript.
 

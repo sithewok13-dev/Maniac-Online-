@@ -12,7 +12,8 @@ models through the iPhone **AI** button; Classic remains the default. See
 [local dialogue setup and limits](docs/local-ai.md). Movement remains engine-driven.
 The outer mansion grounds now connect to Zak's original DOS V1 airport. Travel
 is free; you choose a destination while NPCs choose randomly. Zak and the mansion
-cast can roam between the connected airport, free bus street, apartment and mansion. See
+cast can visit the mansion, San Francisco, Seattle and Miami airport, with shared
+plane cabins and a timed free bus. See
 [connected worlds](docs/worlds.md) for setup and current destinations.
 Multiplayer remains unimplemented. No proprietary game data or model weights are included.
 
@@ -95,10 +96,10 @@ If reverse application reports conflicts, preserve and reconcile your local engi
 edits first; do not reset the checkout. Replace C64 disk images with the original
 DOS `.LFL` files. A fresh checkout needs only the normal build command.
 
-The **Talk preview** adds a native character picker and keyboard conversation panel.
+The **Talk preview** uses in-scene character selection and a small message bar.
 Qwen3 4B is an optional 2,497 MB download for high-memory phones; Small/Larger
 remain available. See [local dialogue](docs/local-ai.md) for limits and instructions.
 
-**Group Talk:** choose **Talk to everyone here** when two or more characters are
-in the room. Characters share one transcript and take turns responding to you
-and each other, using the same downloaded model. Individual chats remain available.
+**Group Talk:** tap **Talk**, then a character. Use **+** and tap another character
+to share the conversation. Send collapses the bar; tap the recipient to write again.
+See [scene chat, destinations, flights and bus](docs/flights-and-scene-chat.md).

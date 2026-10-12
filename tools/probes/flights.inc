@@ -16,6 +16,21 @@
 			for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);}
 		}
 	}
+
+	for(const auto &transition : {Common::Point(57,733),Common::Point(58,738),Common::Point(59,732),Common::Point(58,732)}) {
+		scummverseTravel(transition.x-50); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4);
+		int slot=getObjectIndex(transition.y); if(slot<1) error("Missing exit hotspot");
+		_virtualMouse.x=_objs[slot].x_pos+_objs[slot].width/2; _virtualMouse.y=_objs[slot].y_pos+_objs[slot].height/2;
+		bool found=false;
+		for(int y=_objs[slot].y_pos;y<_objs[slot].y_pos+_objs[slot].height && !found;++y)
+			for(int x=_objs[slot].x_pos;x<_objs[slot].x_pos+_objs[slot].width;++x)
+				if(findObject(x,y)==transition.y) { _virtualMouse.x=x; _virtualMouse.y=y; found=true; break; }
+		if(!found) error("Exit is completely obscured: %d",transition.y);
+		VAR(VAR_VIRT_MOUSE_X)=_virtualMouse.x/8; VAR(VAR_VIRT_MOUSE_Y)=_virtualMouse.y/2; VAR(VAR_ACTIVE_VERB)=13;
+		runInputScript(kSceneClickArea,0,1);
+		for(int n=0;n<1200 && _currentRoom==transition.x;++n) scummLoop(4);
+		if(_currentRoom==transition.x) error("Native exit click failed: room %d obj %d actor %d,%d",transition.x,transition.y,player->getRealPos().x,player->getRealPos().y);
+	}
 	scummverseTravel(3);
 	Actor *zak=derefActor(24,"Zak passenger"), *ed=derefActor(11,"Ed passenger");
 	zak->putActor(20,60,53); scummverseCompanionCommand(88);

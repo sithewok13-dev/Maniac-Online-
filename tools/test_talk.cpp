@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
 	for (const char *question : {"Hello Edna. My name is Pickle. What are you cooking?", "Do you remember the name I just gave you?"}) {
 		auto begin = std::chrono::steady_clock::now();
 		assert(r.sendTalk(question)); assert(!r.sendTalk("another"));
+		assert(r.scene(7,3,1u<<10,true,speaker,speech,sizeof(speech))==(1u<<10) && speaker==3 && std::string(speech)==question);
 		std::string reply;
 		for (int n=0; n<400 && !r.readTalk(speaker,reply); ++n)
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));

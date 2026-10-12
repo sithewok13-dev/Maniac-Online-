@@ -1,7 +1,7 @@
 # Connected worlds and the free airport
 
 Zak's original San Francisco airport connects the Maniac Mansion grounds and
-Zak's street, free airport bus and apartment. Travel is free: no tickets, cash, purchases or puzzle checks.
+Zak's street, free airport bus and apartment, Seattle forest/cave, Miami airport and the original plane cabin. Travel is free: no tickets, cash, purchases or puzzle checks.
 The selected kid keeps their appearance, identity and inventory. NPCs, including
 Zak, choose destinations randomly and can wander between the connected worlds.
 
@@ -35,10 +35,11 @@ SCUMMVERSE/
   between those two exterior screens remains intact.
 - **Use** the airport reservations computer to open the purple pixel destination
   panel. Select **Maniac Mansion** or **San Francisco**, then **OK**. Selection
-  does not move the player: walk to the **gate to planes** to depart. **Cancel**
+  does not move the player: walk to the **gate to planes** to enter the plane; **Arrive** lands at your destination. **Cancel**
   leaves the previous selection intact. The right-hand door still takes the free bus.
 - Leave the apartment through its door, walk right along the street, then
-  **Walk to** the **bus** for a free airport ride. No CashCard is needed.
+  walk into the **bus stop** area to wait for the ten-second service. Walk away to
+  cancel. No CashCard is needed.
 - On the street, **Walk to** the **stairs** to enter Zak's apartment.
 - Arrivals are placed inside the destination, away from automatic exits. Use the computer again to change the selected destination.
 - **Worlds** remains a shortcut for testing. Its **Return to Maniac Mansion**
@@ -52,13 +53,13 @@ individual or shared group conversations with anyone in the current room.
 
 Inactive kids and mansion NPCs use the same routes as Zak. They walk to exits
 while visible; offscreen trips use elapsed travel time without switching your
-camera. At the airport either connected destination may be selected, including
+camera. At the airport any available flight destination may be selected, including
 where the NPC just came from. NPCs linger before choosing another route and
 pause departures during individual/group conversations or their pending speech.
 The active player is never assigned a random destination.
 
-This adds the **airport, street/bus and apartment**, not the rest of Zak's campaign. More
-destinations can be added as their locations are connected. Original Zak room
+This adds the **airport, street/bus, apartment, plane, Seattle forest/cave and Miami airport**.
+It does not run the original Zak campaign. See [flight and bus instructions](flights-and-scene-chat.md). Original Zak room
 animations, puzzles, ticket/fare logic and cutscenes remain disabled. No game
 assets, multiplayer or model-controlled movement are included.
 
@@ -153,14 +154,14 @@ Worlds shows verified installation status for Maniac and the supported Zak resou
 Use **Import Zak from this app** for the local folder; it tolerates surrounding
 spaces and case differences. Exact `zak` wins when both spellings exist.
 
-Choose an individual character in **Talk**, then **Come with me**. No model is
+Choose an individual character in **Talk**, then **Follow**. No model is
 required for this button. The companion follows the selected kid through rooms,
-free buses and airport departures. **Travel on your own** releases them to roaming.
+free buses and airport departures. **Unfollow** releases them to roaming.
 Multiple characters can accompany one kid. Switching kids does not reassign their
 companions: they wait for their original leader. Companion assignments and each
 kid's selected destination are saved. Followers enter rooms at the player's
-arrival, then walk behind them; no separate boarding animation or plane cabin is
-implemented in this round.
+arrival, then walk behind them. Airport departures enter the original plane cabin
+until **Arrive** is pressed. Waiting companions ride the timed street bus together.
 
 Zak's imported sprite renders at 120% around his feet in every room, with nearest
 neighbour pixels, existing palettes and room masks. Other characters retain their
