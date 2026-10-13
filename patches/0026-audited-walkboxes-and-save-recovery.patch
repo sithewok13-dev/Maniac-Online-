@@ -1,0 +1,94 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 0d89e0f3..0613cd1f 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -932,6 +932,8 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 
+ 	_sound->restoreAfterLoad();
+ 
++	scummverseRestoreSceneNavigation(true);
++
+ 	return true;
+ }
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 36b6ee8a..42c7551c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1609,6 +1609,7 @@ protected:
+ 	bool scummverseMountZak();
+ 	int scummverseWorldResource(ResType type, ResId id);
+ 	bool scummverseTravel(int destination);
++	void scummverseRestoreSceneNavigation(bool restoreActors);
+ 	int _scummverseLastEgo = 0;
+ 	int _scummverseAIActor = 0, _scummverseAIRoom = 0, _scummverseAIWait = 0;
+ 	Common::String _scummverseAIFallback;
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index d02374c1..82767cc7 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -141,3 +141,12 @@ struct ZakSceneObjectState { int file, object, setBits, clearBits; };
+ static const ZakSceneObjectState zakSceneObjectStates[] = {
+ 	{12, 267, 8, 0},
+ };
++
++// Audited walking scenes retain original box flags. Source Peru flags 0xA0
++// exempt original non-player actors (including the bird). All current sandbox
++// cast members are walkers, so the aerial zones must also exclude NPC slots.
++static const int zakOriginalWalkboxRooms[] = {58, 96};
++struct ZakWalkboxOverride { int room, box, flags; };
++static const ZakWalkboxOverride zakWalkboxOverrides[] = {
++	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
++};
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index c082f638..bf5412c8 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -353,6 +353,12 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 	}
+ 	if(color1>=0) { _roomPalette[0]=255;_roomPalette[1]=color1;_roomPalette[2]=color2; }
+ 	VAR(VAR_CURRENT_LIGHTS)=LIGHTMODE_room_lights_on|LIGHTMODE_actor_use_colors;
++	// Apply scene navigation policy before projecting exits or spawning actors.
++	bool originalBoxes=false;
++	for (int auditedRoom : zakOriginalWalkboxRooms) if (room==auditedRoom) originalBoxes=true;
++	if (room>=53 && !originalBoxes)
++		for (int box=0;box<getNumBoxes();++box) setBoxFlags(box,0);
++	scummverseRestoreSceneNavigation(false);
+ 	if(room>=56) for(int i=1;i<_numLocalObjects;++i) {
+ 		int object=_objs[i].obj_nr;
+ 		bool exit=zakAirport(room) || room>=61 || (room==57 || room==60) ? (object==732 || object==733 || object==736) : room==58 ? (object==732 || object==737) : room==59 && object==732;
+@@ -361,7 +367,6 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 			_objs[i].walk_x=target.x*8; _objs[i].walk_y=target.y*2;
+ 		}
+ 	}
+-	if(room>=53) for(int box=0;box<getNumBoxes();++box) setBoxFlags(box,0);
+ 	AdjustBoxResult point = player->adjustXYToBeInBox(x, y);
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+@@ -622,3 +627,26 @@ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	setCameraAt(a->getPos().x,a->getPos().y); setCameraFollows(a); resetSentence(); _fullRedraw=true;
+ 	scummverseUpdateCompanions(); return true;
+ }
++
++void ScummEngine::scummverseRestoreSceneNavigation(bool restoreActors) {
++	if (!_scummverseRoaming) return;
++	bool audited=false;
++	for (int room : zakOriginalWalkboxRooms) if (room==_currentRoom) audited=true;
++	if (!audited || !scummverseMountExtra(_currentRoom)) return;
++	const auto &data=_scummverseExtraRooms[_currentRoom-56];
++	const uint offset=data[21];
++	if (offset>=data.size() || offset+1+data[offset]*8>data.size() || data[offset]!=getNumBoxes()) return;
++	for (int box=0;box<getNumBoxes();++box) setBoxFlags(box,data[offset+1+box*8+7]);
++	for (const auto &rule : zakWalkboxOverrides)
++		if (rule.room==_currentRoom && rule.box<getNumBoxes()) setBoxFlags(rule.box,rule.flags);
++	if (!restoreActors) return;
++	// Older sandbox saves may contain actors standing inside aerial boxes.
++	for (int id : mansionCast) {
++		Actor *a=derefActor(id,"restored walking actor");
++		if (a->_room!=_currentRoom) continue;
++		const auto pos=a->getRealPos();
++		const auto point=a->adjustXYToBeInBox(pos.x,pos.y);
++		a->stopActorMoving();
++		a->putActor(point.x,point.y,_currentRoom);
++	}
++}

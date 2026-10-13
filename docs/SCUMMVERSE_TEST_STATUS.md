@@ -31,3 +31,14 @@
 - Full expansion probe passes on null; all 25 patch prefixes reconstruct cleanly.
 - No iOS or visual-reference acceptance claimed. Scene audit records unresolved
   walkbox restrictions, perspective, source puzzle differences and arrival placement.
+
+## Patch 0026 — audited walkboxes and save recovery (2026-10-13)
+
+- Null and ASan builds pass. New walkbox probe passes disabled/enabled on both:
+  ground preserved, all 21 walking actors excluded from three Peru aerial regions,
+  actual player walking constrained, jungle exit retained, Seattle restriction
+  and cave round trip retained, simulated legacy aerial save repaired on load.
+- Full expansion probe passes on null. Flight probe passes on ASan.
+- 11 startup tests, 26 patch-prefix reconstruction and whitespace checks pass.
+- Original bird-control traversal, other scenes' navigation and perspective scale
+  are still pending. No simulator or device acceptance claimed.
