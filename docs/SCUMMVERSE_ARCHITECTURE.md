@@ -45,3 +45,14 @@ source resource references, scene initialization, geometry, costume variants,
 object states and validated transitions. Original SCUMM versions differ; preserve
 version-specific behavior behind adapters. Start with Maniac and Zak, then choose
 another edition only after inspecting its actual format and licensing.
+
+## Mobile presentation contract v1
+
+`common/scummverse_layout.h` owns portrait vertical-region allocation in host-view
+points. It consumes host height and bottom occlusion, emitting disjoint game,
+toolbar and chat regions. It owns no mutable state. UIKit and the iOS renderer
+consume it; `kInputChatLayoutChanged` delivers integer millipoint occlusion through
+the platform event queue, without rebuilding the graphics surface. The engine
+retains aspect fitting and input conversion. Tests use synthetic device geometry;
+UIKit/device acceptance remains necessary. This is a small portable module, not
+an additional service. Landscape and engine GUI overlays retain their layouts.

@@ -29,3 +29,8 @@ jobs:
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_portrait.cpp -o build/test-portrait
           build/test-portrait
+      - name: Test portable mobile layout contract
+        if: matrix.backend == 'null'
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_mobile_layout.cpp -o build/test-mobile-layout
+          build/test-mobile-layout

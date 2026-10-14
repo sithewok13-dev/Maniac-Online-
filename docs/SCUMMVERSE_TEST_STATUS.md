@@ -83,3 +83,12 @@
   on ASan; 29 patch prefixes, all 11 startup tests and whitespace checks pass.
 - This closes the reproduced intermittent gallery crash. Device verification
   and broader original-scene authenticity work remain pending.
+
+## Patch 0030 — coordinated mobile layout
+
+- ASan/UBSan portable layout contract: 49 screen/keyboard combinations, 1x/2x/3x
+  point-to-pixel alignment, keyboard dismissal and invalid dimensions pass.
+- Patch-prefix/idempotence/local-edit preservation tests pass through 0030.
+- Native build is current; native compilation does not compile UIKit sources.
+- Apple arm64 CI build pending; physical portrait/landscape, keyboard animation,
+  safe-area and touch acceptance are not yet verified.

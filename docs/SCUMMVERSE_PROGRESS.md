@@ -85,3 +85,19 @@ scene proving geometry, scale and transitions. Existing private descumm output
 under build/zak-analysis can inform analysis; never publish those scripts/assets.
 Record verification evidence in SCUMMVERSE_TEST_STATUS.md. No automatic claim of
 complete Mars, multiplayer support, device acceptance or future background work.
+
+## Active mobile layout repair (patch 0030)
+
+Portrait chat previously moved upward for the keyboard while the renderer and
+buttons stayed at half height. A portable point-based layout now reserves a
+44-point toolbar between the game and chat, shrinking the game when typing needs
+space. Rendering retains original aspect fitting and uses the resulting rectangle
+for mouse conversion. UIKit sends bottom occlusion through the existing event
+queue; no cross-thread UIKit reads or AI-runtime layout dependency. Safe-area
+layout now assigns the new host frame before placing controls. Portrait toolbar
+and chat gestures do not become scene clicks.
+
+Portable layout cases pass with sanitizers. Apple CI compilation and actual
+rotation/keyboard/device acceptance remain separate verification stages. Next:
+verify Apple build, then audit plane seating/manifest visibility using original
+costume data. No claim of networked transportation or complete portrait acceptance.

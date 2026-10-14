@@ -1,0 +1,313 @@
+diff --git a/backends/graphics/ios/ios-graphics.cpp b/backends/graphics/ios/ios-graphics.cpp
+index 3bb344d3..9f8ce983 100644
+--- a/backends/graphics/ios/ios-graphics.cpp
++++ b/backends/graphics/ios/ios-graphics.cpp
+@@ -21,6 +21,7 @@
+ #define FORBIDDEN_SYMBOL_ALLOW_ALL
+ 
+ #include "common/scummverse_ai.h"
++#include "common/scummverse_layout.h"
+ #include "backends/graphics/ios/ios-graphics.h"
+ #include "backends/graphics/ios/renderbuffer.h"
+ #include "backends/graphics/opengl/pipelines/pipeline.h"
+@@ -147,13 +148,22 @@ bool iOSGraphicsManager::notifyMousePosition(Common::Point &mouse) {
+ 	return true;
+ }
+ 
++void iOSGraphicsManager::notifyChatInset(int inset) {
++ _chatBottomInset = inset > 0 ? inset / 1000.0 : 0;
++ recalculateDisplayAreas();
++}
++
+ void iOSGraphicsManager::recalculateDisplayAreas() {
+ #ifdef SCUMMVERSE_LOCAL_AI
+-	// Reserve the lower half for UIKit chat. Keep the backing surface full size.
+-	// Window-to-game mouse conversion uses the same resulting game draw rect.
++	// UIKit and rendering share one point-based layout. Keep the backing
++ // surface full size; mouse conversion follows the resulting game draw rect.
+ 	const int fullHeight=_windowHeight;
+ 	const bool portrait=_windowWidth<_windowHeight && !_overlayInGUI;
+-	if(portrait) _windowHeight=fullHeight/2;
++	if(portrait) {
++  const double scale = getHiDPIScreenFactor();
++  const auto layout = Scummverse::portraitLayout(fullHeight / scale, _chatBottomInset);
++  _windowHeight = MAX(1, (int)(layout.gameHeight * scale));
++ }
+ 	OpenGL::OpenGLGraphicsManager::recalculateDisplayAreas();
+ 	_windowHeight=fullHeight;
+ 	if(portrait && _targetBuffer) _targetBuffer->setScissorBox(_gameDrawRect.left,
+diff --git a/backends/graphics/ios/ios-graphics.h b/backends/graphics/ios/ios-graphics.h
+index 7e29d672..89b86467 100644
+--- a/backends/graphics/ios/ios-graphics.h
++++ b/backends/graphics/ios/ios-graphics.h
+@@ -39,6 +39,8 @@ public:
+ 	 * iDevices when switching to portrait mode or landscape mode.
+ 	 */
+ 	virtual void notifyResize(const int width, const int height) = 0;
++ // UIKit publishes layout changes through the engine event queue (millipoints).
++ virtual void notifyChatInset(int) {}
+ 
+ 	virtual Common::Point getMousePosition() = 0;
+ 	virtual bool notifyMousePosition(Common::Point &mouse) = 0;
+@@ -82,6 +84,7 @@ public:
+ 
+ 	void notifyResize(const int width, const int height) override;
+ 	void recalculateDisplayAreas() override;
++ void notifyChatInset(int inset) override;
+ 
+ 	virtual iOSCommonGraphics::State getState() const override;
+ 	virtual bool setState(const iOSCommonGraphics::State &state) override;
+@@ -99,6 +102,7 @@ protected:
+ 	void hideOverlay() override;
+ 
+ 	void refreshScreen() override;
++ double _chatBottomInset = 0;
+ };
+ 
+ #endif
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index a7edceba..a55804d5 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -48,7 +48,8 @@ enum InputEvent {
+ 	kInputJoystickButtonDown,
+ 	kInputJoystickButtonUp,
+ 	kInputScreenChanged,
+-	kInputTouchModeChanged
++	kInputTouchModeChanged,
++ kInputChatLayoutChanged
+ };
+ 
+ enum ScreenOrientation {
+diff --git a/backends/platform/ios7/ios7_osys_events.cpp b/backends/platform/ios7/ios7_osys_events.cpp
+index 3a1cb753..81f0c7ea 100644
+--- a/backends/platform/ios7/ios7_osys_events.cpp
++++ b/backends/platform/ios7/ios7_osys_events.cpp
+@@ -147,6 +147,11 @@ bool OSystem_iOS7::pollEvent(Common::Event &event) {
+ 			event.type = Common::EVENT_SCREEN_CHANGED;
+ 			break;
+ 
++  case kInputChatLayoutChanged:
++   dynamic_cast<iOSCommonGraphics *>(_graphicsManager)->notifyChatInset(internalEvent.value1);
++   event.type = Common::EVENT_SCREEN_CHANGED;
++   break;
++
+ 		case kInputTouchModeChanged:
+ 			handleEvent_touchModeChanged();
+ 			break;
+diff --git a/backends/platform/ios7/ios7_video.h b/backends/platform/ios7/ios7_video.h
+index 011c75ae..21ea5903 100644
+--- a/backends/platform/ios7/ios7_video.h
++++ b/backends/platform/ios7/ios7_video.h
+@@ -96,6 +96,9 @@ uint getSizeNextPOT(uint size);
+ - (void) beginBackgroundSaveStateTask;
+ - (void) endBackgroundSaveStateTask;
+ 
++#ifdef SCUMMVERSE_LOCAL_AI
++- (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height;
++#endif
+ - (void)addEvent:(InternalEvent)event;
+ - (bool)fetchEvent:(InternalEvent *)event;
+ 
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 1df1dbe9..0e18e45c 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -574,6 +574,22 @@ void scummverseAirportOffer(int actor) {
+ #define __has_builtin(x) 0
+ #endif
+ 
++#if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
++- (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height {
++ if(self.bounds.size.width >= self.bounds.size.height) return;
++ const CGFloat y=top+4;
++ _toggleTouchModeButton.frame=CGRectMake(8,y,32,32);
++ _menuButton.frame=CGRectMake(48,y,32,32);
++ _scummverseAIButton.frame=CGRectMake(88,y,44,36);
++ _scummverseTalkButton.frame=CGRectMake(140,y,54,36);
++ _scummverseWorldsButton.frame=CGRectMake(202,y,64,36);
++ // Degenerate host sizes should not leave controls overlapping the composer.
++ for(UIView *button in @[_toggleTouchModeButton, _menuButton, _scummverseAIButton,
++                          _scummverseTalkButton, _scummverseWorldsButton])
++  button.alpha=height>=40 ? 1 : 0;
++}
++#endif
++
+ -(void)adjustViewFrameForSafeArea {
+ 	// The code below does not quite compile with SDKs older than 11.0.
+ 	// warning: instance method '-safeAreaInsets' not found (return type defaults to 'id')
+@@ -615,6 +631,8 @@ void scummverseAirportOffer(int actor) {
+ 			newFrame = CGRectMake(screenSize.origin.x + inset.left, screenSize.origin.y, screenSize.size.width - inset.left, height);
+ 		}
+ 
++  self.frame = newFrame;
++
+ 		// Add margins to respect the iPhone and iPad safe areas. Use the right
+ 		// safe area inset if available since the position of the buttons are
+ 		// on the right hand side. The iPhone corners on the later models have
+@@ -632,12 +650,7 @@ void scummverseAirportOffer(int actor) {
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
+ 	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
+-	if(self.bounds.size.width<self.bounds.size.height) {
+-		CGFloat y=self.bounds.size.height/2-40;
+-		_toggleTouchModeButton.frame=CGRectMake(8,y,32,32); _menuButton.frame=CGRectMake(48,y,32,32);
+-		_scummverseAIButton.frame=CGRectMake(88,y,44,36); _scummverseTalkButton.frame=CGRectMake(140,y,54,36);
+-		_scummverseWorldsButton.frame=CGRectMake(202,y,64,36);
+-	}
++	[scummverseTalkBar layoutBar];
+ #endif
+ #endif
+ 		self.frame = newFrame;
+@@ -726,6 +739,10 @@ void scummverseAirportOffer(int actor) {
+ 	// This function is executed also on older device models. The screens
+ 	// have sharp corners and no safe area insets. Use a constant margin.
+ 	const CGFloat margin = 10;
++#ifdef SCUMMVERSE_LOCAL_AI
++ for(UIView *button in @[_toggleTouchModeButton, _menuButton, _scummverseAIButton,
++                          _scummverseTalkButton, _scummverseWorldsButton]) button.alpha=1;
++#endif
+ 	// Touch mode button on top
+ 	[_toggleTouchModeButton setFrame:CGRectMake(self.frame.size.width - _toggleTouchModeButton.imageView.image.size.width - margin, margin, _toggleTouchModeButton.imageView.image.size.width, _toggleTouchModeButton.imageView.image.size.height)];
+ 	// Burger menu button below
+@@ -734,12 +751,7 @@ void scummverseAirportOffer(int actor) {
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
+ 	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
+-	if(self.bounds.size.width<self.bounds.size.height) {
+-		CGFloat y=self.bounds.size.height/2-40;
+-		_toggleTouchModeButton.frame=CGRectMake(8,y,32,32); _menuButton.frame=CGRectMake(48,y,32,32);
+-		_scummverseAIButton.frame=CGRectMake(88,y,44,36); _scummverseTalkButton.frame=CGRectMake(140,y,54,36);
+-		_scummverseWorldsButton.frame=CGRectMake(202,y,64,36);
+-	}
++	[scummverseTalkBar layoutBar];
+ #endif
+ 
+ 	[self addEvent:InternalEvent(kInputOrientationChanged, screenOrientation, 0)];
+@@ -907,6 +919,8 @@ void scummverseAirportOffer(int actor) {
+ 
+ - (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
+ #ifdef SCUMMVERSE_LOCAL_AI
++ if(!scummverseSystemMenu && self.bounds.size.width<self.bounds.size.height &&
++    [touch locationInView:self].y >= _menuButton.frame.origin.y-4) return NO;
+ 	for(UIView *v=touch.view;v && v!=self;v=v.superview)
+ 		if([v isKindOfClass:ScummverseTalkBar.class] || [v isKindOfClass:UIControl.class] || [v isKindOfClass:UITextView.class]) return NO;
+ #endif
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index e0389233..f2154aad 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -1,5 +1,6 @@
+ // Scene-attached conversation controls. GPL-3.0-or-later.
+ // This is a small UIView, not a modal controller or a scene-sized touch shield.
++#include "common/scummverse_layout.h"
+ static BOOL scummverseSystemMenu=NO;
+ @interface ScummverseTalkBar : UIView <UITextFieldDelegate> {
+ 	UIView *_host;
+@@ -9,7 +10,9 @@ static BOOL scummverseSystemMenu=NO;
+ 	UITextView *_history;
+ 	NSTimer *_timer;
+ 	NSString *_error;
+-	CGFloat _keyboard;
++	CGRect _keyboardFrame;
++ CGFloat _keyboard;
++ int _publishedInset;
+ 	BOOL _open, _showHistory, _collapsed;
+ 	unsigned _lastMask;
+ 	int _scene;
+@@ -27,7 +30,7 @@ static BOOL scummverseSystemMenu=NO;
+ }
+ - (id)initWithHost:(UIView *)host {
+ 	if ((self=[super initWithFrame:CGRectZero])) {
+-		_host=host; self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
++		_host=host; _publishedInset=-1; self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
+ 		_recipient=[self button:@"Talk" action:@selector(editMessage)];
+ 		_add=[self button:@"+" action:@selector(addPerson)]; _add.accessibilityLabel=@"Add a character to this conversation";
+ 		_follow=[self button:@"Follow" action:@selector(follow)];
+@@ -62,8 +65,8 @@ static BOOL scummverseSystemMenu=NO;
+ 	ScummverseLocalAI::runtime().endTalk(); [_error release]; _error=nil;
+ }
+ - (void)keyboard:(NSNotification *)note {
+-	CGRect r=[_host convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
+-	_keyboard=MAX(0,CGRectGetMaxY(_host.bounds)-CGRectGetMinY(r)); [self layoutBar];
++	_keyboardFrame=[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
++ [self layoutBar];
+ }
+ - (BOOL)textField:(UITextField *)field shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)text {
+ 	NSString *next=[field.text stringByReplacingCharactersInRange:range withString:text]; return next.length<=160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=512;
+@@ -106,14 +109,23 @@ static BOOL scummverseSystemMenu=NO;
+ }
+ - (void)layoutBar {
+ 	UIEdgeInsets safe=_host.safeAreaInsets;
++ // Reconvert the screen-space keyboard frame after rotations and safe-area changes.
++ CGRect keyboard=[_host convertRect:_keyboardFrame fromView:nil];
++ CGRect overlap=CGRectIntersection(_host.bounds,keyboard);
++ _keyboard=CGRectIsNull(overlap) || CGRectIsEmpty(overlap) ? 0 :
++  CGRectGetMaxY(_host.bounds)-CGRectGetMinY(overlap);
++ int inset=(int)(MAX(safe.bottom,_keyboard)*1000);
++ if(inset!=_publishedInset) {
++  _publishedInset=inset;
++  [(iPhoneView *)_host addEvent:InternalEvent(kInputChatLayoutChanged,inset,0)];
++ }
++ _recipient.hidden=_add.hidden=_status.hidden=_historyButton.hidden=NO;
++ _follow.hidden=ScummverseLocalAI::runtime().talkingTo()<=0;
+ 	if(_host.bounds.size.width<_host.bounds.size.height) {
+ 		CGFloat w=_host.bounds.size.width-safe.left-safe.right;
+-		CGFloat top=_host.bounds.size.height/2;
+-		CGFloat bottom=_host.bounds.size.height-MAX(safe.bottom,_keyboard);
+-		// On compact phones the keyboard can reach the divider. Keep composer
+-		// reachable without moving the game or changing its touch coordinates.
+-		top=MIN(top,bottom-160);
+-		CGFloat h=MAX(160,bottom-top);
++		auto layout=Scummverse::portraitLayout(_host.bounds.size.height,inset/1000.0);
++  CGFloat top=layout.chatTop, h=layout.chatHeight;
++  [(iPhoneView *)_host layoutScummverseToolbar:layout.toolbarTop height:layout.toolbarHeight];
+ 		self.frame=CGRectMake(safe.left,top,w,h); self.layer.cornerRadius=0;
+ 		_recipient.frame=CGRectMake(8,0,w-60,32); _add.frame=CGRectMake(w-48,0,40,32);
+ 		_follow.frame=CGRectMake(8,32,80,30); _historyButton.frame=CGRectMake(96,32,80,30);
+@@ -121,7 +133,15 @@ static BOOL scummverseSystemMenu=NO;
+ 		_status.frame=CGRectMake(8,62,w-16,24); _status.adjustsFontSizeToFitWidth=YES;
+ 		_history.hidden=NO; _history.frame=CGRectMake(8,88,w-16,MAX(0,h-138));
+ 		_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-46,w-78,40); _send.frame=CGRectMake(w-66,h-46,60,40);
+-		_arrive.frame=CGRectMake(w-78,_host.bounds.size.height/2-82,72,36);
++		_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-78,MAX(0,layout.gameHeight-40),72,36);
++  if(h<160) {
++   // Very small/occluded hosts prioritize sending and dismissing the keyboard.
++   _recipient.hidden=_add.hidden=_follow.hidden=_historyButton.hidden=_status.hidden=_history.hidden=YES;
++   [self viewWithTag:19].frame=CGRectMake(w-70,0,62,32);
++   CGFloat composer=MIN(40,MAX(0,h-38));
++   _input.frame=CGRectMake(8,MAX(0,h-composer),w-78,composer);
++   _send.frame=CGRectMake(w-66,MAX(0,h-composer),60,composer);
++  }
+ 		return;
+ 	}
+ 	CGFloat w=MIN(640,_host.bounds.size.width-safe.left-safe.right-80);
+diff --git a/common/scummverse_layout.h b/common/scummverse_layout.h
+new file mode 100644
+index 00000000..f5015ad8
+--- /dev/null
++++ b/common/scummverse_layout.h
+@@ -0,0 +1,23 @@
++// Scummverse portable portrait layout contract v1. GPL-3.0-or-later.
++#ifndef COMMON_SCUMMVERSE_LAYOUT_H
++#define COMMON_SCUMMVERSE_LAYOUT_H
++namespace Scummverse {
++struct PortraitLayout {
++ double gameHeight, toolbarTop, toolbarHeight, chatTop, chatHeight;
++};
++// All dimensions are host-view points, after the platform applies top/side
++// safe areas. bottomInset is the larger of the keyboard overlap and safe bottom.
++// The engine fits the original aspect ratio inside gameHeight. No world state.
++inline PortraitLayout portraitLayout(double height, double bottomInset) {
++ if (!(height > 0)) return {0, 0, 0, 0, 0};
++ if (!(bottomInset > 0)) bottomInset = 0;
++ if (bottomInset > height) bottomInset = height;
++ const double available = height - bottomInset;
++ const double chatMinimum = available < 160 ? available : 160;
++ double top = available - chatMinimum;
++ if (top > height / 2) top = height / 2;
++ const double toolbar = top < 88 ? top / 2 : 44;
++ return {top - toolbar, top - toolbar, toolbar, top, available - top};
++}
++}
++#endif
