@@ -1,0 +1,17 @@
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index c0396806..ab7a504c 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2580,7 +2580,11 @@ void Actor::prepareDrawActorCostume(BaseCostumeRenderer *bcr) {
+ 	bcr->setPalette(_palette);
+ 	bcr->setFacing(this);
+ 
+-	if (_vm->_game.version >= 7) {
++	if (_vm->scummverseRenderingPortrait()) {
++		// A gallery actor can belong to another room. Its walkbox is not an
++		// index into the displayed room's matrix; portraits need no room mask.
++		bcr->_zbuf = 0;
++	} else if (_vm->_game.version >= 7) {
+ 
+ 		bcr->_zbuf = _forceClip;
+ 		if (bcr->_zbuf == 100) {

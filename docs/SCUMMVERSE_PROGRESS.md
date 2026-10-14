@@ -62,12 +62,18 @@ instead of the original fixed 80-pixel vertical column. Other scenes retain
 legacy picking; current player remains excluded. Horizontal picking still uses
 upstream eight-pixel graphics strips, not per-pixel silhouette tests.
 
-## New regression to isolate
+## Resolved intermittent regression (patch 0029)
 
-Full expansion testing intermittently reports `box 4 is out of bounds (0,2)`.
-A diagnostic rerun passes. See build/hitbox-expansion.log and build/hitbox-diag.log.
-Investigate seeded roaming and stale actor walkbox state across room changes
-before treating the full travel regression as consistently green.
+The walkbox failure was in gallery rendering, not navigation: an offscreen
+actor's walkbox was looked up in the currently displayed room by
+Actor::prepareDrawActorCostume. A cave actor in box 7 and a three-box jungle
+reproduce it directly. Expansion seed 15 reproduces it in the London gallery.
+Portrait preparation now skips room-mask lookup; real scene rendering retains it.
+
+Expansion probes now accept --seed (default 0) for repeatability. Seed 4 also
+exposed a test assumption: switching to an NPC already aboard a bus correctly
+blocks immediate airport travel. The test now completes that bus ride first;
+separate boarding/takeover checks remain intact.
 
 ## Continuation
 

@@ -8,6 +8,11 @@
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 
+ // Zak remains in cave box 7 while the gallery opens in a three-box jungle.
+ // Portrait rendering must never resolve that box against the displayed room.
+ scummverseTravel(9);
+ derefActor(24,"offscreen portrait actor")->putActor(43,45,59);
+ scummverseTravel(12);
  scummverseRosterOffer();
  for(int id : {1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24}) {
   int count=0;

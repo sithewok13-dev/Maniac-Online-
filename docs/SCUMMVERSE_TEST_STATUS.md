@@ -68,3 +68,18 @@
   remains unresolved; investigate seeded roaming and cross-room actor walkbox state.
 - Native device touch interaction remains unverified. Horizontal selection still
   uses original graphics strips; this fix corrects vertical extent only.
+
+## Patch 0029 — portrait/room isolation
+
+- Deterministic pre-fix failures: offscreen cave actor box 7 with jungle's three
+  boxes; full expansion seed 15 (London gallery, box 5). Stack identifies
+  getMaskFromBox → prepareDrawActorCostume → scummverseRosterOffer.
+- Portrait preparation now uses no room mask, preventing cross-room walkbox reads.
+  Temporary Linux backtrace instrumentation was removed; no platform dependency
+  was added to shipped code.
+- Targeted reproduction and expansion seeds 15 and 4 pass on null. Seed 4's
+  already-boarded NPC test now finishes its bus ride before testing airport travel.
+- Native and ASan builds pass. Targeted portraits and seed 15 expansion pass
+  on ASan; 29 patch prefixes, all 11 startup tests and whitespace checks pass.
+- This closes the reproduced intermittent gallery crash. Device verification
+  and broader original-scene authenticity work remain pending.

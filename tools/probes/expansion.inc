@@ -18,6 +18,7 @@
 	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24};
 	for(int id:cast) {
 		if(!scummverseSwitchActor(id)) error("Cannot switch actor %d room=%d costume=%d user=%d bus=%d ego=%d",id,derefActor(id,"switch failure")->_room,derefActor(id,"switch failure")->_costume,_userPut,_scummVars[765],VAR(VAR_EGO));
+		if(scummverseOnBus()) for(int tick=0;tick<4;++tick) scummverseServiceBus(60);
 		if(!scummverseTravel(3) || VAR(VAR_EGO)!=id) error("Actor cannot travel %d",id);
 		Actor *a=derefActor(id,"switch test"); int x=a->getRealPos().x;
 		_currentScript=1;if(scummverseOwnsActor(id)) error("Player commands blocked");_currentScript=0xFF;
