@@ -101,3 +101,20 @@ Portable layout cases pass with sanitizers. Apple CI compilation and actual
 rotation/keyboard/device acceptance remain separate verification stages. Next:
 verify Apple build, then audit plane seating/manifest visibility using original
 costume data. No claim of networked transportation or complete portrait acceptance.
+
+## Bus visibility repair (patch 0031)
+
+A deterministic takeover test reproduced a passenger briefly appearing outside
+an already-moving bus: scene entry/putActor showed the selected actor again,
+while transport only hid them on the next tick. Manifest-owned visibility is now
+restored immediately after actor switching and save loading, using the same rule
+as normal bus updates. Two-passenger takeover/save/load/arrival checks pass under
+ASan: both hidden in transit and both visible in the airport. This addresses a
+local rendering/state path, not authoritative network synchronization.
+
+Apple build blocker: commit 04f50136 triggered run 38651455882; its IPA job failed
+before any steps ran and no log exists (log endpoint returns BlobNotFound).
+Native GitHub jobs also failed before steps. Cause is not established from the
+available connector data. Local native/ASan testing remains available; no new
+installable Apple artifact or device acceptance is claimed. Resume Apple CI once
+runner execution is available; do not spend money to unblock it without approval.

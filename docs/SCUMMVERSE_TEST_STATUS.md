@@ -92,3 +92,16 @@
 - Native build is current; native compilation does not compile UIKit sources.
 - Apple arm64 CI build pending; physical portrait/landscape, keyboard animation,
   safe-area and touch acceptance are not yet verified.
+
+## Patch 0031 — bus actor visibility
+
+- Reproduced before fix: expansion seed 15 failed with "Bus rider visible
+  immediately after takeover" (build/bus-visibility-repro.log).
+- Fixed native takeover/save/load test passes. Expanded two-passenger test passes
+  ASan with seed 15, sandbox override disabled/enabled. It checks immediate
+  visibility, saved phase/manifest, and visible airport arrival for both actors.
+- Native and ASan engine builds pass. Full patch-prefix and startup checks run
+  for this patch; see build/bus-visibility-bootstrap.log and startup.log.
+- Apple CI run 38651455882 for patch 0030 failed before executing build steps;
+  no job logs are available. This is a build-execution blocker, not evidence of
+  a compiler failure. UIKit compilation and device validation remain outstanding.

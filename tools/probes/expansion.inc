@@ -76,10 +76,21 @@
 	for(int n=0;n<20;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || _scummVars[765]) error("Bus did not deliver passenger");
 	// Switching to an NPC already aboard must follow its bus to the airport.
-	_scummVars[765]=70;_scummVars[766]=1u<<18;_scummVars[767]=0;derefActor(18,"NPC bus rider")->putActor(103,61,55);
+	_scummVars[765]=70;_scummVars[766]=(1u<<18)|(1u<<19);_scummVars[767]=0;
+ for(int id : {18,19}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
 	if(!scummverseSwitchActor(18) || _currentRoom!=55 || _scummVars[767]!=18) error("Cannot take over bus passenger");
+ for(int id : {18,19}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
+ Common::String busSave; _saveLoadDescription="Moving bus visibility";
+ if(!saveState(9,false,busSave) || !loadState(9,false)) error("Bus save/load failed");
+ for(int id : {18,19}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
+ if(_scummVars[765]!=70 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
 	scummverseServiceBus(60);scummverseServiceBus(60);
-	if(_currentRoom!=53 || !scummverseSwitchActor(24)) error("Passenger takeover lost bus arrival");
+	if(_currentRoom!=53) error("Passenger takeover lost bus arrival");
+ for(int id : {18,19}) {
+  Actor *a=derefActor(id,"arriving bus rider");
+  if(a->_room!=53 || !a->_visible) error("Bus rider missing on arrival");
+ }
+ if(!scummverseSwitchActor(24)) error("Cannot switch after bus arrival");
 	Common::String filename;_saveLoadDescription="Expanded worlds";
 	if(!saveState(8,false,filename)||!loadState(8,false)) error("Expanded save failed");
 	if(VAR(VAR_EGO)!=24 || !_scummVars[764]) error("Saved roster lost");
