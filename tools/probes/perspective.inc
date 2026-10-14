@@ -21,10 +21,24 @@
     memset(canvas.getPixels(0,0),255,canvas.pitch*canvas.h);
     ClassicCostumeRenderer renderer(this);a->prepareDrawActorCostume(&renderer);
     renderer._actorX=160;renderer._actorY=100;renderer._zbuf=0;
+    memset(gfxUsageBits,0,sizeof(gfxUsageBits));
     renderer.drawCostume(canvas,40,a,false);
     int top=128,bottom=-1,count=0;
     for(int y=0;y<128;++y) for(int x=0;x<320;++x)
      if(*(byte *)canvas.getBasePtr(x,y)!=255) {top=MIN(top,y);bottom=MAX(bottom,y);++count;}
+    if(pass && id!=VAR(VAR_EGO)) {
+     int savedTop=a->_top,savedBottom=a->_bottom;
+     a->_top=renderer._drawTop;a->_bottom=renderer._drawBottom;
+     bool selected=false;
+     for(int x=0;x<320;++x) {
+      if(!testGfxUsageBit(x/8,id)) continue;
+      if(getActorFromPos(x,(a->_top+a->_bottom-1)/2)==id) selected=true;
+      if(getActorFromPos(x,a->_top-1)==id || getActorFromPos(x,a->_bottom)==id)
+       error("Distant hit area extends beyond rendered actor %d",id);
+     }
+     if(!selected) error("Distant actor cannot be selected %d",id);
+     a->_top=savedTop;a->_bottom=savedBottom;
+    }
     heights[pass]=bottom-top+1;
     if(count<4 || bottom>104) error("Missing or unanchored actor %d facing %d",id,facing);
     canvas.free();

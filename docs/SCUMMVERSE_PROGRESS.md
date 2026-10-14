@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; source-derived distant scale added for pyramid/temple exteriors.
+Active milestone: Phase 1; distant scale and matching vertical selection bounds implemented.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -56,6 +56,18 @@ SCUMMVERSE_SCENE_AUDIT.md for verified source evidence and remaining limitations
 
 Patch 0026 adds audited navigation policies for Peru and Seattle, including old
 save-state recovery. The full original scene/scale pipeline is not yet restored.
+
+Patch 0028 makes actor picking in distant scenes use renderer top/bottom bounds
+instead of the original fixed 80-pixel vertical column. Other scenes retain
+legacy picking; current player remains excluded. Horizontal picking still uses
+upstream eight-pixel graphics strips, not per-pixel silhouette tests.
+
+## New regression to isolate
+
+Full expansion testing intermittently reports `box 4 is out of bounds (0,2)`.
+A diagnostic rerun passes. See build/hitbox-expansion.log and build/hitbox-diag.log.
+Investigate seeded roaming and stale actor walkbox state across room changes
+before treating the full travel regression as consistently green.
 
 ## Continuation
 

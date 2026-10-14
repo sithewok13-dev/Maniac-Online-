@@ -1,0 +1,21 @@
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index 84f14868..c0396806 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2122,9 +2122,13 @@ int ScummEngine::getActorFromPos(int x, int y) {
+ 		int16 y1 = _actors[i]->_top;
+ 		int16 y2 = _actors[i]->_bottom;
+ 
+-		if (_game.version <= 2) {
+-			if (i == VAR(VAR_EGO))
+-				continue;
++		if (_game.version <= 2 && i == VAR(VAR_EGO))
++			continue;
++		// The audited distant renderer supplies actual scaled, half-open bounds.
++		// Legacy V1 picking otherwise uses a fixed 80-pixel-tall actor column.
++		if (scummverseDistantScene())
++			--y2;
++		if (_game.version <= 2 && !scummverseDistantScene()) {
+ 			y2 = _actors[i]->getPos().y;
+ 			y1 = _actors[i]->getPos().y - 40 * V12_Y_MULTIPLIER;
+ 

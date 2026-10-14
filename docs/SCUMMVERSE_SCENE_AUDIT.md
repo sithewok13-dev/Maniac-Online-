@@ -63,3 +63,11 @@ exact reproduction of the original distant sprite, nor depth interpolation.
 The policy is catalog data queried by the renderer. It does not mutate saved
 costumes, actor positions, walkboxes, room connections, or inventory. Portraits
 explicitly ignore the policy. Other rooms retain their previous rendering.
+
+## Distant actor selection (patch 0028)
+
+Original V1 selection substitutes a fixed 40*V12_Y_MULTIPLIER vertical span,
+ignoring renderer bounds. In the audited distant scenes it now uses actual
+half-open draw bounds. This avoids picking a small character by clicking far
+above its head. It preserves current-player exclusion and upstream horizontal
+strip-based selection. It does not change touch-to-room coordinate conversion.

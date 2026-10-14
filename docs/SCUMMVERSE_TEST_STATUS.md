@@ -55,3 +55,16 @@
 - This is uniform scene scale using each character's art, not the original
   generic distant costume or depth interpolation. Physical iPhone appearance,
   on-device hit testing and simulator testing remain unverified.
+
+## Patch 0028 — distant actor selection
+
+- Native and ASan perspective probes pass, including rendered-bound selection
+  and rejection just above/below the sprite bounds for all selectable cast members
+  in four facings. Current player remains excluded by design.
+- 28 patch prefixes and 11 startup tests pass; builds and whitespace checks pass.
+- Full expansion regression is INTERMITTENT: build/hitbox-expansion.log failed
+  with `box 4 is out of bounds (0,2)`; diagnostic rerun in build/hitbox-diag.log
+  passed. Do not characterize overall travel as consistently green. Root cause
+  remains unresolved; investigate seeded roaming and cross-room actor walkbox state.
+- Native device touch interaction remains unverified. Horizontal selection still
+  uses original graphics strips; this fix corrects vertical extent only.
