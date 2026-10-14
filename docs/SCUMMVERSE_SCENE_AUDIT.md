@@ -43,3 +43,23 @@ legacy-shaped save with unlocked Peru air boxes and a player at (65,10), then
 loads it and checks restored restrictions and ground placement. This is a simulated
 legacy state, not a historical on-device save fixture. Scene rendering must run
 before the test saves, as required by the engine's thumbnail/screen state.
+
+## Distant exterior scale (patch 0027)
+
+Original room resource 20 explicitly chooses costume 9 for the two original
+protagonists. Resource 39 chooses it indirectly through variables initialized by
+script 108: indices 180/181 both contain 9. The decoded standing frame 6 spans
+46 vertical pixels for normal Zak costume 1 and 10 for costume 9. The reference
+measurement is reproducible with tools/test_perspective_reference.py and private
+DOS V1 data. No extracted artwork or scripts are distributed.
+
+Sandbox rooms 64, 72, 87 and 97 now use a 5:23 uniform reduction around actor feet.
+This preserves each visiting character's own costume and palette instead of
+replacing everyone with the original generic distant silhouette. Imported Zak
+normalization (6:5) is bypassed in these scenes. Larger species retain relative
+size differences. This is an adaptation based on original scene scale, not an
+exact reproduction of the original distant sprite, nor depth interpolation.
+
+The policy is catalog data queried by the renderer. It does not mutate saved
+costumes, actor positions, walkboxes, room connections, or inventory. Portraits
+explicitly ignore the policy. Other rooms retain their previous rendering.

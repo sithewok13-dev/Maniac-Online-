@@ -42,3 +42,16 @@
 - 11 startup tests, 26 patch-prefix reconstruction and whitespace checks pass.
 - Original bird-control traversal, other scenes' navigation and perspective scale
   are still pending. No simulator or device acceptance claimed.
+
+## Patch 0027 — distant exterior scale (2026-10-14)
+
+- Source reference test confirms standing costume spans of 46px and 10px from
+  supplied DOS V1 resources. This validates the 5:23 scale reference.
+- Null and ASan builds and perspective probes pass: 21 characters, four facings,
+  nonempty reduced sprites, feet anchoring, four intended exterior policies,
+  unrelated-room exclusions and portrait exclusion. No source assets distributed.
+- Null full expansion and portrait probes pass; 27 patch prefixes reconstruct
+  cleanly; engine whitespace check passes.
+- This is uniform scene scale using each character's art, not the original
+  generic distant costume or depth interpolation. Physical iPhone appearance,
+  on-device hit testing and simulator testing remain unverified.

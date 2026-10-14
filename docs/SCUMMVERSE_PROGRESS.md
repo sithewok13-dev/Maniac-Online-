@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; audited Peru/Seattle walkboxes and save recovery added.
+Active milestone: Phase 1; source-derived distant scale added for pyramid/temple exteriors.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -23,8 +23,9 @@ they do not establish source-game authenticity or real multiplayer correctness.
    Catalog entries map resource files, omitting script-controlled object states,
    scroll regions and costume variants. Audit Mexico, Mars, Peru and Egypt from
    original logical scene setup before correcting room connections or scale.
-4. Scaling: imported costumes use a fixed 6:5 renderer; original scene-specific
-   costume changes are omitted. Investigate V1 costume variants, not assumptions
+4. Scaling: patch 0027 uses original 10:46 distant reference proportions in
+   pyramid/temple exteriors while preserving visitor identities. Other imported
+   costumes still use 6:5 normalization; depth-dependent perspective remains open. Investigate V1 costume variants, not assumptions
    about later SCUMM depth scaling. No arbitrary room-scale constants.
 5. Portrait phone UI: current half-window rendering and native panel positioning
    need real rotation, safe-area, keyboard and input-coordinate validation.
