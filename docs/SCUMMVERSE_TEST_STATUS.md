@@ -123,3 +123,16 @@
   slot writes to real airport-computer commands. Covers all 21 selectable actors,
   imported rooms, flights, bus takeover/save/load, links and teleports. This is
   local sandbox testing, not network multiplayer or full source-game authenticity.
+
+## Patch 0033 — matching-flight join
+
+- Reproduced rejection of a matching late passenger before the fix.
+- Native and ASan join probes pass: wrong destination/origin rejection isolation,
+  original-owner/route preservation, companion joining, repeated boarding,
+  save/load, and united arrival without moving the rejected passenger.
+- Existing native flight regression passes (including independent bookings,
+  migration, separate return points and bus timing).
+- All 33 patch prefixes/idempotence/local-edit-preservation checks pass.
+- Logs: build/flight-join-{repro,fixed,asan,flights,bootstrap}.log.
+- This is not real multiplayer validation. Seating and physical-device acceptance
+  remain outstanding; Apple CI execution remains an external blocker.

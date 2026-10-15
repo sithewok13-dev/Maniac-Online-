@@ -146,3 +146,14 @@ actor already at the airport while viewing another actor in the mansion recorded
 the old viewport room as the new actor's departure. Return records now update
 only when the departing actor actually occupies the current room. Behavioural
 tests exercise separate rooms for Annie and Zak, not just distinct key indices.
+
+## Joining an existing local flight (patch 0033)
+
+Characters boarding from the same origin for the active destination can now join
+that flight, including their companions. Route, original owner and prior manifest
+are retained. Wrong origins/destinations leave the existing flight and rejected
+booking unchanged. Save/load and Arrive preserve the joined party. Arrival history
+excludes the currently controlled character from its own companion mask. Existing
+single-flight storage remains; this is local character travel, not networking.
+
+Next: NPC booking/boarding consistency and original-art seating/occlusion preview.

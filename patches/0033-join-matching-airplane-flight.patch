@@ -1,0 +1,49 @@
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 94d6968a..16cabe17 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -445,12 +445,15 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ // 751..757 arrival party masks, 770..794 companion leader IDs.
+ void ScummEngine::scummverseBoard() {
+ 	if (!zakAirport(_currentRoom)) return;
+-	if(_scummVars[724]) { scummverseSay(VAR(VAR_EGO),"Someone is already in flight. Switch to that passenger and choose Arrive first."); return; }
+ 	int choice = _scummVars[travellerDestinationKey(VAR(VAR_EGO))];
+ 	bool valid=false; for(int route : zakFlights) if(route==choice) valid=true;
+ 	if (!valid) {
+ 		scummverseSay(VAR(VAR_EGO), "Choose a destination at the airport computer first."); return;
+ 	}
++ const bool joining=_scummVars[724]!=0;
++ if(joining && (_scummVars[724]!=choice || _scummVars[726]!=_currentRoom)) {
++  scummverseSay(VAR(VAR_EGO),"That flight has a different route. Finish it before starting another."); return;
++ }
+ 	// Validate both ends before changing any actor or the flight manifest.
+ 	if (!scummverseMountExtra(56) || (choice>=6 && !scummverseMountExtra(choice+50))) {
+ 		scummverseSay(VAR(VAR_EGO),_scummverseWorldNotice.c_str()); return;
+@@ -463,7 +466,17 @@ void ScummEngine::scummverseBoard() {
+ 		if (_scummVars[770+id]==ego || (a->_room==origin && _scummverseNpcDestination[id]==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
+ 	}
+ 	if (!scummverseTravel(6)) return;
+-	_scummVars[724]=choice; _scummVars[725]=passengers; _scummVars[726]=origin; _scummVars[727]=ego;
++ if(joining) {
++  // Preserve the original route and owner. Old saves omit that owner from the
++  // mask, so include them when merging a later boarding party.
++  unsigned manifest=_scummVars[725] | passengers | (1u<<ego);
++  const int owner=_scummVars[727];
++  if(owner>0 && owner<25) manifest |= 1u<<owner;
++  _scummVars[725]=manifest;
++ } else {
++  _scummVars[724]=choice; _scummVars[725]=passengers;
++  _scummVars[726]=origin; _scummVars[727]=ego;
++ }
+ 	_scummVars[travellerDestinationKey(ego)]=0;
+ 	for(int id : mansionCast) if (passengers & (1u<<id)) {
+ 		Actor *a=derefActor(id,"flight passenger"); a->stopActorMoving();
+@@ -475,6 +488,8 @@ void ScummEngine::scummverseArrive() {
+ 	if (_currentRoom!=56 || _scummVars[724]<1 || _scummVars[724]>48) return;
+ 	unsigned passengers=_scummVars[725];
+ 	for(int id : mansionCast) if(id!=VAR(VAR_EGO) && derefActor(id,"flight roster")->_room==56) passengers |= 1u<<id;
++ passengers &= ~(1u<<VAR(VAR_EGO)); // Arrival party history contains other travellers.
++
+ 	_scummverseLanding=true; bool arrived=scummverseTravel(_scummVars[724]); _scummverseLanding=false;
+ 	if(!arrived) return;
+ 	Actor *player=derefActor(VAR(VAR_EGO),"flight arrival");
