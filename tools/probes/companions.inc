@@ -2,9 +2,9 @@
 	VAR(VAR_EGO)=3; scummverseTravel(3); _scummVars[733]=0;
 	runObjectScript(683,13,false,false,nullptr);
 	if (_currentRoom!=53) error("Unselected gate departed");
-	scummverseWorldRequest(((53*32+5)<<8)|20); scummverseUpdateRoaming(4);
+	scummverseWorldRequest(((53*32+5)<<8)|40); scummverseUpdateRoaming(4);
 	if (_scummVars[733]) error("Stale computer selected for a different kid");
-	scummverseWorldRequest(((53*32+3)<<8)|20); scummverseUpdateRoaming(4);
+	scummverseWorldRequest(((53*32+3)<<8)|40); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53 || _scummVars[733]!=4) error("Computer travelled before boarding");
 	Actor *zak=derefActor(24,"companion test"); zak->putActor(28,60,53);
 	scummverseCompanionCommand(88);

@@ -188,3 +188,24 @@ foreground object 263/state/mask initialization, then normalize costume renderin
 only if that comparison proves a mismatch. Do not replace original chair graphics
 or stack the whole party in the one defined interactive seat. The preview code
 and screenshots are private build artifacts, not shipped functionality.
+
+## Companion presence and vehicle ownership (patch 0035)
+
+Reproduced companions being recalled from another room during an ordinary update,
+including a hidden bus passenger. Following now carries an actor only when they
+shared the leader's actual departure scene. Bus manifests own their passengers
+until arrival; aircraft and bus boarding require presence at the departure room.
+Absent companions keep their relationship but are not teleported or added to the
+arrival party. Reuniting in the same scene resumes following.
+
+The focused regression covers a present companion, an absent companion and a
+hidden bus rider, including save/load, plane arrival, normal transitions and bus
+boarding. The older companion probe used retired airport command 20; it now uses
+the current command 40 rather than silently testing a removed interface.
+
+Seating research: a private test-only launcher now permits a Zak source-interpreter
+reference without changing the shipped Maniac-only startup. Both reference and
+sandbox previews are available under build/seat-*. Original script 5 also applies
+costume frames 11 and 13; the earlier position-only preview omitted these. A visual
+match and multi-seat capacity policy have NOT been established. Private extracted
+scripts/images are not published. Continue this comparison before claiming seating.

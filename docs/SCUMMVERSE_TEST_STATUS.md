@@ -150,3 +150,14 @@
 - Final startup run for 0034: all 11 tests pass (build/npc-booking-startup.log).
 - Latest Apple run 38664283970 fails before job steps, with no logs; no device IPA
   validation is claimed for this commit.
+
+## Companion presence (0035)
+
+- Reproduced remote/bus companion recall before the fix.
+- Native and AddressSanitizer focused checks pass, including save/load and bus/plane
+  boarding. Present companions continue following ordinary transitions.
+- Existing companion and shared-flight probes pass. Updated the companion probe's
+  retired airport-selection command to the current protocol.
+- Startup: 11 cases pass. Patch preparation through 0035 passes, including prefixes,
+  idempotence and preservation of local edits.
+- These are local actors; no network multiplayer or iOS device acceptance claimed.

@@ -68,3 +68,12 @@ actors' shared legacy slot is inherently ambiguous; migration preserves it only
 for the active expanded actor. No file rewriting or save-container version change.
 A future persistence adapter must preserve the tested independent bookings,
 return locations, migration and idempotence contracts.
+
+## Companion presence invariant
+
+A follow relationship records intent, not omnipresent membership. Scene transition
+code may carry a companion only from the leader's recorded departure scene.
+Vehicle manifests temporarily own riders; following must not reveal, relocate or
+board them into another vehicle. Boarding requires departure-room presence. These
+rules are exercised by tools/test_companion_presence.py with private source data;
+future world/transport replacements must retain them, including across save/load.
