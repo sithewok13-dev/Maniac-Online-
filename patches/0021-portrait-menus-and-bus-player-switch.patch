@@ -1,0 +1,107 @@
+diff --git a/backends/graphics/ios/ios-graphics.cpp b/backends/graphics/ios/ios-graphics.cpp
+index 12493ba5..3bb344d3 100644
+--- a/backends/graphics/ios/ios-graphics.cpp
++++ b/backends/graphics/ios/ios-graphics.cpp
+@@ -20,6 +20,7 @@
+  */
+ #define FORBIDDEN_SYMBOL_ALLOW_ALL
+ 
++#include "common/scummverse_ai.h"
+ #include "backends/graphics/ios/ios-graphics.h"
+ #include "backends/graphics/ios/renderbuffer.h"
+ #include "backends/graphics/opengl/pipelines/pipeline.h"
+@@ -115,6 +116,7 @@ void iOSGraphicsManager::showOverlay(bool inGUI) {
+ 	}
+ 
+ 	OpenGL::OpenGLGraphicsManager::showOverlay(inGUI);
++	scummverseOverlayVisible(inGUI);
+ }
+ 
+ void iOSGraphicsManager::hideOverlay() {
+@@ -124,6 +126,7 @@ void iOSGraphicsManager::hideOverlay() {
+ 	}
+ 
+ 	OpenGL::OpenGLGraphicsManager::hideOverlay();
++	scummverseOverlayVisible(false);
+ }
+ 
+ float iOSGraphicsManager::getHiDPIScreenFactor() const {
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index f6b24098..e0389233 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -1,5 +1,6 @@
+ // Scene-attached conversation controls. GPL-3.0-or-later.
+ // This is a small UIView, not a modal controller or a scene-sized touch shield.
++static BOOL scummverseSystemMenu=NO;
+ @interface ScummverseTalkBar : UIView <UITextFieldDelegate> {
+ 	UIView *_host;
+ 	UITextField *_input;
+@@ -79,9 +80,9 @@
+ }
+ - (void)refresh {
+ 	auto &r=ScummverseLocalAI::runtime();
+-	_arrive.hidden=ScummverseLocalAI::currentRoom()!=56;
++	_arrive.hidden=scummverseSystemMenu || ScummverseLocalAI::currentRoom()!=56;
+ 	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { [self close]; _scene=ScummverseLocalAI::sceneToken(); }
+-	self.hidden=!_open && _host.bounds.size.width>=_host.bounds.size.height;
++	self.hidden=scummverseSystemMenu || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
+ 	unsigned mask=r.talkingWith(); NSMutableArray *names=[NSMutableArray array];
+ 	for(int id=1;id<25;++id) if(mask & (1u<<id)) [names addObject:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)]];
+ 	[_recipient setTitle:mask ? [names componentsJoinedByString:@", "] : @"Talk" forState:UIControlStateNormal];
+@@ -139,3 +140,11 @@ static void scummverseInstallTalk(UIView *view) {
+ 	if(!scummverseTalkBar) { scummverseTalkBar=[[ScummverseTalkBar alloc] initWithHost:view]; [view addSubview:scummverseTalkBar]; }
+ }
+ static void scummverseShowTalk(UIView *view) { scummverseInstallTalk(view); [scummverseTalkBar openTalk]; }
++
++void scummverseOverlayVisible(bool visible) {
++	dispatch_async(dispatch_get_main_queue(), ^{
++		scummverseSystemMenu=visible;
++		if(visible) [scummverseTalkBar endEditing:YES];
++		[scummverseTalkBar refresh];
++	});
++}
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index b01306e9..17713347 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -12,6 +12,7 @@ void scummverseTravelScene(int room, int ego, unsigned companions, int from, uns
+ void scummverseAirportOffer(int actor);
+ void scummverseRosterFace(int actor, const unsigned char *rgba);
+ void scummverseRosterShow(int token,unsigned mask);
++void scummverseOverlayVisible(bool visible);
+ int scummverseWorldPoll();
+ void scummverseWorldReport(const char *notice);
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity);
+@@ -26,6 +27,7 @@ inline void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
+ inline void scummverseAirportOffer(int) {}
+ inline void scummverseRosterFace(int,const unsigned char *) {}
+ inline void scummverseRosterShow(int,unsigned) {}
++inline void scummverseOverlayVisible(bool) {}
+ inline int scummverseWorldPoll() { return 0; }
+ inline void scummverseWorldReport(const char *) {}
+ inline unsigned scummverseTalkScene(int, int, unsigned, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index d0aa96b3..b3ab6513 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -299,7 +299,7 @@ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+ bool ScummEngine::scummverseTravel(int destination) {
+ 	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 48 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+-	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
++	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+@@ -605,7 +605,9 @@ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	if(room>=56 && !scummverseMountExtra(room)) return false;
+ 	derefActor(VAR(VAR_EGO),"old player")->stopActorMoving();
+ 	stopTalk(); scummverseAICancel(); _scummverseAIActor=0;
+-	VAR(VAR_EGO)=id; _scummVars[770+id]=0; _scummverseCompanionEgo=0;
++	VAR(VAR_EGO)=id;
++	if(_scummVars[766] & (1u<<id)) _scummVars[767]=id;
++	_scummVars[770+id]=0; _scummverseCompanionEgo=0;
+ 	_scummverseLastEgo=id; _scummverseRoamers[id]=Roamer(); a->stopActorMoving();
+ 	if(room>=53) { _scummverseLanding=true; scummverseTravel(room==53?3:room==54?1:room==55?5:room-50); _scummverseLanding=false; }
+ 	else { startScene(room,a,0); }

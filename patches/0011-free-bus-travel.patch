@@ -1,0 +1,292 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 74ea4875..e4ec0294 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -95,7 +95,7 @@ void scummverseAirportOffer(int actor) {
+ 		UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Free airport travel" message:@"Choose a destination. No ticket or payment needed." preferredStyle:UIAlertControllerStyleAlert];
+ 		const int token = (53 * 32 + actor) << 8;
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(token | 4); }]];
+-		[menu addAction:[UIAlertAction actionWithTitle:@"Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(token | 1); }]];
++		[menu addAction:[UIAlertAction actionWithTitle:@"Free bus to Zak's street" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(token | 5); }]];
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Stay here" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:menu animated:YES completion:nil];
+ 	});
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 5d61eb05..adb4dde7 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -48,7 +48,8 @@ static const char *personality(int id) {
+ }
+ static const char *roomName(int room) {
+ 	switch (room) {
+-	case 53: return "San Francisco airport, with free travel to Maniac Mansion and Zak's apartment";
++	case 53: return "San Francisco airport, with free travel to Maniac Mansion and a free bus to Zak's street";
++	case 55: return "Zak's San Francisco street, with stairs to his apartment and a free bus to the airport";
+ 	case 54: return "Zak McKracken's San Francisco apartment, in Zak's world";
+ 	case 1: return "front yard"; case 2: return "drained swimming pool";
+ 	case 3: return "living room"; case 4: return "dungeon";
+diff --git a/engines/scumm/resource_v2.cpp b/engines/scumm/resource_v2.cpp
+index 935cad2c..594f15fc 100644
+--- a/engines/scumm/resource_v2.cpp
++++ b/engines/scumm/resource_v2.cpp
+@@ -78,6 +78,10 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 
+ 	_fileHandle->seek(0, SEEK_SET);
+ 
++	// Expand only the audited sandbox. The on-disk directory still has 55
++	// entries; consuming an extra entry would shift all costume/script tables.
++	const int nativeRoomCount = _numRooms;
++	if (_scummverseRoaming) _numRooms = 56;
+ 	readMAXS(0);
+ 	allocateArrays();
+ 
+@@ -91,8 +95,8 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 	for (i = 0; i < _numRooms; i++) {
+ 		_res->_types[rtRoom][i]._roomno = i;
+ 	}
+-	_fileHandle->seek(_numRooms, SEEK_CUR);
+-	for (i = 0; i < _numRooms; i++) {
++	_fileHandle->seek(nativeRoomCount, SEEK_CUR);
++	for (i = 0; i < nativeRoomCount; i++) {
+ 		_res->_types[rtRoom][i]._roomoffs = _fileHandle->readUint16LE();
+ 		if (_res->_types[rtRoom][i]._roomoffs == 0xFFFF)
+ 			_res->_types[rtRoom][i]._roomoffs = (uint32)RES_INVALID_OFFSET;
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 5859bca8..ad184d28 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -138,12 +138,16 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ }
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
+-	if (_scummverseRoamingReady && (_currentRoom == 53 || _currentRoom == 54)) {
++	if (_scummverseRoamingReady && (_currentRoom == 53 || _currentRoom == 54 || _currentRoom == 55)) {
++		if (_currentRoom == 55 && (entry == 13 || entry == 11 || entry == 1)) {
++			if (object == 712) { scummverseTravel(1); return; }
++			if (object >= 723 && object <= 728) { scummverseTravel(3); return; }
++		}
+ 		if (_currentRoom == 53 && (object == 683 || object == 688) && (entry == 13 || entry == 11 || entry == 1)) {
+ 			scummverseAirportOffer(); return;
+ 		}
+ 		if (entry == 13 && ((_currentRoom == 53 && object == 685) || (_currentRoom == 54 && object == 655))) {
+-			scummverseTravel(_currentRoom == 53 ? 4 : 3); return;
++			scummverseTravel(5); return;
+ 		}
+ 		// Foreign puzzle scripts reference Zak's private VM. Only the explicit
+ 		// travel interactions above are enabled; no fares or ticket scripts run.
+@@ -240,6 +244,15 @@ void ScummEngine::initializeLocals(int slot, int *vars) {
+ }
+ 
+ int ScummEngine::getVerbEntrypoint(int obj, int entry) {
++	// Advertise adapter interactions to Maniac's native sentence dispatcher.
++	// runObjectScript intercepts these before any foreign bytecode is read.
++	if (_scummverseRoamingReady) {
++		if ((_currentRoom == 55 && (obj == 712 || (obj >= 723 && obj <= 728))) ||
++			(_currentRoom == 53 && (obj == 683 || obj == 688))) {
++			if (entry == 13 || entry == 11 || entry == 1) return 1;
++		}
++		if (entry == 13 && ((_currentRoom == 53 && obj == 685) || (_currentRoom == 54 && obj == 655))) return 1;
++	}
+ 	const byte *objptr, *verbptr;
+ 	int verboffs;
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 60b0a3fd..e3421690 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1572,6 +1572,10 @@ protected:
+ 	int _scummverseAirportRetry = 0, _scummverseTransitRoom = 0, _scummverseTransitEgo = 0;
+ 	bool _scummverseTransitArmed = false;
+ 	bool scummverseMountAirport();
++	bool scummverseMountStreet();
++	bool _scummverseStreetMounted = false;
++	Common::Array<byte> _scummverseStreetRoom;
++	byte _scummverseStreetStates[20];
+ 	void scummverseInitVisitors();
+ 	void scummverseAirportOffer();
+ 	void scummverseUpdateTransit(int delta);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 55fb4cb1..d8709554 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -79,14 +79,16 @@ static const MansionPassage mansionPassages[] = {
+ 	{30, 169, 31, 168, true, 0, 0, 0, 0, false},
+ 	{1, 0, 53, 0, false, 0, 64, 30, 60, true},
+ 	{44, 0, 53, 0, false, 37, 64, 30, 60, true},
+-	{53, 685, 1, 0, false, 37, 60, 8, 64, true},
+-	{53, 683, 54, 655, false, 1, 60, 30, 56, true},
+-	{54, 655, 53, 683, false, 35, 56, 9, 60, true},
++	{53, 683, 1, 0, false, 1, 60, 8, 64, true},
++	{53, 685, 55, 724, false, 37, 60, 90, 59, true},
++	{54, 655, 55, 712, false, 35, 56, 40, 59, true},
++	{55, 724, 53, 685, false, 92, 59, 30, 60, true},
++	{55, 712, 54, 655, false, 43, 36, 30, 56, true},
+ };
+ 
+ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y) {
+ 	const MansionPassage &p = mansionPassages[index];
+-	if (p.transit) { x = arrival ? p.arrivalX : p.x; y = arrival ? p.arrivalY : p.y; return _scummverseAirportMounted; }
++	if (p.transit) { x = arrival ? p.arrivalX : p.x; y = arrival ? p.arrivalY : p.y; return _scummverseAirportMounted && ((p.room != 55 && p.destination != 55) || _scummverseStreetMounted); }
+ 	return scummverseDoorPoint(arrival ? p.destination : p.room, arrival ? p.arrival : p.object, x, y);
+ }
+ 
+@@ -324,11 +326,11 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		if (r.exit < 0) {
+ 			int candidates[ARRAYSIZE(mansionPassages)], count = 0;
+ 			for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n)
+-				if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || _scummverseAirportMounted) && (a->_room == 53 || mansionPassages[n].destination != r.previousRoom))
++				if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted))) && (a->_room == 53 || mansionPassages[n].destination != r.previousRoom))
+ 					candidates[count++] = n;
+ 			if (!count)
+ 				for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n)
+-					if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || _scummverseAirportMounted)) candidates[count++] = n;
++					if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted)))) candidates[count++] = n;
+ 			if (!count) continue;
+ 			r.exit = candidates[_rnd.getRandomNumber(count - 1)];
+ 			r.elapsed = 0; r.walking = false;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 544f84e6..14637a58 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1,7 +1,7 @@
+ // Connected-world adapters. GPL-3.0-or-later. No original game data included.
+-// Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:zak.
+-// Audited unused Maniac V1 slots keep existing save-array sizes unchanged:
+-// rooms 53/54, costume 34, actor 24, objects 650..711, variables 703..723/760/761.
++// Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:street, zak:zak.
++// Native rooms 53/54 and added room 55; costume 34, actor 24, objects 650..731.
++// Variables 703..723 retain return points; 760..762 initialize imported worlds.
+ static bool readZakFile(const Common::FSNode &directory, int number, const char *md5, Common::Array<byte> &data) {
+ 	Common::File file;
+ 	Common::String name = Common::String::format("%02d.LFL", number);
+@@ -96,7 +96,49 @@ bool ScummEngine::scummverseMountAirport() {
+ 	return true;
+ }
+ 
++bool ScummEngine::scummverseMountStreet() {
++	if (_scummverseStreetMounted) return true;
++	if (!scummverseMountZak()) return false;
++	Common::FSNode directory = ConfMan.hasKey("scummverse_zak_path") ?
++		Common::FSNode(ConfMan.getPath("scummverse_zak_path")) :
++		Common::FSNode(ConfMan.getPath("path")).getParent().getChild("zak");
++	Common::Array<byte> index, source;
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index) ||
++		!readZakFile(directory, 3, "25a9e059a9df572554ee8ceffc08cb9f", source)) {
++		_scummverseWorldNotice = "Bus unavailable. Copy all original English Zak DOS V1 LFL files, including 03.LFL, into Documents/zak.";
++		return false;
++	}
++	uint size = READ_LE_UINT16(source.data()), count = source[20];
++	if (count != 20 || size > source.size() || size < 28 + count * 4) return false;
++	_scummverseStreetRoom.resize(size);
++	memcpy(_scummverseStreetRoom.data(), source.data(), size);
++	for (uint i = 0; i < count; ++i) {
++		uint offset = READ_LE_UINT16(source.data() + 28 + count * 2 + i * 2);
++		if (offset + 15 > size) return false;
++		uint original = READ_LE_UINT16(source.data() + offset + 4);
++		if (original >= 775) return false;
++		_scummverseStreetStates[i] = index[2 + original] >> 4;
++		WRITE_LE_UINT16(_scummverseStreetRoom.data() + offset + 4, 712 + i);
++		// Original hotspots assume puzzle-controlled boarding/stair scripts.
++		// Keep clicks on reachable pavement so Maniac's sentence-distance
++		// check can dispatch our free travel interaction.
++		if (i == 0 || (i >= 11 && i <= 16)) {
++			_scummverseStreetRoom[offset + 11] = i == 0 ? 43 : 92;
++			_scummverseStreetRoom[offset + 12] = (source[offset + 12] & 0xE0) | (i == 0 ? 9 : 15);
++		}
++	}
++	_scummverseStreetRoom[22] = _scummverseStreetRoom[23] = 0;
++	WRITE_LE_UINT16(_scummverseStreetRoom.data() + 24, 0);
++	WRITE_LE_UINT16(_scummverseStreetRoom.data() + 26, 0);
++	_scummverseStreetMounted = true;
++	return true;
++}
++
+ void ScummEngine::scummverseInitVisitors() {
++	if (_scummverseStreetMounted && !_scummVars[762]) {
++		for (int i = 0; i < 20; ++i) { putState(712 + i, _scummverseStreetStates[i]); _objectOwnerTable[712+i] = OF_OWNER_ROOM; }
++		_scummVars[762] = 1; _fullRedraw = true;
++	}
+ 	if (!_scummVars[760]) {
+ 		for (int i = 0; i < 33; ++i) { putState(650 + i, _scummverseZakStates[i]); _objectOwnerTable[650+i] = OF_OWNER_ROOM; }
+ 		Actor *zak = derefActor(24, "zak:zak");
+@@ -115,31 +157,33 @@ void ScummEngine::scummverseInitVisitors() {
+ }
+ 
+ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+-	if (!_scummverseRoaming || !((type == rtRoom && (id == 53 || id == 54)) || (type == rtCostume && id == 34))) return -1;
+-	if (type == rtRoom && id == 53 ? !scummverseMountAirport() : !scummverseMountZak()) return 0;
+-	const Common::Array<byte> &data = type == rtCostume ? _scummverseZakCostume : id == 53 ? _scummverseAirportRoom : _scummverseZakRoom;
++	if (!_scummverseRoaming || !((type == rtRoom && (id == 53 || id == 54 || id == 55)) || (type == rtCostume && id == 34))) return -1;
++	if (type == rtRoom && id == 55 ? !scummverseMountStreet() : type == rtRoom && id == 53 ? !scummverseMountAirport() : !scummverseMountZak()) return 0;
++	const Common::Array<byte> &data = type == rtCostume ? _scummverseZakCostume : id == 55 ? _scummverseStreetRoom : id == 53 ? _scummverseAirportRoom : _scummverseZakRoom;
+ 	memcpy(_res->createResource(type, id, data.size()), data.data(), data.size());
+ 	return 1;
+ }
+ 
+ bool ScummEngine::scummverseTravel(int destination) {
+-	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 4 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 7) return false;
++	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 5 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 7) return false;
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+-	if ((destination == 1 && !scummverseMountZak()) || (destination == 3 && !scummverseMountAirport())) {
++	if ((destination == 1 && !scummverseMountZak()) || (destination == 3 && !scummverseMountAirport()) || (destination == 5 && !scummverseMountStreet())) {
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 		scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false;
+ 	}
+ 	const int key = 700 + VAR(VAR_EGO) * 3;
+ 	int room = 1, x = 8, y = 64;
+-	if (destination == 1 || destination == 3) {
++	if (destination == 1 || destination == 3 || destination == 5) {
+ 		// Never overwrite a kid's mansion return point while in Zak's world.
+ 		if (_currentRoom < 53) {
+ 			_scummVars[key] = _currentRoom; _scummVars[key + 1] = player->getRealPos().x; _scummVars[key + 2] = player->getRealPos().y;
+ 		}
+ 		scummverseInitVisitors();
+-		room = destination == 1 ? 54 : 53; x = destination == 1 ? 21 : 30; y = destination == 1 ? 56 : 60;
++		room = destination == 5 ? 55 : destination == 1 ? 54 : 53;
++		x = destination == 5 ? (_currentRoom == 54 ? 40 : 90) : destination == 1 ? 21 : 30;
++		y = destination == 5 ? 59 : destination == 1 ? 56 : 60;
+ 	} else if (destination == 2) {
+ 		room = _scummVars[key]; x = _scummVars[key + 1]; y = _scummVars[key + 2];
+ 		if (room < 1 || room > 52) { room = 1; x = 8; y = 64; }
+@@ -152,7 +196,8 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 53 ? "Free airport travel. Walk to the gate or use the reservations terminal to choose a destination." :
+-		room == 54 ? "Zak's apartment. Walk through the door to return to the airport." : "Back in Maniac Mansion.";
++		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
++		room == 54 ? "Zak's apartment. Walk through the door to reach the street and free airport bus." : "Back in Maniac Mansion.";
+ 	scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	return true;
+ }
+@@ -168,23 +213,24 @@ void ScummEngine::scummverseAirportOffer() {
+ 	GUI::ChooserDialog dialog(Common::U32String("Free travel - choose a destination"));
+ 	Common::U32StringArray destinations;
+ 	destinations.push_back(Common::U32String("Maniac Mansion"));
+-	destinations.push_back(Common::U32String("Zak's apartment"));
++	destinations.push_back(Common::U32String("Free bus to Zak's street"));
+ 	dialog.setList(destinations);
+ 	int choice = runDialog(dialog);
+-	if (choice == 0 || choice == 1) scummverseTravel(choice == 0 ? 4 : 1);
++	if (choice == 0 || choice == 1) scummverseTravel(choice == 0 ? 4 : 5);
+ #endif
+ }
+ 
+ void ScummEngine::scummverseUpdateTransit(int delta) {
+-	// Retry absent optional data occasionally, not on every NPC frame.
+-	if (!_scummverseAirportMounted) {
++	// Retry optional resources together, at most once per 600 timer units.
++	if (!_scummverseAirportMounted || !_scummverseStreetMounted) {
+ 		_scummverseAirportRetry -= delta;
+ 		if (_scummverseAirportRetry <= 0) {
+ 			_scummverseAirportRetry = 600;
+ 			scummverseMountAirport();
++			scummverseMountStreet();
+ 		}
+ 	}
+-	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761])) scummverseInitVisitors();
++	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || (_scummverseStreetMounted && !_scummVars[762]))) scummverseInitVisitors();
+ 	Actor *player = derefActor(VAR(VAR_EGO), "walking traveller");
+ 	if (_scummverseTransitRoom != _currentRoom || _scummverseTransitEgo != VAR(VAR_EGO)) {
+ 		_scummverseTransitRoom = _currentRoom; _scummverseTransitEgo = VAR(VAR_EGO); _scummverseTransitArmed = false;

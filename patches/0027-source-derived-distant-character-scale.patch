@@ -1,0 +1,94 @@
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index 12e5981a..b803cb56 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -71,15 +71,30 @@ static const int v1MMNESLookup[25] = {
+ 	0x17, 0x00, 0x01, 0x05, 0x16
+ };
+ 
++// Skin colors
++static const int v1MMActorPalatte1[25] = {
++	8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
++};
++// Suit colors
++static const int v1MMActorPalatte2[25] = {
++	0, 7, 2, 6, 9, 1, 3, 7, 7, 1, 1, 9, 1, 4, 5, 5, 4, 1, 0, 5, 4, 2, 2, 7, 7
++};
++
+ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+-	// Imported Zak is rendered at 6:5 around his feet, with crisp pixels and masks.
+-	if (_vm->_game.id == GID_MANIAC && (_loaded._id >= 34 && _loaded._id <= 41) && _loaded._format == 0x57) {
+-		auto scale = [](int n) { return n >= 0 ? n * 6 / 5 : -((-n * 6 + 4) / 5); };
++	const bool imported = _loaded._id >= 34 && _loaded._id <= 41;
++	const bool distant = _vm->scummverseDistantScene();
++	// Preserve source art and feet while applying the audited distant ratio.
++	// Imported costumes retain their existing 6:5 normalization elsewhere.
++	if (_vm->_game.id == GID_MANIAC && (imported || distant) && _loaded._format == 0x57) {
++		const int numerator = distant ? 5 : 6, denominator = distant ? 23 : 5;
++		auto scale = [numerator, denominator](int n) {
++			return n >= 0 ? n*numerator/denominator : -((-n*numerator+denominator-1)/denominator);
++		};
+ 		const byte *src = _srcPtr;
+ 		byte palette[4] = {0, 0, 0, 0};
+ 		if (_vm->getCurrentLights() & LIGHTMODE_actor_use_colors) {
+-			palette[1] = _vm->_gdi->remapColorToRenderMode(8);
+-			palette[2] = _vm->_gdi->remapColorToRenderMode(_palette[1]);
++			palette[1] = _vm->_gdi->remapColorToRenderMode(imported ? 8 : v1MMActorPalatte1[_actorID]);
++			palette[2] = _vm->_gdi->remapColorToRenderMode(imported ? _palette[1] : v1MMActorPalatte2[_actorID]);
+ 		} else palette[2] = palette[3] = _vm->_gdi->remapColorToRenderMode(11);
+ 		int run = 0; bool repeat = false; byte color = 0;
+ 		int left = _out.w, right = 0, top = _out.h, bottom = 0;
+@@ -357,15 +372,6 @@ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	return drawFlag;
+ }
+ 
+-// Skin colors
+-static const int v1MMActorPalatte1[25] = {
+-	8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
+-};
+-// Suit colors
+-static const int v1MMActorPalatte2[25] = {
+-	0, 7, 2, 6, 9, 1, 3, 7, 7, 1, 1, 9, 1, 4, 5, 5, 4, 1, 0, 5, 4, 2, 2, 7, 7
+-};
+-
+ #define MASK_AT(xoff) \
+ 	(mask && (mask[((compData.x + xoff) / 8)] & revBitMask((compData.x + xoff) & 7)))
+ #define LINE(c,p) \
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 42c7551c..274a538c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1357,6 +1357,7 @@ public:
+ 	bool isLightOn() const;
+ 
+ 	virtual int getCurrentLights() const;
++	bool scummverseDistantScene() const;
+ 	bool scummverseRenderingPortrait() const { return _scummversePortrait; }
+ 
+ protected:
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 82767cc7..74bedd19 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -150,3 +150,7 @@ struct ZakWalkboxOverride { int room, box, flags; };
+ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
+ 	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
+ };
++
++// Original 20/39 entry scripts select distant costume 9 (10px tall).
++// Normal Zak standing front/back costume 1 spans 46px. Scale = 10/46.
++static const int zakDistantCostumeRooms[] = {64, 72, 87, 97};
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index bf5412c8..f3a07b97 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -650,3 +650,9 @@ void ScummEngine::scummverseRestoreSceneNavigation(bool restoreActors) {
+ 		a->putActor(point.x,point.y,_currentRoom);
+ 	}
+ }
++
++bool ScummEngine::scummverseDistantScene() const {
++	if (!_scummverseRoaming || _scummversePortrait) return false;
++	for (int room : zakDistantCostumeRooms) if (room==_currentRoom) return true;
++	return false;
++}

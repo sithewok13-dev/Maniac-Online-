@@ -1,0 +1,28 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 89f5b13d..eeee1fc3 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -45,6 +45,7 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ 		case 7: case 12: // Reactor countdown (two indexed copies).
+ 		case 37:        // Edna's imprisonment sequence.
+ 		case 49:        // Purple Tentacle's chase/imprisonment.
++		case 51: case 161: // Green Tentacle's gate, pushback and Bernard retreat.
+ 		case 61: case 62: // Death and game over.
+ 		case 88: case 89: // Weird Ed's chase/imprisonment.
+ 		case 117:       // Purple Tentacle's lab confrontation trigger.
+diff --git a/engines/scumm/script_v2.cpp b/engines/scumm/script_v2.cpp
+index 7603d754..12c7aa37 100644
+--- a/engines/scumm/script_v2.cpp
++++ b/engines/scumm/script_v2.cpp
+@@ -457,6 +457,11 @@ int ScummEngine_v2::readVar(uint var) {
+ 	if (_scummverseExplorationSafety && _currentScript != 0xFF &&
+ 		vm.slot[_currentScript].where == WIO_GLOBAL) {
+ 		switch (vm.slot[_currentScript].number) {
++		case 153: // Keep the kitchen greeting alive until the player leaves.
++			// The no-capture monitor leaves 126 clear, which would otherwise
++			// immediately start Edna's off-screen departure (script 38).
++			if (var == 126 && _currentRoom == 7) return 1;
++			break;
+ 		case 36: // Edna monitor: no target; patrol flag 126 stays clear.
+ 			if (var == 73) return 255;
+ 			break;

@@ -1,0 +1,58 @@
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index abeccb27..00bae8c1 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -314,13 +314,28 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		}
+ 		if (zakAirport(a->_room)) {
+ 			if (r.room!=a->_room) { _scummverseNpcDestination[id]=0; r.room=a->_room; r.exit=-1; }
++   const int booking=_scummVars[travellerDestinationKey(id)];
++   bool booked=false; for(int route : zakFlights) if(route==booking) booked=true;
++   if(booked && _scummverseNpcDestination[id]!=booking) {
++    _scummverseNpcDestination[id]=booking; _scummverseNpcBoarding[id]=600;
++   }
+ 			if (!_scummverseNpcDestination[id]) { const int *choices=zakFlights; _scummverseNpcDestination[id]=choices[_rnd.getRandomNumber(9)]; _scummverseNpcBoarding[id]=600; if(a->_room!=60 && _rnd.getRandomNumber(2)==0) _scummverseNpcDestination[id]=-1; }
+ 			if (_scummverseNpcDestination[id]>0 && !(chatting & (1u<<id)) && !_scummVars[770+id]) {
+ 				_scummverseNpcBoarding[id]-=delta;
+ 				if(a->_room==_currentRoom && !a->_moving) a->startWalkActor(2,60,-1);
+ 				if(_scummverseNpcBoarding[id]<=0) {
+ 					int dest=_scummverseNpcDestination[id], room=dest==4?1:dest==3?53:dest+50;
+-					if(room<56 || scummverseMountExtra(room)) { a->putActor(20,60,room); _scummverseNpcDestination[id]=0; }
++     if(_scummVars[724]==dest && _scummVars[726]==a->_room) {
++      // Join the same local flight instead of teleporting past its passengers.
++      if(scummverseMountExtra(56)) {
++       a->stopActorMoving(); a->putActor(35+id%6*3,60,56);
++       a->startAnimActor(a->_standFrame); _scummVars[725] |= 1u<<id;
++       _scummverseNpcDestination[id]=0; _scummVars[travellerDestinationKey(id)]=0;
++      }
++     } else if(room<56 || scummverseMountExtra(room)) {
++      a->putActor(20,60,room); _scummverseNpcDestination[id]=0;
++      _scummVars[travellerDestinationKey(id)]=0;
++     }
+ 				}
+ 				continue;
+ 			}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 16cabe17..c75c0c3d 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -463,7 +463,9 @@ void ScummEngine::scummverseBoard() {
+ 	for (int id : mansionCast) {
+ 		if (id==ego || ((id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a=derefActor(id,"boarding passenger");
+-		if (_scummVars[770+id]==ego || (a->_room==origin && _scummverseNpcDestination[id]==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
++  const int booking=_scummVars[travellerDestinationKey(id)];
++  const int destination=booking ? booking : _scummverseNpcDestination[id];
++		if (_scummVars[770+id]==ego || (a->_room==origin && destination==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
+ 	}
+ 	if (!scummverseTravel(6)) return;
+  if(joining) {
+@@ -480,6 +482,8 @@ void ScummEngine::scummverseBoard() {
+ 	_scummVars[travellerDestinationKey(ego)]=0;
+ 	for(int id : mansionCast) if (passengers & (1u<<id)) {
+ 		Actor *a=derefActor(id,"flight passenger"); a->stopActorMoving();
++  _scummVars[travellerDestinationKey(id)]=0; _scummverseNpcDestination[id]=0;
++  _scummverseNpcBoarding[id]=0;
+ 		AdjustBoxResult p=a->adjustXYToBeInBox(35+id%6*3,60);
+ 		a->putActor(p.x,p.y,56); a->startAnimActor(a->_standFrame); _scummverseRoamers[id]=Roamer();
+ 	}

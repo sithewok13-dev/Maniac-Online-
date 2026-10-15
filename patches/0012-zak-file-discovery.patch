@@ -1,0 +1,128 @@
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 14637a58..39d82e20 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -2,33 +2,76 @@
+ // Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:street, zak:zak.
+ // Native rooms 53/54 and added room 55; costume 34, actor 24, objects 650..731.
+ // Variables 703..723 retain return points; 760..762 initialize imported worlds.
+-static bool readZakFile(const Common::FSNode &directory, int number, const char *md5, Common::Array<byte> &data) {
+-	Common::File file;
++// On iOS the filesystem root already represents this app's Documents folder.
++// Do not derive that location from a saved game path or a prior install UUID.
++static Common::FSNode scummverseZakFolder(const Common::FSNode &parent) {
++	Common::FSNode folder = parent.getChild("zak");
++	if (folder.isDirectory()) return folder;
++	Common::FSList children;
++	parent.getChildren(children, Common::FSNode::kListDirectoriesOnly);
++	for (const auto &child : children)
++		if (child.getName().equalsIgnoreCase("zak")) return child;
++	return folder;
++}
++
++static Common::FSNode scummverseZakDirectory() {
++	if (ConfMan.hasKey("scummverse_zak_path"))
++		return Common::FSNode(ConfMan.getPath("scummverse_zak_path"));
++#ifdef IPHONE
++	return scummverseZakFolder(Common::FSNode(Common::Path("/")));
++#else
++	// Path::getParent handles a bare relative "maniac" as the current directory.
++	// FSNode::getParent can instead return the same node for a relative path.
++	return scummverseZakFolder(Common::FSNode(ConfMan.getPath("path").getParent()));
++#endif
++}
++
++static bool readZakFile(const Common::FSNode &directory, int number, const char *md5, Common::Array<byte> &data, Common::String &problem) {
+ 	Common::String name = Common::String::format("%02d.LFL", number);
++	if (!directory.isDirectory()) {
++		problem = "Zak folder unavailable. Put the Zak files in this app's Documents/zak folder.";
++		return false;
++	}
++	Common::String path = directory.getPath().join(name).toString(Common::Path::kNativeSeparator);
+ 	Common::FSNode node = directory.getChild(name);
+ 	if (!node.exists()) {
+ 		Common::FSList children;
+ 		directory.getChildren(children, Common::FSNode::kListFilesOnly);
+ 		for (const auto &child : children) if (child.getName().equalsIgnoreCase(name)) { node = child; break; }
+ 	}
+-	if (!file.open(node) || file.size() < 2 || file.size() > 65535) return false;
+-	if (Common::computeStreamMD5AsString(file) != md5) return false;
++	if (!node.exists()) { problem = "Zak file missing: " + path; return false; }
++	Common::File file;
++	if (!file.open(node)) { problem = "Cannot read Zak file: " + path; return false; }
++	if (file.size() < 2 || file.size() > 65535) { problem = "Invalid Zak file size: " + path; return false; }
++	if (Common::computeStreamMD5AsString(file) != md5) {
++		problem = "Zak file does not match the supported English DOS V1 edition: " + path;
++		return false;
++	}
+ 	file.seek(0); data.resize(file.size());
+-	if (file.read(data.data(), data.size()) != data.size()) return false;
++	if (file.read(data.data(), data.size()) != data.size()) { problem = "Incomplete read of Zak file: " + path; return false; }
+ 	for (uint i = 0; i < data.size(); ++i) data[i] ^= 0xFF;
+ 	return true;
+ }
+ 
++static void scummverseZakDiagnostic(const Common::FSNode &directory, const Common::String &problem) {
++	// Avoid filling the log during automatic optional-data retries.
++	static uint32 previous = 0;
++	Common::String detail = Common::String::format("SCUMMVERSE Zak: %s (game path: %s)", problem.c_str(),
++		ConfMan.getPath("path").toString(Common::Path::kNativeSeparator).c_str());
++	if (directory.isDirectory()) detail += " (Zak folder: " + directory.getPath().toString(Common::Path::kNativeSeparator) + ")";
++	uint32 fingerprint = detail.hash();
++	if (fingerprint != previous) { warning("%s", detail.c_str()); previous = fingerprint; }
++	scummverseWorldReport(problem.c_str());
++}
++
+ bool ScummEngine::scummverseMountZak() {
+ 	if (_scummverseZakMounted) return true;
+ 	if (!_scummverseRoaming) return false;
+-	Common::FSNode directory = ConfMan.hasKey("scummverse_zak_path") ?
+-		Common::FSNode(ConfMan.getPath("scummverse_zak_path")) :
+-		Common::FSNode(ConfMan.getPath("path")).getParent().getChild("zak");
++	Common::FSNode directory = scummverseZakDirectory();
+ 	Common::Array<byte> index, source;
+-	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index) ||
+-		!readZakFile(directory, 1, "2e30571757edc1cd0f2a450ba5c89153", source)) {
+-		_scummverseWorldNotice = "Add the original English Zak DOS V1 files to Documents/zak, then retry Worlds.";
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index, _scummverseWorldNotice) ||
++		!readZakFile(directory, 1, "2e30571757edc1cd0f2a450ba5c89153", source, _scummverseWorldNotice)) {
++		scummverseZakDiagnostic(directory, _scummverseWorldNotice);
+ 		return false;
+ 	}
+ 	// Read the original apartment and playable Zak costume from the verified
+@@ -68,13 +111,11 @@ bool ScummEngine::scummverseMountZak() {
+ bool ScummEngine::scummverseMountAirport() {
+ 	if (_scummverseAirportMounted) return true;
+ 	if (!scummverseMountZak()) return false;
+-	Common::FSNode directory = ConfMan.hasKey("scummverse_zak_path") ?
+-		Common::FSNode(ConfMan.getPath("scummverse_zak_path")) :
+-		Common::FSNode(ConfMan.getPath("path")).getParent().getChild("zak");
++	Common::FSNode directory = scummverseZakDirectory();
+ 	Common::Array<byte> index, source;
+-	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index) ||
+-		!readZakFile(directory, 8, "5337090e7a6ebdbfb698ebda3750d926", source)) {
+-		_scummverseWorldNotice = "Airport unavailable. Copy all original English Zak DOS V1 LFL files, including 08.LFL, into Documents/zak.";
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index, _scummverseWorldNotice) ||
++		!readZakFile(directory, 8, "5337090e7a6ebdbfb698ebda3750d926", source, _scummverseWorldNotice)) {
++		scummverseZakDiagnostic(directory, _scummverseWorldNotice);
+ 		return false;
+ 	}
+ 	uint size = READ_LE_UINT16(source.data()), count = source[20];
+@@ -99,13 +140,11 @@ bool ScummEngine::scummverseMountAirport() {
+ bool ScummEngine::scummverseMountStreet() {
+ 	if (_scummverseStreetMounted) return true;
+ 	if (!scummverseMountZak()) return false;
+-	Common::FSNode directory = ConfMan.hasKey("scummverse_zak_path") ?
+-		Common::FSNode(ConfMan.getPath("scummverse_zak_path")) :
+-		Common::FSNode(ConfMan.getPath("path")).getParent().getChild("zak");
++	Common::FSNode directory = scummverseZakDirectory();
+ 	Common::Array<byte> index, source;
+-	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index) ||
+-		!readZakFile(directory, 3, "25a9e059a9df572554ee8ceffc08cb9f", source)) {
+-		_scummverseWorldNotice = "Bus unavailable. Copy all original English Zak DOS V1 LFL files, including 03.LFL, into Documents/zak.";
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index, _scummverseWorldNotice) ||
++		!readZakFile(directory, 3, "25a9e059a9df572554ee8ceffc08cb9f", source, _scummverseWorldNotice)) {
++		scummverseZakDiagnostic(directory, _scummverseWorldNotice);
+ 		return false;
+ 	}
+ 	uint size = READ_LE_UINT16(source.data()), count = source[20];

@@ -1,0 +1,8 @@
+/engine/
+/build/
+/game-data/
+/maniac/
+__pycache__/
+*.pyc
+*.log
+.DS_Store

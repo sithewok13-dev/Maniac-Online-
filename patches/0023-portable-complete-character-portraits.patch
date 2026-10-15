@@ -1,0 +1,69 @@
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 99574b0c..50338478 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -117,6 +117,8 @@
+ 
+ using Common::File;
+ 
++#include "scumm/scummverse_portrait.h"
++
+ namespace Scumm {
+ 
+ // Use g_scumm from error() ONLY
+diff --git a/engines/scumm/scummverse_portrait.h b/engines/scumm/scummverse_portrait.h
+new file mode 100644
+index 00000000..2b914816
+--- /dev/null
++++ b/engines/scumm/scummverse_portrait.h
+@@ -0,0 +1,29 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++#ifndef SCUMMVERSE_PORTRAIT_H
++#define SCUMMVERSE_PORTRAIT_H
++
++// Portable presentation contract v1. No engine, platform or game dependencies.
++namespace ScummversePresentation {
++struct PortraitFit {
++ int x, y, width, height;
++ bool valid() const { return width > 0 && height > 0; }
++};
++// Contain the entire nontransparent sprite, centered with transparent padding.
++// Integer nearest-neighbor sampling preserves the source pixel-art proportions.
++inline PortraitFit fitPortrait(int width, int height, int target, int padding) {
++ PortraitFit empty = {0, 0, 0, 0};
++ if (width <= 0 || height <= 0 || target <= 0 || padding < 0 || padding >= target / 2)
++  return empty;
++ const int available = target - 2 * padding;
++ const int longest = width > height ? width : height;
++ PortraitFit fit;
++ fit.width = int((static_cast<long long>(width) * available) / longest);
++ fit.height = int((static_cast<long long>(height) * available) / longest);
++ if (!fit.width) fit.width = 1;
++ if (!fit.height) fit.height = 1;
++ fit.x = (target - fit.width) / 2;
++ fit.y = (target - fit.height) / 2;
++ return fit;
++}
++}
++#endif
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 67dbd13e..11124e59 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -579,11 +579,12 @@ void ScummEngine::scummverseRosterOffer() {
+ 		for(int y=0;y<128;++y) for(int x=0;x<320;++x) if(*(byte *)canvas.getBasePtr(x,y)!=255) { left=MIN(left,x);right=MAX(right,x);top=MIN(top,y);bottom=MAX(bottom,y); }
+ 		byte rgba[64*64*4]={};
+ 		if(right>=left && bottom>=top) {
+-			int side=MAX(24,right-left+5), x0=(left+right-side)/2, y0=MAX(0,top-2);
+-			for(int y=0;y<64;++y) for(int x=0;x<64;++x) {
+-				int sx=CLIP(x0+x*side/64,0,319), sy=CLIP(y0+y*side/64,0,127);
++			const int width=right-left+1, height=bottom-top+1;
++			const auto fit=ScummversePresentation::fitPortrait(width,height,64,2);
++			for(int y=0;y<fit.height;++y) for(int x=0;x<fit.width;++x) {
++				int sx=left+x*width/fit.width, sy=top+y*height/fit.height;
+ 				byte c=*(byte *)canvas.getBasePtr(sx,sy); if(c==255) continue;
+-				int o=(y*64+x)*4; memcpy(rgba+o,_currentPalette+3*c,3);rgba[o+3]=255;
++				int o=((fit.y+y)*64+fit.x+x)*4; memcpy(rgba+o,_currentPalette+3*c,3);rgba[o+3]=255;
+ 			}
+ 		}
+ 		canvas.free(); ::scummverseRosterFace(id,rgba);

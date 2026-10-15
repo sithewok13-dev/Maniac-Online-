@@ -1,0 +1,107 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index c6dd86fc..89f5b13d 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -36,6 +36,26 @@ namespace Scumm {
+ 
+ /* Start executing script 'script' with the given parameters */
+ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, int *lvarptr, int cycle) {
++	// Suppress audited destructive routines before allocating a script slot.
++	// Caller-side decisions are handled in v2 readVar so controls/patrols are
++	// not stopped before reaching this guard. Requires a fresh game; it does
++	// not unwind a capture or death already in progress in an older save.
++	if (_scummverseExplorationSafety) {
++		switch (script) {
++		case 7: case 12: // Reactor countdown (two indexed copies).
++		case 37:        // Edna's imprisonment sequence.
++		case 49:        // Purple Tentacle's chase/imprisonment.
++		case 61: case 62: // Death and game over.
++		case 88: case 89: // Weird Ed's chase/imprisonment.
++		case 117:       // Purple Tentacle's lab confrontation trigger.
++		case 123:       // Self-destruct countdown.
++		case 128:       // Meteor projectile; freezes input before game over.
++			return;
++		default:
++			break;
++		}
++	}
++
+ 	ScriptSlot *s;
+ 
+ 	uint32 scriptOffs;
+diff --git a/engines/scumm/script_v2.cpp b/engines/scumm/script_v2.cpp
+index d39e6d5c..7603d754 100644
+--- a/engines/scumm/script_v2.cpp
++++ b/engines/scumm/script_v2.cpp
+@@ -452,6 +452,33 @@ int ScummEngine_v2::readVar(uint var) {
+ 		var = _scummVars[var];
+ 
+ 	assertRange(0, var, _numVariables - 1, "variable (reading)");
++	// Select the existing non-hostile branches without changing persistent
++	// puzzle variables. Scope to global scripts: object IDs share this namespace.
++	if (_scummverseExplorationSafety && _currentScript != 0xFF &&
++		vm.slot[_currentScript].where == WIO_GLOBAL) {
++		switch (vm.slot[_currentScript].number) {
++		case 36: // Edna monitor: no target; patrol flag 126 stays clear.
++			if (var == 73) return 255;
++			break;
++		case 91: // Ed monitor: no target; patrol flag 118 stays clear.
++			if (var == 113) return 255;
++			break;
++		case 48: // Purple Tentacle searches the empty room and returns normally.
++			if (var == 200) return 255;
++			break;
++		case 116: // Allow Ed's ordinary pickup branch, before he freezes input.
++			if (var == 106) return 1;
++			break;
++		case 107: // Bad tape: ordinary negative review, not a lethal room change.
++			if (var == 157 && _scummVars[var] == 25) return 0;
++			break;
++		case 110: // Wrong contract: skip hostility before cursorCommand disables input.
++			if (var == 101 && (_scummVars[var] == 1 || _scummVars[var] == 2)) return 0;
++			break;
++		default:
++			break;
++		}
++	}
+ 	debugC(DEBUG_VARS, "readvar(%d) = %d", var, _scummVars[var]);
+ 	return _scummVars[var];
+ }
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 61e6bb4a..7dc032ca 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -153,14 +153,18 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	}
+ 	_res = new ResourceManager(this);
+ 
+-	// This first exploration adapter is audited against the English DOS V1
++	// These exploration adapters are audited against the English DOS V1
+ 	// index. Other editions retain their original behavior.
+ 	ConfMan.registerDefault("scummverse_exploration_doors", true);
+-	_scummverseExplorationDoors = _game.id == GID_MANIAC &&
++	ConfMan.registerDefault("scummverse_exploration_safety", true);
++	const bool auditedManiac = _game.id == GID_MANIAC &&
+ 		_game.version == 1 && _game.platform == Common::kPlatformDOS &&
+ 		!(_game.features & GF_DEMO) &&
+-		dr.md5 == "7f45ddd6dbfbf8f80c0c0efea4c295bc" &&
++		dr.md5 == "7f45ddd6dbfbf8f80c0c0efea4c295bc";
++	_scummverseExplorationDoors = auditedManiac &&
+ 		ConfMan.getBool("scummverse_exploration_doors");
++	_scummverseExplorationSafety = auditedManiac &&
++		ConfMan.getBool("scummverse_exploration_safety");
+ 
+ 	// Convert MD5 checksum back into a digest
+ 	for (int i = 0; i < 16; ++i) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 1f9309d8..09dd4277 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1563,6 +1563,7 @@ protected:
+ 	bool _native_mt32 = false;
+ 	bool _copyProtection = false;
+ 	bool _scummverseExplorationDoors = false;
++	bool _scummverseExplorationSafety = false;
+ 	bool _shadowPalRemap = false;
+ 
+ 	// Indy4 Amiga specific

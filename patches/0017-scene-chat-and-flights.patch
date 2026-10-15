@@ -1,0 +1,995 @@
+diff --git a/backends/platform/ios7/ios7_osys_events.cpp b/backends/platform/ios7/ios7_osys_events.cpp
+index 3d455a51..3a1cb753 100644
+--- a/backends/platform/ios7/ios7_osys_events.cpp
++++ b/backends/platform/ios7/ios7_osys_events.cpp
+@@ -22,6 +22,7 @@
+ // Disable symbol overrides so that we can use system headers.
+ #define FORBIDDEN_SYMBOL_ALLOW_ALL
+ 
++#include "common/scummverse_ai.h"
+ #include "gui/message.h"
+ #include "common/translation.h"
+ #include "common/config-manager.h"
+@@ -163,7 +164,7 @@ bool OSystem_iOS7::handleEvent_touchBegan(Common::Event &event, int x, int y) {
+ 	_lastPadX = x;
+ 	_lastPadY = y;
+ 
+-	if (_currentTouchMode == kTouchModeDirect) {
++	if (_currentTouchMode == kTouchModeDirect || scummverseTalkPicking()) {
+ 		Common::Point mouse(x, y);
+ 		dynamic_cast<iOSCommonGraphics *>(_graphicsManager)->notifyMousePosition(mouse);
+ 	}
+@@ -177,7 +178,7 @@ bool OSystem_iOS7::handleEvent_touchMoved(Common::Event &event, int x, int y) {
+ 	_lastPadX = x;
+ 	_lastPadY = y;
+ 
+-	if (_currentTouchMode == kTouchModeTouchpad) {
++	if (_currentTouchMode == kTouchModeTouchpad && !scummverseTalkPicking()) {
+ 		handleEvent_mouseDelta(event, deltaX, deltaY);
+ 	} else {
+ 		// Update mouse position
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 457185cc..a35cdfe1 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -94,12 +94,15 @@ void scummverseAirportOffer(int actor) {
+ 		while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 		UIViewController *controller = (UIViewController *)responder;
+ 		if (!controller || controller.presentedViewController) return;
+-		ScummverseAirportController *menu = [[[ScummverseAirportController alloc] initWithToken:(53 * 32 + actor) << 8] autorelease];
++		ScummverseAirportController *menu = [[[ScummverseAirportController alloc] initWithToken:actor] autorelease];
+ 		[controller presentViewController:menu animated:NO completion:nil];
+ 	});
+ }
+ #endif
+ 
++@interface iPhoneView (ScummverseGestures) <UIGestureRecognizerDelegate>
++@end
++
+ @implementation iPhoneView {
+ #if TARGET_OS_IOS
+ #ifdef SCUMMVERSE_LOCAL_AI
+@@ -337,6 +340,9 @@ void scummverseAirportOffer(int actor) {
+ 	[self addGestureRecognizer:swipeDown3];
+ 	[self addGestureRecognizer:doubleTapTwoFingers];
+ 	[self addGestureRecognizer:oneFingerTapGesture];
++#ifdef SCUMMVERSE_LOCAL_AI
++	for(UIGestureRecognizer *gesture in @[oneFingerTapGesture,twoFingerTapGesture,oneFingerLongPressGesture,twoFingerLongPressGesture]) gesture.delegate=self;
++#endif
+ 	[self addGestureRecognizer:twoFingerTapGesture];
+ 	[self addGestureRecognizer:oneFingerLongPressGesture];
+ 	[self addGestureRecognizer:twoFingerLongPressGesture];
+@@ -431,6 +437,7 @@ void scummverseAirportOffer(int actor) {
+ 	[_scummverseWorldsButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+ 	[_scummverseWorldsButton addTarget:self action:@selector(showScummverseWorlds) forControlEvents:UIControlEventTouchUpInside];
+ 	[self addSubview:_scummverseWorldsButton];
++	scummverseInstallTalk(self);
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+ #endif
+@@ -880,6 +887,13 @@ void scummverseAirportOffer(int actor) {
+ }
+ #endif
+ 
++- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
++#ifdef SCUMMVERSE_LOCAL_AI
++	for(UIView *v=touch.view;v && v!=self;v=v.superview)
++		if([v isKindOfClass:ScummverseTalkBar.class] || [v isKindOfClass:UIControl.class] || [v isKindOfClass:UITextView.class]) return NO;
++#endif
++	return YES;
++}
+ - (void)oneFingerTap:(UITapGestureRecognizer *)recognizer {
+ 	if (recognizer.state == UIGestureRecognizerStateEnded) {
+ 		[self addEvent:InternalEvent(kInputTap, kUIViewTapSingle, 1)];
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index ea3ffb49..fd85a73a 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -23,6 +23,7 @@ static std::mutex worldMutex;
+ static int travelRoom = 0, travelEgo = 0, travelFrom = 0;
+ static unsigned travelParty = 0, arrivalParty = 0;
+ static int sceneToken() { std::lock_guard<std::mutex> guard(worldMutex); return (travelRoom * 32 + travelEgo) << 8; }
++static int currentRoom() { std::lock_guard<std::mutex> guard(worldMutex); return travelRoom; }
+ static bool follows(int id) { std::lock_guard<std::mutex> guard(worldMutex); return (travelParty & (1u << id)) != 0; }
+ static std::string worldNotice = "Walk beyond the mansion grounds to reach the airport. Travel is free. Zak files belong in Documents/zak.";
+ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex); return worldNotice; }
+@@ -54,6 +55,11 @@ static const char *roomName(int room) {
+ 	switch (room) {
+ 	case 53: return "San Francisco airport, with free travel to Maniac Mansion and a free bus to Zak's street";
+ 	case 55: return "Zak's San Francisco street, with stairs to his apartment and a free bus to the airport";
++	case 56: return "inside an airplane already in flight; passengers can choose Arrive at any time";
++	case 57: return "Seattle airport";
++	case 58: return "the forest near Seattle and Mt. Rainier";
++	case 59: return "the cave at Mt. Rainier";
++	case 60: return "Miami airport";
+ 	case 54: return "Zak McKracken's San Francisco apartment, in Zak's world";
+ 	case 1: return "front yard"; case 2: return "drained swimming pool";
+ 	case 3: return "living room"; case 4: return "dungeon";
+@@ -195,7 +201,7 @@ public:
+ 			else {
+ 				participants = nextMask;
+ 				// Never deliver a late reply as a character who has left the room.
+-				auto absent = [&](const ChatLine &entry) { return !(participants & (1u << entry.actor)); };
++				auto absent = [&](const ChatLine &entry) { return entry.actor != visitor && !(participants & (1u << entry.actor)); };
+ 				chatReplies.erase(std::remove_if(chatReplies.begin(), chatReplies.end(), absent), chatReplies.end());
+ 				spoken.erase(std::remove_if(spoken.begin(), spoken.end(), absent), spoken.end());
+ 				if (jobChat && (pending || busy) && !(participants & (1u << jobActor))) {
+@@ -214,6 +220,24 @@ public:
+ 	unsigned actorsInRoom() { std::lock_guard<std::mutex> guard(mutex); return sceneMask; }
+ 	unsigned talkingWith() { std::lock_guard<std::mutex> guard(mutex); return participants; }
+ 	int talkingTo() { std::lock_guard<std::mutex> guard(mutex); return talkActor; }
++	void armPick(bool add) {
++		std::lock_guard<std::mutex> guard(mutex);
++		if (chatWaiting) return;
++		pickMode = add && participants ? 2 : 1;
++		pickRoom=sceneRoom; pickVisitor=sceneVisitor;
++	}
++	bool picking() { std::lock_guard<std::mutex> guard(mutex); return pickMode!=0; }
++	bool pick(int actor) {
++		std::lock_guard<std::mutex> guard(mutex);
++		if (!pickMode) return false;
++		if(pickRoom!=sceneRoom || pickVisitor!=sceneVisitor) { pickMode=0; return true; }
++		if(actor<=0 || actor>=25 || !(sceneMask & (1u<<actor))) return true;
++		if(pickMode==1) {
++			if(ready) ++epoch;
++			pending=false; result.clear(); resetTalk(); talkActor=actor; participants=1u<<actor;
++		} else { participants |= 1u<<actor; talkActor=-2; }
++		pickMode=0; return true;
++	}
+ 	bool beginTalk(int actor) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+ 		if (actor <= 0 || actor >= 25 || !(sceneMask & (1u << actor))) return false;
+@@ -238,6 +262,7 @@ public:
+ 		for (char &c : message) if ((unsigned char)c < 32 || c == '<' || c == '>') c = ' ';
+ 		if (message.find_first_not_of(' ') == std::string::npos) return false;
+ 		remember(ChatLine(0, message));
++		spoken.push_back(ChatLine(sceneVisitor, message));
+ 		jobRoom = sceneRoom; jobVisitor = sceneVisitor; jobText = message; jobChat = true;
+ 		// At most two replies per player message, rotating the leading speaker.
+ 		std::vector<int> roster;
+@@ -266,6 +291,7 @@ private:
+ 	std::string desired, result, status = "Off - using classic dialogue";
+ 	std::string memories[25];
+ 	int sceneRoom = 0, sceneVisitor = 0, talkActor = 0;
++	int pickMode=0, pickRoom=0, pickVisitor=0;
+ 	unsigned sceneMask = 0, participants = 0;
+ 	int lastLead = 0;
+ 	bool jobChat = false, chatWaiting = false, qwen3 = false;
+@@ -278,7 +304,7 @@ private:
+ 		if (history.size() > 6) history.erase(history.begin());
+ 	}
+ 	void resetTalk() {
+-		talkActor = 0; participants = 0; lastLead = 0; chatWaiting = false;
++		pickMode=0; talkActor = 0; participants = 0; lastLead = 0; chatWaiting = false;
+ 		chatReplies.clear(); spoken.clear(); history.clear(); nextSpeakers.clear();
+ 	}
+ 	void queueNextSpeaker() {
+@@ -426,6 +452,8 @@ bool scummverseAIRequest(int actor, int room, int visitor) { return ScummverseLo
+ bool scummverseAIPoll(int &actor, int &room, char *text, int capacity) { return ScummverseLocalAI::runtime().poll(actor, room, text, capacity); }
+ void scummverseAICancel() { ScummverseLocalAI::runtime().cancel(); }
+ 
++bool scummverseTalkPicking() { return ScummverseLocalAI::runtime().picking(); }
++bool scummverseTalkPick(int actor) { return ScummverseLocalAI::runtime().pick(actor); }
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity) { return ScummverseLocalAI::runtime().scene(room, visitor, actors, canSpeak, speaker, line, capacity); }
+ 
+ void scummverseWorldRequest(int destination) { ScummverseLocalAI::worldRequest.store(destination); }
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 1bd0f80f..9d71d0df 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -28,17 +28,17 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	CGContextFillRect(c, CGRectMake(30,20,260,160));
+ 	CGContextFillRect(c, CGRectMake(26,26,268,148));
+ 	scummversePixelText(c,"DESTINATIONS",88,28,2,UIColor.blackColor);
+-	const char *labels[] = {"MANIAC MANSION", "SAN FRANCISCO"};
+-	const char *codes[] = {"MM", "SFO"};
+-	for (int i=0;i<2;++i) {
+-		int y=62+i*30;
++	const char *labels[] = {"MANIAC MANSION", "SAN FRANCISCO", "SEATTLE", "MIAMI"};
++	const char *codes[] = {"MM", "SFO", "SEA", "MIA"};
++	for (int i=0;i<4;++i) {
++		int y=57+i*20;
+ 		CGContextSetFillColorWithColor(c, UIColor.blackColor.CGColor); CGContextFillRect(c,CGRectMake(52,y+3,13,6));
+ 		CGContextSetFillColorWithColor(c, UIColor.whiteColor.CGColor); CGContextFillRect(c,CGRectMake(50,y,13,6));
+ 		if (_choice==i) { CGContextSetFillColorWithColor(c,UIColor.blackColor.CGColor); CGContextFillRect(c,CGRectMake(54,y+1,5,4)); }
+ 		scummversePixelText(c,labels[i],74,y,1,UIColor.whiteColor);
+ 		scummversePixelText(c,codes[i],252,y,1,UIColor.whiteColor);
+ 	}
+-	scummversePixelText(c,"FREE TRAVEL",126,122,1,UIColor.whiteColor);
++	scummversePixelText(c,"FREE TRAVEL",126,137,1,UIColor.whiteColor);
+ 	CGContextSetFillColorWithColor(c,UIColor.blackColor.CGColor); CGContextFillRect(c,CGRectMake(49,153,62,12)); CGContextFillRect(c,CGRectMake(222,153,55,12));
+ 	CGContextSetFillColorWithColor(c,[UIColor colorWithRed:0 green:0.8 blue:0 alpha:1].CGColor); CGContextFillRect(c,CGRectMake(47,151,62,12));
+ 	CGContextSetFillColorWithColor(c,UIColor.redColor.CGColor); CGContextFillRect(c,CGRectMake(220,151,55,12));
+@@ -57,8 +57,8 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	[super viewDidLoad]; self.view.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+ 	_panel=[[[ScummverseAirportView alloc] init] autorelease]; _panel.backgroundColor=UIColor.clearColor; _panel.choice=0;
+ 	[self.view addSubview:_panel];
+-	NSArray *names=@[@"Maniac Mansion",@"San Francisco street",@"Confirm destination",@"Cancel"];
+-	for (int i=0;i<4;++i) {
++	NSArray *names=@[@"Maniac Mansion",@"San Francisco",@"Seattle",@"Miami",@"Confirm destination",@"Cancel"];
++	for (int i=0;i<6;++i) {
+ 		UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=i+1; b.accessibilityLabel=names[i];
+ 		[b addTarget:self action:@selector(choose:) forControlEvents:UIControlEventTouchUpInside]; [_panel addSubview:b];
+ 	}
+@@ -67,13 +67,13 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	[super viewDidLayoutSubviews]; CGRect area=UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets);
+ 	CGFloat scale=MIN(area.size.width/320.0,area.size.height/200.0);
+ 	_panel.frame=CGRectMake(CGRectGetMidX(area)-160*scale,CGRectGetMidY(area)-100*scale,320*scale,200*scale);
+-	CGRect areas[]={CGRectMake(42,50,238,26),CGRectMake(42,80,238,26),CGRectMake(43,143,72,30),CGRectMake(214,143,67,30)};
+-	for (int i=0;i<4;++i) { CGRect r=areas[i]; [_panel viewWithTag:i+1].frame=CGRectMake(r.origin.x*scale,r.origin.y*scale,r.size.width*scale,r.size.height*scale); }
++	CGRect areas[]={CGRectMake(42,49,238,20),CGRectMake(42,69,238,20),CGRectMake(42,89,238,20),CGRectMake(42,109,238,20),CGRectMake(43,143,72,30),CGRectMake(214,143,67,30)};
++	for (int i=0;i<6;++i) { CGRect r=areas[i]; [_panel viewWithTag:i+1].frame=CGRectMake(r.origin.x*scale,r.origin.y*scale,r.size.width*scale,r.size.height*scale); }
+ 	[_panel setNeedsDisplay];
+ }
+ - (void)choose:(UIButton *)sender {
+-	if (sender.tag<=2) { _panel.choice=sender.tag-1; [_panel setNeedsDisplay]; return; }
+-	if (sender.tag==3) scummverseWorldRequest(_token | (_panel.choice==0 ? 20 : 21));
++	if (sender.tag<=4) { _panel.choice=sender.tag-1; [_panel setNeedsDisplay]; return; }
++	if (sender.tag==5) scummverseWorldRequest(_token | (20 + (int)_panel.choice));
+ 	[self dismissViewControllerAnimated:NO completion:nil];
+ }
+ @end
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 7cb04ed6..6147b7d7 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -1,162 +1,123 @@
+-// Native, keyboard-aware conversation panel. GPL-3.0-or-later.
+-@interface ScummverseTalkController : UIViewController <UITextFieldDelegate> {
+-	NSInteger _actor;
+-	UITextView *_transcript;
++// Scene-attached conversation controls. GPL-3.0-or-later.
++// This is a small UIView, not a modal controller or a scene-sized touch shield.
++@interface ScummverseTalkBar : UIView <UITextFieldDelegate> {
++	UIView *_host;
+ 	UITextField *_input;
+-	UIButton *_send;
+ 	UILabel *_status;
+-	UILabel *_people;
+-	unsigned _knownMask;
++	UIButton *_recipient, *_send, *_add, *_follow, *_historyButton, *_arrive;
++	UITextView *_history;
+ 	NSTimer *_timer;
+-	NSLayoutConstraint *_keyboardBottom;
+-	NSLayoutConstraint *_panelHeight;
+-	UIStackView *_stack;
++	NSString *_error;
++	CGFloat _keyboard;
++	BOOL _open, _showHistory, _collapsed;
++	unsigned _lastMask;
++	int _scene;
+ }
+-- (id)initWithActor:(NSInteger)actor;
+-- (void)sendMessage;
+-- (void)toggleCompanion;
+-- (void)closeTalk;
+-- (void)refreshTalk;
+-- (void)keyboardChanged:(NSNotification *)notification;
++- (id)initWithHost:(UIView *)host;
++- (void)openTalk;
++- (void)refresh;
++- (void)layoutBar;
+ @end
+-@implementation ScummverseTalkController
+-- (id)initWithActor:(NSInteger)actor {
+-	if ((self = [super init])) { _actor = actor; self.modalPresentationStyle = UIModalPresentationOverFullScreen; }
+-	return self;
++@implementation ScummverseTalkBar
++- (UIButton *)button:(NSString *)title action:(SEL)action {
++	UIButton *b=[UIButton buttonWithType:UIButtonTypeSystem];
++	[b setTitle:title forState:UIControlStateNormal]; [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
++	[b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside]; [self addSubview:b]; return b;
+ }
+-- (void)viewDidLoad {
+-	[super viewDidLoad];
+-	self.view.backgroundColor = UIColor.clearColor;
+-	UIStackView *stack = [[[UIStackView alloc] init] autorelease];
+-	_stack = stack;
+-	stack.backgroundColor = [UIColor colorWithRed:0.12 green:0.02 blue:0.16 alpha:0.95];
+-	stack.layoutMargins = UIEdgeInsetsMake(6, 10, 6, 10); stack.layoutMarginsRelativeArrangement = YES;
+-	stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 6; stack.translatesAutoresizingMaskIntoConstraints = NO;
+-	[self.view addSubview:stack];
+-	_keyboardBottom = [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-8];
+-	[NSLayoutConstraint activateConstraints:@[
+-		[stack.topAnchor constraintGreaterThanOrEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:4],
+-		[stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:16],
+-		[stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16], _keyboardBottom]];
+-	_panelHeight = [stack.heightAnchor constraintEqualToConstant:180]; _panelHeight.priority = 750; _panelHeight.active = YES;
+-	UIStackView *header = [[[UIStackView alloc] init] autorelease]; header.spacing = 8;
+-	UILabel *name = [[[UILabel alloc] init] autorelease];
+-	name.text = _actor == -1 ? @"Group conversation" : [NSString stringWithFormat:@"Talk to %s", ScummverseLocalAI::actorName((int)_actor)];
+-	name.textColor = UIColor.whiteColor; name.font = [UIFont fontWithName:@"Menlo-Bold" size:14];
+-	UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; [close setTitle:@"Done" forState:UIControlStateNormal];
+-	[close addTarget:self action:@selector(closeTalk) forControlEvents:UIControlEventTouchUpInside];
+-	[header addArrangedSubview:name];
+-	if (_actor > 0) {
+-		UIButton *follow = [UIButton buttonWithType:UIButtonTypeSystem];
+-		[follow setTitle:ScummverseLocalAI::follows((int)_actor) ? @"Travel on your own" : @"Come with me" forState:UIControlStateNormal];
+-		[follow addTarget:self action:@selector(toggleCompanion) forControlEvents:UIControlEventTouchUpInside];
+-		[header addArrangedSubview:follow];
+-	}
+-	[header addArrangedSubview:close];
+-	[close.widthAnchor constraintEqualToConstant:70].active = YES;
+-	[header.heightAnchor constraintEqualToConstant:28].active = YES; [stack addArrangedSubview:header];
+-	_people = [[[UILabel alloc] init] autorelease]; _people.textColor = UIColor.lightGrayColor;
+-	_people.font = [UIFont systemFontOfSize:12]; _people.numberOfLines = 1;
+-	[stack addArrangedSubview:_people];
+-	_transcript = [[[UITextView alloc] init] autorelease]; _transcript.editable = NO;
+-	_transcript.backgroundColor = UIColor.clearColor; _transcript.textColor = UIColor.whiteColor;
+-	_transcript.font = [UIFont fontWithName:@"Menlo" size:13];
+-	_transcript.text = @"Say hello…";
+-	[stack addArrangedSubview:_transcript];
+-	_status = [[[UILabel alloc] init] autorelease]; _status.textColor = UIColor.lightGrayColor;
+-	_status.font = [UIFont systemFontOfSize:12]; _status.numberOfLines = 1;
+-	[stack addArrangedSubview:_status];
+-	UIStackView *composer = [[[UIStackView alloc] init] autorelease]; composer.spacing = 8;
+-	_input = [[[UITextField alloc] init] autorelease]; _input.borderStyle = UITextBorderStyleRoundedRect;
+-	_input.placeholder = @"Type a message..."; _input.delegate = self; _input.returnKeyType = UIReturnKeySend;
+-	_input.accessibilityLabel = @"Message to character";
+-	_send = [UIButton buttonWithType:UIButtonTypeSystem]; [_send setTitle:@"Send" forState:UIControlStateNormal];
+-	[_send addTarget:self action:@selector(sendMessage) forControlEvents:UIControlEventTouchUpInside];
+-	[composer addArrangedSubview:_input]; [composer addArrangedSubview:_send];
+-	[_send.widthAnchor constraintEqualToConstant:64].active = YES;
+-	[composer.heightAnchor constraintEqualToConstant:34].active = YES; [stack addArrangedSubview:composer];
+-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
+-	_timer = [NSTimer scheduledTimerWithTimeInterval:0.2 target:self selector:@selector(refreshTalk) userInfo:nil repeats:YES];
+-	[self refreshTalk];
++- (id)initWithHost:(UIView *)host {
++	if ((self=[super initWithFrame:CGRectZero])) {
++		_host=host; self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
++		_recipient=[self button:@"Talk" action:@selector(editMessage)];
++		_add=[self button:@"+" action:@selector(addPerson)]; _add.accessibilityLabel=@"Add a character to this conversation";
++		_follow=[self button:@"Follow" action:@selector(follow)];
++		_historyButton=[self button:@"History" action:@selector(history)];
++		[self button:@"Close" action:@selector(close)].tag=19;
++		_status=[[[UILabel alloc] init] autorelease]; _status.textColor=UIColor.whiteColor; _status.font=[UIFont systemFontOfSize:12]; [self addSubview:_status];
++		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.placeholder=@"Say something…"; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend; [self addSubview:_input];
++		_send=[self button:@"Send" action:@selector(send)];
++		_history=[[[UITextView alloc] init] autorelease]; _history.editable=NO; _history.backgroundColor=UIColor.clearColor; _history.textColor=UIColor.whiteColor; _history.font=[UIFont systemFontOfSize:14]; [self addSubview:_history];
++		_arrive=[UIButton buttonWithType:UIButtonTypeSystem]; [_arrive setTitle:@"Arrive" forState:UIControlStateNormal]; [_arrive setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; _arrive.backgroundColor=[UIColor colorWithWhite:0 alpha:0.8]; _arrive.layer.cornerRadius=6; [_arrive addTarget:self action:@selector(arrive) forControlEvents:UIControlEventTouchUpInside]; [host addSubview:_arrive];
++		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
++		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(close) name:UIApplicationWillResignActiveNotification object:nil];
++		_timer=[NSTimer scheduledTimerWithTimeInterval:0.15 target:self selector:@selector(refresh) userInfo:nil repeats:YES];
++		self.hidden=YES;
++	} return self;
++}
++- (void)openTalk {
++	_open=YES; _collapsed=NO; _scene=ScummverseLocalAI::sceneToken();
++	if (!ScummverseLocalAI::runtime().talkingWith()) { _history.text=@""; _lastMask=0; ScummverseLocalAI::runtime().armPick(false); }
++	[self refresh];
++}
++- (void)addPerson { ScummverseLocalAI::runtime().armPick(true); [self endEditing:YES]; [self refresh]; }
++- (void)editMessage { _collapsed=NO; [self layoutBar]; if (ScummverseLocalAI::runtime().talkingWith()) [_input becomeFirstResponder]; }
++- (void)history { _collapsed=NO; _showHistory=!_showHistory; [self layoutBar]; }
++- (void)follow {
++	int actor=ScummverseLocalAI::runtime().talkingTo(); if(actor<=0) return;
++	scummverseWorldRequest(ScummverseLocalAI::sceneToken() | ((ScummverseLocalAI::follows(actor)?96:64)+actor));
++}
++- (void)arrive { scummverseWorldRequest(ScummverseLocalAI::sceneToken() | 24); }
++- (void)close {
++	[self endEditing:YES]; _open=NO; _showHistory=NO; self.hidden=YES;
++	ScummverseLocalAI::runtime().endTalk(); [_error release]; _error=nil;
+ }
+-- (void)keyboardChanged:(NSNotification *)notification {
+-	CGRect frame = [self.view convertRect:[notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
+-	CGFloat overlap = MAX(0, CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(frame));
+-	_keyboardBottom.constant = -8 - MAX(0, overlap - self.view.safeAreaInsets.bottom);
+-	_people.hidden = overlap > 0; _status.hidden = overlap > 0; _transcript.hidden = overlap > 0;
+-	_panelHeight.constant = overlap > 0 ? 88 : 180;
+-	[self.view layoutIfNeeded];
+-	if (_transcript.text.length) [_transcript scrollRangeToVisible:NSMakeRange(_transcript.text.length - 1, 1)];
++- (void)keyboard:(NSNotification *)note {
++	CGRect r=[_host convertRect:[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] fromView:nil];
++	_keyboard=MAX(0,CGRectGetMaxY(_host.bounds)-CGRectGetMinY(r)); [self layoutBar];
+ }
+ - (BOOL)textField:(UITextField *)field shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)text {
+-	NSString *next = [field.text stringByReplacingCharactersInRange:range withString:text];
+-	return next.length <= 160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 512;
++	NSString *next=[field.text stringByReplacingCharactersInRange:range withString:text]; return next.length<=160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=512;
+ }
+-- (BOOL)textFieldShouldReturn:(UITextField *)field { [self sendMessage]; return NO; }
+-- (void)sendMessage {
+-	NSString *text = [_input.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+-	if (!text.length) return;
+-	if (!ScummverseLocalAI::runtime().sendTalk(text.UTF8String)) {
+-		_status.text = @"Model not ready or busy. Check AI settings, or wait and retry."; return;
++- (BOOL)textFieldShouldReturn:(UITextField *)field { [self send]; return NO; }
++- (void)send {
++	NSString *text=[_input.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if(!text.length) return;
++	[_error release]; _error=nil;
++	if(!ScummverseLocalAI::runtime().sendTalk(text.UTF8String)) {
++		_error=[@"Not sent. Check AI settings or wait and retry; your message is kept." retain]; [self refresh]; return;
+ 	}
+-	_transcript.text = [_transcript.text stringByAppendingFormat:@"\n\nYou: %@", text];
+-	_input.text = @""; [self.view endEditing:YES]; [self refreshTalk];
++	_history.text=[_history.text stringByAppendingFormat:@"\nYou: %@",text]; _input.text=@""; _collapsed=YES; _showHistory=NO;
++	[self endEditing:YES]; [self refresh];
+ }
+-- (void)refreshTalk {
+-	auto &runtime = ScummverseLocalAI::runtime();
+-	unsigned mask = runtime.talkingWith();
+-	if (mask != _knownMask) {
+-		NSMutableArray *names = [NSMutableArray array];
+-		for (int id = 1; id < 25; ++id) if (mask & (1u << id)) [names addObject:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)]];
+-		_people.text = [@"You, " stringByAppendingString:[names componentsJoinedByString:@", "]];
+-		if (_actor == -1 && _knownMask && mask) _transcript.text = [_transcript.text stringByAppendingFormat:@"\n\n[Now here: %@]", _people.text];
+-		_knownMask = mask;
++- (void)refresh {
++	auto &r=ScummverseLocalAI::runtime();
++	_arrive.hidden=ScummverseLocalAI::currentRoom()!=56;
++	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { [self close]; _history.text=@""; }
++	self.hidden=!_open;
++	unsigned mask=r.talkingWith(); NSMutableArray *names=[NSMutableArray array];
++	for(int id=1;id<25;++id) if(mask & (1u<<id)) [names addObject:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)]];
++	[_recipient setTitle:mask ? [names componentsJoinedByString:@", "] : @"Talk" forState:UIControlStateNormal];
++	_recipient.titleLabel.lineBreakMode=NSLineBreakByTruncatingTail;
++	BOOL waiting=r.waitingForTalk(), picking=r.picking();
++	_status.text=_error ? _error : picking ? (mask ? @"Tap another character to add them." : @"Tap a character in the room. Close cancels.") : waiting ? @"Thinking…" : mask ? @"Tap the message field to keep talking." : @"Tap Talk to choose someone nearby.";
++	_input.enabled=mask!=0; _send.enabled=mask && !waiting && !picking; _add.enabled=mask && !waiting;
++	int actor=r.talkingTo(); _follow.hidden=actor<=0;
++	if(actor>0) [_follow setTitle:ScummverseLocalAI::follows(actor)?@"Unfollow":@"Follow" forState:UIControlStateNormal];
++	int speaker; std::string reply;
++	while(r.readTalk(speaker,reply)) {
++		_history.text=[_history.text stringByAppendingFormat:@"\n%s: %s",ScummverseLocalAI::actorName(speaker),reply.c_str()];
++		if(!reply.empty() && reply[0]=='[') {
++			[_error release]; _error=[@"No reply this time. Try again or choose a smaller model in AI." retain]; _status.text=_error;
++		}
+ 	}
+-	std::string reply; int speaker = 0;
+-	while (runtime.readTalk(speaker, reply)) {
+-		_transcript.text = [_transcript.text stringByAppendingFormat:@"\n\n%s: %s", ScummverseLocalAI::actorName(speaker), reply.c_str()];
+-		// Keep the visible transcript bounded as well as the inference history.
+-		if (_transcript.text.length > 8000) _transcript.text = [_transcript.text substringFromIndex:_transcript.text.length - 6000];
+-		[_transcript scrollRangeToVisible:NSMakeRange(_transcript.text.length - 1, 1)];
+-	}
+-	BOOL active = runtime.talkingTo() == _actor;
+-	BOOL waiting = runtime.waitingForTalk();
+-	_send.enabled = active && !waiting; _input.enabled = active && !waiting;
+-	_status.text = !active ? @"Conversation ended. Close this panel to continue." : (waiting ? @"Thinking…" : @"Tap the message box to talk.");
+-}
+-- (void)toggleCompanion {
+-	int command = (ScummverseLocalAI::follows((int)_actor) ? 96 : 64) + (int)_actor;
+-	scummverseWorldRequest(ScummverseLocalAI::sceneToken() | command);
+-	[self closeTalk];
++	if(_history.text.length>8000) _history.text=[_history.text substringFromIndex:_history.text.length-6000];
++	[self layoutBar];
++	if(_open && !_lastMask && mask && !picking) [_input becomeFirstResponder];
++	_lastMask=mask;
+ }
+-- (void)closeTalk { [self.view endEditing:YES]; [self dismissViewControllerAnimated:YES completion:nil]; }
+-- (void)viewDidDisappear:(BOOL)animated {
+-	[super viewDidDisappear:animated]; [_timer invalidate]; _timer = nil;
+-	[[NSNotificationCenter defaultCenter] removeObserver:self]; ScummverseLocalAI::runtime().endTalk();
++- (void)layoutBar {
++	UIEdgeInsets safe=_host.safeAreaInsets;
++	CGFloat w=MIN(640,_host.bounds.size.width-safe.left-safe.right-80);
++	CGFloat h=(_collapsed ? 52:100)+(_showHistory && !_keyboard ? 130:0);
++	self.frame=CGRectMake(safe.left+8,MAX(safe.top,_host.bounds.size.height-MAX(safe.bottom,_keyboard)-h-4),w,h);
++	_recipient.frame=CGRectMake(8,0,MAX(80,w-270),32); _add.frame=CGRectMake(w-252,0,38,32); _follow.frame=CGRectMake(w-212,0,72,32); _historyButton.frame=CGRectMake(w-138,0,72,32); [self viewWithTag:19].frame=CGRectMake(w-64,0,60,32);
++	_status.frame=CGRectMake(8,32,w-16,20); _status.adjustsFontSizeToFitWidth=YES;
++	_history.hidden=!_showHistory || _keyboard>0; _history.frame=CGRectMake(8,52,w-16,h-100);
++	_input.hidden=_send.hidden=_collapsed;
++	_input.frame=CGRectMake(8,h-44,w-78,38); _send.frame=CGRectMake(w-66,h-44,60,38);
++	_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-76,MIN(safe.top+340,_host.bounds.size.height-safe.bottom-48),72,40);
+ }
+ @end
+-
+-static void scummverseShowTalk(UIView *view) {
+-	UIResponder *responder = view;
+-	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+-	UIViewController *controller = (UIViewController *)responder;
+-	if (!controller || controller.presentedViewController) return;
+-	unsigned actors = ScummverseLocalAI::runtime().actorsInRoom();
+-	UIAlertController *picker = [UIAlertController alertControllerWithTitle:@"Talk" message:actors ? @"Choose someone in this room." : @"Nobody to talk to here. Find a character, then tap Talk." preferredStyle:UIAlertControllerStyleAlert];
+-	if (actors && (actors & (actors - 1))) {
+-		[picker addAction:[UIAlertAction actionWithTitle:@"Talk to everyone here" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-			if (!ScummverseLocalAI::runtime().beginGroup()) return;
+-			ScummverseTalkController *panel = [[[ScummverseTalkController alloc] initWithActor:-1] autorelease];
+-			[controller presentViewController:panel animated:YES completion:nil];
+-		}]];
+-	}
+-	for (int actor = 1; actor < 25; ++actor) if (actors & (1u << actor)) {
+-		[picker addAction:[UIAlertAction actionWithTitle:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(actor)] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-			if (!ScummverseLocalAI::runtime().beginTalk(actor)) return;
+-			ScummverseTalkController *panel = [[[ScummverseTalkController alloc] initWithActor:actor] autorelease];
+-			[controller presentViewController:panel animated:YES completion:nil];
+-		}]];
+-	}
+-	[picker addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+-	[controller presentViewController:picker animated:YES completion:nil];
++static ScummverseTalkBar *scummverseTalkBar;
++static void scummverseInstallTalk(UIView *view) {
++	if(!scummverseTalkBar) { scummverseTalkBar=[[ScummverseTalkBar alloc] initWithHost:view]; [view addSubview:scummverseTalkBar]; }
+ }
++static void scummverseShowTalk(UIView *view) { scummverseInstallTalk(view); [scummverseTalkBar openTalk]; }
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 67548c72..f299bcdf 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -2,6 +2,8 @@
+ #ifndef COMMON_SCUMMVERSE_AI_H
+ #define COMMON_SCUMMVERSE_AI_H
+ #ifdef SCUMMVERSE_LOCAL_AI
++bool scummverseTalkPick(int actor);
++bool scummverseTalkPicking();
+ bool scummverseAIRequest(int actor, int room, int visitor);
+ bool scummverseAIPoll(int &actor, int &room, char *text, int capacity);
+ void scummverseAICancel();
+@@ -12,6 +14,8 @@ int scummverseWorldPoll();
+ void scummverseWorldReport(const char *notice);
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity);
+ #else
++inline bool scummverseTalkPicking() { return false; }
++inline bool scummverseTalkPick(int) { return false; }
+ inline bool scummverseAIRequest(int, int, int) { return false; }
+ inline bool scummverseAIPoll(int &, int &, char *, int) { return false; }
+ inline void scummverseAICancel() {}
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index c64c5d1a..e4343152 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -322,6 +322,27 @@ void GdiV1::roomChanged(byte *roomptr) {
+ 	_objectMode = true;
+ }
+ 
++// Animate the original bus painted into Zak room 3. The original bus-off
++// object supplies the uncovered pavement, so no replacement art is invented.
++void GdiV1::scummverseBusImage(const byte *room, int shift) {
++	const int cols=room[4], rows=room[5];
++	if(cols!=120 || rows!=16) return; // audited DOS street only
++	byte original[3][4096], pavement[22*13*3];
++	for(int layer=0;layer<3;++layer) decodeV1Gfx(room+READ_LE_UINT16(room+12+layer*2),original[layer],cols*rows);
++	decodeV1Gfx(room+READ_LE_UINT16(room+28+12*2),pavement,sizeof(pavement));
++	byte *maps[]={_V1.picMap,_V1.colorMap,_V1.maskMap};
++	for(int layer=0;layer<3;++layer) {
++		memcpy(maps[layer],original[layer],cols*rows);
++		for(int x=0;x<22;++x) for(int y=0;y<13;++y)
++			maps[layer][(97+x)*rows+3+y]=pavement[layer*22*13+y*22+x];
++		// Integer tile steps preserve original DOS pixels during motion.
++		for(int x=0;x<22;++x) for(int y=0;y<13;++y) {
++			int target=97+x+shift/8;
++			if(target>=0 && target<cols) maps[layer][target*rows+3+y]=original[layer][(97+x)*rows+3+y];
++		}
++	}
++}
++
+ void GdiV2::roomChanged(byte *roomptr) {
+ 	_roomStrips = generateStripTable(roomptr + READ_LE_UINT16(roomptr + 0x0A),
+ 			_vm->_roomWidth, _vm->_roomHeight, _roomStrips);
+diff --git a/engines/scumm/gfx.h b/engines/scumm/gfx.h
+index c4ba35ce..0c105368 100644
+--- a/engines/scumm/gfx.h
++++ b/engines/scumm/gfx.h
+@@ -361,6 +361,7 @@ public:
+ 	virtual void init();
+ 	virtual void roomChanged(byte *roomptr);
+ 	virtual void loadTiles(byte *roomptr);
++	virtual void scummverseBusImage(const byte *room, int shift) {}
+ 	void setTransparentColor(byte transparentColor) { _transparentColor = transparentColor; }
+ 
+ 	void drawBitmap(const byte *ptr, VirtScreen *vs, int x, int y, const int width, const int height,
+@@ -515,6 +516,7 @@ protected:
+ 
+ public:
+ 	GdiV1(ScummEngine *vm);
++	void scummverseBusImage(const byte *room, int shift) override;
+ 
+ 	void setRenderModeColorMap(const byte *map) override;
+ 	byte remapColorToRenderMode(byte col) const override;
+diff --git a/engines/scumm/resource_v2.cpp b/engines/scumm/resource_v2.cpp
+index 594f15fc..9c446d9c 100644
+--- a/engines/scumm/resource_v2.cpp
++++ b/engines/scumm/resource_v2.cpp
+@@ -81,7 +81,7 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 	// Expand only the audited sandbox. The on-disk directory still has 55
+ 	// entries; consuming an extra entry would shift all costume/script tables.
+ 	const int nativeRoomCount = _numRooms;
+-	if (_scummverseRoaming) _numRooms = 56;
++	if (_scummverseRoaming) _numRooms = 61;
+ 	readMAXS(0);
+ 	allocateArrays();
+ 
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 8936c4bd..032ceb19 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -780,6 +780,8 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 		_scummverseRoamingReady = _currentRoom != 0 && _currentRoom != 45 && !isScriptRunning(1);
+ 		_scummverseLastEgo = VAR(VAR_EGO);
+ 		for (auto &roamer : _scummverseRoamers) roamer = Roamer();
++		_scummverseBusEgo=0; _scummverseBusClock=240;
++		for(int i=0;i<25;++i) { _scummverseNpcDestination[i]=0; _scummverseNpcBoarding[i]=0; }
+ 		_scummverseCompanionRoom = -1; _scummverseCompanionEgo = 0;
+ 		_scummverseTransitRoom = 0; _scummverseTransitArmed = false; scummverseWorldRequest(0);
+ 	}
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 8d468ead..646b378c 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -22,6 +22,7 @@
+ #include "common/config-manager.h"
+ #include "common/util.h"
+ #include "common/system.h"
++#include "common/scummverse_ai.h"
+ 
+ #include "scumm/actor.h"
+ #include "scumm/object.h"
+@@ -138,10 +139,21 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ }
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
+-	if (_scummverseRoamingReady && (_currentRoom == 53 || _currentRoom == 54 || _currentRoom == 55)) {
++	if (_scummverseRoamingReady && (_currentRoom >= 53 && _currentRoom <= 60)) {
++		if (_currentRoom>=56 && (entry==13 || entry==11 || entry==1)) {
++			if (_currentRoom==57 || _currentRoom==60) {
++				if(object==732) scummverseBoard();
++				if(object==736) scummverseAirportOffer();
++				if(object==733 && _currentRoom==57) scummverseTravel(8);
++			} else if (_currentRoom==58) {
++				if(object==732) scummverseTravel(7);
++				if(object==738) scummverseTravel(9);
++			} else if (_currentRoom==59 && object==732) scummverseTravel(8);
++			return;
++		}
+ 		if (_currentRoom == 55 && (entry == 13 || entry == 11 || entry == 1)) {
+ 			if (object == 712) { scummverseTravel(1); return; }
+-			if (object >= 723 && object <= 728) { scummverseTravel(3); return; }
++			if (object >= 723 && object <= 728) { scummverseWaitBus(); return; }
+ 		}
+ 		if (_currentRoom == 53 && (object == 683 || object == 688) && (entry == 13 || entry == 11 || entry == 1)) {
+ 			if (object == 688) scummverseAirportOffer(); else scummverseBoard(); return;
+@@ -247,6 +259,7 @@ int ScummEngine::getVerbEntrypoint(int obj, int entry) {
+ 	// Advertise adapter interactions to Maniac's native sentence dispatcher.
+ 	// runObjectScript intercepts these before any foreign bytecode is read.
+ 	if (_scummverseRoamingReady) {
++		if (_currentRoom>=56 && _currentRoom<=60) return (entry==13 || entry==11 || entry==1) ? 1 : 0;
+ 		if ((_currentRoom == 55 && (obj == 712 || (obj >= 723 && obj <= 728))) ||
+ 			(_currentRoom == 53 && (obj == 683 || obj == 688))) {
+ 			if (entry == 13 || entry == 11 || entry == 1) return 1;
+@@ -1500,6 +1513,7 @@ void ScummEngine_v0::runSentenceScript() {
+ }
+ 
+ void ScummEngine_v2::runInputScript(int clickArea, int val, int mode) {
++	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseTalkPick(getActorFromPos(_virtualMouse.x, _virtualMouse.y))) return;
+ 	int args[NUM_SCRIPT_LOCAL];
+ 	int verbScript;
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index dcdf64d7..48a82732 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1579,6 +1579,17 @@ protected:
+ 	void scummverseInitVisitors();
+ 	void scummverseAirportOffer();
+ 	void scummverseBoard();
++	bool scummverseMountExtra(int room);
++	void scummverseArrive();
++	void scummverseWaitBus();
++	void scummverseServiceBus(int delta);
++	Common::Array<byte> _scummverseExtraRooms[5];
++	byte _scummverseExtraStates[5][33] = {};
++	bool _scummverseLanding = false;
++	bool _scummverseBusArmed = false;
++	int _scummverseBusClock = 240, _scummverseBusEgo = 0;
++	int _scummverseNpcDestination[25] = {}, _scummverseNpcBoarding[25] = {};
++
+ 	void scummverseCompanionCommand(int command);
+ 	void scummverseUpdateCompanions();
+ 	int _scummverseCompanionRoom = -1, _scummverseCompanionEgo = 0;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index e03d1c81..3acdd01a 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -84,10 +84,15 @@ static const MansionPassage mansionPassages[] = {
+ 	{54, 655, 55, 712, false, 35, 56, 40, 59, true},
+ 	{55, 724, 53, 685, false, 92, 59, 30, 60, true},
+ 	{55, 712, 54, 655, false, 43, 36, 30, 56, true},
++	{57,733,58,732,false,37,60,6,60,true},
++	{58,732,57,733,false,1,60,30,60,true},
++	{58,738,59,732,false,35,60,6,60,true},
++	{59,732,58,738,false,1,60,30,60,true},
+ };
+ 
+ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y) {
+ 	const MansionPassage &p = mansionPassages[index];
++	if (p.room>=56 || p.destination>=56) { if(!scummverseMountExtra(p.room) || !scummverseMountExtra(p.destination)) return false; }
+ 	if (p.transit) { x = arrival ? p.arrivalX : p.x; y = arrival ? p.arrivalY : p.y; return _scummverseAirportMounted && ((p.room != 55 && p.destination != 55) || _scummverseStreetMounted); }
+ 	return scummverseDoorPoint(arrival ? p.destination : p.room, arrival ? p.arrival : p.object, x, y);
+ }
+@@ -213,7 +218,17 @@ void ScummEngine::scummverseSay(int actor, const char *line) {
+ 	_string[0].xpos = 0; _string[0].ypos = 0;
+ 	_string[0].right = _screenWidth - 1;
+ 	_string[0].center = false; _string[0].overhead = false;
+-	actorTalk((const byte *)line);
++	Common::String text;
++	int column=0, lines=1;
++	for(const char *p=line;*p;++p) {
++		if((unsigned char)*p>=128) continue;
++		if(column>=28 || *p=='\n' || *p=='\r') { text+='\r'; column=0; ++lines; if(*p==' ' || *p=='\n' || *p=='\r') continue; }
++		text+=*p; ++column;
++	}
++	Actor *speaker=derefActor(actor,"scene speech");
++	_string[0].xpos=CLIP(speaker->getPos().x-_virtscr[0].xstart-112,0,MAX(0,_screenWidth-224));
++	_string[0].ypos=MAX(16,speaker->getPos().y-82-lines*8+_virtscr[0].topline);
++	actorTalk((const byte *)text.c_str());
+ }
+ 
+ void ScummEngine::scummverseUpdateDialogue(int delta) {
+@@ -250,10 +265,11 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		if (!token || token == _currentRoom * 32 + VAR(VAR_EGO)) {
+ 			int command = destination & 255;
+ 			if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+-			else if ((command == 20 || command == 21) && _currentRoom == 53) {
+-				_scummVars[730 + VAR(VAR_EGO)] = command == 20 ? 4 : 5;
++			else if ((command >= 20 && command <= 23) && (_currentRoom == 53 || _currentRoom == 57 || _currentRoom == 60)) {
++				const int routes[]={4,3,7,10}; _scummVars[730 + VAR(VAR_EGO)] = routes[command-20];
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+-			} else scummverseTravel(command);
++			} else if (command == 24) scummverseArrive();
++			else scummverseTravel(command);
+ 		}
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	}
+@@ -263,7 +279,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	for (int id : mansionCast)
+ 		if (id != VAR(VAR_EGO) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
+ 	if (_scummVars[760] && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
+-	char talkLine[160];
++	char talkLine[600];
+ 	int talkSpeaker = 0;
+ 	unsigned chatting = scummverseTalkScene(_currentRoom, VAR(VAR_EGO), talkMask, !VAR(VAR_HAVE_MSG), talkSpeaker, talkLine, sizeof(talkLine));
+ 	if (chatting) {
+@@ -281,6 +297,27 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		Actor *a = derefActor(id, "sandbox roamer");
+ 		Roamer &r = _scummverseRoamers[id];
+ 		r.speech = MAX(0, r.speech - delta);
++		if (a->_room==56) {
++			if (_currentRoom==56 && !(chatting & (1u<<id)) && !a->_moving && _rnd.getRandomNumber(150)==0) {
++				AdjustBoxResult p=a->adjustXYToBeInBox(30+_rnd.getRandomNumber(35),60); a->startWalkActor(p.x,p.y,-1);
++			}
++			if(chatting & (1u<<id)) a->stopActorMoving();
++			continue;
++		}
++		if (a->_room==53 || a->_room==57 || a->_room==60) {
++			if (r.room!=a->_room) { _scummverseNpcDestination[id]=0; r.room=a->_room; r.exit=-1; }
++			if (!_scummverseNpcDestination[id]) { const int choices[]={4,3,7,10}; _scummverseNpcDestination[id]=choices[_rnd.getRandomNumber(3)]; _scummverseNpcBoarding[id]=600; if(a->_room==57 && _rnd.getRandomNumber(2)==0) _scummverseNpcDestination[id]=-1; }
++			if (_scummverseNpcDestination[id]>0 && !(chatting & (1u<<id)) && !_scummVars[770+id]) {
++				_scummverseNpcBoarding[id]-=delta;
++				if(a->_room==_currentRoom && !a->_moving) a->startWalkActor(2,60,-1);
++				if(_scummverseNpcBoarding[id]<=0) {
++					int dest=_scummverseNpcDestination[id], room=dest==4?1:dest==3?53:dest+50;
++					if(room<56 || scummverseMountExtra(room)) { a->putActor(20,60,room); _scummverseNpcDestination[id]=0; }
++				}
++				continue;
++			}
++		}
++
+ 		if (r.room != a->_room) {
+ 			r.room = a->_room; r.exit = -1; r.walking = false;
+ 			r.wait = 30 + _rnd.getRandomNumber(120); r.nearPlayer = false;
+@@ -380,6 +417,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			if (r.elapsed < 300 + id * 13) continue;
+ 		}
+ 		int x, y;
++		if (r.exit==78 && (_scummverseBusClock<100 || _scummverseBusClock>=180)) continue;
+ 		if (scummverseRoutePoint(r.exit, true, x, y)) {
+ 			scummverseOpenPassage(r.exit, true);
+ 			r.previousRoom = a->_room;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index e194b065..ea854316 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -200,7 +200,40 @@ void ScummEngine::scummverseInitVisitors() {
+ 	}
+ }
+ 
++// The added sightseeing rooms share a scratch object namespace (732..764).
++// Their original puzzle scripts never run; states are restored on room entry.
++bool ScummEngine::scummverseMountExtra(int room) {
++	if (room < 56 || room > 60 || !scummverseMountZak()) return false;
++	int slot = room - 56;
++	if (!_scummverseExtraRooms[slot].empty()) return true;
++	static const int files[] = {11,9,12,13,9};
++	static const char *hashes[] = {"b282f83c9bbc14ff1026540b0c61c598","8bd54c735a167c4ef42433780fa8f7ab","64cf97c1bc33d52908e7bd962207b38f","46d38d85a72cf6065d2c592b15afadcf","8bd54c735a167c4ef42433780fa8f7ab"};
++	Common::Array<byte> index, source;
++	auto directory = scummverseZakDirectory();
++	if (!readZakFile(directory,0,"7020931d5a2be0a49d68e7a1882363e4",index,_scummverseWorldNotice) ||
++	    !readZakFile(directory,files[slot],hashes[slot],source,_scummverseWorldNotice)) {
++		scummverseZakDiagnostic(directory,_scummverseWorldNotice); return false;
++	}
++	uint size = READ_LE_UINT16(source.data()), count = source[20];
++	if (count > 33 || size > source.size() || size < 28 + count*4) return false;
++	Common::Array<byte> data; data.resize(size); memcpy(data.data(),source.data(),size);
++	for (uint i=0;i<count;++i) {
++		uint off=READ_LE_UINT16(data.data()+28+count*2+i*2);
++		if (off+15>size) return false;
++		uint original=READ_LE_UINT16(data.data()+off+4); if (original>=775) return false;
++		_scummverseExtraStates[slot][i]=index[2+original]>>4;
++		WRITE_LE_UINT16(data.data()+off+4,732+i);
++	}
++	data[22]=data[23]=0; WRITE_LE_UINT16(data.data()+24,0); WRITE_LE_UINT16(data.data()+26,0);
++	_scummverseExtraRooms[slot]=data; return true;
++}
++
+ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
++	if (_scummverseRoaming && type == rtRoom && id >= 56 && id <= 60) {
++		if (!scummverseMountExtra(id)) return 0;
++		const auto &data = _scummverseExtraRooms[id-56];
++		memcpy(_res->createResource(type,id,data.size()),data.data(),data.size()); return 1;
++	}
+ 	if (!_scummverseRoaming || !((type == rtRoom && (id == 53 || id == 54 || id == 55)) || (type == rtCostume && id == 34))) return -1;
+ 	if (type == rtRoom && id == 55 ? !scummverseMountStreet() : type == rtRoom && id == 53 ? !scummverseMountAirport() : !scummverseMountZak()) return 0;
+ 	const Common::Array<byte> &data = type == rtCostume ? _scummverseZakCostume : id == 55 ? _scummverseStreetRoom : id == 53 ? _scummverseAirportRoom : _scummverseZakRoom;
+@@ -209,39 +242,53 @@ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+ }
+ 
+ bool ScummEngine::scummverseTravel(int destination) {
+-	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 5 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 7) return false;
++	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 10 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 7) return false;
++	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+-	if ((destination == 1 && !scummverseMountZak()) || (destination == 3 && !scummverseMountAirport()) || (destination == 5 && !scummverseMountStreet())) {
++	if ((destination >= 6 && !scummverseMountExtra(destination + 50)) || (destination == 1 && !scummverseMountZak()) || (destination == 3 && !scummverseMountAirport()) || (destination == 5 && !scummverseMountStreet())) {
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 		scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false;
+ 	}
+ 	const int key = 700 + VAR(VAR_EGO) * 3;
+ 	int room = 1, x = 8, y = 64;
+-	if (destination == 1 || destination == 3 || destination == 5) {
++	if (destination == 1 || destination == 3 || destination >= 5) {
+ 		// Never overwrite a kid's mansion return point while in Zak's world.
+ 		if (_currentRoom < 53) {
+ 			_scummVars[key] = _currentRoom; _scummVars[key + 1] = player->getRealPos().x; _scummVars[key + 2] = player->getRealPos().y;
+ 		}
+ 		scummverseInitVisitors();
+-		room = destination == 5 ? 55 : destination == 1 ? 54 : 53;
++		room = destination >= 6 ? destination + 50 : destination == 5 ? 55 : destination == 1 ? 54 : 53;
+ 		x = destination == 5 ? (_currentRoom == 54 ? 40 : 90) : destination == 1 ? 21 : 30;
+ 		y = destination == 5 ? 59 : destination == 1 ? 56 : 60;
+ 	} else if (destination == 2) {
+ 		room = _scummVars[key]; x = _scummVars[key + 1]; y = _scummVars[key + 2];
+ 		if (room < 1 || room > 52) { room = 1; x = 8; y = 64; }
+ 	}
++	if (room >= 56 && room <= 60) {
++		const auto &data = _scummverseExtraRooms[room-56];
++		for (int i=0;i<data[20];++i) { putState(732+i,_scummverseExtraStates[room-56][i]); _objectOwnerTable[732+i]=OF_OWNER_ROOM; }
++		x = room == 56 ? 45 : 20; y=60;
++	}
+ 	scummverseUpdateCompanions();
+ 	scummverseAICancel(); _scummverseAIActor = 0; stopTalk();
+ 	player->stopActorMoving(); player->putActor(x, y, room);
+ 	startScene(room, player, 0);
++	if(room>=56) for(int i=1;i<_numLocalObjects;++i) {
++		int object=_objs[i].obj_nr;
++		bool exit=(room==57 || room==60) ? (object==732 || object==733 || object==736) : room==58 ? (object==732 || object==738) : room==59 && object==732;
++		if(exit) {
++			AdjustBoxResult target=player->adjustXYToBeInBox(_objs[i].walk_x/8,_objs[i].walk_y/2);
++			_objs[i].walk_x=target.x*8; _objs[i].walk_y=target.y*2;
++		}
++	}
+ 	AdjustBoxResult point = player->adjustXYToBeInBox(x, y);
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+-	_scummverseWorldNotice = room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
++	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Visit Mt. Rainier or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+ 		room == 54 ? "Zak's apartment. Walk through the door to reach the street and free airport bus." : "Back in Maniac Mansion.";
+ 	scummverseWorldReport(_scummverseWorldNotice.c_str());
+@@ -249,24 +296,27 @@ bool ScummEngine::scummverseTravel(int destination) {
+ }
+ 
+ void ScummEngine::scummverseAirportOffer() {
+-	if (_currentRoom != 53 || !_userPut) return;
++	if ((_currentRoom != 53 && _currentRoom != 57 && _currentRoom != 60) || !_userPut) return;
+ 	_scummverseTransitArmed = false;
+ 	Actor *player = derefActor(VAR(VAR_EGO), "airport passenger");
+ 	player->stopActorMoving(); player->startAnimActor(player->_standFrame);
+ #ifdef SCUMMVERSE_LOCAL_AI
+-	::scummverseAirportOffer(VAR(VAR_EGO));
++	::scummverseAirportOffer((_currentRoom * 32 + VAR(VAR_EGO)) << 8);
+ #else
+ 	GUI::ChooserDialog dialog(Common::U32String("Free travel - choose a destination"));
+ 	Common::U32StringArray destinations;
+ 	destinations.push_back(Common::U32String("Maniac Mansion"));
+-	destinations.push_back(Common::U32String("Free bus to Zak's street"));
++	destinations.push_back(Common::U32String("San Francisco"));
++	destinations.push_back(Common::U32String("Seattle"));
++	destinations.push_back(Common::U32String("Miami"));
+ 	dialog.setList(destinations);
+ 	int choice = runDialog(dialog);
+-	if (choice == 0 || choice == 1) _scummVars[730 + VAR(VAR_EGO)] = choice == 0 ? 4 : 5;
++	if (choice >= 0 && choice < 4) { const int routes[]={4,3,7,10}; _scummVars[730 + VAR(VAR_EGO)] = routes[choice]; }
+ #endif
+ }
+ 
+ void ScummEngine::scummverseUpdateTransit(int delta) {
++	scummverseServiceBus(delta);
+ 	// Retry optional resources together, at most once per 600 timer units.
+ 	if (!_scummverseAirportMounted || !_scummverseStreetMounted) {
+ 		_scummverseAirportRetry -= delta;
+@@ -295,10 +345,78 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ // Saved variables: 731..737 destinations, 741..747 arrival origin,
+ // 751..757 arrival party masks, 770..794 companion leader IDs.
+ void ScummEngine::scummverseBoard() {
++	if (_currentRoom != 53 && _currentRoom != 57 && _currentRoom != 60) return;
++	if(_scummVars[724]) { scummverseSay(VAR(VAR_EGO),"Another kid is already in flight. Switch to that kid and choose Arrive first."); return; }
+ 	int choice = _scummVars[730 + VAR(VAR_EGO)];
+-	if (choice == 4 || choice == 5) {
+-		if (scummverseTravel(choice)) _scummVars[730 + VAR(VAR_EGO)] = 0;
+-	} else scummverseSay(VAR(VAR_EGO), "Choose a destination at the airport computer first.");
++	if (choice != 4 && choice != 3 && choice != 7 && choice != 10 && choice != 5) {
++		scummverseSay(VAR(VAR_EGO), "Choose a destination at the airport computer first."); return;
++	}
++	// Validate both ends before changing any actor or the flight manifest.
++	if (!scummverseMountExtra(56) || (choice>=6 && !scummverseMountExtra(choice+50))) {
++		scummverseSay(VAR(VAR_EGO),_scummverseWorldNotice.c_str()); return;
++	}
++	unsigned passengers=0;
++	int origin=_currentRoom, ego=VAR(VAR_EGO);
++	for (int id : mansionCast) {
++		if (id==ego || (id==24 && !_scummVars[760])) continue;
++		Actor *a=derefActor(id,"boarding passenger");
++		if (_scummVars[770+id]==ego || (a->_room==origin && _scummverseNpcDestination[id]==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
++	}
++	if (!scummverseTravel(6)) return;
++	_scummVars[724]=choice; _scummVars[725]=passengers; _scummVars[726]=origin; _scummVars[727]=ego;
++	_scummVars[730+ego]=0;
++	for(int id : mansionCast) if (passengers & (1u<<id)) {
++		Actor *a=derefActor(id,"flight passenger"); a->stopActorMoving();
++		AdjustBoxResult p=a->adjustXYToBeInBox(35+id%6*3,60);
++		a->putActor(p.x,p.y,56); a->startAnimActor(a->_standFrame); _scummverseRoamers[id]=Roamer();
++	}
++}
++void ScummEngine::scummverseArrive() {
++	if (_currentRoom!=56 || _scummVars[724]<1 || _scummVars[724]>10) return;
++	unsigned passengers=_scummVars[725];
++	for(int id : mansionCast) if(id!=VAR(VAR_EGO) && derefActor(id,"flight roster")->_room==56) passengers |= 1u<<id;
++	_scummverseLanding=true; bool arrived=scummverseTravel(_scummVars[724]); _scummverseLanding=false;
++	if(!arrived) return;
++	Actor *player=derefActor(VAR(VAR_EGO),"flight arrival");
++	for(int id : mansionCast) if (passengers & (1u<<id)) {
++		Actor *a=derefActor(id,"arriving passenger"); a->stopActorMoving();
++		AdjustBoxResult p=player->adjustXYToBeInBox(player->getRealPos().x+id%5-2,player->getRealPos().y);
++		a->putActor(p.x,p.y,_currentRoom); a->startAnimActor(a->_standFrame);
++		_scummverseRoamers[id]=Roamer(); _scummverseRoamers[id].wait=600;
++		_scummverseNpcDestination[id]=0; _scummverseNpcBoarding[id]=0;
++	}
++	_scummVars[750+VAR(VAR_EGO)]=passengers; _scummVars[724]=_scummVars[725]=0;
++}
++void ScummEngine::scummverseWaitBus() {
++	if (_currentRoom!=55) return;
++	_scummverseBusEgo=VAR(VAR_EGO);
++	scummverseSay(VAR(VAR_EGO),"I'll wait here for the free airport bus.");
++}
++void ScummEngine::scummverseServiceBus(int delta) {
++	int previous=_scummverseBusClock;
++	_scummverseBusClock=(_scummverseBusClock+MIN(delta,60))%600;
++	int phase=_scummverseBusClock;
++	if (_currentRoom!=55) { _scummverseBusEgo=0; _scummverseBusArmed=false; return; }
++	Actor *queuePlayer=derefActor(VAR(VAR_EGO),"bus stop");
++	if(ABS(queuePlayer->getRealPos().x-92)>6) _scummverseBusArmed=true;
++	else if(_scummverseBusArmed && !queuePlayer->_moving) { _scummverseBusEgo=VAR(VAR_EGO); _scummverseBusArmed=false; }
++	// Move the original bus and its attached driver objects, never fabricated art.
++	int shift=phase<60 ? (60-phase)*8 : phase<180 ? 0 : phase<240 ? -(phase-180)*16 : -1600;
++	_gdi->scummverseBusImage(_scummverseStreetRoom.data(),shift);
++	for(int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr>=724 && _objs[i].obj_nr<=728) {
++		int n=_objs[i].obj_nr-712;
++		uint off=READ_LE_UINT16(_scummverseStreetRoom.data()+28+40+n*2);
++		int base=_scummverseStreetRoom[off+7]*8;
++		int x=MAX(0,base+shift);
++		int state = (phase>=240 || n==12) ? (_scummverseStreetStates[n] & ~kObjectStateIntrinsic) : _scummverseStreetStates[n];
++		if(getState(_objs[i].obj_nr)!=state) { putState(_objs[i].obj_nr,state); _fullRedraw=true; }
++		if (_objs[i].x_pos!=x) { _objs[i].x_pos=x; _fullRedraw=true; }
++	}
++	if (_scummverseBusEgo) {
++		Actor *p=derefActor(VAR(VAR_EGO),"bus queue");
++		if (_scummverseBusEgo!=VAR(VAR_EGO) || ABS(p->getRealPos().x-92)>6 || p->_moving) _scummverseBusEgo=0;
++		else if (previous<160 && phase>=160) { _scummverseBusEgo=0; scummverseTravel(3); }
++	}
+ }
+ void ScummEngine::scummverseCompanionCommand(int command) {
+ 	int id = command >= 96 ? command - 96 : command - 64;

@@ -1,0 +1,67 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 0613cd1f..2b555e0b 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -933,6 +933,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 	_sound->restoreAfterLoad();
+ 
+ 	scummverseRestoreSceneNavigation(true);
++ scummverseRestoreTransportVisibility();
+ 
+ 	return true;
+ }
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 274a538c..c88436ee 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1592,6 +1592,7 @@ protected:
+ 	void scummverseWaitBus();
+ 	bool scummverseOnBus() const { int ego=_scummVars[VAR_EGO]; return _scummVars[765] && (_scummVars[767]==ego || (_scummVars[766] & (1u<<ego))); }
+ 	void scummverseServiceBus(int delta);
++ void scummverseRestoreTransportVisibility();
+ 	Common::Array<byte> _scummverseExtraRooms[43];
+ 	byte _scummverseExtraStates[43][33] = {};
+ 	bool _scummverseLanding = false;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index f3a07b97..53abee8f 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -478,6 +478,17 @@ void ScummEngine::scummverseWaitBus() {
+ 	if(!_scummVars[765]) _scummVars[765]=1;
+ 	scummverseSay(VAR(VAR_EGO),"A ride to the airport, please!");
+ }
++void ScummEngine::scummverseRestoreTransportVisibility() {
++ // Scene entry and actor switching can show actors again. The saved manifest
++ // owns visibility while the bus is moving, including before the next tick.
++ if (!_scummverseRoaming || _scummVars[765]<=60 || _scummVars[765]>=150) return;
++ for (int id : mansionCast) if (_scummVars[766] & (1u<<id)) {
++  Actor *a=derefActor(id,"restore bus visibility");
++  a->stopActorMoving();
++  a->hideActor();
++ }
++}
++
+ void ScummEngine::scummverseServiceBus(int delta) {
+ 	// 765 phase, 766 passenger manifest, 767 player requesting a ride.
+ 	// Zero is parked/asleep. Boarding lasts one second; then drive toward the
+@@ -497,8 +508,8 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 	if(phase>60 && phase<150) for(int id : mansionCast) if(_scummVars[766] & (1u<<id)) {
+ 		Actor *a=derefActor(id,"bus passenger");a->stopActorMoving();
+ 		a->putActor(103,51+(phase-60),55);
+-		a->hideActor(); // Riders are inside the cab, never floating above it.
+ 	}
++ scummverseRestoreTransportVisibility();
+ 	if(phase>=150) {
+ 		unsigned passengers=_scummVars[766]; int ego=_scummVars[767];
+ 		_scummVars[765]=_scummVars[766]=_scummVars[767]=0; _scummverseBusEgo=0; _scummverseBusClock=0;
+@@ -625,7 +636,9 @@ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	else { startScene(room,a,0); }
+ 	AdjustBoxResult point=a->adjustXYToBeInBox(x,y); a->putActor(point.x,point.y,room); a->startAnimActor(a->_standFrame);
+ 	setCameraAt(a->getPos().x,a->getPos().y); setCameraFollows(a); resetSentence(); _fullRedraw=true;
+-	scummverseUpdateCompanions(); return true;
++	scummverseUpdateCompanions();
++ scummverseRestoreTransportVisibility();
++ return true;
+ }
+ 
+ void ScummEngine::scummverseRestoreSceneNavigation(bool restoreActors) {

@@ -1,0 +1,36 @@
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index c75c0c3d..f6541035 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -465,7 +465,8 @@ void ScummEngine::scummverseBoard() {
+ 		Actor *a=derefActor(id,"boarding passenger");
+   const int booking=_scummVars[travellerDestinationKey(id)];
+   const int destination=booking ? booking : _scummverseNpcDestination[id];
+-		if (_scummVars[770+id]==ego || (a->_room==origin && destination==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
++		if (a->_room==origin && !(_scummVars[766] & (1u<<id)) &&
++            (_scummVars[770+id]==ego || (destination==choice && a->getRealPos().x<=8))) passengers |= 1u<<id;
+ 	}
+ 	if (!scummverseTravel(6)) return;
+  if(joining) {
+@@ -535,7 +536,8 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 		unsigned passengers=_scummVars[766]; int ego=_scummVars[767];
+ 		if(ego>0 && derefActor(ego,"bus rider")->_room==55) {
+ 			passengers |= 1u<<ego;
+-			for(int id : mansionCast) if(_scummVars[770+id]==ego) passengers |= 1u<<id;
++			for(int id : mansionCast) if(_scummVars[770+id]==ego &&
++                derefActor(id,"bus companion")->_room==55) passengers |= 1u<<id;
+ 		}
+ 		_scummVars[766]=passengers;
+ 		if(_currentRoom==55 && (passengers & (1u<<VAR(VAR_EGO)))) setCameraAt(108*8,60*2);
+@@ -583,6 +585,11 @@ void ScummEngine::scummverseUpdateCompanions() {
+ 	for (int id : mansionCast) {
+ 		if (id == ego || _scummVars[770 + id] != ego || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "companion");
++		// A following relationship is not permission to teleport from anywhere.
++		// Only carry actors who shared this leader's actual departure scene.
++		// Vehicle manifests own riders until their trip finishes.
++		if ((_scummVars[766] & (1u<<id)) ||
++		    (a->_room != _currentRoom && (!arrival || a->_room != _scummverseCompanionRoom))) continue;
+ 		companions |= 1u << id;
+ 		if (a->_room != _currentRoom) {
+ 			// Carry companions through the same discrete room transition as the player.

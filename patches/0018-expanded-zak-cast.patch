@@ -1,0 +1,255 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index fd85a73a..833070ee 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -30,7 +30,7 @@ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex)
+ 
+ static const char *actorName(int id) {
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+-	return id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
++	return id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
+ 	switch (id) {
+@@ -46,6 +46,9 @@ static const char *personality(int id) {
+ 	case 11: return "a suspicious military enthusiast devoted to his hamster";
+ 	case 13: return "a pompous purple tentacle taking a break from guard duty";
+ 	case 14: return "a friendly green tentacle who loves music and snacks";
++	case 20: return "Annie Larris, an insightful archaeologist investigating ancient crystals and alien activity; thoughtful, brave, and practical";
++	case 21: return "Melissa China, an adventurous Yale student and Leslie's friend; curious, resourceful, and inclined to plan before exploring";
++	case 22: return "Leslie Bennett, an adventurous Yale student and Melissa's friend; enthusiastic, witty, and eager to explore unfamiliar places";
+ 	case 24: return "a curious tabloid reporter investigating aliens, with a dry sense of humor";
+ 	case 23: return "a resourceful young woman relieved to explore freely";
+ 	default: return "an eccentric mansion resident";
+@@ -111,7 +114,7 @@ static std::string cleanReply(const std::string &raw, int actor) {
+ 	size_t start = text.find_first_not_of(" \r\n\t\"");
+ 	if (start == std::string::npos) return "";
+ 	text.erase(0, start);
+-	const char *shortName = actor == 9 ? "Fred" : actor == 10 ? "Edna" : actor == 11 ? "Ed" : actor == 24 ? "Zak" : actorName(actor);
++	const char *shortName = actor == 9 ? "Fred" : actor == 10 ? "Edna" : actor == 11 ? "Ed" : actor == 24 ? "Zak" : actor == 20 ? "Annie" : actor == 21 ? "Melissa" : actor == 22 ? "Leslie" : actorName(actor);
+ 	const std::string prefixes[] = {std::string(actorName(actor)) + ":", std::string(shortName) + ":", actor == 9 ? "Dr. Fred:" : ""};
+ 	for (const auto &prefix : prefixes) {
+ 		if (!prefix.empty() && text.compare(0, prefix.size(), prefix) == 0) { text.erase(0, prefix.size()); break; }
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index c81d56cf..690955f4 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -73,7 +73,7 @@ static const int v1MMNESLookup[25] = {
+ 
+ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	// Imported Zak is rendered at 6:5 around his feet, with crisp pixels and masks.
+-	if (_vm->_game.id == GID_MANIAC && _actorID == 24 && _loaded._id == 34 && _loaded._format == 0x57) {
++	if (_vm->_game.id == GID_MANIAC && ((_actorID == 24 && _loaded._id == 34) || (_actorID >= 20 && _actorID <= 22 && _loaded._id == _actorID + 15)) && _loaded._format == 0x57) {
+ 		auto scale = [](int n) { return n >= 0 ? n * 6 / 5 : -((-n * 6 + 4) / 5); };
+ 		const byte *src = _srcPtr;
+ 		byte palette[4] = {0, 0, 0, 0};
+diff --git a/engines/scumm/resource_v2.cpp b/engines/scumm/resource_v2.cpp
+index 9c446d9c..febb1e1f 100644
+--- a/engines/scumm/resource_v2.cpp
++++ b/engines/scumm/resource_v2.cpp
+@@ -81,6 +81,8 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 	// Expand only the audited sandbox. The on-disk directory still has 55
+ 	// entries; consuming an extra entry would shift all costume/script tables.
+ 	const int nativeRoomCount = _numRooms;
++	const int nativeCostumeCount = _numCostumes;
++	if (_scummverseRoaming) _numCostumes = 38;
+ 	if (_scummverseRoaming) _numRooms = 61;
+ 	readMAXS(0);
+ 	allocateArrays();
+@@ -102,10 +104,10 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 			_res->_types[rtRoom][i]._roomoffs = (uint32)RES_INVALID_OFFSET;
+ 	}
+ 
+-	for (i = 0; i < _numCostumes; i++) {
++	for (i = 0; i < nativeCostumeCount; i++) {
+ 		_res->_types[rtCostume][i]._roomno = _fileHandle->readByte();
+ 	}
+-	for (i = 0; i < _numCostumes; i++) {
++	for (i = 0; i < nativeCostumeCount; i++) {
+ 		_res->_types[rtCostume][i]._roomoffs = _fileHandle->readUint16LE();
+ 		if (_res->_types[rtCostume][i]._roomoffs == 0xFFFF)
+ 			_res->_types[rtCostume][i]._roomoffs = (uint32)RES_INVALID_OFFSET;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 48a82732..1ff5dfe5 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1577,6 +1577,8 @@ protected:
+ 	Common::Array<byte> _scummverseStreetRoom;
+ 	byte _scummverseStreetStates[20];
+ 	void scummverseInitVisitors();
++	bool scummverseMountZakCast();
++	Common::Array<byte> _scummverseZakCastCostumes[3];
+ 	void scummverseAirportOffer();
+ 	void scummverseBoard();
+ 	bool scummverseMountExtra(int room);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 3acdd01a..211251cf 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -98,7 +98,7 @@ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y)
+ }
+ 
+ bool ScummEngine::scummverseOwnsActor(int actor) const {
+-	return _scummverseRoamingReady && _currentScript != 0xFF && (actor == 9 || actor == 10 || actor == 11 || actor == 13 || actor == 14 || actor == 23 || actor == 24);
++	return _scummverseRoamingReady && _currentScript != 0xFF && (scummverseZakGuest(actor) || actor == 9 || actor == 10 || actor == 11 || actor == 13 || actor == 14 || actor == 23 || actor == 24);
+ }
+ 
+ bool ScummEngine::scummverseBlocksScript(int script) const {
+@@ -192,7 +192,7 @@ void ScummEngine::scummverseStartRoaming() {
+ 	_scummVars[59] = 100;
+ 	actorFollowCamera(VAR(VAR_EGO));
+ 	for (int id : mansionCast) {
+-		if (id == 24) continue; // Mounted later from the separately supplied Zak data.
++		if (id == 24 || scummverseZakGuest(id)) continue; // Mounted later from the separately supplied Zak data.
+ 		Actor *a = derefActor(id, "sandbox cast");
+ 		a->setActorCostume(id);
+ 		if (id <= 7 && a->_room != 0) continue;
+@@ -277,7 +277,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	scummverseUpdateCompanions();
+ 	unsigned talkMask = 0;
+ 	for (int id : mansionCast)
+-		if (id != VAR(VAR_EGO) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
++		if (id != VAR(VAR_EGO) && (!scummverseZakGuest(id) || _scummVars[763]) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
+ 	if (_scummVars[760] && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
+ 	char talkLine[600];
+ 	int talkSpeaker = 0;
+@@ -293,7 +293,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		_scummverseLastEgo = VAR(VAR_EGO);
+ 	}
+ 	for (int id : mansionCast) {
+-		if (id == VAR(VAR_EGO) || (id == 24 && !_scummVars[760])) continue;
++		if (id == VAR(VAR_EGO) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "sandbox roamer");
+ 		Roamer &r = _scummverseRoamers[id];
+ 		r.speech = MAX(0, r.speech - delta);
+@@ -345,7 +345,10 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				{"I'm on a very important stroll.", "This corridor is tentacle territory.", "Even a tentacle needs a break.", "Try not to get underfoot. Figuratively."},
+ 				{"Know a good place to rehearse?", "Walking always makes me hungry.", "I had a melody. Then I got distracted.", "Nice to see a friendly face."},
+ 				{"It's good to stretch my legs.", "Let's find somewhere less creepy.", "I've had enough laboratory time.", "Keep going. I'll check this way."},
+-				{"That sounds like tomorrow's headline.", "I smell a story. Or airline food.", "Aliens never leave forwarding addresses.", "My editor will never believe this trip."}
++				{"That sounds like tomorrow's headline.", "I smell a story. Or airline food.", "Aliens never leave forwarding addresses.", "My editor will never believe this trip."},
++				{"Ancient symbols deserve a closer look.", "There must be a connection here.", "Keep your eyes open for clues.", "I've studied stranger places than this."},
++				{"This beats sitting through a lecture.", "We should compare notes with Leslie.", "I packed for a much shorter trip.", "An adventure needs a little planning."},
++				{"Melissa, wait until you see this place.", "I wonder where that passage goes.", "We didn't come all this way to stand still.", "Best field trip ever."}
+ 			};
+ 			int castIndex = 0;
+ 			while (mansionCast[castIndex] != id) ++castIndex;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index ea854316..2e6e98e6 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1,4 +1,5 @@
+-static const int mansionCast[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 23, 24};
++static const int mansionCast[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 23, 24, 20, 21, 22};
++static bool scummverseZakGuest(int id) { return id >= 20 && id <= 22; }
+ // Connected-world adapters. GPL-3.0-or-later. No original game data included.
+ // Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:street, zak:zak.
+ // Native rooms 53/54 and added room 55; costume 34, actor 24, objects 650..731.
+@@ -178,7 +179,46 @@ bool ScummEngine::scummverseMountStreet() {
+ 	return true;
+ }
+ 
++// Actors 20..22 are reserved from the disabled mansion ending sequences.
++// Reusing these slots preserves the 25-actor save layout; costumes get new IDs.
++bool ScummEngine::scummverseMountZakCast() {
++	if (!_scummverseZakCastCostumes[0].empty()) return true;
++	if (!scummverseMountZak()) return false;
++	Common::Array<byte> index, annie, students, costumes[3];
++	Common::String problem;
++	auto directory = scummverseZakDirectory();
++	if (!readZakFile(directory, 0, "7020931d5a2be0a49d68e7a1882363e4", index, problem) ||
++	    !readZakFile(directory, 6, "1a79751f305b2fe6f8ee774de7108304", annie, problem) ||
++	    !readZakFile(directory, 28, "6282c2c0caa99bdbb38ba36051fb57d3", students, problem)) {
++		scummverseZakDiagnostic(directory, problem); return false;
++	}
++	const uint table = 2 + 775 + 61 * 3;
++	for (int i = 0; i < 3; ++i) {
++		const auto &source = i == 0 ? annie : students;
++		const uint id = i + 2, offset = READ_LE_UINT16(index.data() + table + 37 + id * 2);
++		if (index[table + id] != (i == 0 ? 6 : 28) || offset + 2 > source.size()) return false;
++		const uint size = READ_LE_UINT16(source.data() + offset);
++		if (size < 8 || offset + size > source.size()) return false;
++		costumes[i].resize(size); memcpy(costumes[i].data(), source.data() + offset, size);
++	}
++	for (int i = 0; i < 3; ++i) _scummverseZakCastCostumes[i] = costumes[i];
++	return true;
++}
++
+ void ScummEngine::scummverseInitVisitors() {
++	if (!_scummVars[763] && scummverseMountZakCast()) {
++		static const char *names[] = {"Annie Larris", "Melissa China", "Leslie Bennett"};
++		static const int colors[] = {4, 3, 7}, talkColors[] = {14, 3, 8};
++		for (int i = 0; i < 3; ++i) {
++			Actor *guest = derefActor(20 + i, "Zak guest");
++			guest->stopActorMoving(); guest->setActorCostume(35 + i);
++			guest->setPalette(1, colors[i]); guest->_talkColor = talkColors[i];
++			guest->putActor(24 + i * 8, 56, 54); guest->startAnimActor(guest->_standFrame);
++			memcpy(_res->createResource(rtActorName, 20+i, strlen(names[i])+1), names[i], strlen(names[i])+1);
++			_scummverseRoamers[20+i] = Roamer(); _scummVars[790+i] = 0;
++		}
++		_scummVars[763] = 1;
++	}
+ 	if (_scummverseStreetMounted && !_scummVars[762]) {
+ 		for (int i = 0; i < 20; ++i) { putState(712 + i, _scummverseStreetStates[i]); _objectOwnerTable[712+i] = OF_OWNER_ROOM; }
+ 		_scummVars[762] = 1; _fullRedraw = true;
+@@ -229,6 +269,12 @@ bool ScummEngine::scummverseMountExtra(int room) {
+ }
+ 
+ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
++	if (_scummverseRoaming && type == rtCostume && id >= 35 && id <= 37) {
++		if (!scummverseMountZakCast()) return 0;
++		const auto &data = _scummverseZakCastCostumes[id-35];
++		memcpy(_res->createResource(type, id, data.size()), data.data(), data.size());
++		return 1;
++	}
+ 	if (_scummverseRoaming && type == rtRoom && id >= 56 && id <= 60) {
+ 		if (!scummverseMountExtra(id)) return 0;
+ 		const auto &data = _scummverseExtraRooms[id-56];
+@@ -318,15 +364,16 @@ void ScummEngine::scummverseAirportOffer() {
+ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	scummverseServiceBus(delta);
+ 	// Retry optional resources together, at most once per 600 timer units.
+-	if (!_scummverseAirportMounted || !_scummverseStreetMounted) {
++	if (!_scummverseAirportMounted || !_scummverseStreetMounted || _scummverseZakCastCostumes[0].empty()) {
+ 		_scummverseAirportRetry -= delta;
+ 		if (_scummverseAirportRetry <= 0) {
+ 			_scummverseAirportRetry = 600;
+ 			scummverseMountAirport();
+ 			scummverseMountStreet();
++			scummverseMountZakCast();
+ 		}
+ 	}
+-	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || (_scummverseStreetMounted && !_scummVars[762]))) scummverseInitVisitors();
++	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || (!_scummVars[763] && !_scummverseZakCastCostumes[0].empty()) || (_scummverseStreetMounted && !_scummVars[762]))) scummverseInitVisitors();
+ 	Actor *player = derefActor(VAR(VAR_EGO), "walking traveller");
+ 	if (_scummverseTransitRoom != _currentRoom || _scummverseTransitEgo != VAR(VAR_EGO)) {
+ 		_scummverseTransitRoom = _currentRoom; _scummverseTransitEgo = VAR(VAR_EGO); _scummverseTransitArmed = false;
+@@ -358,7 +405,7 @@ void ScummEngine::scummverseBoard() {
+ 	unsigned passengers=0;
+ 	int origin=_currentRoom, ego=VAR(VAR_EGO);
+ 	for (int id : mansionCast) {
+-		if (id==ego || (id==24 && !_scummVars[760])) continue;
++		if (id==ego || ((id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a=derefActor(id,"boarding passenger");
+ 		if (_scummVars[770+id]==ego || (a->_room==origin && _scummverseNpcDestination[id]==choice && a->getRealPos().x<=8)) passengers |= 1u<<id;
+ 	}
+@@ -420,8 +467,8 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ }
+ void ScummEngine::scummverseCompanionCommand(int command) {
+ 	int id = command >= 96 ? command - 96 : command - 64;
+-	bool allowed = id == 24 || id == 23 || id == 14 || id == 13 || id == 11 || id == 10 || id == 9 || (id >= 1 && id <= 7);
+-	if (!allowed || id == VAR(VAR_EGO) || (id == 24 && !_scummVars[760])) return;
++	bool allowed = scummverseZakGuest(id) || id == 24 || id == 23 || id == 14 || id == 13 || id == 11 || id == 10 || id == 9 || (id >= 1 && id <= 7);
++	if (!allowed || id == VAR(VAR_EGO) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) return;
+ 	Actor *a = derefActor(id, "companion request");
+ 	if (a->_room != _currentRoom) return;
+ 	_scummVars[770 + id] = command >= 96 ? 0 : VAR(VAR_EGO);
+@@ -436,7 +483,7 @@ void ScummEngine::scummverseUpdateCompanions() {
+ 	bool arrival = _scummverseCompanionRoom > 0 && _scummverseCompanionEgo == ego && _scummverseCompanionRoom != _currentRoom;
+ 	if (arrival) { _scummVars[740 + ego] = _scummverseCompanionRoom; _scummVars[750 + ego] = 0; }
+ 	for (int id : mansionCast) {
+-		if (id == ego || _scummVars[770 + id] != ego || (id == 24 && !_scummVars[760])) continue;
++		if (id == ego || _scummVars[770 + id] != ego || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "companion");
+ 		companions |= 1u << id;
+ 		if (a->_room != _currentRoom) {

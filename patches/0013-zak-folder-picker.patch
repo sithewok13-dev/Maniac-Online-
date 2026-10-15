@@ -1,0 +1,231 @@
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index c7dcb42d..a7edceba 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -105,6 +105,7 @@ bool iOS7_isBigDevice();
+ void iOS7_buildSharedOSystemInstance();
+ void iOS7_main(int argc, char **argv);
+ Common::String iOS7_getDocumentsDir();
++Common::String iOS7_getZakDirectory();
+ Common::String iOS7_getAppBundleDir();
+ TouchMode iOS7_getCurrentTouchMode();
+ 
+diff --git a/backends/platform/ios7/ios7_misc.mm b/backends/platform/ios7/ios7_misc.mm
+index db9380ac..d24aaa64 100644
+--- a/backends/platform/ios7/ios7_misc.mm
++++ b/backends/platform/ios7/ios7_misc.mm
+@@ -22,7 +22,7 @@
+ #include <Foundation/NSArray.h>
+ #include <Foundation/NSURL.h>
+ #include <Foundation/NSFileManager.h>
+-#include <Foundation/NSBundle.h>
++#include <Foundation/Foundation.h>
+ #include <Foundation/NSPathUtilities.h>
+ #include "backends/platform/ios7/ios7_common.h"
+ #include <common/str.h>
+@@ -36,6 +36,27 @@ Common::String iOS7_getDocumentsDir() {
+ 	return Common::String([url fileSystemRepresentation]);
+ }
+ 
++Common::String iOS7_getZakDirectory() {
++	@autoreleasepool {
++		NSString *relative = [[NSUserDefaults standardUserDefaults] stringForKey:@"SCUMMVERSEZakImport"];
++		if ([relative hasPrefix:@"ConnectedWorlds/zak-"] && ![relative containsString:@".."] && [[relative pathComponents] count] == 2) {
++			NSURL *base = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
++			return Common::String([[base URLByAppendingPathComponent:relative isDirectory:YES] fileSystemRepresentation]);
++		}
++		NSString *documents = [NSString stringWithUTF8String:iOS7_getDocumentsDir().c_str()];
++		NSString *candidate = [documents stringByAppendingPathComponent:@"zak"];
++		BOOL directory = NO;
++		NSFileManager *fm = [NSFileManager defaultManager];
++		if (![fm fileExistsAtPath:candidate isDirectory:&directory] || !directory) {
++			for (NSString *name in [fm contentsOfDirectoryAtPath:documents error:nil]) {
++				NSString *path = [documents stringByAppendingPathComponent:name];
++				if ([name caseInsensitiveCompare:@"zak"] == NSOrderedSame && [fm fileExistsAtPath:path isDirectory:&directory] && directory) { candidate = path; break; }
++			}
++		}
++		return Common::String([candidate fileSystemRepresentation]);
++	}
++}
++
+ Common::String iOS7_getAppBundleDir() {
+ 	NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
+ 	if (bundlePath == nil)
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index e4ec0294..df2be16f 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -85,6 +85,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
+ #include "backends/platform/ios7/scummverse_ai_ui.inc"
+ #include "backends/platform/ios7/scummverse_talk_ui.inc"
++#include "backends/platform/ios7/scummverse_worlds_ui.inc"
+ 
+ void scummverseAirportOffer(int actor) {
+ 	dispatch_async(dispatch_get_main_queue(), ^{
+@@ -511,6 +512,9 @@ void scummverseAirportOffer(int actor) {
+ 	UIViewController *controller = (UIViewController *)responder;
+ 	if (!controller || controller.presentedViewController) return;
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithUTF8String:ScummverseLocalAI::worldStatus().c_str()] preferredStyle:UIAlertControllerStyleAlert];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Choose Zak folder..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] chooseFrom:controller]; }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to airport" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(3); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(1); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Return to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(2); }]];
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+new file mode 100644
+index 00000000..b68245e7
+--- /dev/null
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -0,0 +1,113 @@
++// User-selected Zak resource import. GPL-3.0-or-later. No game data bundled.
++// Import into a new private directory before publishing its relative name.
++@interface ScummverseZakImporter : NSObject <UIDocumentPickerDelegate> {
++	BOOL _busy;
++	UIViewController *_presenter;
++}
+++ (ScummverseZakImporter *)shared;
++- (void)chooseFrom:(UIViewController *)controller;
++- (void)finish:(NSString *)message;
++@end
++
++@implementation ScummverseZakImporter
+++ (ScummverseZakImporter *)shared {
++	static ScummverseZakImporter *instance;
++	static dispatch_once_t once;
++	dispatch_once(&once, ^{ instance = [[ScummverseZakImporter alloc] init]; });
++	return instance;
++}
++- (void)chooseFrom:(UIViewController *)controller {
++	if (_busy) return;
++	_busy = YES;
++	_presenter = [controller retain];
++	UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
++		initWithDocumentTypes:@[@"public.folder"] inMode:UIDocumentPickerModeOpen];
++	picker.delegate = self;
++	picker.allowsMultipleSelection = NO;
++	picker.directoryURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
++	[_presenter presentViewController:picker animated:YES completion:nil];
++	[picker release];
++}
++- (void)finish:(NSString *)message {
++	_busy = NO;
++	scummverseWorldReport([message UTF8String]);
++	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Zak game files" message:message preferredStyle:UIAlertControllerStyleAlert];
++	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
++	UIViewController *presenter = [_presenter autorelease]; _presenter = nil;
++	void (^show)(void) = ^{ [presenter presentViewController:alert animated:YES completion:nil]; };
++	if (presenter.presentedViewController) [presenter dismissViewControllerAnimated:YES completion:show];
++	else show();
++}
++- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
++	_busy = NO; [_presenter release]; _presenter = nil;
++}
++- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
++	if (urls.count != 1) { [self finish:@"Choose the folder containing 00.LFL and the other Zak files."]; return; }
++	NSURL *selected = urls.firstObject;
++	// File-provider reads and verification stay off the game and UI threads.
++	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++		@autoreleasepool {
++			BOOL scoped = [selected startAccessingSecurityScopedResource];
++			NSFileManager *fm = [NSFileManager defaultManager];
++			NSURL *support = [[fm URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
++			NSString *relative = [@"ConnectedWorlds/zak-" stringByAppendingString:[[NSUUID UUID] UUIDString]];
++			NSURL *stage = [support URLByAppendingPathComponent:relative isDirectory:YES];
++			__block NSString *failure = nil;
++			void (^fail)(NSString *) = ^(NSString *message) { [failure release]; failure = [message copy]; };
++			__block NSUInteger copied = 0;
++			NSError *coordinationError = nil;
++			NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
++			[coordinator coordinateReadingItemAtURL:selected options:0 error:&coordinationError byAccessor:^(NSURL *folder) {
++				NSError *error = nil;
++				NSArray<NSURL *> *children = [fm contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:&error];
++				if (!children || ![fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&error]) {
++					fail([NSString stringWithFormat:@"Cannot read or copy that folder: %@", error.localizedDescription]); return;
++				}
++				NSMutableDictionary<NSString *, NSURL *> *files = [NSMutableDictionary dictionary];
++				for (NSURL *child in children) files[[child.lastPathComponent uppercaseString]] = child;
++				NSDictionary<NSString *, NSString *> *required = @{
++					@"00.LFL": @"7020931d5a2be0a49d68e7a1882363e4", @"01.LFL": @"2e30571757edc1cd0f2a450ba5c89153",
++					@"03.LFL": @"25a9e059a9df572554ee8ceffc08cb9f", @"08.LFL": @"5337090e7a6ebdbfb698ebda3750d926"};
++				for (int number = 0; number < 59; ++number) {
++					NSString *name = [NSString stringWithFormat:@"%02d.LFL", number];
++					NSURL *file = files[name];
++					if (!file) {
++						if (required[name]) { fail([NSString stringWithFormat:@"%@ is missing. Open the extracted Zak folder and choose the folder containing the LFL files.", name]); return; }
++						continue;
++					}
++					NSNumber *size = nil;
++					if (![file getResourceValue:&size forKey:NSURLFileSizeKey error:&error] || size.unsignedLongLongValue < 2 || size.unsignedLongLongValue > 65535) {
++						fail([NSString stringWithFormat:@"Cannot read a valid %@ in that folder.", name]); return;
++					}
++					NSData *data = [NSData dataWithContentsOfURL:file options:0 error:&error];
++					if (!data || data.length < 2 || data.length > 65535) { fail([NSString stringWithFormat:@"Cannot read %@: %@", name, error.localizedDescription]); return; }
++					if (required[name]) {
++						unsigned char digest[CC_MD5_DIGEST_LENGTH]; CC_MD5(data.bytes, (CC_LONG)data.length, digest);
++						NSMutableString *hash = [NSMutableString string];
++						for (int i=0;i<CC_MD5_DIGEST_LENGTH;++i) [hash appendFormat:@"%02x", digest[i]];
++						if (![hash isEqualToString:required[name]]) { fail([NSString stringWithFormat:@"%@ does not match the supported original English DOS V1 Zak edition.", name]); return; }
++					}
++					if (![data writeToURL:[stage URLByAppendingPathComponent:name] options:NSDataWritingAtomic error:&error]) {
++						fail([NSString stringWithFormat:@"Cannot store %@: %@", name, error.localizedDescription]); return;
++					}
++					++copied;
++				}
++			}];
++			[coordinator release];
++			if (scoped) [selected stopAccessingSecurityScopedResource];
++			if (!failure && coordinationError) fail(coordinationError.localizedDescription);
++			if (!failure && copied < 4) fail(@"No usable Zak files were copied. Choose the folder containing 00.LFL.");
++			if (failure) {
++				[fm removeItemAtURL:stage error:nil];
++			} else {
++				// Relative storage survives iOS changing the application's container UUID.
++				// Existing imports and the selected source folder are never overwritten.
++				[[NSUserDefaults standardUserDefaults] setObject:relative forKey:@"SCUMMVERSEZakImport"];
++			}
++			NSString *message = failure ?: [NSString stringWithFormat:@"Imported %lu Zak files. Open Worlds and choose Go to airport. Your original folder was left untouched.", (unsigned long)copied];
++			dispatch_async(dispatch_get_main_queue(), ^{ [self finish:message]; });
++			[failure release];
++		}
++	});
++}
++@end
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 6edd86af..99574b0c 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -21,6 +21,11 @@
+ 
+ #include "common/config-manager.h"
+ #include "common/scummverse_ai.h"
++#ifdef IPHONE
++#include "backends/fs/abstract-fs.h"
++#include "backends/fs/posix/posix-fs.h"
++#include "backends/platform/ios7/ios7_common.h"
++#endif
+ #include "gui/chooser.h"
+ #include "common/compression/clickteam.h"
+ #include "common/debug-channels.h"
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 39d82e20..e94c6759 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -15,11 +15,13 @@ static Common::FSNode scummverseZakFolder(const Common::FSNode &parent) {
+ }
+ 
+ static Common::FSNode scummverseZakDirectory() {
+-	if (ConfMan.hasKey("scummverse_zak_path"))
+-		return Common::FSNode(ConfMan.getPath("scummverse_zak_path"));
+ #ifdef IPHONE
+-	return scummverseZakFolder(Common::FSNode(Common::Path("/")));
++	// Foundation supplies a native path. Wrapping it as a POSIX node avoids
++	// interpreting it a second time inside the virtual Documents filesystem.
++	return AbstractFSNode::makeFSNode(new POSIXFilesystemNode(iOS7_getZakDirectory()));
+ #else
++	if (ConfMan.hasKey("scummverse_zak_path"))
++		return Common::FSNode(ConfMan.getPath("scummverse_zak_path"));
+ 	// Path::getParent handles a bare relative "maniac" as the current directory.
+ 	// FSNode::getParent can instead return the same node for a relative path.
+ 	return scummverseZakFolder(Common::FSNode(ConfMan.getPath("path").getParent()));

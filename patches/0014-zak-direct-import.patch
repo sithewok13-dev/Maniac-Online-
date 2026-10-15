@@ -1,0 +1,90 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index df2be16f..8ff3d95e 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -512,6 +512,9 @@ void scummverseAirportOffer(int actor) {
+ 	UIViewController *controller = (UIViewController *)responder;
+ 	if (!controller || controller.presentedViewController) return;
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithUTF8String:ScummverseLocalAI::worldStatus().c_str()] preferredStyle:UIAlertControllerStyleAlert];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Import Zak from this app" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] importLocalFrom:controller]; }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Choose Zak folder..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] chooseFrom:controller]; }];
+ 	}]];
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index b68245e7..c0c694b3 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -7,6 +7,7 @@
+ + (ScummverseZakImporter *)shared;
+ - (void)chooseFrom:(UIViewController *)controller;
+ - (void)finish:(NSString *)message;
++- (void)importLocalFrom:(UIViewController *)controller;
+ @end
+ 
+ @implementation ScummverseZakImporter
+@@ -28,6 +29,18 @@
+ 	[_presenter presentViewController:picker animated:YES completion:nil];
+ 	[picker release];
+ }
++- (void)importLocalFrom:(UIViewController *)controller {
++	if (_busy) return;
++	_busy = YES;
++	_presenter = [controller retain];
++	NSFileManager *fm = [NSFileManager defaultManager];
++	NSURL *documents = [[fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
++	NSURL *folder = [documents URLByAppendingPathComponent:@"zak" isDirectory:YES];
++	for (NSURL *child in [fm contentsOfDirectoryAtURL:documents includingPropertiesForKeys:nil options:0 error:nil]) {
++		if ([child.lastPathComponent caseInsensitiveCompare:@"zak"] == NSOrderedSame) { folder = child; break; }
++	}
++	[self documentPicker:nil didPickDocumentsAtURLs:@[folder]];
++}
+ - (void)finish:(NSString *)message {
+ 	_busy = NO;
+ 	scummverseWorldReport([message UTF8String]);
+@@ -44,6 +57,11 @@
+ - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+ 	if (urls.count != 1) { [self finish:@"Choose the folder containing 00.LFL and the other Zak files."]; return; }
+ 	NSURL *selected = urls.firstObject;
++	NSLog(@"SCUMMVERSE Zak: import requested for %@", selected.lastPathComponent);
++	void (^begin)(void) = ^{
++	UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"Importing Zak" message:@"Checking and copying the game files…" preferredStyle:UIAlertControllerStyleAlert];
++	[_presenter presentViewController:progress animated:NO completion:nil];
++	scummverseWorldReport("Importing Zak files...");
+ 	// File-provider reads and verification stay off the game and UI threads.
+ 	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+ 		@autoreleasepool {
+@@ -57,7 +75,7 @@
+ 			__block NSUInteger copied = 0;
+ 			NSError *coordinationError = nil;
+ 			NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+-			[coordinator coordinateReadingItemAtURL:selected options:0 error:&coordinationError byAccessor:^(NSURL *folder) {
++			void (^copyFolder)(NSURL *) = ^(NSURL *folder) {
+ 				NSError *error = nil;
+ 				NSArray<NSURL *> *children = [fm contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:&error];
+ 				if (!children || ![fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&error]) {
+@@ -92,7 +110,13 @@
+ 					}
+ 					++copied;
+ 				}
+-			}];
++			};
++			NSString *documentsPath = [[[fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject].path stringByStandardizingPath];
++			BOOL local = [[selected.path stringByStandardizingPath] hasPrefix:[documentsPath stringByAppendingString:@"/"]];
++			// App-owned files need no file-provider coordination. This also offers
++			// a route around a Files picker that never returns a selected URL.
++			if (local) copyFolder(selected);
++			else [coordinator coordinateReadingItemAtURL:selected options:0 error:&coordinationError byAccessor:copyFolder];
+ 			[coordinator release];
+ 			if (scoped) [selected stopAccessingSecurityScopedResource];
+ 			if (!failure && coordinationError) fail(coordinationError.localizedDescription);
+@@ -109,5 +133,8 @@
+ 			[failure release];
+ 		}
+ 	});
++	};
++	if (_presenter.presentedViewController) [_presenter dismissViewControllerAnimated:YES completion:begin];
++	else begin();
+ }
+ @end

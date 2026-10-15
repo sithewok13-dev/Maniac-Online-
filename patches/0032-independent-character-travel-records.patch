@@ -1,0 +1,175 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 2b555e0b..9824cfd8 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -932,7 +932,8 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 
+ 	_sound->restoreAfterLoad();
+ 
+-	scummverseRestoreSceneNavigation(true);
++	scummverseMigrateTravelRecords();
++ scummverseRestoreSceneNavigation(true);
+  scummverseRestoreTransportVisibility();
+ 
+ 	return true;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index c88436ee..47b69063 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1593,6 +1593,7 @@ protected:
+ 	bool scummverseOnBus() const { int ego=_scummVars[VAR_EGO]; return _scummVars[765] && (_scummVars[767]==ego || (_scummVars[766] & (1u<<ego))); }
+ 	void scummverseServiceBus(int delta);
+  void scummverseRestoreTransportVisibility();
++ void scummverseMigrateTravelRecords();
+ 	Common::Array<byte> _scummverseExtraRooms[43];
+ 	byte _scummverseExtraStates[43][33] = {};
+ 	bool _scummverseLanding = false;
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 74bedd19..3aa9493b 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -48,7 +48,13 @@ static const ZakPlace zakPlaces[] = {
+ static bool zakAirport(int r) { return r==53 || (r>=56 && r<=98 && zakPlaces[r-56].file==9); }
+ static const int zakFlights[] = {4,3,7,10,11,16,20,27,35,44};
+ static const char *zakFlightNames[] = {"Maniac Mansion","San Francisco","Seattle","Miami","Kinshasa, Zaire","Kathmandu, Nepal","Cairo, Egypt","London, England","Mexico City, Mexico","Lima, Peru"};
+-static int travellerSlot(int id) { return id<=7 ? id : 0; }
++// Saved travel schema v1: original seven retain their legacy indices.
++// DOS V1 scripts address byte-sized variables. Reserve 399 as schema marker,
++// 400..501 as six fields per expanded actor (8..24), within the existing 800.
++static int travellerReturnKey(int id) { return id<=7 ? 700+id*3 : 400+(id-8)*6; }
++static int travellerDestinationKey(int id) { return id<=7 ? 730+id : travellerReturnKey(id)+3; }
++static int travellerOriginKey(int id) { return id<=7 ? 740+id : travellerReturnKey(id)+4; }
++static int travellerPartyKey(int id) { return id<=7 ? 750+id : travellerReturnKey(id)+5; }
+ struct ZakLink { int room, object, destination; };
+ static const ZakLink zakLinks[] = {
+ 	{57, 733, 58},
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index afb11739..abeccb27 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -187,6 +187,7 @@ bool ScummEngine::scummversePassage(int object, int verb) {
+ 
+ void ScummEngine::scummverseStartRoaming() {
+ 	if (_scummverseRoamingReady) return;
++ scummverseMigrateTravelRecords();
+ 	// Boot has initialized the selected team and puzzle state. Keep the picker,
+ 	// replace only its subsequent intro with immediate player control.
+ 	_scummVars[59] = 100;
+@@ -270,7 +271,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			else if(command>=129 && command<=152) scummverseSwitchActor(command-128);
+ 			else if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+ 			else if ((command >= 40 && command <= 49) && zakAirport(_currentRoom)) {
+-				const int *routes=zakFlights; _scummVars[730 + travellerSlot(VAR(VAR_EGO))] = routes[command-40];
++				const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[command-40];
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+ 			} else if(command==62) scummverseTeleportOffer();
+ 			else if(command>=50 && command<=55 && _currentRoom!=56 && !scummverseOnBus()) scummverseTravel(zakPads[command-50]-50);
+@@ -363,7 +364,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			if (line >= r.lastLine && r.lastLine >= 0) ++line;
+ 			r.lastLine = line;
+ 			const char *fallback = castIndex < (int)ARRAYSIZE(lines) ? lines[castIndex][line] : "There is always somewhere new to explore.";
+-			if (_currentRoom == 53) fallback = (_scummVars[750 + travellerSlot(VAR(VAR_EGO))] & (1u << id)) ? "We made it to the airport together." : "Free flights? My kind of airport.";
++			if (_currentRoom == 53) fallback = (_scummVars[travellerPartyKey(VAR(VAR_EGO))] & (1u << id)) ? "We made it to the airport together." : "Free flights? My kind of airport.";
+ 			else if (_currentRoom == 55) fallback = "The bus is free. That's a nice change.";
+ 			else if (_currentRoom == 54) fallback = id == 24 ? "Welcome to my apartment." : "So this is where Zak lives.";
+ 			if (!_scummverseAIActor && scummverseAIRequest(id, _currentRoom, VAR(VAR_EGO))) {
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 53abee8f..94d6968a 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -299,6 +299,22 @@ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+ 	return 1;
+ }
+ 
++void ScummEngine::scummverseMigrateTravelRecords() {
++ if (!_scummverseRoaming || _scummVars[399]==1) return;
++ for(int i=400;i<=501;++i) _scummVars[i]=0;
++ // Old saves cannot identify which expanded actor last wrote shared slot zero.
++ // Preserve it for the active expanded actor only; never copy it to everyone.
++ const int id=VAR(VAR_EGO);
++ if(id>=8 && id<=24) {
++  int key=travellerReturnKey(id);
++  for(int i=0;i<3;++i) _scummVars[key+i]=_scummVars[700+i];
++  _scummVars[travellerDestinationKey(id)]=_scummVars[730];
++  _scummVars[travellerOriginKey(id)]=_scummVars[740];
++  _scummVars[travellerPartyKey(id)]=_scummVars[750];
++ }
++ _scummVars[399]=1;
++}
++
+ bool ScummEngine::scummverseTravel(int destination) {
+ 	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination > 48 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+@@ -310,11 +326,11 @@ bool ScummEngine::scummverseTravel(int destination) {
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 		scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false;
+ 	}
+-	const int key = 700 + travellerSlot(VAR(VAR_EGO)) * 3;
++	const int key = travellerReturnKey(VAR(VAR_EGO));
+ 	int room = 1, x = 8, y = 64;
+ 	if (destination == 1 || destination == 3 || destination >= 5) {
+-		// Never overwrite a kid's mansion return point while in Zak's world.
+-		if (_currentRoom < 53) {
++		// Record a real departure, not a scene switch to an actor already elsewhere.
++		if (_currentRoom < 53 && player->_room == _currentRoom) {
+ 			_scummVars[key] = _currentRoom; _scummVars[key + 1] = player->getRealPos().x; _scummVars[key + 2] = player->getRealPos().y;
+ 		}
+ 		scummverseInitVisitors();
+@@ -393,7 +409,7 @@ void ScummEngine::scummverseAirportOffer() {
+ 	for(const char *name : zakFlightNames) destinations.push_back(Common::U32String(name));
+ 	dialog.setList(destinations);
+ 	int choice = runDialog(dialog);
+-	if (choice >= 0 && choice < 10) { const int *routes=zakFlights; _scummVars[730 + travellerSlot(VAR(VAR_EGO))] = routes[choice]; }
++	if (choice >= 0 && choice < 10) { const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[choice]; }
+ #endif
+ }
+ 
+@@ -430,7 +446,7 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ void ScummEngine::scummverseBoard() {
+ 	if (!zakAirport(_currentRoom)) return;
+ 	if(_scummVars[724]) { scummverseSay(VAR(VAR_EGO),"Someone is already in flight. Switch to that passenger and choose Arrive first."); return; }
+-	int choice = _scummVars[730 + travellerSlot(VAR(VAR_EGO))];
++	int choice = _scummVars[travellerDestinationKey(VAR(VAR_EGO))];
+ 	bool valid=false; for(int route : zakFlights) if(route==choice) valid=true;
+ 	if (!valid) {
+ 		scummverseSay(VAR(VAR_EGO), "Choose a destination at the airport computer first."); return;
+@@ -448,7 +464,7 @@ void ScummEngine::scummverseBoard() {
+ 	}
+ 	if (!scummverseTravel(6)) return;
+ 	_scummVars[724]=choice; _scummVars[725]=passengers; _scummVars[726]=origin; _scummVars[727]=ego;
+-	_scummVars[730+travellerSlot(ego)]=0;
++	_scummVars[travellerDestinationKey(ego)]=0;
+ 	for(int id : mansionCast) if (passengers & (1u<<id)) {
+ 		Actor *a=derefActor(id,"flight passenger"); a->stopActorMoving();
+ 		AdjustBoxResult p=a->adjustXYToBeInBox(35+id%6*3,60);
+@@ -469,7 +485,7 @@ void ScummEngine::scummverseArrive() {
+ 		_scummverseRoamers[id]=Roamer(); _scummverseRoamers[id].wait=600;
+ 		_scummverseNpcDestination[id]=0; _scummverseNpcBoarding[id]=0;
+ 	}
+-	_scummVars[750+travellerSlot(VAR(VAR_EGO))]=passengers; _scummVars[724]=_scummVars[725]=0;
++	_scummVars[travellerPartyKey(VAR(VAR_EGO))]=passengers; _scummVars[724]=_scummVars[725]=0;
+ }
+ void ScummEngine::scummverseWaitBus() {
+ 	if (_currentRoom!=55 || _scummVars[765]>60) return;
+@@ -544,7 +560,7 @@ void ScummEngine::scummverseUpdateCompanions() {
+ 	Actor *player = derefActor(ego, "companion leader");
+ 	unsigned companions = 0;
+ 	bool arrival = _scummverseCompanionRoom > 0 && _scummverseCompanionEgo == ego && _scummverseCompanionRoom != _currentRoom;
+-	if (arrival) { _scummVars[740 + travellerSlot(ego)] = _scummverseCompanionRoom; _scummVars[750 + travellerSlot(ego)] = 0; }
++	if (arrival) { _scummVars[travellerOriginKey(ego)] = _scummverseCompanionRoom; _scummVars[travellerPartyKey(ego)] = 0; }
+ 	for (int id : mansionCast) {
+ 		if (id == ego || _scummVars[770 + id] != ego || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "companion");
+@@ -556,10 +572,10 @@ void ScummEngine::scummverseUpdateCompanions() {
+ 			a->putActor(point.x, point.y, _currentRoom); a->startAnimActor(a->_standFrame);
+ 			_scummverseRoamers[id] = Roamer();
+ 		}
+-		if (arrival) _scummVars[750 + travellerSlot(ego)] |= 1u << id;
++		if (arrival) _scummVars[travellerPartyKey(ego)] |= 1u << id;
+ 	}
+ 	_scummverseCompanionRoom = _currentRoom; _scummverseCompanionEgo = ego;
+-	scummverseTravelScene(_currentRoom, ego, companions, _scummVars[740 + travellerSlot(ego)], _scummVars[750 + travellerSlot(ego)]);
++	scummverseTravelScene(_currentRoom, ego, companions, _scummVars[travellerOriginKey(ego)], _scummVars[travellerPartyKey(ego)]);
+ }
+ 
+ void ScummEngine::scummverseTeleportOffer() {

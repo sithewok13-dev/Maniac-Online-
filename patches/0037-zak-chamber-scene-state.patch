@@ -1,0 +1,201 @@
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index 3d9f6e05..0731dac9 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -3804,6 +3804,7 @@ void GdiPCEngine::drawStripPCEngineMask(byte *dst, int stripnr, int top, int hei
+ 
+ void GdiV1::drawStripV1Background(byte *dst, int dstPitch, int stripnr, int height) {
+ 	int charIdx;
++ const byte *roomColors = _vm->scummverseImportedScene() && _importedRoomColorMap ? _importedRoomColorMap : _colorMap;
+ 	height /= 8;
+ 	for (int y = 0; y < height; y++) {
+ 		_V1.colors[3] = (_V1.colorMap[y + stripnr * height] & 7);
+@@ -3816,10 +3817,10 @@ void GdiV1::drawStripV1Background(byte *dst, int dstPitch, int stripnr, int heig
+ 		charIdx = _V1.picMap[y + stripnr * height] * 8;
+ 		for (int i = 0; i < 8; i++) {
+ 			byte c = _V1.charMap[charIdx + i];
+-			dst[0] = dst[1] = _colorMap[_V1.colors[(c >> 6) & 3]];
+-			dst[2] = dst[3] = _colorMap[_V1.colors[(c >> 4) & 3]];
+-			dst[4] = dst[5] = _colorMap[_V1.colors[(c >> 2) & 3]];
+-			dst[6] = dst[7] = _colorMap[_V1.colors[(c >> 0) & 3]];
++			dst[0] = dst[1] = roomColors[_V1.colors[(c >> 6) & 3]];
++			dst[2] = dst[3] = roomColors[_V1.colors[(c >> 4) & 3]];
++			dst[4] = dst[5] = roomColors[_V1.colors[(c >> 2) & 3]];
++			dst[6] = dst[7] = roomColors[_V1.colors[(c >> 0) & 3]];
+ 			dst += dstPitch;
+ 		}
+ 	}
+@@ -3827,6 +3828,7 @@ void GdiV1::drawStripV1Background(byte *dst, int dstPitch, int stripnr, int heig
+ 
+ void GdiV1::drawStripV1Object(byte *dst, int dstPitch, int stripnr, int width, int height) {
+ 	int charIdx;
++ const byte *roomColors = _vm->scummverseImportedScene() && _importedRoomColorMap ? _importedRoomColorMap : _colorMap;
+ 	height /= 8;
+ 	width /= 8;
+ 	for (int y = 0; y < height; y++) {
+@@ -3834,10 +3836,10 @@ void GdiV1::drawStripV1Object(byte *dst, int dstPitch, int stripnr, int width, i
+ 		charIdx = _V1.objectMap[y * width + stripnr] * 8;
+ 		for (int i = 0; i < 8; i++) {
+ 			byte c = _V1.charMap[charIdx + i];
+-			dst[0] = dst[1] = _colorMap[_V1.colors[(c >> 6) & 3]];
+-			dst[2] = dst[3] = _colorMap[_V1.colors[(c >> 4) & 3]];
+-			dst[4] = dst[5] = _colorMap[_V1.colors[(c >> 2) & 3]];
+-			dst[6] = dst[7] = _colorMap[_V1.colors[(c >> 0) & 3]];
++			dst[0] = dst[1] = roomColors[_V1.colors[(c >> 6) & 3]];
++			dst[2] = dst[3] = roomColors[_V1.colors[(c >> 4) & 3]];
++			dst[4] = dst[5] = roomColors[_V1.colors[(c >> 2) & 3]];
++			dst[6] = dst[7] = roomColors[_V1.colors[(c >> 0) & 3]];
+ 			dst += dstPitch;
+ 		}
+ 	}
+diff --git a/engines/scumm/gfx.h b/engines/scumm/gfx.h
+index f6e700d9..125a651a 100644
+--- a/engines/scumm/gfx.h
++++ b/engines/scumm/gfx.h
+@@ -356,6 +356,7 @@ public:
+ 	virtual ~Gdi();
+ 
+ 	virtual void setRenderModeColorMap(const byte *map) {}
++ virtual void setImportedRoomColorMap(const byte *map) {}
+ 	virtual byte remapColorToRenderMode(byte col) const { return col; }
+ 
+ 	virtual void init();
+@@ -494,6 +495,7 @@ protected:
+ 	} _V1;
+ 
+ 	const byte *_colorMap = 0;
++ const byte *_importedRoomColorMap = nullptr;
+ 
+ protected:
+ 	void decodeV1Gfx(const byte *src, byte *dst, int size) const;
+@@ -519,6 +521,7 @@ public:
+ 	void scummverseBusImage(const byte *room, int shift, bool awake) override;
+ 
+ 	void setRenderModeColorMap(const byte *map) override;
++ void setImportedRoomColorMap(const byte *map) override { _importedRoomColorMap=map; }
+ 	byte remapColorToRenderMode(byte col) const override;
+ 
+ 	void roomChanged(byte *roomptr) override;
+diff --git a/engines/scumm/palette.cpp b/engines/scumm/palette.cpp
+index 586cf975..b9672b08 100644
+--- a/engines/scumm/palette.cpp
++++ b/engines/scumm/palette.cpp
+@@ -478,6 +478,10 @@ void ScummEngine::setV1ColorTable(int renderMode) {
+ 
+ 	assert(_gdi);
+ 	_gdi->setRenderModeColorMap(v1ColorMaps[tbl]);
++ // Imported DOS V1 room art uses Zak's source palette independently of actors.
++ const bool monochrome = renderMode == Common::kRenderHercA || renderMode == Common::kRenderHercG ||
++     renderMode == Common::kRenderCGA || renderMode == Common::kRenderCGA_BW;
++ _gdi->setImportedRoomColorMap(v1ColorMaps[monochrome ? 2 : 1]);
+ }
+ 
+ void ScummEngine::amigaPaletteFindFirstUsedColor() {
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 9dcec2df..bab8340f 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -936,6 +936,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+  scummverseRestoreSceneNavigation(true);
+  scummverseRestoreTransportVisibility();
+  scummverseRestoreSeats();
++ scummverseRestoreSceneObjects();
+ 
+ 	return true;
+ }
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 035efe10..7487f303 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1364,6 +1364,8 @@ public:
+  void scummverseStandPassenger(int id);
+  bool scummverseReserveSeats(unsigned passengers, bool commit);
+  void scummverseRestoreSeats();
++ void scummverseRestoreSceneObjects();
++ bool scummverseImportedScene() const { return _scummverseRoaming && _currentRoom>=53 && _currentRoom<=98; }
+ 
+ protected:
+ 	void initScreens(int b, int h);
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 3aa9493b..c694da03 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -143,17 +143,45 @@ static bool zakPadObject(int room,int object) {
+ // Audited DOS V1 sandbox scene setup, expressed in original resource IDs.
+ // Seattle's loose dirt (267) has original open-cave artwork in state bit 8.
+ // Sandbox travel keeps the opening uncovered; it does not run foreign puzzles.
+-struct ZakSceneObjectState { int file, object, setBits, clearBits; };
++struct ZakSceneObjectState { int room, file, object, setBits, clearBits; };
+ static const ZakSceneObjectState zakSceneObjectStates[] = {
+-	{12, 267, 8, 0},
++	{0, 12, 267, 8, 0},
++ // Mexico crystal chamber is source logical room 130, not other file-14 variants.
++	{89, 14, 56, 2, 8},
++	{89, 14, 57, 2, 8},
++	{89, 14, 292, 2, 8},
++	{89, 14, 293, 2, 8},
++	{89, 14, 294, 2, 8},
++	{89, 14, 295, 2, 8},
++	{89, 14, 296, 2, 8},
++	{89, 14, 297, 2, 8},
++	{89, 14, 298, 2, 8},
++	{89, 14, 299, 2, 8},
++	{89, 14, 300, 2, 8},
++	{89, 14, 301, 2, 8},
++	{89, 14, 302, 2, 8},
++	{89, 14, 303, 2, 8},
++	{89, 14, 304, 2, 8},
++	{89, 14, 305, 2, 8},
++	{89, 14, 306, 2, 8},
++	{89, 14, 307, 2, 8},
++	{89, 14, 308, 2, 8},
++	{89, 14, 309, 2, 8},
++	{89, 14, 297, 0, 2},
++	{89, 14, 309, 8, 2},
++	{89, 14, 294, 8, 2},
++	{89, 14, 305, 8, 2},
++	{89, 14, 56, 0, 10},
++
+ };
+ 
+ // Audited walking scenes retain original box flags. Source Peru flags 0xA0
+ // exempt original non-player actors (including the bird). All current sandbox
+ // cast members are walkers, so the aerial zones must also exclude NPC slots.
+-static const int zakOriginalWalkboxRooms[] = {58, 96};
++static const int zakOriginalWalkboxRooms[] = {58, 89, 96};
+ struct ZakWalkboxOverride { int room, box, flags; };
+ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
++	{89, 12, 0x80}, {89, 13, 0x80},
+ 	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
+ };
+ 
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 69f94dc9..1f1f6c38 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -273,7 +273,7 @@ bool ScummEngine::scummverseMountExtra(int room) {
+ 		uint original=READ_LE_UINT16(data.data()+off+4); if (original>=775) return false;
+ 		_scummverseExtraStates[slot][i]=index[2+original]>>4;
+ 		for (const auto &state : zakSceneObjectStates)
+-			if (state.file == zakPlaces[slot].file && state.object == (int)original)
++			if ((!state.room || state.room==room) && state.file == zakPlaces[slot].file && state.object == (int)original)
+ 				_scummverseExtraStates[slot][i] = (_scummverseExtraStates[slot][i] | state.setBits) & ~state.clearBits;
+ 		WRITE_LE_UINT16(data.data()+off+4,732+i);
+ 	}
+@@ -766,3 +766,16 @@ bool ScummEngine::scummverseDistantScene() const {
+ 	for (int room : zakDistantCostumeRooms) if (room==_currentRoom) return true;
+ 	return false;
+ }
++
++void ScummEngine::scummverseRestoreSceneObjects() {
++ if(!_scummverseRoaming || _currentRoom<56 || _currentRoom>98) return;
++ bool configured=false;
++ for(const auto &rule : zakSceneObjectStates) if(rule.room==_currentRoom) configured=true;
++ if(!configured || !scummverseMountExtra(_currentRoom)) return;
++ // Imported puzzle objects are immutable sightseeing state. Repair old saves
++ // with the same edition-specific setup used on normal entry, without touching
++ // other scenes sharing the source resource or actor positions.
++ const auto &room=_scummverseExtraRooms[_currentRoom-56];
++ for(int i=0;i<room[20];++i) putState(732+i,_scummverseExtraStates[_currentRoom-56][i]);
++ _fullRedraw=true;
++}

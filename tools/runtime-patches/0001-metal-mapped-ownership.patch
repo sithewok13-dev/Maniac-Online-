@@ -1,0 +1,34 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal.m b/ggml/src/ggml-metal/ggml-metal.m
+index 2243c17..eb07e0f 100644
+--- a/ggml/src/ggml-metal/ggml-metal.m
++++ b/ggml/src/ggml-metal/ggml-metal.m
+@@ -5728,6 +5728,18 @@ static void ggml_backend_metal_buffer_shared_free_buffer(ggml_backend_buffer_t b
+     free(ctx);
+ }
+ 
++// A buffer imported from a host pointer borrows its storage. The llama mmap
++// owner releases that storage after the backend wrapper has been destroyed.
++static void ggml_backend_metal_buffer_mapped_free_buffer(ggml_backend_buffer_t buffer) {
++    struct ggml_backend_metal_buffer_context * ctx = (struct ggml_backend_metal_buffer_context *)buffer->context;
++    for (int i = 0; i < ctx->n_buffers; i++) {
++        [ctx->buffers[i].metal release];
++    }
++    ggml_backend_metal_buffer_rset_free(ctx);
++    GGML_ASSERT(ctx->is_shared);
++    free(ctx);
++}
++
+ static void * ggml_backend_metal_buffer_shared_get_base(ggml_backend_buffer_t buffer) {
+     struct ggml_backend_metal_buffer_context * ctx = (struct ggml_backend_metal_buffer_context *)buffer->context;
+ 
+@@ -6751,7 +6763,9 @@ static ggml_backend_buffer_t ggml_backend_metal_device_buffer_mapped(ggml_backen
+         return NULL;
+     }
+ 
+-    return ggml_backend_buffer_init(ggml_backend_metal_buffer_type_mapped(), ggml_backend_metal_buffer_shared_i, ctx, size);
++    struct ggml_backend_buffer_i mapped_i = ggml_backend_metal_buffer_shared_i;
++    mapped_i.free_buffer = ggml_backend_metal_buffer_mapped_free_buffer;
++    return ggml_backend_buffer_init(ggml_backend_metal_buffer_type_mapped(), mapped_i, ctx, size);
+ }
+ 
+ static bool ggml_backend_metal_device_supports_op(ggml_backend_dev_t dev, const struct ggml_tensor * op) {
