@@ -215,3 +215,32 @@
   pass `test_bootstrap.py`; incremental diff whitespace check clean.
 - No iOS simulator/device acceptance or new IPA claimed. Previously observed
   pre-step CI failures remain a separate infrastructure blocker.
+
+## Patch 0038 — Mexico logical temple replacement (2026-10-15)
+
+- Native and ASan engine builds pass. Temple tests pass on both, including an
+  actual previous-build save captured before replacing the 0037 ASan build.
+- All twelve original entries are executed with reset initial object state.
+  Sandbox positions, signed walking anchors, object states, five walkbox flags
+  and camera limits match. Leftmost actor-free viewport pixels match for all
+  twelve scenes after explicitly updating camera strips and cached object states.
+- All 52 original internal doorway destinations, all three exterior entrances,
+  distinct variant save/load, offscreen NPC arrival, actor switching and invalid
+  destination rejection pass. Save migration preserves two room-88 occupants
+  across the 99-to-110 room capacity increase; repeated migration is harmless.
+- Corrected chamber fixture passes ASan, including initialized object art,
+  restrictions, old-state restoration, return to room 108/logical 166 and isolation
+  from the other resource-14 chamber. Previous 0037 direct screenshot fixtures
+  lacked state/camera refresh; these corrected comparisons supersede that evidence.
+- Native full expansion seed 15 passes: all 54 imported rooms, actual selectable
+  walking-hotspot exits, roster, local flights, teleports and bus/save behavior.
+  Native seating regression and all eleven startup tests pass.
+- All 38 patch prefixes reconstruct; idempotence, local-edit preservation and
+  whitespace checks pass. Python test tooling compiles.
+- Private evidence: build/temple-{test,asan-test,expansion,bootstrap}.log,
+  build/temple-chamber-test.log, build/temple-seating-test.log,
+  build/temple-startup-test.log, original/sandbox PPM captures and legacy-temple.s12.
+  None of these proprietary fixtures, logs or images are committed.
+- No full original torch/darkness/puzzle progression, authoritative multiplayer,
+  iPhone/simulator acceptance or new IPA claimed. Apple CI previously failed before
+  steps; remote compilation status remains separate from local verification.

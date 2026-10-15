@@ -7,7 +7,7 @@
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
-	for(int room=56;room<=98;++room) {
+	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
 		if(!scummverseTravel(room-50)) error("Room mount failed %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/expanded-room-%d.ppm",room)))) {

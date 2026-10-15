@@ -36,7 +36,7 @@
   report+="]}";
   // Illuminate the reference for visual audit; lighting puzzles are out of scope.
   VAR(VAR_CURRENT_LIGHTS)=11;stopTalk();VAR(VAR_HAVE_MSG)=0;
-  setCameraFollows(a);setCameraAtEx(160);a->hideActor();_fullRedraw=true;scummLoop_handleDrawing();
+  setCameraFollows(a);setCameraAtEx(160);a->hideActor();cameraMoved();updateObjectStates();_fullRedraw=true;scummLoop_handleDrawing();
   Common::DumpFile shot;
   if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/chamber-reference-%d.ppm",room)))) {
    Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(h.c_str(),h.size());

@@ -16,7 +16,7 @@
  @REFERENCE_CHECKS@
  for(int box : {12,13}) if(!(getBoxFlags(box)&128)) error("Mexico nonwalking box unlocked");
  for(int id=1;id<25;++id) derefActor(id,"background audit")->hideActor();
- stopTalk();VAR(VAR_HAVE_MSG)=0;setCameraAtEx(160);_fullRedraw=true;scummLoop_handleDrawing();
+ stopTalk();VAR(VAR_HAVE_MSG)=0;setCameraAtEx(160);cameraMoved();updateObjectStates();_fullRedraw=true;scummLoop_handleDrawing();
  Common::DumpFile shot;
  if(shot.open(Common::Path("/workspace/Maniac-Online/build/chamber-sandbox.ppm"))) {
   Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(h.c_str(),h.size());
@@ -32,7 +32,7 @@
  @REFERENCE_CHECKS@
  for(int box : {12,13}) if(!(getBoxFlags(box)&128)) error("Saved Mexico navigation not repaired");
  runObjectScript(732,13,false,false,nullptr);
- if(_currentRoom!=88) error("Chamber return exit failed");
+ if(_currentRoom!=108) error("Chamber return exit failed");
  if(!scummverseTravel(15)) error("Shared chamber reload failed");
  for(int i=0;i<21;++i) if(getState(732+i)!=untouched[i]) error("Mexico setup leaked into another chamber");
  warning("SCUMMVERSE_CHAMBER_PASS enabled=1");quitGame();

@@ -116,3 +116,26 @@ from character identity without changing the host game ID or duplicating palette
 The next content step needs stable IDs for each logical temple room (156–167),
 not twelve variants behind a shared live room ID. Current room 88 remains the old
 wrong mapping until that graph and existing-save migration can be delivered together.
+
+
+## Logical temple adapter and append-only room identities (0038)
+
+`scummverse_content.h` centralizes imported/foreign room capacity predicates.
+A compile-time check binds the catalog length to allocated capacity. Existing IDs
+remain stable; 99–109 append variants while 88 replaces the erroneous Mars resource
+with its intended Mexico logical scene. The catalog's logical-scene descriptors
+own source object placement/state, box flags and camera limits. Door links carry
+original destination-object IDs, resolved through the importer's source-ID mapping.
+This keeps foreign script execution disabled while preserving initialized geometry.
+
+The same source arrival resolver serves offscreen NPC travel; it consumes cached
+resource metadata and the destination variant, never the displayed room's objects.
+Object displacement preserves the original signed walking-anchor behavior. Applying
+layout to saved objects is idempotent. Save marker 527 repairs the previous room-88
+geometry and occupants; upstream's indexed resource serialization supports appended
+room capacity without shifting saved records. Reverse loading a new save into the
+old build is not supported or promised. Original game files are never modified.
+
+This is an edition-specific adapter increment, not a complete game-pack registration
+API or the additional-game acceptance demonstration. Future adapters must still
+separate engine versions and validate their original initialization semantics.

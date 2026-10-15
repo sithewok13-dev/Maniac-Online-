@@ -5,8 +5,10 @@
  _currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=1;
  Actor *a=derefActor(1,"original temple reference");a->setActorCostume(1);a->setPalette(1,13);
  for(int room=156;room<=167;++room) _resourceMapper[room&127]=53;
+ byte initialStates[775];for(int id=0;id<775;++id) initialStates[id]=getState(id);
  Common::String report="{\"edition\":\"zak-dos-v1-en\",\"scenes\":[";
  for(int room=156;room<=167;++room) {
+  for(int id=0;id<775;++id) putState(id,initialStates[id]);
   for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
   _currentScript=0xFF;
   // Transition pairs are scratch variables; avoid inheriting absent exits.
@@ -26,7 +28,7 @@
   bool first=true;
   for(int n=1;n<_numLocalObjects;++n) if(_objs[n].obj_nr) {
    if(!first) report+=",";first=false;
-   report+=Common::String::format("{\"id\":%d,\"x\":%d,\"y\":%d,\"state\":%d}",_objs[n].obj_nr,_objs[n].x_pos,_objs[n].y_pos,getState(_objs[n].obj_nr));
+   report+=Common::String::format("{\"id\":%d,\"x\":%d,\"y\":%d,\"state\":%d,\"walk_x\":%d,\"walk_y\":%d}",_objs[n].obj_nr,_objs[n].x_pos,_objs[n].y_pos,getState(_objs[n].obj_nr),_objs[n].walk_x,_objs[n].walk_y);
   }
   report+="],\"transition_pairs\":[";
   for(int key=44;key<=54;key+=2) {
@@ -38,7 +40,7 @@
   report+="]}";
   // Illuminate the reference for visual audit; lighting puzzles are out of scope.
   VAR(VAR_CURRENT_LIGHTS)=11;stopTalk();VAR(VAR_HAVE_MSG)=0;
-  setCameraFollows(a);setCameraAtEx(160);_fullRedraw=true;scummLoop(0);
+  setCameraFollows(a);setCameraAtEx(160);a->hideActor();cameraMoved();updateObjectStates();_fullRedraw=true;scummLoop_handleDrawing();
   Common::DumpFile shot;
   if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/temple-reference-%d.ppm",room)))) {
    Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(h.c_str(),h.size());

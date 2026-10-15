@@ -113,3 +113,26 @@ backgrounds and objects now use the existing Zak table from ScummVM, separately
 from actor colors. No palette or source art is copied into project fixtures.
 The fixed Mexico chamber's actor-free background exactly matches the original
 interpreter fixture. This does not validate every imported room's scene setup.
+
+
+## Mexico temple replacement — patch 0038
+
+The preceding 0037 corridor limitation is resolved for the exploration adapter.
+Sandbox 88 = logical 156; sandbox 99–109 = logical 157–167, all using resource 53.
+Catalog metadata records initialized scene facts, not copied scripts or artwork.
+Camera maxima are 800, 448 or 184 pixels for the three corridor sizes. Source
+box restrictions remain intact. Each room owns its persisted identity independently.
+
+Source exterior objects 594/596/597 enter logical 156/157/158 at object 745.
+All 52 active internal doorways use the original destination room and arrival
+object. Logical 166 leads to crystal chamber 130, which returns to 166. Offscreen
+NPC arrivals use the same variant anchors; they do not spawn in a generic corner.
+
+Reference captures now refresh camera strips and cached object states before the
+actor-free drawing pass. Earlier 0037 direct captures omitted these steps, so its
+pixel-equality result alone was insufficient evidence for initialized object art.
+The corrected fixtures and state/anchor comparisons are the acceptance evidence.
+The test resets initial object states between original scene entries to avoid
+cross-room contamination. Background comparisons cover the leftmost viewport;
+full walking-hotspot regression covers all registered exits across scrolling rooms.
+Original darkness, torch interactions and puzzle progression remain outside scope.

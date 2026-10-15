@@ -2,8 +2,8 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; patch 0037 repairs Mexico crystal-chamber setup and imported-room colors.
-Next: replace the incorrect temple corridor with the verified twelve-room logical graph; iPhone acceptance remains open.
+Active milestone: Phase 1; patch 0038 replaces Mexico's incorrect corridor with twelve logical temple rooms.
+Next: audit the Mars logical-room graph against original initialization/entry scripts; iPhone acceptance remains open.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -294,3 +294,34 @@ snapshots are committed. Apple/device and multiplayer acceptance remain separate
 0037 validation: native/ASan chamber and temple-reference tests pass; full expansion
 seed 15, seating and eleven startup cases pass. All 37 patch prefixes reconstruct
 cleanly. See TEST_STATUS for precise coverage and remaining device/CI limits.
+
+
+## Patch 0038 — distinct Mexico temple rooms
+
+Parent: b8ed04c38aad4f611f1a0f1cdbd2189383e2e874. Room 88 now represents original
+logical 156/resource 53. Appended stable rooms 99–109 represent logical 157–167;
+other room IDs remain unchanged. Restored original object layouts, signed walking
+anchors, camera limits, box flags, 52 internal doorway routes, three exterior
+entrances and the crystal-chamber return to logical 166. NPC arrivals use source
+anchors without changing the displayed room. Internal room travel does not reuse
+UI teleporter command numbers. Shared room-capacity predicates replace stale bounds.
+
+Saved variable 527 marks migration inside the existing 800-variable container.
+Actual patch-0037 room-88 save (99-room engine) loads into the new 110-room engine;
+two occupants are retained and old geometry is rebuilt. New variants save/load and
+actor switching retain distinct locations. No proprietary fixture is committed.
+
+Native/ASan temple comparisons pass for all 12 layouts, states, walking anchors,
+box flags and leftmost actor-free viewport; all 52 doorway routes pass. Native
+expansion seed 15 exercises all 54 imported rooms and selectable walking exits.
+Visual fixture review exposed missing object-state/camera refresh in direct drawing
+helpers; chamber and temple reference helpers now perform both before capture.
+See TEST_STATUS for remaining validation. Original temple lighting/torch puzzles
+remain bypassed in this exploration adapter; full Zak puzzle support is not claimed.
+
+Continuation: build/temple-base.index is the pre-0038 alternate index;
+patches/0038-mexico-logical-temple.patch is the distribution change. Private
+build/legacy-temple.s12 was captured using the 0037 ASan build before rebuilding it.
+The capture recipe is tools/test_temple_legacy.py: use a matching 0037 engine AND
+compiled build, then test the resulting private save with the new test_temple.py
+--legacy-save option. Never publish saves, original data, snapshots or descumm output.
