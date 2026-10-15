@@ -209,3 +209,29 @@ sandbox previews are available under build/seat-*. Original script 5 also applie
 costume frames 11 and 13; the earlier position-only preview omitted these. A visual
 match and multi-seat capacity policy have NOT been established. Private extracted
 scripts/images are not published. Continue this comparison before claiming seating.
+
+## Reproducible original-interpreter reference fixture
+
+`python3 tools/test_source_reference.py game-data/zak-dos` now builds an isolated
+reference launcher and executes Zak's own engine path with the audited DOS V1
+index. It checks plane room 11, its seven walkboxes, original costume 1 and the
+seat's position/elevation/facing after rendering. It runs with the sandbox setting
+both off and on and verifies that Zak never enables the Maniac sandbox. A private
+launcher is no longer needed for this fixture. No source art or scripts are shipped.
+
+This is an audit tool, not a game-pack implementation or proof that sandbox seating
+matches the original. The fixture stops original cinematics and arranges seat state;
+it does not test the entire original boarding puzzle. The application still starts
+only its supported Maniac sandbox. Reference launcher changes are compiled solely
+into temporary copies of the archives.
+
+Current head before this tooling commit: dc427cc3efca5a720323245b50d00cc7c95c3b8e
+(companion presence). Full expansion seed 15 also passed for that fix. Next: compare
+original/sandbox costume and chair-mask rendering with this reproducible baseline;
+retain original-art and capacity requirements. Native iOS build infrastructure is
+still unverified since the previous pre-step Actions failures; no new IPA claimed.
+
+Reference-tool validation: native/ASan pass; normal companion probe and 11 startup
+cases also pass after the runner change. Apple run 38724181478 for 0035 failed
+before any job steps (job 116385857974). Cause remains undiagnosed; do not mistake
+this for a compiler failure or spend money/reconfigure billing without approval.

@@ -161,3 +161,16 @@
 - Startup: 11 cases pass. Patch preparation through 0035 passes, including prefixes,
   idempotence and preservation of local edits.
 - These are local actors; no network multiplayer or iOS device acceptance claimed.
+
+## Original Zak reference tooling
+
+- Source-reference native fixture passes with sandbox preference off/on, while
+  asserting the original Zak engine remains outside the Maniac sandbox.
+- Checks room, walkbox count, actor identity, visibility, position, elevation,
+  facing and nonempty rendered bounds. Does not certify seated appearance.
+- Requires the verified privately supplied English DOS V1 index; no proprietary
+  fixtures are committed. Test-only launcher edits live in temporary archives.
+- Source-reference ASan check also passes; normal companion probe and all 11
+  standalone startup cases pass after the shared runner change.
+- Latest Apple run for 0035: 38724181478, job 116385857974, failed with an empty
+  steps list. There is still no compiled iOS artifact for these changes.

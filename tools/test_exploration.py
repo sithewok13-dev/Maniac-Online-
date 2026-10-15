@@ -78,7 +78,9 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null"):
+def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None):
+    if reference_game not in (None, "zak"):
+        raise ValueError("Only the audited Zak source-reference launcher is supported")
     build = ROOT/'build'/build_name
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
@@ -99,6 +101,30 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         subprocess.run(['ar', 'r', str(archive), str(work/'scumm.o')], check=True)
         cmd = command_for(build, 'engines/scumm/libscumm.a', 'scummvm')
         cmd[cmd.index('engines/scumm/libscumm.a')] = str(archive)
+        if reference_game:
+            # Reference-only launcher: compile into the temporary archive. Never
+            # relax the distributed application's standalone startup restriction.
+            main_source = ROOT/'engine/base/main.cpp'
+            main_text = main_source.read_text()
+            replacements = {
+                'command = "scumm:maniac";': 'command = "scumm:zak";',
+                'ConfMan.get("gameid") != "maniac"': 'ConfMan.get("gameid") != "zak"',
+            }
+            for before, after in replacements.items():
+                if main_text.count(before) != 1:
+                    raise RuntimeError('Pinned reference-launcher boundary changed')
+                main_text = main_text.replace(before, after)
+            main_probe = work/'main.cpp'
+            main_probe.write_text(main_text)
+            main_cmd = command_for(build, main_source, 'base/main.o')
+            main_cmd[main_cmd.index(str(main_source))] = str(main_probe)
+            main_cmd[main_cmd.index('-o')+1] = str(work/'main.o')
+            main_cmd[main_cmd.index('-MF')+1] = str(work/'main.d')
+            subprocess.run(main_cmd, cwd=build, check=True)
+            base = work/'libbase.a'
+            shutil.copy2(build/'base/libbase.a', base)
+            subprocess.run(['ar', 'r', str(base), str(work/'main.o')], check=True)
+            cmd[cmd.index('base/libbase.a')] = str(base)
         exe = work/'scummvm-probe'
         cmd[cmd.index('-o')+1] = str(exe)
         subprocess.run(cmd, cwd=build, check=True)
