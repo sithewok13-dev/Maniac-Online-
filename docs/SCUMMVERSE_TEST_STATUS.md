@@ -147,3 +147,6 @@
 - All 34 patch prefixes/idempotence/local-edit checks pass; engine whitespace
   checks pass. Logs: build/npc-booking-{repro,fixed,asan,expansion,bootstrap}.log.
 - Private original-seat preview is not a shipped feature or acceptance result.
+- Final startup run for 0034: all 11 tests pass (build/npc-booking-startup.log).
+- Latest Apple run 38664283970 fails before job steps, with no logs; no device IPA
+  validation is claimed for this commit.

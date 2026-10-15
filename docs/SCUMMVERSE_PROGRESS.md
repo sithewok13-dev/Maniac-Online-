@@ -171,3 +171,20 @@ Original-seat preview remains research only: actor placement/facing/elevation
 alone has not yet established correct seated rendering. Do not ship standing
 actors through chairs as a completed seating feature. Group seating, native iOS
 acceptance and real network multiplayer remain outstanding.
+
+## Latest continuation checkpoint
+
+Patches 0033 and 0034 are published as separate commits. Local native/ASan flight
+join checks, full expansion seed 15, patch-prefix checks through 0034 and startup
+checks pass. Apple run 38664283970 for 0034 failed before steps (no log available),
+so there is still no newly verified IPA.
+
+Private seat preview now checks successful scene/actor setup and renders three
+frames. Zak is actor 24, costume 34, facing 90, elevation -4, original seat position
+63,52 and walkbox 4. It still appears standing through the chair. Original room
+11 has box 4 mask 3 and initial flag 128; original seat script sets flag 160.
+Next concrete investigation: compare original-interpreter seat rendering and
+foreground object 263/state/mask initialization, then normalize costume rendering
+only if that comparison proves a mismatch. Do not replace original chair graphics
+or stack the whole party in the one defined interactive seat. The preview code
+and screenshots are private build artifacts, not shipped functionality.
