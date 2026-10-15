@@ -157,3 +157,17 @@ excludes the currently controlled character from its own companion mask. Existin
 single-flight storage remains; this is local character travel, not networking.
 
 Next: NPC booking/boarding consistency and original-art seating/occlusion preview.
+
+## NPC flight bookings (patch 0034)
+
+NPC roaming now respects a valid saved computer booking after control switches
+away. A matching active flight receives the NPC in its manifest/cabin rather than
+having them teleport directly to the destination. Boarding consumes the booking;
+random travel remains the fallback for unbooked NPCs. Initial party selection also
+prefers saved bookings over stale autonomous choices. A stale-choice regression
+reproduced "NPC ignored selected booking" before the fix.
+
+Original-seat preview remains research only: actor placement/facing/elevation
+alone has not yet established correct seated rendering. Do not ship standing
+actors through chairs as a completed seating feature. Group seating, native iOS
+acceptance and real network multiplayer remain outstanding.

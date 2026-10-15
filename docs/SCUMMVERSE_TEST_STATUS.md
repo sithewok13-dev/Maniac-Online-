@@ -136,3 +136,14 @@
 - Logs: build/flight-join-{repro,fixed,asan,flights,bootstrap}.log.
 - This is not real multiplayer validation. Seating and physical-device acceptance
   remain outstanding; Apple CI execution remains an external blocker.
+
+## Patch 0034 — NPC bookings and shared flight
+
+- Native and ASan focused tests pass: a saved booking supersedes a stale NPC
+  destination, an NPC outside the gate is not boarded with the initial party,
+  the NPC later joins the matching active flight, its booking is consumed, and
+  it arrives with that flight. Existing rejection/save-load join cases also pass.
+- Full expansion seed 15 passes with sandbox override disabled/enabled.
+- All 34 patch prefixes/idempotence/local-edit checks pass; engine whitespace
+  checks pass. Logs: build/npc-booking-{repro,fixed,asan,expansion,bootstrap}.log.
+- Private original-seat preview is not a shipped feature or acceptance result.

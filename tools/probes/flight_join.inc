@@ -39,4 +39,19 @@
  scummverseArrive();
  for(int id : {3,21,24}) if(derefActor(id,"arrived passenger")->_room!=57) error("Joined flight split arrivals");
  if(annie->_room!=60 || _scummVars[724] || _scummVars[725]) error("Arrival changed rejected passenger or retained flight");
+ // A player-selected booking survives after switching control to someone else.
+ Actor *leslie=derefActor(22,"booked NPC");leslie->putActor(20,60,57);
+ _scummVars[792]=0;_scummVars[ProbeCatalog::travellerDestinationKey(22)]=3;
+ _scummverseRoamers[22].room=57;_scummverseNpcDestination[22]=10;
+ _scummverseNpcBoarding[22]=500;
+ stopTalk();VAR(VAR_HAVE_MSG)=0;scummverseUpdateRoaming(0);
+ if(_scummverseNpcDestination[22]!=3) error("NPC ignored selected booking");
+ _scummVars[ProbeCatalog::travellerDestinationKey(24)]=3;scummverseBoard();
+ if(leslie->_room!=57) error("Distant NPC boarded before reaching gate");
+ _scummverseNpcBoarding[22]=0;
+ stopTalk();VAR(VAR_HAVE_MSG)=0;scummverseUpdateRoaming(0);
+ if(leslie->_room!=56 || !(_scummVars[725]&(1u<<22)) ||
+    _scummVars[ProbeCatalog::travellerDestinationKey(22)]) error("Matching NPC skipped active plane");
+ scummverseArrive();
+ if(leslie->_room!=53) error("NPC joining flight missed arrival");
  warning("SCUMMVERSE_FLIGHT_JOIN_PASS enabled=1");quitGame();
