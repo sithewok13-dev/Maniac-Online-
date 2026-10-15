@@ -98,3 +98,21 @@ is aligned by one two-pixel cell. A bounded actor pose method bypasses projectio
 only for assigned seated riders; walking immediately restores aisle navigation.
 This is local transport integration, not a server, network protocol or game-pack
 acceptance demonstration. Separate concurrent flights remain future work.
+
+## Logical scene setup and source-art color boundary
+
+`ZakSceneObjectState` now scopes rules by sandbox room as well as source resource
+and original object identity. Room zero retains resource-wide behavior (Seattle's
+opening); Mexico chamber 89 uses its own logical-130 state. Ordered masks are
+applied during import before object IDs are remapped. Imported puzzle interactions
+remain disabled, so restoring this room's immutable setup on load preserves the
+intended sightseeing state; it does not overwrite native game progression.
+
+GdiV1 receives both the host color table and an imported-room table from ScummVM's
+existing palette definitions. Only imported room/object rasterization selects the
+latter. Actor color mapping is unchanged. This separates source artwork colors
+from character identity without changing the host game ID or duplicating palettes.
+
+The next content step needs stable IDs for each logical temple room (156–167),
+not twelve variants behind a shared live room ID. Current room 88 remains the old
+wrong mapping until that graph and existing-save migration can be delivered together.

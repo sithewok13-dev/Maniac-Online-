@@ -2,8 +2,8 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; patch 0036 adds six reserved aircraft seats and source-chair masking.
-Next: continue the logical-room audit for Mexico/Mars; retain iPhone transport/layout acceptance as an explicit gap.
+Active milestone: Phase 1; patch 0037 repairs Mexico crystal-chamber setup and imported-room colors.
+Next: replace the incorrect temple corridor with the verified twelve-room logical graph; iPhone acceptance remains open.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -272,3 +272,25 @@ iOS run 38750070011 job 116473836890 also failed with an empty steps list. Local
 native/ASan results above remain valid. CI cause is undiagnosed, not a demonstrated
 compiler error; do not claim an IPA or alter paid infrastructure. Resume from the
 Mexico/Mars logical-scene audit, or investigate the pre-step CI failure read-only.
+
+## Patch 0037 — Mexico chamber and logical temple audit
+
+Parent: 57734176df617255ef5eab24949a808427fb60ac. Added room-scoped source object
+state rules for chamber 89 / original 130, navigation restrictions and old-save
+repair. Separated imported background/object color mapping from native actor colors
+using ScummVM's existing Zak tables. The reference-driven chamber test compares all
+21 object states and the actor-free background pixel-for-pixel, plus load repair,
+exit behavior and isolation from another chamber using the same source resource.
+
+Original-interpreter audit now covers all twelve temple scenes 156–167. Their
+source resource is 53; current sandbox corridor 88 incorrectly uses Mars resource
+36. Tools produce private snapshots and validate the reachable doorway graph.
+The corridor replacement and Mars reconstruction are NOT complete. Next vertical
+slice: stable logical scene registry/IDs, entry placements, source object layout,
+links, and old room-88 save migration; avoid a shared mutable pseudo-room solution.
+No proprietary assets, extracted scripts, generated reference images or runtime
+snapshots are committed. Apple/device and multiplayer acceptance remain separate.
+
+0037 validation: native/ASan chamber and temple-reference tests pass; full expansion
+seed 15, seating and eleven startup cases pass. All 37 patch prefixes reconstruct
+cleanly. See TEST_STATUS for precise coverage and remaining device/CI limits.

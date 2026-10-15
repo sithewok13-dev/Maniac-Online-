@@ -198,3 +198,20 @@
 - Remote native runs 38750078945 / 38750070288 and iOS run 38750070011
   failed before executing steps. iOS job 116473836890 has `steps: []`.
   No remote compilation or artifact acceptance claimed; cause remains unknown.
+
+## Patch 0037 — Mexico chamber setup and source room colors
+
+- Native and ASan engine builds pass.
+- `test_chamber.py` passes native/ASan: executes original Zak chamber entries,
+  compares all 21 Mexico object states, confirms blocked walkboxes, repairs an
+  older raw-state save, returns through the exit, and verifies shared-resource
+  isolation. Actor-free Mexico background is byte-identical to the original
+  interpreter's PPM fixture. Lighting is explicitly enabled for this visual test.
+- `test_temple_reference.py` passes native/ASan: twelve original entry handlers,
+  distinct layouts, reachable active doorway graph and exterior/chamber exits.
+  Resource 53 MD5 is checked. This is an audit fixture, not a shipped temple fix.
+- Native full expansion seed 15, seating regression and eleven startup tests pass.
+- All 37 patch prefixes, idempotence and preservation of local/conflicting edits
+  pass `test_bootstrap.py`; incremental diff whitespace check clean.
+- No iOS simulator/device acceptance or new IPA claimed. Previously observed
+  pre-step CI failures remain a separate infrastructure blocker.

@@ -84,3 +84,32 @@ original 1:1 size; normal scene normalization remains 6:5. Native Maniac chair
 anchors are aligned by one two-pixel cell. Private previews cover all 21 costumes.
 The original-interpreter fixture remains a reference, not proof of full puzzle
 or source-game support. Nonhuman passengers retain their original silhouettes.
+
+## Logical temple audit and Mexico chamber repair — patch 0037
+
+Verified the original initialization mapper and entry handlers. Mexico's temple
+corridors are logical rooms 156–167 backed by **53.LFL**, not 36.LFL. Resource 36
+backs logical rooms 196–205 in the Mars maze. Current sandbox room 88 still uses
+36.LFL incorrectly; replacing it requires stable IDs for twelve distinct scenes,
+scene-specific object placement, camera limits, links and save migration. Do not
+silently collapse these into one mutable room shared by unrelated actors.
+
+`tools/test_temple_reference.py` executes all twelve original entry handlers in
+an isolated original-Zak engine. It records private layout/state/box/transition
+snapshots and verifies the active doorway graph is reachable from 156, including
+exits to exterior 39 and crystal chamber 130. This is one controlled initial-state
+fixture with lighting enabled for inspection, not full original puzzle progression.
+Source PseudoRoom mappings and door handlers were cross-checked against the runtime.
+No extracted scripts or source assets are distributed.
+
+Sandbox 89 is original logical chamber 130, resource 14. Patch 0037 adds
+room-specific object state rules, keeps boxes 12/13 blocked, and repairs this
+immutable imported scene's setup when loading older saves. Other resource-14
+chambers keep their prior setup; their own variant audits remain open.
+
+Pixel comparison also exposed a shared color-table mismatch: Maniac's DOS V1
+mapping maps source color 15 to dark gray while Zak maps it to light gray. Imported
+backgrounds and objects now use the existing Zak table from ScummVM, separately
+from actor colors. No palette or source art is copied into project fixtures.
+The fixed Mexico chamber's actor-free background exactly matches the original
+interpreter fixture. This does not validate every imported room's scene setup.
