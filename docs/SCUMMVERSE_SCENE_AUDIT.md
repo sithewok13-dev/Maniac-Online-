@@ -136,3 +136,35 @@ The test resets initial object states between original scene entries to avoid
 cross-room contamination. Background comparisons cover the leftmost viewport;
 full walking-hotspot regression covers all registered exits across scrolling rooms.
 Original darkness, torch interactions and puzzle progression remain outside scope.
+
+
+## Mars interior reconstruction — patch 0039
+
+Original logical identities are not interchangeable physical resources:
+
+| Original logical scene | Sandbox | Source resource |
+| --- | --- | --- |
+| Three massive doors (32) | 82 | 32 |
+| Great Chamber (182) | 83 | 33 |
+| Machine platform (194) | 93 | 35, right viewport |
+| Antechambers (189–191) | 110–112 | 33, right viewport |
+| Projection room (195) | 113 | 35, left viewport |
+| Maze passages (196–205) | 114–123 | 36 |
+| Yellow crystal / rock chambers (192–193) | 124–125 | 14 |
+| Burial chamber (34) | 126 | 34 |
+
+Original entry execution supplies each layout, object state, walkbox restriction,
+camera bound and palette. The exploration reference opens massive doors and rock
+tunnels using original object state bits; it sets original machine defaults and
+illuminates the scene. This is not a claim that the source puzzles are implemented.
+Sixty interior transitions are checked against original door handlers and the maze
+entry scripts' transition pairs. Exterior object 444 leads to Great Chamber 182;
+that chamber leads to the three-door corridor, not directly to a generic maze.
+
+All twenty initial actor-free viewports are compared byte-for-byte with original
+interpreter captures. This verifies initialized artwork at the camera minimum,
+not every animation, puzzle state or scrolling frame. Scene metadata contains no
+copied proprietary scripts or artwork. Native walking-hotspot tests additionally
+exercise the registered exits. Hostel rooms 180/181, exterior/tram 184/185 and the
+pyramid branch remain separate pending repairs; existing shortcuts there must not
+be treated as canonical geography.

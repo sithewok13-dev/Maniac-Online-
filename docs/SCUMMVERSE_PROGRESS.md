@@ -2,8 +2,8 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; patch 0038 replaces Mexico's incorrect corridor with twelve logical temple rooms.
-Next: audit the Mars logical-room graph against original initialization/entry scripts; iPhone acceptance remains open.
+Active milestone: Phase 1; patch 0039 restores the Mars interior network through shared logical scene setup.
+Next: repair the Mars hostel/airlock, tram and pyramid branch from original logical entries; iPhone acceptance remains open.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -325,3 +325,28 @@ build/legacy-temple.s12 was captured using the 0037 ASan build before rebuilding
 The capture recipe is tools/test_temple_legacy.py: use a matching 0037 engine AND
 compiled build, then test the resulting private save with the new test_temple.py
 --legacy-save option. Never publish saves, original data, snapshots or descumm output.
+
+
+## Mars interior graph — patch 0039
+
+Twenty interior scenes now use independently audited original logical setup.
+Seventeen rooms are appended (110–126); existing corridor 82, Great Chamber 83
+and machine room 93 keep their IDs. Sixty interior exits follow original handlers,
+with arrival-object anchors or explicit original arrival coordinates. Exterior 79's
+Great Chamber entrance now reaches 83 rather than the three-door corridor 82.
+
+The shared `ZakSceneSetup` descriptor replaces the temple-only descriptor and owns
+object counts/layout/state, box flags, camera minimum/maximum and source palette.
+Mars uses the same import, navigation and restoration code as Mexico. The machine
+platform uses the right half of resource 35; the projection room uses the left.
+Older saves with a machine-room actor in the unused half are projected into the
+correct visible scene during restoration. Existing room capacity grows to 127.
+Before adding IDs 128 or higher, account for upstream V1 pseudo-room mapping;
+do not blindly append beyond that boundary.
+
+Reference tests execute original entries with an explicit exploration preset:
+massive doors and rock tunnels open, source machine defaults, lighting enabled.
+They do not reproduce the original puzzle sequence. Full Mars support remains
+unfinished: hostel/airlock variants, tram, pyramid branches, NPC behavior and
+original special interactions still need source-based repair. No new iPhone build
+or real multiplayer acceptance is claimed. Private source evidence stays in build/.

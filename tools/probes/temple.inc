@@ -38,5 +38,5 @@
   error("Offscreen temple arrival lost logical doorway: room=%d actorroom=%d pos=%d,%d wait=%d exit=%d",_currentRoom,visitor->_room,visitor->getRealPos().x,visitor->getRealPos().y,roamer.wait,roamer.exit);
  if(!scummverseSwitchActor(8) || _currentRoom!=99 || visitor->getRealPos().x<100) error("Temple visitor switching failed");
  if(!scummverseSwitchActor(3) || _currentRoom!=89) error("Temple actors lost distinct rooms");
- if(scummverseTravel(60)) error("Unregistered room accepted");
+ if(scummverseTravel(ScummverseContent::kRoomCount-50)) error("Unregistered room accepted");
  warning("SCUMMVERSE_TEMPLE_PASS enabled=1");quitGame();

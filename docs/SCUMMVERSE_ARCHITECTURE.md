@@ -139,3 +139,20 @@ old build is not supported or promised. Original game files are never modified.
 This is an edition-specific adapter increment, not a complete game-pack registration
 API or the additional-game acceptance demonstration. Future adapters must still
 separate engine versions and validate their original initialization semantics.
+
+
+## Shared logical scene setup (0039)
+
+`ZakSceneSetup` generalizes the Mexico descriptor for Mars: bounded object/box
+arrays with explicit counts, both camera bounds, source colors and logical identity.
+Rendering and navigation consume the initialized scene through existing engine
+paths; adding these variants did not require a new renderer or navigation system.
+Source exit metadata supports original explicit arrival coordinates in addition to
+destination object anchors, with the same data used for player and local NPC travel.
+
+This remains an audited English DOS V1 adapter, not an untrusted pack loader or a
+new-game acceptance demonstration. Its tests independently execute source entries
+and compare pixels, object state/anchors, walkbox flags, saves and room graph.
+The exploration preset intentionally opens original puzzle doors. Current room
+count is 127; upstream V1 treats IDs >=128 as pseudo rooms. Further expansion needs
+an explicit ID/mapping design before increasing that bound.

@@ -43,7 +43,7 @@ if a.legacy_save:
  Common::File in;if(!in.open(Common::FSNode(Common::Path({path})))) error("Cannot read legacy fixture");
  Common::OutSaveFile *out=_system->getSavefileManager()->openForSaving(makeSavegameName(13,false));
  if(!out) error("Cannot stage legacy save");byte buf[4096];while(!in.eos()) {{uint n=in.read(buf,sizeof(buf));out->write(buf,n);}}out->finalize();delete out;
- if(!loadState(13,false) || _currentRoom!=88 || _scummVars[527]!=1 || getObjectIndex(745)<0 || _numRooms!=110) error("Previous-build temple migration failed");
+ if(!loadState(13,false) || _currentRoom!=88 || _scummVars[527]!=1 || getObjectIndex(745)<0 || _numRooms!=ScummverseContent::kRoomCount) error("Previous-build temple migration failed");
  for(int id : {{3,8}}) {{Actor *a=derefActor(id,"migrated temple actor");if(a->_room!=88 || a->getRealPos().x<100) error("Legacy visitor lost");}}
  scummverseRestoreTemple();if(derefActor(3,"migration repeat")->getRealPos().x<100) error("Migration not idempotent");
  }}'''

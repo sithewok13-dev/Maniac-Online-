@@ -244,3 +244,27 @@
 - No full original torch/darkness/puzzle progression, authoritative multiplayer,
   iPhone/simulator acceptance or new IPA claimed. Apple CI previously failed before
   steps; remote compilation status remains separate from local verification.
+
+## Patch 0039 — Mars logical interiors (2026-10-15)
+
+- Native and AddressSanitizer engine builds pass.
+- Mars reference and integration probes pass native/ASan: twenty initialized
+  interior scenes match original interpreter pixels at the camera minimum,
+  object positions/states/walking anchors, source box flags and camera bounds.
+  All sixty interior routes reach their original destinations; distinct scenes
+  survive saves. Additional ASan checks verify explicit arrival coordinates and
+  restoration of a simulated older machine-room pose on the unused screen half.
+- Native full expansion seed 15 passes across all 71 imported rooms, including
+  selectable walking-hotspot exits, actor roster and local transport/teleports.
+- Mexico regression passes with twelve original pixel comparisons, 52 doorways
+  and the actual pre-0038 save fixture. Native seating regression and all eleven
+  startup checks pass. Python test tooling compiles.
+- All 39 incremental patch prefixes reconstruct. Idempotence, local/conflicting
+  edit preservation and incremental whitespace checks pass.
+- Private evidence: build/mars-{test,asan-test,expansion,temple-test,seating-test,
+  startup-test,bootstrap}.log and source/sandbox PPMs. No source artwork, scripts,
+  game data or saves are published.
+- This uses an explicit open-door exploration preset, not original puzzle
+  progression. Hostel/tram/pyramid branches and complete Mars behavior remain
+  open. No iOS compilation, simulator/device acceptance, IPA or real networked
+  multiplayer result is implied by these native checks.
