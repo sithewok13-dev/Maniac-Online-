@@ -174,3 +174,21 @@
   standalone startup cases pass after the shared runner change.
 - Latest Apple run for 0035: 38724181478, job 116385857974, failed with an empty
   steps list. There is still no compiled iOS artifact for these changes.
+
+## Patch 0036 — six-chair aircraft seating
+
+- Native and AddressSanitizer engine builds pass.
+- Portable allocation and source-mask adapter tests pass ASan/UBSan with warnings
+  treated as errors: stable reservations, overflow atomicity, invalid/duplicate
+  reservation repair, released slots, bounded source-mask reuse.
+- Native/ASan seating probe passes: six unique poses, late joining, full-flight
+  rejection, NPC waiting, save/load, character switching, getting up and reseating,
+  immediate arrival cleanup. Extended ASan probe also checks standing saves, old
+  flight migration and seven-rider legacy preservation.
+- All 21 available actors render nonempty seated poses; private native previews
+  visually reviewed. No proprietary reference images distributed.
+- Native joined-flight, companion-presence, flights, full expansion seed 15 and
+  eleven startup checks pass. Joined-flight also passes ASan.
+- iOS simulator/device testing and true multiplayer remain unverified; no IPA.
+- All 36 incremental patch prefixes, idempotence and local-edit preservation pass
+  `tools/test_bootstrap.py`.

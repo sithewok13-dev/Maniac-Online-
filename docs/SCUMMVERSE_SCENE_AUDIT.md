@@ -71,3 +71,16 @@ ignoring renderer bounds. In the audited distant scenes it now uses actual
 half-open draw bounds. This avoids picking a small character by clicking far
 above its head. It preserves current-player exclusion and upstream horizontal
 strip-based selection. It does not change touch-to-room coordinate conversion.
+
+## Plane cabin seating
+
+Source room 11 / sandbox 56 has six matching chair positions. The source player
+uses actor position (63,52), elevation -4, facing right, behind the foreground
+chair mask. Only that chair has the usable source mask; simply placing additional
+actors at other chairs leaves standing legs visible. Patch 0036 reuses the mask
+map references at matching chairs through an edition-specific adapter. It changes
+no source image data and does not use foreign scripts. Imported visitors sit at
+original 1:1 size; normal scene normalization remains 6:5. Native Maniac chair
+anchors are aligned by one two-pixel cell. Private previews cover all 21 costumes.
+The original-interpreter fixture remains a reference, not proof of full puzzle
+or source-game support. Nonhuman passengers retain their original silhouettes.

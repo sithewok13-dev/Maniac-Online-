@@ -77,3 +77,24 @@ Vehicle manifests temporarily own riders; following must not reveal, relocate or
 board them into another vehicle. Boarding requires departure-room presence. These
 rules are exercised by tools/test_companion_presence.py with private source data;
 future world/transport replacements must retain them, including across save/load.
+
+## Seat allocation contract and DOS V1 cabin adapter
+
+`common/scummverse_seats.h` owns no world state. It consumes a passenger bitset and
+signed reservations, preserving unique valid assignments and allocating free slots.
+Over-capacity/invalid requests leave caller state unchanged. Negative reservations
+retain a standing passenger's place. `tools/test_seats.cpp` tests the contract with
+synthetic data; replacement allocators must preserve stable and atomic results.
+
+The engine owns bookings, manifests and saved variables 502..525 (actor 1..24);
+526 is the migration marker. No save-container change. Existing six-or-fewer flights
+acquire seats on restoration. Larger legacy flights keep all riders without seating
+or allowing new boarding. Landing clears reservations and elevation.
+
+`scummverse_plane.h` is the edition adapter: six chair coordinates and reuse of the
+source chair's foreground mask for identical repeated chairs. Rendering does not
+allocate seats. Imported seated costumes use source size; the source Maniac anchor
+is aligned by one two-pixel cell. A bounded actor pose method bypasses projection
+only for assigned seated riders; walking immediately restores aisle navigation.
+This is local transport integration, not a server, network protocol or game-pack
+acceptance demonstration. Separate concurrent flights remain future work.

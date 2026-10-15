@@ -34,3 +34,8 @@ jobs:
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_mobile_layout.cpp -o build/test-mobile-layout
           build/test-mobile-layout
+      - name: Test portable seat allocation contract
+        if: matrix.backend == 'null'
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_seats.cpp -o build/test-seats
+          build/test-seats

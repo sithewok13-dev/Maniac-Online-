@@ -2,7 +2,8 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; distant scale and matching vertical selection bounds implemented.
+Active milestone: Phase 1; patch 0036 adds six reserved aircraft seats and source-chair masking.
+Next: continue the logical-room audit for Mexico/Mars; retain iPhone transport/layout acceptance as an explicit gap.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -29,9 +30,10 @@ they do not establish source-game authenticity or real multiplayer correctness.
    about later SCUMM depth scaling. No arbitrary room-scale constants.
 5. Portrait phone UI: current half-window rendering and native panel positioning
    need real rotation, safe-area, keyboard and input-coordinate validation.
-6. Transport: local manifests, standing plane actors, single active flight; no
-   authoritative server. Reproduce reported bus ghosts with visibility/state
-   transitions before introducing shared vehicle instances/seats.
+6. Transport: patches 0035/0036 enforce companion presence and six local aircraft
+   seats. Reservations survive switching and saves; late boarding respects capacity.
+   Single active flight remains; no authoritative server or network multiplayer.
+   Physical iPhone verification and multiple simultaneous flights remain open.
 7. Chat/AI: platform-owned runtime, limited context, no durable messaging contract.
    Preserve the prior Metal buffer ownership crash fix and model integrity checks.
 8. Missing NPCs: verify Elvis-related content, Guru levitation and Nepal guards
@@ -235,3 +237,31 @@ Reference-tool validation: native/ASan pass; normal companion probe and 11 start
 cases also pass after the runner change. Apple run 38724181478 for 0035 failed
 before any job steps (job 116385857974). Cause remains undiagnosed; do not mistake
 this for a compiler failure or spend money/reconfigure billing without approval.
+
+## Patch 0036 — reserved airplane chairs (2026-10-15)
+
+Implemented a portable, atomic seat allocator and a separate DOS V1 cabin adapter.
+New flights use six original chairs. Joining retains reservations; rejected parties
+keep their booking and location. NPCs wait when that flight is full. Passengers start
+seated, can walk into the aisle, and Use the original seat hotspot to return to their
+reserved chair. Arrive remains immediate and flights have no timer or takeoff scene.
+Reservations and seated/standing state survive save/load and actor selection.
+Legacy flights with more than six actors remain intact in the aisle and can arrive.
+
+Original source rendering showed two distinct causes: visitors were enlarged 6:5,
+and only the original player's chair had a foreground mask. Imported seated sprites
+now render at source size; the adapter extends that original mask to the matching
+chairs without shipping artwork. Native Maniac bodies use a two-pixel chair-anchor
+alignment. Walking still uses original geometry; transport poses do not unlock boxes.
+All 21 available costumes were rendered in isolation and visually inspected in the
+native build. This is native visual review, not iPhone or multiplayer acceptance.
+
+Validation: portable allocator/mask contracts under ASan/UBSan; native and ASan
+engine builds; seating and joined-flight probes; native companion-presence, flights,
+full expansion seed 15 and 11 startup cases. Expanded seating tests cover standing
+save/load and pre-seating-save migration, including seven-person legacy flights.
+See TEST_STATUS for reconstruction and final publication verification.
+
+Parent commit: 3a93ac9e698e773ac5db80b27a21280bb106c7ee. Patch distribution remains
+on codex/scummverse-c64-baseline / draft PR 1. No proprietary images, game data or
+extracted scripts are committed. No new IPA or successful Apple build claimed.
