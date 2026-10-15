@@ -192,3 +192,9 @@
 - iOS simulator/device testing and true multiplayer remain unverified; no IPA.
 - All 36 incremental patch prefixes, idempotence and local-edit preservation pass
   `tools/test_bootstrap.py`.
+
+- Original Zak reference launcher still passes after the cabin mask change.
+- Published implementation: fd6082aa130be8a87f390a3e4b007441004e2352.
+- Remote native runs 38750078945 / 38750070288 and iOS run 38750070011
+  failed before executing steps. iOS job 116473836890 has `steps: []`.
+  No remote compilation or artifact acceptance claimed; cause remains unknown.

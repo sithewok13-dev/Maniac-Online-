@@ -265,3 +265,10 @@ See TEST_STATUS for reconstruction and final publication verification.
 Parent commit: 3a93ac9e698e773ac5db80b27a21280bb106c7ee. Patch distribution remains
 on codex/scummverse-c64-baseline / draft PR 1. No proprietary images, game data or
 extracted scripts are committed. No new IPA or successful Apple build claimed.
+
+Publication verified: fd6082aa130be8a87f390a3e4b007441004e2352 on the existing
+branch/PR. Native Actions runs 38750078945 and 38750070288 failed before steps;
+iOS run 38750070011 job 116473836890 also failed with an empty steps list. Local
+native/ASan results above remain valid. CI cause is undiagnosed, not a demonstrated
+compiler error; do not claim an IPA or alter paid infrastructure. Resume from the
+Mexico/Mars logical-scene audit, or investigate the pre-step CI failure read-only.
