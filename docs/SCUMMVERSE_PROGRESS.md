@@ -118,3 +118,31 @@ Native GitHub jobs also failed before steps. Cause is not established from the
 available connector data. Local native/ASan testing remains available; no new
 installable Apple artifact or device acceptance is claimed. Resume Apple CI once
 runner execution is available; do not spend money to unblock it without approval.
+
+## Independent traveller records (patch 0032)
+
+Flight auditing exposed that all actors beyond the original seven shared slot
+zero for bookings, mansion return points, arrival origin and party history.
+A regression reproduced Annie overwriting Zak's Seattle booking with Miami.
+Expanded actors now own six separate saved fields (399 schema marker; 400..501
+records), with legacy original-seven indices preserved. Existing save container
+size is unchanged. Migration assigns the ambiguous old shared record only to the
+active expanded actor; its historical owner cannot be recovered. Other expanded
+actors start with empty records. Migration is idempotent.
+
+Plane seating audit: original DOS V1 resource 11, seat object 255 uses position
+(63,52), elevation byte 252 (signed -4) and facing command 249; it does not select
+a bespoke sitting animation. Only one interactive seat is defined. Do not assign
+that same spot to the whole cast or claim group seating finished. Next: inspect
+original chair foreground/occlusion and empty-chair options, then implement and
+visually verify a seat-capacity policy using original art. Private extraction
+stays in build/zak-analysis, never in the repository.
+
+Latest Apple run checked: 38651860666 also failed before any job steps. Apple
+compilation remains blocked; no new IPA or device validation is claimed.
+
+The return-trip test also reproduced scene-switch contamination: selecting an
+actor already at the airport while viewing another actor in the mansion recorded
+the old viewport room as the new actor's departure. Return records now update
+only when the departing actor actually occupies the current room. Behavioural
+tests exercise separate rooms for Annie and Zak, not just distinct key indices.

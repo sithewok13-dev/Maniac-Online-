@@ -105,3 +105,21 @@
 - Apple CI run 38651455882 for patch 0030 failed before executing build steps;
   no job logs are available. This is a build-execution blocker, not evidence of
   a compiler failure. UIKit compilation and device validation remain outstanding.
+
+## Patch 0032 — independent character travel records
+
+- Before fix, flight probe failed: Annie's Miami selection overwrote Zak's Seattle
+  booking. Return-trip probe separately exposed scene-switch contamination.
+- Native and ASan builds and flight probes pass with override disabled/enabled:
+  independent bookings through save/load, independent mansion return rooms,
+  migration from the legacy shared slot, idempotence, preservation of original
+  kid fields, and nonoverlapping record keys for all 24 actor IDs.
+- All 32 patch prefixes, idempotence and local-edit preservation pass.
+- Startup: 11 checks pass. Logs: build/travel-records-{fixed,asan,bootstrap,startup}.log.
+- Seating source audit is research only; group seating is not implemented.
+- Apple CI still fails before job steps (latest checked run 38651860666);
+  no new Apple build or device acceptance is claimed.
+- Full expansion probe seed 15 passes after switching the test from direct legacy
+  slot writes to real airport-computer commands. Covers all 21 selectable actors,
+  imported rooms, flights, bus takeover/save/load, links and teleports. This is
+  local sandbox testing, not network multiplayer or full source-game authenticity.

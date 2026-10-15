@@ -56,3 +56,15 @@ the platform event queue, without rebuilding the graphics surface. The engine
 retains aspect fitting and input conversion. Tests use synthetic device geometry;
 UIKit/device acceptance remains necessary. This is a small portable module, not
 an additional service. Landscape and engine GUI overlays retain their layouts.
+
+## Travel persistence adapter v1
+
+The traveller key helpers in scummverse_places.inc isolate the legacy variable
+layout from gameplay calls. Original seven actor records keep their existing
+indices; expanded actor records occupy six fields each in 400..501, with schema
+marker 399. These are sandbox-reserved variables within the existing save size;
+original direct DOS V1 script variable operands are byte-sized. Existing expanded
+actors' shared legacy slot is inherently ambiguous; migration preserves it only
+for the active expanded actor. No file rewriting or save-container version change.
+A future persistence adapter must preserve the tested independent bookings,
+return locations, migration and idempotence contracts.

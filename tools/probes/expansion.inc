@@ -32,7 +32,7 @@
 		_virtualMouse.x=targetX*8;_virtualMouse.y=120;VAR(VAR_VIRT_MOUSE_X)=targetX;VAR(VAR_VIRT_MOUSE_Y)=60;VAR(VAR_ACTIVE_VERB)=13;
 		runInputScript(kSceneClickArea,0,1);for(int n=0;n<100;++n) scummLoop(4);
 		if(a->getRealPos().x==x) error("Player cannot walk %d",id);
-		_scummVars[730+(id<=7?id:0)]=27;scummverseBoard();
+		scummverseWorldRequest(((_currentRoom*32+id)<<8)|47);scummverseUpdateRoaming(0);scummverseBoard();
 		if(_currentRoom!=56) error("Cannot board as %d",id);
 		scummverseArrive();if(_currentRoom!=77) error("Cannot arrive London as %d",id);
 	}

@@ -7,6 +7,51 @@
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
 	Actor *player=derefActor(3,"flight probe");
+ // Expanded cast must retain independent computer selections after switching.
+ scummverseTravel(3);
+ derefActor(24,"Zak booking")->putActor(25,60,53);
+ derefActor(20,"Annie booking")->putActor(28,60,53);
+ if(!scummverseSwitchActor(24)) error("Cannot select Zak");
+ scummverseWorldRequest(((_currentRoom*32+24)<<8)|42); scummverseUpdateRoaming(0);
+ if(!scummverseSwitchActor(20)) error("Cannot select Annie");
+ scummverseWorldRequest(((_currentRoom*32+20)<<8)|43); scummverseUpdateRoaming(0);
+ Common::String bookingSave; _saveLoadDescription="Independent flight choices";
+ stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(0);
+ if(!saveState(6,false,bookingSave) || !loadState(6,false)) error("Booking save/load failed");
+ if(!scummverseSwitchActor(24)) error("Cannot return to Zak");
+ scummverseBoard();
+ if(_currentRoom!=56 || _scummVars[724]!=7) error("Annie overwrote Zak's selected flight");
+ scummverseArrive();
+ if(!scummverseSwitchActor(20)) error("Cannot return to Annie");
+ scummverseBoard();
+ if(_currentRoom!=56 || _scummVars[724]!=10) error("Zak consumed Annie's selected flight");
+ scummverseArrive();
+ // Exercise old-save migration, including idempotence and legacy kid state.
+ _scummVars[399]=0; _scummVars[700]=10; _scummVars[701]=20; _scummVars[702]=60;
+ _scummVars[730]=7; _scummVars[740]=53; _scummVars[750]=1u<<24;
+ _scummVars[733]=10;
+ stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(0);
+ if(!saveState(6,false,bookingSave) || !loadState(6,false)) error("Legacy booking load failed");
+ if(_scummVars[ProbeCatalog::travellerReturnKey(20)]!=10 || _scummVars[ProbeCatalog::travellerDestinationKey(20)]!=7 ||
+    _scummVars[ProbeCatalog::travellerDestinationKey(24)] || _scummVars[733]!=10) error("Legacy booking migration failed");
+ _scummVars[ProbeCatalog::travellerDestinationKey(24)]=3;
+ scummverseMigrateTravelRecords();
+ if(_scummVars[ProbeCatalog::travellerDestinationKey(24)]!=3) error("Migration repeated");
+ bool used[800]={};
+ for(int id=1;id<=24;++id) {
+  int keys[]={ProbeCatalog::travellerReturnKey(id),ProbeCatalog::travellerReturnKey(id)+1,ProbeCatalog::travellerReturnKey(id)+2,
+    ProbeCatalog::travellerDestinationKey(id),ProbeCatalog::travellerOriginKey(id),ProbeCatalog::travellerPartyKey(id)};
+  for(int key : keys) { if(key<256 || key>=800 || used[key]) error("Overlapping travel records"); used[key]=true; }
+ }
+ // Return points must belong to the actor, not to the last expanded traveller.
+ derefActor(20,"Annie return")->putActor(20,60,10);
+ derefActor(24,"Zak return")->putActor(20,60,16);
+ if(!scummverseSwitchActor(20) || !scummverseTravel(3)) error("Annie departure failed");
+ if(!scummverseSwitchActor(24) || !scummverseTravel(3)) error("Zak departure failed");
+ if(!scummverseSwitchActor(20) || !scummverseTravel(2) || _currentRoom!=10) error("Zak overwrote Annie's mansion return");
+ if(!scummverseSwitchActor(24) || !scummverseTravel(2) || _currentRoom!=16) error("Zak return failed room=%d saved=%d actorRoom=%d leader=%d",_currentRoom,_scummVars[ProbeCatalog::travellerReturnKey(24)],derefActor(24,"return failure")->_room,_scummVars[794]);
+ if(!scummverseSwitchActor(3)) error("Cannot restore original player");
+
 	for(int dest=6;dest<=10;++dest) {
 		if(!scummverseTravel(dest)) error("Import failed %d: %s",dest,_scummverseWorldNotice.c_str());
 		if(_ENCD_offs || _EXCD_offs) error("Foreign scripts active");
