@@ -44,6 +44,11 @@ jobs:
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_conversation.cpp -o build/test-conversation
           build/test-conversation
+      - name: Test portable speech wrapping
+        if: matrix.backend == 'null'
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_text.cpp -o build/test-text
+          build/test-text
       - name: Test dialogue runtime without model weights (ASan and TSan)
         if: matrix.backend == 'null'
         run: python3 tools/test_talk_runtime.py
