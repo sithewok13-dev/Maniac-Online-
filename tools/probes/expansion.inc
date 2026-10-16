@@ -6,6 +6,10 @@
 	}
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
+	// Portraits of actors never drawn yet (straight after boot) must match the
+	// ones rendered later in play: V1 frames only update their masked limbs.
+	static unsigned char bootFaces[25][64*64*4];
+	scummverseRosterOffer(); memcpy(bootFaces,FakeFaces::pixels,sizeof(bootFaces));
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
 		if(ProbeCatalog::zakRetiredRoomReplacement(room)) {
@@ -45,6 +49,7 @@
 	for(int id:cast) {
 		int count=0;for(int p=0;p<64*64;++p) if(FakeFaces::pixels[id][p*4+3]) ++count;
 		if(count<20) error("Empty portrait %d",id);
+		if(memcmp(bootFaces[id],FakeFaces::pixels[id],64*64*4)) error("Portrait %d drawn at boot differs from later (missing limbs)",id);
 		Common::DumpFile face; if(face.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/portrait-%d.ppm",id)))) {
 			const char *header="P6\n64 64\n255\n";face.write(header,strlen(header));
 			for(int p=0;p<64*64;++p) face.write(FakeFaces::pixels[id]+p*4,3);

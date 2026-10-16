@@ -1,0 +1,17 @@
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 58027760..58988c36 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -702,7 +702,11 @@ void ScummEngine::scummverseRosterOffer() {
+ 		memset(canvas.getPixels(0,0),255,canvas.pitch*canvas.h);
+ 		auto cost=a->_cost; int facing=a->getFacing();
+ 		a->setFacing(180); _scummversePortrait=true;
+-		_costumeLoader->costumeDecodeData(a,a->_standFrame,(uint)-1);
++		// V1 frames update only their masked limbs. Build a complete pose from the
++		// costume's own frames (initial, standing, closed-mouth head) so actors
++		// that were never on screen are not drawn without heads.
++		for(int frame : {a->_initFrame,a->_standFrame,a->_talkStopFrame})
++			_costumeLoader->costumeDecodeData(a,frame,(uint)-1);
+ 		ClassicCostumeRenderer renderer(this); a->prepareDrawActorCostume(&renderer);
+ 		renderer._actorX=160; renderer._actorY=112; renderer._zbuf=0;
+ 		renderer.drawCostume(canvas,40,a,false);
