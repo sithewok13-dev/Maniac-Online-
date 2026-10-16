@@ -454,3 +454,22 @@ original platform arrivals: Seattle 92, Mexico 89, Nepal 69, Egypt 76 (newly
 added) and Mars 125 (was the non-original pad in room 84). The iOS panel lists
 five sites. Next scene work: Cairo (71 is a pyramid passage, not Cairo), Mars
 pyramid 84, split scenes 151/181/134, Nepal guard station (resource 18).
+
+## Patch 0045 — The King; NPC source findings
+
+Actor 17 wears Zak costume 27, which the original names "The King" (room 10
+object 240 script, Bermuda alien craft); the sandbox called it "Alien pilot".
+Name, dialogue personality and docs corrected; saved names migrate on load
+(var 528 = scene schema 3). The original pilot is costume 10.
+
+Original NPC sources (private descumm, for the next NPC slice):
+- Guru: costume 22, room 19 at (60,56), anim 251, script 42 approaches the
+  player. The original costume draws him seated cross-legged above his dais;
+  restoring that costume yields levitation with original art.
+- Nepal guard: costume 26, Kathmandu street 17 at (80,11); policeman name in 17.
+- Stonehenge sentry: costume 24 (logical 133); airport devotee: costume 25.
+- Zaire villagers: actors 10-12 all costume 21 color 9 (identical to the shaman
+  in the original too); actor 10 named "Shaman".
+Adding Guru/guard needs new actor slots. Maniac scripts reference 12/15/16 and
+also 8/17-19 (already repurposed); audit each reference (likely blocked
+cutscenes) before allocating. Not done in this session.

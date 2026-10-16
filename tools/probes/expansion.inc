@@ -115,7 +115,14 @@
 		zakActor->putActor(20,60,64); startScene(64,zakActor,0); _scummVars[528]=1;
 		_saveLoadDescription="Retired room";
 		if(!saveState(9,false,filename)||!loadState(9,false)) error("Retired-room save failed");
-		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=2)
+		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=3)
 			error("Retired-room migration failed: view %d player %d occupant %d schema %d",_currentRoom,zakActor->_room,annie->_room,_scummVars[528]);
 	}
+	// Zak costume 27 is "The King" in the original; old saves carry the
+	// sandbox's former label and are renamed on load.
+	if(strcmp((const char *)getObjOrActorName(17),"The King")) error("Actor 17 is not The King after migration");
+	memcpy(_res->createResource(rtActorName,17,12),"Alien pilot",12); _scummVars[528]=2;
+	_saveLoadDescription="Legacy King name";
+	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy-name save failed");
+	if(strcmp((const char *)getObjOrActorName(17),"The King") || _scummVars[528]!=3) error("Legacy actor name not migrated");
 	warning("SCUMMVERSE_EXPANSION_PASS enabled=1");quitGame();

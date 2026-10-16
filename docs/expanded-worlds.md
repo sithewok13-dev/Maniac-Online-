@@ -8,7 +8,7 @@ puzzle campaign. Kathmandu is the Nepal destination.
 
 - A fresh game opens a face gallery after boot initialization. Choose any of the
   21 available characters: the seven mansion kids, Fred, Edna, Ed, the two
-  tentacles, Sandy, Zak, Annie, Melissa, Leslie, two Caponians, the Zaire shaman,
+  tentacles, Sandy, Zak, Annie, Melissa, Leslie, a Caponian, The King, the Zaire shaman,
   and a villager. Portraits are rendered from original costumes at runtime.
 - During play, **New kid** or **Worlds → Choose character** opens the same gallery.
   Switching moves your view to that character's current location. The previous

@@ -332,3 +332,12 @@
   92 now serves as the shared-resource-14 isolation check).
 - 44 patch prefixes, null build and startup pass. iOS panel compile: Apple CI.
 - NOT verified: iPhone; ASan run of the data probes for 0043/0044.
+
+## Patch 0045 and sanitizer coverage (2026-10-16)
+
+- 26/26 data tests pass; expansion probe checks The King's name and migration
+  of a legacy-named save; dialogue runtime tests pass.
+- AddressSanitizer engine build (build/asan, CXXFLAGS -fsanitize=address):
+  expansion seed 15, flights, chamber and scene audit pass with 0 ASan errors
+  on the 0044 state.
+- CI: native and iOS runs 38951831349/38951831639 green for 0043-0044.
