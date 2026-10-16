@@ -268,3 +268,25 @@
   progression. Hostel/tram/pyramid branches and complete Mars behavior remain
   open. No iOS compilation, simulator/device acceptance, IPA or real networked
   multiplayer result is implied by these native checks.
+
+
+## Patch 0040 — conversation reliability (2026-10-16)
+
+- Environment: Linux container, no original game data, no iPhone or simulator,
+  Hugging Face blocked (no model weights). Real-model probes were compile-checked
+  only, not executed.
+- Unit-tested: `tools/test_conversation.cpp` (ASan/UBSan, -Werror): causal order
+  with queued sends, backpressure, stale/duplicate completion, departures,
+  rotating groups, classic exclusion from model context, bounds, ID monotonicity.
+- Runtime-tested: `python3 tools/test_talk_runtime.py` builds pinned llama.cpp
+  (CPU) and runs the real iOS dialogue runtime with a scripted provider under
+  ASan and TSan: load survival across room change, queued sends, fallback,
+  departure, ambient pre-emption, end/off mid-reply. The load-survival case
+  fails on the previous logic (verified) and passes with the fix.
+- `test_scene_talk.cpp` updated: no-model sends now succeed with classic lines;
+  bubble order, sanitization and ASCII conversion of smart quotes/emoji.
+- 40 patch prefixes, idempotence, local-edit preservation pass; a fresh
+  upstream checkout plus 0001–0040 reproduces the working tree exactly.
+  Null build and 11 startup tests pass (talk code is iOS-only).
+- NOT verified: UIKit compilation (pending Apple CI), keyboard, layout and
+  touch behaviour on a device, model reply quality or latency.

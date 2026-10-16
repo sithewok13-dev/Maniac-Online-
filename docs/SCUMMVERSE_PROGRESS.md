@@ -2,8 +2,12 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; patch 0039 restores the Mars interior network through shared logical scene setup.
-Next: repair the Mars hostel/airlock, tram and pyramid branch from original logical entries; iPhone acceptance remains open.
+Active milestone: Phase 1; patch 0040 makes scene chat reliable through a portable conversation core.
+Working branch: claude/scummverse-dev (from codex/scummverse-c64-baseline fde0674).
+Apple CI works since the repository became public: iOS run 38789360948 built the
+0039 IPA. Earlier "blocked before steps" notes below are historical.
+Next: user-reported device defects (screenshots pending), portrait layout v2,
+then Mars hostel/airlock, tram and pyramid. iPhone acceptance remains open.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -350,3 +354,30 @@ They do not reproduce the original puzzle sequence. Full Mars support remains
 unfinished: hostel/airlock variants, tram, pyramid branches, NPC behavior and
 original special interactions still need source-based repair. No new iPhone build
 or real multiplayer acceptance is claimed. Private source evidence stays in build/.
+
+
+## Patch 0040 — reliable shared conversation
+
+Root causes found by reading the runtime, not by device reproduction:
+1. `sendTalk` refused every message without a loaded model, while Classic is
+   the default, so Talk never sent on a fresh install.
+2. It also refused while an ambient encounter line generated (up to 5 s) and
+   while earlier replies were pending (up to 30 s per speaker).
+3. A room/player change during an active talk bumped the epoch unconditionally;
+   if a model was loading, the finished load was discarded and never retried.
+4. iOS smart quotes produced UTF-8 that V1 speech bubbles cannot render.
+
+`common/scummverse_conversation.h` (contract v1) owns the ordered transcript,
+stable line IDs, a three-message outbox, rotating two-speaker scheduling,
+departure cancellation and model-context selection. No threads, model or UI.
+The llama runtime is one reply provider; classic authored lines are the
+fallback for no model, filtered output and timeouts, labelled in the UI.
+Messages wait in the outbox and join the transcript only after earlier replies,
+so answers stay causal. A departing speaker's reply is cancelled; the other
+scheduled speaker still answers. Talk pre-empts an ambient line immediately.
+The talk bar renders one attributed, colour-coded transcript, keeps Send enabled
+while replies are pending, follows new lines only when scrolled to the end,
+disables smart quotes and uses a single header row in portrait while typing.
+
+Not done here: conversation persistence across rooms/saves, durable memory,
+network delivery, and device keyboard/rotation acceptance.

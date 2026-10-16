@@ -156,3 +156,13 @@ and compare pixels, object state/anchors, walkbox flags, saves and room graph.
 The exploration preset intentionally opens original puzzle doors. Current room
 count is 127; upstream V1 treats IDs >=128 as pseudo rooms. Further expansion needs
 an explicit ID/mapping design before increasing that bound.
+
+
+## Conversation contract v1 (0040)
+
+`common/scummverse_conversation.h` implements the first slice of the
+Communication row: ordered lines with monotonic IDs, idempotent ticketed
+completion, a bounded outbox and departure handling. Providers (local model,
+classic lines, a future server) are outside it; the iOS runtime serializes
+access with its mutex. UI and engine bubbles read the same transcript. Not yet:
+persistence, network delivery acknowledgments or multi-conversation rooms.

@@ -24,13 +24,14 @@ int main(int argc, char **argv) {
 	Runtime &r = runtime(); int speaker = 0; char speech[160];
 	r.scene(7,3,1u<<10,true,speaker,speech,sizeof(speech)); assert(!r.beginGroup());
 	r.scene(7,3,group,true,speaker,speech,sizeof(speech)); assert(r.beginGroup());
-	assert(r.talkingWith() == group && r.talkingTo() == -1); assert(!r.sendTalk("Hello"));
+	assert(r.talkingWith() == group && r.talkingTo() == -1); assert(r.sendTalk("Hello"));
+	{ std::string a, b; int x, y; assert(r.readTalk(x,a) && r.readTalk(y,b) && x!=y); } // Classic, no model.
 	r.endTalk(); r.configure(argv[1],false);
 	for (int n=0; n<1200 && r.getStatus().find("Ready") != 0; ++n) std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	assert(r.getStatus().find("Ready") == 0); assert(r.beginGroup());
 	int round = 0;
 	for (const char *message : {"Hello Fred and Edna. What is making that noise upstairs?", "Do you two agree about what we should do?"}) {
-		assert(r.sendTalk(message)); assert(!r.sendTalk("Another message")); assert(!r.request(14,7,3));
+		assert(r.sendTalk(message)); assert(!r.request(14,7,3));
 		assert(r.scene(7,3,group,true,speaker,speech,sizeof(speech))==group && speaker==3 && std::string(speech)==message);
 		std::vector<ChatLine> replies;
 		for (int n=0; n<700 && (r.waitingForTalk() || replies.size()<2); ++n) {
@@ -58,10 +59,15 @@ int main(int argc, char **argv) {
 	assert(r.scene(7,3,three,true,speaker,speech,sizeof(speech))==three);
 	assert(r.talkingWith()==three);
 	assert(r.sendTalk("Tell us more."));
-	// Next leading actor is Green; removing him cancels this round, not the chat.
+	// Next leading actor is Green; his departure cancels only his reply.
+	// Fred, also scheduled for this message, still answers.
 	assert(r.scene(7,3,group,true,speaker,speech,sizeof(speech))==group);
-	std::this_thread::sleep_for(std::chrono::milliseconds(700));
-	std::string reply; assert(!r.readTalk(speaker,reply)); assert(!r.waitingForTalk());
+	std::string reply; bool fredReplied=false;
+	for (int n=0; n<400 && (r.waitingForTalk() || !fredReplied); ++n) {
+		while (r.readTalk(speaker,reply)) { assert(speaker==9); fredReplied=true; }
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+	assert(fredReplied && !r.waitingForTalk());
 	assert(r.scene(7,3,1u<<10,true,speaker,speech,sizeof(speech))==(1u<<10));
 	assert(r.talkingTo()==-1);
 	assert(r.scene(10,3,0,true,speaker,speech,sizeof(speech))==0); // Room change discards all state.
