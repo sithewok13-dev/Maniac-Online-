@@ -555,3 +555,23 @@ User report: chat was hard to use (Talk → tap a character in the scene → "+"
   Tapping a character in the scene still works (armPick path unchanged).
 Runtime behavior tested (tools/test_scene_talk.cpp, ASan/UBSan, TSan suite).
 The UIKit layer is compiled only by Apple CI; not device-tested.
+
+## Patch 0053 — local WiFi play (first increment)
+
+Worlds → "Play together on WiFi": one device hosts (TCP port 47913, shows its
+IPv4 addresses), others join by address. Same build and own game files on
+each device; each person plays a different cast member. The host validates
+protocol/content version, capacity (4 joiners) and character uniqueness, and
+relays avatars (room/x/y, ~10/s) and speech. On each device a remote player's
+character is an ordinary actor driven by their updates: no NPC roaming,
+companion, passenger or AI-chat role while controlled; switching to it is
+refused; leaving or disconnecting gives it back. Player chat: lines the
+player says are broadcast; with no NPCs nearby the composer still speaks to
+players. Info.plist has NSLocalNetworkUsageDescription.
+Verified: codec/session tests over loopback (ASan/UBSan, TSan, CI) and an
+engine probe where the real engine hosts and a second in-process session
+joins. NOT verified: two devices, two engine processes, iPhone networking or
+the local-network permission prompt. Not shared: world/NPC state, flights,
+bus, inventory, saves — each device still simulates its own world.
+Next for multiplayer: two-process test, discovery (Bonjour), shared flights
+and an authoritative world model.

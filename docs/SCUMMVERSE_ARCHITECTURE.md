@@ -166,3 +166,17 @@ completion, a bounded outbox and departure handling. Providers (local model,
 classic lines, a future server) are outside it; the iOS runtime serializes
 access with its mutex. UI and engine bubbles read the same transcript. Not yet:
 persistence, network delivery acknowledgments or multi-conversation rooms.
+
+## Local WiFi play (patch 0053)
+
+`common/scummverse_net.{h,cpp}`: portable codec, non-blocking POSIX TCP
+`Session` (host relays; clients talk only to the host) and a mutex-protected
+request/status channel for the UI thread. Frames are length-prefixed and
+strictly validated (actor 1..24, room 1..255, printable ASCII speech ≤160);
+malformed input drops only that connection. `common/scummverse_net_engine.h`
+is a std-free bridge so engine code never includes standard headers after
+ScummVM's forbidden-symbol macros. `engines/scumm/scummverse_net.inc` maps
+peers to cast members and validates rooms against this build
+(`kScummverseNetContent` = room count and patch level). AI proposes;
+deterministic systems validate: remote input never reaches the conversation
+model and never controls the local player's character.

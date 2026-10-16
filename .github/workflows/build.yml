@@ -49,6 +49,13 @@ jobs:
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_text.cpp -o build/test-text
           build/test-text
+      - name: Test local WiFi sessions over loopback (ASan/UBSan and TSan)
+        if: matrix.backend == 'null'
+        run: |
+          c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_net.cpp engine/common/scummverse_net.cpp -o build/test-net -lpthread
+          build/test-net
+          c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=thread -Iengine tools/test_net.cpp engine/common/scummverse_net.cpp -o build/test-net-tsan -lpthread
+          build/test-net-tsan
       - name: Test dialogue runtime without model weights (ASan and TSan)
         if: matrix.backend == 'null'
         run: python3 tools/test_talk_runtime.py

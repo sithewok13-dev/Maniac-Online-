@@ -366,3 +366,10 @@
   land on their clock and reach every destination; NPC flight never blocks the
   player; player flight never auto-lands. Zak-cast: released guests share one
   NPC flight. Bus probe: an NPC rides the bus alone. Not device-tested.
+
+## Patches 0052–0053
+
+- 27/27 data tests pass (adds test_net_engine). tools/test_net.cpp passes under
+  ASan/UBSan and TSan (also in native CI). Talk runtime tests cover chips and
+  the nearby composer. Apple CI built the 0052 IPA (UIKit chat compiles).
+- Not device-tested; not tested between two devices or two engine processes.
