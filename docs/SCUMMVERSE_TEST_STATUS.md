@@ -359,3 +359,10 @@
   patch prefix. Expansion probe walks every link (now including logical scenes),
   checks logical-scene save/load and the borrowed resident actor.
 - Not device-tested; not multiplayer-tested.
+
+## Patch 0051
+
+- 26/26 data tests pass. Airport probe: 100+ random NPC flights board seated,
+  land on their clock and reach every destination; NPC flight never blocks the
+  player; player flight never auto-lands. Zak-cast: released guests share one
+  NPC flight. Bus probe: an NPC rides the bus alone. Not device-tested.

@@ -84,4 +84,16 @@
 			error("Hidden bus rider drawn at phase %d row %d",_scummVars[765],y);
 	}
 	if (_currentRoom!=53) error("Ghost check ride did not arrive");
+	// NPCs ride on their own: an NPC at the stop calls the bus, rides hidden
+	// and arrives at the airport while the player watches from there.
+	{
+		Actor *rider=derefActor(10,"independent rider"); rider->stopActorMoving(); rider->putActor(92,59,55); _scummVars[780]=0;
+		Roamer &r=_scummverseRoamers[10]; r=Roamer(); r.room=55; r.exit=78; r.elapsed=100000;
+		bool rode=false;
+		for (int tick=0;tick<400 && rider->_room!=53;++tick) {
+			VAR(VAR_HAVE_MSG)=0; stopTalk(); scummverseUpdateRoaming(4);
+			if (_scummVars[766] & (1u<<10)) rode=true;
+		}
+		if (!rode || rider->_room!=53 || _currentRoom!=53 || _scummVars[765]) error("NPC did not ride the bus: rode %d room %d phase %d",rode,rider->_room,_scummVars[765]);
+	}
 	warning("SCUMMVERSE_BUS_PASS enabled=1"); quitGame();

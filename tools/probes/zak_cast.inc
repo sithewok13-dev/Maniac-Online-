@@ -44,5 +44,9 @@
 		_scummverseRoamers[id].room=57; _scummverseNpcDestination[id]=4; _scummverseNpcBoarding[id]=0;
 	}
 	stopTalk(); VAR(VAR_HAVE_MSG)=0; scummverseUpdateRoaming(4);
+	// Released guests board one flight together, then land on its clock.
+	for(int id=20;id<=22;++id) if(derefActor(id,"independent boarding")->_room!=56 || !(_scummVars[725]&(1u<<id))) error("Guest did not board independently");
+	if(_scummVars[724]!=4 || _scummVars[726]!=57 || !_scummVars[796]) error("Guests did not share an NPC flight");
+	_scummVars[795]=30000; scummverseUpdateTransit(4); // past any flight time
 	for(int id=20;id<=22;++id) if(derefActor(id,"independent travel")->_room!=1) error("Guest cannot travel independently");
 	warning("SCUMMVERSE_ZAK_CAST_PASS enabled=1");quitGame();

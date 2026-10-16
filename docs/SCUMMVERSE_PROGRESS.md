@@ -527,3 +527,17 @@ survives save/load, actor returned on leaving, never taken from the mansion.
 Not done: Guru's original approach script 42, Stonehenge sentry (costume 24),
 airport devotee (25), SF shops 5/6/7, apartment room 2, pyramid mazes
 (resource 23), Mars pyramid 84/188.
+
+## Patch 0051 — NPCs fly on their own
+
+NPC travellers no longer teleport when their boarding timer ends. They board
+the shared cabin: join the flight on their route at their gate, or start one
+when the cabin is free (var 796 marks an NPC-started flight). A flight whose
+riders do not include the controlled actor lands on its own after
+kNpcFlightTime (1800 timer units, about 30 s; var 795 is the saved clock);
+riders appear at the destination airport. The player is never blocked: boarding
+a different route lands an NPC-started flight first. While the player flies,
+NPCs on other routes wait at their gate, and the player's flight lands only on
+Arrive. NPCs already called and rode the bus on their own (street stop
+passage); the bus probe now proves it without the player.
+Still a single cabin: concurrent flights remain future work.
