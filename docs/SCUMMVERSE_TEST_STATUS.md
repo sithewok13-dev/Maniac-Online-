@@ -351,3 +351,11 @@
 - ASan expansion (seed 15) clean. 46 patch prefixes; startup tests pass.
 
 - CI for 0046 (fdd7249): native and iOS run 38955494557 green; IPA artifact 12069933388.
+
+## Patches 0047–0050
+
+- 26/26 data tests pass (`tools/test_all_data.py`), scene audit 64/75 exact
+  with no failures; dialogue runtime tests pass; bootstrap reconstructs every
+  patch prefix. Expansion probe walks every link (now including logical scenes),
+  checks logical-scene save/load and the borrowed resident actor.
+- Not device-tested; not multiplayer-tested.

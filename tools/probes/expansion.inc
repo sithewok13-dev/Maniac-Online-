@@ -12,17 +12,46 @@
 	scummverseRosterOffer(); memcpy(bootFaces,FakeFaces::pixels,sizeof(bootFaces));
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
-		if(ProbeCatalog::zakRetiredRoomReplacement(room)) {
-			if(room!=64 && room!=65) error("Unexpected retired room %d",room);
-			if(scummverseTravel(room-50)) error("Retired room %d is still reachable",room);
-			continue;
-		}
+		if(ProbeCatalog::zakRetiredRoomReplacement(room)) error("Unexpected retired room %d",room);
 		if(!scummverseTravel(room-50)) error("Room mount failed %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/expanded-room-%d.ppm",room)))) {
 			Common::String header=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(header.c_str(),header.size());
 			for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);}
 		}
+	}
+	// Original logical scenes (rooms 128+) share a physical resource through
+	// the saved resource mapper; each mounts and survives save/load.
+	for(const auto &scene:ProbeCatalog::zakLogicalScenes) {
+		if(!scummverseTravel(scene.room-50) || _currentRoom!=scene.room) error("Logical scene %d failed: %s",scene.room,_scummverseWorldNotice.c_str());
+		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
+		Common::String file;_saveLoadDescription="Logical scene";
+		if(!saveState(11,false,file)||!loadState(11,false)) error("Logical scene save failed %d",scene.room);
+		if(_currentRoom!=scene.room || _resourceMapper[scene.room&0x7F]!=scene.physical)
+			error("Logical scene %d lost on load: view %d mapper %d",scene.room,_currentRoom,_resourceMapper[scene.room&0x7F]);
+	}
+	// Original residents: the Nepal guard and the Guru appear in their own
+	// scenes through the borrowed actor, and the mansion gets it back.
+	{
+		Actor *resident=derefActor(ProbeCatalog::kZakResidentActor,"resident probe"); const int maniacCostume=resident->_costume;
+		for(const auto &expected:ProbeCatalog::zakResidents) {
+			if(!scummverseTravel(expected.room-50)) error("Cannot visit resident %s",expected.name);
+			stopTalk();VAR(VAR_HAVE_MSG)=0;for(int n=0;n<8;++n) scummLoop(4);
+			if(resident->_room!=expected.room || resident->_costume!=expected.costume || strcmp((const char *)getObjOrActorName(ProbeCatalog::kZakResidentActor),expected.name) || !resident->_visible)
+				error("Resident %s missing: room %d costume %d",expected.name,resident->_room,resident->_costume);
+			setCameraFollows(resident);for(int n=0;n<4;++n) scummLoop(4);
+			Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/resident-%d.ppm",expected.room)))) {
+				Common::String header=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(header.c_str(),header.size());
+				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);}
+			}
+			Common::String file;_saveLoadDescription="Resident";
+			if(!saveState(12,false,file)||!loadState(12,false)||resident->_room!=expected.room||resident->_costume!=expected.costume) error("Resident %s lost on load",expected.name);
+		}
+		if(!scummverseTravel(3) || resident->_room!=0 || resident->_costume!=maniacCostume || _scummVars[768]) error("Resident actor not returned: room %d costume %d",resident->_room,resident->_costume);
+		// A mansion scene using the actor (police ending) is never interrupted.
+		resident->putActor(35,63,4); scummverseTravel(17);
+		if(resident->_room!=4 || resident->_costume!=maniacCostume) error("Resident borrowed an actor in use by the mansion");
+		resident->putActor(0,0,0); scummverseTravel(3);
 	}
 	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24};
 	for(int id:cast) {

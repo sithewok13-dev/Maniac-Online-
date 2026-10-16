@@ -2,14 +2,14 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; patch 0040 makes scene chat reliable through a portable conversation core.
+Active milestone: Phase 1; latest patch 0050 (original routes, logical scenes, Guru and Nepal guard).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
 Apple CI works since the repository became public: iOS run 38789360948 built the
 0039 IPA. Earlier "blocked before steps" notes below are historical.
-Next: user-reported device defects (screenshots pending), portrait layout v2,
-then Mars hostel/airlock, tram and pyramid. iPhone acceptance remains open.
+Next (user request 2026-10-16): NPCs riding bus/plane on their own, chat UX
+overhaul, local WiFi multiplayer first increment. iPhone acceptance remains open.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -42,8 +42,8 @@ they do not establish source-game authenticity or real multiplayer correctness.
    Physical iPhone verification and multiple simultaneous flights remain open.
 7. Chat/AI: platform-owned runtime, limited context, no durable messaging contract.
    Preserve the prior Metal buffer ownership crash fix and model integrity checks.
-8. Missing NPCs: verify Elvis-related content, Guru levitation and Nepal guards
-   using supplied resources; do not invent identity or animation mappings.
+8. Missing NPCs: The King (0045), Guru and Nepal guard (0050) restored from
+   original costumes and entry scripts. Sentry/devotee and Guru script remain.
 
 ## Roadmap and limits
 
@@ -484,3 +484,46 @@ point; eyes, windows and valley follow the original graph. Rooms 97/98 reuse
 retired IDs for the eye chambers; the Peru pad lands at 137's platform.
 Not done: a playable/animated bird (original actor 6 / costume 15; actor slot
 6 is Wendy in Maniac), Nepal guard station (resource 18).
+
+## Patches 0047–0049 — device report fixes (portraits, bus ghost, speech)
+
+From the user's device screenshots (2026-10-16):
+- 0047: character-gallery portraits drew Zak-side cast headless. V1 frames only
+  update masked limbs, so the boot portrait decodes init, stand and talk-stop
+  frames. Expansion probe compares boot portraits to later ones.
+- 0048: the bus left a frozen image of the boarded player. Root cause: a full
+  redraw drew hidden actors (drawActorCostume ignores `_visible`); hidden actors
+  are skipped in the sandbox and riders are boarded once. Bus probe checks the
+  frame after pickup.
+- 0049: NPC speech split words at 28 columns and was dark text on busy scenes.
+  `common/scummverse_text.h` wraps on word boundaries (tools/test_text.cpp, CI);
+  sandbox speech has a solid backdrop, outline and brightened EGA colors.
+Compiled and data-tested on Linux; not device-tested.
+
+## Patch 0050 — logical scenes, original routes, Guru and Nepal guard
+
+Logical scenes ≥128 (`zakLogicalScenes`): Stonehenge 134, Egypt pyramid
+passage 135, Zaire shaman's hut 151, Mars hostel bunks 181 mount through the
+saved resource mapper on their physical resource. Retired 64/65 now hold
+original scenes: 64 = Kathmandu guard station (resource 18), 65 = San Francisco
+phone company (resource 4); 71 is the Mars pyramid entrance (183).
+Routes follow original object scripts (private descumm): Nepal street door 350
+→ guard station, temple door 351 → Guru (arrival 375), yak 352 → airport
+(the original $100 ride; free here); SF street → phone company → Caponian HQ;
+HQ rope → Zak's apartment (link destination 54 now maps to travel 1);
+Cairo → Sphinx → pyramid passage 135 / legs / Sphinx; Mars landing ↔ pyramid
+entrance; hostel ↔ bunks; Zaire village ↔ hut; Stonehenge 133 ↔ 134.
+Scene audit 64/75 exact, no failures (rest tolerated/unaudited).
+
+Residents: Maniac actors 12 (Dead Cousin Ted), 15 (Meteor Police, scripts
+42/43/124) and 16 (Meteor) are all referenced. Actor 15 is borrowed only while
+the player views a resident scene and only when the mansion is not using it
+(room 0); var 768 = borrowing scene, 769 = Maniac costume to restore.
+Costumes 42/43 = Zak 26/22 (`_numCostumes` 44, static, not saved). Nepal guard
+at the temple door (80,11 anim 250), Guru seated before the statue (60,56 anim
+251), both with original colors; chat addresses them (authored personalities
+and offline lines in `zakResidents`). Expansion probe: each resident present,
+survives save/load, actor returned on leaving, never taken from the mansion.
+Not done: Guru's original approach script 42, Stonehenge sentry (costume 24),
+airport devotee (25), SF shops 5/6/7, apartment room 2, pyramid mazes
+(resource 23), Mars pyramid 84/188.

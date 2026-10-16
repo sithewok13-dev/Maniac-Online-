@@ -22,6 +22,20 @@
 		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(h.c_str(),h.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte p=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*p,3);}
 	}
+	// Logical scenes (rooms 128+) sharing an imported resource.
+	for(const auto &scene : ProbeCatalog::zakLogicalScenes) {
+		const int room=scene.room;
+		if(!scummverseTravel(room-50)) error("Scene audit cannot enter logical %d: %s",room,_scummverseWorldNotice.c_str());
+		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
+		for(int id=1;id<25;++id) derefActor(id,"scene audit")->hideActor();
+		stopTalk();VAR(VAR_HAVE_MSG)=0;setCameraAtEx(VAR(VAR_CAMERA_MIN_X));cameraMoved();updateObjectStates();_fullRedraw=true;scummLoop_handleDrawing();
+		report+=Common::String::format(",{\"room\":%d,\"resource\":%d,\"camera\":[%d,%d],\"palette\":[%d,%d,%d]}",
+			room,ProbeCatalog::zakPlaces[scene.physical-56].file,VAR(VAR_CAMERA_MIN_X),VAR(VAR_CAMERA_MAX_X),_roomPalette[0],_roomPalette[1],_roomPalette[2]);
+		Common::DumpFile shot;
+		if(!shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/scene-audit/sbx-%d.ppm",room)))) error("Cannot write scene audit");
+		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(h.c_str(),h.size());
+		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte p=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*p,3);}
+	}
 	report+="]}\n";Common::DumpFile out;
 	if(!out.open(Common::Path("/workspace/Maniac-Online/build/scene-audit/sandbox.json"))) error("Cannot write scene audit report");
 	out.write(report.c_str(),report.size());out.close();

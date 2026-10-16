@@ -219,3 +219,10 @@ bird feeder (621) is the explicit traversal; walking boxes stay restricted.
 Sandbox 69/97/98 now hold 138/136/137 (97/98 reuse IDs retired in 0044; saves
 older than schema 2 still migrate their invented-scene occupants). Nepal's
 Guru sanctuary no longer leads into the carving. Audit: 57/71 exact.
+
+## Patch 0050
+
+64 = Kathmandu guard station (18), 65 = phone company (4), 71 = Mars pyramid
+entrance (183); logical scenes 134/135/151/181 mount on their physical rooms
+through the resource mapper with generated original setups. Audit: 64/75 exact,
+no mismatches.
