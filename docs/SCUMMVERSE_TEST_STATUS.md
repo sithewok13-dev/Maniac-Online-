@@ -299,3 +299,10 @@
   exact iPhone 14 / SE figures. Original 49 v1 cases unchanged.
 - 41 patch prefixes reconstruct; null build and 11 startup tests pass.
 - NOT verified: UIKit/renderer compilation (Apple CI), on-device appearance.
+
+## Apple CI for 0040–0042 (2026-10-16)
+
+- iOS run 38919709518 (0040) and 38920692079 (0040–0042, commit 7f373eb):
+  UIKit/renderer compile, arm64 IPA packaged. Artifact 12055045974.
+- Native runs 38919709561 and 38920691938: green, including runtime ASan/TSan.
+- Compiled is not device-tested: chat, layout and airport labels await iPhone checks.
