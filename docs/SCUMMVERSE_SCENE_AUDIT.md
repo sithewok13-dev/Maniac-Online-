@@ -190,7 +190,7 @@ Source evidence (private descumm of the user's English DOS V1 files):
 - Jungle resource 37 backs logical 168-175, a random maze; colors depend on
   region (Zaire 9/7, Peru 9/3, elsewhere 9/13).
 - Crystal map (room 29, objects 480-486, script 60) teleports only to Seattle
-  129, Mexico 130, Nepal 137, Egypt 25 and Mars 193. No Zaire/Peru chamber.
+  129, Mexico 130, Peru carving eye 137, Egypt 25 and Mars 193. No Zaire chamber.
 - Resource 39 (temple exterior) has no pseudo-rooms: it is Mexico's only.
 - Split scenes: village 150/151, hostel 180/181, Stonehenge 133/134.
 
@@ -204,3 +204,18 @@ Open (64/65/97/98 retired in patch 0044): sandbox "Cairo"
 (71) is a pyramid-interior passage that matches no original scene; "Mars
 pyramid" (84) shows the left half of resource 15 (original 188 uses the right
 half); village 151, hostel 181 and Stonehenge 134 are not yet imported.
+
+
+## Peru carving interior and bird traversal — patch 0046
+
+Resource 43 is the inside of Peru's giant carving, not Nepal: logical 138 is
+the ledge (camera 480; valley -> carving 42 at object 620), 136/137 the left
+and right eye chambers (camera 160; window -> ledge at the matching eye).
+137's platform 632 is the crystal-map site. In carving 42 the huge carving
+(620) refuses walkers ("It's way across the valley!" / "I don't have wings!");
+only the bird (actor 6, costume 15) enters 138 at (61,51), with entry 627
+swapping ground and aerial box locks. The sandbox has no playable bird, so the
+bird feeder (621) is the explicit traversal; walking boxes stay restricted.
+Sandbox 69/97/98 now hold 138/136/137 (97/98 reuse IDs retired in 0044; saves
+older than schema 2 still migrate their invented-scene occupants). Nepal's
+Guru sanctuary no longer leads into the carving. Audit: 57/71 exact.

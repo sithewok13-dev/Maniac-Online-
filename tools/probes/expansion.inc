@@ -9,6 +9,7 @@
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
 		if(ProbeCatalog::zakRetiredRoomReplacement(room)) {
+			if(room!=64 && room!=65) error("Unexpected retired room %d",room);
 			if(scummverseTravel(room-50)) error("Retired room %d is still reachable",room);
 			continue;
 		}
@@ -66,11 +67,11 @@
 	}
 	// Every original crystal-map site has an active platform hotspot, and each
 	// pad command lands in that site's room (Seattle, Mexico, Nepal, Egypt, Mars).
-	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(69,734),Common::Point(76,747),Common::Point(125,734)}) {
+	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(76,747),Common::Point(125,734)}) {
 		scummverseTravel(pad.x-50);int before=FakeAI::airportOffers;
 		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active %d",pad.x);
 	}
-	const int padRooms[]={92,89,69,76,125};
+	const int padRooms[]={92,89,98,76,125};
 	for(int command=0;command<5;++command) {
 		scummverseTravel(3);
 		scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|(50+command));scummverseUpdateRoaming(0);
@@ -78,6 +79,20 @@
 	}
 	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|55);scummverseUpdateRoaming(0);
 	if(_currentRoom!=125) error("Out-of-range teleport command moved the player");
+	// Peru carving: walkers cannot cross the valley (original refusal lines);
+	// the bird feeder carries them to the ledge at the original arrival point,
+	// and the ledge, eye chambers and valley form the original graph.
+	if(!scummverseTravel(46)) error("Cannot reach Peru carving");
+	runObjectScript(733,13,false,false,nullptr);
+	if(_currentRoom!=96 || !(getState(733)&4)) error("Carving let a walker cross the valley");
+	runObjectScript(733,13,false,false,nullptr); if(_currentRoom!=96) error("Second carving attempt crossed");
+	runObjectScript(736,13,false,false,nullptr);
+	{ Actor *p=derefActor(VAR(VAR_EGO),"carving visitor");
+	  if(_currentRoom!=69 || p->getRealPos()!=Common::Point(61,51)) error("Bird traversal failed: room %d at %d,%d",_currentRoom,p->getRealPos().x,p->getRealPos().y); }
+	for(const auto &step : {Common::Point(739,97),Common::Point(738,69),Common::Point(740,98),Common::Point(738,69),Common::Point(741,96)}) {
+		runObjectScript(step.x,13,false,false,nullptr);
+		if(_currentRoom!=step.y) error("Carving graph step %d reached %d, expected %d",step.x,_currentRoom,step.y);
+	}
 	if(!scummverseTravel(5)) error("Street failed");
 	for(int n=0;n<300;++n) scummverseServiceBus(4);
 	if(_scummVars[765] || _currentRoom!=55) error("Bus departed without request");

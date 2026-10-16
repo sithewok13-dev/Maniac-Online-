@@ -341,3 +341,11 @@
   expansion seed 15, flights, chamber and scene audit pass with 0 ASan errors
   on the 0044 state.
 - CI: native and iOS runs 38951831349/38951831639 green for 0043-0044.
+
+## Patch 0046
+
+- 26/26 data tests pass. Expansion probe: carving refuses walkers twice with
+  both original lines, feeder traversal lands at (61,51) on the ledge, five-step
+  eye/window/valley graph, Peru pad lands in eye chamber 98.
+- Scene audit 57/71 exact; 69/97/98 exact against 138/136/137.
+- ASan expansion (seed 15) clean. 46 patch prefixes; startup tests pass.

@@ -450,7 +450,7 @@ chamber) have no original counterpart. Their IDs stay allocated; no link,
 pad or travel request reaches them; saved occupants move to the village (63)
 or carving (96) on load (var 528 = schema 2). Jungle exits follow the first
 original jungle scene. Crystal pads are the five original map sites with
-original platform arrivals: Seattle 92, Mexico 89, Nepal 69, Egypt 76 (newly
+original platform arrivals: Seattle 92, Mexico 89, Peru 98 (0046), Egypt 76 (newly
 added) and Mars 125 (was the non-original pad in room 84). The iOS panel lists
 five sites. Next scene work: Cairo (71 is a pyramid passage, not Cairo), Mars
 pyramid 84, split scenes 151/181/134, Nepal guard station (resource 18).
@@ -473,3 +473,14 @@ Original NPC sources (private descumm, for the next NPC slice):
 Adding Guru/guard needs new actor slots. Maniac scripts reference 12/15/16 and
 also 8/17-19 (already repurposed); audit each reference (likely blocked
 cutscenes) before allocating. Not done in this session.
+
+## Patch 0046 — Peru carving interior; bird traversal (navigation item)
+
+Original data shows resource 43 is Peru's carving interior (ledge 138, eye
+chambers 136/137), not a Nepal sanctuary. Walkers still cannot cross the
+valley: the carving gives the original refusal lines. The bird feeder is an
+explicit traversal (ZakTraversal table) to the ledge at the original arrival
+point; eyes, windows and valley follow the original graph. Rooms 97/98 reuse
+retired IDs for the eye chambers; the Peru pad lands at 137's platform.
+Not done: a playable/animated bird (original actor 6 / costume 15; actor slot
+6 is Wendy in Maniac), Nepal guard station (resource 18).

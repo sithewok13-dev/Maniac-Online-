@@ -47,7 +47,7 @@
   }
  }
  for(int room : {72,87}) {_currentRoom=room;if(!scummverseDistantScene()) error("Missing exterior policy");}
- for(int room : {64,97}) {_currentRoom=room;if(scummverseDistantScene()) error("Retired room kept exterior policy");}
+ for(int room : {64,97}) {_currentRoom=room;if(scummverseDistantScene()) error("Former temple room kept exterior policy");}
  for(int room : {1,54,58,73,88}) {_currentRoom=room;if(scummverseDistantScene()) error("Unrelated room scaled");}
  _currentRoom=72;_scummversePortrait=true;if(scummverseDistantScene()) error("Portrait inherits scene scale");
  _scummversePortrait=false;_currentRoom=savedRoom;
