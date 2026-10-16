@@ -46,7 +46,7 @@ object states and validated transitions. Original SCUMM versions differ; preserv
 version-specific behavior behind adapters. Start with Maniac and Zak, then choose
 another edition only after inspecting its actual format and licensing.
 
-## Mobile presentation contract v1
+## Mobile presentation contract v1 (v2 since 0041: optional width and game aspect cap the game region at its aspect-fit height)
 
 `common/scummverse_layout.h` owns portrait vertical-region allocation in host-view
 points. It consumes host height and bottom occlusion, emitting disjoint game,
