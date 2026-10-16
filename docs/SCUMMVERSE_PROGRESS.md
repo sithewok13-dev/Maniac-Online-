@@ -575,3 +575,15 @@ the local-network permission prompt. Not shared: world/NPC state, flights,
 bus, inventory, saves — each device still simulates its own world.
 Next for multiplayer: two-process test, discovery (Bonjour), shared flights
 and an authoritative world model.
+
+## Patch 0054 — bounded text outline (memory-safety fix for 0049)
+
+ASan found heap overflows in `CharsetRendererPC::drawBits1`: 0049 forced the
+outline shadow on all sandbox V1 text, and the outline's one-pixel offset
+wrote past small surfaces (the 16-row message line, during Maniac script
+prints). Upstream never outlined V1 text, so it had no bounds there. The
+outline now applies only to sandbox speech on the text surface, and every
+outline/glyph write is checked against the destination surface. Found by
+running the probes under the ASan build; 22 probes plus the scene audit are
+now ASan-clean. Speech capture unchanged. Device builds before 0054 could
+corrupt heap memory when such a message printed.

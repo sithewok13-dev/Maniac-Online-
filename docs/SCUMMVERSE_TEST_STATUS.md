@@ -373,3 +373,12 @@
   ASan/UBSan and TSan (also in native CI). Talk runtime tests cover chips and
   the nearby composer. Apple CI built the 0052 IPA (UIKit chat compiles).
 - Not device-tested; not tested between two devices or two engine processes.
+
+## Patch 0054
+
+- ASan build: expansion, net_engine, airport, worlds, bus, flights, flight_join,
+  companions, companion_presence, seating, zak_cast, portraits, walkboxes,
+  perspective, chamber, temple, mars and the scene audit run with 0 errors
+  (the 0049 overflow was found this way). test_exploration, test_safety,
+  test_roaming and test_ai_encounters have no --build option (not ASan-run).
+- 27/27 data tests pass on the normal build.
