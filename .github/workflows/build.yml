@@ -39,3 +39,11 @@ jobs:
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_seats.cpp -o build/test-seats
           build/test-seats
+      - name: Test portable conversation contract
+        if: matrix.backend == 'null'
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine tools/test_conversation.cpp -o build/test-conversation
+          build/test-conversation
+      - name: Test dialogue runtime without model weights (ASan and TSan)
+        if: matrix.backend == 'null'
+        run: python3 tools/test_talk_runtime.py

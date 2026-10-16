@@ -2,7 +2,7 @@ name: iOS unsigned IPA
 
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, 'codex/**', 'claude/**']
     paths:
       - '.github/workflows/ios-ipa.yml'
       - 'tools/**'
