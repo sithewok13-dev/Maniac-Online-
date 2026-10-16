@@ -3,7 +3,9 @@
 ## Scope and baseline
 
 Active milestone: Phase 1; patch 0040 makes scene chat reliable through a portable conversation core.
-Working branch: claude/scummverse-dev (from codex/scummverse-c64-baseline fde0674).
+Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
+PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
+claude/scummverse-dev holds the same commits and is superseded.
 Apple CI works since the repository became public: iOS run 38789360948 built the
 0039 IPA. Earlier "blocked before steps" notes below are historical.
 Next: user-reported device defects (screenshots pending), portrait layout v2,
@@ -409,3 +411,16 @@ Nepal guards exist in code. Peru boxes 6-8 are invisible to walkers; no bird
 traversal. Zaire, Mexico and Peru "temple" rooms all use resource 39 (the
 Mexico exterior per audit) with no logical setup: verify with original data.
 Edge case: residents 8/17-19 are set up under var 764 but gated by var 763.
+
+## Original data needed for scene work (not in the repository)
+
+Place privately in ignored folders; never commit or upload publicly:
+- `game-data/mm-dos/`: every `.LFL` from English Maniac Mansion DOS **V1**
+  (including `00.LFL`; not the enhanced V2, C64, NES or demo releases).
+- `game-data/zak-dos/`: every `.LFL` from English Zak McKracken DOS **V1**
+  (index MD5 7020931d5a2be0a49d68e7a1882363e4). Each imported room is
+  checked against a pinned per-file MD5; mismatches are rejected.
+Needed for: scene/logical-room audits (shared resource 39), walkboxes, scale,
+NPC costumes (Guru, Nepal guards, Elvis-related character), Mars rooms, and
+tools/test_expansion.py and the reference probes. Optional: device saves that
+reproduce bugs, kept in ignored build/ folders.
