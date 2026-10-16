@@ -349,3 +349,5 @@
   eye/window/valley graph, Peru pad lands in eye chamber 98.
 - Scene audit 57/71 exact; 69/97/98 exact against 138/136/137.
 - ASan expansion (seed 15) clean. 46 patch prefixes; startup tests pass.
+
+- CI for 0046 (fdd7249): native and iOS run 38955494557 green; IPA artifact 12069933388.
