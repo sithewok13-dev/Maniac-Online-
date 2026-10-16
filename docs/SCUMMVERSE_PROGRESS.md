@@ -393,3 +393,19 @@ the aspect-fit height. Freed space goes to chat (366 -> 475 points there).
 Height-limited cases (keyboard visible) are unchanged. "Upper half" cannot be
 reached at full width without cropping; the scene stays at maximum width.
 Not device-verified: real safe areas, rotation and touch conversion.
+
+## Patch 0042 — airport VoiceOver labels; code audit notes
+
+Row buttons on the destination/teleport panel always announced the first page
+(Maniac Mansion..Miami). Names now come from one list shared with drawing,
+are relabelled per page, and rows past the end are hidden.
+
+Code audit (2026-10-16, from source, not device): only one flight can exist
+(vars 724-727); NPCs without a matching flight are moved to their destination
+directly, no plane (roaming.inc ~338). The airport is reached by an edge test
+needing exactly x==0 in room 1. The destination panel imitates the Zak screen
+with drawn pixel text, not original art. No Elvis-related character, Guru or
+Nepal guards exist in code. Peru boxes 6-8 are invisible to walkers; no bird
+traversal. Zaire, Mexico and Peru "temple" rooms all use resource 39 (the
+Mexico exterior per audit) with no logical setup: verify with original data.
+Edge case: residents 8/17-19 are set up under var 764 but gated by var 763.
