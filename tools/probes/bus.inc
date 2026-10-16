@@ -6,7 +6,7 @@
 	}
 	for (uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
-	if (_numRooms != 99 || !scummverseTravel(1)) error("Bus room capacity or apartment import failed");
+	if (_numRooms != ScummverseContent::kRoomCount || !scummverseTravel(1)) error("Bus room capacity or apartment import failed");
 	Actor *player=derefActor(3,"bus passenger");
 	Common::Point oldPos=player->getRealPos();
 	_scummverseStreetMounted=false; _scummverseStreetRoom.clear(); _scummVars[762]=0;

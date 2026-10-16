@@ -424,3 +424,21 @@ Needed for: scene/logical-room audits (shared resource 39), walkboxes, scale,
 NPC costumes (Guru, Nepal guards, Elvis-related character), Mars rooms, and
 tools/test_expansion.py and the reference probes. Optional: device saves that
 reproduce bugs, kept in ignored build/ folders.
+
+## Patch 0043 — original airports and scene views (data-verified)
+
+Original data was supplied for this session (English DOS V1 Maniac and Zak;
+kept in ignored game-data/). The new scene authenticity audit compares every
+imported room against the original interpreter. Seattle, Miami, London and
+Mexico City now use the original big-airport resource with each city's
+logical setup; regional airports, jungles, crystal chamber 129, village 150,
+hostel 180 and Stonehenge 133 use generated original setups
+(tools/gen_zak_scene_setup.py). A ZakSceneView table replaces the hard-coded
+color switch. Airport gate/terminal handling resolves original object roles,
+not import indices. Saves made inside a converted airport are rebuilt on load
+(var 528 = scene schema). See SCUMMVERSE_SCENE_AUDIT.md for evidence.
+
+Test runner: `python3 tools/test_all_data.py game-data/mm-dos game-data/zak-dos`
+runs every data test in order. It exposed three stale probes (bus/companions
+room count, roaming missing the shared prelude, Seattle exit index); all fixed.
+Probe captures previously used a private absolute path and silently skipped.

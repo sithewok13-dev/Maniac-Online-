@@ -168,3 +168,39 @@ copied proprietary scripts or artwork. Native walking-hotspot tests additionally
 exercise the registered exits. Hostel rooms 180/181, exterior/tram 184/185 and the
 pyramid branch remain separate pending repairs; existing shortcuts there must not
 be treated as canonical geography.
+
+
+## Scene authenticity audit and original airports — patch 0043 (2026-10-16)
+
+`tools/test_scene_authenticity.py` renders every imported sandbox room and the
+candidate original logical scenes (through Zak's own entry handlers, with a
+fixed random seed) and compares the actor-free viewport at the camera minimum
+pixel for pixel, plus camera bounds. Candidates come from the original pseudo-
+room table, read from the supplied data at run time (49.LFL `0xCC` records).
+Captures and reports stay in ignored build/scene-audit.
+
+Source evidence (private descumm of the user's English DOS V1 files):
+- Tickets 659-667 (script 58 names, script 120 targets): London 141, Mexico City
+  142, Miami 143, Seattle 144, San Francisco 145 use big-airport resource 8;
+  Cairo 146, Kinshasa 147, Katmandu 148, Lima 149 use regional resource 9.
+- Airport exits: London -> Stonehenge 133, Mexico City -> jungle 168, Seattle ->
+  forest 12, Cairo -> Sphinx 20, Katmandu -> street 17, Kinshasa -> jungle 170
+  (then village 150 after five scenes), Lima -> jungle 175 (then carving 42).
+  Miami has no exit ("closed for repairs").
+- Jungle resource 37 backs logical 168-175, a random maze; colors depend on
+  region (Zaire 9/7, Peru 9/3, elsewhere 9/13).
+- Crystal map (room 29, objects 480-486, script 60) teleports only to Seattle
+  129, Mexico 130, Nepal 137, Egypt 25 and Mars 193. No Zaire/Peru chamber.
+- Resource 39 (temple exterior) has no pseudo-rooms: it is Mexico's only.
+- Split scenes: village 150/151, hostel 180/181, Stonehenge 133/134.
+
+Results: before 41/71 rooms exact; after 55/71. Audited rooms all match:
+airports (now original resource and logical setup, incl. SEA-TAC/MIA signs),
+jungles 170/168/175, Seattle chamber 129, village 150, hostel 180, Stonehenge
+133, cabin colors/camera, shuttle colors, and Mexico chamber colors. Explained
+differences: Seattle forest (cave opening shown dug, by design) and machine
+room defaults (covered by the Mars reference test).
+Open: rooms 64/65/97/98 are not in the original (next patch); sandbox "Cairo"
+(71) is a pyramid-interior passage that matches no original scene; "Mars
+pyramid" (84) shows the left half of resource 15 (original 188 uses the right
+half); village 151, hostel 181 and Stonehenge 134 are not yet imported.

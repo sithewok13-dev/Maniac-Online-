@@ -3,6 +3,9 @@
 import argparse
 import hashlib
 from test_exploration import ROOT, run_probe
+# The shared prelude replaces the boot character gallery's modal desktop
+# dialog, which would otherwise wait forever in the headless backend.
+from test_ai_encounters import PRELUDE
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -11,4 +14,4 @@ if __name__ == '__main__':
     if hashlib.md5((data/'00.LFL').read_bytes()).hexdigest() != '7f45ddd6dbfbf8f80c0c0efea4c295bc':
         parser.error('Requires audited original English DOS V1')
     run_probe(data, (ROOT/'tools/probes/roaming.inc').read_text(),
-              'scummverse_roaming', 'SCUMMVERSE_ROAMING_PROBE_PASS', 'roaming')
+              'scummverse_roaming', 'SCUMMVERSE_ROAMING_PROBE_PASS', 'roaming', PRELUDE)

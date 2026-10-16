@@ -306,3 +306,17 @@
   UIKit/renderer compile, arm64 IPA packaged. Artifact 12055045974.
 - Native runs 38919709561 and 38920691938: green, including runtime ASan/TSan.
 - Compiled is not device-tested: chat, layout and airport labels await iPhone checks.
+
+## Patch 0043 — with original data (2026-10-16)
+
+- Data: user-supplied English DOS V1 Maniac (00.LFL 7f45ddd6...) and Zak
+  (00.LFL 7020931d..., all 31 pinned room files match). Not committed.
+- `tools/test_all_data.py`: 26 data tests. All pass except the scene audit,
+  which fails only on rooms 64/65/97/98 (not in the original; patch 0044).
+- Scene audit: 55/71 exact (was 41/71); reference proven deterministic (two
+  runs byte-identical). It also caught a regression during development
+  (Mexico chamber colors), fixed before commit.
+- Pre-existing roaming timeout reproduced on the unmodified 0042 baseline;
+  cause was the probe missing the shared prelude (modal desktop dialog).
+- Native null build, startup tests and 43 patch prefixes pass.
+- NOT verified: iPhone, animation, scrolling frames beyond the camera minimum.

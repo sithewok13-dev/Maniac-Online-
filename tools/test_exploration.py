@@ -90,6 +90,8 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         if code.count(boundary) != 1:
             raise RuntimeError('Pinned runBootscript boundary changed')
         probe = work/'scumm.cpp'
+        # Probes write private captures to <checkout>/build, wherever it lives.
+        probe_code = probe_code.replace('/workspace/Maniac-Online/build', str(ROOT/'build'))
         probe.write_text(code.replace(boundary, '\n' + probe_code + boundary))
         cmd = command_for(build, source, 'engines/scumm/scumm.o')
         cmd[cmd.index(str(source))] = str(probe)
