@@ -541,3 +541,17 @@ NPCs on other routes wait at their gate, and the player's flight lands only on
 Arrive. NPCs already called and rode the bus on their own (street stop
 passage); the bus probe now proves it without the player.
 Still a single cabin: concurrent flights remain future work.
+
+## Patch 0052 — streamlined chat
+
+User report: chat was hard to use (Talk → tap a character in the scene → "+"
+→ tap again; composer disabled until someone was picked). Now:
+- People row: a chip for every character here plus "Everyone"; tap to add or
+  remove (runtime `toggleTalk`; removing the last person ends the chat).
+- Composer always ready: with nobody chosen, a message goes to everyone nearby
+  (runtime `sendNearby`: one person directly, several as a group that follows
+  arrivals/departures). Contextual placeholder names the recipients.
+- Header is chips + Follow (single person) + close; landscape adds Log/Hide.
+  Tapping a character in the scene still works (armPick path unchanged).
+Runtime behavior tested (tools/test_scene_talk.cpp, ASan/UBSan, TSan suite).
+The UIKit layer is compiled only by Apple CI; not device-tested.

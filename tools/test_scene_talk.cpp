@@ -51,5 +51,25 @@ int main() {
  assert(std::string(actorName(20))=="Annie Larris");
  assert(std::string(actorName(21))=="Melissa China");
  assert(std::string(actorName(22))=="Leslie Bennett");
+ // People chips and the always-ready composer.
+ r.endTalk(); r.scene(60,3,(1u<<9)|(1u<<10),true,speaker,text,sizeof(text));
+ assert(!r.toggleTalk(24) && !r.talkingWith()); // Not here.
+ assert(r.toggleTalk(9) && r.talkingTo()==9 && r.talkingWith()==1u<<9);
+ assert(r.toggleTalk(10) && r.talkingTo()==-2 && r.talkingWith()==((1u<<9)|(1u<<10)));
+ assert(r.toggleTalk(9) && r.talkingTo()==10 && r.talkingWith()==1u<<10); // Back to one person.
+ assert(r.toggleTalk(10) && !r.talkingWith() && !r.talkingTo());           // Last one ends it.
+ assert(r.sendNearby("Hi all")==1 && r.talkingTo()==-1 && r.talkingWith()==((1u<<9)|(1u<<10)));
+ r.scene(60,3,(1u<<9)|(1u<<10)|(1u<<11),true,speaker,text,sizeof(text));
+ assert(r.talkingWith()==((1u<<9)|(1u<<10)|(1u<<11))); // Nearby group follows arrivals.
+ assert(r.sendNearby("")==-1 && r.sendNearby(std::string(513,'x'))==-1);
+ r.endTalk(); r.scene(61,3,1u<<11,true,speaker,text,sizeof(text));
+ assert(r.sendNearby("Hello")==1 && r.talkingTo()==11 && r.talkingWith()==1u<<11); // One person directly.
+ r.endTalk(); r.scene(62,3,0,true,speaker,text,sizeof(text));
+ assert(r.sendNearby("Anyone?")==0 && !r.talkingWith());
+ // Original residents are addressable by their scene identity.
+ r.scene(68,3,1u<<15,true,speaker,text,sizeof(text));
+ assert(std::string(actorName(15))=="Guru" && r.toggleTalk(15));
+ r.scene(67,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Nepal guard");
+ std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }
