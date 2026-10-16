@@ -381,3 +381,15 @@ disables smart quotes and uses a single header row in portrait while typing.
 
 Not done here: conversation persistence across rooms/saves, durable memory,
 network delivery, and device keyboard/rotation acceptance.
+
+## Patch 0041 — aspect-fit portrait layout (contract v2)
+
+Portrait reserved the upper half for the game but the picture is width-limited:
+on a 390x797-point host the 320x200 scene needs 243.75 points of a 354.5-point
+region, leaving letterbox bands between scene and toolbar. Layout v2 accepts the
+host width and the renderer's displayed aspect (published as an integer x1000 so
+UIKit and the renderer compute identical rectangles) and caps the game region at
+the aspect-fit height. Freed space goes to chat (366 -> 475 points there).
+Height-limited cases (keyboard visible) are unchanged. "Upper half" cannot be
+reached at full width without cropping; the scene stays at maximum width.
+Not device-verified: real safe areas, rotation and touch conversion.

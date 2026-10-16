@@ -290,3 +290,12 @@
   Null build and 11 startup tests pass (talk code is iOS-only).
 - NOT verified: UIKit compilation (pending Apple CI), keyboard, layout and
   touch behaviour on a device, model reply quality or latency.
+
+## Patch 0041 — portrait layout v2
+
+- Unit-tested: 500 width/height/keyboard/aspect combinations (ASan/UBSan,
+  -Werror): same chat bottom edge, chat never smaller than v1, no reserved
+  letterbox band, height-limited and invalid-aspect cases identical to v1;
+  exact iPhone 14 / SE figures. Original 49 v1 cases unchanged.
+- 41 patch prefixes reconstruct; null build and 11 startup tests pass.
+- NOT verified: UIKit/renderer compilation (Apple CI), on-device appearance.
