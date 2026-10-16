@@ -1,0 +1,190 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 694deb1e..65804bf4 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -23,7 +23,9 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ @end
+ // One list for drawing and VoiceOver labels, in airport/pad command order.
+ static const char *const scummverseFlightNames[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
+-static const char *const scummversePadNames[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL","PERU CRYSTAL","MARS PYRAMID","NEPAL SANCTUARY","ZAIRE CRYSTAL"};
++// Original crystal-map sites, in engine pad order (commands 50+).
++static const char *const scummversePadNames[]={"SEATTLE","MEXICO","NEPAL","EGYPT","MARS"};
++static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummversePadNames[0]);
+ @implementation ScummverseAirportView
+ - (void)drawRect:(CGRect)rect {
+ 	CGContextRef c = UIGraphicsGetCurrentContext();
+@@ -35,7 +37,7 @@ static const char *const scummversePadNames[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL
+ 	scummversePixelText(c,"DESTINATIONS",88,28,2,UIColor.blackColor);
+ 	const char *const *flights=scummverseFlightNames, *const *pads=scummversePadNames;
+ 	const char *codes[]={"MM","SFO","SEA","MIA","FIH","KTM","CAI","LHR","MEX","LIM"};
+-	int count=_teleport?6:10;
++	int count=_teleport?scummversePadCount:10;
+ 	for (int i=0;i<4;++i) {
+ 		int index=(int)_page*4+i; if(index>=count) break;
+ 		int y=57+i*20;
+@@ -73,7 +75,7 @@ static const char *const scummversePadNames[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL
+ }
+ // Row buttons describe the destinations shown on the current page.
+ - (void)labelRows {
+-	const int count=_panel.teleport?6:10;
++	const int count=_panel.teleport?scummversePadCount:10;
+ 	for (int i=0;i<4;++i) {
+ 		UIView *row=[_panel viewWithTag:i+1]; const int index=(int)_panel.page*4+i;
+ 		row.hidden=index>=count;
+@@ -89,7 +91,7 @@ static const char *const scummversePadNames[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL
+ 	[_panel setNeedsDisplay];
+ }
+ - (void)choose:(UIButton *)sender {
+-	int count=_panel.teleport?6:10;
++	int count=_panel.teleport?scummversePadCount:10;
+ 	if(sender.tag==7 || sender.tag==8) {
+ 		_panel.page=(_panel.page+(sender.tag==7?-1:1)+(count+3)/4)%((count+3)/4);
+ 		[self labelRows]; [_panel setNeedsDisplay]; return;
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index e3a46fb8..38761562 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -105,12 +105,9 @@ static const ZakLink zakLinks[] = {
+ 	{61, 733, 62, 0},
+ 	{62, 734, 61, 0},
+ 	{62, 735, 63, 0},
+-	{62, 736, 64, 0},
++	{62, 736, 63, 0},
++	{62, 737, 63, 0},
+ 	{63, 732, 62, 0},
+-	{63, 737, 64, 0},
+-	{64, 732, 62, 0},
+-	{64, 733, 65, 0},
+-	{65, 732, 64, 0},
+ 	{66, 733, 67, 0},
+ 	{67, 734, 66, 0},
+ 	{67, 735, 68, 0},
+@@ -146,6 +143,7 @@ static const ZakLink zakLinks[] = {
+ 	{85, 734, 86, 0},
+ 	{86, 734, 85, 0},
+ 	{86, 735, 87, 0},
++	{86, 736, 87, 0},
+ 	{87, 732, 86, 0},
+ 	{87, 733, 88, 745},
+ 	{87, 735, 99, 745},
+@@ -158,11 +156,7 @@ static const ZakLink zakLinks[] = {
+ 	{94, 733, 95, 0},
+ 	{95, 734, 94, 0},
+ 	{95, 735, 96, 0},
+-	{95, 736, 97, 0},
+ 	{96, 732, 95, 0},
+-	{97, 732, 95, 0},
+-	{97, 733, 98, 0},
+-	{98, 732, 97, 0},
+ 	{88, 734, 100, 741},
+ 	{88, 735, 104, 742},
+ 	{88, 736, 100, 743},
+@@ -277,10 +271,22 @@ static const ZakLink zakLinks[] = {
+ 	{123, 735, 119, 565, -1, -1},
+ };
+ 
+-static const int zakPads[]={92,89,98,84,69,65};
++// Original crystal-map destinations (map objects 480-486, script 60):
++// Seattle 129, Mexico 130, Nepal 137/43, Egypt 25, Mars 193, in map order.
++// Arrival objects are each scene's original platform. Zaire and Peru have
++// no crystal chamber in the original game.
++struct ZakPad { int room, arrivalObject; };
++static const ZakPad zakPads[]={{92,309},{89,309},{69,632},{76,437},{125,296}};
++static const int kZakPadCount=sizeof(zakPads)/sizeof(zakPads[0]);
+ static bool zakPadObject(int room,int object) {
+-	return ((room==65 || room==89 || room==92 || room==98) && (object==734 || object==735)) ||
+-		(room==84 && object==745) || (room==69 && object==734) || (room==76 && object==747);
++	return ((room==89 || room==92 || room==125) && (object==734 || object==735)) ||
++		(room==69 && object==734) || (room==76 && object==747);
++}
++// Sandbox rooms with no original counterpart (scene audit, patch 0044).
++// Their IDs stay allocated for save compatibility; nothing links to them and
++// saved occupants move to the original scene they stood in for.
++static int zakRetiredRoomReplacement(int room) {
++	return room==64 || room==65 ? 63 : room==97 || room==98 ? 96 : 0;
+ }
+ 
+ // Audited DOS V1 sandbox scene setup, expressed in original resource IDs.
+@@ -330,7 +336,7 @@ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
+ 
+ // Original 20/39 entry scripts select distant costume 9 (10px tall).
+ // Normal Zak standing front/back costume 1 spans 46px. Scale = 10/46.
+-static const int zakDistantCostumeRooms[] = {64, 72, 87, 97};
++static const int zakDistantCostumeRooms[] = {72, 87};
+ 
+ // Audited initialized logical scenes, not executable source scripts or artwork.
+ // Coordinates are pixels; original object identities are remapped only at import.
+@@ -1139,8 +1145,8 @@ struct ZakSceneView { int room, logicalRoom, cameraMin, cameraMax, color1, color
+ static const ZakSceneView zakSceneViews[] = {
+  {56,11,264,640,15,8}, {68,19,160,480,2,9}, {74,23,160,800,8,9}, {75,155,160,320,8,9},
+  {79,185,160,800,15,2}, {81,30,160,160,1,11}, {89,130,160,160,15,7},
+- // Pending reconstruction: not original logical scenes (see scene audit).
+- {65,0,0,0,2,12}, {84,0,0,0,2,4}, {98,0,0,0,2,15},
++ // Pending reconstruction: not an original logical scene (see scene audit).
++ {84,0,0,0,2,4},
+ };
+ static const ZakSceneView *zakSceneView(int room) {
+  for (const auto &view : zakSceneViews) if (view.room == room) return &view;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index f150d5ca..d6b03eb9 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -274,7 +274,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[command-40];
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+ 			} else if(command==62) scummverseTeleportOffer();
+-			else if(command>=50 && command<=55 && _currentRoom!=56 && !scummverseOnBus()) scummverseTravel(zakPads[command-50]-50);
++			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) scummverseTravel(zakPads[command-50].room-50,zakPads[command-50].arrivalObject);
+ 			else if (command == 24) scummverseArrive();
+ 			else if(command>=1 && command<=48) scummverseTravel(command);
+ 		}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 7a41cc3d..6df803af 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -330,6 +330,7 @@ void ScummEngine::scummverseMigrateTravelRecords() {
+ 
+ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arrivalX, int arrivalY) {
+ 	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination >= ScummverseContent::kRoomCount - 50 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
++	if (zakRetiredRoomReplacement(destination + 50)) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+@@ -402,7 +403,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+-	_scummVars[527]=1; _scummVars[528]=1;
++	_scummVars[527]=1; _scummVars[528]=2;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+@@ -680,9 +681,9 @@ void ScummEngine::scummverseTeleportOffer() {
+ #else
+ 	GUI::ChooserDialog dialog(Common::U32String("Crystal teleport pads"));
+ 	Common::U32StringArray destinations;
+-	for(int room : zakPads) destinations.push_back(Common::U32String(zakPlaces[room-56].name));
++	for(const auto &pad : zakPads) destinations.push_back(Common::U32String(zakPlaces[pad.room-56].name));
+ 	dialog.setList(destinations); int choice=runDialog(dialog);
+-	if(choice>=0 && choice<6) scummverseTravel(zakPads[choice]-50);
++	if(choice>=0 && choice<kZakPadCount) scummverseTravel(zakPads[choice].room-50,zakPads[choice].arrivalObject);
+ #endif
+ }
+ 
+@@ -833,6 +834,16 @@ void ScummEngine::scummverseRestoreTemple() {
+   }
+   _scummVars[528]=1;
+  }
++ // Scene schema 2 (patch 0044) retires sandbox-only rooms. Move anyone saved
++ // there to the original scene that room imitated, then re-enter if viewed.
++ if(_scummVars[528]<2) {
++  for(int id=1;id<_numActors;++id) {
++   Actor *a=derefActor(id,"retired room migration");
++   if(int replacement=zakRetiredRoomReplacement(a->_room)) { a->stopActorMoving(); a->putActor(20,60,replacement); }
++  }
++  _scummVars[528]=2;
++  if(int replacement=zakRetiredRoomReplacement(_currentRoom)) scummverseTravel(replacement-50);
++ }
+  if(const auto *scene=zakSceneSetup(_currentRoom)) {
+   VAR(VAR_CAMERA_MIN_X)=scene->cameraMin;VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+   for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];

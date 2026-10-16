@@ -10,6 +10,7 @@
 	_scummverseRosterPending=false;
 	Common::String report="{\"rooms\":[";
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
+		if(ProbeCatalog::zakRetiredRoomReplacement(room)) continue;
 		if(!scummverseTravel(room-50)) error("Scene audit cannot enter %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		for(int id=1;id<25;++id) derefActor(id,"scene audit")->hideActor();

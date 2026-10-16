@@ -8,6 +8,10 @@
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
+		if(ProbeCatalog::zakRetiredRoomReplacement(room)) {
+			if(scummverseTravel(room-50)) error("Retired room %d is still reachable",room);
+			continue;
+		}
 		if(!scummverseTravel(room-50)) error("Room mount failed %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/expanded-room-%d.ppm",room)))) {
@@ -60,13 +64,20 @@
 		for(int n=0;n<1200 && _currentRoom==link.room;++n) scummLoop(4);
 		if(_currentRoom!=link.destination) error("Exit failed %d/%d -> %d, actual %d",link.room,link.object,link.destination,_currentRoom);
 	}
-	// Every original pad hotspot opens the travel menu; Mars is immediately reachable.
-	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(84,745),Common::Point(69,734),Common::Point(65,734),Common::Point(76,747)}) {
+	// Every original crystal-map site has an active platform hotspot, and each
+	// pad command lands in that site's room (Seattle, Mexico, Nepal, Egypt, Mars).
+	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(69,734),Common::Point(76,747),Common::Point(125,734)}) {
 		scummverseTravel(pad.x-50);int before=FakeAI::airportOffers;
-		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active");
+		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active %d",pad.x);
 	}
-	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|53);scummverseUpdateRoaming(0);
-	if(_currentRoom!=84) error("Mars teleport failed");
+	const int padRooms[]={92,89,69,76,125};
+	for(int command=0;command<5;++command) {
+		scummverseTravel(3);
+		scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|(50+command));scummverseUpdateRoaming(0);
+		if(_currentRoom!=padRooms[command]) error("Teleport %d reached %d, expected %d",command,_currentRoom,padRooms[command]);
+	}
+	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|55);scummverseUpdateRoaming(0);
+	if(_currentRoom!=125) error("Out-of-range teleport command moved the player");
 	if(!scummverseTravel(5)) error("Street failed");
 	for(int n=0;n<300;++n) scummverseServiceBus(4);
 	if(_scummVars[765] || _currentRoom!=55) error("Bus departed without request");
@@ -94,4 +105,17 @@
 	Common::String filename;_saveLoadDescription="Expanded worlds";
 	if(!saveState(8,false,filename)||!loadState(8,false)) error("Expanded save failed");
 	if(VAR(VAR_EGO)!=24 || !_scummVars[764]) error("Saved roster lost");
+	// A pre-0044 save made inside a retired room (sandbox-only Zaire temple)
+	// with a second occupant in the retired Peru chamber: both move to the
+	// original scenes those rooms stood in for, and the view follows.
+	{
+		Actor *zakActor=derefActor(24,"retired room player"), *annie=derefActor(20,"retired room occupant");
+		if(!scummverseTravel(13) || !scummverseMountExtra(64) || !scummverseMountExtra(98)) error("Cannot prepare retired-room save");
+		annie->stopActorMoving(); annie->putActor(20,60,98);
+		zakActor->putActor(20,60,64); startScene(64,zakActor,0); _scummVars[528]=1;
+		_saveLoadDescription="Retired room";
+		if(!saveState(9,false,filename)||!loadState(9,false)) error("Retired-room save failed");
+		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=2)
+			error("Retired-room migration failed: view %d player %d occupant %d schema %d",_currentRoom,zakActor->_room,annie->_room,_scummVars[528]);
+	}
 	warning("SCUMMVERSE_EXPANSION_PASS enabled=1");quitGame();

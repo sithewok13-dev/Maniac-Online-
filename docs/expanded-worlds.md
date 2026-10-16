@@ -30,16 +30,19 @@ puzzle campaign. Kathmandu is the Nepal destination.
 - Original platform hotspots open the crystal destination panel. **Worlds →
   Crystal teleport pads** provides the same unlocked sandbox travel. All playable
   characters can use it, without crystal inventory or training requirements.
-  Companions come along. Mars is reached through this panel, not a commercial
-  airport flight.
+  Companions come along. The sites are the original crystal-map destinations:
+  Seattle, Mexico, Nepal, Egypt and Mars. Mars is reached through this panel,
+  not a commercial airport flight.
 
 ## Areas
 
 The airport serves Maniac Mansion, San Francisco, Seattle, Miami, Kinshasa/Zaire,
-Kathmandu/Nepal, Cairo, London, Mexico City and Lima/Peru. Miami remains an airport
-stop. The other added areas include Zaire's jungle/village/temple, Kathmandu's
+Kathmandu/Nepal, Cairo, London, Mexico City and Lima/Peru. Seattle, Miami, London
+and Mexico City use the original big terminal; the others the regional one, each
+with its original signs. Miami remains an airport stop (closed for repairs, as in
+the original). The other added areas include Zaire's jungle and village, Kathmandu's
 street and sanctuary, Cairo and its pyramid rooms, Stonehenge, Mexico's jungle and
-temple passages, Peru's jungle/carving/temple, Caponian headquarters and spacecraft,
+temple passages, Peru's jungle and carving, Caponian headquarters and spacecraft,
 and Mars's landing site, hostel, shuttle, face, Great Chamber, pyramid and machine
 room. Original resources reused by Zak are also reused here; this is not newly
 invented city artwork. Local exits bypass original puzzle script prerequisites.

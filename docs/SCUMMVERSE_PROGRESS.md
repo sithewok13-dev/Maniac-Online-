@@ -442,3 +442,15 @@ Test runner: `python3 tools/test_all_data.py game-data/mm-dos game-data/zak-dos`
 runs every data test in order. It exposed three stale probes (bus/companions
 room count, roaming missing the shared prelude, Seattle exit index); all fixed.
 Probe captures previously used a private absolute path and silently skipped.
+
+## Patch 0044 — retire invented scenes; original teleport sites
+
+Rooms 64/65 (Zaire temple/crystal chamber) and 97/98 (Peru temple/crystal
+chamber) have no original counterpart. Their IDs stay allocated; no link,
+pad or travel request reaches them; saved occupants move to the village (63)
+or carving (96) on load (var 528 = schema 2). Jungle exits follow the first
+original jungle scene. Crystal pads are the five original map sites with
+original platform arrivals: Seattle 92, Mexico 89, Nepal 69, Egypt 76 (newly
+added) and Mars 125 (was the non-original pad in room 84). The iOS panel lists
+five sites. Next scene work: Cairo (71 is a pyramid passage, not Cairo), Mars
+pyramid 84, split scenes 151/181/134, Nepal guard station (resource 18).

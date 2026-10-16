@@ -9,7 +9,8 @@
 
 
 
- scummverseTravel(15);
+ // Seattle chamber 92 shares resource 14 with Mexico chamber 89 (logical 129/130).
+ scummverseTravel(42);
  int untouched[21];for(int i=0;i<21;++i) untouched[i]=getState(732+i);
  if(!scummverseTravel(39)) error("Mexico chamber failed to load");
  // Reference assertions are supplied from Zak's independently executed entry.
@@ -33,6 +34,6 @@
  for(int box : {12,13}) if(!(getBoxFlags(box)&128)) error("Saved Mexico navigation not repaired");
  runObjectScript(732,13,false,false,nullptr);
  if(_currentRoom!=108) error("Chamber return exit failed");
- if(!scummverseTravel(15)) error("Shared chamber reload failed");
+ if(!scummverseTravel(42)) error("Shared chamber reload failed");
  for(int i=0;i<21;++i) if(getState(732+i)!=untouched[i]) error("Mexico setup leaked into another chamber");
  warning("SCUMMVERSE_CHAMBER_PASS enabled=1");quitGame();

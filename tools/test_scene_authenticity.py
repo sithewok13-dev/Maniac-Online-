@@ -121,6 +121,9 @@ def main():
 
     (OUT/'reference-all.json').write_text(json.dumps(sorted(reference.values(), key=lambda s: (s['logical_room'], s['region']))))
     results, failures = [], []
+    for room, expected in EXPECTED.items():
+        if expected is None and room not in sandbox:
+            results.append({'room': room, 'verdict': 'retired (not in original game)'})
     for room, info in sorted(sandbox.items()):
         shot = OUT/f'sbx-{room}.ppm'
         same_resource = [key for key, scene in reference.items() if scene['resource'] == info['resource']]

@@ -320,3 +320,15 @@
   cause was the probe missing the shared prelude (modal desktop dialog).
 - Native null build, startup tests and 43 patch prefixes pass.
 - NOT verified: iPhone, animation, scrolling frames beyond the camera minimum.
+
+## Patch 0044
+
+- `tools/test_all_data.py`: 26/26 data tests pass (scene audit included: all
+  audited rooms exact, retired rooms unreachable). Expansion probe checks every
+  pad command lands at its original site, out-of-range commands are ignored,
+  retired rooms are refused, and a pre-0044 save made inside a retired room
+  (with a second occupant in another) migrates both occupants and the view.
+- Perspective and chamber probes updated to non-retired rooms (Seattle chamber
+  92 now serves as the shared-resource-14 isolation check).
+- 44 patch prefixes, null build and startup pass. iOS panel compile: Apple CI.
+- NOT verified: iPhone; ASan run of the data probes for 0043/0044.

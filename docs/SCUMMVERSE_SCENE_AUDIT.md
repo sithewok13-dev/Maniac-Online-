@@ -200,7 +200,7 @@ jungles 170/168/175, Seattle chamber 129, village 150, hostel 180, Stonehenge
 133, cabin colors/camera, shuttle colors, and Mexico chamber colors. Explained
 differences: Seattle forest (cave opening shown dug, by design) and machine
 room defaults (covered by the Mars reference test).
-Open: rooms 64/65/97/98 are not in the original (next patch); sandbox "Cairo"
+Open (64/65/97/98 retired in patch 0044): sandbox "Cairo"
 (71) is a pyramid-interior passage that matches no original scene; "Mars
 pyramid" (84) shows the left half of resource 15 (original 188 uses the right
 half); village 151, hostel 181 and Stonehenge 134 are not yet imported.
