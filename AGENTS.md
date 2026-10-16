@@ -19,7 +19,11 @@ be committed together to the project repository on a non-main branch.
 ## Validation
 
 Build: `make -C build/null -j3`. Startup: `python3 tools/test_startup.py build/null/scummvm`.
-Portable portrait contract: compile tools/test_portrait.cpp with -Iengine and run.
+Portable contracts: compile tools/test_{portrait,mobile_layout,seats,conversation}.cpp
+with -Iengine and sanitizers, then run. Dialogue runtime without weights (ASan/TSan):
+`python3 tools/test_talk_runtime.py`. Apple CI (macos-15) builds the IPA on pushes
+to main, codex/** and claude/**; it is not blocked. Hugging Face may be blocked in
+cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 Probe runner temporarily instruments scumm.cpp; do not run probes concurrently
 with builds or other probes. It restores source and binaries. Native compilation
