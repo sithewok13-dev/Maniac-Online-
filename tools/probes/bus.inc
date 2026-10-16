@@ -69,4 +69,19 @@
 	player=derefActor(VAR(VAR_EGO),"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;
 		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Reloaded bus not usable");
+	// While the bus drives away, hidden riders must not be drawn anywhere: the
+	// rendered frame equals a background-only redraw (no other actors present).
+	if (!scummverseTravel(5)) error("Cannot return to street");
+	for (int id=1;id<_numActors;++id) if (id!=VAR(VAR_EGO) && derefActor(id,"street bystander")->_room==55) derefActor(id,"street bystander")->putActor(0,0,0);
+	player=derefActor(VAR(VAR_EGO),"ghost check"); player->putActor(92,59,55); scummverseWaitBus();
+	for (int tick=0;tick<60 && _currentRoom==55;++tick) {
+		VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4);
+		if (_scummVars[765]<=60 || _currentRoom!=55) continue;
+		Common::Array<byte> rendered; rendered.resize(_screenWidth*_virtscr[0].h);
+		for (int y=0;y<_virtscr[0].h;++y) memcpy(&rendered[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth);
+		_fullRedraw=true; scummLoop_handleDrawing();
+		for (int y=0;y<_virtscr[0].h;++y) if (memcmp(&rendered[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth))
+			error("Hidden bus rider drawn at phase %d row %d",_scummVars[765],y);
+	}
+	if (_currentRoom!=53) error("Ghost check ride did not arrive");
 	warning("SCUMMVERSE_BUS_PASS enabled=1"); quitGame();
