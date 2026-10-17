@@ -209,4 +209,9 @@ its door, exit, walk, map, vehicle and time-travel links, pseudo rooms folded
 into their physical room) and `scummverse_world_cast.inc` (tools/world_cast.py:
 each character's costume, room, name, newly written personality and lines;
 at most five per room). Besides that new text they hold only numbers and names.
+Scale: everyone in another world is as tall as that game's lead character
+(`WorldGame::heroHeight`) fitted like the scene, times the game's own scale for
+the walk box there (exported per box, "SVW3"). V1 characters are rendered by
+their own renderer into a canvas and scaled around their feet; guests' frames
+are scaled the same way (`scummverseDrawWorldActor`).
 v7/v8 editions are compiled in solely so the player's copies can be exported.

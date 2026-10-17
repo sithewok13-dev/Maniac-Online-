@@ -16,7 +16,7 @@
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); }
 	};
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
-	int visited=0, walked=0, edges=0, guests=0;
+	int visited=0, walked=0, edges=0, guests=0, scaled=0;
 	// Pixels of the guest's palette slots on screen inside its drawn extent.
 	auto guestPixels=[&](Actor *g) {
 		int n=0; if (g->_top>=g->_bottom) return 0;
@@ -60,12 +60,26 @@
 				if (!(scummverseGuestMask() & (1u<<(25+slot)))) error("Guest %s missing from the talk roster",g->name);
 				guest->_needRedraw=true; settle(1);
 				const int drawn=guestPixels(guest);
-				if (drawn<30) error("Guest %s not drawn (%d pixels, extent %d..%d)",g->name,drawn,guest->_top,guest->_bottom);
+				// Drawn area shrinks with the square of the scene's depth scale there.
+				const double depth=MAX(0.1,::Scummverse::WorldBridge::boxScale(guest->_walkbox,guest->getRealPos().y)/255.0);
+				if (drawn<MAX(1.0,30*depth*depth)) error("Guest %s not drawn (%d pixels, extent %d..%d, depth %.2f)",g->name,drawn,guest->_top,guest->_bottom,depth);
 				warning("WORLD guest %s pixels %d height %d",g->name,drawn,guest->_bottom-guest->_top);
 				++guests; ++present;
 			}
 			if (present && memcmp(_currentPalette+3*192,::Scummverse::WorldBridge::guestPalette(),3*::Scummverse::WorldBridge::guestSlotCount())) error("Scene %d guest palette not applied",k);
 			if (_scummVars[768]==room || derefActor(15,"resident")->_room==room) error("Scene %d borrowed the resident actor",k);
+		}
+		// The visitor is as tall as a person standing there in that game.
+		{
+			int source; const int game=scummverseWorldGameOf(room,source);
+			const double depth=MAX(0.1,::Scummverse::WorldBridge::boxScale(me->_walkbox,me->getRealPos().y)/255.0);
+			const double expected=::Scummverse::WorldCatalog::kWorldGames[game].heroHeight*::Scummverse::WorldBridge::sceneScale()*depth;
+			me->_needRedraw=true; settle(1);
+			const int drawn=me->_bottom-me->_top;
+			warning("WORLD scale %d: visitor %d px, expected %.1f (depth %.2f)",k,drawn,expected,depth);
+			// A visitor cut by the screen top is not measured.
+			if (me->_top>0 && ABS(drawn-expected)>MAX(4.0,expected*0.2)) error("Scene %d: visitor drawn %d px tall, expected about %.0f",k,drawn,expected);
+			++scaled;
 		}
 		// Walk inside the scene's own boxes.
 		if (getNumBoxes()>0) {
@@ -231,5 +245,5 @@
 	// Home again: the Maniac colors are intact.
 	scummverseTravelLandmark(2); scummverseTravel(2); settle(4);
 	if (_currentRoom>=53 || memcmp(_currentPalette,maniacColors,48)) error("Return home failed: room %d",_currentRoom);
-	warning("WORLD visited %d walked %d edges %d guests %d doors %d",visited,walked,edges,guests,doors);
+	warning("WORLD visited %d walked %d edges %d guests %d doors %d scaled %d",visited,walked,edges,guests,doors,scaled);
 	warning("SCUMMVERSE_WORLD_VISIT_PASS enabled=1"); quitGame();

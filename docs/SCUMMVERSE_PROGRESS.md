@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0064 (portrait play: picture on top, chat below).
+Active milestone: Phase 1; latest patch 0065 (other worlds: everyone drawn at each spot's own scale).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -864,4 +864,39 @@ the rest (exactly half while a conversation is open, above the keyboard
 while typing). tools/test_mobile_layout.cpp covers the layout contract;
 rotation, the keyboard, safe areas and touch mapping in portrait are
 compiled only by Apple CI and not device-tested.
+
+## Patch 0065 — one scale for everyone in other worlds
+
+Device report (2026-10-17, screenshots of The Dig, Monkey Island's map,
+jail, Melee town and the ghost ship): Maniac characters were about twice
+the size of the scenes' own characters. Scenes are shrunk to the 128-row
+V1 room and their characters with them, but V1 costumes were drawn at
+their own size, and nobody followed the source games' depth scaling.
+- Rule: everyone is as tall as a person standing at that spot of the scene:
+  the game's lead character at full scale (WorldGame::heroHeight, measured
+  from the audited editions: Monkey Island 1/2 47, Loom and Last Crusade
+  45, Atlantis 50, Tentacle 74, Sam & Max 70, Full Throttle 94, The Dig 63,
+  Curse 268 source pixels), fitted like the scene, times the scale the game
+  gives the walk box there. A Maniac teenager (72 V1 pixels: Dave, Michael,
+  Jeff) maps to that height; other Maniac and Zak characters keep their
+  proportions.
+- Exporter: scenes are "SVW3": per box, the game's own character scale at
+  its top and bottom edges (box scale or scale slot from the room's SCAL
+  data; slots only scripts would set count as full size, and are reset
+  between rooms). Readers keep "SVW1"/"SVW2" (full size). kWorldExportVersion
+  is 4 so installed games export again. 331 of 564 rooms scale by depth
+  (none in Loom and Last Crusade, whose games never scale).
+- Drawing: V1 characters in other worlds are drawn by their own renderer,
+  unmasked, into a screen-wide canvas with 64 rows of headroom, then scaled
+  around their feet (nearest pixel); within 3% of their size they are drawn
+  as before. Guests' frames are scaled by the depth scale the same way.
+  Depth never goes below 10% (some far boxes scale to almost nothing).
+- Verified: tools/test_world.cpp (SVW3 parse, truncation, kept boxes,
+  interpolation, older files, hero heights); tools/test_world_visit.py checks
+  the visitor's drawn height at all 56 named places (within 20%; all but one
+  within 2 pixels) and all 263 characters drawn (depth-aware minimum), plus
+  doors and story areas as before; the probe's screenshots compared by eye.
+  Not device-tested.
+- Not done: characters do not walk slower when smaller; seated or scripted
+  poses keep their own anchors; Maniac rooms are unchanged.
 

@@ -132,6 +132,7 @@ static void testCatalog() {
 		++guests;
 	}
 	assert(!worldPlaceOfKey(53, game, room) && !worldGuestAt(42, 0) && !worldLandmark(worldGameCount(), 1));
+	for (const auto &g : kWorldGames) assert(g.heroHeight >= 30 && g.heroHeight <= 480);
 	for (const auto &legacy : kWorldLegacyPlaces) assert(worldLandmark(legacy.game, legacy.room));
 	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places\n", scenes, guests);
 }
@@ -277,4 +278,20 @@ int main() {
 	assert(door.x == 8 + 128 && door.y == 4 && door.width == 16 && door.height == 12); // x 12*2/3 + pad 128
 	assert(door.walkX == (int)std::lround((30 * 2.0 / 3 + 128) / 8) && door.walkY == (int)std::lround(44 * 2.0 / 3 / 2));
 	std::printf("PASS: SVW2 room objects (parse, truncation, sandbox rectangles and walk points)\n");
+
+	// SVW3: per box, the character scale at its top and bottom edges follows
+	// the objects; the sandbox keeps those of the boxes it keeps and
+	// interpolates by row. Older files are full size everywhere.
+	auto v3 = v2; v3[3] = '3';
+	for (int b = 0; b < 5; ++b) { v3.push_back((uint8_t)(100 + b)); v3.push_back((uint8_t)(200 + b)); }
+	assert(!parseScene(v3.data(), v3.size() - 1, src, error));
+	assert(parseScene(v3.data(), v3.size(), src, error) && src.boxes[1].scaleTop == 101 && src.boxes[4].scaleBottom == 204);
+	SandboxScene scaled; assert(fitScene(src, 32, 16, 240, scaled, error, 320));
+	assert(scaled.boxes.size() == 4 && scaled.scaleTop[3] == 104 && scaled.scaleBottom[2] == 202); // disabled box 3 dropped
+	const V2Box &near = scaled.boxes[0];
+	assert(scaled.boxScale(0, near.uy) == 100 && scaled.boxScale(0, near.ly) == 200);
+	const int mid = scaled.boxScale(0, (near.uy + near.ly) / 2);
+	assert(mid > 100 && mid < 200);
+	assert(scaled.boxScale(-1, 0) == 255 && scaled.boxScale(9, 0) == 255 && withObjects.boxScale(0, near.uy) == 255);
+	std::printf("PASS: SVW3 box scales (parse, truncation, kept boxes, interpolation, older files)\n");
 }
