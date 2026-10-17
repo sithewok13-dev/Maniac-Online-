@@ -19,5 +19,5 @@ if __name__ == '__main__':
         print(f'SKIP: no other-worlds cache in {a.worlds} (run tools/export_worlds.py)')
         raise SystemExit(0)
     run_probe(a.data.resolve(), (ROOT/'tools/probes/world_visit.inc').read_text(), 'scummverse_roaming',
-              'SCUMMVERSE_WORLD_VISIT_PASS', 'world-visit', PRELUDE, a.build, timeout=300,
+              'SCUMMVERSE_WORLD_VISIT_PASS', 'world-visit', PRELUDE, a.build, timeout=1800,
               extra_config=f'scummverse_worlds_path={a.worlds.resolve()}\n')

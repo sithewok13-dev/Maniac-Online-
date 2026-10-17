@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0061 (cabin chairs held by riders show empty).
+Active milestone: Phase 1; latest patch 0062 (whole-game other worlds: every room, doors, 263 characters).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -10,7 +10,9 @@ Apple CI works since the repository became public: iOS run 38789360948 built the
 0039 IPA. Earlier "blocked before steps" notes below are historical.
 Delivered for the 2026-10-16/17 requests: NPC transport, chat overhaul and split
 screen, local WiFi first increment, bus/tram boarding waits, other-world scenes
-(0057) and their characters (0058). iPhone acceptance remains open for all.
+(0057) and their characters (0058), ten games (0060), empty rider chairs (0061)
+and whole-game worlds with doors and 263 characters (0062). iPhone acceptance
+remains open for all.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -766,3 +768,66 @@ mask maps (`ScummverseZakPlane::emptyChair`, applied from pristine copies on
 cabin entry and whenever the held chairs change). Unheld chairs keep their
 painted passengers. tools/probes/seating.inc compares the background buffer
 of each chair against the empty chair, before and after standing.
+
+## Patch 0062 — other worlds: whole games, doors and every character
+
+User request (2026-10-17): all the characters (e.g. Sam & Max's Conroy
+Bumpus, Lee-Harvey, Bruno and Trixie), and every travel-able location, so a
+player can walk all over Scabb or Blood Island. Seven research agents worked
+on private analysis (build/foreign, never committed): each game's door links
+from its object scripts and each character's costume, room and name.
+- Places are (game, room) pairs held in eight slot rooms 192..199 (saved
+  variables 600..607, layout 608). Saves from 0057..0061 (rooms 200..255)
+  migrate through the frozen kWorldLegacyPlaces. Any exported room can be
+  visited; the 56 named places stay in the menu.
+- Doors: tools/world_maps.py generates scummverse_world_maps.inc (563 rooms,
+  1483 doors: door, exit, walk, map, vehicle and time-travel links; pseudo
+  rooms folded into their physical room; only rooms the exporter can draw).
+  A tap on a door object walks there; on arrival the player goes to the
+  room the game's door leads to (map rooms travel at once). A walk that is
+  stuck for 60 frames stops. A tap still pending when the player travels
+  never opens a door at the new place (the probe caught one in Full
+  Throttle).
+- Story areas: 54 parts that the games reach only through voyages, rides
+  or cutscenes (e.g. the ghost ship, Castle Brunwald, Vulture Rock) get a
+  "More:" entry in the game's place menu (newly written names), so every
+  exported room is reachable on foot from a menu entry (unit-tested). Menu
+  place requests use kWorldPlaceRequest (above scene-bound requests); chat
+  context names a story area by its entry name.
+- Cast: tools/world_cast.py generates scummverse_world_cast.inc: 263
+  characters (Monkey Island 32, Monkey Island 2 39, Loom 24, Last Crusade 15,
+  Fate of Atlantis 28, Day of the Tentacle 36, Sam & Max 32, Full Throttle
+  12, The Dig 9, Curse 36), up to five per room, with newly written
+  personalities and lines. The Dig's bat creature is left out (it draws a
+  few pixels). Agents corrected earlier picks (e.g. Monkey
+  Island 2's Elaine is costume 10; 79 is Kate Capsize).
+- Exporter: every map room and each character's costume (once, right after
+  its first room); scenes are gzip "SVW2" with room objects. Full Throttle
+  no longer stops in room 45 (animation steps queued sound commands that
+  nothing ran; the queue is dropped while capturing). Costumes with no stand
+  animation, one facing, or pictures drawn far from the actor (room
+  coordinates) are searched for and centered; captures cut by the screen
+  edge are re-centered; pictures not standing on the actor's feet stand on
+  their own bottom center; Curse's shadow pixels (colors 0..7) are left out
+  instead of drawn red; the capture no longer inherits a walk box's depth
+  scale (Monkey Island's Carla was tiny). Every distinct costume of the
+  cast now exports (ten were blank before, e.g. Curse's Wally, Wharf Rat,
+  Elaine, King Andre and Cruff).
+- kWorldExportVersion is 3, so installed games export once more.
+- Verified (Linux, the user's private copies): export of all ten games, 564
+  scenes and 257 character sprites in 34 s (also under ASan: clean, same
+  files); tools/test_world.cpp (door maps, reachability, story areas,
+  catalog, cast); tools/test_world_visit.py (also under ASan) visits all 56
+  named places, mounts every story area, places every one of the 263
+  characters in its own room (named, in the talk roster, drawn) and walks
+  every door: 1396 lead where the map says, 71 do not (4.8%; the probe fails
+  above 5%), 16 are skipped; test_talk_runtime (ASan/TSan) and the startup
+  tests pass. Sprites compared by eye before and after the exporter changes.
+- Known gaps: Fate of Atlantis rooms with line-segment walk paths (e.g. the
+  labyrinth, rooms 50/51 and 85..88) and some doors outside the fitted walk
+  boxes fail to walk through; story transitions themselves (voyages, the
+  bike ride, cutscenes) are not played; scenes have no foreground masks and
+  no room scripts; characters stand where placed and do not use their
+  scenes' objects; seated characters have no chair; the iOS menu change is
+  compiled only by Apple CI; nothing here is device-tested.
+

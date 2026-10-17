@@ -70,14 +70,20 @@ int main() {
  r.scene(68,3,1u<<15,true,speaker,text,sizeof(text));
  assert(std::string(actorName(15))=="Guru" && r.toggleTalk(15));
  r.scene(67,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Nepal guard");
- assert(std::string(roomName(200))=="Melee Island town" && std::string(roomName(206))=="Woodtick"); // Other worlds.
- // Other-world characters are guest actors 25..29, one per catalog slot.
- r.scene(200,3,(1u<<25)|(1u<<26)|(1u<<28),true,speaker,text,sizeof(text));
- assert(std::string(actorName(25))=="Stan" && std::string(actorName(26))=="Troll" && std::string(actorName(28))=="Lookout");
- assert(std::string(personality(25)).find("salesman")!=std::string::npos && r.toggleTalk(28));
- r.scene(234,3,(1u<<25)|(1u<<26),true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="Sam" && std::string(actorName(26))=="Max");
+ // Other worlds arrive as place keys: 10000 + game * 1000 + that game's room.
+ assert(std::string(roomName(10033))=="Melee Island town" && std::string(roomName(11007))=="Woodtick");
+ assert(std::string(roomName(10099))=="The Secret of Monkey Island"); // An unnamed room of that game.
+ assert(std::string(roomName(10070))=="Catacombs and the ghost ship"); // A story area's entrance.
+ // Other-world characters are guest actors 25..29, one per cast slot of the
+ // place (game 0 room 35 has three characters; game 6 room 9 is Sam & Max's street).
+ using Scummverse::WorldCatalog::worldGuestAt;
+ assert(worldGuestAt(10035,0) && worldGuestAt(10035,2) && worldGuestAt(16009,0));
+ r.scene(10035,3,(1u<<25)|(1u<<26)|(1u<<27),true,speaker,text,sizeof(text));
+ assert(std::string(actorName(25))==worldGuestAt(10035,0)->name && std::string(actorName(27))==worldGuestAt(10035,2)->name);
+ assert(std::string(personality(26))==worldGuestAt(10035,1)->personality && r.toggleTalk(27));
+ r.scene(16009,3,(1u<<25),true,speaker,text,sizeof(text)); assert(std::string(actorName(25))==worldGuestAt(16009,0)->name);
  assert(std::string(actorName(15))=="visitor"); // The resident actor stays with Zak's residents.
- r.scene(202,3,0,true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="visitor");
+ r.scene(10999,3,0,true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="visitor");
  std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }

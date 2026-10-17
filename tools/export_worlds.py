@@ -24,6 +24,7 @@ def main():
     p.add_argument('games', nargs='+', help='folder=path pairs, e.g. monkey2=game-data/monkey2-vga')
     p.add_argument('--binary', type=Path, default=ROOT/'build/null/scummvm')
     p.add_argument('--out', type=Path, default=ROOT/'build/worlds')
+    p.add_argument('--timeout', type=int, default=3600, help='seconds before giving up')
     a = p.parse_args()
     with tempfile.TemporaryDirectory(prefix='scummverse-documents-', dir=ROOT/'build') as tmp:
         docs = Path(tmp)
@@ -36,7 +37,8 @@ def main():
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # Exports finish, then Maniac starts and runs until stopped.
         lines = []
-        deadline = time.time() + 600
+        started = time.time()
+        deadline = started + a.timeout
         for line in proc.stdout:
             lines.append(line)
             if "target 'maniac'" in line or time.time() > deadline:
@@ -58,7 +60,7 @@ def main():
         for line in log.splitlines():
             if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'world export' in line:
                 print(line.strip())
-        print(f'{len(exported)} scenes, {len(guests)} characters exported to {a.out}')
+        print(f'{len(exported)} scenes, {len(guests)} characters exported to {a.out} in {time.time() - started:.0f}s')
         return 0 if exported else 1
 
 

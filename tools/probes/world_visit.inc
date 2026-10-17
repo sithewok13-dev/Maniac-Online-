@@ -23,10 +23,23 @@
 		for(int y=g->_top;y<g->_bottom;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); if(c>=192) ++n; }
 		return n;
 	};
+	// The named place at catalog position k: its game and that game's room.
+	auto landmark=[&](int k, int &game, int &source) {
+		int index=k; game=0;
+		for (const auto &g : ::Scummverse::WorldCatalog::kWorldGames) { if (index<g.sceneCount) { source=g.scenes[index].room; return; } index-=g.sceneCount; ++game; }
+	};
+	auto at=[&](int k) { int game, source, held; landmark(k,game,source); return scummverseWorldGameOf(_currentRoom,held)==game && held==source; };
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
-		const int room=kScummverseWorldFirstRoom+k;
 		scummverseWorldRequest(((_currentRoom*32+3)<<8)|(160+k)); scummverseUpdateRoaming(4);
-		if (_currentRoom!=room) { warning("WORLD scene %d not visited: %s",k,_scummverseWorldNotice.c_str()); continue; }
+		const int room=_currentRoom;
+		if (!at(k)) {
+			// Only a game that was never exported may be missing.
+			int game, source; landmark(k,game,source);
+			const Common::String marker=Common::String::format("%s-v%d.svx",::Scummverse::WorldCatalog::kWorldGames[game].gameid,::Scummverse::WorldCatalog::kWorldExportVersion);
+			if (Common::FSNode(ConfMan.getPath("scummverse_worlds_path")).getChild(marker).exists()) error("Scene %d of an exported game not visited: %s",k,_scummverseWorldNotice.c_str());
+			warning("WORLD scene %d not visited: %s",k,_scummverseWorldNotice.c_str()); continue;
+		}
+		if (room<192 || room>199) error("Place %d in room %d, not a slot room",k,room);
 		++visited;
 		if (_roomResource!=ScummverseContent::kForeignRoom || me->_room!=room || !me->_visible) error("Scene %d not mounted: resource %d",k,_roomResource);
 		const byte *rgb=::Scummverse::WorldBridge::palette();
@@ -39,7 +52,7 @@
 			int index=k; for (const auto &g : ::Scummverse::WorldCatalog::kWorldGames) { if (index<g.sceneCount) { game=&g; scene=index; break; } index-=g.sceneCount; }
 			int present=0;
 			for (int slot=0;slot<5;++slot) {
-				const ::Scummverse::WorldCatalog::WorldGuest *g=game->scenes[scene].guests[slot];
+				const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestAt(::Scummverse::WorldCatalog::worldPlaceKey((int)(game-::Scummverse::WorldCatalog::kWorldGames),game->scenes[scene].room),slot);
 				Actor *guest=derefActor(25+slot,"world guest");
 				if (!g) { if (guest->_room) error("Scene %d slot %d has an unexpected guest",k,slot); continue; }
 				if (guest->_room!=room || scummverseGuestSlot(guest)!=slot) error("Guest %s not placed (room %d)",g->name,guest->_room);
@@ -65,8 +78,11 @@
 	if (!visited) error("No exported scenes were visited");
 	// Guest behaviour in the first scene that has several.
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
-		if (!::Scummverse::WorldCatalog::worldGuestInRoom(kScummverseWorldFirstRoom+k,1) || !scummverseTravelWorld(kScummverseWorldFirstRoom+k)) continue;
-		const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestInRoom(_currentRoom,0);
+		int game, source; landmark(k,game,source);
+		const int place=::Scummverse::WorldCatalog::worldPlaceKey(game,source);
+		if (!::Scummverse::WorldCatalog::worldGuestAt(place,1) || !scummverseTravelLandmark(k)) continue;
+		const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestAt(place,0);
+		if (scummverseTalkRoom()!=place) error("Dialogue context %d is not place %d",scummverseTalkRoom(),place);
 		Actor *guest=derefActor(25,"world guest"), *second=derefActor(26,"second guest");
 		if (scummverseGuestSlot(guest)<0 || scummverseGuestSlot(second)<0) error("Guests not placed for behaviour");
 		// One greeting when the player walks up.
@@ -107,39 +123,113 @@
 	{
 		Actor *resident=derefActor(15,"resident");
 		const int costume=resident->_costume;
-		scummverseTravelWorld(kScummverseWorldFirstRoom);
-		_scummVars[768]=_currentRoom; _scummVars[769]=costume; resident->putActor(10,50,_currentRoom);
+		scummverseTravelLandmark(0);
+		_scummVars[768]=200; _scummVars[769]=costume; resident->putActor(10,50,200);
 		scummverseUpdateResident();
 		if (_scummVars[768] || resident->_room) error("0058 world resident not returned: 768=%d room %d",_scummVars[768],resident->_room);
 	}
+	// Doors: in every game with a door map, tap each door from its room and
+	// stand at it; the player goes through to the room the door leads to.
+	int doors=0, doorFailures=0, doorSkipped=0;
+	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
+		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
+		if (!map) continue;
+		for (int i=0;i<map->linkCount;++i) {
+			const ::Scummverse::WorldCatalog::WorldLink &link=map->links[i];
+			const int room=scummverseWorldRoomFor(g,link.room);
+			if (!room || !scummverseTravelWorld(room)) { ++doorSkipped; continue; }
+			int found=-1, x=0, y=0, w=0, h=0, wx=0, wy=0;
+			for (int k=0;k<::Scummverse::WorldBridge::objectCount();++k) {
+				int id; ::Scummverse::WorldBridge::object(k,id,x,y,w,h,wx,wy);
+				if (id==link.object) { found=k; break; }
+			}
+			if (found<0) { ++doorSkipped; continue; }
+			// Start beside the door, tap it, and walk there like a player.
+			AdjustBoxResult near=me->adjustXYToBeInBox(wx,wy);
+			me->putActor(near.x,near.y,_currentRoom);
+			const int startRoom=_currentRoom;
+			me->startWalkActor((x+w/2)/8,(y+h/2)/2,-1);
+			for (int n=0;n<900 && _currentRoom==startRoom;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
+			int source; const int game=scummverseWorldGameOf(_currentRoom,source);
+			if (game==g && source==link.target) ++doors;
+			else { ++doorFailures; warning("WORLD door %d:%d obj %d -> %d failed (now %d:%d)",g,link.room,link.object,link.target,game,source); }
+		}
+	}
+	warning("WORLD doors %d failed %d skipped %d",doors,doorFailures,doorSkipped);
+	// A few doors sit where the sandbox's walk boxes cannot reach (see the
+	// progress notes); more than one in twenty failing is a regression.
+	if (doors<500 || doorFailures*20>doors+doorFailures) error("%d of %d doors did not lead where their map says",doorFailures,doors+doorFailures);
+	// Story areas: each menu entrance mounts its room.
+	int areas=0;
+	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
+		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
+		for (int i=0;map && i<map->areaCount;++i) {
+			const int room=map->areas[i].room;
+			if (!scummverseTravelPlace(g,room)) error("story area %d:%d (%s) not reached: %s",g,room,map->areas[i].name,_scummverseWorldNotice.c_str());
+			int source; if (scummverseWorldGameOf(_currentRoom,source)!=g || source!=room) error("story area %d:%d mounted %d",g,room,source);
+			++areas;
+		}
+	}
+	warning("WORLD story areas %d",areas);
+	// Every character, in its own room: placed, named, in the talk roster, drawn.
+	int everyone=0, small=0;
+	for (const auto &cast : ::Scummverse::WorldCatalog::kWorldCast) {
+		if (!scummverseTravelPlace(cast.game,cast.room)) error("Character %s: place %d:%d not reached: %s",cast.guest.name,cast.game,cast.room,_scummverseWorldNotice.c_str());
+		settle(6);
+		Actor *guest=derefActor(25+cast.slot,"world guest");
+		if (guest->_room!=_currentRoom || scummverseGuestSlot(guest)!=cast.slot) error("Character %s not placed (room %d)",cast.guest.name,guest->_room);
+		if (strcmp((const char *)getObjOrActorName(25+cast.slot),cast.guest.name)) error("Character name %s",(const char *)getObjOrActorName(25+cast.slot));
+		if (!(scummverseGuestMask() & (1u<<(25+cast.slot)))) error("Character %s missing from the talk roster",cast.guest.name);
+		guest->_needRedraw=true; settle(1);
+		const int drawn=guestPixels(guest);
+		if (drawn<=0) error("Character %s not drawn (extent %d..%d)",cast.guest.name,guest->_top,guest->_bottom);
+		if (drawn<30) { ++small; warning("WORLD small character %s (%d pixels)",cast.guest.name,drawn); }
+		++everyone;
+	}
+	warning("WORLD characters %d (small %d)",everyone,small);
 	// Side exits: from a scene whose boxes reach the right side, walk on.
 	for (int k=0;k<scummverseWorldSceneCount()-1;++k) {
 		int scene=0, count=0; scummverseWorldPlace(k,scene,count);
-		if (scene+1>=count || !scummverseTravelWorld(kScummverseWorldFirstRoom+k) || ::Scummverse::WorldBridge::rightX()<0) continue;
+		if (scene+1>=count || !scummverseTravelLandmark(k) || ::Scummverse::WorldBridge::rightX()<0) continue;
 		me->putActor(::Scummverse::WorldBridge::rightX(),::Scummverse::WorldBridge::rightY(),_currentRoom); _scummverseTransitArmed=true;
 		scummverseWorldEdges();
-		if (_currentRoom!=kScummverseWorldFirstRoom+k+1) error("Side exit from scene %d reached %d",k,_currentRoom);
+		if (!at(k+1)) error("Side exit from scene %d reached room %d",k,_currentRoom);
 		++edges; if (edges>=3) break;
 	}
 	// Save and load inside a scene keep the scene and its picture.
-	scummverseTravelWorld(kScummverseWorldFirstRoom); settle(4);
+	scummverseTravelLandmark(0); settle(4);
+	const int savedRoom=_currentRoom;
 	Common::Array<byte> before; before.resize(_screenWidth*_virtscr[0].h);
 	for(int y=0;y<_virtscr[0].h;++y) memcpy(&before[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth);
 	Common::String file; _saveLoadDescription="Other world";
 	if (!saveState(14,false,file) || !loadState(14,false)) error("World save/load failed");
 	settle(4);
-	if (_currentRoom!=kScummverseWorldFirstRoom || _roomResource!=ScummverseContent::kForeignRoom) error("World lost on load: room %d",_currentRoom);
+	if (_currentRoom!=savedRoom || !at(0) || _roomResource!=ScummverseContent::kForeignRoom) error("World lost on load: room %d",_currentRoom);
 	for(int y=0;y<_virtscr[0].h;++y) if (memcmp(&before[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth)) error("World picture changed on load (row %d)",y);
 	// A missing cache: travel refuses with a reason; a save inside it loads at the airport.
 	const Common::Path cache=scummverseWorldCache();
 	ConfMan.setPath("scummverse_worlds_path",Common::Path("/nonexistent-worlds"));
 	_scummverseWorldRoom=0;
-	if (scummverseTravelWorld(kScummverseWorldFirstRoom+1) || _scummverseWorldNotice.find("isn't installed")==Common::String::npos) error("Missing scene not refused: %s",_scummverseWorldNotice.c_str());
+	if (scummverseTravelLandmark(1) || _scummverseWorldNotice.find("isn't installed")==Common::String::npos) error("Missing scene not refused: %s",_scummverseWorldNotice.c_str());
 	if (!loadState(14,false)) error("Load without cache failed");
 	if (_currentRoom!=53) error("Stranded visitor not moved to the airport: %d",_currentRoom);
 	ConfMan.setPath("scummverse_worlds_path",cache);
+	// A save from patches 0057..0060 held places as rooms 200 + position: the
+	// viewer and anyone there move to the slot room for the same place.
+	{
+		scummverseTravelLandmark(3); settle(2);
+		Actor *companion=derefActor(5,"legacy companion");
+		me->putActor(me->getRealPos().x,me->getRealPos().y,205); companion->putActor(20,60,205);
+		for (int i=0;i<8;++i) _scummVars[600+i]=0;
+		_scummVars[608]=0; _currentRoom=205;
+		scummverseRestoreWorld(); settle(2);
+		if (!at(5) || me->_room!=_currentRoom || companion->_room!=_currentRoom || _scummVars[608]!=1) error("Legacy place not migrated: room %d",_currentRoom);
+		companion->putActor(0,0,0);
+	}
+	// Eight slot rooms are reused: visiting many places never runs out.
+	for (int k=0;k<scummverseWorldSceneCount();k+=3) if (!scummverseTravelLandmark(k) || !at(k)) error("Slot reuse failed at place %d",k);
 	// Home again: the Maniac colors are intact.
-	scummverseTravelWorld(kScummverseWorldFirstRoom+2); scummverseTravel(2); settle(4);
+	scummverseTravelLandmark(2); scummverseTravel(2); settle(4);
 	if (_currentRoom>=53 || memcmp(_currentPalette,maniacColors,48)) error("Return home failed: room %d",_currentRoom);
-	warning("WORLD visited %d walked %d edges %d guests %d",visited,walked,edges,guests);
+	warning("WORLD visited %d walked %d edges %d guests %d doors %d",visited,walked,edges,guests,doors);
 	warning("SCUMMVERSE_WORLD_VISIT_PASS enabled=1"); quitGame();

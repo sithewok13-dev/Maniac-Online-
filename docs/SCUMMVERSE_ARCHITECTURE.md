@@ -181,17 +181,32 @@ peers to cast members and validates rooms against this build
 deterministic systems validate: remote input never reaches the conversation
 model and never controls the local player's character.
 
-## Other worlds (patches 0057, 0058)
+## Other worlds (patches 0057..0062)
 
 Scenes and characters from other SCUMM games are never shipped: the player's
 own copy is run once in export mode, and its own engine renders a private
-cache (scenes `.svw`, characters `.svc`, finished marker `.svx`). Portable
-code (`common/scummverse_world.*`, std-free bridge
-`scummverse_world_engine.h`) fits them to the V1 sandbox: logical rooms
-200+ on one physical room 127, palette slots 16..191 for the scene and
-192..255 shared by its characters. Characters use transient guest actors
-(Maniac 25..29, never saved; Maniac objects start at 30), so the sandbox's
-walking, speech and chat rules apply; only drawing is replaced. The catalog (`scummverse_world_catalog.h`) is the single list of
-scenes, guests and their newly authored lines; it holds at most 56 scenes
-(rooms 200..255) and only appends. v7/v8 editions are compiled in solely so
-the player's copies can be exported.
+cache (scenes `.svw`, characters `.svc`, finished marker
+`<game>-v<kWorldExportVersion>.svx`). Portable code (`common/scummverse_world.*`,
+std-free bridge `scummverse_world_engine.h`) fits them to the V1 sandbox on one
+physical room, with palette slots 16..191 for the scene and 192..255 shared by
+its characters. Characters use transient guest actors (Maniac 25..29, never
+saved; Maniac objects start at 30), so the sandbox's walking, speech and chat
+rules apply; only drawing is replaced.
+
+A place is (catalog game, that game's room). Eight logical rooms 192..199
+hold the places in use; saved variables 600..607 name each slot's place and
+608 marks the layout (older saves' rooms 200..255 migrate through the frozen
+`kWorldLegacyPlaces`). Places are reached three ways: the scene menu's named
+landmarks (`scummverse_world_catalog.h`, newly authored names and lines), a
+landmark's neighbours by walking off a side, and doors. A door is a room
+object the player taps; when the player arrives at it, `scummverseWorldDoors`
+follows the game's own link to the target room (map rooms travel at once).
+
+Two committed tables are generated from private analysis of the player's
+games (the generators read `build/foreign/`, which is never committed):
+`scummverse_world_maps.inc` (tools/world_maps.py: every exportable room and
+its door, exit, walk, map, vehicle and time-travel links, pseudo rooms folded
+into their physical room) and `scummverse_world_cast.inc` (tools/world_cast.py:
+each character's costume, room, name, newly written personality and lines;
+at most five per room). Besides that new text they hold only numbers and names.
+v7/v8 editions are compiled in solely so the player's copies can be exported.

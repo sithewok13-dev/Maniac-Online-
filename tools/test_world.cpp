@@ -3,7 +3,9 @@
 //   tools/test_world.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_world.h"
 #include "common/scummverse_world_catalog.h"
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 using namespace Scummverse::World;
@@ -106,23 +108,81 @@ static void testSprites() {
 	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette)\n");
 }
 
-// The catalog fits the sandbox's one-byte logical rooms (200..255), and
-// every scene's characters are packed from slot 0.
+// Places: keys round-trip and landmarks are found by game and room. The
+// cast: every character is in a valid game, at most five per room, slots
+// packed from 0, found by worldGuestAt. The frozen legacy order names real
+// places.
 static void testCatalog() {
 	using namespace Scummverse::WorldCatalog;
-	int scenes = 0, guests = 0;
-	for (const auto &game : kWorldGames)
-		for (int i = 0; i < game.sceneCount; ++i, ++scenes) {
-			bool gap = false;
-			for (const WorldGuest *g : game.scenes[i].guests) { if (!g) gap = true; else { assert(!gap && g->costume > 0); ++guests; } }
-			assert(worldGuestInRoom(200 + scenes, 0) == game.scenes[i].guests[0]);
+	int scenes = 0, game = 0, room = 0;
+	for (int g = 0; g < worldGameCount(); ++g)
+		for (int i = 0; i < kWorldGames[g].sceneCount; ++i, ++scenes) {
+			const WorldScene &scene = kWorldGames[g].scenes[i];
+			assert(worldPlaceOfKey(worldPlaceKey(g, scene.room), game, room) && game == g && room == scene.room);
+			assert(worldLandmark(g, scene.room) == &scene && scene.room < 1000);
 		}
-	assert(scenes <= kWorldMaxScenes && 200 + scenes - 1 <= 255);
-	std::printf("PASS: catalog of %d scenes and %d characters fits rooms 200..255\n", scenes, guests);
+	int guests = 0;
+	for (const auto &cast : kWorldCast) {
+		assert(cast.game >= 0 && cast.game < worldGameCount() && cast.room > 0 && cast.room < 1000);
+		assert(cast.slot >= 0 && cast.slot < kWorldMaxGuests && cast.guest.costume > 0 && cast.guest.name[0]);
+		for (const char *line : cast.guest.lines) assert(line && line[0]);
+		const int key = worldPlaceKey(cast.game, cast.room);
+		assert(worldGuestAt(key, cast.slot) == &cast.guest);
+		for (int k = 0; k < cast.slot; ++k) assert(worldGuestAt(key, k)); // packed
+		++guests;
+	}
+	assert(!worldPlaceOfKey(53, game, room) && !worldGuestAt(42, 0) && !worldLandmark(worldGameCount(), 1));
+	for (const auto &legacy : kWorldLegacyPlaces) assert(worldLandmark(legacy.game, legacy.room));
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places\n", scenes, guests);
+}
+
+// Door maps: doors join visitable rooms; every visitable room is reached
+// from a named place or a story area through doors (or by walking between
+// neighboring named places); story areas are named, visitable rooms; menu
+// place requests stay above every scene-bound request.
+static void testMaps() {
+	using namespace Scummverse::WorldCatalog;
+	int rooms = 0, doors = 0, areas = 0;
+	for (int g = 0; g < worldGameCount(); ++g) {
+		const WorldMap *map = worldMap(g);
+		if (!map) continue;
+		std::vector<int> reached, todo;
+		auto reach = [&](int room) { if (std::find(reached.begin(), reached.end(), room) == reached.end()) { reached.push_back(room); todo.push_back(room); } };
+		for (int i = 0; i < kWorldGames[g].sceneCount; ++i) reach(kWorldGames[g].scenes[i].room);
+		for (int i = 0; i < map->areaCount; ++i) {
+			assert(map->areas[i].name && map->areas[i].name[0] && worldRoomKind(g, map->areas[i].room) >= 0);
+			assert(worldPlaceRequest(g, map->areas[i].room) > (((255 * 32 + 31) << 8) | 255));
+			reach(map->areas[i].room); ++areas;
+		}
+		for (int i = 0; i < map->linkCount; ++i) {
+			const WorldLink &link = map->links[i];
+			assert(worldRoomKind(g, link.room) >= 0 && worldRoomKind(g, link.target) >= 0 && link.room != link.target);
+			assert(worldLinkFrom(g, link.room, link.object) == &link);
+		}
+		while (!todo.empty()) {
+			const int room = todo.back(); todo.pop_back();
+			for (int i = 0; i < map->linkCount; ++i) if (map->links[i].room == room) reach(map->links[i].target);
+			for (int i = 0; i < kWorldGames[g].sceneCount; ++i) {
+				if (kWorldGames[g].scenes[i].room != room) continue;
+				if (i > 0) reach(kWorldGames[g].scenes[i - 1].room);
+				if (i + 1 < kWorldGames[g].sceneCount) reach(kWorldGames[g].scenes[i + 1].room);
+			}
+		}
+		for (int i = 0; i < map->roomCount; ++i) {
+			if (std::find(reached.begin(), reached.end(), map->rooms[i].room) == reached.end()) {
+				std::printf("FAIL: %s room %d cannot be reached\n", kWorldGames[g].gameid, map->rooms[i].room);
+				assert(false);
+			}
+			++rooms;
+		}
+		doors += map->linkCount;
+	}
+	std::printf("PASS: door maps (%d rooms, %d doors, %d story areas; every room reachable)\n", rooms, doors, areas);
 }
 
 int main() {
 	testCatalog();
+	testMaps();
 	testSprites();
 	// A 96x48 two-color scene; three walkable boxes in a row plus a disabled one.
 	const int W = 96, H = 48;
@@ -197,4 +257,24 @@ int main() {
 	assert(narrow.boxes[0].ulx == 16 && narrow.pixels[0] == narrow.pixels[319]); // Pad color both sides.
 	assert(narrow.leftX == 16 && narrow.rightX >= (128 + 64) / 8 - 2 && narrow.rightX <= 24);
 	std::printf("PASS: color budget, invalid targets, width limit, narrow padding\n");
+
+	// SVW2: the room's objects follow the boxes; rectangles scale and shift
+	// with the scene, walk-to points become V1 units.
+	auto v2 = sceneBytes(W, H, pixels, boxes);
+	v2[3] = '2';
+	put16(v2, 2);
+	for (int f : {101, 12, 6, 24, 18, 30, 44}) put16(v2, f);
+	for (int f : {102, 0, 0, 8, 8, 2, 40}) put16(v2, f);
+	assert(parseScene(v2.data(), v2.size(), src, error) && src.objects.size() == 2 && src.objects[0].id == 101 && src.objects[0].walkY == 44);
+	assert(!parseScene(v2.data(), v2.size() - 1, src, error));
+	auto noCount = sceneBytes(W, H, pixels, boxes); noCount[3] = '2';
+	assert(!parseScene(noCount.data(), noCount.size(), src, error));
+	auto v1Extra = bytes; v1Extra.push_back(0); assert(!parseScene(v1Extra.data(), v1Extra.size(), src, error));
+	assert(parseScene(v2.data(), v2.size(), src, error));
+	SandboxScene withObjects; assert(fitScene(src, 32, 16, 240, withObjects, error, 320));
+	const SandboxObject &door = withObjects.objects[0];
+	assert(withObjects.objects.size() == 2 && door.id == 101);
+	assert(door.x == 8 + 128 && door.y == 4 && door.width == 16 && door.height == 12); // x 12*2/3 + pad 128
+	assert(door.walkX == (int)std::lround((30 * 2.0 / 3 + 128) / 8) && door.walkY == (int)std::lround(44 * 2.0 / 3 / 2));
+	std::printf("PASS: SVW2 room objects (parse, truncation, sandbox rectangles and walk points)\n");
 }
