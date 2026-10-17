@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0083 (Murray bounces and talks; a selfie fix).
+Active milestone: Phase 1; latest patch 0084 (the CAMERA's iOS code compiles).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1647,3 +1647,11 @@ and the green one of the ship's hold.)
   ground; the other looks as before); tools/test_camera_engine.py three
   runs in a row; original-data suite 37/37; bootstrap; startup;
   screenshots (closed, open, mid-hop) checked by eye. Not device-tested.
+
+## Patch 0084 — the CAMERA's iOS code compiles
+
+Apple CI run 84 (0081–0083 pushed, the CAMERA's iOS code compiled for the
+first time) failed with one error: scummverse_camera_ui.inc used
+`scummverseCameraNoPhotos` before defining it. It is now defined above its
+first use; nothing else changes. Compiled by Apple CI only after this push;
+not device-tested.
