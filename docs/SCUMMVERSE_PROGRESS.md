@@ -2,14 +2,15 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0050 (original routes, logical scenes, Guru and Nepal guard).
+Active milestone: Phase 1; latest patch 0058 (characters from the player's other SCUMM games).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
 Apple CI works since the repository became public: iOS run 38789360948 built the
 0039 IPA. Earlier "blocked before steps" notes below are historical.
-Next (user request 2026-10-16): NPCs riding bus/plane on their own, chat UX
-overhaul, local WiFi multiplayer first increment. iPhone acceptance remains open.
+Delivered for the 2026-10-16/17 requests: NPC transport, chat overhaul and split
+screen, local WiFi first increment, bus/tram boarding waits, other-world scenes
+(0057) and their characters (0058). iPhone acceptance remains open for all.
 Previous delivered baseline: patch 0022, project commit
 25197b5190fc441d68a503726faacb12de9693ba. User reports gameplay defects against
 this lineage. Existing original-data tests validate the sandbox's own mappings;
@@ -657,3 +658,36 @@ characters are the next slice.
 - Not done: foreground masks (actors draw in front of everything), original
   doors/objects/scripts in those scenes, characters from those games,
   device testing. Editions other than the audited ones are not exported.
+
+## Patch 0058 — other worlds: characters from those games
+
+Second slice of the 2026-10-17 request. 16 characters, one per scene that has
+one: Stan, Guybrush and LeChuck (MI1); Guybrush (MI2); Bobbin (Loom); Indy and
+Elsa (Indy3); Sophia and Indy (Indy4); Purple Tentacle, Bernard, Hoagie,
+Laverne and Green Tentacle (DOTT); Sam and Max. Costume numbers for the
+audited editions were picked from private contact sheets of every costume
+(build/foreign, never committed).
+- Export: right after a guest's scene, the original engine renders its
+  costume (stand, up to 12 walk and 6 talk frames, four facings; two fills
+  give exact transparency) into Documents/worlds/<gameid>-c<costume>.svc.
+  `<gameid>.svx` marks a finished game; caches from 0057 lack it, so each
+  installed game re-exports once to gain its characters.
+- `common/scummverse_world.*`: parseSprite/fitSprite scale frames with the
+  scene's own factor (nearest pixel, feet anchored) and pack colors into
+  slots 224..255 (scenes now use 16..223). Lookup falls back to standing and
+  to the nearest facing. Unit tests in tools/test_world.cpp.
+- Sandbox: the guest borrows the resident actor 15 (same mechanism and saved
+  vars 768/769 as the Guru), so walking, speech, talk chips and AI chat work
+  unchanged; `Actor::drawActorCostume` hands that actor to
+  `scummverseDrawGuest`, which blits the frame for its facing/state and marks
+  it dirty under its own actor bit (normal background restore and depth
+  order). Guests greet the player once per visit (newly written lines),
+  stroll within the boxes and stop while chatting. The runtime gives them
+  their names, personalities and classic lines (test_scene_talk). The iOS
+  scene list names who lives where.
+- Verified: real export of all 7 games (16/16 characters);
+  tools/test_world_visit.py checks every guest is mounted, named, palette
+  applied and drawn, plus greeting, talking and walking frames, save/load and
+  returning the borrowed actor; ASan clean. Screens inspected by eye.
+- Not done: foreground masks, guests' original voices/scripts, more than one
+  guest per scene, device testing.

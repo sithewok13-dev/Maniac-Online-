@@ -34,7 +34,68 @@ static size_t decodeV1(const uint8_t *src, uint8_t *dst, int size) {
 	return (size_t)(src - start);
 }
 
+struct Frame { int dir, kind, index, dx, dy, w, h; uint8_t color; };
+static std::vector<uint8_t> spriteBytes(const std::vector<Frame> &frames) {
+	std::vector<uint8_t> d = {'S', 'V', 'C', '1'};
+	put16(d, 5); put16(d, (int)frames.size());
+	for (int c = 0; c < 256; ++c) { d.push_back((uint8_t)c); d.push_back((uint8_t)c); d.push_back((uint8_t)(255 - c)); }
+	for (const Frame &f : frames) {
+		d.push_back((uint8_t)f.dir); d.push_back((uint8_t)f.kind); d.push_back((uint8_t)f.index); d.push_back(0);
+		put16(d, f.dx); put16(d, f.dy); put16(d, f.w); put16(d, f.h);
+		// Pixels: color in the left half, color+1 in the right; the top row is transparent.
+		for (int y = 0; y < f.h; ++y) for (int x = 0; x < f.w; ++x) d.push_back((uint8_t)(f.color + (x >= f.w / 2)));
+		for (int y = 0; y < f.h; ++y) for (int x = 0; x < f.w; ++x) d.push_back(y > 0);
+	}
+	return d;
+}
+
+static void testSprites() {
+	const std::vector<Frame> frames = {{kGuestFront, kGuestStand, 0, -10, -40, 20, 40, 30}, {kGuestLeft, kGuestWalk, 0, -8, -40, 16, 40, 50},
+		{kGuestLeft, kGuestWalk, 1, -8, -38, 16, 38, 50}, {kGuestLeft, kGuestTalk, 0, -8, -40, 16, 40, 70}};
+	auto bytes = spriteBytes(frames);
+	SourceSprite src; std::string error;
+	assert(parseSprite(bytes.data(), bytes.size(), src, error) && src.costume == 5 && src.frames.size() == 4);
+	assert(src.frames[1].dx == -8 && src.frames[1].dy == -40 && src.frames[2].height == 38 && src.palette[3 * 50 + 2] == 205);
+	for (size_t cut : {bytes.size() - 1, (size_t)20, (size_t)0}) assert(!parseSprite(bytes.data(), cut, src, error));
+	auto bad = bytes; bad[8 + 768] = 9; assert(!parseSprite(bad.data(), bad.size(), src, error)); // direction
+	bad = bytes; bad.push_back(0); assert(!parseSprite(bad.data(), bad.size(), src, error));
+	assert(parseSprite(bytes.data(), bytes.size(), src, error));
+
+	SandboxSprite fit;
+	assert(fitSprite(src, 0.5, 224, 32, fit, error) && fit.frames.size() == 4 && fit.slotCount == 6);
+	const SpriteFrame &front = fit.frames[0];
+	assert(front.dx == -5 && front.dy == -20 && front.width == 10 && front.height == 20);
+	// The feet stay on the anchor: the bottom edge of every frame is at y 0.
+	for (const auto &f : fit.frames) assert(f.dy + f.height == 0 || f.dy + f.height == 1);
+	int opaque = 0;
+	for (size_t i = 0; i < front.pixels.size(); ++i) {
+		const uint8_t p = front.pixels[i];
+		assert(p == 0 || (p >= 224 && p < 230));
+		if (p) { ++opaque; const int slot = p - 224; assert(fit.palette[slot * 3] == 30 || fit.palette[slot * 3] == 31); }
+	}
+	assert(opaque > 0);
+	// At full size the transparent top row stays transparent.
+	assert(fitSprite(src, 1.0, 224, 32, fit, error));
+	for (int x = 0; x < 20; ++x) assert(fit.frames[0].pixels[x] == 0 && fit.frames[0].pixels[20 + x] != 0);
+	// Too few slots: the most common colors are kept, the rest snap to them.
+	assert(fitSprite(src, 1.0, 250, 3, fit, error) && fit.slotCount == 3);
+	for (const auto &f : fit.frames) for (uint8_t p : f.pixels) assert(p == 0 || (p >= 250 && p < 253));
+	assert(!fitSprite(src, 1.0, 0, 8, fit, error) && !fitSprite(src, 1.0, 250, 8, fit, error) && !fitSprite(src, 0, 224, 8, fit, error));
+
+	// Lookup: exact frames, looping indices, pose and facing fallbacks.
+	assert(fitSprite(src, 1.0, 224, 32, fit, error));
+	assert(fit.frameCount(kGuestLeft, kGuestWalk) == 2 && fit.frameCount(kGuestBack, kGuestWalk) == 0);
+	assert(fit.frame(kGuestLeft, kGuestWalk, 1)->height == 38 && fit.frame(kGuestLeft, kGuestWalk, 3)->height == 38);
+	assert(fit.frame(kGuestRight, kGuestWalk, 0)->dir == kGuestLeft);            // nearest facing
+	assert(fit.frame(kGuestFront, kGuestTalk, 0)->dir == kGuestLeft);            // talking only drawn facing left
+	assert(fit.frame(kGuestFront, kGuestWalk, 0)->dir == kGuestLeft);
+	assert(fit.frame(kGuestBack, kGuestStand, 0)->dir == kGuestFront);
+	assert(!fit.frame(7, kGuestStand, 0) && !fit.frame(kGuestFront, 9, 0));
+	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks)\n");
+}
+
 int main() {
+	testSprites();
 	// A 96x48 two-color scene; three walkable boxes in a row plus a disabled one.
 	const int W = 96, H = 48;
 	std::vector<uint8_t> pixels(W * H);

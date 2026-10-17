@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export other-world scenes from privately supplied games, like the iOS app.
+"""Export other-world scenes and characters from privately supplied games, like the iOS app.
 
 Builds a temporary Documents folder with maniac/ and one folder per game
 (named as in common/scummverse_world_catalog.h), runs the real binary, which
@@ -48,14 +48,17 @@ def main():
             proc.kill()
         log = ''.join(lines)
         (ROOT/'build/export-worlds.log').write_text(log)
-        exported = sorted(f.name for f in (docs/'worlds').glob('*.svw')) if (docs/'worlds').exists() else []
+        cache = docs/'worlds'
+        exported = sorted(f.name for f in cache.glob('*.svw')) if cache.exists() else []
+        guests = sorted(f.name for f in cache.glob('*.svc')) if cache.exists() else []
+        markers = sorted(f.name for f in cache.glob('*.svx')) if cache.exists() else []
         a.out.mkdir(parents=True, exist_ok=True)
-        for name in exported:
+        for name in exported + guests + markers:
             shutil.copy2(docs/'worlds'/name, a.out/name)
         for line in log.splitlines():
-            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'world export' in line:
+            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'world export' in line:
                 print(line.strip())
-        print(f'{len(exported)} scenes exported to {a.out}')
+        print(f'{len(exported)} scenes, {len(guests)} characters exported to {a.out}')
         return 0 if exported else 1
 
 
