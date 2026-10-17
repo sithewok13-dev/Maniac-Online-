@@ -53,7 +53,7 @@ jobs:
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             'GCC_PREPROCESSOR_DEFINITIONS=$(inherited) SCUMMVERSE_LOCAL_AI=1' \
             "HEADER_SEARCH_PATHS=\$(inherited) $PWD/build/llama-src/include $PWD/build/llama-src/ggml/include" \
-            "OTHER_LDFLAGS=\$(inherited) $PWD/build/llama-ios/libscummverse-ai.a -framework Metal -framework MetalKit -framework Accelerate" \
+            "OTHER_LDFLAGS=\$(inherited) $PWD/build/llama-ios/libscummverse-ai.a -framework Metal -framework MetalKit -framework Accelerate -framework Photos -framework ImageIO" \
             IPHONEOS_DEPLOYMENT_TARGET=13.0 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             PRODUCT_BUNDLE_IDENTIFIER=dev.sithewok13.scummverse \

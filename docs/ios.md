@@ -157,6 +157,27 @@ cockpit, and you look out at the stars until you tap **Arrive** and pick an
 outdoor place (Zak's, the mansion's, or an installed other world's). It stays
 parked there, drawn beside you; tap it to board again.
 
+The **CAMERA** button (camera symbol, below Worlds; in portrait after it)
+takes pictures of the game:
+- Tap: a photo, with a white flash, the shutter sound and "1 photo saved".
+  CLEAN (the default) is the room alone; FULL is the whole screen with the
+  verbs and inventory. Both are enlarged with sharp pixels (the whole screen
+  is 1600 by 1200, in the proportions the phone shows).
+- Hold half a second, while the ring around it fills: a selfie. The game
+  holds still, everyone in the room turns to the camera and poses (now and
+  then someone hasn't noticed, or they all stare at your character), and the
+  picture is framed on your character and whoever is near. It takes 1, 3 or
+  5 photos (3 unless you change it), posed afresh for each; afterwards
+  everything is exactly as it was.
+- Slide it down: the options (CLEAN or FULL, SELFIES 1, 3 or 5), remembered.
+  Tap anywhere else to close them.
+Photos go to the Photos app (it asks once, for adding photos only; the game
+holds still while it asks). With that access off they go to Files ›
+SCUMMVERSE › Screenshots. Names look like "SCUMMVERSE 2026-10-17 14.05.09
+clean.png" ("full", "selfie"; a second one within the same second gets -2,
+-3 after the time). On iOS 13 they always go to Files (adding to Photos
+needs iOS 14 there).
+
 Zak's crystal teleport panel lists seven sites: Seattle, Mexico, Peru, Egypt,
 Mars face, Mars pyramid and Atlantis (Fate of Atlantis's lost city, when that
 game is set up).

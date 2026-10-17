@@ -1,0 +1,1402 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index b9e4d138..83b050af 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -90,6 +90,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #include "backends/platform/ios7/scummverse_worlds_ui.inc"
+ #include "backends/platform/ios7/scummverse_airport_ui.inc"
+ #include "backends/platform/ios7/scummverse_roster_ui.inc"
++#include "backends/platform/ios7/scummverse_camera_ui.inc"
+ 
+ void scummverseAirportOffer(int actor) {
+ 	dispatch_async(dispatch_get_main_queue(), ^{
+@@ -112,6 +113,7 @@ void scummverseAirportOffer(int actor) {
+ 	UIButton *_scummverseAIButton;
+ 	UIButton *_scummverseTalkButton;
+ 	UIButton *_scummverseWorldsButton;
++	ScummverseCameraButton *_scummverseCameraButton;
+ #endif
+ 	UIButton *_menuButton;
+ 	UIButton *_toggleTouchModeButton;
+@@ -440,6 +442,7 @@ void scummverseAirportOffer(int actor) {
+ 	[_scummverseWorldsButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+ 	[_scummverseWorldsButton addTarget:self action:@selector(showScummverseWorlds) forControlEvents:UIControlEventTouchUpInside];
+ 	[self addSubview:_scummverseWorldsButton];
++	_scummverseCameraButton = scummverseInstallCamera(self);
+ 	scummverseInstallTalk(self);
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+@@ -690,7 +693,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 
+ - (void)dealloc {
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
+-	[_scummverseAIButton release]; [_scummverseTalkButton release]; [_scummverseWorldsButton release];
++	[_scummverseAIButton release]; [_scummverseTalkButton release]; [_scummverseWorldsButton release]; [_scummverseCameraButton release];
+ #endif
+ 	[_keyboardView release];
+ 
+@@ -740,6 +743,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+  _scummverseAIButton.frame = CGRectMake(x - 44, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36);
+  _scummverseTalkButton.frame = CGRectMake(x - 54, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40);
+  _scummverseWorldsButton.frame = CGRectMake(x - 64, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36);
++ _scummverseCameraButton.frame = CGRectMake(x - 44, CGRectGetMaxY(_scummverseWorldsButton.frame) + 4, 44, 36);
+ }
+ - (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height {
+  if(self.bounds.size.width >= self.bounds.size.height) return;
+@@ -749,9 +753,10 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+  _scummverseAIButton.frame=CGRectMake(88,y,44,36);
+  _scummverseTalkButton.frame=CGRectMake(140,y,54,36);
+  _scummverseWorldsButton.frame=CGRectMake(202,y,64,36);
++ _scummverseCameraButton.frame=CGRectMake(274,y,44,36);
+  // Degenerate host sizes should not leave controls overlapping the composer.
+  for(UIView *button in @[_toggleTouchModeButton, _menuButton, _scummverseAIButton,
+-                          _scummverseTalkButton, _scummverseWorldsButton])
++                          _scummverseTalkButton, _scummverseWorldsButton, _scummverseCameraButton])
+   button.alpha=height>=40 ? 1 : 0;
+ }
+ #endif
+@@ -816,6 +821,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
+ 	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
++	[_scummverseCameraButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_scummverseWorldsButton.frame) + 4, 44, 36)];
+ 	[scummverseTalkBar layoutBar];
+ #endif
+ #endif
+@@ -907,7 +913,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	const CGFloat margin = 10;
+ #ifdef SCUMMVERSE_LOCAL_AI
+  for(UIView *button in @[_toggleTouchModeButton, _menuButton, _scummverseAIButton,
+-                          _scummverseTalkButton, _scummverseWorldsButton]) button.alpha=1;
++                          _scummverseTalkButton, _scummverseWorldsButton, _scummverseCameraButton]) button.alpha=1;
+ #endif
+ 	// Touch mode button on top
+ 	[_toggleTouchModeButton setFrame:CGRectMake(self.frame.size.width - _toggleTouchModeButton.imageView.image.size.width - margin, margin, _toggleTouchModeButton.imageView.image.size.width, _toggleTouchModeButton.imageView.image.size.height)];
+@@ -917,6 +923,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[_scummverseAIButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36)];
+ 	[_scummverseTalkButton setFrame:CGRectMake(self.frame.size.width - 54 - margin, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40)];
+ 	[_scummverseWorldsButton setFrame:CGRectMake(self.frame.size.width - 64 - margin, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36)];
++	[_scummverseCameraButton setFrame:CGRectMake(self.frame.size.width - 44 - margin, CGRectGetMaxY(_scummverseWorldsButton.frame) + 4, 44, 36)];
+ 	[scummverseTalkBar layoutBar];
+ #endif
+ 
+diff --git a/backends/platform/ios7/scummverse_camera_ui.inc b/backends/platform/ios7/scummverse_camera_ui.inc
+new file mode 100644
+index 00000000..116fde05
+--- /dev/null
++++ b/backends/platform/ios7/scummverse_camera_ui.inc
+@@ -0,0 +1,472 @@
++// CAMERA: photos and selfies. The button beside AI and Talk (tap: a photo;
++// hold half a second while its ring fills: a selfie; slide it down: the
++// options, CLEAN or FULL and 1, 3 or 5 selfies, remembered), the white
++// flash, the shutter, the "1 photo saved" line, and the saving: to Photos
++// with add-only access (asked once, the game holding still meanwhile), or
++// to Files > SCUMMVERSE > Screenshots when that access is off. The game
++// takes the pictures (engines/scumm/scummverse_camera.inc) and hands them
++// here through Scummverse::Camera::setSink. The saving follows the Serious
++// Sam port's iOS photos code. Manual reference counting, like this file.
++#include "common/scummverse_camera.h"
++#import <Photos/Photos.h>
++#import <ImageIO/ImageIO.h>
++#import <AudioToolbox/AudioServices.h>
++
++static NSString *const kScummverseCameraFullKey = @"ScummverseCameraFull";
++static NSString *const kScummverseCameraSelfiesKey = @"ScummverseCameraSelfies";
++
++static BOOL scummverseCameraFull() {
++	return [[NSUserDefaults standardUserDefaults] boolForKey:kScummverseCameraFullKey];
++}
++static int scummverseCameraSelfies() {
++	const NSInteger n = [[NSUserDefaults standardUserDefaults] integerForKey:kScummverseCameraSelfiesKey];
++	return n == 1 || n == 5 ? (int)n : 3;
++}
++
++// ---- Messages: one short line over the game, fading ----
++static UILabel *scummverseCameraLabel;
++static void scummverseCameraMessage(NSString *text) {
++	UIView *view = [iOS7AppDelegate iPhoneView];
++	if (!view || !text.length) return;
++	if (!scummverseCameraLabel) {
++		scummverseCameraLabel = [[UILabel alloc] init];
++		scummverseCameraLabel.textColor = UIColor.whiteColor;
++		scummverseCameraLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.75];
++		scummverseCameraLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
++		scummverseCameraLabel.textAlignment = NSTextAlignmentCenter;
++		scummverseCameraLabel.numberOfLines = 2;
++		scummverseCameraLabel.layer.cornerRadius = 8;
++		scummverseCameraLabel.clipsToBounds = YES;
++		scummverseCameraLabel.userInteractionEnabled = NO;
++	}
++	[view addSubview:scummverseCameraLabel];
++	scummverseCameraLabel.text = text;
++	const CGSize fit = [scummverseCameraLabel sizeThatFits:CGSizeMake(view.bounds.size.width - 48, 60)];
++	scummverseCameraLabel.frame = CGRectMake((view.bounds.size.width - fit.width - 24) / 2, view.bounds.size.height * 0.42, fit.width + 24, fit.height + 14);
++	[scummverseCameraLabel.layer removeAllAnimations];
++	scummverseCameraLabel.alpha = 1;
++	[UIView animateWithDuration:0.4 delay:2.2 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
++		scummverseCameraLabel.alpha = 0;
++	} completion:nil];
++}
++
++// The flash and the shutter, as each photo is taken (it is already taken:
++// neither is in it).
++static void scummverseCameraFlash() {
++	UIView *view = [iOS7AppDelegate iPhoneView];
++	if (!view) return;
++	UIView *flash = [[[UIView alloc] initWithFrame:view.bounds] autorelease];
++	flash.backgroundColor = UIColor.whiteColor;
++	flash.alpha = 0.85;
++	flash.userInteractionEnabled = NO;
++	[view addSubview:flash];
++	[UIView animateWithDuration:0.35 animations:^{ flash.alpha = 0; } completion:^(BOOL) { [flash removeFromSuperview]; }];
++	AudioServicesPlaySystemSound(1108); // the camera shutter
++}
++
++// ---- Saving, one photo after another, off the game's thread ----
++static dispatch_queue_t scummverseCameraQueue() {
++	static dispatch_queue_t queue;
++	static dispatch_once_t once;
++	dispatch_once(&once, ^{ queue = dispatch_queue_create("scummverse.camera", DISPATCH_QUEUE_SERIAL); });
++	return queue;
++}
++
++// What was saved since the last line, said once nothing more is on its way
++// (a selfie's photos once, after the last). Main thread only.
++static int scummverseCameraPending = 0, scummverseCameraToPhotos = 0, scummverseCameraToFiles = 0, scummverseCameraFailed = 0;
++static BOOL scummverseCameraBatch = NO, scummverseCameraPhotosOff = NO;
++
++static void scummverseCameraReport() {
++	if (scummverseCameraPending > 0 || scummverseCameraBatch) return;
++	NSMutableArray *parts = [NSMutableArray array];
++	if (scummverseCameraToPhotos)
++		[parts addObject:scummverseCameraToPhotos == 1 ? @"1 photo saved" : [NSString stringWithFormat:@"%d photos saved", scummverseCameraToPhotos]];
++	if (scummverseCameraToFiles)
++		[parts addObject:[NSString stringWithFormat:@"%d saved to Files › Screenshots (%@)", scummverseCameraToFiles,
++		                  scummverseCameraPhotosOff ? scummverseCameraNoPhotos() : @"Photos didn't take them"]];
++	if (scummverseCameraFailed)
++		[parts addObject:[NSString stringWithFormat:@"%d couldn't be saved", scummverseCameraFailed]];
++	scummverseCameraToPhotos = scummverseCameraToFiles = scummverseCameraFailed = 0;
++	scummverseCameraPhotosOff = NO;
++	if (parts.count) scummverseCameraMessage([parts componentsJoinedByString:@", "]);
++}
++
++static void scummverseCameraFinish(int toPhotos, int toFiles, int failed, BOOL photosOff) {
++	dispatch_async(dispatch_get_main_queue(), ^{
++		scummverseCameraToPhotos += toPhotos; scummverseCameraToFiles += toFiles; scummverseCameraFailed += failed;
++		if (photosOff) scummverseCameraPhotosOff = YES;
++		if (scummverseCameraPending > 0) --scummverseCameraPending;
++		scummverseCameraReport();
++	});
++}
++
++static void scummverseCameraFreeBytes(void *, const void *data, size_t) { free((void *)data); }
++
++static NSData *scummverseCameraPNG(unsigned char *rgba, int width, int height) {
++	CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, rgba, (size_t)width * height * 4, scummverseCameraFreeBytes);
++	if (!provider) { free(rgba); return nil; }
++	CGColorSpaceRef color = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
++	CGImageRef image = CGImageCreate(width, height, 8, 32, (size_t)width * 4, color, kCGBitmapByteOrderDefault | kCGImageAlphaNoneSkipLast,
++	                                 provider, NULL, false, kCGRenderingIntentDefault);
++	CGColorSpaceRelease(color);
++	CGDataProviderRelease(provider);
++	if (!image) return nil;
++	NSMutableData *data = [NSMutableData data];
++	CGImageDestinationRef out = CGImageDestinationCreateWithData((CFMutableDataRef)data, CFSTR("public.png"), 1, NULL);
++	BOOL ok = NO;
++	if (out) {
++		CGImageDestinationAddImage(out, image, NULL);
++		ok = CGImageDestinationFinalize(out);
++		CFRelease(out);
++	}
++	CGImageRelease(image);
++	return ok ? data : nil;
++}
++
++// Documents/Screenshots: Files › SCUMMVERSE › Screenshots.
++static int scummverseCameraSaveToFiles(NSData *png, NSString *name) {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	if (!documents) return 0;
++	NSString *folder = [documents stringByAppendingPathComponent:@"Screenshots"];
++	[[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
++	return [png writeToFile:[folder stringByAppendingPathComponent:name] atomically:YES] ? 1 : 0;
++}
++
++// Add-only access to Photos (iOS 14 on). Before iOS 14 adding needs full
++// access to the library, which the app does not ask for: Files instead.
++static BOOL scummverseCameraPhotosAllowed() {
++	if (@available(iOS 14, *)) {
++		const PHAuthorizationStatus status = [PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelAddOnly];
++		return status == PHAuthorizationStatusAuthorized || status == PHAuthorizationStatusLimited;
++	}
++	return NO;
++}
++static NSString *scummverseCameraNoPhotos() {
++	if (@available(iOS 14, *)) return @"Photos access is off";
++	return @"Photos needs iOS 14";
++}
++
++static void scummverseCameraSave(NSData *png, NSString *name, NSDate *when) {
++	if (!png) { scummverseCameraFinish(0, 0, 1, NO); return; }
++	if (!scummverseCameraPhotosAllowed()) {
++		const int saved = scummverseCameraSaveToFiles(png, name);
++		scummverseCameraFinish(0, saved, 1 - saved, YES);
++		return;
++	}
++	[[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
++		PHAssetCreationRequest *request = [PHAssetCreationRequest creationRequestForAsset];
++		PHAssetResourceCreationOptions *options = [[[PHAssetResourceCreationOptions alloc] init] autorelease];
++		options.originalFilename = name;
++		[request addResourceWithType:PHAssetResourceTypePhoto data:png options:options];
++		request.creationDate = when;
++	} completionHandler:^(BOOL ok, NSError *) {
++		if (ok) { scummverseCameraFinish(1, 0, 0, NO); return; }
++		const int saved = scummverseCameraSaveToFiles(png, name);
++		scummverseCameraFinish(0, saved, 1 - saved, NO);
++	}];
++}
++
++// The game's thread: each finished picture, named for the moment it was
++// taken, flashed, then encoded and saved in order.
++static void scummverseCameraSink(const Scummverse::Camera::Picture &picture, int kind, int shot, int shots, void *) {
++	@autoreleasepool {
++		static Scummverse::Camera::Namer namer;
++		NSDate *when = [NSDate date];
++		NSDateComponents *c = [[NSCalendar currentCalendar] components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay |
++		                       NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond fromDate:when];
++		const std::string name = namer.next((int)c.year, (int)c.month, (int)c.day, (int)c.hour, (int)c.minute, (int)c.second,
++		                                    Scummverse::Camera::kindName(kind));
++		NSString *file = [NSString stringWithUTF8String:name.c_str()];
++		unsigned char *rgba = (unsigned char *)malloc(picture.rgba.size());
++		if (rgba) memcpy(rgba, picture.rgba.data(), picture.rgba.size());
++		const int width = picture.width, height = picture.height;
++		const BOOL more = kind == Scummverse::Camera::kSelfie && shot + 1 < shots;
++		dispatch_async(dispatch_get_main_queue(), ^{
++			++scummverseCameraPending;
++			scummverseCameraBatch = more;
++			scummverseCameraFlash();
++		});
++		dispatch_async(scummverseCameraQueue(), ^{
++			@autoreleasepool {
++				scummverseCameraSave(rgba ? scummverseCameraPNG(rgba, width, height) : nil, file, when);
++			}
++		});
++	}
++}
++
++// Asks for add-only access the first time (the game holds still while iOS
++// asks), then goes on whatever the answer.
++// (taps while iOS is asking are ignored)
++static BOOL scummverseCameraAsking = NO;
++static void scummverseCameraWithAccess(void (^go)(void)) {
++	if (scummverseCameraAsking) return;
++	if (@available(iOS 14, *)) {
++		if ([PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelAddOnly] == PHAuthorizationStatusNotDetermined) {
++			scummverseCameraAsking = YES;
++			Scummverse::Camera::setHold(true);
++			[PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelAddOnly handler:^(PHAuthorizationStatus) {
++				dispatch_async(dispatch_get_main_queue(), ^{
++					scummverseCameraAsking = NO;
++					Scummverse::Camera::setHold(false);
++					go();
++				});
++			}];
++			return;
++		}
++	}
++	go();
++}
++
++// ---- The button: tap, hold with a filling ring, or slide down ----
++@interface ScummverseCameraButton : UIControl {
++	UIImageView *_icon;
++	UILabel *_fallback;
++	CAShapeLayer *_ring;
++	CADisplayLink *_link;
++	CFTimeInterval _start;
++	CGPoint _down;
++	BOOL _fired, _slid;
++}
++@property(nonatomic, copy) void (^photo)(void);
++@property(nonatomic, copy) void (^selfie)(void);
++@property(nonatomic, copy) void (^options)(void);
++@end
++
++@implementation ScummverseCameraButton
++@synthesize photo = _photo, selfie = _selfie, options = _options;
++
++- (id)initWithFrame:(CGRect)frame {
++	if ((self = [super initWithFrame:frame])) {
++		self.backgroundColor = [UIColor colorWithWhite:0 alpha:0.65];
++		self.accessibilityLabel = @"Camera: tap for a photo, hold for a selfie, slide down for options";
++		self.isAccessibilityElement = YES;
++		self.accessibilityTraits = UIAccessibilityTraitButton;
++		self.accessibilityCustomActions = @[
++			[[[UIAccessibilityCustomAction alloc] initWithName:@"Selfie" target:self selector:@selector(accessibilitySelfie)] autorelease],
++			[[[UIAccessibilityCustomAction alloc] initWithName:@"Camera options" target:self selector:@selector(accessibilityOptions)] autorelease]];
++		UIImage *image = nil;
++		if (@available(iOS 13, *)) image = [UIImage systemImageNamed:@"camera.fill"];
++		if (image) {
++			_icon = [[UIImageView alloc] initWithImage:image];
++			_icon.tintColor = UIColor.whiteColor;
++			_icon.contentMode = UIViewContentModeScaleAspectFit;
++			_icon.userInteractionEnabled = NO;
++			[self addSubview:_icon];
++		} else {
++			_fallback = [[UILabel alloc] init];
++			_fallback.text = @"CAM";
++			_fallback.textColor = UIColor.whiteColor;
++			_fallback.textAlignment = NSTextAlignmentCenter;
++			_fallback.userInteractionEnabled = NO;
++			[self addSubview:_fallback];
++		}
++		_ring = [[CAShapeLayer alloc] init];
++		_ring.fillColor = UIColor.clearColor.CGColor;
++		_ring.strokeColor = UIColor.whiteColor.CGColor;
++		_ring.lineWidth = 3;
++		_ring.strokeEnd = 0;
++		_ring.hidden = YES;
++		[self.layer addSublayer:_ring];
++	}
++	return self;
++}
++
++- (void)dealloc {
++	[_link invalidate];
++	[_icon release]; [_fallback release]; [_ring release];
++	[_photo release]; [_selfie release]; [_options release];
++	[super dealloc];
++}
++
++- (void)layoutSubviews {
++	[super layoutSubviews];
++	const CGRect inner = CGRectInset(self.bounds, 9, 7);
++	_icon.frame = inner; _fallback.frame = self.bounds;
++	const CGFloat side = MIN(self.bounds.size.width, self.bounds.size.height) - 4;
++	const CGRect circle = CGRectMake((self.bounds.size.width - side) / 2, (self.bounds.size.height - side) / 2, side, side);
++	UIBezierPath *path = [UIBezierPath bezierPathWithArcCenter:CGPointMake(CGRectGetMidX(circle), CGRectGetMidY(circle))
++	                                                    radius:side / 2 startAngle:-M_PI_2 endAngle:3 * M_PI_2 clockwise:YES];
++	_ring.path = path.CGPath;
++}
++
++- (void)stopRing {
++	[_link invalidate]; _link = nil;
++	_ring.hidden = YES; _ring.strokeEnd = 0;
++}
++
++- (void)tick:(CADisplayLink *)link {
++	const double t = (CACurrentMediaTime() - _start) / 0.5;
++	[CATransaction begin]; [CATransaction setDisableActions:YES];
++	_ring.strokeEnd = MIN(1.0, t);
++	[CATransaction commit];
++	if (t >= 1 && !_fired) {
++		_fired = YES;
++		[self stopRing];
++		if (_selfie) _selfie();
++	}
++}
++
++- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
++	_fired = _slid = NO;
++	if (Scummverse::Camera::busy()) return NO;
++	_down = [touch locationInView:self];
++	_start = CACurrentMediaTime();
++	_ring.hidden = NO; _ring.strokeEnd = 0;
++	_link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
++	[_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
++	return YES;
++}
++
++- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
++	if (_fired || _slid) return NO;
++	const CGPoint p = [touch locationInView:self];
++	if (p.y - _down.y > 24) {
++		_slid = YES;
++		[self stopRing];
++		if (_options) _options();
++		return NO;
++	}
++	// Off the button another way: nothing.
++	if (!CGRectContainsPoint(CGRectInset(self.bounds, -16, -16), p)) {
++		_slid = YES;
++		[self stopRing];
++		return NO;
++	}
++	return YES;
++}
++
++- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
++	[self stopRing];
++	if (!_fired && !_slid && touch && CGRectContainsPoint(CGRectInset(self.bounds, -16, -16), [touch locationInView:self]) && _photo) _photo();
++}
++
++- (void)cancelTrackingWithEvent:(UIEvent *)event {
++	[self stopRing];
++}
++
++- (BOOL)accessibilityActivate {
++	if (_photo) _photo();
++	return YES;
++}
++- (BOOL)accessibilitySelfie {
++	if (_selfie) _selfie();
++	return YES;
++}
++- (BOOL)accessibilityOptions {
++	if (_options) _options();
++	return YES;
++}
++@end
++
++// ---- The options: CLEAN or FULL, and how many selfies ----
++@interface ScummverseCameraOptions : UIControl {
++	UIView *_panel;
++	CGSize _shownIn;
++}
++- (void)showBelow:(UIView *)button inView:(UIView *)view;
++@end
++
++@implementation ScummverseCameraOptions
++- (id)initWithFrame:(CGRect)frame {
++	if ((self = [super initWithFrame:frame])) {
++		// Tapping anywhere else closes it; so does turning the phone.
++		self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++		[self addTarget:self action:@selector(tapped:event:) forControlEvents:UIControlEventTouchUpInside];
++		_panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 196, 104)];
++		_panel.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.9];
++		_panel.layer.cornerRadius = 10;
++		UISegmentedControl *kind = [[[UISegmentedControl alloc] initWithItems:@[@"CLEAN", @"FULL"]] autorelease];
++		kind.frame = CGRectMake(10, 10, 176, 32);
++		kind.selectedSegmentIndex = scummverseCameraFull() ? 1 : 0;
++		kind.accessibilityLabel = @"Photo: the room only, or the full screen";
++		[kind addTarget:self action:@selector(kindChanged:) forControlEvents:UIControlEventValueChanged];
++		[_panel addSubview:kind];
++		UILabel *label = [[[UILabel alloc] initWithFrame:CGRectMake(10, 56, 70, 32)] autorelease];
++		label.text = @"SELFIES";
++		label.textColor = UIColor.whiteColor;
++		label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
++		[_panel addSubview:label];
++		UISegmentedControl *count = [[[UISegmentedControl alloc] initWithItems:@[@"1", @"3", @"5"]] autorelease];
++		count.frame = CGRectMake(80, 56, 106, 32);
++		const int selfies = scummverseCameraSelfies();
++		count.selectedSegmentIndex = selfies == 1 ? 0 : selfies == 5 ? 2 : 1;
++		count.accessibilityLabel = @"Photos per selfie";
++		[count addTarget:self action:@selector(countChanged:) forControlEvents:UIControlEventValueChanged];
++		[_panel addSubview:count];
++		if (@available(iOS 13, *)) {
++			for (UISegmentedControl *s in @[kind, count]) {
++				s.selectedSegmentTintColor = UIColor.whiteColor;
++				[s setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.whiteColor} forState:UIControlStateNormal];
++				[s setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.blackColor} forState:UIControlStateSelected];
++			}
++		}
++		[self addSubview:_panel];
++	}
++	return self;
++}
++- (void)dealloc { [_panel release]; [super dealloc]; }
++- (void)kindChanged:(UISegmentedControl *)control {
++	[[NSUserDefaults standardUserDefaults] setBool:control.selectedSegmentIndex == 1 forKey:kScummverseCameraFullKey];
++}
++- (void)countChanged:(UISegmentedControl *)control {
++	const int counts[] = {1, 3, 5};
++	[[NSUserDefaults standardUserDefaults] setInteger:counts[MAX(0, MIN(2, (int)control.selectedSegmentIndex))] forKey:kScummverseCameraSelfiesKey];
++}
++- (void)showBelow:(UIView *)button inView:(UIView *)view {
++	self.frame = view.bounds;
++	const CGSize size = _panel.bounds.size;
++	CGFloat x = CGRectGetMaxX(button.frame) - size.width, y = CGRectGetMaxY(button.frame) + 6;
++	if (y + size.height > view.bounds.size.height - 4) y = button.frame.origin.y - size.height - 6;
++	x = MAX(4, MIN(x, view.bounds.size.width - size.width - 4));
++	_panel.frame = CGRectMake(x, MAX(4, y), size.width, size.height);
++	_shownIn = view.bounds.size;
++	[view addSubview:self];
++}
++- (void)tapped:(id)sender event:(UIEvent *)event {
++	UITouch *touch = event.allTouches.anyObject;
++	if (touch && CGRectContainsPoint(_panel.frame, [touch locationInView:self])) return;
++	[self close];
++}
++// (turned or resized: closed rather than left in the wrong place)
++- (void)layoutSubviews {
++	[super layoutSubviews];
++	if (self.superview && !CGSizeEqualToSize(self.superview.bounds.size, _shownIn)) [self close];
++}
++- (void)close { [self removeFromSuperview]; }
++@end
++
++// Makes the button and starts taking the game's pictures.
++static ScummverseCameraButton *scummverseInstallCamera(UIView *view) {
++	Scummverse::Camera::setSink(scummverseCameraSink, nullptr);
++	ScummverseCameraButton *button = [[ScummverseCameraButton alloc] initWithFrame:CGRectMake(0, 0, 44, 36)];
++	button.photo = ^{
++		if (Scummverse::Camera::busy()) return;
++		const BOOL full = scummverseCameraFull();
++		scummverseCameraWithAccess(^{ Scummverse::Camera::requestPhoto(full); });
++	};
++	button.selfie = ^{
++		if (Scummverse::Camera::busy()) return;
++		const int shots = scummverseCameraSelfies();
++		scummverseCameraWithAccess(^{ Scummverse::Camera::requestSelfie(shots); });
++	};
++	// (__block: not retained by the block, which the button itself keeps)
++	__block ScummverseCameraButton *owner = button;
++	__block UIView *host = view;
++	button.options = ^{
++		ScummverseCameraOptions *options = [[[ScummverseCameraOptions alloc] initWithFrame:host.bounds] autorelease];
++		[options showBelow:owner inView:host];
++	};
++	[view addSubview:button];
++	// The game's own lines ("No selfie here"); and a selfie that ended
++	// before its last photo still says what was saved.
++	[NSTimer scheduledTimerWithTimeInterval:0.3 repeats:YES block:^(NSTimer *) {
++		std::string text;
++		if (Scummverse::Camera::takeNote(text)) scummverseCameraMessage([NSString stringWithUTF8String:text.c_str()]);
++		if (scummverseCameraBatch && !Scummverse::Camera::busy()) {
++			scummverseCameraBatch = NO;
++			scummverseCameraReport();
++		}
++	}];
++	return button;
++}
+diff --git a/common/module.mk b/common/module.mk
+index c382cc9b..d1eda27e 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -28,6 +28,7 @@ MODULE_OBJS := \
+ 	platform.o \
+ 	punycode.o \
+ 	random.o \
++	scummverse_camera.o \
+ 	scummverse_net.o \
+ 	scummverse_world.o \
+ 	rational.o \
+diff --git a/common/scummverse_camera.cpp b/common/scummverse_camera.cpp
+new file mode 100644
+index 00000000..9391cbc5
+--- /dev/null
++++ b/common/scummverse_camera.cpp
+@@ -0,0 +1,229 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse CAMERA: portable part. See scummverse_camera.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_camera.h"
++
++#include <algorithm>
++#include <atomic>
++#include <cmath>
++#include <cstdio>
++#include <mutex>
++
++namespace Scummverse {
++namespace Camera {
++
++// ---- Requests ----
++// One waiting request: 0 none, 1 clean, 2 full, 10 + n a selfie of n.
++static std::atomic<int> g_request(0);
++static std::atomic<bool> g_hold(false), g_busy(false);
++
++void requestPhoto(bool full) { g_request.store(full ? 2 : 1); }
++
++void requestSelfie(int shots) {
++	shots = shots <= 1 ? 1 : shots <= 3 ? 3 : kMaxSelfies;
++	g_request.store(10 + shots);
++}
++
++bool takeRequest(Request &request) {
++	const int r = g_request.exchange(0);
++	if (!r) return false;
++	request.kind = r >= 10 ? kSelfie : r == 2 ? kFull : kClean;
++	request.shots = r >= 10 ? r - 10 : 1;
++	return true;
++}
++
++void setHold(bool hold) { g_hold.store(hold); }
++bool held() { return g_hold.load(); }
++void setBusy(bool busy) { g_busy.store(busy); }
++bool busy() { return g_busy.load(); }
++
++static std::mutex g_noteMutex;
++static std::string g_note;
++
++void note(const char *text) {
++	std::lock_guard<std::mutex> guard(g_noteMutex);
++	g_note = text ? text : "";
++}
++
++void reset() {
++	g_request.store(0); g_hold.store(false); g_busy.store(false);
++	std::lock_guard<std::mutex> guard(g_noteMutex);
++	g_note.clear();
++}
++
++bool takeNote(std::string &text) {
++	std::lock_guard<std::mutex> guard(g_noteMutex);
++	if (g_note.empty()) return false;
++	text.swap(g_note); g_note.clear();
++	return true;
++}
++
++// ---- Pictures ----
++Rect intersect(const Rect &a, const Rect &b) {
++	Rect r;
++	r.x = std::max(a.x, b.x); r.y = std::max(a.y, b.y);
++	r.w = std::min(a.right(), b.right()) - r.x; r.h = std::min(a.bottom(), b.bottom()) - r.y;
++	if (r.w < 0) r.w = 0;
++	if (r.h < 0) r.h = 0;
++	return r;
++}
++
++Rect unite(const Rect &a, const Rect &b) {
++	if (a.empty()) return b;
++	if (b.empty()) return a;
++	Rect r;
++	r.x = std::min(a.x, b.x); r.y = std::min(a.y, b.y);
++	r.w = std::max(a.right(), b.right()) - r.x; r.h = std::max(a.bottom(), b.bottom()) - r.y;
++	return r;
++}
++
++void factors(int width, int height, int &kx, int &ky) {
++	int m = 1;
++	const int longer = std::max(width * 5, height * 6);
++	if (longer > 0) m = std::max(1, (int)std::ceil(kTarget / (double)longer));
++	while (m > 1 && (width * 5 * m > kMaxSide || height * 6 * m > kMaxSide)) --m;
++	kx = 5 * m; ky = 6 * m;
++}
++
++bool enlarge(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
++             Rect crop, int kx, int ky, Picture &out) {
++	Rect whole; whole.w = width; whole.h = height;
++	crop = intersect(crop, whole);
++	if (!pixels || !palette || crop.empty() || kx < 1 || ky < 1) return false;
++	out.width = crop.w * kx; out.height = crop.h * ky;
++	out.rgba.assign((size_t)out.width * out.height * 4, 255);
++	std::vector<uint8_t> row((size_t)out.width * 4);
++	for (int y = 0; y < crop.h; ++y) {
++		const uint8_t *src = pixels + (size_t)(crop.y + y) * pitch + crop.x;
++		for (int x = 0; x < crop.w; ++x) {
++			const uint8_t *c = palette + src[x] * 3;
++			for (int i = 0; i < kx; ++i) {
++				uint8_t *d = &row[((size_t)x * kx + i) * 4];
++				d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = 255;
++			}
++		}
++		for (int j = 0; j < ky; ++j)
++			std::copy(row.begin(), row.end(), out.rgba.begin() + ((size_t)y * ky + j) * out.width * 4);
++	}
++	return true;
++}
++
++Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view) {
++	return frameSelfie(player, others.data(), (int)others.size(), view);
++}
++
++Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view) {
++	Rect group = player;
++	const int reach = std::max(16, player.h * 3 / 4);
++	for (int i = 0; i < count; ++i) {
++		const Rect &o = others[i];
++		if (o.empty()) continue;
++		const int gap = std::max(o.x - player.right(), player.x - o.right());
++		if (gap <= reach) group = unite(group, o);
++	}
++	if (group.empty()) return intersect(view, view);
++	// Head room above, a little below the feet, some room either side.
++	const double h = std::max(group.h, 24);
++	double top = group.y - h * 0.22, bottom = group.bottom() + h * 0.08;
++	double left = group.x - h * 0.15, right = group.right() + h * 0.15;
++	// Shown rows are 1.2 times taller: keep 4:5 to 4:3 as seen.
++	const double shown = (right - left) / ((bottom - top) * 1.2);
++	if (shown < 0.8) {
++		const double grow = ((bottom - top) * 1.2 * 0.8 - (right - left)) / 2;
++		left -= grow; right += grow;
++	} else if (shown > 4.0 / 3) {
++		const double grow = ((right - left) / (4.0 / 3) / 1.2 - (bottom - top));
++		top -= grow * 0.75; bottom += grow * 0.25;
++	}
++	Rect r;
++	r.x = (int)std::floor(left); r.y = (int)std::floor(top);
++	r.w = (int)std::ceil(right) - r.x; r.h = (int)std::ceil(bottom) - r.y;
++	// Slid back inside the view, then cut to it.
++	if (r.w <= view.w) r.x = std::min(std::max(r.x, view.x), view.right() - r.w);
++	if (r.h <= view.h) r.y = std::min(std::max(r.y, view.y), view.bottom() - r.h);
++	return intersect(r, view);
++}
++
++// ---- Poses ----
++static uint32_t nextRandom(uint32_t &state) {
++	state ^= state << 13; state ^= state >> 17; state ^= state << 5;
++	return state;
++}
++
++int planShot(uint32_t seed, int shot, int player, const std::vector<int> &xs, std::vector<Choice> &out) {
++	out.assign(xs.size(), Choice());
++	return planShot(seed, shot, player, xs.data(), (int)xs.size(), out.data());
++}
++
++int planShot(uint32_t seed, int shot, int player, const int *xs, int count, Choice *out) {
++	uint32_t state = (seed ^ (uint32_t)(shot + 1) * 0x9E3779B9u) | 1;
++	for (int i = 0; i < 4; ++i) nextRandom(state);
++	for (int i = 0; i < count; ++i) out[i] = Choice();
++	for (int i = 0; i < count; ++i) {
++		const uint32_t r = nextRandom(state) % 10;
++		out[i].pose = r < 4 ? kStand : r < 7 ? kStep : kTalk;
++		out[i].step = (int)(nextRandom(state) % 4);
++	}
++	// A surprise in about one shot of four, when someone besides the player
++	// is there.
++	const int others = count - (player >= 0 && player < count ? 1 : 0);
++	if (others <= 0 || nextRandom(state) % 4) return kNoSurprise;
++	if (nextRandom(state) % 2) {
++		int pick = (int)(nextRandom(state) % others);
++		for (int i = 0; i < count; ++i) {
++			if (i == player) continue;
++			if (!pick--) { out[i].facing = kFaceAsIs; out[i].pose = kAsIs; break; }
++		}
++		return kNotNoticed;
++	}
++	for (int i = 0; i < count; ++i) {
++		if (i == player || player < 0 || player >= count) continue;
++		out[i].facing = xs[i] <= xs[player] ? kFaceRight : kFaceLeft;
++		out[i].pose = kStand;
++	}
++	return kStareAtPlayer;
++}
++
++bool shoot(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
++           const Rect &crop, int kind, int shot, int shots) {
++	int kx, ky;
++	factors(crop.w, crop.h, kx, ky);
++	Picture picture;
++	return enlarge(pixels, pitch, width, height, palette, crop, kx, ky, picture) && deliver(picture, kind, shot, shots);
++}
++
++// ---- Names ----
++const char *kindName(int kind) {
++	return kind == kFull ? "full" : kind == kSelfie ? "selfie" : "clean";
++}
++
++std::string Namer::next(int year, int month, int day, int hour, int minute, int second, const char *kind) {
++	char base[64];
++	snprintf(base, sizeof(base), "SCUMMVERSE %04d-%02d-%02d %02d.%02d.%02d", year, month, day, hour, minute, second);
++	if (_last == base) ++_same;
++	else { _last = base; _same = 1; }
++	std::string name = base;
++	if (_same > 1) name += "-" + std::to_string(_same);
++	return name + " " + (kind ? kind : "clean") + ".png";
++}
++
++// ---- Delivery ----
++static std::mutex g_sinkMutex;
++static Sink g_sink = nullptr;
++static void *g_sinkContext = nullptr;
++
++void setSink(Sink sink, void *context) {
++	std::lock_guard<std::mutex> guard(g_sinkMutex);
++	g_sink = sink; g_sinkContext = context;
++}
++
++bool deliver(const Picture &picture, int kind, int shot, int shots) {
++	std::lock_guard<std::mutex> guard(g_sinkMutex);
++	if (!g_sink || picture.rgba.empty()) return false;
++	g_sink(picture, kind, shot, shots, g_sinkContext);
++	return true;
++}
++
++} // namespace Camera
++} // namespace Scummverse
+diff --git a/common/scummverse_camera.h b/common/scummverse_camera.h
+new file mode 100644
+index 00000000..7baefba7
+--- /dev/null
++++ b/common/scummverse_camera.h
+@@ -0,0 +1,59 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse CAMERA: photos and selfies of the game. Portable: the requests
++// the interface makes and the game takes, the picture work (whole-pixel
++// enlarging, selfie framing), the poses a selfie asks of everyone, the
++// photos' names, and handing finished pictures to whoever saves them (the
++// iPhone backend, or a test). The game uses the plain-types part,
++// scummverse_camera_engine.h (its side is engines/scumm/scummverse_camera.inc).
++#ifndef COMMON_SCUMMVERSE_CAMERA_H
++#define COMMON_SCUMMVERSE_CAMERA_H
++
++#include "common/scummverse_camera_engine.h"
++
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++namespace Camera {
++
++// ---- Requests, from the interface ----
++void requestPhoto(bool full);
++void requestSelfie(int shots); // 1, 3 or 5 (others are brought into range)
++void setHold(bool hold);
++bool takeNote(std::string &text);
++
++// ---- Pictures ----
++struct Picture {
++	int width = 0, height = 0;
++	std::vector<uint8_t> rgba; // top row first, opaque
++};
++// The crop of an 8-bit picture (palette: 256 RGB triplets), each pixel kx
++// by ky, no smoothing. False if the crop misses the picture.
++bool enlarge(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
++             Rect crop, int kx, int ky, Picture &out);
++Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view);
++int planShot(uint32_t seed, int shot, int player, const std::vector<int> &xs, std::vector<Choice> &out);
++
++// ---- Names: "SCUMMVERSE 2026-10-17 14.05.09 clean.png", a second photo
++// in the same second "SCUMMVERSE 2026-10-17 14.05.09-2 clean.png" ----
++class Namer {
++public:
++	std::string next(int year, int month, int day, int hour, int minute, int second, const char *kind);
++private:
++	std::string _last;
++	int _same = 0;
++};
++const char *kindName(int kind);
++
++// ---- Delivery ----
++// Called on the game's thread with each finished picture: shot (from 0)
++// of shots for a selfie, 0 of 1 otherwise. The picture is the sink's to
++// keep only for the call.
++typedef void (*Sink)(const Picture &picture, int kind, int shot, int shots, void *context);
++void setSink(Sink sink, void *context);
++bool deliver(const Picture &picture, int kind, int shot, int shots);
++
++} // namespace Camera
++} // namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_camera_engine.h b/common/scummverse_camera_engine.h
+new file mode 100644
+index 00000000..7e653d13
+--- /dev/null
++++ b/common/scummverse_camera_engine.h
+@@ -0,0 +1,84 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse CAMERA: engine-facing bridge (plain types only). The game takes
++// the interface's requests, plans a selfie's poses and frame, and hands its
++// 8-bit screen over to be enlarged and saved. See common/scummverse_camera.h.
++#ifndef COMMON_SCUMMVERSE_CAMERA_ENGINE_H
++#define COMMON_SCUMMVERSE_CAMERA_ENGINE_H
++
++#include <stdint.h>
++
++namespace Scummverse {
++namespace Camera {
++
++// What a photo shows: the room alone (CLEAN), the whole screen with the
++// verbs and inventory (FULL), or a selfie (framed on the player).
++enum Kind { kClean = 0, kFull = 1, kSelfie = 2 };
++enum { kMaxSelfies = 5 };
++
++// ---- Requests (made on the interface's thread, taken by the game's) ----
++struct Request {
++	int kind = kClean;
++	int shots = 1;
++};
++bool takeRequest(Request &request);
++// The game holds still (no scripts, no walking) while this is set: while
++// iOS asks for access to Photos.
++bool held();
++// A selfie is being taken (the game sets it; new requests wait).
++void setBusy(bool busy);
++bool busy();
++// A line for the player from the game ("No selfie here"), the latest one.
++void note(const char *text);
++// Nothing waiting, held or noted (a game starting or ending).
++void reset();
++
++// ---- Rectangles (pixels) ----
++struct Rect {
++	int x = 0, y = 0, w = 0, h = 0;
++	int right() const { return x + w; }
++	int bottom() const { return y + h; }
++	bool empty() const { return w <= 0 || h <= 0; }
++};
++Rect intersect(const Rect &a, const Rect &b);
++Rect unite(const Rect &a, const Rect &b);
++
++// Whole-pixel factors for a crop: columns kx, rows ky = kx * 6 / 5 (the
++// game's pixels are shown 1.2 times taller than wide), the smallest that
++// makes the longer side at least kTarget, at most kMaxSide on either side
++// (the whole screen: 5 by 6, 1600 by 1200).
++enum { kTarget = 1600, kMaxSide = 4096 };
++void factors(int width, int height, int &kx, int &ky);
++
++// A selfie's frame: the player and whoever stands near them (within three
++// quarters of the player's height, side to side), with head room, between
++// 4:5 and 4:3 as shown (rows 1.2 times taller), inside the view.
++Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view);
++
++// ---- Poses ----
++// How each one in the room poses for a shot: facing the viewer, or left or
++// right (toward the player), or as they were; standing, mid-step (advanced
++// `step` animation steps), talking, or as they were.
++enum Facing { kFaceViewer = 0, kFaceLeft, kFaceRight, kFaceAsIs };
++enum Pose { kStand = 0, kStep, kTalk, kAsIs };
++enum Surprise { kNoSurprise = 0, kNotNoticed, kStareAtPlayer };
++struct Choice {
++	int facing = kFaceViewer;
++	int pose = kStand;
++	int step = 0;
++};
++// The poses for shot `shot` of a selfie, one per x (`seed` picks them; the
++// same seed and shot give the same poses); player: the player's index. Now
++// and then a surprise: someone hasn't noticed the camera, or everyone else
++// stares at the player. Returns the surprise.
++int planShot(uint32_t seed, int shot, int player, const int *xs, int count, Choice *out);
++
++// The crop of an 8-bit picture (palette: 256 RGB triplets) enlarged by whole
++// pixels (factors) and handed to whoever saves photos (setSink). False if
++// the crop misses the picture or nobody takes it.
++bool shoot(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
++           const Rect &crop, int kind, int shot, int shots);
++
++} // namespace Camera
++} // namespace Scummverse
++
++#endif
+diff --git a/dists/ios7/Info.plist b/dists/ios7/Info.plist
+index e8855669..e4aec895 100644
+--- a/dists/ios7/Info.plist
++++ b/dists/ios7/Info.plist
+@@ -54,6 +54,8 @@
+ 	<true/>
+ 	<key>NSLocalNetworkUsageDescription</key>
+ 	<string>Play together with friends on the same WiFi network.</string>
++	<key>NSPhotoLibraryAddUsageDescription</key>
++	<string>Save the photos and selfies you take with the CAMERA button.</string>
+ 	<key>UIRequiresFullScreen</key>
+ 	<false/>
+ 	<key>UIStatusBarHidden</key>
+diff --git a/dists/ios7/Info.plist.in b/dists/ios7/Info.plist.in
+index f026aadd..0f08a4a8 100644
+--- a/dists/ios7/Info.plist.in
++++ b/dists/ios7/Info.plist.in
+@@ -54,6 +54,8 @@
+ 	<true/>
+ 	<key>NSLocalNetworkUsageDescription</key>
+ 	<string>Play together with friends on the same WiFi network.</string>
++	<key>NSPhotoLibraryAddUsageDescription</key>
++	<string>Save the photos and selfies you take with the CAMERA button.</string>
+ 	<key>UIRequiresFullScreen</key>
+ 	<false/>
+ 	<key>UIStatusBarHidden</key>
+diff --git a/engines/scumm/actor.h b/engines/scumm/actor.h
+index bcdc4052..ab1350e4 100644
+--- a/engines/scumm/actor.h
++++ b/engines/scumm/actor.h
+@@ -306,6 +306,25 @@ public:
+ 		return _animProgress;
+ 	}
+ 
++	// Scummverse CAMERA: what posing for a selfie changes, to put it back.
++	struct PoseState {
++		uint16 facing = 0;
++		byte frame = 0, animProgress = 0;
++		bool needRedraw = false;
++		int top = 0, bottom = 0;
++		CostumeData cost;
++	};
++	PoseState getPoseState() const {
++		PoseState s;
++		s.facing = _facing; s.frame = _frame; s.animProgress = _animProgress;
++		s.needRedraw = _needRedraw; s.top = _top; s.bottom = _bottom; s.cost = _cost;
++		return s;
++	}
++	void setPoseState(const PoseState &s) {
++		_facing = s.facing; _frame = s.frame; _animProgress = s.animProgress;
++		_needRedraw = s.needRedraw; _top = s.top; _bottom = s.bottom; _cost = s.cost;
++	}
++
+ 	int getElevation() const {
+ 		return _elevation;
+ 	}
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 1f175085..7198fd20 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -168,6 +168,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 		_gdi = new Gdi(this);
+ 	}
+ 	_res = new ResourceManager(this);
++	Scummverse::Camera::reset(); // (nothing from an earlier game)
+ 
+ 	// These exploration adapters are audited against the English DOS V1
+ 	// index. Other editions retain their original behavior.
+@@ -474,6 +475,8 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 
+ ScummEngine::~ScummEngine() {
+ 	if (_scummverseNetOn) Scummverse::NetBridge::close();
++	scummverseSelfieFree();
++	Scummverse::Camera::reset();
+ 	delete _musicEngine;
+ 
+ 	// Delete the sound object earlier than the actors
+@@ -2827,6 +2830,11 @@ void ScummEngine_v0::scummLoop(int delta) {
+ }
+ 
+ void ScummEngine::scummLoop(int delta) {
++	// Scummverse CAMERA: photos are taken here; a selfie (or iOS asking for
++	// access to Photos) holds the game still, time included.
++	if (scummverseCameraStep())
++		return;
++
+ 	// Notify the script about how much time has passed, in jiffies
+ 	if (VAR_TIMER != 0xFF)
+ 		VAR(VAR_TIMER) = delta;
+@@ -4247,5 +4255,6 @@ using namespace ::Scummverse::WorldCatalog;
+ #include "scumm/scummverse_roaming.inc"
+ #include "scumm/scummverse_net.inc"
+ #include "scumm/scummverse_world_export.inc"
++#include "scumm/scummverse_camera.inc"
+ 
+ } // End of namespace Scumm
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 3efa2d67..04cc82fe 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -24,6 +24,7 @@
+ 
+ #include "engines/engine.h"
+ #include "scumm/scummverse_content.h"
++#include "common/scummverse_camera_engine.h"
+ 
+ #include "common/endian.h"
+ #include "common/events.h"
+@@ -1670,6 +1671,26 @@ protected:
+ 	Common::String _scummverseCharactersKey;
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
++	// CAMERA (scummverse_camera.inc): photos of the screen and selfies, taken
++	// between game steps. scummverseCameraStep is true while the game holds
++	// still (a selfie, or iOS asking for access to Photos).
++	struct ScummverseSelfie;
++	ScummverseSelfie *_scummverseSelfie = nullptr;
++public:
++	bool scummverseCameraStep();
++	bool scummverseCameraPicture(int kind, Common::Array<byte> &pixels, int &width, int &height, int &pitch);
++	bool scummverseTakePhoto(int kind);
++	bool scummverseSelfieBegin(int shots);
++	void scummverseSelfiePose();
++	void scummverseSelfieDraw();
++	bool scummverseSelfieShoot();
++	Scummverse::Camera::Rect scummverseSelfieFrame();
++	void scummverseSelfieEnd();
++	void scummverseSelfieFree();
++	// A guest or a character from another game posing for a selfie: the pose
++	// (stand 0, walk 1, talk 2) and its frame; false outside a selfie.
++	bool scummverseSelfieSpritePose(const Actor *a, int &kind, int &index) const;
++protected:
+ 	int scummverseWorldGameOf(int room, int &source) const;
+ 	int scummverseWorldRoomFor(int game, int source);
+ 	bool scummverseTravelLandmark(int index);
+diff --git a/engines/scumm/scummverse_camera.inc b/engines/scumm/scummverse_camera.inc
+new file mode 100644
+index 00000000..85bc6119
+--- /dev/null
++++ b/engines/scumm/scummverse_camera.inc
+@@ -0,0 +1,287 @@
++// Scummverse CAMERA, the game's side: photos of the screen and selfies.
++// The portable part (requests, whole-pixel enlarging, selfie framing,
++// poses, handing pictures over) is common/scummverse_camera.{h,cpp}; the
++// iPhone's button, flash, shutter and saving are in the iOS backend
++// (scummverse_camera_ui.inc). Included by scumm.cpp, which includes the
++// plain-types bridge (common/scummverse_camera_engine.h).
++
++namespace ScummverseCam = ::Scummverse::Camera;
++
++// What a selfie keeps to put back exactly (everyone's pose, the screen
++// strips they were drawn in, the other worlds' animation clocks), and how
++// far it has got. Each shot is posed afresh from how everyone was.
++struct ScummEngine::ScummverseSelfie {
++	struct Kept {
++		int id;
++		Actor::PoseState pose;
++	};
++	Common::Array<Kept> kept;
++	Common::Array<uint32> usage;
++	int guestTick[kScummverseGuestSlots], guestShown[kScummverseGuestSlots];
++	int avatarTick[kScummverseManiacActors], avatarShown[kScummverseManiacActors];
++	// A character drawn from exported frames: its pose this shot (-1: its own).
++	int spriteKind[kScummverseGuestActor + kScummverseGuestSlots], spriteIndex[kScummverseGuestActor + kScummverseGuestSlots];
++	int shots = 1, shot = 0;
++	bool showing = false; // the last shot taken, held on screen a moment
++	bool restored = false; // everything put back; the next step draws it
++	// The frame, set by the first shot and kept for the others (the camera
++	// held still while they pose afresh).
++	ScummverseCam::Rect frame;
++	uint32 seed = 0, due = 0;
++};
++
++// The first shot waits a moment once everyone is posed; each shot stays on
++// screen a little (the flash goes off over it); the last a little longer.
++static const uint32 kSelfieSettle = 400, kSelfieNext = 300, kSelfieShow = 900;
++
++bool ScummEngine::scummverseCameraStep() {
++	ScummverseCam::Request request;
++	if (_game.id != GID_MANIAC) {
++		if (ScummverseCam::takeRequest(request)) ScummverseCam::note("No camera in this game");
++		return false;
++	}
++	if (ScummverseCam::held()) return true;
++	if (_scummverseSelfie) {
++		ScummverseSelfie &s = *_scummverseSelfie;
++		// Put back last step: this one runs the game and draws it as it was
++		// (a photo waits a step, so it is not of the posed room).
++		if (s.restored) {
++			scummverseSelfieFree();
++			return false;
++		}
++		if ((int32)(_system->getMillis() - s.due) < 0) return true;
++		if (s.showing) {
++			scummverseSelfieEnd();
++			return true;
++		}
++		if (!scummverseSelfieShoot()) {
++			ScummverseCam::note(s.shot ? "Took only some of the selfie" : "Couldn't take the selfie");
++			s.showing = true; s.due = _system->getMillis();
++			return true;
++		}
++		if (++s.shot < s.shots) {
++			scummverseSelfiePose();
++			scummverseSelfieDraw();
++			s.due = _system->getMillis() + kSelfieNext;
++		} else {
++			s.showing = true;
++			s.due = _system->getMillis() + kSelfieShow;
++		}
++		return true;
++	}
++	if (!ScummverseCam::takeRequest(request)) return false;
++	if (request.kind == ScummverseCam::kSelfie) return scummverseSelfieBegin(request.shots);
++	if (!scummverseTakePhoto(request.kind)) ScummverseCam::note("Couldn't take the photo");
++	return false;
++}
++
++// The room as last drawn (CLEAN), or the whole screen as shown (FULL): the
++// room, the line above it and the verbs and inventory at their own lines
++// (not the hidden banner screen), the text over them (speech), and the
++// line's colors as the DOS V1 screen shows them (see drawStripToScreen).
++bool ScummEngine::scummverseCameraPicture(int kind, Common::Array<byte> &pixels, int &width, int &height, int &pitch) {
++	width = _screenWidth;
++	if (kind == ScummverseCam::kClean) {
++		const VirtScreen &main = _virtscr[kMainVirtScreen];
++		if (main.h <= 0 || !main.getPixels(0, 0)) return false;
++		height = main.h; pitch = _screenWidth;
++		pixels.resize(width * height);
++		for (int y = 0; y < height; ++y) memcpy(&pixels[y * pitch], main.getPixels(0, y), MIN<int>(width, main.w));
++		return true;
++	}
++	height = _screenHeight; pitch = _screenWidth;
++	pixels.resize(width * height);
++	memset(pixels.data(), 0, pixels.size());
++	const int screens[] = {kMainVirtScreen, kTextVirtScreen, kVerbVirtScreen};
++	for (int i : screens) {
++		const VirtScreen &vs = _virtscr[i];
++		if (vs.h <= 0 || !vs.getPixels(0, 0)) continue;
++		for (int y = 0; y < vs.h; ++y) {
++			const int row = vs.topline + y;
++			if (row >= 0 && row < height) memcpy(&pixels[row * pitch], vs.getPixels(0, y), MIN<int>(width, vs.w));
++		}
++	}
++	if (_textSurfaceMultiplier == 1 && _textSurface.getPixels() && _textSurface.w >= width && _textSurface.h >= height)
++		for (int y = 0; y < height; ++y) {
++			const byte *text = (const byte *)_textSurface.getBasePtr(0, y);
++			for (int x = 0; x < width; ++x)
++				if (text[x] != CHARSET_MASK_TRANSPARENCY) pixels[y * pitch + x] = text[x];
++		}
++	const VirtScreen &line = _virtscr[kTextVirtScreen];
++	if (_game.version == 1 && _game.platform == Common::kPlatformDOS && line.h > 0 && _renderMode != Common::kRenderCGA &&
++		_renderMode != Common::kRenderCGAComp && _renderMode != Common::kRenderHercA && _renderMode != Common::kRenderHercG)
++		for (int y = MAX<int>(0, line.topline); y < MIN<int>(height, line.topline + line.h); ++y)
++			for (int x = 0; x < width; ++x) {
++				byte &c = pixels[y * pitch + x];
++				if (c < 16) c = _gdi->remapColorToRenderMode(c);
++			}
++	return true;
++}
++
++bool ScummEngine::scummverseTakePhoto(int kind) {
++	Common::Array<byte> pixels;
++	int width, height, pitch;
++	if (!scummverseCameraPicture(kind, pixels, width, height, pitch)) return false;
++	ScummverseCam::Rect whole;
++	whole.w = width; whole.h = height;
++	return ScummverseCam::shoot(pixels.data(), pitch, width, height, _currentPalette, whole, kind, 0, 1);
++}
++
++// ---- Selfies ----
++
++bool ScummEngine::scummverseSelfieBegin(int shots) {
++	// (the sandbox's V1 edition: other editions' actors keep more state)
++	Actor *player = _scummverseRoaming && _game.version == 1 && VAR_EGO != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors ?
++		_actors[VAR(VAR_EGO)] : nullptr;
++	if (_currentRoom == 0 || !player || !player->isInCurrentRoom() || !player->_visible || !player->_costume) {
++		ScummverseCam::note("No selfie here");
++		return false;
++	}
++	ScummverseSelfie *s = new ScummverseSelfie();
++	for (int id = 1; id < _numActors; ++id) {
++		Actor *a = _actors[id];
++		if (!a->isInCurrentRoom() || !a->_visible || !a->_costume) continue;
++		ScummverseSelfie::Kept kept;
++		kept.id = id; kept.pose = a->getPoseState();
++		s->kept.push_back(kept);
++	}
++	s->usage.resize(ARRAYSIZE(gfxUsageBits));
++	memcpy(s->usage.data(), gfxUsageBits, sizeof(gfxUsageBits));
++	memcpy(s->guestTick, _scummverseGuestTick, sizeof(s->guestTick)); memcpy(s->guestShown, _scummverseGuestShown, sizeof(s->guestShown));
++	memcpy(s->avatarTick, _scummverseAvatarTick, sizeof(s->avatarTick)); memcpy(s->avatarShown, _scummverseAvatarShown, sizeof(s->avatarShown));
++	for (int &k : s->spriteKind) k = -1;
++	s->shots = CLIP(shots, 1, (int)ScummverseCam::kMaxSelfies);
++	s->seed = _system->getMillis() * 2654435761u ^ (uint32)_currentRoom * 40503u ^ (uint32)VAR(VAR_EGO);
++	_scummverseSelfie = s;
++	ScummverseCam::setBusy(true);
++	scummverseSelfiePose();
++	scummverseSelfieDraw();
++	s->due = _system->getMillis() + kSelfieSettle;
++	return true;
++}
++
++// Everyone faces the camera and strikes a pose from their own animations:
++// standing, mid-step or talking (now and then one hasn't noticed, or they
++// all stare at the player). Frames from other games pose likewise.
++void ScummEngine::scummverseSelfiePose() {
++	ScummverseSelfie &s = *_scummverseSelfie;
++	Common::Array<int> xs;
++	int player = -1;
++	for (const ScummverseSelfie::Kept &k : s.kept) {
++		Actor *a = _actors[k.id];
++		a->setPoseState(k.pose);
++		if (k.id == VAR(VAR_EGO)) player = (int)xs.size();
++		xs.push_back(a->getPos().x);
++	}
++	Common::Array<ScummverseCam::Choice> choices;
++	choices.resize(xs.size());
++	ScummverseCam::planShot(s.seed, s.shot, player, xs.data(), (int)xs.size(), choices.data());
++	for (uint i = 0; i < s.kept.size(); ++i) {
++		const int id = s.kept[i].id;
++		Actor *a = _actors[id];
++		const ScummverseCam::Choice &c = choices[i];
++		if (c.facing != ScummverseCam::kFaceAsIs)
++			a->setDirection(c.facing == ScummverseCam::kFaceLeft ? 270 : c.facing == ScummverseCam::kFaceRight ? 90 : 180);
++		const bool sprite = scummverseGuestSlot(a) >= 0 || (id < kScummverseManiacActors && _scummverseAvatarSprite[id]);
++		if (id < (int)ARRAYSIZE(s.spriteKind)) s.spriteKind[id] = -1;
++		if (c.pose == ScummverseCam::kAsIs) continue;
++		if (sprite) {
++			if (id < (int)ARRAYSIZE(s.spriteKind)) {
++				s.spriteKind[id] = c.pose == ScummverseCam::kStep ? 1 : c.pose == ScummverseCam::kTalk ? 2 : 0;
++				s.spriteIndex[id] = c.pose == ScummverseCam::kStand ? 0 : c.step * 2 + 1;
++			}
++			continue;
++		}
++		if (c.pose == ScummverseCam::kTalk) {
++			a->startAnimActor(a->_talkStartFrame);
++		} else if (c.pose == ScummverseCam::kStep) {
++			a->startAnimActor(a->_walkFrame);
++			_costumeLoader->loadCostume(a->_costume);
++			for (int n = 0; n <= c.step; ++n) _costumeLoader->increaseAnims(a);
++		} else {
++			a->startAnimActor(a->_standFrame);
++		}
++	}
++	for (const ScummverseSelfie::Kept &k : s.kept) _actors[k.id]->_needRedraw = true;
++}
++
++bool ScummEngine::scummverseSelfieSpritePose(const Actor *a, int &kind, int &index) const {
++	if (!_scummverseSelfie || a->_number >= (int)ARRAYSIZE(_scummverseSelfie->spriteKind)) return false;
++	const int k = _scummverseSelfie->spriteKind[a->_number];
++	if (k < 0) return false;
++	kind = k; index = _scummverseSelfie->spriteIndex[a->_number];
++	return true;
++}
++
++// The room and everyone in it, drawn as posed (no scripts, no walking).
++void ScummEngine::scummverseSelfieDraw() {
++	_fullRedraw = true;
++	redrawBGAreas();
++	scummLoop_handleActors();
++	_fullRedraw = false;
++	drawDirtyScreenParts();
++}
++
++// One shot: framed on the player and whoever is near, enlarged.
++bool ScummEngine::scummverseSelfieShoot() {
++	ScummverseSelfie &s = *_scummverseSelfie;
++	Common::Array<byte> pixels;
++	int width, height, pitch;
++	if (!scummverseCameraPicture(ScummverseCam::kClean, pixels, width, height, pitch)) return false;
++	if (s.frame.empty()) s.frame = scummverseSelfieFrame();
++	return ScummverseCam::shoot(pixels.data(), pitch, width, height, _currentPalette, s.frame, ScummverseCam::kSelfie, s.shot, s.shots);
++}
++
++ScummverseCam::Rect ScummEngine::scummverseSelfieFrame() {
++	const ScummverseSelfie &s = *_scummverseSelfie;
++	const VirtScreen &main = _virtscr[kMainVirtScreen];
++	ScummverseCam::Rect view;
++	view.w = _screenWidth; view.h = main.h;
++	ScummverseCam::Rect player;
++	Common::Array<ScummverseCam::Rect> others;
++	for (const ScummverseSelfie::Kept &k : s.kept) {
++		const Actor *a = _actors[k.id];
++		if (a->_top >= a->_bottom) continue;
++		// Across: the screen strips it was drawn in.
++		int left = -1, right = -1;
++		for (int strip = 0; strip < _gdi->_numStrips; ++strip)
++			if (testGfxUsageBit(_screenStartStrip + strip, k.id)) { if (left < 0) left = strip; right = strip; }
++		if (left < 0) continue;
++		ScummverseCam::Rect r;
++		r.x = left * 8; r.w = (right - left + 1) * 8;
++		r.y = a->_top; r.h = a->_bottom - a->_top;
++		r = ScummverseCam::intersect(r, view);
++		if (r.empty()) continue;
++		if (k.id == VAR(VAR_EGO)) player = r;
++		else others.push_back(r);
++	}
++	if (player.empty()) {
++		// Not drawn (behind something, or off the screen): around where they stand.
++		const Actor *a = _actors[VAR(VAR_EGO)];
++		player.x = a->getPos().x - main.xstart - 12; player.w = 24;
++		player.y = a->getPos().y - 60; player.h = 60;
++		player = ScummverseCam::intersect(player, view);
++		if (player.empty()) player = view;
++	}
++	return ScummverseCam::frameSelfie(player, others.data(), (int)others.size(), view);
++}
++
++// Everything as it was (drawn by the next step, which frees the selfie).
++void ScummEngine::scummverseSelfieEnd() {
++	ScummverseSelfie *s = _scummverseSelfie;
++	if (!s || s->restored) return;
++	for (const ScummverseSelfie::Kept &k : s->kept) _actors[k.id]->setPoseState(k.pose);
++	memcpy(gfxUsageBits, s->usage.data(), sizeof(gfxUsageBits));
++	memcpy(_scummverseGuestTick, s->guestTick, sizeof(s->guestTick)); memcpy(_scummverseGuestShown, s->guestShown, sizeof(s->guestShown));
++	memcpy(_scummverseAvatarTick, s->avatarTick, sizeof(s->avatarTick)); memcpy(_scummverseAvatarShown, s->avatarShown, sizeof(s->avatarShown));
++	_fullRedraw = true;
++	s->restored = true;
++	ScummverseCam::setBusy(false);
++}
++
++void ScummEngine::scummverseSelfieFree() {
++	if (!_scummverseSelfie) return;
++	delete _scummverseSelfie;
++	_scummverseSelfie = nullptr;
++	ScummverseCam::setBusy(false);
++}
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 80cf085b..ef483c41 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -447,6 +447,7 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	a->_needRedraw = false;
+ 	int index;
+ 	int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
++	scummverseSelfieSpritePose(a, kind, index);
+ 	if (hover && kind == 1) { kind = 0; index = 0; }
+ 	const int dir = worldGuestDirection(a->getFacing());
+ 	shown = hover ? -1 : (dir * 3 + kind) * 64 + index % 64; // Hovering is never still.

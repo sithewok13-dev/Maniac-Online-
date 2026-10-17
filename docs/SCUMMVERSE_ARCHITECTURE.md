@@ -263,6 +263,23 @@ in (Curse's green Murray). Maniac looks may wear a dome (`worldDomed`, the
 air gear's bowl alone) or roll (`worldRoller`: one fixed costume direction,
 decoded through `scummverseCostumeFacing`, and a newly drawn pot on wheels
 drawn after the limbs by `ClassicCostumeRenderer::drawExtra`).
+CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
+(the request slot the interface fills and the game takes, the hold flag,
+whole-pixel enlarging with rows 6/5 of columns, selfie framing, pose plans
+with their surprises, names, and a sink the saver registers);
+scummverse_camera_engine.h is its plain-types face for the engine.
+engines/scumm/scummverse_camera.inc is the game's side, run at the top of
+each scummLoop: a photo copies the last drawn frame, the main virtual
+screen (CLEAN) or the main, text and verb screens by their lines with the
+text overlay and the V1 DOS line colors (FULL; never the banner screen); a
+selfie (sandbox V1 only) keeps everyone's pose state
+(`Actor::getPoseState`), the gfx usage bits and the other worlds'
+animation clocks, poses and draws each shot without running scripts,
+frames the first and keeps that frame, and puts everything back; the next
+step draws it before any photo (the saved state is byte for byte the same:
+tools/test_camera_engine.py). The iOS side
+(scummverse_camera_ui.inc) is the button, options, flash, shutter and
+saving (Photos add-only, else Documents/Screenshots).
 Scene pictures (0076): the same room exported in another state (a Dig tram
 car parked) is fitted with the scene, in colors chosen from it, keeping only
 the pixels that differ; the engine draws it into the scene's background

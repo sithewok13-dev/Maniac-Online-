@@ -20,7 +20,9 @@ be committed together to the project repository on a non-main branch.
 
 Build: `make -C build/null -j3`. Startup: `python3 tools/test_startup.py build/null/scummvm`.
 Portable contracts: compile tools/test_{portrait,mobile_layout,seats,conversation}.cpp
-with -Iengine and sanitizers, then run. WiFi sessions: compile tools/test_net.cpp with engine/common/scummverse_net.cpp
+with -Iengine and sanitizers, then run. CAMERA: tools/test_camera.cpp with
+engine/common/scummverse_camera.cpp (sanitizers); through the engine,
+`python3 tools/test_camera_engine.py game-data/mm-dos` (in the data suite). WiFi sessions: compile tools/test_net.cpp with engine/common/scummverse_net.cpp
 (ASan, TSan). Dialogue runtime without weights (ASan/TSan):
 `python3 tools/test_talk_runtime.py`. Apple CI (macos-15) builds the IPA on pushes
 to main, codex/** and claude/**; it is not blocked. Each IPA is stamped

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0080 (play the Meteor Police and the man-eating plant).
+Active milestone: Phase 1; latest patch 0081 (CAMERA: photos and selfies).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1470,3 +1470,74 @@ it just rolls around.
   world visit 1607 doors work, 60 fail (as 0079); original-data suite
   36/36; bootstrap; startup test. iOS menu text compiled by Apple CI only (after a push). Not
   device-tested.
+
+## Patch 0081 — CAMERA: photos and selfies
+
+User request (2026-10-17): a CAMERA button beside AI and Talk, photos and
+selfies only (no burst, no Action Freeze, no cinematic burst): tap for a
+photo (CLEAN, the room alone, the default; or FULL, the whole screen), with
+a white flash, the shutter and "1 photo saved"; hold half a second with a
+filling ring for a selfie (the game holds still, everyone turns to the
+viewer and poses from their own animations, now and then a surprise,
+framed on the player and whoever is near, 1/3/5 photos posed afresh, 3 by
+default, everything put back exactly afterwards); options (CLEAN/FULL,
+SELFIES 1/3/5) on a panel opened by sliding CAMERA down, remembered; Photos
+with add-only access (asked once, the game holding still meanwhile), or
+Files › SCUMMVERSE › Screenshots when it is off; names like "SCUMMVERSE
+2026-10-17 14.05.09 clean.png". The Serious Sam port's iOS photo saving was
+the reference (read only); the OpenJKDF2 one was not needed.
+- Portable (common/scummverse_camera.{h,cpp}, plain-types face
+  scummverse_camera_engine.h): the request slot, the hold flag, notes for
+  the player, whole-pixel enlarging (columns 5x, rows 6x: the 1.2 aspect;
+  the longer side at least 1600, at most 4096), selfie framing (the player
+  and those within three quarters of their height side to side, head room,
+  4:5 to 4:3 as shown, inside the view), pose plans (standing 40%,
+  mid-step 30%, talking 30%; in about one shot in four someone hasn't
+  noticed or everyone stares at the player), names (a second photo within
+  the same second gets -2 after the time), and a sink the saver registers.
+- Game side (engines/scumm/scummverse_camera.inc, at the top of
+  scummLoop): a photo copies the last drawn frame: CLEAN the main virtual
+  screen; FULL the room, the line above it and the verbs at their lines
+  (not the hidden banner screen), the text overlay (speech) and the V1 DOS
+  line colors. A selfie (the sandbox's V1 edition only) keeps everyone's
+  pose state (`Actor::PoseState`: facing, frame, animation, costume
+  state, extent), the gfx usage bits and the other worlds' animation
+  clocks; each shot is posed from that and drawn without scripts or
+  walking (guests and characters from other games pose from their own
+  frames); the frame is set by the first shot; the last stays 0.9 s; then
+  everything is put back and the next step draws it (a photo waits that
+  step). No scripts, timers or network polling run meanwhile (up to about
+  2.5 s for five). "No selfie here" without the player in the room;
+  a selfie nobody can save says so. Requests and notes are cleared when a
+  game starts or ends.
+- iOS (scummverse_camera_ui.inc, manual reference counting): the button
+  (camera symbol, below Worlds in the landscape column, after Worlds in the
+  portrait toolbar), its ring, the slide-down options, the flash, the
+  shutter (system sound 1108), PNG encoding off the main thread, saving to
+  Photos (iOS 14 on; on iOS 13 to Files, since adding there needs full
+  library access), the "N photos saved" line once per photo or selfie, the
+  game's notes. NSPhotoLibraryAddUsageDescription in Info.plist; Photos
+  and ImageIO linked by the IPA workflow.
+- Reviews: two independent reviews (iOS side; game and portable side).
+  Fixed from them: FULL had the hidden banner screen over the room (a black
+  band) and lacked speech; the test's expectations were built the same way,
+  so they are now independent (each photo against the screen as drawn);
+  iOS 13 would have tried Photos without the right permission; selfies
+  restricted to the sandbox's V1 edition; stale requests cleared per game;
+  selfie failures reported; the step after a selfie draws before any photo;
+  a stuck "saved" line, double asking, the options panel's taps and
+  rotation, sliding off the button, VoiceOver actions.
+- Verified (Linux, the user's private copies): tools/test_camera.cpp
+  (ASan/UBSan: requests, factors, enlarging, framing, poses, names,
+  delivery); tools/test_camera_engine.py (new, in the data suite): CLEAN
+  is the room as drawn at 1600 by 816, FULL 1600 by 1200 with the room as
+  drawn and the verbs, speech on FULL; selfies of three in the mansion (a
+  crowd), with Dave alone and on Melee Island (Bernard as Guybrush): no
+  variable changes while held, whole pixels, 4:5 to 4:3, the saved state
+  byte for byte the same afterwards and, alone, the room pixel for pixel the
+  same one step later; the hold; a selfie with nobody to save it; no selfie
+  without the player; three runs in a row; screenshots checked by eye;
+  test_world; world visit 1607 doors work, 60 fail (as 0080); original-data
+  suite 37/37; bootstrap; startup. The iOS
+  button, ring, panel, flash, shutter, Photos permission and saving are
+  not compiled yet (Apple CI on push) and not device-tested.
