@@ -191,6 +191,9 @@ Source evidence (private descumm of the user's English DOS V1 files):
   region (Zaire 9/7, Peru 9/3, elsewhere 9/13).
 - Crystal map (room 29, objects 480-486, script 60) teleports only to Seattle
   129, Mexico 130, Peru carving eye 137, Egypt 25 and Mars 193. No Zaire chamber.
+  Spots 483 ("Atlantis") and 485 ("Mars pyramid") have empty scripts; the
+  sandbox (0079) sends them to Fate of Atlantis's city and the pyramid's
+  crystal room.
 - Resource 39 (temple exterior) has no pseudo-rooms: it is Mexico's only.
 - Split scenes: village 150/151, hostel 180/181, Stonehenge 133/134.
 

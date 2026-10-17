@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0078 (Curse of Monkey Island in proportion; play the Purple Meteor).
+Active milestone: Phase 1; latest patch 0079 (Zak's last two pads, the King's quiff, green Murray, the van to scale).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1383,3 +1383,50 @@ Purple Meteor, levitating like Murray or Zak's Guru.
   checked by eye; original-data suite 36/36; bootstrap; startup test. iOS
   menu entry compiled by Apple CI only. Not device-tested.
 
+## Patch 0079 — Zak's last two pads, the King's quiff, green Murray, the van to scale
+
+User requests (2026-10-17): make Zak's Atlantis and Mars pyramid teleport
+platforms work; the King playable in his Elvis look from the Caponians'
+ship; Curse of Monkey Island's green Murray (on the plank) playable besides
+the other; the van was out of scale with the characters (an Amiga
+screenshot of the landing site for comparison).
+- Pads: the crystal map (objects 480-486, script 60) also shows "Atlantis"
+  (483) and "Mars pyramid" (485), whose scripts are empty in the original
+  (Zak has no Atlantis room). Pad commands 55 and 56 now lead to Fate of
+  Atlantis's lost city (area 36, when that game is exported; otherwise "isn't
+  installed") and to the platform in the Mars pyramid's crystal room
+  (sandbox 84, original 327), whose own platform now opens the pad computer.
+  Appended, so commands 50..54 keep their meaning; the iOS pad list names
+  seven Zak sites before the other worlds.
+- The King (sandbox character 17, costume 27 imported as 39): as on the
+  ship (original room 10's object script: Color(1), TalkColor(1),
+  animateActor 24), in his white suit with the quiff frame (6) drawn over
+  his standing and closed-mouth frames (`scummverseOverlayFrame`, decoded in
+  startAnimActor; roster portrait too). Saves with the older grey King get
+  the look on load.
+- Green Murray: costume variants carry a palette room; Curse's Murray
+  (costume 49) is exported a second time in room 11's palette (the ship's
+  hold, green; the theater's is orange) as costume 949, "Murray (green)",
+  with a newly written personality and lines; he floats like the other.
+  Export version 12.
+- The van: in the original's landing-site panorama (resource 27: landing
+  site 79, tram station 184) Melissa and Leslie wear long-shot spacesuit
+  costume 7, 27 px tall (costume 3 is 62 px), beside the painted van; the
+  sandbox scaled the van against 62 px and drew everyone there full size.
+  Now everyone at the landing site and the tram station is drawn at 27/62
+  (the long-shot ratio table also holds the 10 px distant rooms' 5/23), and
+  a parked van is scaled against those 27 px people: 2.7 times a person's
+  height, as far as the room has room above and across.
+- WiFi content stamp unchanged (78): no scene geometry changed.
+- Verified (Linux, the user's private copies): test_world; ten-game export
+  (645 scenes, 261 characters, no errors); tools/test_expansion.py (pad
+  computer from the Mars pyramid platform, all seven commands land, Atlantis
+  reaches Fate of Atlantis room 36, out-of-range command 57 ignored);
+  tools/test_zak_cast.py (the King's costume, white suit, name, quiff frames
+  only on him, an older grey King restored); tools/test_appearance.py (green
+  Murray's key, name, float); tools/test_mars_air.py (Dave 34 px at the
+  landing site, 72 normally); tools/test_van.py; world visit 1607 doors
+  work, 60 fail (as 0078); original-data suite 36/36; Curse re-exported
+  after the palette is put back (scenes and characters byte-identical);
+  bootstrap; startup test. iOS pad list not compiled yet (Apple CI runs on
+  push). Not device-tested.

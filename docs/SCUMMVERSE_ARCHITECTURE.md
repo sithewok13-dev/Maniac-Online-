@@ -253,7 +253,13 @@ over one animation cycle (The Dig's light bridges and their walk boxes).
 The van (0077, scummverse_van.inc): a parked sprite taken from Zak's own
 landing-site art is drawn into redrawn background strips of any room (V1 or
 other-world scene) at its saved spot; flight is a logical scene on the
-cockpit's resource; landing sites are a catalog list.
+cockpit's resource; landing sites are a catalog list. Long shots (0079):
+rooms where the original draws people small list their ratio
+(`zakDistantCostumeRooms`); V1 characters there are drawn at it, and the
+van is scaled against the long shot's people. Overlay frames
+(`scummverseOverlayFrame`) add a costume frame over chosen ones (the King's
+quiff). A costume variant may name the room whose palette it is exported
+in (Curse's green Murray).
 Scene pictures (0076): the same room exported in another state (a Dig tram
 car parked) is fitted with the scene, in colors chosen from it, keeping only
 the pixels that differ; the engine draws it into the scene's background

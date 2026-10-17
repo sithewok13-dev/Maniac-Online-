@@ -31,8 +31,11 @@ puzzle campaign. Kathmandu is the Nepal destination.
   Crystal teleport pads** provides the same unlocked sandbox travel. All playable
   characters can use it, without crystal inventory or training requirements.
   Companions come along. The sites are the original crystal-map destinations:
-  Seattle, Mexico, Peru (inside the giant carving), Egypt and Mars. Mars is reached through this panel,
-  not a commercial airport flight.
+  Seattle, Mexico, Peru (inside the giant carving), Egypt and Mars (the face's
+  crystal chamber), plus the map's two spots the original left inert: Mars
+  pyramid (the pyramid's crystal room, whose platform is a pad too) and
+  Atlantis (Fate of Atlantis's lost city, when that game is installed). Mars is
+  reached through this panel, not a commercial airport flight.
 
 ## Areas
 

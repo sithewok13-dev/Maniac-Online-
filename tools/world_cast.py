@@ -44,6 +44,13 @@ EXTRA = {
          'lines': ['Behold! The mask of terror! It took me all week.', 'Monkey Island keeps its secrets. And its snacks.',
                    'Visitors come and go. Mostly go.']},
     ],
+    'comi': [
+        {'costume': 949, 'name': 'Murray (green)', 'rooms': [29], 'confidence': 'high', 'talkColor': 10,
+         'personality': 'Murray, the disembodied talking skull, in the eerie green glow of the flooded ship\'s hold where he first '
+                        'washed up; certain he is the most terrifying evil being alive, and baffled that nobody runs',
+         'lines': ['Behold! A skull of pure menace, glowing with evil!', 'The green is my aura of doom. Also the bilge water.',
+                   'Flee, mortal! Slowly, so I can watch.']},
+    ],
 }
 REPLACED = {('monkey', 'Cannibals of Monkey Island')}
 

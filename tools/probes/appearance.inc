@@ -125,6 +125,21 @@
 			shot("appearance-creator.ppm");
 		}
 	}
+	// Curse's Murray a second time, in the green of the ship's hold where he
+	// washed up (his costume in that room's colors), floating too.
+	{
+		const int green=worldAppearanceKey(9,949);
+		if (!worldAppearance(green) || strcmp(worldAppearance(green)->name,"Murray (green)") || !worldHovers(9,949)) error("Green Murray's key changed");
+		if (scummverseCharacterFrames(9,949).empty()) warning("APPEARANCE no export of Curse: green Murray skipped");
+		else {
+			if (!scummverseTravel(2)) error("Cannot return to the mansion");
+			settle(4); request(green);
+			if (_scummVars[kScummverseAppearanceVar+3]!=green || !_scummverseAvatarSprite[3] || strcmp((const char *)dave->getActorName(),"Murray (green)")) error("Not playing green Murray");
+			dave->_needRedraw=true; settle(1);
+			if (dave->_bottom>=dave->getPos().y-dave->getElevation()-1) error("Green Murray does not float");
+			shot("appearance-murray-green.ppm");
+		}
+	}
 	// The Purple Meteor (Maniac's own): Dave wears its costume, named and
 	// chatting as it, floating with a bob, with no fishbowl on Mars, through
 	// save/load and into another world; his own costume comes back after.

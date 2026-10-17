@@ -34,7 +34,9 @@ app open until then. Folder names ignore case and spaces around them, but
 must otherwise match (`loom`, `samnmax`, …). Once a game is set up, the
 Worlds menu's "Play as someone else" lets the character you control
 become anyone from it (Indy, Guybrush, Sam and Max, The Creator, …); the
-Purple Meteor from Maniac Mansion itself is always offered first, and floats. A game whose setup stopped twice is listed as "Could not
+Purple Meteor from Maniac Mansion itself is always offered first, and floats;
+Curse of Monkey Island offers Murray twice (the skull as in the theater, and
+green as in the ship's hold). A game whose setup stopped twice is listed as "Could not
 set up" and skipped; to retry it, delete its `.try` file in the `worlds`
 folder with the Files app. If it still shows an older build, the old app is the one being opened: look for
 a second SCUMMVERSE icon (two sideloading tools can install two copies), and
@@ -152,6 +154,10 @@ door and tap the controls: after a countdown it lifts off with everyone in the
 cockpit, and you look out at the stars until you tap **Arrive** and pick an
 outdoor place (Zak's, the mansion's, or an installed other world's). It stays
 parked there, drawn beside you; tap it to board again.
+
+Zak's crystal teleport panel lists seven sites: Seattle, Mexico, Peru, Egypt,
+Mars face, Mars pyramid and Atlantis (Fate of Atlantis's lost city, when that
+game is set up).
 
 In The Dig, walk to a tram station's platform edge: the car comes, waits a few
 seconds for everyone on the edge, and takes you to the other end of the line.

@@ -44,8 +44,8 @@
 	};
 	// Air: the hostel bunks.
 	line_up(80); heights(false);
-	// No air: the landing site, outdoors.
-	line_up(79); heights(true);
+	// No air: the Face's entrance, outdoors.
+	line_up(82); heights(true);
 	{ Common::DumpFile f; if(f.open(Common::Path("/workspace/Maniac-Online/build/mars-air.ppm"))) {
 		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); } } }
@@ -53,6 +53,14 @@
 		const Person &p=people[i];
 		warning("MARS_AIR actor %d drawn %d px with air, %d without",p.id,p.plain,p.worn);
 		if(p.gear ? p.worn<p.plain+2 : p.worn!=p.plain) error("Actor %d: %d px with air, %d without (gear %d)",p.id,p.plain,p.worn,p.gear);
+	}
+	// The landing site is the original's long shot: everyone (gear and all)
+	// stands at its spacesuits' size, 27 of 62, beside its painted van.
+	{
+		const int plain=people[0].plain;
+		line_up(79); heights(true);
+		if(people[0].worn*62>plain*27*1.3 || people[0].worn*62<plain*27*0.8) error("Dave %d px at the landing site, %d px normally",people[0].worn,plain);
+		warning("MARS_AIR landing site: Dave %d px (normally %d)",people[0].worn,plain);
 	}
 	// Leaving for air takes the gear off again.
 	line_up(80); heights(false);

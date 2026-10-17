@@ -49,4 +49,15 @@
 	if(_scummVars[724]!=4 || _scummVars[726]!=57 || !_scummVars[796]) error("Guests did not share an NPC flight");
 	_scummVars[795]=30000; scummverseUpdateTransit(4); // past any flight time
 	for(int id=20;id<=22;++id) if(derefActor(id,"independent travel")->_room!=1) error("Guest cannot travel independently");
+	// The King as on the Caponians' ship: costume 27 (imported 39) in his
+	// white suit, the Elvis quiff over his standing and closed-mouth frames.
+	{
+		Actor *king=derefActor(17,"The King");
+		if(king->_costume!=39 || king->_talkColor!=1 || strcmp((const char *)king->getActorName(),"The King")) error("The King's look: costume %d color %d",king->_costume,king->_talkColor);
+		if(scummverseOverlayFrame(king,king->_standFrame)!=6 || scummverseOverlayFrame(king,king->_talkStopFrame)!=6 || scummverseOverlayFrame(king,king->_walkFrame)>=0) error("The King's quiff frames");
+		if(scummverseOverlayFrame(derefActor(8,"Caponian"),1)>=0) error("Another Caponian wears the quiff");
+		// An older save's grey King gets the look back.
+		king->_talkColor=11; scummverseInitVisitors();
+		if(king->_talkColor!=1) error("An older King keeps his grey suit");
+	}
 	warning("SCUMMVERSE_ZAK_CAST_PASS enabled=1");quitGame();

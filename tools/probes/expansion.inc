@@ -101,18 +101,25 @@
 		if(_currentRoom!=link.destination) error("Exit failed %d/%d -> %d, actual %d",link.room,link.object,link.destination,_currentRoom);
 	}
 	// Every original crystal-map site has an active platform hotspot, and each
-	// pad command lands in that site's room (Seattle, Mexico, Nepal, Egypt, Mars).
-	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(76,747),Common::Point(125,734)}) {
+	// pad command lands in that site's room (Seattle, Mexico, Nepal, Egypt,
+	// the Face on Mars, then Atlantis and the Mars pyramid, which the
+	// original map shows but never reaches): Atlantis is Fate of Atlantis's
+	// lost city when that game is installed, else nobody moves.
+	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(76,747),Common::Point(125,734),Common::Point(84,745)}) {
 		scummverseTravel(pad.x-50);int before=FakeAI::airportOffers;
 		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active %d",pad.x);
 	}
-	const int padRooms[]={92,89,98,76,125};
-	for(int command=0;command<5;++command) {
+	const int padRooms[]={92,89,98,76,125,0,84};
+	for(int command=0;command<7;++command) {
 		scummverseTravel(3);
+		const int from=_currentRoom;
 		scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|(50+command));scummverseUpdateRoaming(0);
-		if(_currentRoom!=padRooms[command]) error("Teleport %d reached %d, expected %d",command,_currentRoom,padRooms[command]);
+		int source; const int game=scummverseWorldGameOf(_currentRoom,source);
+		if(padRooms[command] ? _currentRoom!=padRooms[command] : !(game==4 && source==36) && !(_currentRoom==from && _scummverseWorldNotice.contains("isn't installed")))
+			error("Teleport %d reached %d (game %d source %d), expected %d",command,_currentRoom,game,source,padRooms[command]);
 	}
-	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|55);scummverseUpdateRoaming(0);
+	scummverseTravel(125-50);
+	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|57);scummverseUpdateRoaming(0);
 	if(_currentRoom!=125) error("Out-of-range teleport command moved the player");
 	// Peru carving: walkers cannot cross the valley (original refusal lines);
 	// the bird feeder carries them to the ledge at the original arrival point,
