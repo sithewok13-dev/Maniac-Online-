@@ -24,6 +24,16 @@ create `maniac` and copy all your original `.LFL` files there. Force-close and
 reopen SCUMMVERSE. Finder file sharing on a Mac or Apple Devices file sharing on
 Windows is another way to populate the same Documents directory.
 
+Each IPA carries its own version, `<patch>.<build>` (for example `63.69`), so
+the sideloading tool installs it as an update over the previous one; your game
+files and saves in Documents stay. To check which build is running, open the
+in-game menu's **Connected worlds**: its message ends with "Build: patch 0063,
+build 69 (…)" and how many of your other games are exported for that build.
+If it still shows an older build, the old app is the one being opened: look for
+a second SCUMMVERSE icon (two sideloading tools can install two copies), and
+force-close the app before reopening it. Deleting an app also deletes its
+Documents folder, so copy your game files out first.
+
 The workflow checks that the app targets iPhoneOS and contains arm64 code, then
 checks IPA ZIP integrity. Those checks do not establish successful installation
 or gameplay on your device. The build log is available as a diagnostic artifact.

@@ -23,7 +23,8 @@ Portable contracts: compile tools/test_{portrait,mobile_layout,seats,conversatio
 with -Iengine and sanitizers, then run. WiFi sessions: compile tools/test_net.cpp with engine/common/scummverse_net.cpp
 (ASan, TSan). Dialogue runtime without weights (ASan/TSan):
 `python3 tools/test_talk_runtime.py`. Apple CI (macos-15) builds the IPA on pushes
-to main, codex/** and claude/**; it is not blocked. Hugging Face may be blocked in
+to main, codex/** and claude/**; it is not blocked. Each IPA is stamped
+`<patch>.<run>` (tools/package_ipa.py, `python3 tools/test_package_ipa.py`). Hugging Face may be blocked in
 cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 Other worlds: `python3 tools/export_worlds.py game-data/mm-dos monkey2=game-data/<dir> ...`

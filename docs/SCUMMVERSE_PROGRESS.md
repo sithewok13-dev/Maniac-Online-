@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0062 (whole-game other worlds: every room, doors, 263 characters).
+Active milestone: Phase 1; latest patch 0063 (build shown in the app; 0062: whole-game other worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -830,4 +830,22 @@ from its object scripts and each character's costume, room and name.
   no room scripts; characters stand where placed and do not use their
   scenes' objects; seated characters have no chair; the iOS menu change is
   compiled only by Apple CI; nothing here is device-tested.
+
+## Patch 0063 — which build is running
+
+Device report (2026-10-17): after installing the 0062 IPA the app seemed to
+be the old version. Every IPA had carried ScummVM's own version (2.9.1), so
+neither the player nor a sideloading tool could tell builds apart, and a
+tool may treat an equal version as already installed. CI's 0062 IPA was
+built from commit 650f944 (build-info.json), so the cause on the device is
+not established.
+- tools/package_ipa.py stamps each IPA `<latest patch>.<CI run>` as
+  CFBundleShortVersionString and CFBundleVersion, plus SCUMMVERSEBuild
+  ("patch 0063, build N (commit)"), before the sideloading tool signs it;
+  build-info.json records both. tools/test_package_ipa.py checks the stamp.
+- The in-game menu's Connected worlds message ends with that build line and
+  how many supplied games have other worlds exported for this build.
+- docs/ios.md (the IPA's INSTALL.md) says how to check the build and what to
+  do when an older one still opens. Compiled only by Apple CI; not
+  device-tested.
 
