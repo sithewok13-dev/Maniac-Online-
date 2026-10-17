@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0069 (play as anyone from the other worlds).
+Active milestone: Phase 1; latest patch 0070 (crystal teleport pads reach other worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1099,4 +1099,17 @@ Voodoo Lady, "and more than those".
 - Not done: a played character keeps the sandbox character's inventory,
   verbs and travel; WiFi partners see the original character; the
   character has no voice of their own in classic (offline) lines.
+
+## Patch 0070 — crystal teleport pads reach other worlds
+
+User request (2026-10-17): Zak's teleport pads should also go to The Dig,
+Loom and other otherworldly places. The pad computer (the pixel destination
+computer, opened from a pad or the Worlds menu) lists, after Zak's five
+crystal-map sites, every named place and story-area entrance of The Dig,
+Loom and Fate of Atlantis whose scene is exported here (up to 7, 8 and 14),
+paged four at a time. Choosing one sends the existing place request
+(scummverseTravelPlace), the same path as the Visit other worlds menu; Zak
+sites keep their scene-bound commands 50..54. Compiled only by Apple CI
+(iOS UI); the engine path is covered by the existing other-world probes.
+Not device-tested.
 
