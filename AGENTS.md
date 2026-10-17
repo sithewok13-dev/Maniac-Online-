@@ -27,6 +27,7 @@ to main, codex/** and claude/**; it is not blocked. Hugging Face may be blocked 
 cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 Other worlds: `python3 tools/export_worlds.py game-data/mm-dos monkey2=game-data/<dir> ...`
+(folders: monkey monkey2 loom indy3 atlantis tentacle samnmax ft dig comi)
 then `python3 tools/test_world_visit.py game-data/mm-dos` (cache in build/worlds;
 scenes .svw, characters .svc).
 Probe runner temporarily instruments scumm.cpp; do not run probes concurrently

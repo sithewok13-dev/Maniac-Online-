@@ -2,6 +2,7 @@
 // c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_world.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_world.h"
+#include "common/scummverse_world_catalog.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -105,7 +106,23 @@ static void testSprites() {
 	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette)\n");
 }
 
+// The catalog fits the sandbox's one-byte logical rooms (200..255), and
+// every scene's characters are packed from slot 0.
+static void testCatalog() {
+	using namespace Scummverse::WorldCatalog;
+	int scenes = 0, guests = 0;
+	for (const auto &game : kWorldGames)
+		for (int i = 0; i < game.sceneCount; ++i, ++scenes) {
+			bool gap = false;
+			for (const WorldGuest *g : game.scenes[i].guests) { if (!g) gap = true; else { assert(!gap && g->costume > 0); ++guests; } }
+			assert(worldGuestInRoom(200 + scenes, 0) == game.scenes[i].guests[0]);
+		}
+	assert(scenes <= kWorldMaxScenes && 200 + scenes - 1 <= 255);
+	std::printf("PASS: catalog of %d scenes and %d characters fits rooms 200..255\n", scenes, guests);
+}
+
 int main() {
+	testCatalog();
 	testSprites();
 	// A 96x48 two-color scene; three walkable boxes in a row plus a disabled one.
 	const int W = 96, H = 48;

@@ -192,4 +192,6 @@ code (`common/scummverse_world.*`, std-free bridge
 192..255 shared by its characters. Characters use transient guest actors
 (Maniac 25..29, never saved; Maniac objects start at 30), so the sandbox's
 walking, speech and chat rules apply; only drawing is replaced. The catalog (`scummverse_world_catalog.h`) is the single list of
-scenes, guests and their newly authored lines.
+scenes, guests and their newly authored lines; it holds at most 56 scenes
+(rooms 200..255) and only appends. v7/v8 editions are compiled in solely so
+the player's copies can be exported.

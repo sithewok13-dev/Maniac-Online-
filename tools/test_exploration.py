@@ -78,7 +78,7 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-REFERENCE_GAMES = ("zak", "monkey", "monkey2", "loom", "indy3", "atlantis", "tentacle", "samnmax")
+REFERENCE_GAMES = ("zak", "monkey", "monkey2", "loom", "indy3", "atlantis", "tentacle", "samnmax", "ft", "dig", "comi")
 
 
 def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None, timeout=45, extra_config=""):

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0059 (a fuller cast for the other worlds).
+Active milestone: Phase 1; latest patch 0060 (Full Throttle, The Dig and Curse of Monkey Island worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -725,3 +725,31 @@ Hoagie are costumes 302, 303 and 304 (0058 used look-alike variants).
   leaving, and the 0058 migration; ASan clean. Scenes inspected by eye.
 - Not done: foreground masks; at most five per scene; characters do not
   interact with each other or with their scenes' objects; device testing.
+
+## Patch 0060 — other worlds: Full Throttle, The Dig, The Curse of Monkey Island
+
+User request (2026-10-17): add The Dig and Full Throttle (files supplied by
+the user, split for upload and rejoined; FT.LA0 "Version B", DIG.LA0 and
+COMI.LA0 match ScummVM's detection table), then The Curse of Monkey Island.
+- Builds now enable ScummVM's `scumm_7_8` sub-engine (tools/build.py,
+  tools/generate_ios.py; CI uses both). These editions are only ever run in
+  export mode; Full Throttle's bike-fight (INSANE) setup is skipped there,
+  so its DATA/*.rip files are not needed.
+- Exporter: v7+ cameras need vertical limits (VAR_CAMERA_MIN/MAX_Y) and a
+  vertical center; v7+ shadow pixels (AKOS color 13, shadow mode 1) are
+  shaded background, so the two-fill capture leaves them out.
+- 15 scenes (FT 5, Dig 4, Curse 6) and 16 characters: Ben, Father Torque,
+  Maureen, Malcolm Corley, Adrian Ripburger and a biker; Boston Low, Maggie
+  Robbins and Ludger Brink (in spacesuits on the asteroid, and on the alien
+  world); Guybrush, Haggis McMutton, Lemonhead and the ghost bride. The Dig's
+  names come from its scripts; Full Throttle and Curse name few actors, so
+  those were matched by eye and by the costumes each scene's scripts set
+  (Corley, Ripburger, Maureen and Father Torque are likely, not certain).
+- The catalog is limited to 56 scenes (logical rooms 200..255; actor rooms
+  are one byte). Existing scenes keep their order; tools/test_world.cpp
+  checks the limit. Scenes without characters were trimmed to fit.
+- Characters whose game has no walking frames for them no longer stroll.
+- Verified: real export (15 scenes, 16 characters, also under ASan);
+  test_world_visit visits all 56 scenes with 80 characters (ASan clean);
+  Maniac startup tests pass with the larger build. Not device-tested; the
+  iOS build with v7/v8 is compiled only by Apple CI.
