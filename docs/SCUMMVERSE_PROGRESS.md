@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0071 (crystal teleport pads reach other worlds; iOS compile fix).
+Active milestone: Phase 1; latest patch 0072 (Sharptooth, Red Skull and a floating Murray).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1113,4 +1113,31 @@ sites keep their scene-bound commands 50..54. Compiled only by Apple CI
 (iOS UI); the engine path is covered by the existing other-world probes.
 Not device-tested. Patch 0071: the 0070 IPA failed to compile (the pad
 type was declared after the view interface that used it); fixed.
+
+## Patch 0072 — Sharptooth, Red Skull and a floating Murray
+
+User request (2026-10-17): play as Murray (the talking skull, who should
+levitate), Wally, the Monkey Island monkey, the three-headed monkey and all
+three headhunters, among others (Doug the Mole Man too).
+- Already playable since 0069: Murray, both Wallys (Monkey Island 2 and
+  Curse), the monkey and the three-headed monkey (Monkey Island 1), Doug
+  the Mole Man (Sam & Max; the game has only his seated pose), Lemonhead.
+  "Timmy" is the monkey's name in Escape from Monkey Island, not a SCUMM
+  game; the Monkey Island 1 monkey is in the list as "Monkey".
+- The other two headhunters share Lemonhead's costume with their own
+  animation sets (masks). The catalog's kWorldCostumeVariants names such a
+  character by a virtual costume number (906, 911) with the real costume and
+  its init/walk/stand/talk frames; the exporter applies them before
+  capturing. Named by their masks (newly written personalities and lines):
+  Sharptooth (grey, pointed teeth) and Red Skull. They replace the research
+  entry that rendered the shared costume as Lemonhead again. 265 characters;
+  kWorldExportVersion is 8.
+- Floating: kWorldHoverers (Murray) are drawn a quarter of their height
+  above their feet with a gentle bob and keep their standing pose while they
+  move, as guests or when played.
+- Verified (Linux, the user's private copies): MI1 export of the three masks
+  compared by eye; tools/test_world.cpp (variants, floating); test_appearance
+  plays Murray (floats 4..8 px, bobbing) besides the 0069 checks;
+  test_world_visit draws all 265 characters; original-data suite 31/31.
+  Not device-tested.
 

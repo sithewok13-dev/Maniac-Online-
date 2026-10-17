@@ -89,6 +89,24 @@
 		settle(4);
 		if (_scummVars[kScummverseAppearanceVar+3]!=indy || strcmp((const char *)dave->getActorName(),"Indiana Jones") || !_scummverseAvatarSprite[3]) error("Appearance lost on load");
 	}
+	// Murray (Curse of Monkey Island's talking skull) floats above his feet,
+	// bobbing, and keeps his standing pose while he moves.
+	{
+		const int murray=worldAppearanceKey(9,49);
+		if (!worldAppearance(murray) || strcmp(worldAppearance(murray)->name,"Murray")) error("Murray's key changed");
+		if (!scummverseTravel(2)) error("Cannot return to the mansion");
+		settle(4);
+		request(murray);
+		if (!_scummverseAvatarSprite[3]) error("Murray's frames not mounted");
+		dave->_needRedraw=true; settle(1);
+		const int feet=dave->getPos().y-dave->getElevation();
+		if (dave->_bottom>=feet-1) error("Murray does not float: drawn to %d, feet at %d",dave->_bottom,feet);
+		int lowest=1000, highest=-1000;
+		for (int n=0;n<80;++n) { dave->_needRedraw=true; settle(1); lowest=MIN(lowest,dave->_bottom); highest=MAX(highest,dave->_bottom); }
+		if (highest-lowest<2) error("Murray does not bob (%d..%d)",lowest,highest);
+		warning("APPEARANCE Murray floats %d..%d px above his feet",feet-highest,feet-lowest);
+		request(indy);
+	}
 	// Unknown keys are refused; key 0 makes Dave himself again.
 	request(worldAppearanceKey(3,999));
 	if (_scummVars[kScummverseAppearanceVar+3]!=indy) error("Unknown character accepted");

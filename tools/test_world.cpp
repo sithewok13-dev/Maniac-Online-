@@ -169,7 +169,17 @@ static void testCatalog() {
 	assert(!worldPlaceOfKey(53, game, room) && !worldGuestAt(42, 0) && !worldLandmark(worldGameCount(), 1));
 	for (const auto &g : kWorldGames) assert(g.heroHeight >= 30 && g.heroHeight <= 480);
 	for (const auto &legacy : kWorldLegacyPlaces) assert(worldLandmark(legacy.game, legacy.room));
-	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places\n", scenes, guests);
+	// Costume variants (one costume, another animation set) stand for a cast
+	// member and name a different real costume; Murray floats.
+	for (const auto &v : kWorldCostumeVariants) {
+		assert(v.real != v.costume && v.costume < 1024 && worldCostumeVariant(v.game, v.costume) == &v);
+		bool cast = false;
+		for (const auto &c : kWorldCast) cast = cast || (c.game == v.game && c.guest.costume == v.costume);
+		assert(cast);
+	}
+	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
+	assert(worldHovers(9, 49) && !worldHovers(0, 49));
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating\n", scenes, guests);
 }
 
 // Door maps: doors join visitable rooms; every visitable room is reached

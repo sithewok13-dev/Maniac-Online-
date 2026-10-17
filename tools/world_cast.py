@@ -27,6 +27,25 @@ UNUSABLE = re.compile(r'legs only|lying|upper[- ]body|\bbust\b|head-on-pillow|ti
 RANK = {'high': 0, 'medium': 1, 'low': 2}
 # Costumes that export but draw only a few pixels in the sandbox.
 SPECKS = {('dig', 153)}
+# Characters drawn from another costume with their own animation set
+# (engine catalog kWorldCostumeVariants); names, personalities and lines
+# newly written. They replace research entries that rendered the same
+# costume with its default animations.
+EXTRA = {
+    'monkey': [
+        {'costume': 906, 'name': 'Sharptooth', 'rooms': [25], 'confidence': 'high', 'talkColor': 7,
+         'personality': 'Sharptooth, one of the three cannibals of Monkey Island, in a grey shaggy mask full of pointed teeth; '
+                        'fierce-looking, secretly a vegetarian, and fussy about the quality of the village fruit',
+         'lines': ['Do not mind the teeth. Mostly decorative.', 'Have you tried the bananas this season? Superb.',
+                   'We used to be scarier. Then we discovered salad.']},
+        {'costume': 911, 'name': 'Red Skull', 'rooms': [25], 'confidence': 'high', 'talkColor': 12,
+         'personality': 'Red Skull, one of the three cannibals of Monkey Island, in a red skull mask with a grin of square teeth; '
+                        'theatrical, proud of his mask, and fond of dramatic pronouncements about the island',
+         'lines': ['Behold! The mask of terror! It took me all week.', 'Monkey Island keeps its secrets. And its snacks.',
+                   'Visitors come and go. Mostly go.']},
+    ],
+}
+REPLACED = {('monkey', 'Cannibals of Monkey Island')}
 
 
 def landmarks():
@@ -57,7 +76,7 @@ def main():
         path = ROOT/'build/foreign/cast'/f'{game}.json'
         if not path.exists():
             continue
-        cast = json.loads(path.read_text())
+        cast = [c for c in json.loads(path.read_text()) if (game, c.get('name')) not in REPLACED] + EXTRA.get(game, [])
         rooms, _ = load_map(game)
         visit = {r for r, _ in rooms} | set(named.get(game, []))
         places = named.get(game, [])
