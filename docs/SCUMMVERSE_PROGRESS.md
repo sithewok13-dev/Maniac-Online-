@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0074 (The Dig's light bridges all switched on).
+Active milestone: Phase 1; latest patch 0075 (fishbowls and oxygen tanks on Mars).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1213,4 +1213,33 @@ spire.
   on-foot doors in rooms 30/34/38/41, unrelated to the bridges);
   tools/test_world.cpp preset checks; original-data suite 33/33.
   Not device-tested.
+
+## Patch 0075 — Fishbowls and oxygen tanks on Mars
+
+User request (2026-10-17): humans on Mars where the original would kill them
+wear a goldfish bowl and a scuba mask and tank, as in the original; not the
+tentacle; Murray (the talking skull), the monkeys, the three-headed monkey
+and the headhunters too.
+- Original (Zak's global script 9, private research): kids without gear
+  suffocate in about 15 seconds on Mars outdoors (landing site, tram
+  station, pyramid entrance, outside the Face) and inside the pyramid
+  always; in the Face's halls, antechambers and passages while the air
+  machine is off, and in the hostel airlock while its light is on (both as
+  the game starts). Zak wears a black fishbowl outline and a mask; Melissa
+  and Leslie their helmets; there is no tank picture.
+- The sandbox draws newly made gear over anyone who breathes in those
+  rooms (zakAirlessRooms): a black bowl with a white glint around the head,
+  a mask on the face and a yellow tank on the back with its hose, fitted to
+  the pixels the character just drew (only its own screen strips), so it
+  fits Maniac and Zak costumes and every other-world character alike; a
+  figure about as wide as tall (a skull, a monkey) is all head. Not worn:
+  the tentacles, the Caponian and The King, and other-world tentacles,
+  ghosts and skeletons, the maintenance droid and the Cocytus aliens
+  (kWorldAirless). Nobody suffocates; the gear comes off where there is air.
+- Verified (Linux, the user's private copies): tools/test_mars_air.py lines
+  up Dave, Zak, Melissa, the Green Tentacle, the Caponian and Bernard
+  playing Murray in the hostel bunks (air: no gear) and on the landing site
+  (gear on the breathers only, by drawn height and the air rule), and back;
+  screenshot compared by eye; tools/test_world.cpp air checks; original-data
+  suite 34/34; startup test. Not device-tested.
 
