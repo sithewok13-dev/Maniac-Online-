@@ -141,6 +141,16 @@ is also available as a testing shortcut.
 Keep both data folders when loading saves. See [worlds.md](worlds.md) (packaged as
 WORLDS.md) for the exact walking routes and current airport/street/apartment scope.
 
-Leave Zak's apartment through the door and walk right to the bus for a free
-airport ride. The airport's right-hand door takes the return bus. Keep 03.LFL
-in the `zak` folder for the street scene. The street stairs return to the apartment.
+Leave Zak's apartment through his living room and walk right to the bus for a
+free airport ride. The airport's right-hand door takes the return bus. Keep 03.LFL
+in the `zak` folder for the street scene. The street stairs return to the apartment;
+the corner up the street leads to 14th Avenue (Lou's Loans, the Society office).
+
+Melissa and Leslie's van stands at the Mars landing site. Walk in through its
+door and tap the controls: after a countdown it lifts off with everyone in the
+cockpit, and you look out at the stars until you tap **Arrive** and pick an
+outdoor place (Zak's, the mansion's, or an installed other world's). It stays
+parked there, drawn beside you; tap it to board again.
+
+In The Dig, walk to a tram station's platform edge: the car comes, waits a few
+seconds for everyone on the edge, and takes you to the other end of the line.

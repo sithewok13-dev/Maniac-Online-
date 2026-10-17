@@ -204,7 +204,16 @@ static void testCatalog() {
 		assert(worldTramStop(line.game, stop.room, l, at) && &kWorldTramLines[l] == &line && at == e);
 	}
 	{ int l, at; assert(!worldTramStop(8, 2, l, at) && !worldTramStop(0, 80, l, at)); }
-	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air, Dig tram\n", scenes, guests);
+	// The van's landing sites: Mars first; other-world sites are visitable
+	// rooms; labels in the destination computer's capitals and spaces.
+	assert(kWorldVanSites[0].game == -1 && kWorldVanSites[0].room == 79);
+	for (const auto &site : kWorldVanSites) {
+		assert(site.game >= -1 && site.game < worldGameCount() && site.room > 0);
+		if (site.game >= 0) assert(worldRoomKind(site.game, site.room) == kWorldScene);
+		for (const char *c = site.label; *c; ++c) assert((*c >= 'A' && *c <= 'Z') || *c == ' ');
+	}
+	assert(kWorldVanRequest > worldPlaceRequest(worldGameCount() - 1, 1023) && kWorldVanRequest + kWorldVanSiteCount < kWorldAppearanceRequest);
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air, Dig tram, van sites\n", scenes, guests);
 }
 
 // Door maps: doors join visitable rooms; every visitable room is reached

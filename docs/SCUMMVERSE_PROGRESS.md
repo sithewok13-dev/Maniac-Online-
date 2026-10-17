@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0076 (The Dig's tram, called at the ledge).
+Active milestone: Phase 1; latest patch 0077 (Melissa and Leslie's van flies).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1283,5 +1283,48 @@ board, and go.
   are the five on-foot doors in rooms 30/34/38/41); tools/test_world.cpp
   scene pictures and the line table; screenshots of stations 80 and 37
   compared by eye; original-data suite 35/35; startup test. Not
+  device-tested.
+
+## Patch 0077 — Melissa and Leslie's van flies
+
+User request (2026-10-17): the modified van should fly anywhere within reason
+(outdoor places, not catacombs or castle interiors); one per game, starting at
+its own spot and remembered where parked; passengers (NPCs, networked players)
+along; the classic takeoff; flying like the plane, looking out through the
+windshield endlessly, with Arrive.
+- Original (Zak's scripts, private research): the van, the "Shuttle Bug",
+  stands painted into the Mars landing site (object 454 is the empty sand
+  drawn once it has gone); its door opens into the cockpit (room 30); the
+  controls launch it with a countdown, the windshield's stars (494) and the
+  flight colors. It never lands anywhere in the original.
+- Here: the controls start a countdown (meters blinking, newly written
+  lines), then everyone in the cockpit lifts off into the cockpit in flight
+  (logical room 221 on the cockpit's resource: stars, flight colors; the
+  riders unseen, first person); travel is locked until Arrive, which shows
+  the destination computer listing kWorldVanSites (outdoor Zak, mansion and
+  other-world places; other worlds only when exported). Landing parks the
+  van beside the player (on the roomier side, as tall as people there) and
+  the riders step out; the cockpit door leads back to wherever it stands;
+  at Mars the original art shows it or the sand. NPCs only take the
+  cockpit door where the van is.
+- Away from Mars the van is drawn from the original's art: the landing
+  site's background with the van less the same with the sand, taken once
+  in the landing site and kept as "zak-van.svv" beside the other worlds'
+  cache (the user's own derived data), drawn into redrawn strips of the
+  background so people walk in front of it.
+- Saved vars 613..618 (site, position, phase, riders, scale); WiFi content
+  stamp 77.
+- Not done: networked players cannot ride yet (their devices move them;
+  passengers are this device's characters); no landing animation outside
+  (the original has none).
+- Verified (Linux, the user's private copies): tools/test_van.py boards at
+  Mars with a companion, launches from the controls, checks the countdown
+  lock, liftoff into the flight view, the travel lock, a save and load in
+  flight, the landing request in San Francisco (van drawn: 90% of its pixels
+  on the background, riders out), boarding by tapping it, the cockpit door
+  back to San Francisco, the sand at Mars, a flight to Monkey Island's beach
+  (drawn, scaled) and home to Mars; screenshots compared by eye;
+  tools/test_world.cpp van sites; original-data suite 36/36; startup test. iOS
+  destination computer and Arrive button compiled by Apple CI only. Not
   device-tested.
 

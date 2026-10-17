@@ -1,0 +1,684 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 58500893..bd3b3b2f 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -55,6 +55,19 @@ static std::vector<ScummversePad> scummversePads() {
+ 	}
+ 	return pads;
+ }
++// Where Melissa and Leslie's van can land: Zak's and the mansion's sites, and
++// those of the other worlds whose scene is exported.
++static std::vector<ScummversePad> scummverseVanSites() {
++	std::vector<ScummversePad> sites;
++	NSString *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm=[NSFileManager defaultManager];
++	for (int i=0;i<Scummverse::WorldCatalog::kWorldVanSiteCount;++i) {
++		const auto &site=Scummverse::WorldCatalog::kWorldVanSites[i];
++		if (site.game>=0 && ![fm fileExistsAtPath:[NSString stringWithFormat:@"%@/worlds/%s-%d.svw",documents,Scummverse::WorldCatalog::kWorldGames[site.game].gameid,site.room]]) continue;
++		sites.push_back({site.label,0,Scummverse::WorldCatalog::kWorldVanRequest+i});
++	}
++	return sites;
++}
+ @implementation ScummverseAirportView
+ - (void)drawRect:(CGRect)rect {
+ 	CGContextRef c = UIGraphicsGetCurrentContext();
+@@ -85,16 +98,19 @@ static std::vector<ScummversePad> scummversePads() {
+ @end
+ @interface ScummverseAirportController : UIViewController {
+ 	ScummverseAirportView *_panel;
+-	int _token; BOOL _teleport;
++	int _token; BOOL _teleport, _van;
+ }
+ - (id)initWithToken:(int)token;
+ @end
+ @implementation ScummverseAirportController
+-- (id)initWithToken:(int)token { if ((self=[super init])) { _teleport=(token & (1<<30))!=0; _token=token & ~(1<<30); self.modalPresentationStyle=UIModalPresentationOverFullScreen; } return self; }
++// Token flags: 1 << 30 the teleport pads, 1 << 29 the van's landing sites
++// (both lists of requests).
++- (id)initWithToken:(int)token { if ((self=[super init])) { _van=(token & (1<<29))!=0; _teleport=(token & (1<<30))!=0 || _van; _token=token & ~((1<<30)|(1<<29)); self.modalPresentationStyle=UIModalPresentationOverFullScreen; } return self; }
+ - (void)viewDidLoad {
+ 	[super viewDidLoad]; self.view.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+ 	_panel=[[[ScummverseAirportView alloc] init] autorelease]; _panel.backgroundColor=UIColor.clearColor; _panel.choice=0; _panel.teleport=_teleport;
+-	if(_teleport) _panel.pads=scummversePads();
++	if(_van) _panel.pads=scummverseVanSites();
++	else if(_teleport) _panel.pads=scummversePads();
+ 	[self.view addSubview:_panel];
+ 	NSArray *names=@[@"",@"",@"",@"",@"Confirm destination",@"Cancel",@"Previous page",@"Next page"];
+ 	for (int i=0;i<8;++i) {
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 374130d8..43d6048b 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -178,7 +178,8 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ }
+ - (void)refresh {
+ 	auto &r=ScummverseLocalAI::runtime();
+-	_arrive.hidden=scummverseSystemMenu || ScummverseLocalAI::currentRoom()!=56;
++	// The plane, and Melissa and Leslie's van in flight (room 221).
++	_arrive.hidden=scummverseSystemMenu || (ScummverseLocalAI::currentRoom()!=56 && ScummverseLocalAI::currentRoom()!=221);
+ 	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { _scene=ScummverseLocalAI::sceneToken(); _hasTranscript=NO; }
+ 	self.hidden=scummverseSystemMenu || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
+ 	const unsigned here=r.actorsInRoom(), mask=r.talkingWith();
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index c14f190f..0ab8ef81 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -244,6 +244,32 @@ inline const WorldGuest *worldAppearance(int key) {
+ // requests.
+ static const int kWorldAppearanceRequest = 1 << 25;
+ inline int worldAppearanceRequest(int key) { return kWorldAppearanceRequest + key; }
++// Where Melissa and Leslie's van (the Shuttle Bug) can land: outdoor places
++// only, never interiors, catacombs or castle halls. Game -1: a sandbox room
++// (Zak's or the mansion's), else an other-world place (that game's room).
++// The van starts at the first, its own landing site. Append only (saved).
++// Labels are capitals and spaces (the destination computer's font).
++struct WorldVanSite { short game, room; const char *label; };
++static const WorldVanSite kWorldVanSites[] = {
++	{-1, 79, "MARS LANDING SITE"}, {-1, 83, "OUTSIDE THE FACE"}, {-1, 71, "MARS PYRAMID"},
++	{-1, 44, "MANIAC MANSION"}, {-1, 55, "SAN FRANCISCO"}, {-1, 99, "FOURTEENTH AVENUE"},
++	{-1, 58, "SEATTLE FOREST"}, {-1, 63, "ZAIRE VILLAGE"}, {-1, 67, "KATHMANDU"},
++	{-1, 72, "EGYPT SPHINX"}, {-1, 78, "STONEHENGE"}, {-1, 86, "MEXICO JUNGLE"}, {-1, 95, "PERU JUNGLE"},
++	{0, 33, "MELEE ISLAND"}, {0, 20, "MONKEY ISLAND BEACH"}, {0, 25, "CANNIBAL VILLAGE"},
++	{1, 37, "SCABB ISLAND BEACH"}, {1, 47, "BOOTY ISLAND"}, {1, 54, "PHATT CITY"}, {1, 85, "DINKY ISLAND"},
++	{2, 5, "LOOM ISLAND"}, {2, 24, "SHEPHERDS MEADOW"}, {2, 16, "CRYSTALGARD"},
++	{3, 6, "BARNETT COLLEGE"}, {3, 15, "VENICE"}, {3, 36, "ZEPPELIN AIRFIELD"}, {3, 71, "COUNTRY AIRFIELD"},
++	{4, 19, "THE AZORES"}, {4, 29, "ALGIERS"}, {4, 49, "SEASIDE VILLAGE"}, {4, 43, "CRETE EXCAVATION"}, {4, 76, "JUNGLE PYRAMID"},
++	{5, 9, "EDISON MANSION GROUNDS"},
++	{6, 9, "SAM AND MAX STREET"}, {6, 15, "CARNIVAL MIDWAY"}, {6, 27, "BALL OF TWINE"}, {6, 58, "MOUNT RUSHMORE"}, {6, 59, "DINOSAUR PARK"},
++	{7, 6, "OUTSIDE THE KICKSTAND"}, {7, 51, "HIGHWAY AT NIGHT"},
++	{8, 5, "ASTEROID SURFACE"}, {8, 18, "CRASHED SPACESHIPS"}, {8, 22, "CRYSTAL SHORE"},
++	{9, 14, "PLUNDER ISLAND BEACH"}, {9, 15, "PUERTO POLLO"}, {9, 55, "BLOOD ISLAND VILLAGE"},
++};
++static const int kWorldVanSiteCount = sizeof(kWorldVanSites) / sizeof(kWorldVanSites[0]);
++// A menu request to land the van at a site: kWorldVanRequest + site (above
++// place requests, below appearance requests).
++static const int kWorldVanRequest = (1 << 24) + (1 << 20);
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+ struct WorldLegacyPlace { int game, room; };
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index 3bbe0ada..c519f17a 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -1197,6 +1197,7 @@ void ScummEngine::redrawBGAreas() {
+ 	}
+ 
+ 	drawRoomObjects(val);
++	scummverseDrawVan(); // Melissa and Leslie's van, parked here.
+ 	_bgNeedsRedraw = false;
+ }
+ 
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index ef5aa903..3ae33c92 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -562,6 +562,7 @@ int ScummEngine::findObject(int x, int y) {
+ 				if(original==kZakTramButton || (original==kZakTramObject && !(getState(o.obj_nr)&8))) travel=true;
+ 			}
+ 			for(const auto &way:zakTraversals) if(way.room==_currentRoom && way.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
++			if(zakVanControl(_currentRoom,scummverseOriginalObject(_currentRoom,o.obj_nr))) travel=true;
+ 			for(const auto &refusal:zakRefusals) if(refusal.room==_currentRoom && refusal.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+ 			if(travel && x>=o.x_pos && y>=o.y_pos && x<o.x_pos+o.width && y<o.y_pos+o.height && o.width*o.height<area) { hit=o.obj_nr;area=o.width*o.height; }
+ 		}
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 456518b5..a4a83813 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -141,6 +141,7 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
+ 	if (_scummverseRoamingReady && (ScummverseContent::foreignRoom(_currentRoom) || _currentRoom >= 128)) {
++		if (scummverseVanObject(object, entry)) return;
+ 		if((entry==13 || entry==11) && zakPadObject(_currentRoom,object)) { scummverseTeleportOffer(); return; }
+         if(_currentRoom==56 && object==753 && entry==11 && _scummVars[724]) {
+             int &reservation=_scummVars[501+VAR(VAR_EGO)];
+@@ -1540,10 +1541,12 @@ void ScummEngine_v2::runInputScript(int clickArea, int val, int mode) {
+ 		return;
+ 	if(_scummverseRoamingReady && clickArea==kVerbClickArea && (val==7 || (val>=20 && val<=22))) { scummverseRosterOffer(); return; }
+ 	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseTalkPick(getActorFromPos(_virtualMouse.x, _virtualMouse.y))) return;
++	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseVanTap(_virtualMouse.x, _virtualMouse.y)) return;
+ 	if(_scummverseRoamingReady && clickArea==kSceneClickArea && _currentRoom>=56) {
+ 		int object=findObject(_virtualMouse.x,_virtualMouse.y);
+ 		if(zakPadObject(_currentRoom,object)) { scummverseTeleportOffer(); return; }
+ 		if(zakAirport(_currentRoom) && (object==732 || object==736)) { runObjectScript(object,13,false,false,nullptr); return; }
++		if(zakVanControl(_currentRoom,scummverseOriginalObject(_currentRoom,object))) { runObjectScript(object,13,false,false,nullptr); return; }
+ 		for(const auto &link:zakLinks) if(link.room==_currentRoom && link.object==object) { runObjectScript(object,13,false,false,nullptr); return; }
+ 	}
+ 	if (_scummverseRoamingReady && _currentRoom==55 && clickArea==kSceneClickArea &&
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index ee2c311a..1f175085 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -124,6 +124,7 @@
+ using Common::File;
+ 
+ #include "scumm/scummverse_portrait.h"
++#include "scumm/usage_bits.h" // The van is drawn into redrawn strips (scummverse_van.inc).
+ 
+ namespace Scumm {
+ 
+@@ -4242,6 +4243,7 @@ void ScummEngine::errorString(const char *buf1, char *buf2, int buf2Size) {
+ #include "scumm/scummverse_worlds.inc"
+ using namespace ::Scummverse::WorldCatalog;
+ #include "scumm/scummverse_world_play.inc"
++#include "scumm/scummverse_van.inc"
+ #include "scumm/scummverse_roaming.inc"
+ #include "scumm/scummverse_net.inc"
+ #include "scumm/scummverse_world_export.inc"
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index a7381e29..d59008a5 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1367,6 +1367,7 @@ public:
+ 	// On Mars without air, a fishbowl and an oxygen tank over a character
+ 	// just drawn, fitted to its own pixels (scummverse_worlds.inc).
+ 	bool scummverseNeedsAir(const Actor *a) const;
++	int scummverseSceneState(int room, int i) const;
+ 	void scummverseDrawAirGear(Actor *a);
+ 	// The name of a sandbox character playing someone from another game, or null.
+ 	const byte *scummverseAppearanceName(int id) const;
+@@ -1717,6 +1718,25 @@ protected:
+ 	bool _scummverseDigTramPicture = false; // The scene in view has its car picture.
+ 	int _scummverseDigTramShown = 0, _scummverseDigTramAmount = -1; // As drawn now.
+ 	// Aboard until the car reaches the other end (the player is there then).
++	// Melissa and Leslie's van (scummverse_van.inc). Saved vars 613..618.
++	static const int kVanSiteVar = 613, kVanXVar = 614, kVanYVar = 615, kVanPhaseVar = 616, kVanRidersVar = 617, kVanScaleVar = 618;
++	static const int kVanLiftoff = 360, kVanFlying = 400, kVanCockpit = 81, kVanFlightRoom = 221, kVanLandingSite = 79;
++	Common::Array<byte> _scummverseVanSprite; int _scummverseVanW = 0, _scummverseVanH = 0;
++	bool scummverseVanFlying() const;
++	bool scummverseInVan() const;
++	int scummverseVanSite() const;
++	bool scummverseVanSiteHere(int site) const;
++	bool scummverseVanRect(int &x, int &y, int &w, int &h);
++	bool scummverseLoadVan();
++	void scummverseCaptureVan();
++	void scummverseDrawVan();
++	void scummverseApplyVanState();
++	bool scummverseVanTap(int x, int y);
++	bool scummverseVanObject(int object, int verb);
++	void scummverseVanStepOut(int site);
++	void scummverseServiceVan(int delta);
++	void scummverseVanArrive();
++	bool scummverseVanLand(int site);
+ 	bool scummverseOnDigTram() const { int ego=_scummVars[VAR_EGO]; return _scummVars[609]>kDigTramClose && _scummVars[609]<kDigTramThere && (_scummVars[610] & (1u<<ego)); }
+ 	bool scummverseDigTramStop(int &line, int &end) const;
+ 	bool scummverseWorldUnits(int game, int source, int x, int y, int &ux, int &uy) const;
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index ff4d79b4..cfcca6a9 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 73; // 73: San Francisco rooms, temple scenes
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 77; // 77: the van in flight (logical room 221)
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 63641057..2c7e122b 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -101,6 +101,9 @@ static const ZakLogicalScene zakLogicalScenes[] = {
+ 	{212, 74, "Sphinx maze"}, {213, 74, "Sphinx maze"}, {214, 74, "Sphinx maze"}, {215, 74, "Sphinx maze"},
+ 	{216, 74, "Sphinx maze"}, {217, 74, "Sphinx maze"}, {218, 74, "Sphinx maze"}, {219, 74, "Sphinx maze"},
+ 	{220, 74, "Sphinx maze dead end"},
++	// Melissa and Leslie's van in flight: its cockpit (slot 81) with the
++	// windshield's starfield (494) and the flight colors (original 494 script).
++	{221, 81, "Shuttle Bug in flight"},
+ 	// Mexico temple passages (original pseudo rooms 157..167 on resource 53,
+ 	// like 156 = physical 88). Patch 0038 gave each its own slot; patch 0073
+ 	// folded them back to free slots for San Francisco.
+@@ -486,6 +489,8 @@ static const ZakSceneObjectState zakSceneObjectStates[] = {
+ 	{89, 14, 56, 0, 10},
+ 	// 14th Avenue: the Society door (162) open, showing its stairs (168).
+ 	{99, 5, 162, 8, 4},
++	// The van in flight: the windshield shows the stars.
++	{221, 30, 494, 8, 0},
+ 
+ };
+ 
+@@ -515,6 +520,9 @@ static bool zakAirless(int room) {
+ 	return false;
+ }
+ 
++// The van's controls (original 490) in its cockpit, parked or in flight.
++static bool zakVanControl(int room, int original) { return (room == 81 || room == 221) && original == 490; }
++
+ // Original 20/39 entry scripts select distant costume 9 (10px tall).
+ // Normal Zak standing front/back costume 1 spans 46px. Scale = 10/46.
+ static const int zakDistantCostumeRooms[] = {72, 87};
+@@ -1777,7 +1785,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+ struct ZakSceneView { int room, logicalRoom, cameraMin, cameraMax, color1, color2; };
+ static const ZakSceneView zakSceneViews[] = {
+  {56,11,264,640,15,8}, {68,19,160,480,2,9},
+- {79,185,160,800,15,2}, {81,30,160,160,1,11}, {89,130,160,160,15,7},
++ {79,185,160,800,15,2}, {81,30,160,160,1,11}, {89,130,160,160,15,7}, {221,30,160,160,15,11},
+ };
+ static const ZakSceneView *zakSceneView(int room) {
+  for (const auto &view : zakSceneViews) if (view.room == room) return &view;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index c9cb0a27..21c5c957 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -271,6 +271,8 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	if (destination >= kWorldAppearanceRequest) {
+ 		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
++	} else if (destination >= kWorldVanRequest) {
++		scummverseVanLand(destination - kWorldVanRequest);
+ 	} else if (destination >= kWorldPlaceRequest) {
+ 		destination -= kWorldPlaceRequest;
+ 		scummverseTravelPlace(destination / 1024, destination % 1024);
+@@ -288,6 +290,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+ 			} else if(command==62) scummverseTeleportOffer();
+ 			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) scummverseTravel(zakPads[command-50].room-50,zakPads[command-50].arrivalObject);
++			else if (command == 24 && _currentRoom == kVanFlightRoom) scummverseVanArrive();
+ 			else if (command == 24) scummverseArrive();
+ 			else if(command>=1 && command<=48) scummverseTravel(command);
+ 		}
+@@ -419,7 +422,8 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			}
+ 			if(r.wait<=0) {
+ 				int exits[12], count=0;
+-				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12) exits[count++]=k;
++				// The van's cockpit is only open where the van stands (at Mars).
++				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12 && !((zakLinks[k].room==kVanCockpit || zakLinks[k].destination==kVanCockpit) && scummverseVanSite()!=0)) exits[count++]=k;
+ 				if(count) { if(!r.walking || r.exit<0 || r.exit>=(int)ARRAYSIZE(zakLinks) || zakLinks[r.exit].room!=a->_room) r.exit=exits[_rnd.getRandomNumber(count-1)]; const auto &link=zakLinks[r.exit];
+ 					if(link.destination<56 || scummverseMountExtra(link.destination)) {
+ 						if(a->_room==_currentRoom && !r.walking) { int obj=getObjectIndex(link.object); if(obj>=0) { a->startWalkActor(_objs[obj].walk_x/8,_objs[obj].walk_y/2,-1); r.walking=true; r.wait=180; continue; } }
+diff --git a/engines/scumm/scummverse_van.inc b/engines/scumm/scummverse_van.inc
+new file mode 100644
+index 00000000..cc86fc6c
+--- /dev/null
++++ b/engines/scumm/scummverse_van.inc
+@@ -0,0 +1,306 @@
++// SCUMMVERSE: Melissa and Leslie's van, the Shuttle Bug. GPL-3.0-or-later.
++// Original Zak: the van stands on Mars at the landing site (painted into
++// its background; object 454 is the empty sand drawn once it has gone), its
++// door (452) opens into the cockpit (room 30, sandbox 81), and the controls
++// (490) launch it: countdown, the windshield's stars (494), flight colors.
++// The original never lands. Here it flies like the plane: one van per game,
++// saved where it is parked, boarded wherever it stands, flown from the
++// controls with everyone in the cockpit, endlessly until Arrive, and landed
++// at any outdoor site (catalog kWorldVanSites). Away from Mars it is drawn
++// from the landing site's own art: the background with the van less the
++// background with the sand. Lines are newly written.
++//
++// Saved: 613 site (catalog index; -1 in flight), 614/615 where it stands
++// (room pixels: left, bottom), 616 phase (0 parked, counting down until
++// kVanLiftoff, then kVanFlying), 617 riders, 618 its scale there (x100).
++
++static const int kVanObject = 454, kVanDoor = 452, kVanCockpitDoor = 488, kVanControls = 490, kVanMeters = 491;
++// A Zak kid's height in the original's art, against which the van is scaled;
++// the van's own size there (object 454) until its picture is taken.
++static const double kVanKidHeight = 62.0;
++static const int kVanWidth = 144, kVanHeight = 72;
++
++bool ScummEngine::scummverseVanFlying() const {
++	return _scummverseRoaming && _scummVars && _scummVars[kVanPhaseVar] > 0;
++}
++bool ScummEngine::scummverseInVan() const {
++	return scummverseVanFlying() && (_scummVars[kVanRidersVar] & (1u << _scummVars[VAR_EGO]));
++}
++
++// The site the van stands at now, or -1 (in flight).
++int ScummEngine::scummverseVanSite() const {
++	if (!_scummVars || _scummVars[kVanPhaseVar] >= kVanLiftoff) return -1;
++	const int site = _scummVars[kVanSiteVar];
++	return site >= 0 && site < kWorldVanSiteCount ? site : 0;
++}
++
++// Whether the viewed room is a site's room.
++bool ScummEngine::scummverseVanSiteHere(int site) const {
++	if (site < 0 || site >= kWorldVanSiteCount) return false;
++	const WorldVanSite &s = kWorldVanSites[site];
++	if (s.game < 0) return _currentRoom == s.room;
++	int source;
++	return scummverseWorldGameOf(_currentRoom, source) == s.game && source == s.room;
++}
++
++// The van parked in this room away from its own landing site (room pixels).
++bool ScummEngine::scummverseVanRect(int &x, int &y, int &w, int &h) {
++	const int site = scummverseVanSite();
++	if (site <= 0 || !scummverseVanSiteHere(site)) return false;
++	const bool picture = scummverseLoadVan();
++	const double scale = MAX(10, _scummVars[kVanScaleVar] ? _scummVars[kVanScaleVar] : 100) / 100.0;
++	w = MAX(1, (int)((picture ? _scummverseVanW : kVanWidth) * scale)); h = MAX(1, (int)((picture ? _scummverseVanH : kVanHeight) * scale));
++	x = _scummVars[kVanXVar]; y = _scummVars[kVanYVar] - h;
++	return true;
++}
++
++static Common::Path scummverseVanFile(const Common::Path &cache) { return cache.appendComponent("zak-van.svv"); }
++
++// The van's picture, kept beside the other worlds' cache once taken.
++bool ScummEngine::scummverseLoadVan() {
++	if (!_scummverseVanSprite.empty()) return true;
++	const Common::FSNode node(scummverseVanFile(scummverseWorldCache()));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
++	if (!in || in->readUint32BE() != MKTAG('S', 'V', 'V', '1')) return false;
++	const int w = in->readUint16LE(), h = in->readUint16LE();
++	if (w <= 0 || h <= 0 || w > 640 || h > 256) return false;
++	_scummverseVanSprite.resize(w * h);
++	if (in->read(_scummverseVanSprite.data(), w * h) != (uint32)(w * h)) { _scummverseVanSprite.clear(); return false; }
++	_scummverseVanW = w; _scummverseVanH = h;
++	return true;
++}
++
++// At the landing site: the background with the van, less the background with
++// the sand drawn over it, is the van (255: none). Drawn off screen in one go.
++void ScummEngine::scummverseCaptureVan() {
++	if (!_scummverseVanSprite.empty() || _currentRoom != kVanLandingSite || scummverseLoadVan()) return;
++	int obj = 0;
++	for (int i = 0; i < 33 && !obj; ++i) if (scummverseOriginalObject(_currentRoom, 732 + i) == kVanObject) obj = 732 + i;
++	const int index = obj ? getObjectIndex(obj) : -1;
++	if (index < 0) return;
++	const int ox = _objs[index].x_pos, oy = _objs[index].y_pos, ow = _objs[index].width, oh = _objs[index].height;
++	if (ow <= 0 || oh <= 0 || ow > _screenWidth) return;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	if (!vs.hasTwoBuffers || oy + oh > vs.h) return;
++	const int state = getState(obj);
++	const Common::Point cameraAt = camera._cur, cameraTo = camera._dest, cameraWas = camera._last;
++	auto aim = [&](int x) { camera._cur.x = camera._dest.x = CLIP<int>(x, VAR(VAR_CAMERA_MIN_X), VAR(VAR_CAMERA_MAX_X)); cameraMoved(); };
++	Common::Array<byte> with, without;
++	auto grab = [&](int shown, Common::Array<byte> &out) {
++		putState(obj, shown); updateObjectStates();
++		aim(ox + ow / 2);
++		_fullRedraw = true; redrawBGAreas();
++		out.resize(ow * oh);
++		for (int y = 0; y < oh; ++y) for (int x = 0; x < ow; ++x) {
++			const int sx = ox - vs.xstart + x;
++			out[y * ow + x] = sx >= 0 && sx < _screenWidth ? *(const byte *)vs.getBackPixels(sx, oy + y) : 255;
++		}
++	};
++	grab(state & ~(kObjectStateIntrinsic | kObjectStateUntouchable), with);
++	grab(state | kObjectStateIntrinsic, without);
++	putState(obj, state); updateObjectStates();
++	camera._cur = cameraAt; camera._dest = cameraTo; cameraMoved(); camera._last = cameraWas; _fullRedraw = true;
++	int drawn = 0;
++	_scummverseVanSprite.resize(ow * oh);
++	for (int i = 0; i < ow * oh; ++i) {
++		const bool van = with[i] != without[i] && with[i] != 255;
++		_scummverseVanSprite[i] = van ? with[i] : 255; drawn += van;
++	}
++	if (drawn < ow * oh / 8) { _scummverseVanSprite.clear(); return; } // Not the van after all.
++	_scummverseVanW = ow; _scummverseVanH = oh;
++	Common::DumpFile out;
++	if (out.open(scummverseVanFile(scummverseWorldCache()), true)) {
++		out.writeUint32BE(MKTAG('S', 'V', 'V', '1')); out.writeUint16LE(ow); out.writeUint16LE(oh);
++		out.write(_scummverseVanSprite.data(), _scummverseVanSprite.size()); out.finalize();
++	}
++}
++
++// Part of the background where it stands: drawn in every redrawn strip,
++// into both buffers, so people walk in front of it.
++void ScummEngine::scummverseDrawVan() {
++	int vx, vy, vw, vh;
++	if (!_scummverseRoaming || !scummverseVanRect(vx, vy, vw, vh) || _scummverseVanSprite.empty()) return;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const double sx = (double)_scummverseVanW / vw, sy = (double)_scummverseVanH / vh;
++	for (int x = 0; x < vw; ++x) {
++		const int screenX = vx + x - vs.xstart;
++		if (screenX < 0 || screenX >= _screenWidth || !testGfxUsageBit(_screenStartStrip + screenX / 8, USAGE_BIT_DIRTY)) continue;
++		const int px = MIN(_scummverseVanW - 1, (int)(x * sx));
++		for (int y = 0; y < vh; ++y) {
++			const int screenY = vy + y;
++			if (screenY < 0 || screenY >= vs.h) continue;
++			const byte c = _scummverseVanSprite[MIN(_scummverseVanH - 1, (int)(y * sy)) * _scummverseVanW + px];
++			if (c == 255) continue;
++			*(byte *)vs.getPixels(screenX, screenY) = c;
++			if (vs.hasTwoBuffers) *(byte *)vs.getBackPixels(screenX, screenY) = c;
++		}
++	}
++}
++
++// At its landing site the van is the original's: there, or the sand.
++void ScummEngine::scummverseApplyVanState() {
++	if (!_scummverseRoaming || _currentRoom != kVanLandingSite) return;
++	const bool here = scummverseVanSite() == 0;
++	for (int i = 0; i < 33; ++i) {
++		if (scummverseOriginalObject(_currentRoom, 732 + i) != kVanObject) continue;
++		const int state = getState(732 + i);
++		const int want = here ? state & ~(kObjectStateIntrinsic | kObjectStateUntouchable) : state | kObjectStateIntrinsic | kObjectStateUntouchable;
++		if (state != want) { putState(732 + i, want); updateObjectStates(); _fullRedraw = true; }
++	}
++}
++
++// Tapping the van where it stands: aboard, into the cockpit.
++bool ScummEngine::scummverseVanTap(int x, int y) {
++	int vx, vy, vw, vh;
++	if (!scummverseVanRect(vx, vy, vw, vh) || x < vx || x >= vx + vw || y < vy || y >= vy + vh) return false;
++	scummverseTravel(kVanCockpit - 50, kVanCockpitDoor);
++	return true;
++}
++
++// Interactions in and at the van; true when handled.
++bool ScummEngine::scummverseVanObject(int object, int verb) {
++	if (verb != 13 && verb != 11 && verb != 1) return false;
++	const int original = scummverseOriginalObject(_currentRoom, object);
++	const int ego = VAR(VAR_EGO);
++	if (_currentRoom == kVanLandingSite && (original == kVanObject || original == kVanDoor) && scummverseVanSite() != 0) {
++		scummverseSay(ego, "The van isn't parked here right now."); return true;
++	}
++	if (_currentRoom == kVanFlightRoom) {
++		if (original == kVanCockpitDoor) { scummverseSay(ego, "Not while we're flying! Choose Arrive to land."); return true; }
++		if (original == kVanControls) { scummverseSay(ego, "We're on autopilot. Choose Arrive to land."); return true; }
++		return false;
++	}
++	if (_currentRoom != kVanCockpit) return false;
++	if (original == kVanCockpitDoor) {
++		if (scummverseVanFlying()) { scummverseSay(ego, "We're about to lift off!"); return true; }
++		const int site = scummverseVanSite();
++		if (site == 0) return false; // The original door to the landing site.
++		scummverseVanStepOut(site);
++		return true;
++	}
++	if (original == kVanControls) {
++		if (scummverseVanFlying()) return true;
++		// Everyone in the cockpit flies along.
++		unsigned riders = 0;
++		for (int id : mansionCast) if (!scummverseRemoteActor(id) && derefActor(id, "van rider")->_room == kVanCockpit) riders |= 1u << id;
++		_scummVars[kVanRidersVar] = riders; _scummVars[kVanPhaseVar] = 1;
++		scummverseAnnounce("All systems go. Hold on to something!");
++		return true;
++	}
++	return false;
++}
++
++// Out of the cockpit at the van's site, beside it.
++void ScummEngine::scummverseVanStepOut(int site) {
++	const WorldVanSite &s = kWorldVanSites[site];
++	const int x = MAX(1, (_scummVars[kVanXVar] - 16) / 8), y = _scummVars[kVanYVar] / 2;
++	if (s.game >= 0) {
++		const int room = scummverseWorldRoomFor(s.game, s.room);
++		if (room) scummverseTravelWorld(room, x, y);
++	} else if (s.room <= 52) {
++		const int key = travellerReturnKey(VAR(VAR_EGO));
++		_scummVars[key] = s.room; _scummVars[key + 1] = x; _scummVars[key + 2] = y;
++		scummverseTravel(2);
++	} else scummverseTravel(s.room == 55 ? 5 : s.room == 54 ? 1 : s.room - 50, 0, x, y);
++}
++
++void ScummEngine::scummverseServiceVan(int delta) {
++	if (!_scummverseRoamingReady || !_scummVars || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) >= kScummverseManiacActors) return;
++	if (_currentRoom == kVanLandingSite) { scummverseCaptureVan(); scummverseApplyVanState(); }
++	const int previous = _scummVars[kVanPhaseVar];
++	if (!previous) return;
++	const unsigned riders = _scummVars[kVanRidersVar];
++	if (previous < kVanLiftoff) {
++		const int phase = _scummVars[kVanPhaseVar] = MIN(kVanLiftoff, previous + MIN(delta, 60));
++		// The countdown, the meters blinking.
++		static const char *const counts[] = {"Five...", "Four...", "Three...", "Two...", "One..."};
++		for (int n = 0; n < 5; ++n) if (previous < 60 * (n + 1) && phase >= 60 * (n + 1) && _currentRoom == kVanCockpit) scummverseAnnounce(counts[n]);
++		if (_currentRoom == kVanCockpit) for (int i = 0; i < 33; ++i) if (scummverseOriginalObject(_currentRoom, 732 + i) == kVanMeters) {
++			const int want = (phase / 15) % 2 ? kObjectStateIntrinsic : 0;
++			if ((getState(732 + i) & kObjectStateIntrinsic) != want) { putState(732 + i, (getState(732 + i) & ~kObjectStateIntrinsic) | want); updateObjectStates(); _fullRedraw = true; }
++		}
++		if (phase < kVanLiftoff) return;
++		// Liftoff: everyone aboard into the flight, the player looking out.
++		const bool fromMars = scummverseVanSite() == 0;
++		_scummVars[kVanSiteVar] = -1; _scummVars[kVanPhaseVar] = kVanFlying;
++		if (riders & (1u << VAR(VAR_EGO))) {
++			_scummverseLanding = true; scummverseTravel(kVanFlightRoom - 50); _scummverseLanding = false;
++		}
++		for (int id : mansionCast) if (riders & (1u << id)) {
++			Actor *a = derefActor(id, "van flyer"); a->stopActorMoving(); a->putActor(20, 60, kVanFlightRoom); a->hideActor();
++		}
++		scummverseAnnounce(fromMars ? "Liftoff! So long, Mars!" : "Liftoff!");
++		return;
++	}
++	// In flight: aboard is unseen, also after a load showed them.
++	if (_currentRoom == kVanFlightRoom)
++		for (int id : mansionCast) if (riders & (1u << id)) {
++			Actor *a = derefActor(id, "van unseen");
++			if (a->_room == _currentRoom && a->_visible) { a->stopActorMoving(); a->hideActor(); }
++		}
++}
++
++// Arrive: where to land.
++void ScummEngine::scummverseVanArrive() {
++	if (_currentRoom != kVanFlightRoom || _scummVars[kVanPhaseVar] < kVanLiftoff) return;
++#ifdef SCUMMVERSE_LOCAL_AI
++	::scummverseAirportOffer(((_currentRoom * 32 + VAR(VAR_EGO)) << 8) | (1 << 29));
++#else
++	GUI::ChooserDialog dialog(Common::U32String("Where should the van land?"));
++	Common::U32StringArray sites;
++	for (const auto &site : kWorldVanSites) sites.push_back(Common::U32String(site.label));
++	dialog.setList(sites);
++	const int choice = runDialog(dialog);
++	if (choice >= 0 && choice < kWorldVanSiteCount) scummverseVanLand(choice);
++#endif
++}
++
++// Down at a site: the van parks, everyone aboard steps out beside it.
++bool ScummEngine::scummverseVanLand(int site) {
++	if (site < 0 || site >= kWorldVanSiteCount || _scummVars[kVanPhaseVar] < kVanLiftoff) return false;
++	const WorldVanSite &s = kWorldVanSites[site];
++	const unsigned riders = _scummVars[kVanRidersVar];
++	const int ego = VAR(VAR_EGO);
++	Actor *player = derefActor(ego, "van pilot");
++	_scummverseLanding = true;
++	bool landed;
++	if (site == 0) {
++		_scummVars[kVanSiteVar] = 0; _scummVars[kVanPhaseVar] = 0;
++		landed = scummverseTravel(kVanLandingSite - 50, kVanDoor);
++	} else if (s.game >= 0) {
++		const int room = scummverseWorldRoomFor(s.game, s.room);
++		landed = room && scummverseTravelWorld(room);
++	} else if (s.room <= 52) {
++		const int key = travellerReturnKey(ego);
++		_scummVars[key] = s.room; _scummVars[key + 1] = 30; _scummVars[key + 2] = 60;
++		landed = scummverseTravel(2);
++	} else landed = scummverseTravel(s.room == 55 ? 5 : s.room - 50);
++	_scummverseLanding = false;
++	if (!landed) {
++		if (site == 0) { _scummVars[kVanSiteVar] = -1; _scummVars[kVanPhaseVar] = kVanFlying; }
++		scummverseSay(ego, "We can't land there. Let's pick another spot."); return false;
++	}
++	if (site) {
++		// Parked beside the player, on the side with more room, as tall as
++		// people standing there.
++		double scale = 1.0;
++		if (s.game >= 0) scale = kWorldGames[s.game].heroHeight * WorldBridge::sceneScale() * scummverseWorldDepth(player) / kVanKidHeight;
++		const int w = (int)((_scummverseVanW ? _scummverseVanW : kVanWidth) * scale), px = player->getRealPos().x * 8, py = player->getRealPos().y * 2;
++		int left = px * 2 > _roomWidth ? px - 12 - w : px + 12;
++		left = CLIP(left, 0, MAX(0, _roomWidth - w));
++		_scummVars[kVanSiteVar] = site; _scummVars[kVanPhaseVar] = 0;
++		_scummVars[kVanXVar] = left; _scummVars[kVanYVar] = py; _scummVars[kVanScaleVar] = (int)(scale * 100 + 0.5);
++	}
++	int k = 0;
++	for (int id : mansionCast) if ((riders & (1u << id)) && id != ego) {
++		Actor *a = derefActor(id, "van passenger");
++		const AdjustBoxResult at = a->adjustXYToBeInBox(player->getRealPos().x - 3 - 3 * (k++ % 4), player->getRealPos().y);
++		a->stopActorMoving(); a->putActor(at.x, at.y, _currentRoom); a->showActor(); a->startAnimActor(a->_standFrame);
++		_scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++	}
++	player->showActor();
++	_scummVars[kVanRidersVar] = 0;
++	_fullRedraw = true;
++	scummverseAnnounce("Touchdown!");
++	return true;
++}
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 71f57f37..57116763 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -160,7 +160,7 @@ bool ScummEngine::scummverseTravelPlace(int game, int source) {
+ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	if (!_scummverseRoamingReady || !_userPut || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+ 	if (_currentRoom == 56 && _scummVars[724]) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
+-	if (scummverseOnBus() || scummverseOnTram() || (scummverseOnDigTram() && !_scummverseLanding)) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
++	if (scummverseOnBus() || scummverseOnTram() || ((scummverseOnDigTram() || scummverseInVan()) && !_scummverseLanding)) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
+ 	if (!scummverseMountWorld(room)) { scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world visitor");
+ 	// Remember where the visit started so the menu can bring the player back.
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index c5321315..0e69ed93 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -387,6 +387,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
+ 	if((scummverseOnTram() || scummverseOnDigTram()) && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Let's wait until the tram stops."); return false; }
++	if(scummverseInVan() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We're in the van. Choose Arrive to land it."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+@@ -411,8 +412,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	}
+ 	if (const int slot = zakSceneSlotRoom(room)) {
+ 		const auto &data = _scummverseExtraRooms[slot-56];
+-		const auto *logical = zakLogicalRoom(room) ? zakSceneSetup(room) : nullptr;
+-		for (int i=0;i<data[20];++i) { putState(732+i,logical ? logical->objects[i].state : _scummverseExtraStates[slot-56][i]); _objectOwnerTable[732+i]=OF_OWNER_ROOM; }
++		for (int i=0;i<data[20];++i) { putState(732+i,scummverseSceneState(room,i)); _objectOwnerTable[732+i]=OF_OWNER_ROOM; }
+ 
+ 		x = room == 56 ? 45 : room==88 ? 114 : zakSceneSetup(room) ? zakSceneSetup(room)->cameraMin/8 : 20; y=60;
+ 	}
+@@ -490,6 +490,7 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	scummverseServiceBus(delta);
+ 	scummverseServiceTram(delta);
+ 	scummverseServiceDigTram(delta);
++	scummverseServiceVan(delta);
+ 	scummverseWorldDoors();
+ 	// Retry optional resources together, at most once per 600 timer units.
+ 	if (!_scummverseAirportMounted || !_scummverseStreetMounted || _scummverseZakCastCostumes[0].empty()) {
+@@ -973,9 +974,8 @@ void ScummEngine::scummverseRestoreSceneObjects() {
+  // with the same edition-specific setup used on normal entry, without touching
+  // other scenes sharing the source resource or actor positions.
+  const auto &room=_scummverseExtraRooms[slot-56];
+- const auto *logical=zakLogicalRoom(_currentRoom) ? zakSceneSetup(_currentRoom) : nullptr;
+  for(int i=0;i<room[20];++i) {
+-  putState(732+i,logical ? logical->objects[i].state : _scummverseExtraStates[slot-56][i]);
++  putState(732+i,scummverseSceneState(_currentRoom,i));
+   if(const auto *scene=zakSceneSetup(_currentRoom)) {
+    int n=getObjectIndex(732+i);
+    if(n<0) continue;
+@@ -987,6 +987,7 @@ void ScummEngine::scummverseRestoreSceneObjects() {
+   }
+  }
+  scummverseApplyTramState();
++ scummverseApplyVanState();
+  _fullRedraw=true;
+ }
+ 
+@@ -1253,6 +1254,18 @@ void ScummEngine::scummverseRestoreTemple() {
+  }
+ }
+ 
++// A scene's object state: an audited setup's, else the imported room's, with
++// a logical scene's own rules (the van's windshield in flight).
++int ScummEngine::scummverseSceneState(int room, int i) const {
++ const int slot=zakSceneSlotRoom(room);
++ if(!slot || i<0 || i>=33) return 0;
++ if(zakLogicalRoom(room)) if(const auto *scene=zakSceneSetup(room)) return scene->objects[i].state;
++ int state=_scummverseExtraStates[slot-56][i];
++ if(zakLogicalRoom(room)) for(const auto &rule : zakSceneObjectStates)
++  if(rule.room==room && rule.object==_scummverseOriginalObjects[slot-56][i]) state=(state|rule.setBits)&~rule.clearBits;
++ return state;
++}
++
+ // Original identity of an imported scratch object (732..764), or 0.
+ int ScummEngine::scummverseOriginalObject(int room, int object) const {
+  const int slot=zakSceneSlotRoom(room);
