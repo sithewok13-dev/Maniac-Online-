@@ -587,3 +587,25 @@ outline/glyph write is checked against the destination surface. Found by
 running the probes under the ASan build; 22 probes plus the scene audit are
 now ASan-clean. Speech capture unchanged. Device builds before 0054 could
 corrupt heap memory when such a message printed.
+
+## Patch 0055 — bus boarding wait; operational Mars tram
+
+User request (2026-10-17): the bus waits several seconds for others; the Mars
+tram works and waits the same way.
+- Bus: boards for kBusBoarding (300 timer units, ~5 s; was 60). Riders walk
+  to the door and step in; idle street characters may decide to ride; anyone
+  who reaches the stop during the wait rides. Requesting a bus that just left
+  says so. Scene schema 4 migrates saves made while the old bus drove.
+- Tram (original object 445, button 450, script 51): runs between the landing
+  site (185, sandbox 79) and the new logical scene 184 "Mars tram station"
+  (same resource 27, original setup). Countdown "Tram leaving in 5 seconds."
+  / "All aboard!", riders walk aboard, then a ride (kTramArrival) with riders
+  hidden and travel locked; arrival at the original (13,63). The button calls
+  it over empty. Mars NPCs ride and call it. Vars 797 phase, 798 riders,
+  799 station/empty-call. The ride scene (resource 26, costume 20) is not
+  imported: no free physical slot until the dynamic-slot work.
+- Original wiring corrected: landing-site door 449 → 181 (Mars door 463);
+  181 → landing site; Shuttle Bug door 452 → ship interior (81); pyramid door
+  456 is at 184 (was wired from 79). 181 is the hostel entrance, 180 the bunks.
+Probes: tools/test_tram.py (new), bus boarding wait + late rider, schema-4
+migration. 28/28 data tests pass.

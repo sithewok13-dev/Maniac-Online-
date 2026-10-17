@@ -131,19 +131,19 @@
 	for(int n=0;n<300;++n) scummverseServiceBus(4);
 	if(_scummVars[765] || _currentRoom!=55) error("Bus departed without request");
 	scummverseWaitBus();if(!_scummVars[765]) error("Bus ignored request");
-	for(int n=0;n<20;++n) scummverseServiceBus(4);
+	for(int n=0;n<kBusBoarding/4+5;++n) scummverseServiceBus(4);
 	if(derefActor(VAR(VAR_EGO),"boarded rider")->_visible) error("Passenger drawn outside moving bus");
-	for(int n=0;n<20;++n) scummverseServiceBus(4);
+	for(int n=0;n<40;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || _scummVars[765]) error("Bus did not deliver passenger");
 	// Switching to an NPC already aboard must follow its bus to the airport.
-	_scummVars[765]=70;_scummVars[766]=(1u<<18)|(1u<<19);_scummVars[767]=0;
+	_scummVars[765]=kBusBoarding+10;_scummVars[766]=(1u<<18)|(1u<<19);_scummVars[767]=0;
  for(int id : {18,19}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
 	if(!scummverseSwitchActor(18) || _currentRoom!=55 || _scummVars[767]!=18) error("Cannot take over bus passenger");
  for(int id : {18,19}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
  Common::String busSave; _saveLoadDescription="Moving bus visibility";
  if(!saveState(9,false,busSave) || !loadState(9,false)) error("Bus save/load failed");
  for(int id : {18,19}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
- if(_scummVars[765]!=70 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
+ if(_scummVars[765]!=kBusBoarding+10 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
 	scummverseServiceBus(60);scummverseServiceBus(60);
 	if(_currentRoom!=53) error("Passenger takeover lost bus arrival");
  for(int id : {18,19}) {
@@ -164,7 +164,7 @@
 		zakActor->putActor(20,60,64); startScene(64,zakActor,0); _scummVars[528]=1;
 		_saveLoadDescription="Retired room";
 		if(!saveState(9,false,filename)||!loadState(9,false)) error("Retired-room save failed");
-		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=3)
+		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=4)
 			error("Retired-room migration failed: view %d player %d occupant %d schema %d",_currentRoom,zakActor->_room,annie->_room,_scummVars[528]);
 	}
 	// Zak costume 27 is "The King" in the original; old saves carry the
@@ -173,5 +173,12 @@
 	memcpy(_res->createResource(rtActorName,17,12),"Alien pilot",12); _scummVars[528]=2;
 	_saveLoadDescription="Legacy King name";
 	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy-name save failed");
-	if(strcmp((const char *)getObjOrActorName(17),"The King") || _scummVars[528]!=3) error("Legacy actor name not migrated");
+	if(strcmp((const char *)getObjOrActorName(17),"The King") || _scummVars[528]<3) error("Legacy actor name not migrated");
+	// Scene schema 4: a pre-0055 save made while the bus drove (old phases
+	// 61..149) keeps driving from the same point under the longer boarding.
+	_scummVars[765]=100; _scummVars[766]=0; _scummVars[767]=0; _scummVars[528]=3;
+	_saveLoadDescription="Legacy bus phase";
+	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy bus save failed");
+	if(_scummVars[765]!=100+kBusBoarding-60 || _scummVars[528]!=4) error("Legacy bus phase not migrated: %d schema %d",_scummVars[765],_scummVars[528]);
+	_scummVars[765]=0;
 	warning("SCUMMVERSE_EXPANSION_PASS enabled=1");quitGame();

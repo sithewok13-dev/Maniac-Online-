@@ -56,7 +56,7 @@
 	runObjectScript(655,13,false,false,nullptr);
 	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
 	player->putActor(92,59,55); _scummverseBusClock=156;
-	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
+	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53) error("Free bus did not reach airport");
 	scummverseWorldRequest(((53*32+5)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53) error("Stale passenger selection moved another kid");

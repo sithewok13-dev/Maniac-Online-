@@ -382,3 +382,9 @@
   (the 0049 overflow was found this way). test_exploration, test_safety,
   test_roaming and test_ai_encounters have no --build option (not ASan-run).
 - 27/27 data tests pass on the normal build.
+
+## Patch 0055
+
+- 28/28 data tests pass (adds test_tram). Bus probe covers the boarding wait,
+  walking aboard and a late rider; expansion covers schema-4 bus migration.
+- Not device-tested.

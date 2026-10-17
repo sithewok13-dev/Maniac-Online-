@@ -104,6 +104,6 @@
 	if(_currentRoom!=55 || _scummVars[765]) error("Sleeping bus left without request");
 	scummverseWaitBus(); scummverseServiceBus(4);
 	if(_currentRoom!=55) error("Bus skipped boarding");
-	for(int n=0;n<40;++n) scummverseServiceBus(4);
+	for(int n=0;n<120;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || zak->_room!=53) error("Requested bus failed");
 	warning("SCUMMVERSE_FLIGHTS_PASS enabled=1"); quitGame();

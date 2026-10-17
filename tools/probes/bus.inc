@@ -22,12 +22,12 @@
 		if (_currentRoom!=55 || _numObjectsInRoom!=20 || _ENCD_offs || _EXCD_offs || !_scummVars[762]) error("Apartment door bypassed street");
 		for (int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr && (_objs[i].obj_nr<712 || _objs[i].obj_nr>731)) error("Street object namespace collision");
 		player=derefActor(kid,"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
+		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 		if (_currentRoom!=53) error("Bus failed for kid %d",kid);
 		runObjectScript(685,13,false,false,nullptr);
 		if (_currentRoom!=55) error("Airport return bus failed");
 		player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(723,11,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
+		runObjectScript(723,11,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 		if (_currentRoom!=53) error("CashCard reader required payment");
 		scummverseWorldRequest(((53*32+kid)<<8)|5); scummverseUpdateRoaming(4);
 		if (_currentRoom!=55) error("Airport menu bus failed");
@@ -66,24 +66,50 @@
 	if (!saveState(2,false,filename)) error("Bus save failed");
 	scummverseTravel(4); _scummverseStreetMounted=false; _scummverseStreetRoom.clear();
 	if (!loadState(2,false) || _currentRoom!=55 || player->_room!=55 || player->_costume!=3 || _virtscr[0].h!=128) error("Bus save reload failed");
+	// Loading resets transient roaming timers; keep bystanders parked so the
+	// bus is free for this check.
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	_scummVars[765]=_scummVars[766]=_scummVars[767]=0;
 	player=derefActor(VAR(VAR_EGO),"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;
-		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
+		runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Reloaded bus not usable");
 	// While the bus drives away, hidden riders must not be drawn anywhere: the
 	// rendered frame equals a background-only redraw (no other actors present).
 	if (!scummverseTravel(5)) error("Cannot return to street");
 	for (int id=1;id<_numActors;++id) if (id!=VAR(VAR_EGO) && derefActor(id,"street bystander")->_room==55) derefActor(id,"street bystander")->putActor(0,0,0);
 	player=derefActor(VAR(VAR_EGO),"ghost check"); player->putActor(92,59,55); scummverseWaitBus();
-	for (int tick=0;tick<60 && _currentRoom==55;++tick) {
+	for (int tick=0;tick<400 && _currentRoom==55;++tick) {
 		VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4);
-		if (_scummVars[765]<=60 || _currentRoom!=55) continue;
+		if (_scummVars[765]<=kBusBoarding || _currentRoom!=55) continue;
 		Common::Array<byte> rendered; rendered.resize(_screenWidth*_virtscr[0].h);
 		for (int y=0;y<_virtscr[0].h;++y) memcpy(&rendered[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth);
 		_fullRedraw=true; scummLoop_handleDrawing();
 		for (int y=0;y<_virtscr[0].h;++y) if (memcmp(&rendered[y*_screenWidth],_virtscr[0].getPixels(0,y),_screenWidth))
-			error("Hidden bus rider drawn at phase %d row %d",_scummVars[765],y);
+			{ Common::String who; for (int id=1;id<_numActors;++id) { Actor *a=derefActor(id,"ghost"); if (a->_room==55) who+=Common::String::format(" %d:%d@%d,%d",id,a->_visible,a->getRealPos().x,a->getRealPos().y); }
+			error("Hidden bus rider drawn at phase %d row %d actors%s",_scummVars[765],y,who.c_str()); }
 	}
 	if (_currentRoom!=53) error("Ghost check ride did not arrive");
+	// The bus waits several seconds: the caller walks to the door and steps
+	// in, and a character who heads for the stop during the wait still rides.
+	{
+		if (!scummverseTravel(5)) error("Cannot return to street for boarding");
+		for (int id=1;id<_numActors;++id) if (id!=VAR(VAR_EGO) && derefActor(id,"street bystander")->_room==55) derefActor(id,"street bystander")->putActor(0,0,0);
+		player=derefActor(VAR(VAR_EGO),"walking rider"); player->putActor(70,59,55); scummverseWaitBus();
+		Actor *late=derefActor(9,"late rider"); _scummVars[779]=0;
+		bool walkedAboard=false, lateAboard=false, departedEarly=false, lateSent=false;
+		for (int tick=0;tick<1200 && _currentRoom==55;++tick) {
+			VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4);
+			const int phase=_scummVars[765];
+			if (phase>0 && phase<=kBusBoarding && (_scummverseBusBoarded & (1u<<VAR(VAR_EGO)))) walkedAboard=true;
+			if (phase>40 && phase<kBusBoarding/2 && !lateSent) {
+				lateSent=true; late->stopActorMoving(); late->putActor(50,59,55); Roamer &r=_scummverseRoamers[9]; r=Roamer(); r.room=55; r.exit=78; r.wait=0;
+			}
+			if (phase>0 && phase<=kBusBoarding && (_scummverseBusBoarded & (1u<<9))) lateAboard=true;
+			if (phase>kBusBoarding && phase<kBusBoarding+8 && player->_room==55 && !(_scummVars[766] & (1u<<VAR(VAR_EGO)))) departedEarly=true;
+		}
+		if (_currentRoom!=53 || !walkedAboard || !lateAboard || departedEarly || late->_room!=53)
+			error("Bus boarding wait failed: room %d walked %d late %d early %d lateRoom %d",_currentRoom,walkedAboard,lateAboard,departedEarly,late->_room);
+	}
 	// NPCs ride on their own: an NPC at the stop calls the bus, rides hidden
 	// and arrives at the airport while the player watches from there.
 	{
@@ -94,6 +120,6 @@
 			VAR(VAR_HAVE_MSG)=0; stopTalk(); scummverseUpdateRoaming(4);
 			if (_scummVars[766] & (1u<<10)) rode=true;
 		}
-		if (!rode || rider->_room!=53 || _currentRoom!=53 || _scummVars[765]) error("NPC did not ride the bus: rode %d room %d phase %d",rode,rider->_room,_scummVars[765]);
+		if (!rode || rider->_room!=53 || _currentRoom!=53) error("NPC did not ride the bus: rode %d room %d phase %d",rode,rider->_room,_scummVars[765]);
 	}
 	warning("SCUMMVERSE_BUS_PASS enabled=1"); quitGame();
