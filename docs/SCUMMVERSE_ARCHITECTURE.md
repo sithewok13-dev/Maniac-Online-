@@ -189,7 +189,7 @@ peers to cast members and validates rooms against this build
 deterministic systems validate: remote input never reaches the conversation
 model and never controls the local player's character.
 
-## Other worlds (patches 0057..0067)
+## Other worlds (patches 0057..0069)
 
 Scenes and characters from other SCUMM games are never shipped: the player's
 own copy is run once in export mode, and its own engine renders a private
@@ -236,4 +236,11 @@ marked `switched` is offered only where that object is shown. The exporter
 counts started exports in `<game>-v<N>.try` and writes `.svx` when one
 finishes; after `kWorldExportAttempts` (2) unfinished ones the game is
 skipped at start rather than crashing every launch.
+Playing someone from another game (0069): a sandbox character (1..24) has an
+optional saved appearance (a cast member's key). The engine mounts, whenever
+the set changes, the frames everyone in the viewed room needs (the scene's
+guests at the scene's scale, appearances at a person's height there) into
+the shared character slots 192..255, draws them through the same actor hook,
+and overrides only the name lookup; inventory, verbs, travel and saves stay
+the sandbox character's.
 v7/v8 editions are compiled in solely so the player's copies can be exported.

@@ -64,7 +64,9 @@ def main():
         crowd = {}
         chosen = []
         for c in sorted(cast, key=lambda c: RANK.get(c.get('confidence'), 3)):
-            if UNUSABLE.search(c.get('note') or '') or not c.get('lines') or len(c['lines']) < 3:
+            # Only the main sprite's description counts, not its listed
+            # variants ("53 = lying down" is another costume).
+            if UNUSABLE.search(re.split(r'\b\d+\s*=\s', c.get('note') or '')[0]) or not c.get('lines') or len(c['lines']) < 3:
                 continue
             if (game, c.get('costume')) in SPECKS:
                 continue

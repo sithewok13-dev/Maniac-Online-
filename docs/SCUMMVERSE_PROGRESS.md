@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0068 (Zak: the Sphinx maze and both pyramid corridors).
+Active milestone: Phase 1; latest patch 0069 (play as anyone from the other worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1053,4 +1053,50 @@ the Mars pyramid door skipped straight to an invented crystal-room link.
   and the jungle's random walk are not modelled; passages are shown open
   rather than opened by their puzzles, and the Mars pyramid door leads in
   while still drawn closed.
+
+## Patch 0069 — play as anyone from the other worlds
+
+User request (2026-10-17): more playable characters, especially the main
+ones: Indy, the Grail Knight, Biff, Guybrush, Meathook, LeChuck, Stan,
+Bobbin, Sam and Max, the Bigfoots, Conroy Bumpus and his henchman, the
+Voodoo Lady, "and more than those".
+- The character you control can play any cast member of the installed
+  games (Worlds menu, "Play as someone from another world", then a game,
+  then who; "Be yourself again" undoes it). Switch characters to play
+  several at once. The choice is saved per character (variables 641..664:
+  appearance key game * 1024 + costume + 1, stable across cast
+  regeneration).
+- They are drawn from that game's exported frames in every room, as tall
+  as a person there: a Maniac teenager (72 V1 pixels) in the mansion and
+  Zak's places, the scene's lead character in other worlds (times depth).
+  Their name replaces the character's (Actor::getActorName), the roster
+  shows their portrait (front standing frame), and chat names and plays
+  them (scummverseTalkAppearance). A scene's own copy of that character
+  steps aside while someone plays them.
+- Portable: fitSprites takes one scale per character; the bridge keeps
+  mounted characters independently of scenes (mountCharacters; guests are
+  that with the scene's scale) and renders sprite portraits.
+- Cast: Henry Jones joins (264 characters). The cast generator had read
+  "lying down" in the description of one of his variant costumes as his
+  own pose; only the main sprite's description is checked now.
+  kWorldExportVersion is 7 so installed games export once more.
+- Not included: Last Crusade's Biff is a castle guard in a Nazi uniform,
+  which this project leaves out; Fate of Atlantis's Biff (the Barnett
+  student) is in. The Grail Knight, Guybrush, Meathook, LeChuck, Stan,
+  Bobbin, Sam, Max, three Bigfoots, Conroy Bumpus, Lee-Harvey and the
+  Voodoo Lady are all playable, among 264.
+- Verified (Linux, the user's private copies): tools/test_world.cpp (own
+  scales, characters without a scene, portraits); new
+  tools/test_appearance.py (also ASan): Dave plays Indiana Jones and
+  Bernard Guybrush through the menu request: name, chat identity, saved
+  key, roster portrait, frames beside a scene's characters, drawn height in the mansion
+  (72), in Last Crusade (45 of 45 expected) and at the SCUMM Bar (35 of
+  34), Barnett's own Indy stepping aside and back, save/load, refusal of
+  an unknown character, and Dave again; test_talk_runtime (names and
+  personalities in chat); test_world_visit draws all 264 characters;
+  original-data suite 31/31; screenshots compared by eye. The iOS
+  menu is compiled only by Apple CI; nothing is device-tested.
+- Not done: a played character keeps the sandbox character's inventory,
+  verbs and travel; WiFi partners see the original character; the
+  character has no voice of their own in classic (offline) lines.
 

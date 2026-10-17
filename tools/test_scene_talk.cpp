@@ -84,6 +84,14 @@ int main() {
  r.scene(16009,3,(1u<<25),true,speaker,text,sizeof(text)); assert(std::string(actorName(25))==worldGuestAt(16009,0)->name);
  assert(std::string(actorName(15))=="visitor"); // The resident actor stays with Zak's residents.
  r.scene(10999,3,0,true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="visitor");
+ // A sandbox character playing someone from another game chats as them.
+ using Scummverse::WorldCatalog::worldAppearanceKey; using Scummverse::WorldCatalog::worldAppearance;
+ const int indy=worldAppearanceKey(3,2);
+ scummverseTalkAppearance(3,indy);
+ assert(std::string(actorName(3))=="Indiana Jones" && std::string(personality(3))==worldAppearance(indy)->personality);
+ scummverseTalkAppearance(3,worldAppearanceKey(3,999)); assert(std::string(actorName(3))=="Dave"); // Unknown: himself.
+ scummverseTalkAppearance(3,0); assert(std::string(actorName(3))=="Dave");
+ scummverseTalkAppearance(30,indy); scummverseTalkAppearance(-1,indy); // Out of range: ignored.
  std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }

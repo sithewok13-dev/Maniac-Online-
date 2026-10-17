@@ -3,6 +3,7 @@
 //   tools/test_world.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_world.h"
 #include "common/scummverse_world_catalog.h"
+#include "common/scummverse_world_engine.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -105,7 +106,41 @@ static void testSprites() {
 	assert(fitSprites({src, second}, 1.0, 250, 4, both, error) && both[0].slotCount == 4);
 	for (const auto &sprite : both) for (const auto &f : sprite.frames) for (uint8_t p : f.pixels) assert(p == 0 || (p >= 250 && p < 254));
 	assert(!fitSprites({}, 1.0, 192, 64, both, error));
-	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette)\n");
+	// One scale per character (a player's chosen character from another game
+	// beside a scene's own): each frame scales on its own, colors still shared.
+	assert(fitSprites({src, second}, std::vector<double>{1.0, 2.0}, 192, 64, both, error));
+	assert(both[0].frames[0].height == 40 && both[1].frames[0].height == 40 && both[1].frames[0].dy == -40);
+	assert(both[0].palette == both[1].palette);
+	assert(!fitSprites({src, second}, std::vector<double>{1.0}, 192, 64, both, error));
+	assert(!fitSprites({src, second}, std::vector<double>{1.0, 0.0}, 192, 64, both, error));
+	// The bridge keeps characters without any scene (Maniac and Zak rooms);
+	// guests need a scene to scale with.
+	{
+		const unsigned char *data[2] = {bytes.data(), other.data()};
+		const size_t sizes[2] = {bytes.size(), other.size()};
+		const double scales[2] = {1.5, 1.0};
+		char problem[64];
+		assert(!Scummverse::WorldBridge::mountGuests(data, sizes, 2, 192, 64, problem, sizeof(problem)));
+		assert(!Scummverse::WorldBridge::mountCharacters(data, sizes, scales, 0, 192, 64, problem, sizeof(problem)));
+		assert(Scummverse::WorldBridge::mountCharacters(data, sizes, scales, 2, 192, 64, problem, sizeof(problem)));
+		int dx, dy, w, h;
+		assert(Scummverse::WorldBridge::guestCount() == 2 && Scummverse::WorldBridge::guestFrame(0, kGuestFront, kGuestStand, 0, dx, dy, w, h) && h == 60);
+		assert(Scummverse::WorldBridge::guestFrame(1, kGuestFront, kGuestStand, 0, dx, dy, w, h) && h == 20);
+		Scummverse::WorldBridge::unmountGuests();
+		assert(Scummverse::WorldBridge::guestCount() == 0);
+		// Portrait: the front standing frame (20x40) fills the height of a 64
+		// square less the margins, stands on the bottom, keeps its colors.
+		std::vector<unsigned char> face(64 * 64 * 4, 7);
+		assert(Scummverse::WorldBridge::spritePortrait(bytes.data(), bytes.size(), 64, face.data()));
+		int top = 64, bottom = -1, left = 64, right = -1;
+		for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x) if (face[(y * 64 + x) * 4 + 3]) {
+			top = std::min(top, y); bottom = std::max(bottom, y); left = std::min(left, x); right = std::max(right, x);
+		}
+		assert(bottom == 61 && bottom - top + 1 >= 58 && right - left + 1 >= 28 && right - left + 1 <= 31);
+		assert(face[0] == 0 && face[3] == 0); // Cleared outside the character.
+		assert(!Scummverse::WorldBridge::spritePortrait(bytes.data(), 10, 64, face.data()));
+	}
+	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette, own scales, without a scene)\n");
 }
 
 // Places: keys round-trip and landmarks are found by game and room. The

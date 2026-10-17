@@ -31,6 +31,8 @@ void scummverseWorldRequest(int destination) { FakeAI::worldRequest=destination;
 int scummverseWorldPoll() { int request=FakeAI::worldRequest; FakeAI::worldRequest=0; return request; }
 void scummverseWorldReport(const char *) {}
 void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
+namespace FakeAI { int appearance[25] = {}; }
+void scummverseTalkAppearance(int actor, int key) { if (actor > 0 && actor < 25) FakeAI::appearance[actor] = key; }
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
 '''
 
