@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0070 (crystal teleport pads reach other worlds).
+Active milestone: Phase 1; latest patch 0071 (crystal teleport pads reach other worlds; iOS compile fix).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1111,5 +1111,6 @@ paged four at a time. Choosing one sends the existing place request
 (scummverseTravelPlace), the same path as the Visit other worlds menu; Zak
 sites keep their scene-bound commands 50..54. Compiled only by Apple CI
 (iOS UI); the engine path is covered by the existing other-world probes.
-Not device-tested.
+Not device-tested. Patch 0071: the 0070 IPA failed to compile (the pad
+type was declared after the view interface that used it); fixed.
 
