@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0073 (Zak's San Francisco on foot: 14th Avenue).
+Active milestone: Phase 1; latest patch 0074 (The Dig's light bridges all switched on).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1182,3 +1182,35 @@ and Annie's place are; it could not be reached on foot.
   (twelve passages, 52 routes), chamber, expansion, airport, bus and cast
   probes updated (the bus probe now parks bystanders in their own rooms);
   original-data suite 32/32; startup test. Not device-tested.
+
+## Patch 0074 — The Dig's light bridges all switched on
+
+User request (2026-10-17): every light bridge on, so players reach every
+spire.
+- Original logic (The Dig's scripts, private research): a bridge is on when
+  its beam object (252, 367, 394, 427, 511) lacks class 32; var 430 counts
+  them. Each spire (31, 49, 56, 61, 75), the island map (77) and the hub
+  (91) runs its own room script that draws its bridges as actors (light
+  streams) and opens their walk boxes. The door map already had every
+  bridge door; nothing drew them, and the tomb spire's bridge boxes were
+  closed (the exporter never ran v7 room scripts).
+- The catalog's exploration presets: classes switched off and variables set
+  before a game's rooms are exported, room scripts run for the named rooms
+  (whose actors stay for the capture), and the tints the two sunset spires'
+  entry scripts give the bridges' colors. A light bridge is a stream of
+  pulses, so the still keeps every pixel of one animation cycle. Walk boxes
+  are written as the scripts leave them (tomb spire 56 boxes 8/9 open; the
+  lab cliff's "off" stub 17 closed). Other games' exports are unchanged;
+  kWorldExportVersion is 9 (every game exports again once).
+- Doors: a door under a tap now beats one only within the 4-pixel slack
+  (the island map's tap on the map spire went to the hub).
+- Verified (Linux, the user's private copies): tools/test_dig_bridges.py
+  exports The Dig with the real binary and checks bridge pixels in all seven
+  rooms, the walk boxes and door-map reachability between every spire and
+  the hub; renders of 31/49/56/61/75/77/91 compared by eye; all ten games
+  re-exported (635 scenes); test_world_visit (1608 doors; the island map's
+  door to the map spire now works; Dig's remaining failures are five
+  on-foot doors in rooms 30/34/38/41, unrelated to the bridges);
+  tools/test_world.cpp preset checks; original-data suite 33/33.
+  Not device-tested.
+

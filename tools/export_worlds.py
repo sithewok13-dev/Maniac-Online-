@@ -59,7 +59,7 @@ def main():
         for name in exported + guests + markers:
             shutil.copy2(docs/'worlds'/name, a.out/name)
         for line in log.splitlines():
-            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'world export' in line:
+            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'SCUMMVERSE_WORLD_PRESET' in line or 'world export' in line:
                 print(line.strip())
         print(f'{len(exported)} scenes, {len(guests)} characters exported to {a.out} in {time.time() - started:.0f}s')
         return 0 if exported else 1

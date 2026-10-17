@@ -239,8 +239,12 @@ Script-built rooms: a v3/v4 pseudo room is exported by mapping it to its
 template (the boot script, which normally does this, is skipped) and running
 the room's entry script for a few cycles; one-color v3/v4 renders are retried
 that way. Scenes are "SVW4" (object states after those scripts); a door link
-marked `switched` is offered only where that object is shown. The exporter
-counts started exports in `<game>-v<N>.try` and writes `.svx` when one
+marked `switched` is offered only where that object is shown. Exploration
+presets (0074, catalog: classes switched off, variables, room scripts and
+their tints) put a game in an explored state before its rooms are drawn;
+named room scripts run with their actors kept for the capture, accumulated
+over one animation cycle (The Dig's light bridges and their walk boxes).
+The exporter counts started exports in `<game>-v<N>.try` and writes `.svx` when one
 finishes; after `kWorldExportAttempts` (2) unfinished ones the game is
 skipped at start rather than crashing every launch.
 Playing someone from another game (0069): a sandbox character (1..24) has an

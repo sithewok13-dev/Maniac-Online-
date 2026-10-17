@@ -179,7 +179,14 @@ static void testCatalog() {
 	}
 	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
 	assert(worldHovers(9, 49) && !worldHovers(0, 49));
-	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating\n", scenes, guests);
+	// Exploration presets: their rooms are visitable; tints apply to rooms
+	// whose scripts run; switched objects and variables are the game's own.
+	for (const auto &p : kWorldPresetScripts) assert(worldRoomKind(p.game, p.room) >= 0 && p.script >= 2000 && worldPresetRoom(p.game, p.room));
+	for (const auto &t : kWorldPresetTints) assert(worldPresetRoom(t.game, t.room) && t.start <= t.end && t.end <= 255);
+	for (const auto &c : kWorldPresetClassesOff) assert(c.game < worldGameCount() && c.cls >= 1 && c.cls <= 32);
+	for (const auto &v : kWorldPresetVars) assert(v.game < worldGameCount() && v.var > 0);
+	assert(worldPresetRoom(8, 77) && worldPresetRoom(8, 91) && !worldPresetRoom(8, 2) && !worldPresetRoom(0, 31));
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets\n", scenes, guests);
 }
 
 // Door maps: doors join visitable rooms; every visitable room is reached

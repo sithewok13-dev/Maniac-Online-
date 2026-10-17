@@ -20,7 +20,7 @@ SANDBOX = ['test_exploration', 'test_safety', 'test_roaming', 'test_ai_encounter
            'test_airport', 'test_bus', 'test_flights', 'test_flight_join', 'test_companions',
            'test_companion_presence', 'test_seating', 'test_zak_paths', 'test_zak_cast',
            'test_portraits', 'test_walkboxes', 'test_perspective', 'test_chamber', 'test_temple',
-           'test_mars', 'test_maze', 'test_san_francisco', 'test_appearance', 'test_expansion', 'test_net_engine', 'test_tram', 'test_world_visit']
+           'test_mars', 'test_maze', 'test_san_francisco', 'test_dig_bridges', 'test_appearance', 'test_expansion', 'test_net_engine', 'test_tram', 'test_world_visit']
 
 
 def main():
