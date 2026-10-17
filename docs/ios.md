@@ -57,9 +57,12 @@ Generation on Linux verifies the generator and project structure only, not the
 Apple toolchain, SDK, linking, signing, or app runtime.
 
 The fork changes both `dists/ios7/Info.plist` and its `.in` template to display
-SCUMMVERSE and declare landscape orientations. It uses existing backend settings
-`orientation_games=landscape`, `orientation_menus=landscape`,
-`touch_mode_2d_games=direct`, and `filtering=false`.
+SCUMMVERSE and declare portrait and landscape orientations. It uses existing
+backend settings `orientation_games=auto`, `orientation_menus=auto` (the app
+follows the phone's rotation), `touch_mode_2d_games=direct`, and
+`filtering=false`. Hold the phone upright (rotation lock may stay on) for the
+picture on top and the conversation below; turn it sideways to play full width,
+with the conversation beside the picture while it is open.
 
 ## Supply the authentic original DOS V1 data
 

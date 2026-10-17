@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0063 (build shown in the app; 0062: whole-game other worlds).
+Active milestone: Phase 1; latest patch 0064 (portrait play: picture on top, chat below).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -848,4 +848,20 @@ not established.
 - docs/ios.md (the IPA's INSTALL.md) says how to check the build and what to
   do when an older one still opens. Compiled only by Apple CI; not
   device-tested.
+
+## Patch 0064 — portrait play
+
+User request (2026-10-17): play in portrait with the graphics on top and the
+chat on the bottom half. The portrait layouts (contract v2, and v3's split
+from 0056) existed but never showed on a phone: patch 0001 set
+`orientation_games` and `orientation_menus` to landscape for every session,
+so the app never rotated. Both are now `auto` (the app follows the phone).
+Starting a game in portrait no longer opens ScummVM's game keyboard (rotation
+already skipped it under SCUMMVERSE): the bottom of the screen is the
+conversation with its own message field. In portrait the picture is
+aspect-fit at the top, the button row below it, and the conversation fills
+the rest (exactly half while a conversation is open, above the keyboard
+while typing). tools/test_mobile_layout.cpp covers the layout contract;
+rotation, the keyboard, safe areas and touch mapping in portrait are
+compiled only by Apple CI and not device-tested.
 
