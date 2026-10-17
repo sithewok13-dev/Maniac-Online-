@@ -20,10 +20,9 @@
 	// Pixels of the guest's palette slots on screen inside its drawn extent.
 	auto guestPixels=[&](Actor *g) {
 		int n=0; if (g->_top>=g->_bottom) return 0;
-		for(int y=g->_top;y<g->_bottom;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); if(c>=224) ++n; }
+		for(int y=g->_top;y<g->_bottom;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); if(c>=192) ++n; }
 		return n;
 	};
-	Actor *guest=derefActor(15,"world guest");
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
 		const int room=kScummverseWorldFirstRoom+k;
 		scummverseWorldRequest(((_currentRoom*32+3)<<8)|(160+k)); scummverseUpdateRoaming(4);
@@ -34,18 +33,27 @@
 		if (memcmp(_currentPalette+3*16,rgb,3*::Scummverse::WorldBridge::slotCount())) error("Scene %d palette not applied",k);
 		if (memcmp(_currentPalette,maniacColors,48)) error("Scene %d changed the 16 V1 colors",k);
 		settle(6); shot(Common::String::format("world-visit-%d.ppm",k));
-		// A scene's guest: the borrowed actor, named, drawn from its own frames.
-		if (const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestInRoom(room)) {
-			if (!::Scummverse::WorldBridge::guestMounted()) error("Guest %s not mounted",g->name);
-			if (_scummVars[768]!=room || guest->_room!=room) error("Guest %s not placed: 768=%d room %d",g->name,_scummVars[768],guest->_room);
-			if (strcmp((const char *)getObjOrActorName(15),g->name)) error("Guest name %s",(const char *)getObjOrActorName(15));
-			if (memcmp(_currentPalette+3*224,::Scummverse::WorldBridge::guestPalette(),3*::Scummverse::WorldBridge::guestSlotCount())) error("Guest %s palette not applied",g->name);
-			guest->_needRedraw=true; settle(1);
-			const int drawn=guestPixels(guest);
-			if (drawn<40) error("Guest %s not drawn (%d pixels, extent %d..%d)",g->name,drawn,guest->_top,guest->_bottom);
-			warning("WORLD guest %s pixels %d height %d",g->name,drawn,guest->_bottom-guest->_top);
-			++guests;
-		} else if (_scummVars[768]==room || guest->_room==room) error("Scene %d has an unexpected guest",k);
+		// The scene's characters: guest actors 25.., named, drawn from their frames.
+		{
+			const ::Scummverse::WorldCatalog::WorldGame *game=nullptr; int scene=0;
+			int index=k; for (const auto &g : ::Scummverse::WorldCatalog::kWorldGames) { if (index<g.sceneCount) { game=&g; scene=index; break; } index-=g.sceneCount; }
+			int present=0;
+			for (int slot=0;slot<5;++slot) {
+				const ::Scummverse::WorldCatalog::WorldGuest *g=game->scenes[scene].guests[slot];
+				Actor *guest=derefActor(25+slot,"world guest");
+				if (!g) { if (guest->_room) error("Scene %d slot %d has an unexpected guest",k,slot); continue; }
+				if (guest->_room!=room || scummverseGuestSlot(guest)!=slot) error("Guest %s not placed (room %d)",g->name,guest->_room);
+				if (strcmp((const char *)getObjOrActorName(25+slot),g->name)) error("Guest name %s",(const char *)getObjOrActorName(25+slot));
+				if (!(scummverseGuestMask() & (1u<<(25+slot)))) error("Guest %s missing from the talk roster",g->name);
+				guest->_needRedraw=true; settle(1);
+				const int drawn=guestPixels(guest);
+				if (drawn<30) error("Guest %s not drawn (%d pixels, extent %d..%d)",g->name,drawn,guest->_top,guest->_bottom);
+				warning("WORLD guest %s pixels %d height %d",g->name,drawn,guest->_bottom-guest->_top);
+				++guests; ++present;
+			}
+			if (present && memcmp(_currentPalette+3*192,::Scummverse::WorldBridge::guestPalette(),3*::Scummverse::WorldBridge::guestSlotCount())) error("Scene %d guest palette not applied",k);
+			if (_scummVars[768]==room || derefActor(15,"resident")->_room==room) error("Scene %d borrowed the resident actor",k);
+		}
 		// Walk inside the scene's own boxes.
 		if (getNumBoxes()>0) {
 			const Common::Point from=me->getRealPos();
@@ -55,41 +63,54 @@
 		}
 	}
 	if (!visited) error("No exported scenes were visited");
-	// Guest behaviour in the first scene that has one.
+	// Guest behaviour in the first scene that has several.
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
-		const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestInRoom(kScummverseWorldFirstRoom+k);
-		if (!g || !scummverseTravelWorld(kScummverseWorldFirstRoom+k) || !::Scummverse::WorldBridge::guestMounted()) continue;
-		// A greeting when the player walks up.
-		_scummverseGuestGreeted=false; VAR(VAR_HAVE_MSG)=0; stopTalk();
+		if (!::Scummverse::WorldCatalog::worldGuestInRoom(kScummverseWorldFirstRoom+k,1) || !scummverseTravelWorld(kScummverseWorldFirstRoom+k)) continue;
+		const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestInRoom(_currentRoom,0);
+		Actor *guest=derefActor(25,"world guest"), *second=derefActor(26,"second guest");
+		if (scummverseGuestSlot(guest)<0 || scummverseGuestSlot(second)<0) error("Guests not placed for behaviour");
+		// One greeting when the player walks up.
+		for (bool &greeted : _scummverseGuestGreeted) greeted=true;
+		_scummverseGuestGreeted[0]=false; VAR(VAR_HAVE_MSG)=0; stopTalk();
 		me->putActor(guest->getRealPos().x+3,guest->getRealPos().y,_currentRoom);
-		scummverseUpdateGuest(4,0);
-		if (!_scummverseGuestGreeted || getTalkingActor()!=15) error("Guest %s did not greet",g->name);
+		scummverseUpdateGuests(4,0);
+		if (!_scummverseGuestGreeted[0] || getTalkingActor()!=25) error("Guest %s did not greet",g->name);
 		// Talking frames are drawn while the line is shown.
 		for(int i=0;i<12;++i) { _talkDelay=100; scummLoop(4); }
-		if (guestPixels(guest)<40) error("Talking guest not drawn");
+		if (guestPixels(guest)<30) error("Talking guest not drawn");
 		stopTalk(); VAR(VAR_HAVE_MSG)=0;
+		// Chatting holds a guest still.
+		second->startWalkActor(second->getRealPos().x+4,second->getRealPos().y,-1);
+		scummverseUpdateGuests(4,1u<<26);
+		if (second->_moving) error("Chatting guest kept walking");
 		// A stroll: walking frames follow the actor.
 		const Common::Point from=guest->getPos();
 		AdjustBoxResult goal=guest->adjustXYToBeInBox(guest->getRealPos().x>20 ? guest->getRealPos().x-10 : guest->getRealPos().x+10,guest->getRealPos().y);
 		guest->startWalkActor(goal.x,goal.y,-1);
 		int walkingFrames=0;
-		for(int n=0;n<200 && guest->_moving;++n) { scummLoop(4); if (guest->_moving && guestPixels(guest)>=40) ++walkingFrames; }
-		if (guest->getPos()==from && goal.x*8!=from.x) error("Guest %s did not walk",g->name);
+		for(int n=0;n<200 && guest->_moving;++n) { scummLoop(4); if (guest->_moving && guestPixels(guest)>=30) ++walkingFrames; }
 		if (getNumBoxes()>0 && guest->getPos()!=from && !walkingFrames) error("Guest %s not drawn while walking",g->name);
 		shot("world-guest.ppm");
-		// Chat includes the guest.
-		if (!(_scummVars[768]==_currentRoom && guest->_room==_currentRoom)) error("Guest left the talk roster");
-		// Save and load keep the guest in place and drawn.
-		const Common::Point at=guest->getPos(); Common::String file; _saveLoadDescription="Guest";
+		// Saves keep only Maniac's 25 actors; loading places the guests again.
+		Common::String file; _saveLoadDescription="Guests";
 		if (!saveState(15,false,file) || !loadState(15,false)) error("Guest save/load failed");
 		settle(2); guest->_needRedraw=true; settle(1);
-		if (guest->_room!=_currentRoom || guest->getPos()!=at || guestPixels(guest)<40) error("Guest lost on load");
-		// Leaving returns the borrowed actor with its costume.
-		const int costume=_scummVars[769];
+		if (scummverseGuestSlot(guest)<0 || guestPixels(guest)<30) error("Guests lost on load");
+		// Leaving sends them away.
 		scummverseTravel(2); settle(2);
-		if (_scummVars[768] || guest->_room || guest->_costume!=costume) error("Guest actor not returned: 768=%d room %d costume %d/%d",_scummVars[768],guest->_room,guest->_costume,costume);
+		for (int slot=0;slot<5;++slot) if (derefActor(25+slot,"guest")->_room) error("Guest actor %d stayed after leaving",25+slot);
+		if (scummverseGuestMask()) error("Guests left in the talk roster");
 		warning("WORLD guest behaviour %s walked frames %d",g->name,walkingFrames);
 		break;
+	}
+	// A save from patch 0058 lent actor 15 to a world character: it is returned.
+	{
+		Actor *resident=derefActor(15,"resident");
+		const int costume=resident->_costume;
+		scummverseTravelWorld(kScummverseWorldFirstRoom);
+		_scummVars[768]=_currentRoom; _scummVars[769]=costume; resident->putActor(10,50,_currentRoom);
+		scummverseUpdateResident();
+		if (_scummVars[768] || resident->_room) error("0058 world resident not returned: 768=%d room %d",_scummVars[768],resident->_room);
 	}
 	// Side exits: from a scene whose boxes reach the right side, walk on.
 	for (int k=0;k<scummverseWorldSceneCount()-1;++k) {

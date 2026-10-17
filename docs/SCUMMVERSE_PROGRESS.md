@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0058 (characters from the player's other SCUMM games).
+Active milestone: Phase 1; latest patch 0059 (a fuller cast for the other worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -691,3 +691,37 @@ audited editions were picked from private contact sheets of every costume
   returning the borrowed actor; ASan clean. Screens inspected by eye.
 - Not done: foreground masks, guests' original voices/scripts, more than one
   guest per scene, device testing.
+
+## Patch 0059 — other worlds: a fuller cast (64 characters)
+
+User request (2026-10-17): more characters from the seven games, not just
+the leads. A private scanner (build/foreign, never committed) decrypted each
+game's scripts and paired actor names with costumes (105 entries, 64 high
+confidence); Loom and Sam & Max have no script names, so those were matched
+by eye. It also corrected 0058: Day of the Tentacle's Bernard, Laverne and
+Hoagie are costumes 302, 303 and 304 (0058 used look-alike variants).
+- Up to five characters per scene, 64 in all (catalog `guests[5]`), e.g. the
+  SCUMM Bar's important-looking pirates and cook, the Sea Monkey crew,
+  Herman, Largo, the Spitmaster, the weaver elders, the shepherd and dragon,
+  Henry and Marcus, the Algiers market, Ben Franklin, George Washington, Dr.
+  Fred, Sam and Max together, the carnival. Uniformed Nazi characters and the
+  Hitler costume are deliberately left out.
+- Engine: Maniac now allocates 30 actors; 25..29 are transient guest slots
+  (Maniac's own objects start at 30, so object/actor numbering is unchanged).
+  Saves still hold only the original 25 actors (loading clears the guests),
+  V1 per-actor color tables are bounds-checked, and the boot-time costume
+  assignment skips the guest slots. Actor 15 goes back to Zak's residents; a
+  0058 save made inside a world returns it.
+- Colors: scenes use slots 16..191, all characters of a scene share 192..255
+  through `fitSprites` (joint RGB budget; unit-tested). Characters are
+  exported right after their own scene, so they use that room's palette.
+- Export marker is now versioned (`<gameid>-v2.svx`, kWorldExportVersion),
+  so installed games export once more to gain the new cast.
+- Chat: the roster and runtime cover actors up to 29; the runtime names guest
+  slots from the catalog (test_scene_talk).
+- Verified: real export 41 scenes / 64 characters; tools/test_world_visit.py
+  checks every character placed, named, in the roster and drawn, plus
+  greeting, talking, chatting holds still, walking frames, save/load,
+  leaving, and the 0058 migration; ASan clean. Scenes inspected by eye.
+- Not done: foreground masks; at most five per scene; characters do not
+  interact with each other or with their scenes' objects; device testing.

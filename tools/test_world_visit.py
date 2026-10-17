@@ -3,7 +3,9 @@
 
 Needs an export cache (build/worlds, see tools/export_worlds.py) made from
 privately supplied games. Checks mounting, palette slots, walking, side
-exits, save/load and a missing cache. Not an iPhone test.
+exits, save/load, a missing cache, and every scene's characters (placement,
+names, talk roster, drawing, greeting, walking, save/load, leaving). Not an
+iPhone test.
 """
 import argparse
 from pathlib import Path

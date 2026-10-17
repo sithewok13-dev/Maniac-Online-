@@ -91,7 +91,18 @@ static void testSprites() {
 	assert(fit.frame(kGuestFront, kGuestWalk, 0)->dir == kGuestLeft);
 	assert(fit.frame(kGuestBack, kGuestStand, 0)->dir == kGuestFront);
 	assert(!fit.frame(7, kGuestStand, 0) && !fit.frame(kGuestFront, 9, 0));
-	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks)\n");
+	// Several characters share one palette by RGB value (here colors 30..71
+	// in both, plus 90/91 only in the second), all within the slot budget.
+	auto other = spriteBytes({{kGuestFront, kGuestStand, 0, -6, -20, 12, 20, 30}, {kGuestLeft, kGuestStand, 0, -6, -20, 12, 20, 90}});
+	SourceSprite second; assert(parseSprite(other.data(), other.size(), second, error));
+	std::vector<SandboxSprite> both;
+	assert(fitSprites({src, second}, 1.0, 192, 64, both, error) && both.size() == 2);
+	assert(both[0].slotCount == 8 && both[1].slotCount == 8 && both[0].palette == both[1].palette);
+	assert(both[0].frames[0].pixels[20] == both[1].frames[0].pixels[12]); // Same RGB (color 30), same slot.
+	assert(fitSprites({src, second}, 1.0, 250, 4, both, error) && both[0].slotCount == 4);
+	for (const auto &sprite : both) for (const auto &f : sprite.frames) for (uint8_t p : f.pixels) assert(p == 0 || (p >= 250 && p < 254));
+	assert(!fitSprites({}, 1.0, 192, 64, both, error));
+	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette)\n");
 }
 
 int main() {

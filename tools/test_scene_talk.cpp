@@ -71,11 +71,13 @@ int main() {
  assert(std::string(actorName(15))=="Guru" && r.toggleTalk(15));
  r.scene(67,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Nepal guard");
  assert(std::string(roomName(200))=="Melee Island town" && std::string(roomName(206))=="Woodtick"); // Other worlds.
- // Other-world guests borrow the same actor; scenes without one have none.
- r.scene(200,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Stan");
- assert(std::string(personality(15)).find("salesman")!=std::string::npos);
- r.scene(236,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Max");
- r.scene(202,3,0,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="visitor");
+ // Other-world characters are guest actors 25..29, one per catalog slot.
+ r.scene(200,3,(1u<<25)|(1u<<26)|(1u<<28),true,speaker,text,sizeof(text));
+ assert(std::string(actorName(25))=="Stan" && std::string(actorName(26))=="Troll" && std::string(actorName(28))=="Lookout");
+ assert(std::string(personality(25)).find("salesman")!=std::string::npos && r.toggleTalk(28));
+ r.scene(234,3,(1u<<25)|(1u<<26),true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="Sam" && std::string(actorName(26))=="Max");
+ assert(std::string(actorName(15))=="visitor"); // The resident actor stays with Zak's residents.
+ r.scene(202,3,0,true,speaker,text,sizeof(text)); assert(std::string(actorName(25))=="visitor");
  std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }

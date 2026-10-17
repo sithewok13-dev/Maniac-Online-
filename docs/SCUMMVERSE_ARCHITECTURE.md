@@ -188,8 +188,8 @@ own copy is run once in export mode, and its own engine renders a private
 cache (scenes `.svw`, characters `.svc`, finished marker `.svx`). Portable
 code (`common/scummverse_world.*`, std-free bridge
 `scummverse_world_engine.h`) fits them to the V1 sandbox: logical rooms
-200+ on one physical room 127, palette slots 16..223 for the scene and
-224..255 for its guest. A guest reuses the borrowed resident actor (15), so
-the sandbox's walking, speech, chat and save rules apply; only drawing is
-replaced. The catalog (`scummverse_world_catalog.h`) is the single list of
+200+ on one physical room 127, palette slots 16..191 for the scene and
+192..255 shared by its characters. Characters use transient guest actors
+(Maniac 25..29, never saved; Maniac objects start at 30), so the sandbox's
+walking, speech and chat rules apply; only drawing is replaced. The catalog (`scummverse_world_catalog.h`) is the single list of
 scenes, guests and their newly authored lines.
