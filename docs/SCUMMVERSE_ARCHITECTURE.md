@@ -157,6 +157,14 @@ The exploration preset intentionally opens original puzzle doors. Current room
 count is 127; upstream V1 treats IDs >=128 as pseudo rooms. Further expansion needs
 an explicit ID/mapping design before increasing that bound.
 
+Since 0050 that design is the original's own: a logical scene keeps its original
+room number (128+) and resolves to an imported physical slot through the saved
+`_resourceMapper`, with its own `ZakSceneSetup` (0068: the fourteen Sphinx maze
+cells 207..220 and the Mars corridor 187 all on slot 74, resource 23). Rooms
+200..255 were other-world places in saves from patches 0057..0061; such saves
+(layout variable 608 unset) are migrated before any Zak restore step reads the
+room, and every new game sets 608 at boot.
+
 
 ## Conversation contract v1 (0040)
 

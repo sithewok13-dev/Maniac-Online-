@@ -36,30 +36,47 @@ EXPECTED = {
     135: (135, 0), 151: (151, 0), 181: (181, 0), 134: (134, 0), 184: (184, 0), # logical scenes (128+)
     69: (138, 0), 97: (136, 0), 98: (137, 0),                  # inside Peru's carving
     89: (130, 0), 92: (129, 0), 93: (194, 0),
-    63: (150, 0), 80: (180, 0), 68: (19, 0), 74: (23, 0), 75: (155, 0),
+    63: (150, 0), 80: (180, 0), 68: (19, 0), 75: (155, 0),
     79: (185, 0), 81: (30, 0),
+    # Pyramids and the Sphinx maze (resource 23 cells and their neighbors).
+    73: (140, 0), 74: (206, 0), 84: (188, 0),
+    139: (139, 0), 152: (152, 0), 186: (186, 0), 187: (187, 0),
+    **{cell: (cell, 0) for cell in range(207, 221)},
 }
 # Explained, bounded differences. Anything larger, or any camera difference,
 # still fails. Keep reasons specific; remove entries once the cause is fixed.
 TOLERANCE = {
     58: (0.03, 'loose-dirt cave opening shown dug: sandbox route into the cave'),
     93: (0.002, 'machine display defaults; covered by tools/test_mars_reference.py'),
+    # Exploration presets: passages the original opens through puzzles.
+    73: (0.045, "secret entryway open (crayon puzzle): the way into the Sphinx maze"),
+    75: (0.085, 'stairs to the crystal chamber (room 25) shown (lever puzzle)'),
+    84: (0.044, 'stairs down to the Mars sarcophagus chamber shown'),
+    186: (0.098, 'stairs to the Mars crystal room shown (sarcophagus puzzle)'),
 }
 
 
 def pseudo_rooms(zak):
-    """Original logical->physical mapping, read from the supplied data."""
+    """Original logical->physical mapping, read from the supplied data: the
+    boot script's run of consecutive pseudoRoom instructions (0xCC, resource,
+    logical rooms 128+, 0). A lone match elsewhere is other data that happens
+    to look like one (e.g. in 05.LFL it mapped 207 to resource 12)."""
     mapping = {}
     for path in sorted(zak.glob('*.LFL')):
         data = bytes(b ^ 0xFF for b in path.read_bytes())
+        found = {}  # start -> (end, resource, logical rooms)
         for i in range(len(data) - 3):
             if data[i] == 0xCC and 1 <= data[i+1] <= 60:
                 j, logical = i + 2, []
                 while j < len(data) and data[j] >= 0x80:
                     logical.append(data[j]); j += 1
                 if logical and j < len(data) and data[j] == 0 and len(logical) <= 16:
-                    for room in logical:
-                        mapping.setdefault(room, data[i+1])
+                    found[i] = (j + 1, data[i+1], logical)
+        ends = {end for end, _, _ in found.values()}
+        for start, (end, resource, logical) in sorted(found.items()):
+            if end in found or start in ends:
+                for room in logical:
+                    mapping.setdefault(room, resource)
     return mapping
 
 

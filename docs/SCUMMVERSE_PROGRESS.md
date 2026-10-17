@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0067 (other worlds: all of Castle Brunwald on foot).
+Active milestone: Phase 1; latest patch 0068 (Zak: the Sphinx maze and both pyramid corridors).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1005,4 +1005,52 @@ in the original. Two things were missing.
 - Not done: the guards and Vogel are not in the rooms; doors are not
   opened or closed (a tap walks through); the floor plans show everything at
   once instead of revealing as you explore.
+
+## Patch 0068 — Zak: the Sphinx maze and the pyramid corridors
+
+User request (2026-10-17): walk Zak McKracken's mazes, like the one in
+Cairo. A research agent read the original data and scripts (private notes
+in build/foreign/zak-mazes/): the maze inside the Sphinx is fourteen cells,
+logical rooms 207..220, all on the one corridor resource 23 with Egypt's
+pyramid corridor 206 and Mars's 187. The resource-23 entry script draws
+each cell's doorways and stores, per doorway, the next cell and the doorway
+to arrive at. The sandbox had collapsed resource 23 into one bare corridor
+(room 74) whose edges led to the wrong rooms; the maze, the second Sphinx
+leg, the Mars sarcophagus chamber and the Egypt map room did not exist, and
+the Mars pyramid door skipped straight to an invented crystal-room link.
+- Scenes (original logical numbers, newly written names): 207..220 and 187
+  on slot 74 (now Egypt's 206), 139 on 73 (now 140, the leg with the secret
+  entryway), 186 on 75 (155), 152 on 84 (188). Setups are generated from the
+  original-interpreter captures (tools/gen_zak_scene_setup.py; cell 207 from
+  its entry script, its capture was taken from the wrong resource). The
+  views for 74/75/84 are replaced by those setups.
+- Doorways follow the original variables 44..55 per cell (42 links in
+  resource 23), plus the Sphinx's secret entryway and both legs, the
+  pyramid passage, both sarcophagus chambers with their stairs and the map
+  room. Exploration presets open what the original opens by puzzle: the
+  leg's secret entryway, the Sphinx's entryway (shown), both sets of stairs,
+  the Mars sarcophagus; the dark corridors and the dead end are lit. The
+  guardian at the dead end (220) runs no script here.
+- Saves: rooms 200..255 were other-world places in saves from patches
+  0057..0061; those saves (variable 608 unset) are now migrated before the
+  Zak restore steps, and every new game sets 608 at boot, so a save made
+  in the maze is never mistaken for one. The WiFi content stamp is 68.
+- tools/test_scene_authenticity.py read stray byte runs in 05/03/40/54.LFL
+  as pseudo-room table entries (207 -> 12, 204 and 252 -> 51); it now takes
+  only the boot script's chained table.
+- Verified (Linux, the user's private data): scene audit 82 of 94 exact,
+  every maze cell, both corridors, the second leg and the map room among
+  them; the four preset rooms differ only by the opened passage (tolerances
+  with reasons, compared by eye). New tools/test_maze.py (also ASan) taps
+  through all fourteen cells and back out, both pyramids and the Mars
+  stairs, checking each arrival's camera, walk boxes and doorway states,
+  saves and loads in the maze, and loads a legacy-layout save in 207 (it
+  leaves for the airport). test_expansion (also ASan) clicks every link and
+  save/loads every logical scene. Original-data suite 30/30. Not
+  device-tested.
+- Not done: the cells are lit (the original needs a flashlight or lighter);
+  the Sphinx's other secret entryway variant (when the other leg is locked)
+  and the jungle's random walk are not modelled; passages are shown open
+  rather than opened by their puzzles, and the Mars pyramid door leads in
+  while still drawn closed.
 
