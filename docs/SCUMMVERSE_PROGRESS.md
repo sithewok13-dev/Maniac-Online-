@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0060 (Full Throttle, The Dig and Curse of Monkey Island worlds).
+Active milestone: Phase 1; latest patch 0061 (cabin chairs held by riders show empty).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -753,3 +753,16 @@ COMI.LA0 match ScummVM's detection table), then The Curse of Monkey Island.
   test_world_visit visits all 56 scenes with 80 characters (ASan clean);
   Maniac startup tests pass with the larger build. Not device-tested; the
   iOS build with v7/v8 is compiled only by Apple CI.
+
+## Patch 0061 — no painted passenger in a rider's chair
+
+Device report: after standing up from a plane seat, a static character sat
+in it. Zak's cabin art paints passengers into chairs 19, 30, 41 and 52 (only
+63 and 74 are empty), so a rider assigned one of those chairs overlapped a
+painted person, who showed again once the rider stood. Now every chair held
+by a rider (seated, or stood up and keeping the seat) or occupied by a seated
+player from another device takes chair 74's tiles in the picture, color and
+mask maps (`ScummverseZakPlane::emptyChair`, applied from pristine copies on
+cabin entry and whenever the held chairs change). Unheld chairs keep their
+painted passengers. tools/probes/seating.inc compares the background buffer
+of each chair against the empty chair, before and after standing.

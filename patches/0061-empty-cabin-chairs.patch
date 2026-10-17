@@ -1,0 +1,150 @@
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index b4befea1..3bbe0ada 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -315,8 +315,15 @@ void GdiV1::roomChanged(byte *roomptr) {
+ 	decodeV1Gfx(roomptr + READ_LE_UINT16(roomptr + 12), _V1.picMap, roomptr[4] * roomptr[5]);
+ 	decodeV1Gfx(roomptr + READ_LE_UINT16(roomptr + 14), _V1.colorMap, roomptr[4] * roomptr[5]);
+ 	decodeV1Gfx(roomptr + READ_LE_UINT16(roomptr + 16), _V1.maskMap, roomptr[4] * roomptr[5]);
+- if(_vm->scummversePlaneScene())
++ _cabinColumns = 0;
++ if(_vm->scummversePlaneScene()) {
+   ScummverseZakPlane::extendChairMasks(_V1.maskMap,roomptr[4],roomptr[5]);
++  if(roomptr[5]==16 && roomptr[4]*16<=4096) {
++   _cabinColumns=roomptr[4];
++   memcpy(_cabinPic,_V1.picMap,sizeof(_cabinPic)); memcpy(_cabinColor,_V1.colorMap,sizeof(_cabinColor)); memcpy(_cabinMask,_V1.maskMap,sizeof(_cabinMask));
++   scummverseEmptyChairs(_vm->scummverseCabinChairs());
++  }
++ }
+ 
+ 	// Read the mask data. The 16bit length value seems to always be 8 too big.
+ 	// See bug #3458 for details on this.
+@@ -325,6 +332,15 @@ void GdiV1::roomChanged(byte *roomptr) {
+ 	_objectMode = true;
+ }
+ 
++void GdiV1::scummverseEmptyChairs(unsigned slots) {
++ if(!_cabinColumns) return;
++ memcpy(_V1.picMap,_cabinPic,sizeof(_cabinPic)); memcpy(_V1.colorMap,_cabinColor,sizeof(_cabinColor)); memcpy(_V1.maskMap,_cabinMask,sizeof(_cabinMask));
++ for(int slot=0;slot<6;++slot) if(slots & (1u<<slot)) {
++  const int seat=ScummverseZakPlane::seatX[slot];
++  for(byte *map : {_V1.picMap,_V1.colorMap,_V1.maskMap}) ScummverseZakPlane::emptyChair(map,_cabinColumns,16,seat);
++ }
++}
++
+ // Animate the original bus painted into Zak room 3. The original bus-off
+ // object supplies the uncovered pavement, so no replacement art is invented.
+ void GdiV1::scummverseBusImage(const byte *room, int shift, bool awake) {
+diff --git a/engines/scumm/gfx.h b/engines/scumm/gfx.h
+index 48550a68..626eb574 100644
+--- a/engines/scumm/gfx.h
++++ b/engines/scumm/gfx.h
+@@ -359,6 +359,8 @@ public:
+  virtual void setImportedRoomColorMap(const byte *map) {}
+  // Other-worlds scenes: a full-room picture in palette slots (V1 only).
+  virtual void setForeignBackground(const byte *pixels, int width, int height) {}
++ // Zak cabin: chairs (bit n = seat slot n+1) shown empty; see scummverse_plane.h.
++ virtual void scummverseEmptyChairs(unsigned slots) {}
+ 	virtual byte remapColorToRenderMode(byte col) const { return col; }
+ 
+ 	virtual void init();
+@@ -500,6 +502,9 @@ protected:
+  const byte *_importedRoomColorMap = nullptr;
+  const byte *_foreignPixels = nullptr;
+  int _foreignWidth = 0, _foreignHeight = 0;
++ // The cabin's maps as decoded, so emptied chairs can be painted back.
++ byte _cabinPic[4096], _cabinColor[4096], _cabinMask[4096];
++ int _cabinColumns = 0;
+  bool foreignScene() const;
+ 
+ protected:
+@@ -524,6 +529,7 @@ protected:
+ public:
+ 	GdiV1(ScummEngine *vm);
+ 	void scummverseBusImage(const byte *room, int shift, bool awake) override;
++	void scummverseEmptyChairs(unsigned slots) override;
+ 
+ 	void setRenderModeColorMap(const byte *map) override;
+  void setImportedRoomColorMap(const byte *map) override { _importedRoomColorMap=map; }
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 18f3a714..37e17158 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1364,6 +1364,10 @@ public:
+ 	bool scummverseDrawGuest(Actor *a);
+  bool scummverseSeated(int id) const;
+  bool scummversePlaneScene() const { return _scummverseRoaming && _currentRoom==56; }
++ // Cabin chairs held by riders (bit n = seat slot n+1), shown empty.
++ unsigned scummverseCabinChairs() const;
++ void scummverseUpdateCabinChairs();
++ unsigned _scummverseShownChairs = 0;
+  void scummverseStandPassenger(int id);
+  bool scummverseReserveSeats(unsigned passengers, bool commit);
+  void scummverseRestoreSeats();
+diff --git a/engines/scumm/scummverse_plane.h b/engines/scumm/scummverse_plane.h
+index 6aaa6a0f..5f50ada2 100644
+--- a/engines/scumm/scummverse_plane.h
++++ b/engines/scumm/scummverse_plane.h
+@@ -4,6 +4,17 @@
+ namespace ScummverseZakPlane {
+ // Audited English DOS V1 cabin: repeated original chairs, actor coordinates.
+ static const int seatX[] = {63,52,41,30,19,74};
++// The cabin art paints passengers into chairs 19, 30, 41 and 52; chair 74 is
++// empty. A chair a sandbox rider holds shows the empty chair: its tiles
++// (columns 0..4, rows 6..11 from the chair's column) replace the painted
++// passenger in the picture, color and mask maps alike.
++static const int kEmptyChair = 74;
++inline bool emptyChair(unsigned char *map, int columns, int rows, int seat) {
++ if(columns<kEmptyChair+5 || rows!=16 || seat<0 || seat+5>columns) return false;
++ for(int dx=0;dx<5;++dx) for(int y=6;y<12;++y)
++  map[(seat+dx)*rows+y]=map[(kEmptyChair+dx)*rows+y];
++ return true;
++}
+ // Only the source player's chair is foreground-masked. Reuse its original mask
+ // for matching chairs; no source pixels or mask bytes are embedded here.
+ inline bool extendChairMasks(unsigned char *map, int columns, int rows) {
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 754ad146..f4a23d7c 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -280,6 +280,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	}
+ 	scummverseUpdateTransit(delta);
++	scummverseUpdateCabinChairs();
+ 	scummverseUpdateCompanions();
+ 	unsigned talkMask = 0;
+ 	for (int id : mansionCast)
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index c35e8e1d..3433f645 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -556,6 +556,28 @@ void ScummEngine::scummverseRestoreSeats() {
+  }
+  _fullRedraw=true;
+ }
++// A chair held by any rider (seated, or stood up and keeping the seat) or
++// occupied by another device's player shows empty, never a painted passenger.
++unsigned ScummEngine::scummverseCabinChairs() const {
++ if(!_scummverseRoaming || !_scummVars || !_scummVars[724]) return 0;
++ unsigned slots=0;
++ for(int id=1;id<25;++id) {
++  const int seat=ABS(_scummVars[501+id]);
++  if(seat>=1 && seat<=6) slots|=1u<<(seat-1);
++  const Actor *a=_actors[id];
++  if(a->_room==56 && a->getElevation()==-4 && a->getRealPos().y==52)
++   for(int s=0;s<6;++s) if(ABS(a->getRealPos().x-ScummverseZakPlane::seatX[s])<=1) slots|=1u<<s;
++ }
++ return slots;
++}
++void ScummEngine::scummverseUpdateCabinChairs() {
++ if(!scummversePlaneScene()) return;
++ const unsigned slots=scummverseCabinChairs();
++ if(slots==_scummverseShownChairs) return;
++ _scummverseShownChairs=slots;
++ _gdi->scummverseEmptyChairs(slots);
++ _fullRedraw=true;
++}
+ void ScummEngine::scummverseStandPassenger(int id) {
+  if(!scummverseSeated(id)) return;
+  _scummVars[501+id]=-_scummVars[501+id];

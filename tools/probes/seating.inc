@@ -14,6 +14,26 @@
  _scummVars[733]=7;scummverseBoard();
  int zakSeat=_scummVars[525], daveSeat=_scummVars[504];
  if(!scummverseSeated(24) || !scummverseSeated(3) || zakSeat==daveSeat) error("First party not seated");
+ // Painted passengers: a chair a rider holds shows the empty chair (74)
+ // in the background; chairs nobody holds keep their painted passenger.
+ auto chair=[&](int seat) {
+  setCameraAtEx(seat*8+16); _fullRedraw=true; stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(0);
+  Common::Array<byte> cells; VirtScreen &vs=_virtscr[kMainVirtScreen];
+  for(int y=48;y<96;++y) for(int x=0;x<40;++x) cells.push_back(*((byte *)vs.getBackPixels(seat*8-vs.xstart+x,y)));
+  return cells;
+ };
+ static const int chairs[6]={63,52,41,30,19,74};
+ const Common::Array<byte> empty=chair(74);
+ int painted=0;
+ for(int slot=1;slot<=6;++slot) {
+  if(chairs[slot-1]==63 || chairs[slot-1]==74) continue;
+  const bool held=slot==zakSeat || slot==daveSeat;
+  const bool shownEmpty=chair(chairs[slot-1])==empty;
+  if(held!=shownEmpty) error("Chair %d (slot %d) held=%d shown empty=%d",chairs[slot-1],slot,held,shownEmpty);
+  if(!held) ++painted;
+ }
+ if(!painted) error("No painted passenger left to compare");
+ warning("SEATING chairs held %d,%d painted kept %d",chairs[zakSeat-1],chairs[daveSeat-1],painted);
  // Four more local passengers join without changing existing reservations.
  for(int id : {20,21,22,23}) {
   derefActor(id,"joining rider")->putActor(20,60,53);
@@ -54,6 +74,9 @@
  }
  zak->startWalkActor(65,55,-1);
  if(scummverseSeated(24) || _scummVars[525]!=-zakSeat || zak->getElevation()) error("Cannot leave seat");
+ // Standing up keeps the chair empty (no painted passenger appears in it).
+ for(int i=0;i<40 && zak->_moving;++i) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
+ if(chair(chairs[zakSeat-1])!=empty) error("Painted passenger reappeared in chair %d after standing",chairs[zakSeat-1]);
  scummverseRestoreSeats();if(scummverseSeated(24)) error("Standing passenger reseated automatically");
  stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
  if(!saveState(10,false,save) || !loadState(10,false) || _scummVars[525]!=-zakSeat || scummverseSeated(24))
