@@ -42,6 +42,9 @@ EXPECTED = {
     73: (140, 0), 74: (206, 0), 84: (188, 0),
     139: (139, 0), 152: (152, 0), 186: (186, 0), 187: (187, 0),
     **{cell: (cell, 0) for cell in range(207, 221)},
+    # Mexico temple passages (156 physical, 157..167 logical) and San Francisco.
+    88: (156, 0), **{passage: (passage, 0) for passage in range(157, 168)},
+    99: (5, 0), 100: (7, 0), 101: (6, 0), 102: (2, 0),
 }
 # Explained, bounded differences. Anything larger, or any camera difference,
 # still fails. Keep reasons specific; remove entries once the cause is fixed.

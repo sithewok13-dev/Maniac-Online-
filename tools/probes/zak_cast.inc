@@ -10,7 +10,7 @@
 	if (!scummverseTravel(1) || !_scummVars[763]) error("Zak cast failed to initialize");
 	for(int id=20;id<=22;++id) {
 		Actor *a=derefActor(id,"cast probe");
-		if(a->_costume!=id+15 || a->_room!=54) error("Wrong cast resource/spawn %d",id);
+		if(a->_costume!=id+15 || a->_room!=(id==20 ? 101 : 54)) error("Wrong cast resource/spawn %d",id);
 		_currentScript=1; if(!scummverseOwnsActor(id)) error("Original scripts can alter guest"); _currentScript=0xFF;
 	}
 	// Isolate authentic costumes and all four facing directions for rendering.

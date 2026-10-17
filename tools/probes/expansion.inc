@@ -12,7 +12,8 @@
 	scummverseRosterOffer(); memcpy(bootFaces,FakeFaces::pixels,sizeof(bootFaces));
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
-		if(ProbeCatalog::zakRetiredRoomReplacement(room)) error("Unexpected retired room %d",room);
+		// Retired IDs are refused; their occupants belong to a logical scene.
+		if(ProbeCatalog::zakRetiredRoomReplacement(room)) { if(scummverseTravel(room-50)) error("Retired room %d accepted",room); continue; }
 		if(!scummverseTravel(room-50)) error("Room mount failed %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/expanded-room-%d.ppm",room)))) {
@@ -164,7 +165,7 @@
 		zakActor->putActor(20,60,64); startScene(64,zakActor,0); _scummVars[528]=1;
 		_saveLoadDescription="Retired room";
 		if(!saveState(9,false,filename)||!loadState(9,false)) error("Retired-room save failed");
-		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=4)
+		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=5)
 			error("Retired-room migration failed: view %d player %d occupant %d schema %d",_currentRoom,zakActor->_room,annie->_room,_scummVars[528]);
 	}
 	// Zak costume 27 is "The King" in the original; old saves carry the
@@ -179,6 +180,6 @@
 	_scummVars[765]=100; _scummVars[766]=0; _scummVars[767]=0; _scummVars[528]=3;
 	_saveLoadDescription="Legacy bus phase";
 	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy bus save failed");
-	if(_scummVars[765]!=100+kBusBoarding-60 || _scummVars[528]!=4) error("Legacy bus phase not migrated: %d schema %d",_scummVars[765],_scummVars[528]);
+	if(_scummVars[765]!=100+kBusBoarding-60 || _scummVars[528]!=5) error("Legacy bus phase not migrated: %d schema %d",_scummVars[765],_scummVars[528]);
 	_scummVars[765]=0;
 	warning("SCUMMVERSE_EXPANSION_PASS enabled=1");quitGame();

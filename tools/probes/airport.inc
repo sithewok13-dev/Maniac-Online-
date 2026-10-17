@@ -54,7 +54,9 @@
 	scummverseWorldRequest(((53*32+3)<<8)|1); scummverseUpdateRoaming(4);
 	if (_currentRoom!=54) error("Free apartment selection failed");
 	runObjectScript(655,13,false,false,nullptr);
-	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
+	if (_currentRoom!=102) error("Apartment door did not reach the living room");
+	runObjectScript(735,13,false,false,nullptr);
+	if (_currentRoom!=55) error("Living room door did not reach the bus street");
 	player->putActor(92,59,55); _scummverseBusClock=156;
 	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53) error("Free bus did not reach airport");
@@ -64,7 +66,7 @@
 	scummverseWorldRequest(((53*32+3)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=1 || player->getRealPos().x<4 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Free mansion return changed inventory or landed on an exit");
 	// Visible NPCs walk to each connection; they never move the player's camera.
-	const int routes[][3]={{73,1,53},{74,44,53},{77,54,55},{78,55,53},{79,55,54}};
+	const int routes[][3]={{73,1,53},{74,44,53},{77,54,102},{78,55,53},{79,55,102},{84,55,99}};
 	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24,20,21,22}) {
 		player->putActor(20,60,route[1]); startScene(route[1],player,0); freezeOthers();
 		Actor *zak=derefActor(actorId,"travelling NPC"); zak->putActor(20,60,route[1]);

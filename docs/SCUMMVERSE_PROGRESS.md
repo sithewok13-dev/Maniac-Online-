@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0072 (Sharptooth, Red Skull and a floating Murray).
+Active milestone: Phase 1; latest patch 0073 (Zak's San Francisco on foot: 14th Avenue).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1141,3 +1141,44 @@ three headhunters, among others (Doug the Mole Man too).
   test_world_visit draws all 265 characters; original-data suite 31/31.
   Not device-tested.
 
+## Patch 0073 — Zak's San Francisco on foot (14th Avenue)
+
+User request (2026-10-17): Zak must reach 14th Avenue, where the pawn shop
+and Annie's place are; it could not be reached on foot.
+- Original geography (Zak DOS V1 scripts, private research): the 13th
+  Avenue street corner object 141 "14th Avenue" leads up the hill to room 5
+  (14th Avenue: Lou's Loans, the Society for Ancient Wisdom door and stairs,
+  the hair salon); Lou's Loans is room 7; the Society office upstairs is
+  room 6, where Annie starts the game (the data has no separate "Annie's
+  apartment"); Zak's bedroom and the street stairs both open into his living
+  room (room 2), which the sandbox used to skip.
+- No free physical room ID existed (56..126 all used, 127 is other worlds).
+  The eleven Mexico temple passages that patch 0038 gave their own slots
+  (99..109) are folded back into original logical scenes 157..167 on room
+  88's resource, like the Sphinx maze (0068); each keeps its own audited
+  setup. Slots 99..102 now hold 14th Avenue, Lou's Loans, the Society
+  office and Zak's living room; 103..109 are retired IDs.
+- Links follow the original exits and arrival points; the Society door is
+  shown open (its stairs walkable); original walk boxes kept in 14th Avenue
+  (sidewalk facing hints), Lou's (nobody behind the counter) and the living
+  room (not inside the television). NPCs walk the same routes (the bedroom
+  and stairs passages go through the living room; a new corner passage).
+- Leaving the Shuttle Bug now arrives at its door (original 452), not at
+  the tram end of the landing site.
+- Saves: scene schema 5 (var 528). Anyone saved in old rooms 99..109 stands
+  at the same spot in passage room+58; new games start at schema 5. WiFi
+  content stamp 73 (room content changed).
+- Not done: Lou himself (would need an extra costume slot); the salon and
+  the bakery have no interiors in the original.
+- New games start Annie in the Society office (original boot script), not
+  in Zak's bedroom; Melissa and Leslie still start at Zak's.
+- Verified (Linux, the user's private copies): tools/test_san_francisco.py
+  taps every door like a player (bedroom, living room, street, corner,
+  Lou's, Society office and back), checks the door, stairs and walk boxes,
+  saves and loads in the office, sends an NPC up the corner offscreen,
+  refuses retired IDs, leaves the Shuttle Bug at its door and loads a
+  schema-4 save standing in old rooms 100/101; scene authenticity: rooms
+  99..102, 88 and 157..167 match the original pixel for pixel; test_temple
+  (twelve passages, 52 routes), chamber, expansion, airport, bus and cast
+  probes updated (the bus probe now parks bystanders in their own rooms);
+  original-data suite 32/32; startup test. Not device-tested.

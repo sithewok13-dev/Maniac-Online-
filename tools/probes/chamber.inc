@@ -33,7 +33,7 @@
  @REFERENCE_CHECKS@
  for(int box : {12,13}) if(!(getBoxFlags(box)&128)) error("Saved Mexico navigation not repaired");
  runObjectScript(732,13,false,false,nullptr);
- if(_currentRoom!=108) error("Chamber return exit failed");
+ if(_currentRoom!=166) error("Chamber return exit failed");
  if(!scummverseTravel(42)) error("Shared chamber reload failed");
  for(int i=0;i<21;++i) if(getState(732+i)!=untouched[i]) error("Mexico setup leaked into another chamber");
  warning("SCUMMVERSE_CHAMBER_PASS enabled=1");quitGame();

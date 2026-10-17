@@ -165,6 +165,13 @@ cells 207..220 and the Mars corridor 187 all on slot 74, resource 23). Rooms
 (layout variable 608 unset) are migrated before any Zak restore step reads the
 room, and every new game sets 608 at boot.
 
+Physical IDs are scarce (56..126), so a scene sharing another's resource is a
+logical scene, not a slot: 0073 folded the Mexico temple passages 157..167
+(slots 99..109 since 0038) onto room 88's resource and reused slots 99..102
+for San Francisco (14th Avenue, Lou's Loans, the Society office, Zak's living
+room). Retired IDs (103..109) are refused for travel; scene schema 5 (var 528)
+moves anyone saved there to room+58, and new games start at schema 5.
+
 
 ## Conversation contract v1 (0040)
 
