@@ -3,8 +3,11 @@
 
 Runs the real binary on a temporary Documents folder (maniac/ plus one other
 game) and checks that the game's folder is found despite stray spaces or
-case ("loom " from a zip made on a Mac), that a game whose setup stopped
-twice is skipped and logged, and that one which stopped once is retried.
+case ("loom " from a zip made on a Mac) and one folder further down (the
+Files app unzips a zip of several folders into a folder named after it,
+next to a Mac's __MACOSX, which is never taken for the game), that a game
+whose setup stopped twice is skipped and logged, and that one which stopped
+once is retried.
 Needs privately supplied games; nothing is copied out of build/.
 
 Usage: tools/test_world_setup.py game-data/mm-dos loom=game-data/loom-ega
@@ -26,7 +29,11 @@ def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
     with tempfile.TemporaryDirectory(prefix='scummverse-setup-', dir=ROOT/'build') as tmp:
         docs = Path(tmp)
         (docs/'maniac').symlink_to(maniac.resolve())
+        (docs/folder_name).parent.mkdir(parents=True, exist_ok=True)
         (docs/folder_name).symlink_to(data.resolve())
+        if '/' in folder_name:
+            # A Mac's leftovers beside it: an empty folder of the same name.
+            (docs/'__MACOSX'/Path(folder_name).name).mkdir(parents=True)
         worlds = docs/'worlds'
         worlds.mkdir()
         attempt = worlds/f'{game}-v{VERSION}.try'
@@ -60,7 +67,7 @@ def main():
     data = Path(path)
     gameid = folder  # Every catalog game's folder is its game id.
     binary = a.binary.resolve()
-    for name in (folder + ' ', folder.upper()):
+    for name in (folder + ' ', folder.upper(), f'{folder}__samnmax_test/{folder} '):
         log, done, count = launch(binary, a.maniac, gameid, data, name)
         assert done and count == 1, (name, done, count, log[-3000:])
         print(f'PASS: folder named {name!r} is found and set up')

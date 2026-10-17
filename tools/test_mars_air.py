@@ -3,9 +3,13 @@
 
 Needs privately supplied Maniac Mansion and Zak DOS V1 data; with an export
 cache holding Curse of Monkey Island's characters (tools/export_worlds.py)
-Bernard also plays Murray. Lines characters up in the hostel bunks (air) and
-on the landing site (none): the gear is drawn on those who breathe and only
-there, never on the tentacle or the Caponian. Not an iPhone test.
+Bernard also plays Murray. Lines characters up where there is air (the
+hostel's airlock and bunks, the Face's Great Chamber, its three massive doors
+and machine chamber) and where there is none (outside the Great Pyramid,
+inside it, the landing site): the gear is drawn on those who breathe and only
+there, never on the tentacle or the Caponian. Then the player plays the
+Meteor Police (his dome is his helmet: no gear), the plant and both Teds
+(gear) and Chaos (none) outside on Mars. Not an iPhone test.
 """
 import argparse
 from pathlib import Path

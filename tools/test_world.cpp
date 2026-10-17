@@ -196,13 +196,22 @@ static void testCatalog() {
 		for (const auto &c : kWorldCast) assert(!worldNativeLook(worldAppearanceKey(c.game, c.guest.costume)));
 		for (const auto &look : kWorldManiacCast) assert(look.costume > 0 && look.costume < 44 && look.talkColor < 16 && look.lines[2]);
 		assert(!worldNativeLook(0) && worldAppearance(worldAppearanceKey(8, 321)) && !strcmp(worldAppearance(worldAppearanceKey(8, 321))->name, "The Creator"));
-		// The Meteor Police officer breathes and wears a dome; the plant needs
-		// no air and rolls, always in its costume's direction toward the viewer.
+		// The Meteor Police officer wears a dome, his helmet (no air needed on
+		// Mars); the plant breathes (a fishbowl on Mars) and rolls on its pot,
+		// always the grown plant (its costume's direction away from the viewer).
 		assert(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 15)) && !strcmp(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 15))->name, "Meteor Police"));
-		assert(worldBreathes(kWorldManiacLooks, 15) && worldDomed(kWorldManiacLooks, 15) && !worldRoller(kWorldManiacLooks, 15) && !worldHovers(kWorldManiacLooks, 15));
+		assert(!worldBreathes(kWorldManiacLooks, 15) && worldDomed(kWorldManiacLooks, 15) && !worldRoller(kWorldManiacLooks, 15) && !worldHovers(kWorldManiacLooks, 15));
 		assert(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 19)) && !strcmp(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 19))->name, "Man-Eating Plant"));
-		assert(!worldBreathes(kWorldManiacLooks, 19) && !worldDomed(kWorldManiacLooks, 19) && worldRoller(kWorldManiacLooks, 19)->facing == 180);
+		assert(worldBreathes(kWorldManiacLooks, 19) && !worldDomed(kWorldManiacLooks, 19));
+		assert(worldRoller(kWorldManiacLooks, 19)->facing == 0 && worldRoller(kWorldManiacLooks, 19)->gear == kWorldPot);
 		assert(!worldDomed(kWorldManiacLooks, 16) && !worldRoller(kWorldManiacLooks, 16) && !worldRoller(9, 19));
+		// Dead Cousin Ted rolls on skates, in his own direction; Day of the
+		// Tentacle's Ted glides dressed up for the contest, mirrored facing
+		// left. Both wear a fishbowl on Mars. Chaos floats, needing no air.
+		assert(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 12)) && !strcmp(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 12))->name, "Dead Cousin Ted"));
+		assert(worldRoller(kWorldManiacLooks, 12)->facing == -1 && worldRoller(kWorldManiacLooks, 12)->gear == kWorldSkates && worldBreathes(kWorldManiacLooks, 12));
+		assert(worldGlider(5, 235) && worldGlider(5, 235)->dressUp && worldGlider(5, 235)->oneWay && worldBreathes(5, 235) && !worldHovers(5, 235) && !worldRoller(5, 235));
+		assert(worldHovers(2, 130) && !worldBreathes(2, 130) && !worldGlider(2, 130) && !worldGlider(kWorldManiacLooks, 12));
 	}
 	// Only Curse of Monkey Island (square pixels) is widened.
 	for (int g = 0; g < worldGameCount(); ++g) assert(worldWiden(g) == (sameId(kWorldGames[g].gameid, "comi") ? 1.2 : 1.0));

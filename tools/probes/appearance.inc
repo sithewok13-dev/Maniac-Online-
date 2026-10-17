@@ -185,50 +185,53 @@
 			error("The officer's or the plant's key changed");
 		if (!scummverseTravel(2)) error("Cannot return to the mansion");
 		settle(4);
-		// What the character drew over the background near its feet (-1: nothing).
-		auto picture=[&](int above) {
+		// What the character drew over the background near its feet (-1:
+		// nothing): rows from `above` over its feet to `below` under them.
+		auto picture=[&](int above, int below) {
 			dave->_needRedraw=true; settle(1);
 			const int cx=dave->getPos().x-_virtscr[0].xstart, fy=dave->getPos().y;
 			Common::Array<int> p;
-			for(int y=fy-above;y<fy;++y) for(int x=cx-32;x<cx+32;++x) {
+			for(int y=fy-above;y<fy+below;++y) for(int x=cx-32;x<cx+32;++x) {
 				const bool in=x>=0 && x<_screenWidth && y>=0 && y<_virtscr[0].h;
 				const byte f=in ? *_virtscr[0].getPixels(x,y) : 0, b=in ? *_virtscr[0].getBackPixels(x,y) : 0;
 				p.push_back(f!=b ? f : -1);
 			}
 			return p;
 		};
+		auto worldGuestDir=[](int facing) { facing=(facing%360+360)%360; return facing>45 && facing<135 ? 1 : facing>=135 && facing<=225 ? 2 : facing>225 && facing<315 ? 0 : 3; };
+		auto rolls=[&](Actor *a) { int gear, x; return scummverseRollingGear(a,gear,x) ? gear : -1; };
 		request(police);
-		if (dave->_costume!=15 || scummverseColorActor(3)!=15 || !scummverseDomed(dave) || !worldBreathes(kWorldManiacLooks,15) || strcmp((const char *)dave->getActorName(),"Meteor Police"))
+		if (dave->_costume!=15 || scummverseColorActor(3)!=15 || !scummverseDomed(dave) || worldBreathes(kWorldManiacLooks,15) || strcmp((const char *)dave->getActorName(),"Meteor Police"))
 			error("Not the officer: costume %d colors %d",dave->_costume,scummverseColorActor(3));
 		{
 			// The dome's white glint, which his own colors do not have.
-			const Common::Array<int> p=picture(80);
+			const Common::Array<int> p=picture(80,0);
 			int glint=0; for(int c : p) glint+=c==15;
 			if (!glint) error("No dome on the officer");
 			shot("appearance-police.ppm");
 		}
 		request(plant);
-		if (dave->_costume!=19 || scummverseColorActor(3)!=19 || scummverseDomed(dave) || worldBreathes(kWorldManiacLooks,19) || !scummverseRollingPot(dave) ||
+		if (dave->_costume!=19 || scummverseColorActor(3)!=19 || scummverseDomed(dave) || !worldBreathes(kWorldManiacLooks,19) || rolls(dave)!=0 ||
 			_scummVars[kScummverseHomeCostumeVar+3]!=3 || strcmp((const char *)dave->getActorName(),"Man-Eating Plant"))
 			error("Not the plant: costume %d colors %d home %d",dave->_costume,scummverseColorActor(3),_scummVars[kScummverseHomeCostumeVar+3]);
-		// Its costume's directions are growth stages: always the everyday one
-		// (toward the viewer), standing in the pot.
+		// Its costume's directions are growth stages: always the grown plant
+		// (the one facing away), standing in the pot.
 		const int dirs[]={180,90,270,0};
 		for (int dir : dirs) {
 			dave->setDirection(dir); dave->startAnimActor(dave->_standFrame);
 			dave->_needRedraw=true; settle(1);
-			for (int i=0;i<16;++i) if (dave->_cost.curpos[i]!=0xFFFF && (dave->_cost.frame[i]&3)!=2) error("Facing %d the plant shows stage %d",dir,dave->_cost.frame[i]&3);
-			if (dave->_bottom-dave->_top<52 || dave->_bottom-dave->_top>64) error("Facing %d the plant drawn %d..%d",dir,dave->_top,dave->_bottom);
+			for (int i=0;i<16;++i) if (dave->_cost.curpos[i]!=0xFFFF && (dave->_cost.frame[i]&3)!=3) error("Facing %d the plant shows stage %d",dir,dave->_cost.frame[i]&3);
+			if (dave->_bottom-dave->_top<80 || dave->_bottom-dave->_top>96) error("Facing %d the plant drawn %d..%d",dir,dave->_top,dave->_bottom);
 		}
 		// One step on: the same plant and pot, the wheels turned.
 		dave->setDirection(90); dave->startAnimActor(dave->_standFrame);
-		const Common::Array<int> before=picture(17);
+		const Common::Array<int> before=picture(17,0);
 		dave->putActor(dave->getRealPos().x+1,dave->getRealPos().y,_currentRoom);
-		const Common::Array<int> after=picture(17);
+		const Common::Array<int> after=picture(17,0);
 		int pot=0, potSame=0, wheels=0, wheelsSame=0;
 		for (uint i=0;i<before.size();++i) {
 			if (before[i]<0 || after[i]<0) continue;
-			if (i<12*64u) { ++pot; potSame+=before[i]==after[i]; } else if (i>=13*64u && i<15*64u) { ++wheels; wheelsSame+=before[i]==after[i]; }
+			if (i<12*64u) { ++pot; potSame+=before[i]==after[i]; } else if (i>=14*64u && i<16*64u) { ++wheels; wheelsSame+=before[i]==after[i]; }
 		}
 		if (pot<40 || potSame!=pot) error("The pot changed as it rolled (%d of %d)",potSame,pot);
 		if (wheels<8 || wheelsSame==wheels) error("The wheels did not turn (%d of %d alike)",wheelsSame,wheels);
@@ -237,10 +240,90 @@
 		Common::String file; _saveLoadDescription="Playing the plant";
 		if (!saveState(15,false,file) || !loadState(15,false)) error("Save failed");
 		settle(4);
-		if (_scummVars[kScummverseAppearanceVar+3]!=plant || dave->_costume!=19 || !scummverseRollingPot(dave)) error("The plant lost on load");
+		if (_scummVars[kScummverseAppearanceVar+3]!=plant || dave->_costume!=19 || rolls(dave)!=0) error("The plant lost on load");
+		// Dead Cousin Ted (Maniac's): his own costume up on newly drawn roller
+		// skates, whose wheels turn as he rolls; no air needed.
+		const int ted=worldAppearanceKey(kWorldManiacLooks,12);
+		request(ted);
+		if (dave->_costume!=12 || rolls(dave)!=1 || !worldBreathes(kWorldManiacLooks,12) || strcmp((const char *)dave->getActorName(),"Dead Cousin Ted"))
+			error("Not Ted on skates: costume %d gear %d",dave->_costume,rolls(dave));
+		settle(2);
+		if (dave->getElevation()!=2) error("Ted is not up on his skates (%d)",dave->getElevation());
+		dave->setDirection(90); dave->startAnimActor(dave->_standFrame);
+		{
+			// The skates: the four rows from his lifted feet to the floor
+			// (plate, wheels).
+			const Common::Array<int> on=picture(3,1);
+			dave->putActor(dave->getRealPos().x+1,dave->getRealPos().y,_currentRoom);
+			const Common::Array<int> on2=picture(3,1);
+			int plate=0, plateSame=0, wheel=0, wheelSame=0;
+			for (uint i=0;i<on.size();++i) {
+				if (on[i]<0 || on2[i]<0) continue;
+				if (i<64u) { ++plate; plateSame+=on[i]==on2[i]; } else { ++wheel; wheelSame+=on[i]==on2[i]; }
+			}
+			if (plate<10 || plateSame!=plate || wheel<8 || wheelSame==wheel) { shot("appearance-ted.ppm"); error("Ted's skates: plate %d/%d, wheels %d/%d alike (Ted at %d,%d room %d drawn %d..%d elevation %d)",plateSame,plate,wheelSame,wheel,dave->getPos().x-_virtscr[0].xstart,dave->getPos().y,_currentRoom,dave->_top,dave->_bottom,dave->getElevation()); }
+			warning("APPEARANCE Ted's skates: plate %d pixels, wheels %d of %d turned",plate,wheel-wheelSame,wheel);
+			shot("appearance-ted.ppm");
+		}
 		request(0);
-		if (dave->_costume!=3 || _scummVars[kScummverseHomeCostumeVar+3] || scummverseRollingPot(dave) || strcmp((const char *)dave->getActorName(),"Dave"))
-			error("Not Dave again after the plant: costume %d",dave->_costume);
+		if (dave->_costume!=3 || dave->getElevation() || _scummVars[kScummverseHomeCostumeVar+3] || rolls(dave)>=0 || strcmp((const char *)dave->getActorName(),"Dave"))
+			error("Not Dave again after Ted: costume %d elevation %d",dave->_costume,dave->getElevation());
+		// Day of the Tentacle's Ted (when exported): on his own skates he
+		// glides in his standing pose, dressed up for the contest (spaghetti
+		// hair, big lips, newly drawn); Chaos (Loom) floats. Neither needs air.
+		const int dott=worldAppearanceKey(5,235), chaos=worldAppearanceKey(2,130);
+		if (!scummverseCharacterFrames(5,235).empty()) {
+			request(dott);
+			if (!_scummverseAvatarSprite[3] || !worldBreathes(5,235) || !worldGlider(5,235)) error("Not Day of the Tentacle's Ted");
+			// Off the moon (white teeth would not show on it).
+			dave->putActor(dave->getRealPos().x-10,dave->getRealPos().y,_currentRoom);
+			// The dress-up on his head; his lips (light red) at the front of
+			// his face, which looks the way he faces (mirrored to the left).
+			const int cx=dave->getPos().x-_virtscr[0].xstart;
+			int yellow=0, red=0, white=0, lipsX=0;
+			auto dress=[&](int facing) {
+				dave->setDirection(facing); dave->_needRedraw=true; settle(1);
+				yellow=red=white=lipsX=0;
+				for (int y=MAX(0,dave->_top);y<MIN(dave->_top+24,(int)_virtscr[0].h);++y) for (int x=MAX(0,cx-40);x<MIN(cx+40,_screenWidth);++x) {
+					const byte f=*_virtscr[0].getPixels(x,y);
+					if (f==*_virtscr[0].getBackPixels(x,y)) continue;
+					yellow+=f==14; red+=f==12; white+=f==15; if (f==12) lipsX+=x;
+				}
+				if (yellow<15 || red<4 || white<1) error("No contest dress-up on Ted facing %d: %d yellow, %d red, %d white",facing,yellow,red,white);
+				return (double)lipsX/red-cx;
+			};
+			const double leftLips=dress(270);
+			shot("appearance-dott-ted-left.ppm");
+			const double rightLips=dress(90);
+			if (rightLips<1 || leftLips>-1) error("Ted's lips at %.1f facing right, %.1f facing left",rightLips,leftLips);
+			shot("appearance-dott-ted.ppm");
+			dave->startWalkActor(dave->getRealPos().x+12,dave->getRealPos().y,-1);
+			int moving=0;
+			for (int n=0;n<12;++n) { settle(1); if (dave->_moving) { ++moving; if ((_scummverseAvatarShown[3]/64)%3!=0) error("Ted walks instead of gliding"); } }
+			if (!moving) error("Ted did not move");
+			warning("APPEARANCE Day of the Tentacle's Ted: dress-up %d yellow, %d red, %d white, lips %.1f / %.1f px from his feet; glides",yellow,red,white,rightLips,leftLips);
+		} else warning("APPEARANCE no Day of the Tentacle characters here");
+		if (!scummverseCharacterFrames(2,130).empty()) {
+			request(chaos);
+			if (!_scummverseAvatarSprite[3] || worldBreathes(2,130) || !worldHovers(2,130)) error("Not Chaos");
+			// How far his feet line rides above the floor (his frames hang
+			// a ragged robe below it): the least and most over a bob.
+			dave->setDirection(180);
+			int fdx, fdy, fw, fh;
+			if (!::Scummverse::WorldBridge::guestFrame(_scummverseAvatarSprite[3]-1,worldGuestDir(180),0,0,fdx,fdy,fw,fh) || fh<=0) error("No standing Chaos");
+			int highest=1000, lowest=-1000;
+			for (int n=0;n<80;++n) {
+				dave->_needRedraw=true; settle(1);
+				if (dave->_top<=0) error("Chaos is cut off at the top (%d)",dave->_top);
+				const double scale=(double)(dave->_bottom-dave->_top)/fh;
+				const int lift=dave->getPos().y+(int)floor((fdy+fh)*scale+0.5)-dave->_bottom;
+				highest=MIN(highest,lift); lowest=MAX(lowest,lift);
+			}
+			if (highest<6 || lowest-highest<2) error("Chaos does not float (%d..%d above the floor)",highest,lowest);
+			warning("APPEARANCE Chaos floats %d..%d px above the floor, top %d",highest,lowest,dave->_top);
+			shot("appearance-chaos.ppm");
+		} else warning("APPEARANCE no Loom characters here");
+		request(0);
 		request(indy);
 	}
 	// Unknown keys are refused; key 0 makes Dave himself again.

@@ -260,9 +260,17 @@ van is scaled against the long shot's people. Overlay frames
 (`scummverseOverlayFrame`) add a costume frame over chosen ones (the King's
 quiff). A costume variant may name the room whose palette it is exported
 in (Curse's green Murray). Maniac looks may wear a dome (`worldDomed`, the
-air gear's bowl alone) or roll (`worldRoller`: one fixed costume direction,
-decoded through `scummverseCostumeFacing`, and a newly drawn pot on wheels
-drawn after the limbs by `ClassicCostumeRenderer::drawExtra`).
+air gear's bowl alone) or roll (`worldRoller`: a fixed costume direction
+or their own, decoded through `scummverseCostumeFacing`, and newly drawn
+gear after the limbs by `ClassicCostumeRenderer::drawExtra`: a pot on
+wheels under the feet, or skates in the rows the feet are lifted by,
+`kWorldSkateLift`; V1 elevation counts two-pixel rows). Characters from
+other games may hover (`worldHovers`, a lift capped for tall ones) or glide
+(`worldGlider`: the standing pose while moving, optionally with a newly
+drawn dress-up over the sprite's head, `scummverseDrawDressUp`, and drawn
+mirrored facing left when every frame looks right, `oneWay`). Native
+game folders are found at the top of Documents or one folder down
+(base/main.cpp and the iOS status alike).
 CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
 (the request slot the interface fills and the game takes, the hold flag,
 whole-pixel enlarging with rows 6/5 of columns, selfie framing, pose plans

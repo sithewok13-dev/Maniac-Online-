@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0081 (CAMERA: photos and selfies).
+Active milestone: Phase 1; latest patch 0082 (Chaos, both Teds, the grown plant, Mars air).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1541,3 +1541,73 @@ the reference (read only); the OpenJKDF2 one was not needed.
   suite 37/37; bootstrap; startup. The iOS
   button, ring, panel, flash, shutter, Photos permission and saving are
   not compiled yet (Apple CI on push) and not device-tested.
+
+## Patch 0082 — Chaos, both Teds, the grown plant; Mars air; game folders one level down
+
+User requests (2026-10-17, with pictures of Loom's Chaos, Day of the
+Tentacle's beauty contest (Remastered) and Maniac's upstairs bathroom):
+play as Chaos, levitating; play as Day of the Tentacle's Ted dressed for the
+beauty contest (spaghetti for hair, the fake lips, roller skates), rolling
+on his skates and otherwise still; play as Maniac's Ted with roller skates,
+otherwise still; the plant fully grown; no fishbowl for the Meteor Police
+on Mars (his dome is his helmet), a fishbowl for the plant there. Also:
+Loom and Sam & Max shown greyed out although their files were installed.
+- Chaos (Loom costume 130) hovers (`kWorldHoverers`) and needs no air. The
+  hover lift is now at most 12 pixels plus the bob, so a tall character
+  stays on the screen; his robe hangs below his feet line, so the gap
+  under it is smaller than the lift.
+- Day of the Tentacle's Ted (costume 235: white suit, sunglasses, roller
+  skates, bald; the floppy data has no contest head, which is in the
+  Remastered art only) is a glider (`kWorldGliders`): he keeps his standing
+  pose while he moves, so he rolls on his own skates. Played, he wears a
+  newly drawn dress-up (`scummverseDrawDressUp`): wavy yellow strands over
+  his scalp, short over the brow and long at the back, and big red lips
+  with white teeth over his mouth, fitted to his frames (they all look
+  right). His frames all look right, so facing left he is drawn mirrored,
+  dress-up included (`oneWay`), here and as a guest in his own world, where
+  he glides without the dress-up. He wears a fishbowl on Mars (the user:
+  "Ted should get a fishbowl when he's on mars"; he is dead, so the
+  fishbowl is deliberate dark humor).
+- Dead Cousin Ted (Maniac costume 12) is a new Maniac look (newly written
+  personality and lines). He rolls (`worldRoller` with gear skates, his own
+  direction): lifted two V1 rows (four pixels, `kWorldSkateLift`), with
+  newly drawn skates filling them: red plates on yellow wheels whose
+  spokes turn as he rolls (fixed colors so they show on any floor). He
+  wears a fishbowl and tank on Mars, over his own head.
+- The plant's direction is now away from the viewer: the grown plant
+  (about 70 px, 86 with the pot), still on its pot with wheels. It breathes,
+  so Mars gives it a fishbowl and tank; the Meteor Police officer no longer
+  does (his dome stays everywhere).
+- Where Mars has air (the user: fishbowls only outdoors and in the Great
+  Pyramid; "inside the great chamber on mars there's breathable air"):
+  `zakAirlessRooms` is now the landing site, the tram station, the Great
+  Pyramid's entrance and its corridor, sarcophagus chamber and crystal
+  room. The Face from its Great Chamber in (the three massive doors, the
+  antechambers, passages and chambers) and the hostel's airlock have air,
+  as if the original's air machine and airlock were running.
+- Loom and Sam & Max greyed out: the user's files were fine (byte-for-byte
+  the tested copies) but sat inside an unzipped archive's folder. The app
+  now looks one folder further down too, skipping `__MACOSX` and hidden
+  folders (base/main.cpp for setup, the iOS status for the menu), and
+  Connected worlds names top-level folders it does not recognize.
+- Verified (Linux, the user's private copies): test_world (catalog: the
+  officer airless and domed, the plant breathing and grown, Ted's skates,
+  the glider and its dress-up, Chaos hovering); tools/test_appearance.py
+  (the plant's grown stage in all four directions, 80..96 px with the pot,
+  pot unchanged and wheels turned; Maniac Ted lifted, skate plates
+  unchanged and wheels turned one step on, back to Dave; Day of the
+  Tentacle's Ted in his dress-up and gliding; Chaos 10..14 px over the
+  floor and on the screen; DOTT Ted's lips at the front of his face either
+  way he faces); tools/test_mars_air.py (air in the hostel's airlock, the
+  Great Chamber, the three massive doors and the machine chamber; none
+  outside and inside the Great Pyramid and at the landing site; playing
+  the officer: no gear, the dome kept; the plant and both Teds: gear;
+  Chaos: none); original-data suite 37/37; bootstrap; startup; tools/test_world_setup.py (game folders inside an archive's
+  folder, beside a `__MACOSX` decoy); screenshots checked by eye (on the
+  dark brick wall outside the Face the bowls' black rims are faint, as
+  everyone's are there).
+- The user's Loom and Sam & Max showed once they renamed the folders
+  without the trailing spaces, on the build before this patch (which
+  already ignored spaces at the ends of names here on Linux, so the cause
+  on the iPhone is not certain; the nested folder is the likelier one). The iOS folder search and the new status line are not compiled yet
+  (Apple CI on push) and not device-tested.

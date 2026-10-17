@@ -31,12 +31,20 @@ in-game menu's **Connected worlds**: its message ends with "Build: patch 0063,
 build 69 (…)" and how many of your other games are exported for that build.
 Other games are set up once, at launch, before Maniac Mansion starts; keep the
 app open until then. Folder names ignore case and spaces around them, but
-must otherwise match (`loom`, `samnmax`, …). Once a game is set up, the
+must otherwise match (`loom`, `samnmax`, …). A game folder is found at the
+top of Files › SCUMMVERSE or one folder further down (unzipping an archive
+of several game folders in the Files app puts them inside a folder named
+after the archive; a Mac's `__MACOSX` folder is ignored). Connected worlds
+names any top-level folder it doesn't recognize. Once a game is set up, the
 Worlds menu's "Play as someone else" lets the character you control
 become anyone from it (Indy, Guybrush, Sam and Max, The Creator, …); the
 Purple Meteor from Maniac Mansion itself is always offered first, and floats,
-followed by the Meteor Police officer (in a glass dome) and the man-eating
-plant (rolling on a pot with wheels);
+followed by the Meteor Police officer (in a glass dome, his helmet, so no
+fishbowl on Mars), the man-eating plant (fully grown, rolling on a pot with
+wheels; a fishbowl on Mars) and Dead Cousin Ted (on roller skates, a
+fishbowl on Mars too);
+Loom offers Chaos, who floats; Day of the Tentacle offers Ted dressed up
+for the beauty contest (spaghetti hair, big lips), who glides on his skates;
 Curse of Monkey Island offers Murray twice (the skull as in the theater, and
 green as in the ship's hold). A game whose setup stopped twice is listed as "Could not
 set up" and skipped; to retry it, delete its `.try` file in the `worlds`

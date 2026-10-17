@@ -1,7 +1,8 @@
-	// On Mars without air, whoever breathes wears a fishbowl and an oxygen
-	// tank: a Maniac kid, Zak, Melissa, and (with exported characters) Murray
-	// played by Bernard; the tentacle and the Caponian do not. Indoors with
-	// air (the hostel bunks) nobody does.
+	// On Mars without air (outdoors and inside the Great Pyramid), whoever
+	// breathes wears a fishbowl and an oxygen tank: a Maniac kid, Zak,
+	// Melissa, and (with exported characters) Murray played by Bernard; the
+	// tentacle and the Caponian do not. Indoors with air (the hostel, the
+	// Face from its Great Chamber in) nobody does.
 	if(!_scummverseRoaming) { warning("SCUMMVERSE_MARS_AIR_PASS enabled=0");quitGame();return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -42,10 +43,12 @@
 			if(scummverseNeedsAir(a)!=(worn && people[i].gear)) error("Actor %d needs air %d in %d",people[i].id,scummverseNeedsAir(a),_currentRoom);
 		}
 	};
-	// Air: the hostel bunks.
+	// Air: the hostel's airlock; the Face's Great Chamber, its three massive
+	// doors and its machine chamber; the hostel bunks.
+	line_up(181); heights(false); line_up(83); heights(false); line_up(82); heights(false); line_up(93); heights(false);
 	line_up(80); heights(false);
-	// No air: the Face's entrance, outdoors.
-	line_up(82); heights(true);
+	// No air: outside the Great Pyramid.
+	line_up(71); heights(true);
 	{ Common::DumpFile f; if(f.open(Common::Path("/workspace/Maniac-Online/build/mars-air.ppm"))) {
 		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); } } }
@@ -62,8 +65,35 @@
 		if(people[0].worn*62>plain*27*1.3 || people[0].worn*62<plain*27*0.8) error("Dave %d px at the landing site, %d px normally",people[0].worn,plain);
 		warning("MARS_AIR landing site: Dave %d px (normally %d)",people[0].worn,plain);
 	}
+	// Inside the Great Pyramid: no air either.
+	line_up(187); heights(true);
 	// Leaving for air takes the gear off again.
 	line_up(80); heights(false);
+	// Looks outside on Mars: the Meteor Police officer's dome is his helmet
+	// (no air needed); the grown plant and both Teds breathe (fishbowl and
+	// tank; Ted is dead: the user's dark joke); Chaos (when exported) needs
+	// none.
+	{
+		struct Look { int game, costume; bool gear; const char *shot; };
+		const Look looks[]={{kWorldManiacLooks,15,false,"mars-police.ppm"},{kWorldManiacLooks,19,true,"mars-plant.ppm"},
+			{kWorldManiacLooks,12,true,"mars-ted.ppm"},{5,235,true,"mars-dott-ted.ppm"},{2,130,false,nullptr}};
+		Actor *dave=derefActor(3,"looks on Mars");
+		for(const Look &l : looks) {
+			if(l.game!=kWorldManiacLooks && scummverseCharacterFrames(l.game,l.costume).empty()) continue;
+			const int key=worldAppearanceKey(l.game,l.costume);
+			scummverseWorldRequest(worldAppearanceRequest(key)); scummverseUpdateRoaming(0); settle(4);
+			if(scummverseAppearance(3)!=key) error("Dave did not become %d:%d: %s",l.game,l.costume,_scummverseWorldNotice.c_str());
+			line_up(71); dave->_needRedraw=true; settle(1);
+			if(scummverseNeedsAir(dave)!=l.gear) error("Look %d:%d needs air %d on Mars",l.game,l.costume,scummverseNeedsAir(dave));
+			if(l.costume==15 && !scummverseDomed(dave)) error("The officer lost his dome on Mars");
+			if(l.shot) { Common::DumpFile f; if(f.open(Common::Path(Common::String("/workspace/Maniac-Online/build/")+l.shot))) {
+				Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
+				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); } } }
+			warning("MARS_AIR look %d:%d needs air %d",l.game,l.costume,scummverseNeedsAir(dave));
+		}
+		scummverseWorldRequest(worldAppearanceRequest(0)); scummverseUpdateRoaming(0); settle(4);
+		if(scummverseAppearance(3) || dave->_costume!=3) error("Not Dave again after the looks on Mars");
+	}
 	warning("SCUMMVERSE_MARS_AIR_PASS enabled=1");
 	quitGame();
 	return;
