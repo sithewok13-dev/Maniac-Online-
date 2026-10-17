@@ -107,6 +107,59 @@
 		warning("APPEARANCE Murray floats %d..%d px above his feet",feet-highest,feet-lowest);
 		request(indy);
 	}
+	// The Creator (The Dig) has one pose; in the mansion he stands as much
+	// taller than a teenager as he does beside a person in his own game.
+	{
+		const int creator=worldAppearanceKey(8,321);
+		if (!worldAppearance(creator) || strcmp(worldAppearance(creator)->name,"The Creator")) error("The Creator's key changed");
+		if (scummverseCharacterFrames(8,321).empty()) warning("APPEARANCE no export of The Dig: The Creator skipped");
+		else {
+			if (!scummverseTravel(2)) error("Cannot return to the mansion");
+			settle(4);
+			request(creator);
+			if (_scummVars[kScummverseAppearanceVar+3]!=creator || !_scummverseAvatarSprite[3] || strcmp((const char *)dave->getActorName(),"The Creator"))
+				error("Not playing The Creator: %s",(const char *)dave->getActorName());
+			const int h=drawn(dave), expected=90*72/kWorldGames[8].heroHeight;
+			if (ABS(h-expected)>expected/5) error("The Creator drawn %d px tall, expected about %d",h,expected);
+			warning("APPEARANCE The Creator height %d (expected %d)",h,expected);
+			shot("appearance-creator.ppm");
+		}
+	}
+	// The Purple Meteor (Maniac's own): Dave wears its costume, named and
+	// chatting as it, floating with a bob, with no fishbowl on Mars, through
+	// save/load and into another world; his own costume comes back after.
+	{
+		const int meteor=worldAppearanceKey(kWorldManiacLooks,16);
+		if (!worldAppearance(meteor) || strcmp(worldAppearance(meteor)->name,"Purple Meteor")) error("The Meteor's key changed");
+		if (!scummverseTravel(2)) error("Cannot return to the mansion");
+		settle(4);
+		request(meteor);
+		if (_scummVars[kScummverseAppearanceVar+3]!=meteor || FakeAI::appearance[3]!=meteor || dave->_costume!=16 || _scummVars[kScummverseHomeCostumeVar+3]!=3 || _scummverseAvatarSprite[3])
+			error("Not the Meteor: key %d chat %d costume %d home %d sprite %d",_scummVars[kScummverseAppearanceVar+3],FakeAI::appearance[3],dave->_costume,_scummVars[kScummverseHomeCostumeVar+3],_scummverseAvatarSprite[3]);
+		if (strcmp((const char *)dave->getActorName(),"Purple Meteor")) error("Name is %s",(const char *)dave->getActorName());
+		// In the Meteor's own colors (Maniac colors costumes by actor).
+		if (scummverseColorActor(3)!=16) error("Dave as the Meteor wears actor %d's colors",scummverseColorActor(3));
+		if (worldBreathes(kWorldManiacLooks,16)) error("The Meteor needs air");
+		int lowest=1000, highest=-1000;
+		for (int n=0;n<80;++n) { settle(1); lowest=MIN(lowest,dave->getElevation()); highest=MAX(highest,dave->getElevation()); }
+		if (lowest<1 || highest-lowest<2) error("The Meteor does not hover and bob (%d..%d)",lowest,highest);
+		if (dave->_top>=dave->_bottom) error("The Meteor is not drawn");
+		warning("APPEARANCE Purple Meteor floats %d..%d px, drawn %d..%d",lowest,highest,dave->_top,dave->_bottom);
+		shot("appearance-meteor.ppm");
+		Common::String file; _saveLoadDescription="Playing the Meteor";
+		if (!saveState(15,false,file) || !loadState(15,false)) error("Save failed");
+		settle(4);
+		if (_scummVars[kScummverseAppearanceVar+3]!=meteor || dave->_costume!=16 || strcmp((const char *)dave->getActorName(),"Purple Meteor")) error("The Meteor lost on load");
+		if (!scummverseTravelPlace(0,33)) error("Cannot visit Melee Island");
+		settle(8);
+		dave->_needRedraw=true; settle(1);
+		if (dave->_top>=dave->_bottom || dave->_bottom-dave->_top>40) error("The Meteor drawn %d..%d on Melee Island",dave->_top,dave->_bottom);
+		shot("appearance-meteor-melee.ppm");
+		request(0);
+		if (dave->_costume!=3 || _scummVars[kScummverseHomeCostumeVar+3] || dave->getElevation() || scummverseColorActor(3)!=3 || strcmp((const char *)dave->getActorName(),"Dave"))
+			error("Not Dave again: costume %d elevation %d",dave->_costume,dave->getElevation());
+		request(indy);
+	}
 	// Unknown keys are refused; key 0 makes Dave himself again.
 	request(worldAppearanceKey(3,999));
 	if (_scummVars[kScummverseAppearanceVar+3]!=indy) error("Unknown character accepted");

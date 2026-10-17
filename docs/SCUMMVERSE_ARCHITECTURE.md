@@ -229,7 +229,13 @@ Scale: everyone in another world is as tall as that game's lead character
 (`WorldGame::heroHeight`) fitted like the scene, times the game's own scale for
 the walk box there (exported per box, "SVW3"). V1 characters are rendered by
 their own renderer into a canvas and scaled around their feet; guests' frames
-are scaled the same way (`scummverseDrawWorldActor`). Room kinds: scene,
+are scaled the same way (`scummverseDrawWorldActor`). Curse of Monkey Island
+rooms that set their box scales only in the entry script are exported after
+a dry run of it (state restored, pixels unchanged). Aspect: Maniac's screen
+is shown 1.2 times taller than drawn, like the 320x200 games; Curse (square
+pixels) is widened 1.2 when fitted (`worldWiden`), scenes and characters
+alike. Maniac's own characters can be played too (`kWorldManiacLooks`:
+the costume itself, in its actor's V1 colors). Room kinds: scene,
 map (small figures, 0.3 of that height; hotspots travel at once) and floor
 plan (small figures that walk to the doors; the exporter reveals every
 section) (`scummverseWorldDepth`, `kWorldFloorPlan`). Doors of v3 template

@@ -78,6 +78,12 @@ static void testSprites() {
 		if (p) { ++opaque; const int slot = p - 224; assert(fit.palette[slot * 3] == 30 || fit.palette[slot * 3] == 31); }
 	}
 	assert(opaque > 0);
+	// Widened (square-pixel art): 1.2 times wider about the feet, as tall.
+	{
+		SourceSprite wideSrc = src; wideSrc.widen = 1.2;
+		SandboxSprite wideFit; assert(fitSprite(wideSrc, 0.5, 224, 32, wideFit, error));
+		assert(wideFit.frames[0].dx == -6 && wideFit.frames[0].width == 12 && wideFit.frames[0].height == 20 && wideFit.frames[0].dy == -20);
+	}
 	// At full size the transparent top row stays transparent.
 	assert(fitSprite(src, 1.0, 224, 32, fit, error));
 	for (int x = 0; x < 20; ++x) assert(fit.frames[0].pixels[x] == 0 && fit.frames[0].pixels[20 + x] != 0);
@@ -179,6 +185,19 @@ static void testCatalog() {
 	}
 	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
 	assert(worldHovers(9, 49) && !worldHovers(0, 49));
+	// Maniac's own looks: a pseudo game beyond the real ones, found by key,
+	// hovering and airless (the Purple Meteor); real keys never reach it.
+	{
+		const int meteor = worldAppearanceKey(kWorldManiacLooks, 16);
+		assert(worldNativeLook(meteor) && worldAppearance(meteor) && !strcmp(worldAppearance(meteor)->name, "Purple Meteor"));
+		assert(worldHovers(kWorldManiacLooks, 16) && !worldBreathes(kWorldManiacLooks, 16));
+		assert(!worldAppearance(worldAppearanceKey(kWorldManiacLooks, 17)) && kWorldManiacLooks > worldGameCount());
+		for (const auto &c : kWorldCast) assert(!worldNativeLook(worldAppearanceKey(c.game, c.guest.costume)));
+		for (const auto &look : kWorldManiacCast) assert(look.costume > 0 && look.costume < 44 && look.talkColor < 16 && look.lines[2]);
+		assert(!worldNativeLook(0) && worldAppearance(worldAppearanceKey(8, 321)) && !strcmp(worldAppearance(worldAppearanceKey(8, 321))->name, "The Creator"));
+	}
+	// Only Curse of Monkey Island (square pixels) is widened.
+	for (int g = 0; g < worldGameCount(); ++g) assert(worldWiden(g) == (sameId(kWorldGames[g].gameid, "comi") ? 1.2 : 1.0));
 	// Exploration presets: their rooms are visitable; tints apply to rooms
 	// whose scripts run; switched objects and variables are the game's own.
 	for (const auto &p : kWorldPresetScripts) assert(worldRoomKind(p.game, p.room) >= 0 && p.script >= 2000 && worldPresetRoom(p.game, p.room));
@@ -186,9 +205,10 @@ static void testCatalog() {
 	for (const auto &c : kWorldPresetClassesOff) assert(c.game < worldGameCount() && c.cls >= 1 && c.cls <= 32);
 	for (const auto &v : kWorldPresetVars) assert(v.game < worldGameCount() && v.var > 0);
 	assert(worldPresetRoom(8, 77) && worldPresetRoom(8, 91) && !worldPresetRoom(8, 2) && !worldPresetRoom(0, 31));
-	// Who needs no air on Mars: cast members only; Murray and the monkeys do.
+	// Who needs no air on Mars: cast members (or Maniac's own looks) only;
+	// Murray and the monkeys do.
 	for (const auto &x : kWorldAirless) {
-		bool cast = false;
+		bool cast = worldAppearance(worldAppearanceKey(x.game, x.costume)) != nullptr;
 		for (const auto &c : kWorldCast) cast = cast || (c.game == x.game && c.guest.costume == x.costume);
 		assert(cast && !worldBreathes(x.game, x.costume));
 	}
@@ -369,7 +389,29 @@ int main() {
 	assert(narrow.width == 320 && narrow.padLeft == 128 && narrow.padLeft % 8 == 0);
 	assert(narrow.boxes[0].ulx == 16 && narrow.pixels[0] == narrow.pixels[319]); // Pad color both sides.
 	assert(narrow.leftX == 16 && narrow.rightX >= (128 + 64) / 8 - 2 && narrow.rightX <= 24);
-	std::printf("PASS: color budget, invalid targets, width limit, narrow padding\n");
+	assert(narrow.contentWidth == 64 && narrow.scaleX == narrow.scale);
+	// Square-pixel art (Curse of Monkey Island) widened 1.2 beside art shown
+	// 1.2 times taller: wider picture, boxes and objects; rows unchanged.
+	{
+		std::vector<uint8_t> px(640 * 480);
+		for (int y = 0; y < 480; ++y) for (int x = 0; x < 640; ++x) px[(size_t)y * 640 + x] = (uint8_t)(x < 320 ? 1 : 2);
+		auto square = sceneBytes(640, 480, px, {box(320, 400, 639, 479)});
+		assert(parseScene(square.data(), square.size(), src, error));
+		SandboxScene plain, wide;
+		assert(fitScene(src, 128, 16, 240, plain, error, 320));
+		src.widen = 1.2;
+		assert(fitScene(src, 128, 16, 240, wide, error, 320));
+		assert(plain.contentWidth == 171 && wide.contentWidth == 205 && wide.scale == plain.scale && wide.height == 128);
+		assert(std::abs(wide.scaleX - plain.scale * 1.2) < 1e-9 && wide.padLeft == 56);
+		// The color boundary at source column 320 lands 1.2 times further in.
+		const int seam = wide.padLeft + 102;
+		assert(wide.pixels[(size_t)64 * 320 + seam - 3] != wide.pixels[(size_t)64 * 320 + seam + 3]);
+		assert(plain.pixels[(size_t)64 * 320 + plain.padLeft + 85 + 3] == wide.pixels[(size_t)64 * 320 + seam + 3]);
+		// Plain: content 171 at pad 72, box columns 20..30; widened: 205 at 56, 20..33.
+		assert(plain.padLeft == 72 && plain.boxes[0].ulx == 20 && plain.boxes[0].lrx == 30);
+		assert(wide.boxes[0].ulx == 20 && wide.boxes[0].lrx == 33 && wide.boxes[0].uy == plain.boxes[0].uy && wide.boxes[0].ly == plain.boxes[0].ly);
+	}
+	std::printf("PASS: color budget, invalid targets, width limit, narrow padding, widened square pixels\n");
 
 	// SVW2: the room's objects follow the boxes; rectangles scale and shift
 	// with the scene, walk-to points become V1 units.

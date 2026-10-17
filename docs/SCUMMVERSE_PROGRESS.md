@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0077 (Melissa and Leslie's van flies).
+Active milestone: Phase 1; latest patch 0078 (Curse of Monkey Island in proportion; play the Purple Meteor).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1327,4 +1327,59 @@ windshield endlessly, with Arrive.
   tools/test_world.cpp van sites; original-data suite 36/36; startup test. iOS
   destination computer and Arrive button compiled by Apple CI only. Not
   device-tested.
+
+## Patch 0078 — Curse of Monkey Island in proportion; play the Purple Meteor
+
+User report (2026-10-17, four iPhone screenshots): scaling problems in Curse
+of Monkey Island and Fate of Atlantis; a Curse jungle scene looked cut off or
+in the wrong aspect; requests to play as The Creator (The Dig) and as the
+Purple Meteor, levitating like Murray or Zak's Guru.
+- Curse's aspect: the phone shows Maniac's 320x200 screen 1.2 times taller
+  (aspect correction), as the 320x200 games were drawn for; Curse draws
+  square pixels at 640x480, so its scenes came out squeezed (a 4:3 room
+  171 px wide). Scenes and Curse characters are now widened 1.2 when fitted
+  (`SourceScene::widen`, `SourceSprite::widen`, catalog `worldWiden`;
+  pictures, boxes, objects and door points follow); a 4:3 room is 205 px
+  wide. It still sits between dark bands: a 4:3 picture cannot fill the wide
+  V1 strip without cropping, which this patch does not do.
+- Curse's depth: eight rooms (Puerto Pollo, Blood Island's village, the
+  Carnival and others) give their walk boxes a scale only through their entry
+  script (box scale slots set at run time), so visitors stood at full size
+  (Dave 72 px in Puerto Pollo, about twice Guybrush). The exporter now runs
+  such a room's entry script for a few cycles (Curse only: some v7 entry
+  scripts need data export mode leaves out), keeps the per-box scales it
+  leaves, puts back the game state it changed and sets the room up again;
+  pixels are unchanged. Dave in Puerto Pollo is now 57 px, beside Guybrush.
+  Export version 11.
+- Fate of Atlantis: not reproduced. With the same data the Linux build draws
+  Dave 40 px tall on the Seaside village dock (the guest beside him 43 px),
+  while the screenshots show him at the unscaled 72 px; every scaled path
+  checks out in code, so the phone may be running a build from before patch
+  0065 (scale). Asked the user for the build number (Connected worlds).
+- Narrow scenes: guests are placed on the scene's own picture, clear of the
+  dark side bands (the hotel-lobby screenshot had one half outside it).
+- The Creator: already in The Dig's cast and exported (costume 321, one
+  pose for every direction; 218 is the same pose and 320/322 are cutscene
+  effects, checked by a trial export). Playable from Worlds → Play as
+  someone else → The Dig; verified through the engine (103 px in the mansion,
+  as much taller than a teenager as beside a person in his game).
+- The Purple Meteor: Maniac's own actor 16 (costume 16), offered first in
+  Play as someone else. A Maniac look (pseudo game kWorldManiacLooks, key
+  saved like other looks) dresses the character in that costume, in the
+  Meteor's own V1 colors (Maniac colors costumes by actor:
+  `scummverseColorActor`), named and chatting as the Purple Meteor (newly
+  written personality and lines), hovering with a slow bob (its costume
+  already floats), with no fishbowl on Mars; the character's own costume is
+  kept in saved vars 666..689 and comes back with "Be yourself again".
+- WiFi content stamp 78 (scene geometry changed).
+- Verified (Linux, the user's private copies): test_world (widened fit,
+  sprites, catalog looks); ten-game export (645 scenes, 260 characters, no
+  errors; only Curse's scales differ from 0077, pixels identical);
+  tools/test_appearance.py (The Creator's height; the Meteor's costume,
+  colors, name, chat identity, hover 2..6 px, save/load, Melee Island, back
+  to Dave); world visit: 1607 doors work, 60 fail (0077: 1608/59; two Curse
+  doors in rooms whose boxes convert to slivers now fail, one works);
+  screenshots of Puerto Pollo, the village, the Carnival and the beach
+  checked by eye; original-data suite 36/36; bootstrap; startup test. iOS
+  menu entry compiled by Apple CI only. Not device-tested.
 

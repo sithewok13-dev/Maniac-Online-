@@ -32,8 +32,9 @@ build 69 (…)" and how many of your other games are exported for that build.
 Other games are set up once, at launch, before Maniac Mansion starts; keep the
 app open until then. Folder names ignore case and spaces around them, but
 must otherwise match (`loom`, `samnmax`, …). Once a game is set up, the
-Worlds menu's "Play as someone from another world" lets the character you
-control become anyone from it (Indy, Guybrush, Sam and Max, …). A game whose setup stopped twice is listed as "Could not
+Worlds menu's "Play as someone else" lets the character you control
+become anyone from it (Indy, Guybrush, Sam and Max, The Creator, …); the
+Purple Meteor from Maniac Mansion itself is always offered first, and floats. A game whose setup stopped twice is listed as "Could not
 set up" and skipped; to retry it, delete its `.try` file in the `worlds`
 folder with the Files app. If it still shows an older build, the old app is the one being opened: look for
 a second SCUMMVERSE icon (two sideloading tools can install two copies), and
