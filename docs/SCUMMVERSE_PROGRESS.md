@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0066 (other worlds: script-built rooms, map figures; guest chat crash fixed).
+Active milestone: Phase 1; latest patch 0067 (other worlds: all of Castle Brunwald on foot).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -963,4 +963,46 @@ message crashes. Also asked: is local multiplayer available (yes, since
   doors' scripts build them, which the export does not run); Loom's cave 65
   is dark; Atlantis 20 and Full Throttle 13 (the ride map) are blank;
   nothing here is device-tested.
+
+## Patch 0067 — all of Castle Brunwald on foot
+
+User request (2026-10-17): walk around Castle Brunwald in its entirety, as
+in the original. Two things were missing.
+- The three floors (rooms 20, 28, 32) are floor plans: overhead maps a small
+  Indy walks around. Each section is an untouchable object switched off under
+  a dark cover and drawn only while its cover is off (presumably revealed as
+  he explores; inferred from the objects, the reveal script was not traced),
+  so the scenes exported black. Door maps now
+  have a third room kind, the floor plan (tools/world_maps.py FLOOR_PLANS):
+  the exporter switches every section on and its cover off (then refreshes
+  the room's object states), and everyone there is a small figure who walks
+  to the doors (map rooms still travel at once).
+- The rooms off the halls are instances of four templates (corridors, two
+  kinds of room, tower rooms) whose doors call
+  loadRoomWithEgo(object, room) with variables the instance's entry script
+  sets (V99..V107; read from the door scripts with descumm). The analysis had
+  left them unresolved, so most rooms had no way back and some doors were
+  hidden. world_maps.py's TEMPLATE_DOORS now names each template's door
+  variables (numbers only) and resolves them per instance from private
+  values captured after each entry script (build/foreign/links/
+  indy3-vars.json); they replace the analysis's links for those objects. A
+  room of 0 means no door, and the tower and guard-room windows count only
+  where the outer wall has a window leading back. The same rules join the
+  Venice library's stacks and reading rooms.
+- 48 castle rooms (floors, entrance and great hall, kitchen, laundry,
+  office, guard rooms, bedrooms, corridors, towers) are now reached from the
+  entrance hall through doors and lead back to it (unit-tested). The guards'
+  corridor (132, a story encounter) keeps its menu entry.
+  kWorldExportVersion is 6.
+- Verified (Linux, the user's private copies): export of all ten games
+  (also ASan: clean, identical files); tools/test_world.cpp (door maps 634
+  rooms, 1683 doors, 55 story areas, every room reachable; Castle Brunwald
+  both ways); tools/test_world_visit.py (also ASan) walks every door: 1601
+  lead where the map says (was 1550), 66 do not (none in the castle), none
+  hidden (was 76); the three floor plans draw and their visitor is a small
+  figure; screenshots of the floors and several rooms compared by eye;
+  original-data suite. Not device-tested.
+- Not done: the guards and Vogel are not in the rooms; doors are not
+  opened or closed (a tap walks through); the floor plans show everything at
+  once instead of revealing as you explore.
 

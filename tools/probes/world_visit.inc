@@ -187,12 +187,22 @@
 		}
 	}
 	warning("WORLD story areas %d",areas);
-	// Map rooms (Melee Island, the Venice catacomb tunnels): visitors are small figures.
-	int maps=0;
+	// Map rooms (Melee Island, the Venice catacomb tunnels) and floor plans
+	// (Castle Brunwald's floors): visitors are small figures. Floor plans
+	// show every section (they used to export black).
+	int maps=0, plans=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
 		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
 		for (int i=0;map && i<map->roomCount;++i) {
-			if (map->rooms[i].kind!=1 || !scummverseTravelPlace(g,map->rooms[i].room)) continue;
+			const int kind=map->rooms[i].kind;
+			if ((kind!=::Scummverse::WorldCatalog::kWorldMapRoom && kind!=::Scummverse::WorldCatalog::kWorldFloorPlan) || !scummverseTravelPlace(g,map->rooms[i].room)) continue;
+			if (kind==::Scummverse::WorldCatalog::kWorldFloorPlan) {
+				settle(6);
+				bool used[256]={}; int colors=0;
+				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); if(!used[c]) { used[c]=true; ++colors; } }
+				if (colors<16) error("Floor plan %d:%d shows %d colors (sections hidden)",g,map->rooms[i].room,colors);
+				++plans;
+			}
 			settle(6); me->_needRedraw=true; settle(1);
 			const double expected=::Scummverse::WorldCatalog::kWorldGames[g].heroHeight*::Scummverse::WorldBridge::sceneScale()*scummverseWorldDepth(me);
 			const int drawn=me->_bottom-me->_top;
@@ -201,7 +211,8 @@
 			++maps;
 		}
 	}
-	warning("WORLD map rooms %d",maps);
+	warning("WORLD map rooms %d (floor plans %d)",maps,plans);
+	if (plans<3) error("Only %d floor plans visited",plans);
 	// Every character, in its own room: placed, named, in the talk roster, drawn.
 	int everyone=0, small=0;
 	for (const auto &cast : ::Scummverse::WorldCatalog::kWorldCast) {

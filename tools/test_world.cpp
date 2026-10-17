@@ -179,6 +179,39 @@ static void testMaps() {
 		doors += map->linkCount;
 	}
 	std::printf("PASS: door maps (%d rooms, %d doors, %d story areas; every room reachable)\n", rooms, doors, areas);
+	// Castle Brunwald (Last Crusade, game 3) on foot: its three floors are
+	// floor plans; every hall, room, corridor and tower room is reached from
+	// the entrance hall (22) through doors and leads back to it. Only the
+	// guards' corridor (132, a story encounter) is entered by menu.
+	const int indy3 = 3;
+	assert(std::string(kWorldGames[indy3].gameid) == "indy3");
+	for (int floor : {20, 28, 32}) assert(worldRoomKind(indy3, floor) == kWorldFloorPlan);
+	const WorldMap *castle = worldMap(indy3);
+	auto walk = [&](int from, bool forward) {
+		std::vector<int> seen{from}, todo{from};
+		while (!todo.empty()) {
+			const int room = todo.back(); todo.pop_back();
+			for (int i = 0; i < castle->linkCount; ++i) {
+				const WorldLink &l = castle->links[i];
+				const int a = forward ? l.room : l.target, b = forward ? l.target : l.room;
+				if (a == room && std::find(seen.begin(), seen.end(), b) == seen.end()) { seen.push_back(b); todo.push_back(b); }
+			}
+		}
+		return seen;
+	};
+	const std::vector<int> out = walk(22, true), back = walk(22, false);
+	int castleRooms = 0;
+	for (int i = 0; i < castle->roomCount; ++i) {
+		const int room = castle->rooms[i].room;
+		if (!((room >= 20 && room <= 34) || (room >= 129 && room <= 166)) || room == 132) continue;
+		if (std::find(out.begin(), out.end(), room) == out.end() || std::find(back.begin(), back.end(), room) == back.end()) {
+			std::printf("FAIL: Castle Brunwald room %d is not walkable both ways\n", room);
+			assert(false);
+		}
+		++castleRooms;
+	}
+	assert(castleRooms >= 48);
+	std::printf("PASS: Castle Brunwald on foot (%d rooms both ways from the entrance hall; floors are floor plans)\n", castleRooms);
 }
 
 int main() {

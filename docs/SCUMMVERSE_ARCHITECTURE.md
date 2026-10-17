@@ -181,7 +181,7 @@ peers to cast members and validates rooms against this build
 deterministic systems validate: remote input never reaches the conversation
 model and never controls the local player's character.
 
-## Other worlds (patches 0057..0066)
+## Other worlds (patches 0057..0067)
 
 Scenes and characters from other SCUMM games are never shipped: the player's
 own copy is run once in export mode, and its own engine renders a private
@@ -214,8 +214,12 @@ Scale: everyone in another world is as tall as that game's lead character
 (`WorldGame::heroHeight`) fitted like the scene, times the game's own scale for
 the walk box there (exported per box, "SVW3"). V1 characters are rendered by
 their own renderer into a canvas and scaled around their feet; guests' frames
-are scaled the same way (`scummverseDrawWorldActor`). On map rooms (kind 1)
-everyone is a small figure, 0.3 of that height (`scummverseWorldDepth`).
+are scaled the same way (`scummverseDrawWorldActor`). Room kinds: scene,
+map (small figures, 0.3 of that height; hotspots travel at once) and floor
+plan (small figures that walk to the doors; the exporter reveals every
+section) (`scummverseWorldDepth`, `kWorldFloorPlan`). Doors of v3 template
+instances are resolved at generation time from each template's door
+variables and the values its entry script sets (tools/world_maps.py).
 Script-built rooms: a v3/v4 pseudo room is exported by mapping it to its
 template (the boot script, which normally does this, is skipped) and running
 the room's entry script for a few cycles; one-color v3/v4 renders are retried

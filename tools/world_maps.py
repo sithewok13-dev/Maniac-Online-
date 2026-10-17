@@ -5,7 +5,7 @@ areas a game reaches only through its story.
 
 Input is private analysis of the user's own copies (build/foreign/links/
 <game>.json: rooms with a kind, door links found in object scripts, and the
-reachable set). The output holds only room and object numbers for the
+reachable set; <game>-vars.json: template instances' door variables). The output holds only room and object numbers for the
 audited editions and the newly written area names below; no game data. Run
 after updating the analysis, then rebuild.
 """
@@ -17,7 +17,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # Same order as kWorldGames in engine/common/scummverse_world_catalog.h.
 GAMES = ['monkey', 'monkey2', 'loom', 'indy3', 'atlantis', 'tentacle', 'samnmax', 'ft', 'dig', 'comi']
-KINDS = {'scene': 0, 'map': 1}
+KINDS = {'scene': 0, 'map': 1, 'floor plan': 2}
+# Floor plans: overhead maps a small figure walks around (unlike map rooms,
+# whose hotspots travel at once). The exporter reveals all of their sections.
+FLOOR_PLANS = {('indy3', 20), ('indy3', 28), ('indy3', 32)}  # Castle Brunwald's three floors
+# Doors of v3 template rooms (instanced as pseudo rooms 128+) call
+# loadRoomWithEgo(arrival object, room) with variables each instance's entry
+# script sets. Per game and template resource: door object -> (arrival,
+# room), each a variable name or a number, read from the door scripts of the
+# audited edition. Values per instance come from the private analysis
+# (build/foreign/links/<game>-vars.json: the variables after the entry script).
+# These replace the analysis's links for those objects; a room of 0 means the
+# instance has no such door. Windows ('paired') count only where the room
+# outside has a window leading back in (the template has two, one is real).
+TEMPLATE_DOORS = {
+    'indy3': {
+        17: {224: ('V99', 'V100'), 225: ('V101', 'V102')},                                    # Venice library stacks
+        18: {246: (225, 'V99'), 247: (225, 'V100'), 248: (224, 'V101'), 249: (224, 'V102')},  # library reading rooms
+        21: {311: ('V101', 'V102'), 312: ('V99', 'V100'), 313: ('V99', 'V100')},              # castle corridors
+        23: {323: ('V100', 'V103'), 326: ('V99', 'V102'), 328: ('V101', 'V104'),              # castle rooms (type A)
+             334: ('V105', 13, 'paired'), 336: ('V105', 13, 'paired')},
+        24: {343: ('V103', 'V107'), 346: ('V102', 'V106'), 347: ('V100', 'V104'), 354: ('V101', 'V105')},  # type B
+        33: {500: (311, 'V99'), 501: ('V100', 13, 'paired')},                                 # castle tower rooms
+    },
+}
 # Travel the player starts with a tap: doors, exits, map hotspots, vehicles
 # and actions on objects (story, cutscene and debug transitions are left out).
 TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
@@ -29,6 +52,28 @@ def exportable(game, info):
     width, height = int((info or {}).get('width') or 0), int((info or {}).get('height') or 0)
     screen = (640, 480) if VERSIONS[game] == 8 else (320, 200)
     return not width or (width >= screen[0] and height <= screen[1])
+
+
+def template_doors(game, rooms, travel):
+    """The doors of each template instance, resolved with its variables, and
+    the (room, object) pairs they replace."""
+    doors = TEMPLATE_DOORS.get(game)
+    path = ROOT/'build/foreign/links'/f'{game}-vars.json'
+    if not doors or not path.exists():
+        return [], set()
+    values = {int(k): v for k, v in json.loads(path.read_text()).items()}
+    value = lambda room, x: values[room].get(x, 0) if isinstance(x, str) else x
+    inward = {(int(l['target']), int(l.get('arrivalObject') or 0)) for l in travel}
+    out, replaced = [], set()
+    for room, info in sorted(values.items()):
+        for obj, rule in doors.get(int(info['resource']), {}).items():
+            replaced.add((room, obj))
+            target, arrival = int(value(room, rule[1])), int(value(room, rule[0]))
+            if 'paired' in rule[2:] and (room, obj) not in inward:
+                continue
+            if 0 < target < 256 and str(target) in rooms and target != room:
+                out.append({'room': room, 'object': obj, 'target': target, 'arrivalObject': arrival, 'kind': 'door'})
+    return out, replaced
 
 
 def load(game):
@@ -47,6 +92,8 @@ def load(game):
     kinds = {}
     for k, v in rooms.items():
         room, kind = physical[int(k)], (v or {}).get('kind', 'scene')
+        if (game, room) in FLOOR_PLANS:
+            kind = 'floor plan'
         if kinds.get(room) not in KINDS:
             kinds[room] = kind
     travel = []
@@ -55,6 +102,8 @@ def load(game):
         if kind not in TRAVEL or int(l.get('object') or 0) <= 0 or l.get('room') is None or l.get('target') is None:
             continue
         travel.append(dict(l, room=physical.get(int(l['room']), int(l['room'])), target=physical.get(int(l['target']), int(l['target']))))
+    resolved, replaced = template_doors(game, rooms, travel)
+    travel = resolved + [l for l in travel if (int(l['room']), int(l['object'])) not in replaced]
     # Every scene or map joined to another by such travel, whichever
     # island or period it belongs to, plus everything reachable from the start.
     joined = set(physical.get(int(r), int(r)) for r in data.get('reachable', []))
