@@ -160,11 +160,20 @@
 			if (found<0) { ++doorSkipped; continue; }
 			// A door this instance of a script-built room does not show.
 			if (link.switched && !::Scummverse::WorldBridge::objectState(found)) { ++doorHidden; continue; }
-			// Start beside the door, tap it, and walk there like a player.
+			// Start beside the door, tap it, and walk there like a player. A Dig
+			// tram car is reached from its platform (where riders step off); it
+			// comes to the ledge and leaves after its boarding wait.
+			int tapX=(x+w/2)/8, tapY=(y+h/2)/2;
+			for (const auto &line : ::Scummverse::WorldCatalog::kWorldTramLines)
+				for (const auto &stop : line.ends)
+					if (line.game==g && stop.room==link.room && stop.car==link.object) {
+						scummverseWorldUnits(g,link.room,stop.exitX,stop.exitY,wx,wy);
+						scummverseWorldUnits(g,link.room,stop.ledgeX,stop.ledgeY,tapX,tapY);
+					}
 			AdjustBoxResult near=me->adjustXYToBeInBox(wx,wy);
 			me->putActor(near.x,near.y,_currentRoom);
 			const int startRoom=_currentRoom;
-			me->startWalkActor((x+w/2)/8,(y+h/2)/2,-1);
+			me->startWalkActor(tapX,tapY,-1);
 			for (int n=0;n<900 && _currentRoom==startRoom;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
 			int source; const int game=scummverseWorldGameOf(_currentRoom,source);
 			if (game==g && source==link.target) ++doors;

@@ -1,0 +1,598 @@
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 2e2df9e6..1e6fdc8c 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -110,7 +110,69 @@ std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes) {
+ 
+ // ---- Fitting ------------------------------------------------------------
+ 
+-bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotCount, SandboxScene &out, std::string &error, int minWidth) {
++bool fitPicture(const SourceScene &scene, const SourceScene &picture, const SandboxScene &fitted,
++	ScenePicture &out, std::string &error) {
++	out = ScenePicture();
++	if (picture.width != scene.width || picture.height != scene.height || picture.pixels.size() != scene.pixels.size()) {
++		error = "picture size differs"; return false;
++	}
++	auto rgbOf = [](const SourceScene &s, size_t i) {
++		const uint8_t *c = s.palette + 3 * s.pixels[i];
++		return (c[0] << 16) | (c[1] << 8) | c[2];
++	};
++	std::vector<uint8_t> changed(scene.pixels.size(), 0);
++	bool any = false;
++	for (size_t i = 0; i < changed.size(); ++i) if (rgbOf(scene, i) != rgbOf(picture, i)) changed[i] = 1, any = true;
++	if (!any) { error = "picture shows nothing new"; return false; }
++	// The picture fitted alone, then each changed pixel snapped to the
++	// scene's own colors.
++	SandboxScene alone;
++	if (!fitScene(picture, fitted.height, fitted.firstSlot, fitted.slotCount, alone, error, fitted.width) ||
++		alone.width != fitted.width || alone.padLeft != fitted.padLeft) {
++		if (error.empty()) error = "picture does not fit like the scene";
++		return false;
++	}
++	std::unordered_map<int, uint8_t> snapped;
++	auto snap = [&](uint8_t slot) {
++		const uint8_t *c = &alone.palette[(size_t)(slot - alone.firstSlot) * 3];
++		const int key = (c[0] << 16) | (c[1] << 8) | c[2];
++		auto hit = snapped.find(key);
++		if (hit != snapped.end()) return hit->second;
++		int best = 0; long bestDistance = -1;
++		for (int i = 0; i < fitted.slotCount; ++i) {
++			const long dr = c[0] - fitted.palette[i * 3], dg = c[1] - fitted.palette[i * 3 + 1], db = c[2] - fitted.palette[i * 3 + 2];
++			const long d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
++			if (bestDistance < 0 || d < bestDistance) { best = i; bestDistance = d; }
++		}
++		return snapped[key] = (uint8_t)(fitted.firstSlot + best);
++	};
++	// A sandbox pixel belongs to the picture when its source area changed.
++	const double scale = fitted.scale;
++	const int pad = fitted.padLeft, scaledWidth = (int)std::lround(scene.width * scale);
++	std::vector<uint8_t> mask((size_t)fitted.width * fitted.height, 0);
++	int left = fitted.width, right = -1, top = fitted.height, bottom = -1;
++	for (int oy = 0; oy < fitted.height; ++oy)
++		for (int ox = 0; ox < scaledWidth && pad + ox < fitted.width; ++ox) {
++			const int y0 = (int)(oy / scale), y1 = std::min(scene.height, (int)std::ceil((oy + 1) / scale));
++			const int x0 = (int)(ox / scale), x1 = std::min(scene.width, (int)std::ceil((ox + 1) / scale));
++			bool hit = false;
++			for (int y = y0; y < y1 && !hit; ++y) for (int x = x0; x < x1 && !hit; ++x) hit = changed[(size_t)y * scene.width + x];
++			if (!hit) continue;
++			mask[(size_t)oy * fitted.width + pad + ox] = 1;
++			left = std::min(left, pad + ox); right = std::max(right, pad + ox); top = std::min(top, oy); bottom = std::max(bottom, oy);
++		}
++	if (right < 0) { error = "picture shows nothing new"; return false; }
++	out.x = left; out.y = top; out.width = right - left + 1; out.height = bottom - top + 1;
++	out.pixels.assign((size_t)out.width * out.height, 0); out.mask.assign(out.pixels.size(), 0);
++	for (int y = 0; y < out.height; ++y) for (int x = 0; x < out.width; ++x) {
++		const size_t at = (size_t)(top + y) * fitted.width + left + x, i = (size_t)y * out.width + x;
++		if (!mask[at]) continue;
++		out.mask[i] = 1; out.pixels[i] = snap(alone.pixels[at]);
++	}
++	return true;
++}
++
++bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotCount, SandboxScene &out, std::string &error, int minWidth, const SourceScene *colors) {
+ 	out = SandboxScene();
+ 	if (src.width <= 0 || src.height <= 0 || (int)src.pixels.size() != src.width * src.height) { error = "empty scene"; return false; }
+ 	if (targetHeight < 8 || targetHeight % 8 || firstSlot < 0 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
+@@ -124,7 +186,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 
+ 	// Colors in use, most common first; they keep their exact RGB values.
+ 	std::vector<long> frequency(256, 0);
+-	for (uint8_t c : src.pixels) ++frequency[c];
++	for (uint8_t c : (colors ? colors->pixels : src.pixels)) ++frequency[c];
+ 	std::vector<int> used;
+ 	for (int c = 0; c < 256; ++c) if (frequency[c]) used.push_back(c);
+ 	std::stable_sort(used.begin(), used.end(), [&](int a, int b) { return frequency[a] > frequency[b]; });
+@@ -422,6 +484,10 @@ namespace WorldBridge {
+ 
+ struct Mounted {
+ 	bool ok = false; World::SandboxScene scene; std::vector<uint8_t> room;
++	World::SourceScene source;   // kept for its pictures
++	World::ScenePicture picture; // shown over `clean`, the scene's own pixels there
++	std::vector<uint8_t> clean; bool hasPicture = false;
++	int slotCapacity = 0;
+ };
+ static Mounted &current() { static Mounted m; return m; }
+ // Characters on screen (a scene's guests, players' chosen characters); they
+@@ -438,10 +504,46 @@ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSl
+ 	}
+ 	Mounted &m = current();
+ 	m.scene = scene; m.room = World::buildV1Room(m.scene); m.ok = true;
++	m.source = source; m.picture = World::ScenePicture(); m.clean.clear(); m.hasPicture = false; m.slotCapacity = slotCount;
+ 	characters().clear(); // The engine mounts the new scene's characters next.
+ 	return true;
+ }
+ bool mounted() { return current().ok; }
++bool mountPicture(const unsigned char *data, size_t size, char *error, int capacity) {
++	Mounted &m = current();
++	World::SourceScene source; World::ScenePicture picture; World::SandboxScene refit; std::string problem = m.ok ? "" : "no scene mounted";
++	// The scene again in colors chosen from the picture (its own plus the
++	// picture's), then the picture in those colors.
++	const bool ok = m.ok && World::parseScene(data, size, source, problem) &&
++		World::fitScene(m.source, m.scene.height, m.scene.firstSlot, m.slotCapacity, refit, problem, 320, &source) &&
++		World::fitPicture(m.source, source, refit, picture, problem);
++	if (!ok) {
++		if (error && capacity > 0) { std::strncpy(error, problem.c_str(), capacity - 1); error[capacity - 1] = 0; }
++		return false;
++	}
++	m.scene = refit; m.room = World::buildV1Room(m.scene);
++	m.picture = picture; m.hasPicture = true; m.clean.resize(picture.pixels.size());
++	for (int y = 0; y < picture.height; ++y)
++		std::memcpy(&m.clean[(size_t)y * picture.width], &m.scene.pixels[(size_t)(picture.y + y) * m.scene.width + picture.x], picture.width);
++	return true;
++}
++bool pictureMounted() { return current().ok && current().hasPicture; }
++int pictureWidth() { return pictureMounted() ? current().picture.width : 0; }
++void showPicture(int dx, int amount) {
++	Mounted &m = current();
++	if (!m.ok || !m.hasPicture) return;
++	const World::ScenePicture &p = m.picture;
++	for (int y = 0; y < p.height; ++y) {
++		uint8_t *row = &m.scene.pixels[(size_t)(p.y + y) * m.scene.width + p.x];
++		for (int x = 0; x < p.width; ++x) {
++			const int sx = x - dx;
++			bool shown = sx >= 0 && sx < p.width && p.mask[(size_t)y * p.width + sx];
++			// A dissolve shows a fixed scatter of the pixels.
++			if (shown && amount < 256) shown = (int)(((unsigned)(p.x + x) * 2654435761u ^ (unsigned)(p.y + y) * 40503u) >> 24) < amount;
++			row[x] = shown ? p.pixels[(size_t)y * p.width + sx] : m.clean[(size_t)y * p.width + x];
++		}
++	}
++}
+ bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity) {
+ 	std::vector<World::SourceSprite> sources;
+ 	std::string problem = count > 0 ? "" : "no characters";
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index 721ec181..12561a06 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -120,8 +120,17 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ // colors), packs the colors used into slotCount slots from firstSlot, and
+ // converts boxes. Disabled boxes (flag 0x80) are dropped.
+ // minWidth pads narrow scenes (centered, in the scene's darkest color).
++// `colors`, when given, is the same scene in another state whose colors are
++// kept instead (a parked car's colors are kept with the station's).
+ bool fitScene(const SourceScene &source, int targetHeight, int firstSlot, int slotCount,
+-	SandboxScene &out, std::string &error, int minWidth = 0);
++	SandboxScene &out, std::string &error, int minWidth = 0, const SourceScene *colors = nullptr);
++
++// The same scene in another state (a parked tram car): the sandbox pixels
++// where `picture` differs from `scene`, fitted like `fitted` (fitScene of
++// `scene`) and drawn in its colors. A rectangle, its pixels and a mask.
++struct ScenePicture { int x = 0, y = 0, width = 0, height = 0; std::vector<uint8_t> pixels, mask; };
++bool fitPicture(const SourceScene &scene, const SourceScene &picture, const SandboxScene &fitted,
++	ScenePicture &out, std::string &error);
+ 
+ // Next-box routing for V2 boxes that touch (shared edge or overlap).
+ std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 8a204389..c14f190f 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 9;
++static const int kWorldExportVersion = 10;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -178,6 +178,31 @@ inline bool worldPresetRoom(int game, int room) {
+ 	for (const auto &p : kWorldPresetScripts) if (p.game == game && p.room == room) return true;
+ 	return false;
+ }
++// The Dig's tram (original scripts): five lines, each from a station off
++// the Nexus (end 0) to one at a spire (end 1). Per station: its room, the
++// car (a door to the other end in the door map), the car's pictures (state
++// 1 shows it parked; exported as "<game>-<room>-car.svw"), the platform
++// ledge where the car is called and boarded (where the platform meets the
++// boarding boxes, inside the platform) and the spot riders step to on
++// arrival (room pixels), and the side its tunnel opens to (-1 left, 0: it
++// comes toward the viewer).
++struct WorldTramStop { short room, car, picture[2], ledgeX, ledgeY, exitX, exitY, tunnel; };
++struct WorldTramLine { short game; WorldTramStop ends[2]; };
++static const WorldTramLine kWorldTramLines[] = {
++	{8, {{80, 553, {554, 890}, 688, 106, 668, 105, 1}, {37, 315, {317, 0}, 167, 115, 169, 114, 0}}},
++	{8, {{95, 700, {701, 893}, 156, 107, 134, 106, -1}, {29, 242, {843, 894}, 145, 70, 145, 70, -1}}},
++	{8, {{81, 556, {557, 898}, 146, 112, 153, 108, -1}, {70, 494, {844, 897}, 234, 128, 236, 122, 0}}},
++	{8, {{83, 562, {563, 895}, 250, 119, 278, 125, -1}, {53, 382, {842, 0}, 253, 84, 259, 83, 0}}},
++	{8, {{94, 697, {698, 938}, 209, 107, 254, 118, -1}, {60, 420, {841, 896}, 113, 138, 116, 157, -1}}},
++};
++static const int kWorldTramLineCount = sizeof(kWorldTramLines) / sizeof(kWorldTramLines[0]);
++// The tram stop in a game's room: line and end, or false.
++inline bool worldTramStop(int game, int room, int &line, int &end) {
++	for (int l = 0; l < kWorldTramLineCount; ++l)
++		for (int e = 0; e < 2; ++e)
++			if (kWorldTramLines[l].game == game && kWorldTramLines[l].ends[e].room == room) { line = l; end = e; return true; }
++	return false;
++}
+ // Cast members who need no air on Mars (no fishbowl and tank there):
+ // tentacles, ghosts and skeletons, robots and aliens. Everyone else wears
+ // them, the talking skull and the monkeys included.
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index b6297abd..06d1bade 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -13,6 +13,17 @@ namespace WorldBridge {
+ // previously mounted scene is kept and `error` explains why.
+ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity);
+ bool mounted();
++// The mounted scene in another state (bytes of a .svw of the same room,
++// e.g. a parked tram car): only what differs, fitted like the scene. The
++// scene is fitted again in colors that include the picture's (its pixels,
++// palette and room resource change: mount pictures before using them). It
++// is not shown until showPicture.
++bool mountPicture(const unsigned char *data, size_t size, char *error, int capacity);
++bool pictureMounted();
++int pictureWidth();
++// Draws the picture into the scene's pixels shifted dx pixels within its own
++// rectangle (|dx| >= its width: hidden), showing amount/256 of its pixels.
++void showPicture(int dx, int amount);
+ int width();
+ int height();
+ const unsigned char *pixels();     // width*height palette slots
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 81a9acda..a7381e29 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1612,7 +1612,7 @@ protected:
+ 	Common::Array<byte> _scummverseZakCastCostumes[9];
+ 	void scummverseUpdateResident();
+ 	// Other worlds (scummverse_world_export.inc): catalog scene export.
+-	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false);
++	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0);
+ 	int scummverseExportWorld(const Common::Path &dir);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	// Drops animation commands queued for the main loop (AKOS editions).
+@@ -1706,6 +1706,25 @@ protected:
+ 	void scummverseAnnounce(const char *text);
+ 	bool scummverseOnTram() const { int ego=_scummVars[VAR_EGO]; return _scummVars[797]>kTramBoarding && (_scummVars[798] & (1u<<ego)); }
+ 	bool scummverseOnBus() const { int ego=_scummVars[VAR_EGO]; return _scummVars[765] && (_scummVars[767]==ego || (_scummVars[766] & (1u<<ego))); }
++	// The Dig's tram (scummverse_world_play.inc). Var 609 phase: arriving
++	// until kDigTramOpen, boarding until kDigTramClose, leaving, riding, then
++	// arriving at the other end until kDigTramDone. 610 riders, 611 the trip
++	// (line * 2 + end served, + 1), 612 each line's car (2 bits: 0 in the
++	// tunnel, 1 + end parked there).
++	static const int kDigTramOpen = 90, kDigTramClose = kDigTramOpen + 300, kDigTramGone = kDigTramClose + 90,
++		kDigTramThere = kDigTramGone + 120, kDigTramDone = kDigTramThere + 90;
++	bool _scummverseDigTramArmed = true, _scummverseDigTramBusySaid = false;
++	bool _scummverseDigTramPicture = false; // The scene in view has its car picture.
++	int _scummverseDigTramShown = 0, _scummverseDigTramAmount = -1; // As drawn now.
++	// Aboard until the car reaches the other end (the player is there then).
++	bool scummverseOnDigTram() const { int ego=_scummVars[VAR_EGO]; return _scummVars[609]>kDigTramClose && _scummVars[609]<kDigTramThere && (_scummVars[610] & (1u<<ego)); }
++	bool scummverseDigTramStop(int &line, int &end) const;
++	bool scummverseWorldUnits(int game, int source, int x, int y, int &ux, int &uy) const;
++	void scummverseCallDigTram(int line, int end);
++	void scummverseServiceDigTram(int delta);
++	void scummverseShowDigTram();
++	void scummverseHideDigTramRiders();
++	void scummverseMountDigTram(int game, int source);
+ 	void scummverseServiceBus(int delta);
+  void scummverseRestoreTransportVisibility();
+  void scummverseMigrateTravelRecords();
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index ea2c453a..4ea2992c 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -27,7 +27,7 @@
+ 
+ static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
+ 
+-bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted) {
++bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted, const short *shown, int shownCount) {
+ 	// v3/v4 pseudo rooms (128+) are instances of a template room that their
+ 	// entry script furnishes; they are always exported with that script.
+ 	const bool pseudo = room >= 0x80 && _game.version <= 4;
+@@ -62,6 +62,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		initScreens(top, top + _roomHeight);
+ 	}
+ 	initBGBuffers(_roomHeight); resetRoomObjects();
++	// A picture with some objects shown (a parked tram car's pictures).
++	for (int i = 1; i < _numLocalObjects; ++i)
++		for (int k = 0; k < shownCount; ++k) if (shown[k] && _objs[i].obj_nr == shown[k]) _objs[i].state = 1;
+ 	if (scripted) {
+ 		// The room's own entry script draws its objects (doors, furniture, a
+ 		// template's instance). Only that stays: its threads, any actors it
+@@ -154,7 +157,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		return same < (int)pixels.size() * 99 / 100; // Something besides one color.
+ 	};
+ 	// A v3/v4 room drawn entirely by its entry script comes out one color.
+-	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true);
++	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true, shown, shownCount);
+ 	if (preset) {
+ 		// Their animations run: a light bridge is a stream of pulses, so the
+ 		// still keeps every pixel any step drew (one cycle, the latest wins).
+@@ -417,6 +420,18 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 			continue;
+ 		}
+ 		++written;
++		// A tram stop: the station again with its car parked (its pictures on).
++		int line, end;
++		if (worldTramStop(gameIndex, room, line, end)) {
++			const WorldTramStop &stop = kWorldTramLines[line].ends[end];
++			// Their images follow the game's own state table.
++			int states[2] = {0, 0};
++			for (int i = 0; i < 2; ++i) if (stop.picture[i]) { states[i] = getState(stop.picture[i]); putState(stop.picture[i], 1); }
++			const Common::Path car = dir.appendComponent(Common::String::format("%s-%d-car.svw", game->gameid, room));
++			if (!scummverseExportScene(room, car, problem, false, stop.picture, 2))
++				warning("SCUMMVERSE world export: %s room %d car skipped (%s)", game->gameid, room, problem.c_str());
++			for (int i = 0; i < 2; ++i) if (stop.picture[i]) putState(stop.picture[i], states[i]);
++		}
+ 		for (int k = 0; k < kWorldMaxGuests; ++k) {
+ 			const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, room), k);
+ 			bool done = !guest;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 4e4b1e94..71f57f37 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -113,6 +113,7 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	}
+ 	_scummverseCharactersKey.clear();
+ 	_scummverseGuestsRoom = 0; // Placed again by scummverseUpdateGuests.
++	scummverseMountDigTram(gameIndex, source);
+ 	_resourceMapper[room & 0x7F] = ScummverseContent::kForeignRoom;
+ 	_res->nukeResource(rtRoom, ScummverseContent::kForeignRoom);
+ 	_gdi->setForeignBackground(WorldBridge::pixels(), WorldBridge::width(), WorldBridge::height());
+@@ -159,7 +160,7 @@ bool ScummEngine::scummverseTravelPlace(int game, int source) {
+ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	if (!_scummverseRoamingReady || !_userPut || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+ 	if (_currentRoom == 56 && _scummVars[724]) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
+-	if (scummverseOnBus() || scummverseOnTram()) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
++	if (scummverseOnBus() || scummverseOnTram() || (scummverseOnDigTram() && !_scummverseLanding)) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
+ 	if (!scummverseMountWorld(room)) { scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world visitor");
+ 	// Remember where the visit started so the menu can bring the player back.
+@@ -274,7 +275,20 @@ void ScummEngine::scummverseWorldDoors() {
+ 		if (!there || (best && (bestUnder > under || (bestUnder == under && (long)w * h >= bestArea)))) continue;
+ 		best = link; bestArea = (long)w * h; bestUnder = under;
+ 	}
+-	if (best) scummverseFollowLink(gameIndex, source, best->target, best->arrival);
++	if (!best) return;
++	// The Dig's tram car: walk to the ledge, where it is called and boarded.
++	int line, end;
++	if (scummverseDigTramStop(line, end) && best->object == kWorldTramLines[line].ends[end].car) {
++		const WorldTramStop &stop = kWorldTramLines[line].ends[end];
++		int lx, ly;
++		if (scummverseWorldUnits(gameIndex, source, stop.ledgeX, stop.ledgeY, lx, ly)) {
++			const AdjustBoxResult ledge = player->adjustXYToBeInBox(lx, ly);
++			player->startWalkActor(ledge.x, ledge.y, -1);
++			_scummverseTapPending = false; // That walk is not a tap on whatever lies at the ledge.
++		}
++		return;
++	}
++	scummverseFollowLink(gameIndex, source, best->target, best->arrival);
+ }
+ 
+ // Through a door: arrive at the named object, else at the target's door
+@@ -697,3 +711,203 @@ unsigned ScummEngine::scummverseGuestMask() const {
+ 		if (scummverseGuestSlot(_actors[kScummverseGuestActor + k]) >= 0) mask |= 1u << (kScummverseGuestActor + k);
+ 	return mask;
+ }
++
++// ---- The Dig's tram -------------------------------------------------------
++// Walking to a station's ledge calls the car: it comes from the other end or
++// the tunnel and opens; it leaves once its wait is over with the player
++// aboard, together with everyone else on the ledge and the player's
++// companions, and arrives at the other end of the line. Nobody aboard: it
++// stays parked, open. One trip runs at a time (newly written lines).
++
++// Room pixels of a game's room to V1 units, as the scene is fitted (the
++// scene file's size gives its scale and centering; fitScene).
++bool ScummEngine::scummverseWorldUnits(int game, int source, int x, int y, int &ux, int &uy) const {
++	if (game < 0 || game >= worldGameCount()) return false;
++	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, source)));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
++	byte header[10];
++	if (!in || in->read(header, sizeof(header)) != sizeof(header)) return false;
++	const int width = READ_LE_UINT16(header + 6), height = READ_LE_UINT16(header + 8);
++	if (width <= 0 || height <= 0) return false;
++	const double scale = 128.0 / height;
++	const int scaled = MAX(8, (int)floor(width * scale + 0.5)), fitted = (scaled + 7) & ~7;
++	const int pad = ((MAX(fitted, 320) - fitted) / 2) & ~7;
++	ux = (int)floor((x * scale + pad) / 8 + 0.5); uy = (int)floor(y * scale / 2 + 0.5);
++	return true;
++}
++
++bool ScummEngine::scummverseDigTramStop(int &line, int &end) const {
++	int source;
++	const int game = scummverseWorldGameOf(_currentRoom, source);
++	return game >= 0 && worldTramStop(game, source, line, end);
++}
++
++// A station's car picture ("<game>-<room>-car.svw"), mounted hidden with the scene.
++void ScummEngine::scummverseMountDigTram(int game, int source) {
++	_scummverseDigTramPicture = false;
++	_scummverseDigTramArmed = true; _scummverseDigTramBusySaid = false; // A new station: the ledge calls.
++	int line, end;
++	if (!worldTramStop(game, source, line, end)) return;
++	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-%d-car.svw", kWorldGames[game].gameid, source)));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
++	if (!in) return; // An older export: the car stays unseen.
++	Common::Array<byte> data; data.resize(in->size());
++	char problem[128];
++	if (in->read(data.data(), data.size()) != data.size() || !WorldBridge::mountPicture(data.data(), data.size(), problem, sizeof(problem)))
++		warning("SCUMMVERSE world: tram car not shown");
++	else { _scummverseDigTramPicture = true; _scummverseDigTramShown = 1 << 20; _scummverseDigTramAmount = 256; }
++}
++
++void ScummEngine::scummverseCallDigTram(int line, int end) {
++	const int trip = line * 2 + end + 1;
++	if (_scummVars[609]) {
++		if (_scummVars[611] == trip) { _scummverseDigTramArmed = false; return; }
++		if (!_scummverseDigTramBusySaid) scummverseAnnounce("The tram is on another run. Wait here.");
++		_scummverseDigTramBusySaid = true;
++		return;
++	}
++	_scummverseDigTramArmed = false; _scummverseDigTramBusySaid = false;
++	_scummVars[611] = trip; _scummVars[610] = 0;
++	const int parked = (_scummVars[612] >> (line * 2)) & 3;
++	if (parked == 1 + end) { _scummVars[609] = kDigTramOpen; scummverseAnnounce("The tram is here. All aboard!"); return; }
++	_scummVars[612] &= ~(3 << (line * 2));
++	_scummVars[609] = 1;
++	scummverseAnnounce("Here comes the tram.");
++}
++
++void ScummEngine::scummverseServiceDigTram(int delta) {
++	if (!_scummverseRoamingReady || !_scummVars || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) >= kScummverseManiacActors) return;
++	Actor *player = derefActor(VAR(VAR_EGO), "tram passenger");
++	int line, end, source;
++	const int game = scummverseWorldGameOf(_currentRoom, source);
++	// Each approach to the ledge calls the car once (not by a rider arriving).
++	if (scummverseDigTramStop(line, end) && player->_room == _currentRoom && !(_scummVars[610] & (1u << VAR(VAR_EGO)))) {
++		const WorldTramStop &stop = kWorldTramLines[line].ends[end];
++		int lx, ly;
++		if (scummverseWorldUnits(game, source, stop.ledgeX, stop.ledgeY, lx, ly)) {
++			const AdjustBoxResult ledge = player->adjustXYToBeInBox(lx, ly);
++			const int dx = ABS(player->getRealPos().x - ledge.x), dy = ABS(player->getRealPos().y - ledge.y);
++			if (dx > 4 || dy > 6) _scummverseDigTramArmed = true;
++			else if (dx <= 2 && dy <= 3 && _scummverseDigTramArmed && !player->_moving) scummverseCallDigTram(line, end);
++		}
++	}
++	const int previous = _scummVars[609];
++	if (previous) {
++		const int phase = _scummVars[609] += MIN(delta, 60);
++		const int trip = _scummVars[611] - 1, tripLine = trip / 2, from = trip % 2;
++		const WorldTramLine &tl = kWorldTramLines[tripLine];
++		const WorldTramStop &here = tl.ends[from], &there = tl.ends[1 - from];
++		// The stations' rooms (no slot is taken for one if none holds it).
++		int origin = 0, arrival = 0;
++		for (int i = 0; i < kWorldRoomSlots; ++i) {
++			if (_scummVars[kWorldSlotVar + i] == tl.game * 1024 + here.room + 1) origin = kWorldSlotRoom + i;
++			if (_scummVars[kWorldSlotVar + i] == tl.game * 1024 + there.room + 1) arrival = kWorldSlotRoom + i;
++		}
++		int lx = 0, ly = 0;
++		const bool ledge = scummverseWorldUnits(tl.game, here.room, here.ledgeX, here.ledgeY, lx, ly);
++		auto onLedge = [&](Actor *a) {
++			const AdjustBoxResult at = a->adjustXYToBeInBox(lx, ly);
++			return ledge && a->_room == origin && ABS(a->getRealPos().x - at.x) <= 3 && ABS(a->getRealPos().y - at.y) <= 4;
++		};
++		if (previous < kDigTramOpen && phase >= kDigTramOpen && _currentRoom == origin) scummverseAnnounce("The doors open. All aboard!");
++		if (phase >= kDigTramOpen && phase <= kDigTramClose) {
++			// The player's companions come along to the ledge.
++			for (int id : mansionCast) {
++				if (scummverseRemoteActor(id) || _scummVars[770 + id] != VAR(VAR_EGO) || !onLedge(player)) continue;
++				Actor *a = derefActor(id, "tram companion");
++				if (a->_room == origin && !onLedge(a) && !a->_moving && ledge) {
++					const AdjustBoxResult to = a->adjustXYToBeInBox(lx + (id % 3) - 1, ly); a->startWalkActor(to.x, to.y, -1);
++				}
++			}
++			if (previous < kDigTramClose - 90 && phase >= kDigTramClose - 90 && _currentRoom == origin) scummverseAnnounce("Doors closing!");
++		}
++		if (previous <= kDigTramClose && phase > kDigTramClose) {
++			unsigned riders = 0;
++			for (int id : mansionCast) if (!scummverseRemoteActor(id) && onLedge(derefActor(id, "tram rider"))) riders |= 1u << id;
++			if (!(riders & (1u << VAR(VAR_EGO)))) {
++				// Not without the player: it waits here, open.
++				_scummVars[612] = (_scummVars[612] & ~(3 << (tripLine * 2))) | ((1 + from) << (tripLine * 2));
++				_scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
++				scummverseShowDigTram();
++				return;
++			}
++			_scummVars[610] = riders;
++			for (int id : mansionCast) if (riders & (1u << id)) { Actor *a = derefActor(id, "tram aboard"); a->stopActorMoving(); a->hideActor(); }
++		}
++		scummverseHideDigTramRiders();
++		if (previous < kDigTramThere && phase >= kDigTramThere) {
++			// At the other end: whoever plays travels there unseen; the rest too.
++			const unsigned riders = _scummVars[610];
++			const int destination = scummverseWorldRoomFor(tl.game, there.room);
++			int tx = 0, ty = 0;
++			if (destination && scummverseWorldUnits(tl.game, there.room, there.ledgeX, there.ledgeY, tx, ty)) {
++				if (riders & (1u << VAR(VAR_EGO))) {
++					_scummverseLanding = true; scummverseTravelWorld(destination, tx, ty); _scummverseLanding = false;
++				}
++				for (int id : mansionCast) if (riders & (1u << id)) {
++					Actor *a = derefActor(id, "tram arrival"); a->stopActorMoving(); a->putActor(tx, ty, destination); a->hideActor();
++				}
++			}
++		}
++		if (phase >= kDigTramDone) {
++			const unsigned riders = _scummVars[610];
++			int ex = 0, ey = 0;
++			const bool exit = scummverseWorldUnits(tl.game, there.room, there.exitX, there.exitY, ex, ey);
++			for (int id : mansionCast) if (riders & (1u << id)) {
++				Actor *a = derefActor(id, "tram leaving");
++				if (!a->_visible && a->_room != arrival) a->showActor(); // Moved on meanwhile.
++				if (a->_room == arrival && a->_room == _currentRoom) {
++					a->showActor(); a->startAnimActor(a->_standFrame);
++					if (exit) { const AdjustBoxResult to = a->adjustXYToBeInBox(ex + (id % 5) - 2, ey); a->startWalkActor(to.x, to.y, -1); }
++				}
++				_scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++			}
++			_scummVars[612] = (_scummVars[612] & ~(3 << (tripLine * 2))) | ((2 - from) << (tripLine * 2));
++			_scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
++			// Getting off is not a new call (unless the player went elsewhere).
++			if ((riders & (1u << VAR(VAR_EGO))) && player->_room == arrival && arrival == _currentRoom) _scummverseDigTramArmed = false;
++		}
++	}
++	scummverseShowDigTram();
++}
++
++// Aboard is unseen, also after a load or a scene entry showed them: in the
++// station left while it leaves and rides, then in the one reached until it
++// stops. Nobody who has moved on elsewhere.
++void ScummEngine::scummverseHideDigTramRiders() {
++	const int phase = _scummVars[609], trip = _scummVars[611] - 1;
++	if (!_scummverseRoaming || phase <= kDigTramClose || phase >= kDigTramDone || trip < 0 || trip >= 2 * kWorldTramLineCount) return;
++	const WorldTramLine &tl = kWorldTramLines[trip / 2];
++	const int station = tl.ends[phase < kDigTramThere ? trip % 2 : 1 - trip % 2].room;
++	int source;
++	if (scummverseWorldGameOf(_currentRoom, source) != tl.game || source != station) return;
++	for (int id : mansionCast) if (_scummVars[610] & (1u << id)) {
++		Actor *a = derefActor(id, "tram unseen");
++		if (a->_room == _currentRoom && a->_visible) { a->stopActorMoving(); a->hideActor(); }
++	}
++}
++
++// The car in view: parked, or sliding in or out of its tunnel (a dissolve
++// where it comes toward the viewer), from the saved state.
++void ScummEngine::scummverseShowDigTram() {
++	int line, end;
++	if (!scummverseDigTramStop(line, end) || !_scummverseDigTramPicture || !WorldBridge::pictureMounted()) return;
++	const WorldTramStop &stop = kWorldTramLines[line].ends[end];
++	double shown = ((_scummVars[612] >> (line * 2)) & 3) == 1 + end ? 1 : 0;
++	const int phase = _scummVars[609], trip = _scummVars[611] - 1;
++	if (phase && trip / 2 == line) {
++		if (trip % 2 == end) {
++			shown = phase < kDigTramOpen ? (double)phase / kDigTramOpen : phase <= kDigTramClose ? 1 :
++				phase < kDigTramGone ? 1 - (double)(phase - kDigTramClose) / (kDigTramGone - kDigTramClose) : 0;
++		} else shown = phase < kDigTramThere ? 0 : MIN(1.0, (double)(phase - kDigTramThere) / (kDigTramDone - kDigTramThere));
++	}
++	const int width = WorldBridge::pictureWidth();
++	int dx = 0, amount = 256;
++	if (shown <= 0) dx = 1 << 20;
++	else if (stop.tunnel) dx = (int)(stop.tunnel * width * (1 - shown));
++	else amount = (int)(256 * shown);
++	if (dx == _scummverseDigTramShown && amount == _scummverseDigTramAmount) return;
++	_scummverseDigTramShown = dx; _scummverseDigTramAmount = amount;
++	WorldBridge::showPicture(dx, amount);
++	_fullRedraw = true;
++}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 0be9d938..c5321315 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -386,7 +386,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	if (zakRetiredRoomReplacement(destination + 50)) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
+-	if(scummverseOnTram() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Let's wait until the tram stops."); return false; }
++	if((scummverseOnTram() || scummverseOnDigTram()) && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Let's wait until the tram stops."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+@@ -489,6 +489,7 @@ void ScummEngine::scummverseAirportOffer() {
+ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	scummverseServiceBus(delta);
+ 	scummverseServiceTram(delta);
++	scummverseServiceDigTram(delta);
+ 	scummverseWorldDoors();
+ 	// Retry optional resources together, at most once per 600 timer units.
+ 	if (!_scummverseAirportMounted || !_scummverseStreetMounted || _scummverseZakCastCostumes[0].empty()) {
+@@ -719,6 +720,7 @@ void ScummEngine::scummverseRestoreTransportVisibility() {
+   Actor *a=derefActor(id,"restore tram visibility");
+   if (a->_room==_currentRoom) { a->stopActorMoving(); a->hideActor(); }
+  }
++ scummverseHideDigTramRiders();
+  if (_scummVars[765]<=kBusBoarding || _scummVars[765]>=kBusArrival) return;
+  for (int id : mansionCast) if (_scummVars[766] & (1u<<id)) {
+   Actor *a=derefActor(id,"restore bus visibility");

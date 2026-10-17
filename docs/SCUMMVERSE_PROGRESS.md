@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0075 (fishbowls and oxygen tanks on Mars).
+Active milestone: Phase 1; latest patch 0076 (The Dig's tram, called at the ledge).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1242,4 +1242,46 @@ and the headhunters too.
   (gear on the breathers only, by drawn height and the air rule), and back;
   screenshot compared by eye; tools/test_world.cpp air checks; original-data
   suite 34/34; startup test. Not device-tested.
+
+## Patch 0076 — The Dig's tram, called at the ledge
+
+User request (2026-10-17): the Dig's subway should come by itself when you
+near the platform's ledge, let you board, wait a few seconds for others to
+board, and go.
+- Original (The Dig's scripts, private research): five lines, each from a
+  station off the Nexus to one at a spire (80-37, 95-29, 81-70, 83-53,
+  94-60); a call switch brings the car (an animated costume), its pictures
+  show it parked, the ride is a video the user's copy does not have. Today
+  the sandbox moved players at once when they tapped the empty track.
+- Catalog kWorldTramLines: per station its car (a door to the other end),
+  the car's picture objects, the ledge (inside the platform, where it meets
+  the boarding boxes), where riders step off, and the tunnel side.
+- Export: each station again with its car parked ("<game>-<room>-car.svw";
+  the pictures' own and the game's state switched on). The scene bridge
+  fits the station in colors chosen from that picture and keeps only what
+  differs (World::fitPicture, WorldBridge::mountPicture/showPicture); the
+  engine draws the car into the station's background: sliding out of its
+  tunnel, or a dissolve where it comes toward the viewer.
+- Play (saved vars 609 phase, 610 riders, 611 trip, 612 where each car is
+  parked): walking to a ledge (or tapping the car, which walks there) calls
+  the car once per approach; it comes in (1.5 s), opens for 5 s ("Doors
+  closing!" near the end), then leaves with everyone standing on the ledge
+  and the player's companions, but never without the player (it stays
+  parked, open); travel is locked during the ride; after 2 s the riders
+  arrive with the car at the other end and step off; that car stays parked
+  there and opens at once next time. One trip at a time ("The tram is on
+  another run"). Lines are newly written. Export version 10.
+- Not done: WiFi players cannot be in other worlds yet (relaying places is
+  a later milestone); the original ride video is not shown.
+- Verified (Linux, the user's private copies): tools/test_dig_tram.py rides
+  the map-spire line: the ledge calls the car, it is drawn at the station,
+  Dave, his companion and Wendy on the ledge ride (Razor standing back does
+  not), travel is refused mid-ride, a save and load mid-ride keeps riders
+  hidden, everyone steps off at the spire station, the parked car opens at
+  once and does not leave without the player; test_world_visit takes all
+  ten tram doors through the ledge (1608 doors; Dig's remaining failures
+  are the five on-foot doors in rooms 30/34/38/41); tools/test_world.cpp
+  scene pictures and the line table; screenshots of stations 80 and 37
+  compared by eye; original-data suite 35/35; startup test. Not
+  device-tested.
 

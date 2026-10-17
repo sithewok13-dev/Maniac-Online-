@@ -193,7 +193,18 @@ static void testCatalog() {
 		assert(cast && !worldBreathes(x.game, x.costume));
 	}
 	assert(worldBreathes(9, 49) && !worldBreathes(5, 6) && worldBreathes(0, 906));
-	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air\n", scenes, guests);
+	// The Dig's tram: every station is a visitable room whose car is a door to
+	// the other end of its line; each station belongs to one line.
+	for (const auto &line : kWorldTramLines) for (int e = 0; e < 2; ++e) {
+		const WorldTramStop &stop = line.ends[e];
+		assert(worldRoomKind(line.game, stop.room) >= 0 && stop.picture[0] && stop.tunnel >= -1 && stop.tunnel <= 1);
+		const WorldLink *car = worldLinkFrom(line.game, stop.room, stop.car);
+		assert(car && car->target == line.ends[1 - e].room);
+		int l = -1, at = -1;
+		assert(worldTramStop(line.game, stop.room, l, at) && &kWorldTramLines[l] == &line && at == e);
+	}
+	{ int l, at; assert(!worldTramStop(8, 2, l, at) && !worldTramStop(0, 80, l, at)); }
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air, Dig tram\n", scenes, guests);
 }
 
 // Door maps: doors join visitable rooms; every visitable room is reached
@@ -399,4 +410,36 @@ int main() {
 	SandboxScene states; assert(fitScene(src, 32, 16, 240, states, error, 320));
 	assert(states.objects[0].state == 0 && states.objects[1].state == 1 && withObjects.objects[0].state == 1);
 	std::printf("PASS: SVW4 object states (parse, truncation, sandbox, older files shown)\n");
+	// A picture of the scene in another state (a parked car): a 12x8 block of
+	// color 120 at (60,20). Fitted at 2/3 scale into the scene's own colors
+	// (120 is not one of them: it snaps to the nearest), only where it differs.
+	{
+		std::vector<uint8_t> car = pixels;
+		for (int y = 20; y < 28; ++y) for (int x = 60; x < 72; ++x) car[y * W + x] = 120;
+		SourceScene base, shown;
+		auto carBytes = sceneBytes(W, H, car, boxes);
+		assert(parseScene(bytes.data(), bytes.size(), base, error) && parseScene(carBytes.data(), carBytes.size(), shown, error));
+		SandboxScene fitted; assert(fitScene(base, 32, 16, 240, fitted, error, 320));
+		ScenePicture picture;
+		assert(fitPicture(base, shown, fitted, picture, error));
+		const int px = fitted.padLeft + 40, py = 13; // 60*2/3, 20*2/3
+		assert(picture.x >= px - 1 && picture.x <= px && picture.y >= py - 1 && picture.y <= py);
+		assert(picture.width >= 8 && picture.width <= 10 && picture.height >= 5 && picture.height <= 7);
+		int shownPixels = 0;
+		for (size_t i = 0; i < picture.mask.size(); ++i) if (picture.mask[i]) {
+			++shownPixels; assert(picture.pixels[i] >= fitted.firstSlot && picture.pixels[i] < fitted.firstSlot + fitted.slotCount);
+		}
+		assert(shownPixels >= 40);
+		// Fitted in the picture's colors, the car keeps its own color 120.
+		SandboxScene joint; assert(fitScene(base, 32, 16, 240, joint, error, 320, &shown) && joint.slotCount == 3);
+		assert(fitPicture(base, shown, joint, picture, error));
+		for (size_t i = 0; i < picture.mask.size(); ++i) if (picture.mask[i]) {
+			const uint8_t *rgb = &joint.palette[(size_t)(picture.pixels[i] - joint.firstSlot) * 3];
+			assert(rgb[0] == 120 && rgb[1] == 135 && rgb[2] == 60);
+		}
+		assert(!fitPicture(base, base, fitted, picture, error));
+		SourceScene other = base; other.width = 10; other.pixels.resize(10 * H);
+		assert(!fitPicture(base, other, fitted, picture, error));
+	}
+	std::printf("PASS: scene pictures (only what differs, scene scale and colors, joint colors, refused when equal or another size)\n");
 }

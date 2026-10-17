@@ -244,7 +244,10 @@ presets (0074, catalog: classes switched off, variables, room scripts and
 their tints) put a game in an explored state before its rooms are drawn;
 named room scripts run with their actors kept for the capture, accumulated
 over one animation cycle (The Dig's light bridges and their walk boxes).
-The exporter counts started exports in `<game>-v<N>.try` and writes `.svx` when one
+Scene pictures (0076): the same room exported in another state (a Dig tram
+car parked) is fitted with the scene, in colors chosen from it, keeping only
+the pixels that differ; the engine draws it into the scene's background
+(sliding or dissolving) and redraws. The exporter counts started exports in `<game>-v<N>.try` and writes `.svx` when one
 finishes; after `kWorldExportAttempts` (2) unfinished ones the game is
 skipped at start rather than crashing every launch.
 Playing someone from another game (0069): a sandbox character (1..24) has an
