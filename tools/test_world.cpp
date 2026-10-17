@@ -294,4 +294,17 @@ int main() {
 	assert(mid > 100 && mid < 200);
 	assert(scaled.boxScale(-1, 0) == 255 && scaled.boxScale(9, 0) == 255 && withObjects.boxScale(0, near.uy) == 255);
 	std::printf("PASS: SVW3 box scales (parse, truncation, kept boxes, interpolation, older files)\n");
+
+	// SVW4: each object record ends with its state; older files say shown.
+	auto v4 = sceneBytes(W, H, pixels, boxes);
+	v4[3] = '4';
+	put16(v4, 2);
+	for (int f : {101, 12, 6, 24, 18, 30, 44, 0}) put16(v4, f);
+	for (int f : {102, 0, 0, 8, 8, 2, 40, 1}) put16(v4, f);
+	for (int b = 0; b < 5; ++b) { v4.push_back(255); v4.push_back(255); }
+	assert(!parseScene(v4.data(), v4.size() - 1, src, error));
+	assert(parseScene(v4.data(), v4.size(), src, error) && src.objects.size() == 2 && src.objects[0].state == 0 && src.objects[1].state == 1);
+	SandboxScene states; assert(fitScene(src, 32, 16, 240, states, error, 320));
+	assert(states.objects[0].state == 0 && states.objects[1].state == 1 && withObjects.objects[0].state == 1);
+	std::printf("PASS: SVW4 object states (parse, truncation, sandbox, older files shown)\n");
 }

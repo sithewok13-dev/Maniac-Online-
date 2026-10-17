@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0065 (other worlds: everyone drawn at each spot's own scale).
+Active milestone: Phase 1; latest patch 0066 (other worlds: script-built rooms, map figures; guest chat crash fixed).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -899,4 +899,68 @@ their own size, and nobody followed the source games' depth scaling.
   Not device-tested.
 - Not done: characters do not walk slower when smaller; seated or scripted
   poses keep their own anchors; Maniac rooms are unchanged.
+
+## Patch 0066 — script-built rooms, map figures, guest chat crash
+
+Device report (2026-10-17, screenshot of Last Crusade's catacomb tunnels):
+Castle Brunwald is incomplete; the visitor looks wrong on the Venice
+catacomb maps; talking to some characters shows "thinking" and a second
+message crashes. Also asked: is local multiplayer available (yes, since
+0053: Worlds menu, Connected worlds, Play together on WiFi).
+- Crash: the dialogue worker remembered each speaker's last line in a
+  25-entry table, but other-world characters are actors 25..29, so a model
+  reply from one of them wrote past it and the next message crashed. The
+  table now covers every talk actor and the line is remembered in the
+  worker's shared path, so the scripted test provider exercises it.
+  test_talk_provider adds two messages to guest 27 (fails with the old
+  table under UBSan, now fatal in test_talk_runtime; passes under ASan/UBSan
+  and TSan). Model-backed replies themselves are not tested here (no weights).
+- Script-built rooms: Last Crusade (v3) reuses template rooms as "pseudo
+  rooms" 128+ (55 instances of 6 templates: Castle Brunwald's corridors,
+  rooms and towers, the Venice library's stacks and reading rooms). The game's boot
+  script maps them, which the exporter skips, so they failed or drew the
+  bare template. Door maps now keep each instance as its own room with its
+  template's resource; the exporter maps it and runs the room's entry
+  script for a few cycles (sounds stopped, scripts killed, actors hidden,
+  the room must not change), which furnishes that instance. v3/v4 rooms
+  that render to one color are retried the same way. The "show every
+  object" fallback is gone (it crashed Loom 65 and Last Crusade 20 with a
+  screen-strip error). Scenes are "SVW4": each object's state after those
+  scripts; doors an instance does not show (`switched` links, 118 in Last
+  Crusade) are not offered. kWorldExportVersion is 5. Two more story areas
+  are named (Monkey Island beach, Castle Brunwald corridor).
+- Map figures: on map rooms (e.g. Melee Island's map, the Venice catacomb
+  tunnels) the visitor and guests are drawn at 0.3 of a standing
+  person (`scummverseWorldDepth`), like the games' own map figures.
+- Folder names: a later report (screenshot of the Other worlds menu) showed
+  Loom and Sam & Max as "add Documents/loom" although the user had copied
+  them: the folders were "loom " and "samnmax " (trailing space, as zipped
+  on a Mac; the files match the audited copies). A game's folder is now
+  found ignoring case and surrounding spaces, at launch and in the menu.
+  The menu tells a missing folder from one that will be set up at the next
+  start ("restart the app to set up") and from one whose setup stopped.
+- Export robustness: the engine runs with no console input (an engine error
+  ends the export instead of waiting). `<game>-v5.try` counts started
+  exports; a game that stopped twice without its `.svx` (a crash, or the app
+  closed during setup twice) is skipped at later starts (logged) instead of
+  crashing every launch, and the Connected worlds message names it.
+- Verified (Linux, the user's private copies): export of all ten games, 635
+  scenes and 257 character sprites, no problems (also under ASan: clean,
+  byte-identical files); tools/test_world.cpp (634 rooms, 1708 doors, 56
+  story areas, every room reachable; SVW4 parse, truncation, sandbox, older
+  files); tools/test_world_visit.py (also under ASan) visits all 56 named
+  places and every story area, checks the visitor's map-figure height on
+  25 map rooms, draws all 263 characters, and walks every door: 1550 lead
+  where the map says, 66 do not (4.1%), 16 are skipped and 76 are hidden in
+  their instance; test_talk_runtime (ASan/UBSan/TSan), test_startup and the
+  original-data suite pass; tools/test_world_setup.py (also with the ASan
+  binary) finds "loom " and "LOOM" folders and sets them up, skips a game
+  whose marker counts two unfinished setups and retries one with one. The
+  iOS menu changes are compiled only by Apple CI.
+  Screenshots of a castle instance, the Venice library and the catacomb
+  maps compared by eye.
+- Known gaps: Last Crusade's castle halls 20, 28 and 32 stay dark (their
+  doors' scripts build them, which the export does not run); Loom's cave 65
+  is dark; Atlantis 20 and Full Throttle 13 (the ride map) are blank;
+  nothing here is device-tested.
 

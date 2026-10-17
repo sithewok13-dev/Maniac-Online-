@@ -33,8 +33,9 @@ def main():
             folder, path = pair.split('=', 1)
             (docs/folder).symlink_to(Path(path).resolve())
         (docs/'scummvm.ini').write_text('[scummvm]\n')
+        # No console: an engine error ends the run instead of waiting for input.
         proc = subprocess.Popen([str(a.binary.resolve()), '--config=scummvm.ini'], cwd=docs,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # Exports finish, then Maniac starts and runs until stopped.
         lines = []
         started = time.time()

@@ -61,7 +61,7 @@
 				guest->_needRedraw=true; settle(1);
 				const int drawn=guestPixels(guest);
 				// Drawn area shrinks with the square of the scene's depth scale there.
-				const double depth=MAX(0.1,::Scummverse::WorldBridge::boxScale(guest->_walkbox,guest->getRealPos().y)/255.0);
+				const double depth=scummverseWorldDepth(guest);
 				if (drawn<MAX(1.0,30*depth*depth)) error("Guest %s not drawn (%d pixels, extent %d..%d, depth %.2f)",g->name,drawn,guest->_top,guest->_bottom,depth);
 				warning("WORLD guest %s pixels %d height %d",g->name,drawn,guest->_bottom-guest->_top);
 				++guests; ++present;
@@ -72,7 +72,7 @@
 		// The visitor is as tall as a person standing there in that game.
 		{
 			int source; const int game=scummverseWorldGameOf(room,source);
-			const double depth=MAX(0.1,::Scummverse::WorldBridge::boxScale(me->_walkbox,me->getRealPos().y)/255.0);
+			const double depth=scummverseWorldDepth(me);
 			const double expected=::Scummverse::WorldCatalog::kWorldGames[game].heroHeight*::Scummverse::WorldBridge::sceneScale()*depth;
 			me->_needRedraw=true; settle(1);
 			const int drawn=me->_bottom-me->_top;
@@ -144,7 +144,7 @@
 	}
 	// Doors: in every game with a door map, tap each door from its room and
 	// stand at it; the player goes through to the room the door leads to.
-	int doors=0, doorFailures=0, doorSkipped=0;
+	int doors=0, doorFailures=0, doorSkipped=0, doorHidden=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
 		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
 		if (!map) continue;
@@ -158,6 +158,8 @@
 				if (id==link.object) { found=k; break; }
 			}
 			if (found<0) { ++doorSkipped; continue; }
+			// A door this instance of a script-built room does not show.
+			if (link.switched && !::Scummverse::WorldBridge::objectState(found)) { ++doorHidden; continue; }
 			// Start beside the door, tap it, and walk there like a player.
 			AdjustBoxResult near=me->adjustXYToBeInBox(wx,wy);
 			me->putActor(near.x,near.y,_currentRoom);
@@ -169,7 +171,7 @@
 			else { ++doorFailures; warning("WORLD door %d:%d obj %d -> %d failed (now %d:%d)",g,link.room,link.object,link.target,game,source); }
 		}
 	}
-	warning("WORLD doors %d failed %d skipped %d",doors,doorFailures,doorSkipped);
+	warning("WORLD doors %d failed %d skipped %d hidden %d",doors,doorFailures,doorSkipped,doorHidden);
 	// A few doors sit where the sandbox's walk boxes cannot reach (see the
 	// progress notes); more than one in twenty failing is a regression.
 	if (doors<500 || doorFailures*20>doors+doorFailures) error("%d of %d doors did not lead where their map says",doorFailures,doors+doorFailures);
@@ -185,6 +187,21 @@
 		}
 	}
 	warning("WORLD story areas %d",areas);
+	// Map rooms (Melee Island, the Venice catacomb tunnels): visitors are small figures.
+	int maps=0;
+	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
+		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
+		for (int i=0;map && i<map->roomCount;++i) {
+			if (map->rooms[i].kind!=1 || !scummverseTravelPlace(g,map->rooms[i].room)) continue;
+			settle(6); me->_needRedraw=true; settle(1);
+			const double expected=::Scummverse::WorldCatalog::kWorldGames[g].heroHeight*::Scummverse::WorldBridge::sceneScale()*scummverseWorldDepth(me);
+			const int drawn=me->_bottom-me->_top;
+			if (me->_top>0 && ABS(drawn-expected)>MAX(4.0,expected*0.25)) error("Map %d:%d: visitor drawn %d px tall, expected about %.0f",g,map->rooms[i].room,drawn,expected);
+			if (expected>0.4*::Scummverse::WorldCatalog::kWorldGames[g].heroHeight*::Scummverse::WorldBridge::sceneScale()) error("Map %d:%d: visitor not drawn as a map figure",g,map->rooms[i].room);
+			++maps;
+		}
+	}
+	warning("WORLD map rooms %d",maps);
 	// Every character, in its own room: placed, named, in the talk roster, drawn.
 	int everyone=0, small=0;
 	for (const auto &cast : ::Scummverse::WorldCatalog::kWorldCast) {

@@ -39,9 +39,11 @@ def load(game):
     rooms = data.get('rooms', {})
     if isinstance(rooms, list):  # [{"room": N, "kind": ...}, ...]
         rooms = {str(r.get('room')): r for r in rooms}
-    # Locations that reuse one physical room (numbers 128+ in the research)
-    # are the physical room here: scenes are drawn without their scripts.
-    physical = {int(k): int((v or {}).get('physicalRoom') or k) for k, v in rooms.items()}
+    # Locations that reuse one physical room fold into it, except v3/v4
+    # pseudo rooms (128+): the exporter furnishes each such instance of a
+    # template room with the room's entry script, so they stay places.
+    instances = VERSIONS[game] <= 4
+    physical = {int(k): int(k) if instances and int(k) >= 128 else int((v or {}).get('physicalRoom') or k) for k, v in rooms.items()}
     kinds = {}
     for k, v in rooms.items():
         room, kind = physical[int(k)], (v or {}).get('kind', 'scene')
@@ -62,8 +64,9 @@ def load(game):
     for room in joined:
         info = rooms.get(str(room)) or {}
         kind = kinds.get(room)
+        resource = int(info.get('physicalRoom') or room) if room >= 128 else room
         if kind in KINDS and 0 < room < 1000 and exportable(game, info):
-            visit[room] = KINDS[kind]
+            visit[room] = (KINDS[kind], resource)
     links, seen = [], set()
     for link in travel:
         room, obj, target = int(link['room']), int(link['object']), int(link['target'])
@@ -71,7 +74,8 @@ def load(game):
             continue
         seen.add((room, obj))
         arrival = int(link.get('arrivalObject') or 0)
-        links.append((room, obj, target, arrival if 0 < arrival < 32768 else 0))
+        switched = 1 if link.get('needsObjectState') else 0
+        links.append((room, obj, target, arrival if 0 < arrival < 32768 else 0, switched))
     return sorted(visit.items()), links
 
 
@@ -79,7 +83,7 @@ def load(game):
 # the scene menu offers one entrance per such area, named here (newly written
 # descriptions, not game text). Every entrance must be named.
 AREA_NAMES = {
-    ('monkey', 70): 'Catacombs and the ghost ship', ('monkey', 21): 'Monkey Island jungle',
+    ('monkey', 70): 'Catacombs and the ghost ship', ('monkey', 21): 'Monkey Island jungle', ('monkey', 1): 'Monkey Island beach',
     ('monkey', 30): 'Melee Island shop', ('monkey', 31): 'Melee Island jail',
     ('monkey', 32): 'Melee Island back alley', ('monkey', 42): 'Under the harbor',
     ('monkey', 60): 'Gym', ('monkey', 80): 'Fort',
@@ -88,7 +92,7 @@ AREA_NAMES = {
     ('monkey2', 90): 'Storage room', ('monkey2', 96): 'Jungle',
     ('loom', 43): 'The castle', ('loom', 13): 'Waterspout', ('loom', 65): 'Cave',
     ('indy3', 12): 'Castle Brunwald', ('indy3', 81): 'Grail temple', ('indy3', 3): 'Lecture hall',
-    ('indy3', 7): "Henry's house", ('indy3', 86): 'Grail chamber',
+    ('indy3', 7): "Henry's house", ('indy3', 86): 'Grail chamber', ('indy3', 132): 'Castle Brunwald corridor',
     ('atlantis', 32): 'Desert by balloon', ('atlantis', 36): 'Atlantis', ('atlantis', 37): 'Pool',
     ('atlantis', 42): 'Submarine, surfaced', ('atlantis', 56): 'Labyrinth elevator',
     ('atlantis', 71): 'Machine room', ('atlantis', 82): 'Submarine, submerged', ('atlantis', 95): 'Balloon over the sea',
@@ -116,7 +120,7 @@ def areas(game, rooms, links, named):
     """Entrances so every room is reachable: by doors from a named place or
     an entrance, or by walking between neighboring named places."""
     doors = defaultdict(set)
-    for room, _obj, target, _arrival in links:
+    for room, _obj, target, _arrival, _switched in links:
         doors[room].add(target)
     for a, b in zip(named, named[1:]):
         doors[a].add(b); doors[b].add(a)
@@ -150,12 +154,12 @@ def main():
         if rooms:
             out.append(f'static const WorldRoom {name}Rooms[] = {{')
             for i in range(0, len(rooms), 10):
-                out.append('\t' + ' '.join(f'{{{r}, {k}}},' for r, k in rooms[i:i+10]))
+                out.append('\t' + ' '.join(f'{{{r}, {k}, {res}}},' for r, (k, res) in rooms[i:i+10]))
             out.append('};')
         if links:
             out.append(f'static const WorldLink {name}Links[] = {{')
             for i in range(0, len(links), 6):
-                out.append('\t' + ' '.join(f'{{{r}, {o}, {t}, {a}}},' for r, o, t, a in links[i:i+6]))
+                out.append('\t' + ' '.join(f'{{{r}, {o}, {t}, {a}, {w}}},' for r, o, t, a, w in links[i:i+6]))
             out.append('};')
         if entrances:
             out.append(f'static const WorldArea {name}Areas[] = {{')

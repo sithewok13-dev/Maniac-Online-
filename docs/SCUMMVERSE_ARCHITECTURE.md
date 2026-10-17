@@ -181,7 +181,7 @@ peers to cast members and validates rooms against this build
 deterministic systems validate: remote input never reaches the conversation
 model and never controls the local player's character.
 
-## Other worlds (patches 0057..0062)
+## Other worlds (patches 0057..0066)
 
 Scenes and characters from other SCUMM games are never shipped: the player's
 own copy is run once in export mode, and its own engine renders a private
@@ -206,12 +206,22 @@ Two committed tables are generated from private analysis of the player's
 games (the generators read `build/foreign/`, which is never committed):
 `scummverse_world_maps.inc` (tools/world_maps.py: every exportable room and
 its door, exit, walk, map, vehicle and time-travel links, pseudo rooms folded
-into their physical room) and `scummverse_world_cast.inc` (tools/world_cast.py:
+into their physical room except v3/v4 instances 128+, which keep their own
+number and name their template's resource) and `scummverse_world_cast.inc` (tools/world_cast.py:
 each character's costume, room, name, newly written personality and lines;
 at most five per room). Besides that new text they hold only numbers and names.
 Scale: everyone in another world is as tall as that game's lead character
 (`WorldGame::heroHeight`) fitted like the scene, times the game's own scale for
 the walk box there (exported per box, "SVW3"). V1 characters are rendered by
 their own renderer into a canvas and scaled around their feet; guests' frames
-are scaled the same way (`scummverseDrawWorldActor`).
+are scaled the same way (`scummverseDrawWorldActor`). On map rooms (kind 1)
+everyone is a small figure, 0.3 of that height (`scummverseWorldDepth`).
+Script-built rooms: a v3/v4 pseudo room is exported by mapping it to its
+template (the boot script, which normally does this, is skipped) and running
+the room's entry script for a few cycles; one-color v3/v4 renders are retried
+that way. Scenes are "SVW4" (object states after those scripts); a door link
+marked `switched` is offered only where that object is shown. The exporter
+counts started exports in `<game>-v<N>.try` and writes `.svx` when one
+finishes; after `kWorldExportAttempts` (2) unfinished ones the game is
+skipped at start rather than crashing every launch.
 v7/v8 editions are compiled in solely so the player's copies can be exported.

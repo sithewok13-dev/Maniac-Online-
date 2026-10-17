@@ -129,5 +129,17 @@ int main() {
 	r.scene(7, 3, edna, true, speaker, text, sizeof(text));
 	assert(r.beginTalk(10) && r.sendTalk("Classic again"));
 	assert(dump(r).find("0:Classic again|10c:") == 0);
+
+	// 9. Other-world characters (guest actors 25..29) reply with a model, and
+	// a second message to one of them still works (their remembered line once
+	// overflowed a 25-entry table and crashed the second reply).
+	replyDelayMs = 0; loadDelayMs = 0; r.configure("fake", false);
+	assert(waitFor([&] { return r.modelReady(); }));
+	r.scene(10035, 3, (1u << 25) | (1u << 26) | (1u << 27), true, speaker, text, sizeof(text));
+	assert(r.beginTalk(27) && r.sendTalk("Ahoy"));
+	assert(waitFor([&] { return !r.waitingForTalk(); }));
+	assert(r.sendTalk("Again"));
+	assert(waitFor([&] { return !r.waitingForTalk(); }));
+	assert(dump(r).find("27:Reply27 to Ahoy.|0:Again|27:Reply27 to Again.|") != std::string::npos);
 	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation\n";
 }

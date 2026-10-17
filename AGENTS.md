@@ -30,7 +30,8 @@ With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-do
 Other worlds: `python3 tools/export_worlds.py game-data/mm-dos monkey2=game-data/<dir> ...`
 (folders: monkey monkey2 loom indy3 atlantis tentacle samnmax ft dig comi)
 then `python3 tools/test_world_visit.py game-data/mm-dos` (cache in build/worlds;
-scenes .svw, characters .svc; walks every door, a few minutes).
+scenes .svw, characters .svc; walks every door, a few minutes). Launch-time
+setup: `python3 tools/test_world_setup.py game-data/mm-dos loom=game-data/loom-ega`.
 Door maps and casts are generated: `python3 tools/world_maps.py` and
 `python3 tools/world_cast.py` read private analysis in build/foreign/ and
 rewrite engine/common/scummverse_world_{maps,cast}.inc (commit those, never

@@ -42,7 +42,7 @@ def main():
         binary = ROOT/'build'/f'{test}-{sanitizer.split(",")[0]}'
         run('c++', '-std=c++17', '-g', f'-fsanitize={sanitizer}', *include,
             ROOT/'tools'/f'{test}.cpp', *libs, '-o', binary)
-        run(binary, env={'TSAN_OPTIONS': 'halt_on_error=1', 'PATH': '/usr/bin:/bin'})
+        run(binary, env={'TSAN_OPTIONS': 'halt_on_error=1', 'UBSAN_OPTIONS': 'halt_on_error=1:print_stacktrace=1', 'PATH': '/usr/bin:/bin'})
     # Real-model probes need a verified GGUF; compile them so API drift is caught.
     for test in ('test_talk', 'test_group_talk', 'test_local_ai'):
         run('c++', '-std=c++17', '-fsyntax-only', *include, ROOT/'tools'/f'{test}.cpp')

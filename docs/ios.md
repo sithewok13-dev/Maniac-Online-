@@ -29,7 +29,11 @@ the sideloading tool installs it as an update over the previous one; your game
 files and saves in Documents stay. To check which build is running, open the
 in-game menu's **Connected worlds**: its message ends with "Build: patch 0063,
 build 69 (…)" and how many of your other games are exported for that build.
-If it still shows an older build, the old app is the one being opened: look for
+Other games are set up once, at launch, before Maniac Mansion starts; keep the
+app open until then. Folder names ignore case and spaces around them, but
+must otherwise match (`loom`, `samnmax`, …). A game whose setup stopped twice is listed as "Could not
+set up" and skipped; to retry it, delete its `.try` file in the `worlds`
+folder with the Files app. If it still shows an older build, the old app is the one being opened: look for
 a second SCUMMVERSE icon (two sideloading tools can install two copies), and
 force-close the app before reopening it. Deleting an app also deletes its
 Documents folder, so copy your game files out first.

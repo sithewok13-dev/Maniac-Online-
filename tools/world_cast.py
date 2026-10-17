@@ -32,7 +32,9 @@ SPECKS = {('dig', 153)}
 def landmarks():
     """Named places per game, from the catalog (same order as GAMES)."""
     text = CATALOG.read_text()
-    arrays = re.findall(r'SCUMMVERSE_WORLD\("(\w+)", "[^"]*", "\w+", \d, (\w+)\)', text)
+    arrays = re.findall(r'SCUMMVERSE_WORLD\("(\w+)", "[^"]*", "\w+", \d, (\w+)(?:, \d+)?\)', text)
+    if len(arrays) < 10:
+        raise SystemExit('catalog games not found; update the pattern in landmarks()')
     out = {}
     for gameid, array in arrays:
         body = text[text.index(f'static const WorldScene {array}[] = {{'):]
