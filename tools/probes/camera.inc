@@ -157,6 +157,9 @@
 		}
 		dave->stopActorMoving(); dave->setDirection(180); dave->startAnimActor(dave->_standFrame);
 		settle(4);
+		// Those sent away are not marked for drawing (as after a step that
+		// drew none of them): a selfie's full redraw must not leave them so.
+		for (const Away &w : away) _actors[w.id]->_needRedraw=false;
 		selfie("alone",true);
 		for(const Away &w : away) { _actors[w.id]->putActor(w.x,w.y,_currentRoom); _actors[w.id]->showActor(); }
 		settle(2);

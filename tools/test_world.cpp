@@ -176,7 +176,7 @@ static void testCatalog() {
 	for (const auto &g : kWorldGames) assert(g.heroHeight >= 30 && g.heroHeight <= 480);
 	for (const auto &legacy : kWorldLegacyPlaces) assert(worldLandmark(legacy.game, legacy.room));
 	// Costume variants (one costume, another animation set) stand for a cast
-	// member and name a different real costume; Murray floats.
+	// member and name a different real costume; Murray bounces.
 	for (const auto &v : kWorldCostumeVariants) {
 		assert(v.real != v.costume && v.costume < 1024 && worldCostumeVariant(v.game, v.costume) == &v);
 		bool cast = false;
@@ -184,7 +184,7 @@ static void testCatalog() {
 		assert(cast);
 	}
 	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
-	assert(worldHovers(9, 49) && !worldHovers(0, 49));
+	assert(worldBouncer(9, 49) && worldBouncer(9, 949) && worldBouncer(9, 49)->jaw > 0 && !worldHovers(9, 49) && !worldBouncer(0, 49));
 	// Maniac's own looks: a pseudo game beyond the real ones, found by key,
 	// hovering and airless (the Purple Meteor), domed, rolling; real keys
 	// never reach it.

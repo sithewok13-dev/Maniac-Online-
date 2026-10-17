@@ -46,7 +46,8 @@ fishbowl on Mars too);
 Loom offers Chaos, who floats; Day of the Tentacle offers Ted dressed up
 for the beauty contest (spaghetti hair, big lips), who glides on his skates;
 Curse of Monkey Island offers Murray twice (the skull as in the theater, and
-green as in the ship's hold). A game whose setup stopped twice is listed as "Could not
+green as in the ship's hold), who bounces like a ball to get around and
+opens his mouth as he talks. A game whose setup stopped twice is listed as "Could not
 set up" and skipped; to retry it, delete its `.try` file in the `worlds`
 folder with the Files app. If it still shows an older build, the old app is the one being opened: look for
 a second SCUMMVERSE icon (two sideloading tools can install two copies), and

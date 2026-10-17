@@ -265,7 +265,9 @@ or their own, decoded through `scummverseCostumeFacing`, and newly drawn
 gear after the limbs by `ClassicCostumeRenderer::drawExtra`: a pot on
 wheels under the feet, or skates in the rows the feet are lifted by,
 `kWorldSkateLift`; V1 elevation counts two-pixel rows). Characters from
-other games may hover (`worldHovers`, a lift capped for tall ones) or glide
+other games may hover (`worldHovers`, a lift capped for tall ones), bounce
+(`worldBouncer`: hops while moving, a hop under way finished on stopping,
+and a jaw: talking, the head above it lifts off it every other step), or glide
 (`worldGlider`: the standing pose while moving, optionally with a newly
 drawn dress-up over the sprite's head, `scummverseDrawDressUp`, and drawn
 mirrored facing left when every frame looks right, `oneWay`). Native

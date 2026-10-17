@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0082 (Chaos, both Teds, the grown plant, Mars air).
+Active milestone: Phase 1; latest patch 0083 (Murray bounces and talks; a selfie fix).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1611,3 +1611,39 @@ Loom and Sam & Max shown greyed out although their files were installed.
   already ignored spaces at the ends of names here on Linux, so the cause
   on the iPhone is not certain; the nested folder is the likelier one). The iOS folder search and the new status line are not compiled yet
   (Apple CI on push) and not device-tested.
+
+## Patch 0083 — Murray bounces and talks; selfies put every actor back
+
+User requests (2026-10-17): "Murray should bounce to move around. And his
+mouth should move when he's talking." (Both of Curse's Murrays, the skull
+and the green one of the ship's hold.)
+- Murray no longer floats (`kWorldHoverers` keeps the Purple Meteor and
+  Chaos). He is a bouncer (`kWorldBouncers`): at rest on the ground; while
+  he moves, hops like a ball half his height high (at most 16 pixels, one
+  hop every 24 ticks), a hop under way finished when he stops
+  (`worldHop`, per character and per scene guest); posing for a selfie, on
+  the ground. As a guest in his own world he now hops about too (he did not
+  move before, having no walking frames).
+- His mouth: the exported talking frames (two, the jaw about a pixel apart
+  at this size) barely showed. Talking now draws his standing frame with
+  the head above his jaw (54 rows in 100 from the top) lifted two rows
+  every other talking step, the gap his frame's darkest color: a mouth
+  opening and closing.
+- Sprite drawing options are one `ScummverseSpriteStyle` (hover, glide,
+  dress-up, one-way, hop, jaw).
+- CAMERA fix (patch 0081's selfie): its full redraw marks every actor for
+  drawing, those in other rooms too, and clears every actor's background
+  reset; only the people in the room were put back, so a character sent
+  elsewhere could come out of a selfie marked (the data suite caught it
+  once in 37 tests: "The selfie changed the game (alone)"). A selfie now
+  keeps both flags for every actor and puts them back.
+  tools/probes/camera.inc clears the flag on those it sends away before
+  the lone selfie, so the case is tested every run (it failed every run
+  without the fix, and passes with it).
+- Verified (Linux, the user's private copies): test_world (bouncers, the
+  jaw, no longer hovering); tools/test_appearance.py (Murray on the ground
+  at rest, 13 px hops with two landings while walking, landed after, his
+  mouth open 22 and closed 18 of 40 talking steps; green Murray on the
+  ground; the other looks as before); tools/test_camera_engine.py three
+  runs in a row; original-data suite 37/37; bootstrap; startup;
+  screenshots (closed, open, mid-hop) checked by eye. Not device-tested.

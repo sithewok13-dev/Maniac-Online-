@@ -6,7 +6,7 @@ privately supplied games, at least Last Crusade and Monkey Island. Dave
 plays Indiana Jones and Bernard Guybrush: names, chat identity, frames
 mounted beside a scene's own characters, drawn height in the mansion and
 in two other worlds, save/load, refusal of unknown characters, and back to
-Dave. Murray floats; The Creator (with The Dig exported) stands at his own
+Dave. Murray bounces and talks; The Creator (with The Dig exported) stands at his own
 height; Dave as Maniac's Purple Meteor wears its costume, hovers with a bob,
 needs no air, keeps it through save/load and other worlds, and gets his own
 costume back; as the Meteor Police officer he wears a glass dome; as the

@@ -89,8 +89,9 @@
 		settle(4);
 		if (_scummVars[kScummverseAppearanceVar+3]!=indy || strcmp((const char *)dave->getActorName(),"Indiana Jones") || !_scummverseAvatarSprite[3]) error("Appearance lost on load");
 	}
-	// Murray (Curse of Monkey Island's talking skull) floats above his feet,
-	// bobbing, and keeps his standing pose while he moves.
+	// Murray (Curse of Monkey Island's talking skull) rests on the ground,
+	// bounces like a ball to move (landing when he stops), and talking, his
+	// head lifts off his jaw every other step.
 	{
 		const int murray=worldAppearanceKey(9,49);
 		if (!worldAppearance(murray) || strcmp(worldAppearance(murray)->name,"Murray")) error("Murray's key changed");
@@ -98,13 +99,34 @@
 		settle(4);
 		request(murray);
 		if (!_scummverseAvatarSprite[3]) error("Murray's frames not mounted");
-		dave->_needRedraw=true; settle(1);
 		const int feet=dave->getPos().y-dave->getElevation();
-		if (dave->_bottom>=feet-1) error("Murray does not float: drawn to %d, feet at %d",dave->_bottom,feet);
-		int lowest=1000, highest=-1000;
-		for (int n=0;n<80;++n) { dave->_needRedraw=true; settle(1); lowest=MIN(lowest,dave->_bottom); highest=MAX(highest,dave->_bottom); }
-		if (highest-lowest<2) error("Murray does not bob (%d..%d)",lowest,highest);
-		warning("APPEARANCE Murray floats %d..%d px above his feet",feet-highest,feet-lowest);
+		for (int n=0;n<20;++n) { dave->_needRedraw=true; settle(1); if (ABS(dave->_bottom-feet)>1) error("Murray off the ground at rest: drawn to %d, feet at %d",dave->_bottom,feet); }
+		const int restTop=dave->_top;
+		// Bouncing along: up and down again more than once.
+		const Common::Point start=dave->getRealPos();
+		dave->startWalkActor(start.x+10,start.y,-1);
+		int highest=0, landings=0, moving=0; bool up=false;
+		for (int n=0;n<120 && (dave->_moving || !moving);++n) {
+			settle(1); if (!dave->_moving) continue;
+			++moving; const int lift=feet-dave->_bottom;
+			highest=MAX(highest,lift);
+			if (lift>=6) up=true; else if (lift<=1 && up) { up=false; ++landings; }
+		}
+		if (!moving || highest<8 || landings<2) error("Murray does not bounce: %d steps moving, %d px high, %d landings",moving,highest,landings);
+		for (int n=0;n<30;++n) settle(1);
+		dave->_needRedraw=true; settle(1);
+		if (ABS(dave->_bottom-feet)>1) error("Murray did not land: drawn to %d, feet at %d",dave->_bottom,feet);
+		// Talking: the mouth opens and closes.
+		scummverseSay(3,"Behold, the mighty Murray speaks, at great and terrible length, to all of you!");
+		int opened=0, closed=0;
+		for (int n=0;n<40;++n) {
+			scummLoop(4); if (getTalkingActor()!=3) continue;
+			if (dave->_top<=restTop-2) ++opened; else if (dave->_top==restTop) ++closed;
+		}
+		stopTalk(); VAR(VAR_HAVE_MSG)=0;
+		if (opened<3 || closed<3) error("Murray's mouth does not move (%d open, %d closed)",opened,closed);
+		warning("APPEARANCE Murray bounces %d px high, %d landings; mouth %d open, %d closed",highest,landings,opened,closed);
+		dave->putActor(start.x,start.y,_currentRoom);
 		request(indy);
 	}
 	// The Creator (The Dig) has one pose; in the mansion he stands as much
@@ -126,17 +148,17 @@
 		}
 	}
 	// Curse's Murray a second time, in the green of the ship's hold where he
-	// washed up (his costume in that room's colors), floating too.
+	// washed up (his costume in that room's colors), bouncing too.
 	{
 		const int green=worldAppearanceKey(9,949);
-		if (!worldAppearance(green) || strcmp(worldAppearance(green)->name,"Murray (green)") || !worldHovers(9,949)) error("Green Murray's key changed");
+		if (!worldAppearance(green) || strcmp(worldAppearance(green)->name,"Murray (green)") || !worldBouncer(9,949) || worldHovers(9,949)) error("Green Murray's key changed");
 		if (scummverseCharacterFrames(9,949).empty()) warning("APPEARANCE no export of Curse: green Murray skipped");
 		else {
 			if (!scummverseTravel(2)) error("Cannot return to the mansion");
 			settle(4); request(green);
 			if (_scummVars[kScummverseAppearanceVar+3]!=green || !_scummverseAvatarSprite[3] || strcmp((const char *)dave->getActorName(),"Murray (green)")) error("Not playing green Murray");
 			dave->_needRedraw=true; settle(1);
-			if (dave->_bottom>=dave->getPos().y-dave->getElevation()-1) error("Green Murray does not float");
+			if (ABS(dave->_bottom-(dave->getPos().y-dave->getElevation()))>1) error("Green Murray is not on the ground at rest");
 			shot("appearance-murray-green.ppm");
 		}
 	}
