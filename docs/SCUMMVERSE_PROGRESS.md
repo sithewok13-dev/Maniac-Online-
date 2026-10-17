@@ -623,3 +623,37 @@ Landscape gets a ⇄ swap button (remembered in NSUserDefaults); the button
 column moves to the game half's edge. Closing chat restores full-screen
 landscape; portrait closed keeps v2. Compiled only by Apple CI; not
 device-tested (rotation, keyboard and touch mapping need iPhone checks).
+
+## Patch 0057 — other worlds: scenes from the player's other SCUMM games
+
+User request (2026-10-17): add locations and characters from Monkey Island
+1/2, Loom, Indiana Jones 3/4, Day of the Tentacle and Sam & Max (user supplied
+their own copies; they stay in ignored game-data/). This patch adds locations;
+characters are the next slice.
+- Design: the original game's own engine renders its scenes. At app start,
+  `base/main.cpp` finds catalog folders in Documents (monkey, monkey2, loom,
+  indy3, atlantis, tentacle, samnmax), chains each new game once in export
+  mode (`scummverse_world_export`, engines/scumm/scummverse_world_export.inc)
+  and then starts Maniac with its own settings restored. Export failures only
+  log. The cache (Documents/worlds/*.svw: pixels, palette, walk boxes) is
+  private, derived from the player's files, never committed.
+- `common/scummverse_world_catalog.h`: 41 curated scenes (room numbers for
+  the audited editions + descriptive names). `common/scummverse_world.*`:
+  portable loader — scales to the 128-line sandbox view (area average snapped
+  to the scene's own colors; point sampling for 16-color EGA art), packs
+  colors into palette slots 16..255 (unused by V1 art), pads narrow scenes,
+  converts walk boxes to V2 trapezoids with a routing table, builds a V1 room
+  resource. Unit test tools/test_world.cpp (synthetic, CI).
+- Sandbox: logical rooms 200+ (catalog order) backed by one new physical
+  room 127 (`kForeignRoom`, `_numRooms` 128; static resources only, saves
+  unaffected). GdiV1 draws foreign strips from the scene pixels. Walking off
+  a side reaches the neighboring scene of that game when its boxes allow.
+  Worlds → "Visit other worlds" (iOS) lists games (disabled until installed)
+  and scenes. Saves inside a scene reload it; without the cache the player is
+  moved to the airport. Chat context knows the scene names.
+- Verified: 41/41 scenes export via the real binary (tools/export_worlds.py)
+  and via probes; tools/test_world_visit.py visits all 41 (walks in 38, side
+  exits, save/load, missing cache, home palette intact), ASan clean.
+- Not done: foreground masks (actors draw in front of everything), original
+  doors/objects/scripts in those scenes, characters from those games,
+  device testing. Editions other than the audited ones are not exported.

@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Export other-world scenes from privately supplied games, like the iOS app.
+
+Builds a temporary Documents folder with maniac/ and one folder per game
+(named as in common/scummverse_world_catalog.h), runs the real binary, which
+exports each new game once before starting Maniac, and copies the resulting
+worlds/ cache to build/worlds. Game data and the cache stay in ignored folders.
+
+Usage: tools/export_worlds.py game-data/mm-dos monkey2=game-data/monkey2-vga ...
+"""
+import argparse
+import shutil
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('maniac', type=Path)
+    p.add_argument('games', nargs='+', help='folder=path pairs, e.g. monkey2=game-data/monkey2-vga')
+    p.add_argument('--binary', type=Path, default=ROOT/'build/null/scummvm')
+    p.add_argument('--out', type=Path, default=ROOT/'build/worlds')
+    a = p.parse_args()
+    with tempfile.TemporaryDirectory(prefix='scummverse-documents-', dir=ROOT/'build') as tmp:
+        docs = Path(tmp)
+        (docs/'maniac').symlink_to(a.maniac.resolve())
+        for pair in a.games:
+            folder, path = pair.split('=', 1)
+            (docs/folder).symlink_to(Path(path).resolve())
+        (docs/'scummvm.ini').write_text('[scummvm]\n')
+        proc = subprocess.Popen([str(a.binary.resolve()), '--config=scummvm.ini'], cwd=docs,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # Exports finish, then Maniac starts and runs until stopped.
+        lines = []
+        deadline = time.time() + 600
+        for line in proc.stdout:
+            lines.append(line)
+            if "target 'maniac'" in line or time.time() > deadline:
+                break
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log = ''.join(lines)
+        (ROOT/'build/export-worlds.log').write_text(log)
+        exported = sorted(f.name for f in (docs/'worlds').glob('*.svw')) if (docs/'worlds').exists() else []
+        a.out.mkdir(parents=True, exist_ok=True)
+        for name in exported:
+            shutil.copy2(docs/'worlds'/name, a.out/name)
+        for line in log.splitlines():
+            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'world export' in line:
+                print(line.strip())
+        print(f'{len(exported)} scenes exported to {a.out}')
+        return 0 if exported else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -388,3 +388,11 @@
 - 28/28 data tests pass (adds test_tram). Bus probe covers the boarding wait,
   walking aboard and a late rider; expansion covers schema-4 bus migration.
 - Not device-tested.
+
+## Patches 0056–0057
+
+- 29/29 data tests pass (adds test_world_visit; it SKIPs without a cache).
+- tools/test_mobile_layout.cpp: 2,304 split-layout cases. tools/test_world.cpp
+  (synthetic scenes) in CI. tools/export_worlds.py exports 41/41 scenes from
+  the user's 7 games through the real binary; world-visit probe ASan clean.
+- Apple CI built 0056 (split chat). Not device-tested.

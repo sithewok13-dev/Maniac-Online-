@@ -78,9 +78,12 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None):
-    if reference_game not in (None, "zak"):
-        raise ValueError("Only the audited Zak source-reference launcher is supported")
+REFERENCE_GAMES = ("zak", "monkey", "monkey2", "loom", "indy3", "atlantis", "tentacle", "samnmax")
+
+
+def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None, timeout=45, extra_config=""):
+    if reference_game not in (None,) + REFERENCE_GAMES:
+        raise ValueError("Unsupported source-reference game")
     build = ROOT/'build'/build_name
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
@@ -109,8 +112,8 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
             main_source = ROOT/'engine/base/main.cpp'
             main_text = main_source.read_text()
             replacements = {
-                'command = "scumm:maniac";': 'command = "scumm:zak";',
-                'ConfMan.get("gameid") != "maniac"': 'ConfMan.get("gameid") != "zak"',
+                'command = "scumm:maniac";': f'command = "scumm:{reference_game}";',
+                'ConfMan.get("gameid") != "maniac"': f'ConfMan.get("gameid") != "{reference_game}"',
             }
             for before, after in replacements.items():
                 if main_text.count(before) != 1:
@@ -132,10 +135,10 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         subprocess.run(cmd, cwd=build, check=True)
         for enabled in (False, True):
             config = work/'probe.ini'
-            config.write_text('[scummvm]\n' + ('scummverse_roaming=false\n' if config_key != 'scummverse_roaming' else '') + config_key + '=' + str(enabled).lower() + '\n')
+            config.write_text('[scummvm]\n' + ('scummverse_roaming=false\n' if config_key != 'scummverse_roaming' else '') + config_key + '=' + str(enabled).lower() + '\n' + extra_config)
             result = subprocess.run([str(exe), f'--config={config}', f'--path={data}',
                                      f'--savepath={work}', '--debuglevel=1'],
-                                    cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)
+                                    cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
             output = result.stdout + result.stderr
             (ROOT/f'build/{label}-probe-{enabled}.log').write_text(output)
             if result.returncode or f'{marker} enabled={int(enabled)}' not in output:

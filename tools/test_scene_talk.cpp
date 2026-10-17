@@ -70,6 +70,7 @@ int main() {
  r.scene(68,3,1u<<15,true,speaker,text,sizeof(text));
  assert(std::string(actorName(15))=="Guru" && r.toggleTalk(15));
  r.scene(67,3,1u<<15,true,speaker,text,sizeof(text)); assert(std::string(actorName(15))=="Nepal guard");
+ assert(std::string(roomName(200))=="Melee Island town" && std::string(roomName(206))=="Woodtick"); // Other worlds.
  std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }
