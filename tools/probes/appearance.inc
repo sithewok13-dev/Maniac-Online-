@@ -175,6 +175,74 @@
 			error("Not Dave again: costume %d elevation %d",dave->_costume,dave->getElevation());
 		request(indy);
 	}
+	// The Meteor Police officer and the man-eating plant (Maniac's own): the
+	// officer in his own colors under a glass dome; the plant at its everyday
+	// size whichever way it faces, on a newly drawn pot whose wheels turn as
+	// it rolls, needing no air; both through save/load.
+	{
+		const int police=worldAppearanceKey(kWorldManiacLooks,15), plant=worldAppearanceKey(kWorldManiacLooks,19);
+		if (!worldAppearance(police) || strcmp(worldAppearance(police)->name,"Meteor Police") || !worldAppearance(plant) || strcmp(worldAppearance(plant)->name,"Man-Eating Plant"))
+			error("The officer's or the plant's key changed");
+		if (!scummverseTravel(2)) error("Cannot return to the mansion");
+		settle(4);
+		// What the character drew over the background near its feet (-1: nothing).
+		auto picture=[&](int above) {
+			dave->_needRedraw=true; settle(1);
+			const int cx=dave->getPos().x-_virtscr[0].xstart, fy=dave->getPos().y;
+			Common::Array<int> p;
+			for(int y=fy-above;y<fy;++y) for(int x=cx-32;x<cx+32;++x) {
+				const bool in=x>=0 && x<_screenWidth && y>=0 && y<_virtscr[0].h;
+				const byte f=in ? *_virtscr[0].getPixels(x,y) : 0, b=in ? *_virtscr[0].getBackPixels(x,y) : 0;
+				p.push_back(f!=b ? f : -1);
+			}
+			return p;
+		};
+		request(police);
+		if (dave->_costume!=15 || scummverseColorActor(3)!=15 || !scummverseDomed(dave) || !worldBreathes(kWorldManiacLooks,15) || strcmp((const char *)dave->getActorName(),"Meteor Police"))
+			error("Not the officer: costume %d colors %d",dave->_costume,scummverseColorActor(3));
+		{
+			// The dome's white glint, which his own colors do not have.
+			const Common::Array<int> p=picture(80);
+			int glint=0; for(int c : p) glint+=c==15;
+			if (!glint) error("No dome on the officer");
+			shot("appearance-police.ppm");
+		}
+		request(plant);
+		if (dave->_costume!=19 || scummverseColorActor(3)!=19 || scummverseDomed(dave) || worldBreathes(kWorldManiacLooks,19) || !scummverseRollingPot(dave) ||
+			_scummVars[kScummverseHomeCostumeVar+3]!=3 || strcmp((const char *)dave->getActorName(),"Man-Eating Plant"))
+			error("Not the plant: costume %d colors %d home %d",dave->_costume,scummverseColorActor(3),_scummVars[kScummverseHomeCostumeVar+3]);
+		// Its costume's directions are growth stages: always the everyday one
+		// (toward the viewer), standing in the pot.
+		const int dirs[]={180,90,270,0};
+		for (int dir : dirs) {
+			dave->setDirection(dir); dave->startAnimActor(dave->_standFrame);
+			dave->_needRedraw=true; settle(1);
+			for (int i=0;i<16;++i) if (dave->_cost.curpos[i]!=0xFFFF && (dave->_cost.frame[i]&3)!=2) error("Facing %d the plant shows stage %d",dir,dave->_cost.frame[i]&3);
+			if (dave->_bottom-dave->_top<52 || dave->_bottom-dave->_top>64) error("Facing %d the plant drawn %d..%d",dir,dave->_top,dave->_bottom);
+		}
+		// One step on: the same plant and pot, the wheels turned.
+		dave->setDirection(90); dave->startAnimActor(dave->_standFrame);
+		const Common::Array<int> before=picture(17);
+		dave->putActor(dave->getRealPos().x+1,dave->getRealPos().y,_currentRoom);
+		const Common::Array<int> after=picture(17);
+		int pot=0, potSame=0, wheels=0, wheelsSame=0;
+		for (uint i=0;i<before.size();++i) {
+			if (before[i]<0 || after[i]<0) continue;
+			if (i<12*64u) { ++pot; potSame+=before[i]==after[i]; } else if (i>=13*64u && i<15*64u) { ++wheels; wheelsSame+=before[i]==after[i]; }
+		}
+		if (pot<40 || potSame!=pot) error("The pot changed as it rolled (%d of %d)",potSame,pot);
+		if (wheels<8 || wheelsSame==wheels) error("The wheels did not turn (%d of %d alike)",wheelsSame,wheels);
+		warning("APPEARANCE plant: pot %d pixels, wheels %d of %d turned",pot,wheels-wheelsSame,wheels);
+		shot("appearance-plant.ppm");
+		Common::String file; _saveLoadDescription="Playing the plant";
+		if (!saveState(15,false,file) || !loadState(15,false)) error("Save failed");
+		settle(4);
+		if (_scummVars[kScummverseAppearanceVar+3]!=plant || dave->_costume!=19 || !scummverseRollingPot(dave)) error("The plant lost on load");
+		request(0);
+		if (dave->_costume!=3 || _scummVars[kScummverseHomeCostumeVar+3] || scummverseRollingPot(dave) || strcmp((const char *)dave->getActorName(),"Dave"))
+			error("Not Dave again after the plant: costume %d",dave->_costume);
+		request(indy);
+	}
 	// Unknown keys are refused; key 0 makes Dave himself again.
 	request(worldAppearanceKey(3,999));
 	if (_scummVars[kScummverseAppearanceVar+3]!=indy) error("Unknown character accepted");

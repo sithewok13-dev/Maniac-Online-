@@ -34,7 +34,9 @@ app open until then. Folder names ignore case and spaces around them, but
 must otherwise match (`loom`, `samnmax`, …). Once a game is set up, the
 Worlds menu's "Play as someone else" lets the character you control
 become anyone from it (Indy, Guybrush, Sam and Max, The Creator, …); the
-Purple Meteor from Maniac Mansion itself is always offered first, and floats;
+Purple Meteor from Maniac Mansion itself is always offered first, and floats,
+followed by the Meteor Police officer (in a glass dome) and the man-eating
+plant (rolling on a pot with wheels);
 Curse of Monkey Island offers Murray twice (the skull as in the theater, and
 green as in the ship's hold). A game whose setup stopped twice is listed as "Could not
 set up" and skipped; to retry it, delete its `.try` file in the `worlds`

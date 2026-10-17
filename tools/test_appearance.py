@@ -9,7 +9,9 @@ in two other worlds, save/load, refusal of unknown characters, and back to
 Dave. Murray floats; The Creator (with The Dig exported) stands at his own
 height; Dave as Maniac's Purple Meteor wears its costume, hovers with a bob,
 needs no air, keeps it through save/load and other worlds, and gets his own
-costume back. Not an iPhone test.
+costume back; as the Meteor Police officer he wears a glass dome; as the
+man-eating plant he stays at its everyday size whichever way he faces and
+rolls on a pot whose wheels turn. Not an iPhone test.
 """
 import argparse
 from pathlib import Path

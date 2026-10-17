@@ -186,7 +186,8 @@ static void testCatalog() {
 	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
 	assert(worldHovers(9, 49) && !worldHovers(0, 49));
 	// Maniac's own looks: a pseudo game beyond the real ones, found by key,
-	// hovering and airless (the Purple Meteor); real keys never reach it.
+	// hovering and airless (the Purple Meteor), domed, rolling; real keys
+	// never reach it.
 	{
 		const int meteor = worldAppearanceKey(kWorldManiacLooks, 16);
 		assert(worldNativeLook(meteor) && worldAppearance(meteor) && !strcmp(worldAppearance(meteor)->name, "Purple Meteor"));
@@ -195,6 +196,13 @@ static void testCatalog() {
 		for (const auto &c : kWorldCast) assert(!worldNativeLook(worldAppearanceKey(c.game, c.guest.costume)));
 		for (const auto &look : kWorldManiacCast) assert(look.costume > 0 && look.costume < 44 && look.talkColor < 16 && look.lines[2]);
 		assert(!worldNativeLook(0) && worldAppearance(worldAppearanceKey(8, 321)) && !strcmp(worldAppearance(worldAppearanceKey(8, 321))->name, "The Creator"));
+		// The Meteor Police officer breathes and wears a dome; the plant needs
+		// no air and rolls, always in its costume's direction toward the viewer.
+		assert(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 15)) && !strcmp(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 15))->name, "Meteor Police"));
+		assert(worldBreathes(kWorldManiacLooks, 15) && worldDomed(kWorldManiacLooks, 15) && !worldRoller(kWorldManiacLooks, 15) && !worldHovers(kWorldManiacLooks, 15));
+		assert(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 19)) && !strcmp(worldAppearance(worldAppearanceKey(kWorldManiacLooks, 19))->name, "Man-Eating Plant"));
+		assert(!worldBreathes(kWorldManiacLooks, 19) && !worldDomed(kWorldManiacLooks, 19) && worldRoller(kWorldManiacLooks, 19)->facing == 180);
+		assert(!worldDomed(kWorldManiacLooks, 16) && !worldRoller(kWorldManiacLooks, 16) && !worldRoller(9, 19));
 	}
 	// Only Curse of Monkey Island (square pixels) is widened.
 	for (int g = 0; g < worldGameCount(); ++g) assert(worldWiden(g) == (sameId(kWorldGames[g].gameid, "comi") ? 1.2 : 1.0));

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0079 (Zak's last two pads, the King's quiff, green Murray, the van to scale).
+Active milestone: Phase 1; latest patch 0080 (play the Meteor Police and the man-eating plant).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1430,3 +1430,43 @@ screenshot of the landing site for comparison).
   after the palette is put back (scenes and characters byte-identical);
   bootstrap; startup test. iOS pad list not compiled yet (Apple CI runs on
   push). Not device-tested.
+
+## Patch 0080 — Play the Meteor Police and the man-eating plant
+
+User requests (2026-10-17, with a Maniac Mansion screenshot of the plant and
+a picture of the Meteor Police officer in a glass dome): play as the
+"Martian police"; play as the man-eating plant, with wheels under its pot so
+it just rolls around.
+- Both are Maniac's own (private research of the boot and phone scripts):
+  the Meteor Police officer is actor/costume 15 (the phone call's "Meteor
+  Police"), the plant actor/costume 19 ("Plant"). Offered under Play as
+  someone else after the Purple Meteor, as Maniac looks (kWorldManiacCast:
+  newly written personalities and lines; talk color 5, as the originals),
+  each in its own V1 colors (the officer green, his uniform red).
+- The officer wears a glass dome everywhere, as in the user's picture
+  (`worldDomed`): the air gear's bowl alone, in light gray, set on his head
+  below the beacon on its stalk (the first rows at least half his width).
+  Where there is no air (Mars) he breathes like a person: black bowl, tank
+  and mask.
+- The plant: its costume's directions are growth stages (left and right a
+  sprout, away the grown plant), so it is always shown in its direction
+  toward the viewer, its everyday size (`worldRoller`,
+  `scummverseCostumeFacing` in the classic costume decoder), mirrored as it
+  turns. The original paints its pot into the room; here a newly drawn pot
+  on two wheels (17 rows under the stem, in the costume's own colors, two-
+  pixel cells, scaled with long shots, masked like the costume) is drawn
+  after its limbs (`ClassicCostumeRenderer::drawExtra`); the wheels' spokes
+  swap at every step it rolls. It needs no air.
+- A Maniac look is now recorded before its costume is set, so the costume's
+  first animations already follow it.
+- Not done: no rolling sound.
+- Verified (Linux, the user's private copies): test_world (catalog: keys,
+  names, dome, rolling stage, air); tools/test_appearance.py (the officer's
+  costume, colors, name, the dome's glint; the plant's costume, colors,
+  name, its everyday stage in all four directions, drawn 52..64 px with the
+  pot, pot unchanged and wheels turned one step on, save/load, back to
+  Dave); screenshots in the mansion, the airport, the hostel, Mars (gear),
+  the landing site and Melee Island checked by eye; tools/test_mars_air.py;
+  world visit 1607 doors work, 60 fail (as 0079); original-data suite
+  36/36; bootstrap; startup test. iOS menu text compiled by Apple CI only (after a push). Not
+  device-tested.

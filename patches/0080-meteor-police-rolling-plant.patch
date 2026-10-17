@@ -1,0 +1,330 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index f65930f2..b9e4d138 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -575,7 +575,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ // Playing someone from another game: the character you control takes on a
+ // cast member's look, name and voice in chat (engine scummverseSetAppearance).
+ - (void)showScummversePlayAsFrom:(UIViewController *)controller {
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone else: the Purple Meteor or someone from your other games, with their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone else: the Purple Meteor, the Meteor Police, the man-eating plant or someone from your other games, with their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Be yourself again" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(0));
+ 	}]];
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 1b307ad0..597243c7 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -218,6 +218,12 @@ static const WorldGuest kWorldManiacCast[] = {
+ 	{16, "Purple Meteor",
+ 	 "the Purple Meteor, a glowing purple rock from deep space that crashed beside the Edison mansion twenty years ago and has been bossing Dr. Fred around ever since; grandiose, scheming, easily flattered, and secretly lonely", 13,
+ 	 {"I came from beyond the stars. Mind the carpet.", "Twenty years in a basement does things to a rock.", "Kneel before me! Or just wave. Waving is fine."}},
++	{15, "Meteor Police",
++	 "an officer of the Meteor Police, a small green alien who patrols the galaxy for runaway meteors; by the book, proud of the badge, a stickler for speed limits, and quietly sure that every rock in town is up to something", 5,
++	 {"Meteor Police. Nobody touch the glowing rocks.", "Mind your speed out there, citizen.", "I've got my eye on that meteor. All three of them, actually."}},
++	{19, "Man-Eating Plant",
++	 "the man-eating plant from the Edison mansion, now rolling about on a pot with wheels; always hungry, cheerfully menacing, fond of soda, and convinced every visitor is a snack that has not been introduced yet", 5,
++	 {"Is that a snack? You look like a snack.", "Don't worry, I only nibble. Mostly.", "Roll me somewhere sunny and bring a soda."}},
+ };
+ inline bool worldNativeLook(int key) { return key > 0 && (key - 1) / 1024 == kWorldManiacLooks; }
+ // Cast members who need no air on Mars (no fishbowl and tank there):
+@@ -231,7 +237,7 @@ static const WorldAirless kWorldAirless[] = {
+ 	{6, 219},                                               // maintenance droid
+ 	{8, 113}, {8, 128}, {8, 321}, {8, 183}, {8, 202}, {8, 258}, // Cocytus aliens
+ 	{9, 350}, {9, 354}, {9, 413},                           // ghost, skeleton, undead LeChuck
+-	{kWorldManiacLooks, 16},                                // the Purple Meteor
++	{kWorldManiacLooks, 16}, {kWorldManiacLooks, 19},       // the Purple Meteor, the plant
+ };
+ inline bool worldBreathes(int game, int costume) {
+ 	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
+@@ -245,6 +251,25 @@ inline bool worldHovers(int game, int costume) {
+ 	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
+ 	return false;
+ }
++// Characters who wear a glass dome everywhere (the Meteor Police officer, as
++// in the user's reference picture); where there is no air it is the air
++// gear's bowl, with the tank.
++struct WorldDomed { short game, costume; };
++static const WorldDomed kWorldDomed[] = {{kWorldManiacLooks, 15}};
++inline bool worldDomed(int game, int costume) {
++	for (const auto &d : kWorldDomed) if (d.game == game && d.costume == costume) return true;
++	return false;
++}
++// Characters who roll in a pot on wheels, shown in one of their costume's
++// directions whichever way they go: Maniac's man-eating plant, whose
++// directions are its growth stages (left and right a sprout, away the grown
++// plant; 180, toward the viewer, is its everyday size).
++struct WorldRoller { short game, costume, facing; };
++static const WorldRoller kWorldRollers[] = {{kWorldManiacLooks, 19, 180}};
++inline const WorldRoller *worldRoller(int game, int costume) {
++	for (const auto &r : kWorldRollers) if (r.game == game && r.costume == costume) return &r;
++	return nullptr;
++}
+ // Playing as someone from another game: a sandbox character's appearance is
+ // a cast member by key game * 1024 + costume + 1 (0: themselves). Keys are
+ // saved, and stay valid when the cast is regenerated.
+diff --git a/engines/scumm/base-costume.cpp b/engines/scumm/base-costume.cpp
+index 31ae5378..cbc0fd11 100644
+--- a/engines/scumm/base-costume.cpp
++++ b/engines/scumm/base-costume.cpp
+@@ -54,6 +54,7 @@ byte BaseCostumeRenderer::drawCostume(const VirtScreen &vs, int numStrips, const
+ 	}
+ 	for (i = 0; i < 16; i++)
+ 		result |= drawLimb(a, i);
++	drawExtra(a);
+ 	return result;
+ }
+ 
+diff --git a/engines/scumm/base-costume.h b/engines/scumm/base-costume.h
+index e45d6c5c..b1e235b3 100644
+--- a/engines/scumm/base-costume.h
++++ b/engines/scumm/base-costume.h
+@@ -156,6 +156,8 @@ public:
+ 
+ protected:
+ 	virtual byte drawLimb(const Actor *a, int limb) = 0;
++	// Scummverse: drawn after the limbs (a rolling pot under a costume).
++	virtual void drawExtra(const Actor *) {}
+ 
+ 	void skipCelLines(ByleRLEData &compData, int num);
+ };
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index 9d550460..c58a021a 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -376,6 +376,69 @@ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	return drawFlag;
+ }
+ 
++// Scummverse: the man-eating plant's pot on wheels, newly drawn (the
++// original paints its pot into the room), in its costume's colors: 1 the
++// flower's, 2 the stem's, 3 black; a and b the wheels' spokes, which swap
++// at every step it rolls. Two-pixel cells, laid out facing left like the
++// costume's own (the stem of its everyday stage stands over cells 3 and 4)
++// and mirrored with it; the last row is its feet.
++static const char *const kScummverseRollingPot[] = {
++	"33333333",
++	"31111113",
++	"33333333",
++	".311113.",
++	".312213.",
++	".311113.",
++	".311113.",
++	".311113.",
++	".311113.",
++	".311113.",
++	"..3113..",
++	"..3333..",
++	".333333.",
++	".33..33.",
++	".ab..ab.",
++	".ba..ba.",
++	".33..33.",
++};
++
++void ClassicCostumeRenderer::drawExtra(const Actor *a) {
++	if (_vm->_game.id != GID_MANIAC || _loaded._format != 0x57 || !_vm->scummverseRollingPot(a)) return;
++	int numerator = 1, denominator = 1;
++	_vm->scummverseDistantScene(&numerator, &denominator);
++	auto scale = [numerator, denominator](int n) {
++		return n >= 0 ? n*numerator/denominator : -((-n*numerator+denominator-1)/denominator);
++	};
++	byte palette[4] = {0, 0, 0, 0};
++	const int colors = _vm->scummverseColorActor(_actorID);
++	if (_vm->getCurrentLights() & LIGHTMODE_actor_use_colors) {
++		palette[1] = _vm->_gdi->remapColorToRenderMode(colors < ARRAYSIZE(v1MMActorPalatte1) ? v1MMActorPalatte1[colors] : 8);
++		palette[2] = _vm->_gdi->remapColorToRenderMode(colors < ARRAYSIZE(v1MMActorPalatte2) ? v1MMActorPalatte2[colors] : 8);
++	} else palette[2] = palette[3] = _vm->_gdi->remapColorToRenderMode(11);
++	const int phase = (a->getRealPos().x + a->getRealPos().y) & 1;
++	const int rows = ARRAYSIZE(kScummverseRollingPot);
++	int left = _out.w, right = 0, top = _out.h, bottom = 0;
++	for (int row = 0; row < rows; ++row) for (int cell = 0; cell < 8; ++cell) {
++		const char c = kScummverseRollingPot[row][cell];
++		const int value = c == 'a' ? (phase ? 3 : 2) : c == 'b' ? (phase ? 2 : 3) : c >= '1' && c <= '3' ? c - '0' : 0;
++		if (!value) continue;
++		const int u = -14 + cell * 2, x = _mirror ? 6 - u : u, v = row - rows;
++		const int x0 = MAX(0, _actorX + scale(x)), x1 = MIN<int>(_out.w, _actorX + scale(x + 2));
++		const int y0 = MAX(0, _actorY + scale(v)), y1 = MIN<int>(_out.h, _actorY + scale(v + 1));
++		if (x0 >= x1 || y0 >= y1) continue;
++		left = MIN(left, x0); right = MAX(right, x1); top = MIN(top, y0); bottom = MAX(bottom, y1);
++		for (int y = y0; y < y1; ++y) {
++			const byte *mask = _vm->scummverseRenderingPortrait() ? nullptr : _vm->getMaskBuffer(0, y, _zbuf);
++			for (int px = x0; px < x1; ++px)
++				if (!mask || !(mask[px / 8] & revBitMask(px & 7))) *(byte *)_out.getBasePtr(px, y) = palette[value];
++		}
++	}
++	if (left < right && top < bottom) {
++		_vm->markRectAsDirty(kMainVirtScreen, left, right, top, bottom, _actorID);
++		_drawTop = MIN(_drawTop, top); _drawBottom = MAX(_drawBottom, bottom);
++	}
++}
++
+ #define MASK_AT(xoff) \
+ 	(mask && (mask[((compData.x + xoff) / 8)] & revBitMask((compData.x + xoff) & 7)))
+ #define LINE(c,p) \
+@@ -1068,7 +1131,7 @@ void ClassicCostumeLoader::costumeDecodeData(Actor *a, int frame, uint usemask)
+ 
+ 	loadCostume(a->_costume);
+ 
+-	anim = newDirToOldDir(a->getFacing()) + frame * 4;
++	anim = newDirToOldDir(_vm->scummverseCostumeFacing(a)) + frame * 4;
+ 	if (anim > _numAnim)
+ 		return;
+ 
+diff --git a/engines/scumm/costume.h b/engines/scumm/costume.h
+index 8ab61e0a..379d3bbe 100644
+--- a/engines/scumm/costume.h
++++ b/engines/scumm/costume.h
+@@ -98,6 +98,7 @@ public:
+ 
+ protected:
+ 	byte drawLimb(const Actor *a, int limb) override;
++	void drawExtra(const Actor *a) override;
+ 
+ 	void proc3(ByleRLEData &v1);
+ 	void proc3_ami(ByleRLEData &v1);
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 77de1212..3efa2d67 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1364,6 +1364,12 @@ public:
+ 	// The actor whose V1 colors a character wears (Maniac picks costume colors
+ 	// by actor): their own, or that of the Maniac character they play.
+ 	int scummverseColorActor(int id) const;
++	// The direction whose animations an actor's costume shows: its own, or
++	// a rolling character's fixed one; and whether it rolls in a pot on
++	// wheels or wears a glass dome (scummverse_world_play.inc).
++	int scummverseCostumeFacing(const Actor *a) const;
++	bool scummverseRollingPot(const Actor *a) const;
++	bool scummverseDomed(const Actor *a) const;
+ 	// A frame laid over this one of this actor (-1: none); see scummverse_worlds.inc.
+ 	int scummverseOverlayFrame(const Actor *a, int frame) const;
+ 	// In other worlds everyone is drawn at the scale of a person standing at
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index e3b7808f..80cf085b 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -536,6 +536,23 @@ int ScummEngine::scummverseColorActor(int id) const {
+ 	return worldNativeLook(look) ? worldAppearanceCostume(look) : id;
+ }
+ 
++int ScummEngine::scummverseCostumeFacing(const Actor *a) const {
++	if (!_scummverseRoaming) return a->getFacing();
++	const int look = scummverseAppearance(a->_number);
++	const WorldRoller *roller = worldNativeLook(look) ? worldRoller(kWorldManiacLooks, worldAppearanceCostume(look)) : nullptr;
++	return roller ? roller->facing : a->getFacing();
++}
++
++bool ScummEngine::scummverseRollingPot(const Actor *a) const {
++	const int look = _scummverseRoaming && a ? scummverseAppearance(a->_number) : 0;
++	return worldNativeLook(look) && worldRoller(kWorldManiacLooks, worldAppearanceCostume(look));
++}
++
++bool ScummEngine::scummverseDomed(const Actor *a) const {
++	const int look = _scummverseRoaming && a ? scummverseAppearance(a->_number) : 0;
++	return look && worldDomed(worldAppearanceGame(look), worldAppearanceCostume(look));
++}
++
+ const byte *ScummEngine::scummverseAppearanceName(int id) const {
+ 	const WorldGuest *who = worldAppearance(scummverseAppearance(id));
+ 	return who ? (const byte *)who->name : nullptr;
+@@ -552,8 +569,10 @@ bool ScummEngine::scummverseSetAppearance(int id, int key) {
+ 		_scummverseWorldNotice = Common::String::format("%s's game is not set up here. Add it to Documents/%s and restart.", who->name, kWorldGames[worldAppearanceGame(key)].folder);
+ 		return false;
+ 	}
+-	// One of Maniac's own wears their own costume; the character's comes back
+-	// with any other choice.
++	// One of Maniac's own wears their own costume (set after the look, which
++	// may choose its animations); the character's comes back with any other
++	// choice.
++	_scummVars[kScummverseAppearanceVar + id] = who ? key : 0;
+ 	int &home = _scummVars[kScummverseHomeCostumeVar + id];
+ 	if (worldNativeLook(key)) {
+ 		if (!home) home = a->_costume;
+@@ -562,7 +581,6 @@ bool ScummEngine::scummverseSetAppearance(int id, int key) {
+ 		a->setActorCostume(home); home = 0;
+ 		a->setElevation(0);
+ 	}
+-	_scummVars[kScummverseAppearanceVar + id] = who ? key : 0;
+ 	::scummverseTalkAppearance(id, who ? key : 0);
+ 	_scummverseCharactersKey.clear();
+ 	a->_needRedraw = true; _fullRedraw = true;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 51f7b6c2..9bcf1c29 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1034,9 +1034,11 @@ bool ScummEngine::scummverseNeedsAir(const Actor *a) const {
+ // outline and a mask): a bowl around the head, a mask on the face and a
+ // yellow tank on the back with its hose, fitted to the pixels the character
+ // just drew over the clean background. A figure about as wide as it is tall
+-// (a skull, a monkey) is all head.
++// (a skull, a monkey) is all head. Someone who wears a dome everywhere
++// (scummverseDomed) gets the bowl alone where there is air.
+ void ScummEngine::scummverseDrawAirGear(Actor *a) {
+-	if (!scummverseNeedsAir(a)) return;
++	const bool air = scummverseNeedsAir(a);
++	if (!air && (_scummversePortrait || a->_room != _currentRoom || !scummverseDomed(a))) return;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 	if (!vs.hasTwoBuffers || a->_top >= a->_bottom) return;
+ 	const int cx = a->getPos().x - vs.xstart;
+@@ -1052,12 +1054,22 @@ void ScummEngine::scummverseDrawAirGear(Actor *a) {
+ 		if (drawn(x, y)) { L = MIN(L, x); R = MAX(R, x); T = MIN(T, y); B = MAX(B, y); }
+ 	if (R < 0) return;
+ 	const int W = R - L + 1, H = B - T + 1;
++	// A dome sits on the whole head (eyes and face), below anything thin on
++	// top of it (the officer's beacon on its stalk).
++	int HT = T;
++	const bool domed = scummverseDomed(a);
++	if (domed)
++		for (int y = T; y <= B; ++y) {
++			int l = R, r = L;
++			for (int x = L; x <= R; ++x) if (drawn(x, y)) { l = MIN(l, x); r = MAX(r, x); }
++			if (r - l + 1 >= W / 2) { HT = y; break; }
++		}
+ 	const bool compact = H * 2 < W * 3;
+-	const int headH = compact ? H : MAX(5, H * 27 / 100);
++	const int headH = compact ? H : MAX(5, (B - HT + 1) * (domed ? 40 : 27) / 100);
+ 	int hL = R, hR = L;
+-	for (int y = T; y < T + headH; ++y) for (int x = L; x <= R; ++x) if (drawn(x, y)) { hL = MIN(hL, x); hR = MAX(hR, x); }
++	for (int y = HT; y < HT + headH; ++y) for (int x = L; x <= R; ++x) if (drawn(x, y)) { hL = MIN(hL, x); hR = MAX(hR, x); }
+ 	if (hR < hL) return;
+-	enum { kBlack = 0, kDarkGray = 8, kYellow = 14, kWhite = 15 };
++	enum { kBlack = 0, kLightGray = 7, kDarkGray = 8, kYellow = 14, kWhite = 15 };
+ 	int gl = _screenWidth, gr = -1, gt = vs.h, gb = -1;
+ 	auto plot = [&](int x, int y, byte c) {
+ 		if (x < 0 || y < 0 || x >= _screenWidth || y >= vs.h) return;
+@@ -1073,26 +1085,27 @@ void ScummEngine::scummverseDrawAirGear(Actor *a) {
+ 		for (int i = 0; i <= n; ++i) plot(x0 + (n ? (x1 - x0) * i / n : 0), y0 + (n ? (y1 - y0) * i / n : 0), c);
+ 	};
+ 	const int dir = newDirToOldDir(a->getFacing()); // 0 left, 1 right, 2 front, 3 back
+-	const double hx = (hL + hR) / 2.0, hy = T + headH / 2.0, rx = (hR - hL + 1) / 2.0 + 2.5, ry = headH / 2.0 + 2.5;
++	const double hx = (hL + hR) / 2.0, hy = HT + headH / 2.0, rx = (hR - hL + 1) / 2.0 + 2.5, ry = headH / 2.0 + 2.5;
+ 	// The tank first: behind the head, on the back.
+-	const int tw = MAX(3, W / 4), th = MAX(5, (compact ? H * 6 / 10 : H * 3 / 10)), ty = compact ? T + H * 3 / 10 : T + headH;
+-	const bool tank = dir != 2; // Hidden behind them when they face us.
++	const int tw = MAX(3, W / 4), th = MAX(5, (compact ? H * 6 / 10 : H * 3 / 10)), ty = compact ? T + H * 3 / 10 : HT + headH;
++	const bool tank = air && dir != 2; // Hidden behind them when they face us.
+ 	const int tankX = dir == 1 ? L - tw / 2 : dir == 0 ? R - tw + tw / 2 + 1 : (int)hx - tw / 2;
+ 	if (tank) {
+ 		rect(tankX, ty, tankX + tw - 1, ty + th - 1, kYellow, kBlack);
+ 		plot(tankX + tw / 2, ty - 1, kDarkGray);
+ 	}
+-	// The bowl: a black outline with a white glint.
++	// The bowl: a black outline with a white glint (a dome alone is light
++	// glass, seen against the night too).
+ 	const int steps = (int)(2 * M_PI * MAX(rx, ry) * 2) + 8;
+ 	for (int i = 0; i < steps; ++i) {
+ 		const double t = 2 * M_PI * i / steps;
+-		plot((int)floor(hx + rx * cos(t) + 0.5), (int)floor(hy + ry * sin(t) + 0.5), kBlack);
++		plot((int)floor(hx + rx * cos(t) + 0.5), (int)floor(hy + ry * sin(t) + 0.5), air ? kBlack : kLightGray);
+ 	}
+ 	for (double t = 1.15 * M_PI; t < 1.4 * M_PI; t += 0.08)
+ 		plot((int)floor(hx + rx * 0.72 * cos(t) + 0.5), (int)floor(hy + ry * 0.72 * sin(t) + 0.5), kWhite);
+ 	// The mask on the face and its hose back to the tank.
+-	const int mw = MAX(2, (hR - hL + 1) / 3), mh = MAX(2, headH / 5), my = T + headH * 2 / 3 - mh / 2;
+-	if (dir != 3) {
++	const int mw = MAX(2, (hR - hL + 1) / 3), mh = MAX(2, headH / 5), my = HT + headH * 2 / 3 - mh / 2;
++	if (air && dir != 3) {
+ 		const int mx = dir == 1 ? hR - mw + 1 : dir == 0 ? hL : (int)hx - mw / 2;
+ 		rect(mx, my, mx + mw - 1, my + mh - 1, kDarkGray, kBlack);
+ 		if (tank) line(dir == 1 ? mx : mx + mw - 1, my + mh - 1, tankX + tw / 2, ty, kBlack);

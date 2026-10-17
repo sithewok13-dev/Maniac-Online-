@@ -259,7 +259,10 @@ rooms where the original draws people small list their ratio
 van is scaled against the long shot's people. Overlay frames
 (`scummverseOverlayFrame`) add a costume frame over chosen ones (the King's
 quiff). A costume variant may name the room whose palette it is exported
-in (Curse's green Murray).
+in (Curse's green Murray). Maniac looks may wear a dome (`worldDomed`, the
+air gear's bowl alone) or roll (`worldRoller`: one fixed costume direction,
+decoded through `scummverseCostumeFacing`, and a newly drawn pot on wheels
+drawn after the limbs by `ClassicCostumeRenderer::drawExtra`).
 Scene pictures (0076): the same room exported in another state (a Dig tram
 car parked) is fitted with the scene, in colors chosen from it, keeping only
 the pixels that differ; the engine draws it into the scene's background
