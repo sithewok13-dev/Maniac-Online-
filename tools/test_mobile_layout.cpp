@@ -62,4 +62,49 @@ int main() {
  auto typingSE=Scummverse::portraitLayout(647,260,375,1.6); // Height-limited while typing.
  assert(typingSE.gameHeight==183 && typingSE.chatHeight==160);
  std::printf("PASS: %u portrait/keyboard layouts, %u aspect-fit layouts, density, dismissal and invalid-input cases\n",cases,fitted);
+
+ // v3: split screen while chatting. Portrait: game half on top, chat below.
+ unsigned split=0;
+ for(double width : {320., 375., 390., 430., 667., 844., 932., 1194.})
+  for(double height : {320., 375., 390., 430., 647., 797., 873., 1194.})
+   for(double keyboard : {0., 21., 162., 216., 336., 2000.})
+    for(double aspect : {1.6, 4./3., 0.})
+     for(bool first : {true, false}) {
+      auto open=Scummverse::splitLayout(width,height,keyboard,aspect,true,first);
+      auto closed=Scummverse::splitLayout(width,height,keyboard,aspect,false,first);
+      const double available=std::max(0.,height-std::max(0.,std::min(keyboard,height)));
+      auto inside=[](Scummverse::Box inner, Scummverse::Box outer) {
+       return inner.x>=outer.x-0.001 && inner.y>=outer.y-0.001 && inner.x+inner.w<=outer.x+outer.w+0.001 && inner.y+inner.h<=outer.y+outer.h+0.001;
+      };
+      assert(open.split && !closed.split);
+      assert(inside(open.game,open.gameArea) && inside(closed.game,closed.gameArea));
+      if(aspect>0 && open.game.h>0) assert(std::abs(open.game.w/open.game.h-aspect)<0.001);
+      if(width<height) {
+       // Halves: the game half (with toolbar) above, the chat half below.
+       assert(std::abs(open.chat.y-available/2)<0.001 && std::abs(open.chat.y+open.chat.h-available)<0.001);
+       assert(open.gameArea.y==0 && open.gameArea.y+open.gameArea.h<=open.toolbar.y+0.001);
+       assert(std::abs(open.toolbar.y+open.toolbar.h-open.chat.y)<0.001);
+       assert(open.chat.w==width && open.chat.x==0);
+       // Closed keeps the v2 portrait layout.
+       auto v2=Scummverse::portraitLayout(height,keyboard,width,aspect);
+       assert(closed.chat.y==v2.chatTop && closed.gameArea.h==v2.gameHeight);
+      } else {
+       // Side by side: chat on the chosen half, above the keyboard.
+       assert(std::abs(open.chat.w-width/2)<0.001 && std::abs(open.gameArea.w-width/2)<0.001);
+       assert(open.chat.x==(first?0:width/2) && open.gameArea.x==(first?width/2:0));
+       assert(std::abs(open.chat.h-available)<0.001 && open.gameArea.h==height);
+       assert(closed.chat.w==0 && closed.gameArea.w==width && closed.gameArea.h==height);
+       // Chat and game never overlap.
+       assert(open.chat.x+open.chat.w<=open.game.x+0.001 || open.game.x+open.game.w<=open.chat.x+0.001);
+      }
+      ++split;
+     }
+ auto land=Scummverse::splitLayout(844,390,0,1.6,true,true); // iPhone 14 landscape, DOS V1.
+ assert(land.chat.x==0 && land.chat.w==422 && land.gameArea.x==422);
+ assert(std::abs(land.game.w-422)<0.001 && std::abs(land.game.h-263.75)<0.001 && std::abs(land.game.y-63.125)<0.001);
+ auto swapped=Scummverse::splitLayout(844,390,0,1.6,true,false);
+ assert(swapped.chat.x==422 && swapped.game.x==0);
+ auto tall=Scummverse::splitLayout(390,797,34,1.6,true);
+ assert(std::abs(tall.chat.y-381.5)<0.001 && std::abs(tall.game.h-243.75)<0.001 && std::abs(tall.toolbar.y-337.5)<0.001);
+ std::printf("PASS: v3 split layout (%u cases)\n",split);
 }

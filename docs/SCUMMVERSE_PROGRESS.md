@@ -609,3 +609,17 @@ tram works and waits the same way.
   456 is at 184 (was wired from 79). 181 is the hostel entrance, 180 the bunks.
 Probes: tools/test_tram.py (new), bus boarding wait + late rider, schema-4
 migration. 28/28 data tests pass.
+
+## Patch 0056 — split-screen chat (layout contract v3)
+
+User request: while chat is open, split the screen in half. Portrait: game
+on top, chat below. Landscape: chat left, game right, swappable.
+`common/scummverse_layout.h` v3 `splitLayout()` (tested: 2,304 cases in
+tools/test_mobile_layout.cpp) is shared by UIKit and the renderer. The talk
+bar publishes inset and flags (bit 0 open, bit 1 chat on the right) through
+kInputChatLayoutChanged; iOSGraphicsManager fits the picture into the game
+half and shifts the draw/active rects (touches map to the moved picture).
+Landscape gets a ⇄ swap button (remembered in NSUserDefaults); the button
+column moves to the game half's edge. Closing chat restores full-screen
+landscape; portrait closed keeps v2. Compiled only by Apple CI; not
+device-tested (rotation, keyboard and touch mapping need iPhone checks).
