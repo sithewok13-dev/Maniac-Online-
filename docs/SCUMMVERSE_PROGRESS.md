@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0089 (lights on, doors opened).
+Active milestone: Phase 1; latest patch 0090 (picture-pass fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1868,3 +1868,53 @@ basement by the reactor".
   5 of Zak's clean doors and 8 doors back on arrival, 122 other Zak door
   objects left as drawn; tools/test_maze.py passes; the player's walk through Zak's
   jail door opens the door back (in room 67). Not device-tested.
+
+## Patch 0090 — Picture-pass fixes
+
+User requests (2026-10-18): "When you do the picture pass I want to know all
+the errors you find"; "Can we keep making corrections without building yet?"
+The picture pass (a private probe: the tour paused, every stop gone to and
+its screen saved under build/tour-shots/, then looked over) found broken,
+blank and badly placed stops. Fixed here:
+- Arrival spot in other worlds (`fitScene`): the middle of the lowest walk
+  box at least a quarter the size of the biggest, instead of the biggest
+  box's center (that put the guide in the sky, in lava or water, or with
+  the head cut off on stops such as 239, 611, 666, 711).
+- Characters there (`scummversePlaceGuest`): of the floor spots across the
+  scene, a step behind the arrival point, the one with the most room (up to
+  48 pixels) from the player, the arrival spot and the others, nearest its
+  own side; with no room left (a narrow scene, wide characters) a step
+  further back. Whoever arrives is drawn in front of them. They used to pile
+  up on and in front of the guide (Curse rooms 21 and 36, the Edison
+  grounds).
+- Tour spots: Maniac's art studio stop stands clear of the easel; Zak's
+  Mars landing site (79) stands at a picked spot, clear of the tram.
+- Export (version 13, every game exports again): a v3..v6 room that comes out
+  one color is retried with its entry script (was v3/v4 only); one color
+  even then is no place and is not exported (Loom 65, Atlantis 20, Full
+  Throttle 13: a black or beige backdrop). On the phone an older export's
+  scene of such a room is emptied; the tour and the menus (story areas,
+  crystal pads, van sites) pass over empty scenes, and doors into them do
+  nothing (7 doors: two in Atlantis to its room 20, five in Full
+  Throttle to its room 13).
+  Loom's pictures have holes (solid black) where animation frames go; where
+  a frame's rectangle is a hole in a lit picture, the first of the frames
+  there that fills it is drawn (the waterspout, the beach, the glass city,
+  the sky, the tents...). Day of the Tentacle's room 11 is cut to its 144
+  picture rows (a pink block below them).
+- Not fixed (reported): holes in Loom's dark rooms (26, 28, 31, 50: their
+  frames cover little of the hole, or the room around is dark too); stops
+  whose walk boxes are all near the top (the guide is cut off by the top
+  edge: 240, 476, 576, 696); the scale in two Curse rooms (728, 729); a
+  light effect drawn as stripes (693); a few stops that are not real
+  places (cutscene or map screens: 230, 514, 614, 616, 662, 697); the map
+  guide standing in the sea (153, 155, 164); stop 166's label.
+- Verified (Linux, the user's private copies): the picture pass again over
+  all 773 stops (the blank stops gone, the guide visible at the crowded
+  ones, the Loom holes above filled), compared stop by stop with the first
+  pass by an independent review (no stop worse; a few unsure ones checked
+  at full size); tools/test_world (ASan, UBSan); the data suite, 39 tests
+  (world visit with the 0089 build as baseline: the same doors work but
+  the 9 into or out of the three dropped rooms, 1589 work, 68 fail; 54
+  story areas, the Loom cave dropped). The iPhone menus' changes are not
+  compiled here (Apple CI builds them). Not device-tested.

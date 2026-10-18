@@ -150,6 +150,8 @@
 		if (!map) continue;
 		for (int i=0;i<map->linkCount;++i) {
 			const ::Scummverse::WorldCatalog::WorldLink &link=map->links[i];
+			// Rooms the export found no place (one color) are not visited.
+			if (!scummverseWorldSceneInstalled(g,link.target)) { ++doorSkipped; continue; }
 			const int room=scummverseWorldRoomFor(g,link.room);
 			if (!room || !scummverseTravelWorld(room)) { ++doorSkipped; continue; }
 			int found=-1, x=0, y=0, w=0, h=0, wx=0, wy=0;
@@ -190,6 +192,7 @@
 		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
 		for (int i=0;map && i<map->areaCount;++i) {
 			const int room=map->areas[i].room;
+			if (!scummverseWorldSceneInstalled(g,room)) continue; // Not offered (see the menu).
 			if (!scummverseTravelPlace(g,room)) error("story area %d:%d (%s) not reached: %s",g,room,map->areas[i].name,_scummverseWorldNotice.c_str());
 			int source; if (scummverseWorldGameOf(_currentRoom,source)!=g || source!=room) error("story area %d:%d mounted %d",g,room,source);
 			++areas;

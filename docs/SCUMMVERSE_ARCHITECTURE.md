@@ -243,8 +243,13 @@ instances are resolved at generation time from each template's door
 variables and the values its entry script sets (tools/world_maps.py).
 Script-built rooms: a v3/v4 pseudo room is exported by mapping it to its
 template (the boot script, which normally does this, is skipped) and running
-the room's entry script for a few cycles; one-color v3/v4 renders are retried
-that way. Scenes are "SVW4" (object states after those scripts); a door link
+the room's entry script for a few cycles; one-color v3..v6 renders are retried
+that way, and a room still one color is no place (export version 13: not
+exported; an older export's scene of it is emptied, and the tour skips empty
+scenes). Loom objects that draw as solid black frames (an animation's later
+steps) show the room without objects instead; Day of the Tentacle's room 11
+is cut to its 144 picture rows. Arrival spot (`fitScene`): the middle of the
+lowest walk box at least a quarter the size of the biggest. Scenes are "SVW4" (object states after those scripts); a door link
 marked `switched` is offered only where that object is shown. Exploration
 presets (0074, catalog: classes switched off, variables, room scripts and
 their tints) put a game in an explored state before its rooms are drawn;
