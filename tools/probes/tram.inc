@@ -22,6 +22,8 @@
 	if (getState(tram)!=0 || (_scummVars[799]&1)) error("Tram not parked at the landing site: state %d",getState(tram));
 	// Ride with the player: the tram waits while the player walks aboard.
 	me->putActor(30,60,79); setCameraFollows(me); for(int n=0;n<8;++n) scummLoop(4);
+	// The platform swept of its sand (the original's picture of it).
+	{ const int sand=scratch(79,451); if (!sand || !(getState(sand)&kObjectStateIntrinsic)) error("Sand still over the tram's platform: state %d",sand ? getState(sand) : -1); }
 	{ Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/tram-%d.ppm",_currentRoom)))) {
 		Common::String header=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(header.c_str(),header.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);} } }

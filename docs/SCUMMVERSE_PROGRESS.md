@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0091 (van destinations aboard, tram, Ted's side, TOUR bar).
+Active milestone: Phase 1; latest patch 0092 (the tram's platform swept).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1974,4 +1974,19 @@ looking forward."
   TOUR bar's place, the published picture rectangle, the destinations
   shown on boarding) is not compiled here (Apple CI builds it). Not
   device-tested.
+
+## Patch 0092 — The tram's platform swept of its sand
+
+User request (2026-10-18, a picture of the Mars landing site): "Clean the
+sand off for continuity that the tram works lol".
+- The sand drifted over the tram's platform is the original's object 451
+  ("sand"); with its state 8 the original draws the platform swept (its
+  own picture: grey slabs on legs). At both tram stations (the landing
+  site and the tram station, one resource) it is set so from the first
+  look (scummverseApplyTramState, every update there; kZakTramSand).
+- Verified (Linux, the user's private copies): tools/test_tram.py (the sand
+  object swept at the landing site; the rides as before), test_mars,
+  test_mars_air, test_van, test_tour_engine, test_scene_authenticity (86
+  of 99 rooms match an original scene, as before); a screenshot of the
+  landing site shows the platform. Not device-tested.
 
