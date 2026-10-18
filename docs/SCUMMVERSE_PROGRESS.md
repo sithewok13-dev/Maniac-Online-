@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0092 (the tram's platform swept).
+Active milestone: Phase 1; latest patch 0093 (Ted redrawn from the side, with his glasses).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1989,4 +1989,20 @@ sand off for continuity that the tram works lol".
   test_mars_air, test_van, test_tour_engine, test_scene_authenticity (86
   of 99 rooms match an original scene, as before); a screenshot of the
   landing site shows the platform. Not device-tested.
+
+## Patch 0093 — Ted from the side, redrawn with his glasses
+
+User (2026-10-18): "The ted side view is terrible. What about his glasses?"
+- The side view (0091) is drawn again after his front: his skull as wide,
+  his glasses' round lens (dark rim, white glass) in front of his face
+  with its arm back toward his ear and his nose under it, his arms folded
+  at his chest and the dark band at his waist as from the front, the
+  wrappings in short bands like his own.
+- The appearance test now checks what matters for a side view: his
+  glasses and nose ahead of his hips the way he faces (4 pixels, both
+  ways), left and right differing from the front and from each other,
+  facing away his own costume.
+- Verified (Linux): tools/test_appearance.py; a screenshot of him facing
+  front, left and right was sent to the user for a look. Not
+  device-tested.
 

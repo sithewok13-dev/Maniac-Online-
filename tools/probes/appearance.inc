@@ -289,9 +289,8 @@
 		}
 		{
 			// Seen from the side (newly drawn; his costume shows only his
-			// front): narrower than from the front, his nose out ahead of
-			// his body the way he faces; facing away, his own costume.
-			// Drawn over one plain color (the room's own could hide his white).
+			// front): his glasses and nose out ahead of his hips the way he
+			// faces, left and right mirrored; facing away, his own costume.
 			auto body=[&](int facing) {
 				const int cx=dave->getPos().x-_virtscr[0].xstart, fy=dave->getPos().y;
 				for (int y=MAX(0,fy-90);y<MIN<int>(_virtscr[0].h,fy);++y) for (int x=MAX(0,cx-32);x<MIN<int>(_screenWidth,cx+32);++x)
@@ -308,17 +307,16 @@
 					for (int x=0;x<64;++x) if (p[y*64+x]>=0) { left=MIN(left,x); right=MAX(right,x); }
 			};
 			const Common::Array<int> front=body(180), away=body(0), left=body(270), right=body(90);
-			// Widths across his middle (rows 20..50 from the top of him).
-			int fl,fr; extent(front,20,50,fl,fr);
-			int w[2]={0,0}; bool nose[2]={false,false};
+			bool ahead[2]={false,false};
+			int lead[2]={0,0};
 			for (int k=0;k<2;++k) {
 				const Common::Array<int> &p=k ? right : left;
-				int hl,hr,cl,cr; extent(p,4,8,hl,hr); extent(p,20,50,cl,cr);
-				w[k]=cr-cl+1; nose[k]=k ? hr>cr : hl<cl;
+				int fl,fr,hl,hr; extent(p,8,13,fl,fr); extent(p,44,55,hl,hr);
+				lead[k]=k ? fr-hr : hl-fl; ahead[k]=lead[k]>=4;
 			}
-			if (w[0]<=0 || w[0]*10>(fr-fl+1)*8 || w[1]!=w[0] || !nose[0] || !nose[1] || away!=front)
-				error("Ted from the side: %d px wide facing left, %d right, %d from the front; nose ahead %d %d; away as front %d",w[0],w[1],fr-fl+1,nose[0],nose[1],away==front);
-			warning("APPEARANCE Ted from the side: %d px wide at the middle (%d from the front), nose ahead both ways",w[0],fr-fl+1);
+			if (!ahead[0] || !ahead[1] || lead[0]!=lead[1] || left==front || right==front || left==right || away!=front)
+				error("Ted from the side: glasses ahead of his hips by %d px facing left, %d right; differs from the front %d %d; away as front %d",lead[0],lead[1],left!=front,right!=front,away==front);
+			warning("APPEARANCE Ted from the side: glasses and nose %d px ahead of his hips both ways",lead[0]);
 			_fullRedraw=true; settle(1);
 		}
 		request(0);
