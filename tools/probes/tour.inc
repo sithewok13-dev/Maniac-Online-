@@ -71,8 +71,9 @@
 	if (!status(label) || number(label)!=3) error("Next: '%s'",label.c_str());
 	request(T::kPrevious,0,2);
 	if (!status(label) || number(label)!=2) error("Previous: '%s'",label.c_str());
-	// Speed: 4x and 8x taken up and remembered; the wait between game steps
-	// a quarter and an eighth while touring (not otherwise); back to 1x.
+	// Speed: 4x, 8x and 16x taken up and remembered; the wait between game
+	// steps a quarter, an eighth, a sixteenth while touring (not otherwise,
+	// nor paused); back to 1x.
 	{
 		auto waited=[&]() { _lastWaitTime=_system->getMillis(); const uint32 began=_system->getMillis(); waitForTimer(120); return (int)(_system->getMillis()-began); };
 		auto speed=[&](int n) {
@@ -82,11 +83,41 @@
 		const int normal=waited();
 		speed(4); const int fast=waited();
 		speed(8); const int faster=waited();
+		speed(16); const int fastest=waited();
 		_scummverseTouring=false; const int untoured=waited(); _scummverseTouring=true;
-		if (normal<400 || fast>300 || faster>200 || faster>=fast || untoured<400)
-			error("Waits at 1x %d ms, 4x %d ms, 8x %d ms, 8x not touring %d ms (500, 125, 62, 500 asked)",normal,fast,faster,untoured);
+		_scummverseTourPaused=true; const int paused=waited(); _scummverseTourPaused=false;
+		if (normal<400 || fast>300 || faster>200 || faster>=fast || fastest>120 || fastest>=faster || untoured<400 || paused<400)
+			error("Waits at 1x %d ms, 4x %d ms, 8x %d ms, 16x %d ms, 16x not touring %d ms, paused %d ms (500, 125, 62, 31, 500, 500 asked)",normal,fast,faster,fastest,untoured,paused);
 		speed(1);
-		warning("TOUR speed: a 500 ms wait takes %d ms at 1x, %d ms at 4x, %d ms at 8x (%d ms at 8x not touring)",normal,fast,faster,untoured);
+		warning("TOUR speed: a 500 ms wait takes %d ms at 1x, %d ms at 4x, %d ms at 8x, %d ms at 16x (%d ms not touring, %d ms paused)",normal,fast,faster,fastest,untoured,paused);
+	}
+	// Pause: the guide stands, the stop stays; Previous and Next go from
+	// stop to stop and stay paused (taps waiting in turn: two on Next, two
+	// stops on); Play walks on.
+	{
+		settle(6);
+		T::request(T::kPause); settle(1);
+		if (!_scummverseTourPaused || !T::paused()) error("Pause not taken");
+		status(label);
+		const Common::String pausedLabel=label;
+		const int pausedRoom=_currentRoom;
+		const Common::Point at=dave->getRealPos();
+		settle(60); status(label);
+		if (dave->_moving || dave->getRealPos()!=at || _currentRoom!=pausedRoom || label!=pausedLabel)
+			error("Paused, yet the guide went on: '%s' at %d,%d in %d, now '%s' at %d,%d in %d",pausedLabel.c_str(),at.x,at.y,pausedRoom,label.c_str(),dave->getRealPos().x,dave->getRealPos().y,_currentRoom);
+		const int was=number(label);
+		T::request(T::kPrevious); settle(3); status(label);
+		if (number(label)!=was-1 || !_scummverseTourPaused || !scummverseTourThere(was-2)) error("Previous while paused: '%s'",label.c_str());
+		settle(30); status(label);
+		if (dave->_moving || number(label)!=was-1) error("Paused at stop %d, yet the guide went on: '%s'",was-1,label.c_str());
+		T::request(T::kNext); T::request(T::kNext); settle(4); status(label);
+		if (number(label)!=was+1 || !_scummverseTourPaused || !scummverseTourThere(was)) error("Next twice while paused: '%s'",label.c_str());
+		T::request(T::kPlay); settle(1);
+		if (_scummverseTourPaused || T::paused()) error("Play not taken");
+		int moved=0;
+		for (int i=0;i<10;++i) { settle(1); moved+=dave->_moving!=0; }
+		if (!moved) error("Played, yet the guide stands");
+		warning("TOUR pause: stood 60 steps in stop %d; Previous to %d, Next twice to %d, paused; Play walked on",was,was-1,was+1);
 	}
 
 	// Stops walked in turn, from one gone to by number: the guide never stands

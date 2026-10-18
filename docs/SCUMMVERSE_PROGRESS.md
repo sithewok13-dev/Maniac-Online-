@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0087 (TOUR: 2x, 4x and 8x speed).
+Active milestone: Phase 1; latest patch 0088 (TOUR: control bar, pause, 16x).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1791,3 +1791,38 @@ and 4x speed?"; "Can you make an 8X also".
   the faster label refresh are compiled by Apple CI only after a push.
   Not device-tested (how fast and smoothly an iPhone plays 8x is not
   known yet).
+
+## Patch 0088 — TOUR: control bar, pause, 16x
+
+User requests (2026-10-18): "It needs 16x"; "Changing the speed requires
+going in and out of the menu because it closes every time I change it";
+"When in tour mode make a button that I can pause and rewind if possible
+in the main interface so I don't have to go into that menu. If I see a bug
+I want to be able to quickly pause and hit like a left arrow button which
+goes back to each numbered location while it's paused. So I can take
+screenshots of bugs to send you"; "I want this on the main screen
+somewhere when tour is enabled. Not hidden in options".
+- iOS: while touring, a bar on the game's screen under the label:
+  previous stop, pause/play, next stop, speed (1x, 2x, 4x, 8x, 16x in
+  turn), go to a stop by number (asks the number), stop the tour. Tapping
+  changes only that; the tour's menu is not needed (the label still opens
+  it). Narrower buttons on a narrow screen, clear of the buttons on the
+  right. The pause icon follows what was asked
+  until the game says so (scummverseTourAsked).
+- Pause: the guide stops where it is (the player may walk it about); the
+  label stays. Paused, Previous and Next warp from stop to stop and stay
+  paused (only a warp is made while paused: scummverseTourAdvance); Play
+  walks again to the walk that was under way (the far end, or the door
+  out: _scummverseTourTarget, the door point) from where the guide is. The
+  game plays at normal speed while paused.
+- 16x: the speed's last step (Tour::setSpeed 16; the screen still shown
+  at most every 16 ms). How close an iPhone comes to 16x is not known.
+- Requests now wait in order (at most 16; the oldest go), one taken a game
+  step, so quick taps all count: two taps on Next go two stops on.
+- Verified (Linux, the user's private copies): tools/test_tour.cpp (ASan/
+  UBSan, TSan: requests in order and capped, paused, 16x, two threads);
+  tools/test_tour_engine.py: a 500 ms wait 34 ms at 16x, 549 ms paused;
+  paused 60 steps the guide and label unchanged; Previous then Next twice
+  while paused land on the stops before and after, still paused; Play
+  walks on; the rest as in 0087. The iOS bar is compiled by Apple CI only
+  after a push. Not device-tested.
