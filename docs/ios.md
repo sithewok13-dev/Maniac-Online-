@@ -32,8 +32,9 @@ build 69 (…)" and how many of your other games are exported for that build.
 **Tour every location (watch for bugs)**, in the Worlds menu: your character
 goes on autopilot and visits every location of the twelve games in turn —
 Maniac Mansion's 37 rooms, Zak McKracken's, then every room of your other ten
-games (773 stops with all of them) — walking across each, and on to the next
-through a door, as a player would, wherever doors lead there (passing back
+games (773 stops with all of them) — walking without a stop, one pass
+through each room: straight on to the door out (into a dead end and back
+out, the only turn), then on to the next through a door, as a player would, wherever doors lead there (passing back
 through rooms already seen if need be); it warps only where no door leads
 on (places reached by plane, bus, tram or cutscene, or a door that does not
 work). A label at the top left names each stop, for example
@@ -44,6 +45,13 @@ Previous stop, Go to stop… (by number) and Stop the tour, which brings your
 character back to where it began. The tour remembers its place, so Start
 picks up at the next stop; Start over begins again at stop 1. Rooms of games
 you have not added are passed over.
+The screen stays awake while the tour runs. To keep it as a video, use the
+iPhone's own Screen Recording (Control Center; the label is in the video):
+the whole tour is a few hours, so record it a game at a time with Go to
+stop… (with every game added: Maniac Mansion 1, Zak 38, Monkey Island 140,
+Monkey Island 2 221, Loom 292, Indiana Jones and the Last Crusade 332,
+Fate of Atlantis 442, Day of the Tentacle 515, Sam & Max 565, Full Throttle
+610, The Dig 661, Curse of Monkey Island 722, to 773).
 
 Other games are set up once, at launch, before Maniac Mansion starts; keep the
 app open until then. Folder names ignore case and spaces around them, but

@@ -1,11 +1,11 @@
 	// The TOUR through the real engine: started from the Worlds menu's
 	// request, the player's character visits stop 1 (a mansion room), walks
 	// across it and goes on to stop 2 by itself, through a door; Stop brings
-	// it back where it began; Resume, Next and Previous; the first mansion
-	// stops walked in turn, through their doors; every stop gone to by number
-	// must be entered (the label naming it), its room the one it names; and
-	// every door of the route taken from the stop before. Stops of games not
-	// exported are passed over.
+	// it back where it began; Resume, Next and Previous; the first stops of
+	// each game walked in turn without standing still, through their doors;
+	// every stop gone to by number must be entered (the label naming it),
+	// its room the one it names; and every door of the route taken from the
+	// stop before. Stops of games not exported are passed over.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_TOUR_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -71,25 +71,68 @@
 	request(T::kPrevious,0,2);
 	if (!status(label) || number(label)!=2) error("Previous: '%s'",label.c_str());
 
-	// The first mansion stops walked in turn: through their doors where the
-	// route has one (a warp only where it has none).
-	{
-		request(T::kGoTo,1,2);
-		int walkedIn=0, warped=0, passed=0, at=1;
-		for (int n=0;n<60000 && at<12;++n) {
+	// Stops walked in turn, from one gone to by number: the guide never stands
+	// still (only the step between two walks, or at the door out until a
+	// stop has been shown a second); one pass through each stop
+	// (it turns back at most once, at the far end of a room whose door out
+	// is near where it came in; in other games' rooms the converted walk
+	// boxes can turn a walk round, so those stops are listed); each stop is
+	// shown, none skipped, the guide
+	// in its room until the next (a walk across is no tap on a door);
+	// entered through its doors where the route has some (a warp only where
+	// it has none).
+	auto walk=[&](int first, int last, const char *what) {
+		request(T::kGoTo,first,2);
+		int walkedIn=0, warped=0, passed=0, at=first, still=0, longest=0, frames=0, shortest=100000;
+		int dir=0, pivot=dave->getRealPos().x, turns=0, turned=0, waits=0;
+		Common::String winding;
+		for (int n=0;n<60000 && at<last;++n) {
 			settle(1); status(label);
+			const bool waiting=!dave->_moving && number(label)==at && frames<16; // (shown a second at least)
+			still=dave->_moving || waiting ? 0 : still+1; longest=MAX(longest,still);
+			if (waiting) ++waits;
 			if (label.contains("on the way through")) { ++passed; continue; }
 			const int now=number(label);
-			if (now==at) continue;
-			at=now;
+			if (now==at) {
+				++frames;
+				if (!scummverseTourThere(at-1)) error("%s: the guide left stop %d for room %d before it ended: '%s'",what,at,_currentRoom,label.c_str());
+				// Turning back: four units (32 pixels) the other way from the
+				// furthest point (less is a path bending round the walk boxes).
+				const int x=dave->getRealPos().x;
+				if (dir*(x-pivot)>0 || (!dir && ABS(x-pivot)>=4)) { if (!dir) dir=x>pivot ? 1 : -1; pivot=x; }
+				else if (dir && dir*(pivot-x)>=4) { ++turns; dir=-dir; pivot=x; }
+				continue;
+			}
+			if (now!=at+1) error("%s: stop %d followed by '%s'",what,at,label.c_str());
+			if (turns>1 && _scummverseTourStops[at-1].kind!=2) error("%s: the guide turned back %d times in stop %d",what,turns,at);
+			if (turns>1) winding+=Common::String::format(" %d (%d)",at,turns);
+			if (at>first) shortest=MIN(shortest,frames);
+			turned+=turns>0;
+			at=now; frames=0; dir=0; turns=0; pivot=dave->getRealPos().x;
 			const ScummverseTourStop &stop=_scummverseTourStops[at-1];
-			if (stop.legs && (!_scummverseTourViaDoor || label.contains("warped"))) error("Stop %d has doors but was warped to: '%s'",at,label.c_str());
-			if (!stop.legs && !label.contains("warped")) error("Stop %d has no doors, yet: '%s'",at,label.c_str());
-			if (!scummverseTourThere(at-1)) error("Stop %d: in room %d",at,_currentRoom);
+			if (stop.legs && (!_scummverseTourViaDoor || label.contains("warped"))) error("%s: stop %d has doors but was warped to: '%s'",what,at,label.c_str());
+			if (!stop.legs && !label.contains("warped")) error("%s: stop %d has no doors, yet: '%s'",what,at,label.c_str());
+			if (!scummverseTourThere(at-1)) error("%s: stop %d: in room %d",what,at,_currentRoom);
 			(stop.legs ? walkedIn : warped)++;
 		}
-		if (at<12) error("The tour did not reach stop 12 on its own (at %d)",at);
-		warning("TOUR stops 2..12 on their own: %d walked in through doors, %d warped (%d steps passing through)",walkedIn,warped,passed);
+		if (at<last) error("%s: the tour did not reach stop %d on its own (at %d)",what,last,at);
+		if (longest>1) error("%s: the guide stood still for %d steps in a row",what,longest);
+		if (shortest<14) error("%s: a stop shown only %d steps",what,shortest);
+		warning("TOUR %s, stops %d..%d on their own: %d walked in through doors, %d warped (%d steps passing through), still at most %d step (%d steps waiting at doors), each shown at least %d steps, %d turning back%s%s",
+			what,first+1,last,walkedIn,warped,passed,longest,waits,shortest,turned,winding.empty()?"":"; more than once (walk boxes):",winding.c_str());
+	};
+	walk(1,12,"the mansion");
+	// Then the first stretch of Zak's world and of each other game whose
+	// rooms are here (walks across them could reach a door).
+	for (int i=0, last=-2;i+8<total;++i) {
+		const ScummverseTourStop &stop=_scummverseTourStops[i];
+		const int key=stop.kind==2 ? stop.game : -1;
+		if (stop.kind==0 || key==last) continue;
+		bool whole=true;
+		for (int k=i;k<i+8;++k) whole=whole && _scummverseTourStops[k].kind==stop.kind && _scummverseTourStops[k].game==stop.game && scummverseTourAvailable(k);
+		if (!whole) continue;
+		walk(i+1,i+8,stop.kind==1 ? "Zak" : kWorldGames[stop.game].gameid);
+		last=key;
 	}
 	// Every stop, by number: entered and named, in the room it names.
 	int entered[3]={0,0,0}, passed[3]={0,0,0}, failed=0;

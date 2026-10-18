@@ -1,0 +1,416 @@
+diff --git a/backends/platform/ios7/scummverse_tour_ui.inc b/backends/platform/ios7/scummverse_tour_ui.inc
+index c93e8c81..0759ae81 100644
+--- a/backends/platform/ios7/scummverse_tour_ui.inc
++++ b/backends/platform/ios7/scummverse_tour_ui.inc
+@@ -28,13 +28,19 @@ static UIViewController *scummverseTourController(UIView *view) {
+ 
+ static UILabel *scummverseTourLabel;
+ static ScummverseTourTapper *scummverseTourTapper;
++static bool scummverseTourAwake;
+ 
+-// Shows the label while touring, at the top left of the game.
++// Shows the label while touring, at the top left of the game; the screen
++// stays awake meanwhile (nobody touches it while watching, or recording it).
+ static void scummverseTourRefresh(UIView *view) {
+ 	bool running = false;
+ 	char text[200];
+ 	int next = 1, total = 0;
+ 	Scummverse::Tour::status(running, text, sizeof(text), next, total);
++	if (running != scummverseTourAwake) {
++		scummverseTourAwake = running;
++		UIApplication.sharedApplication.idleTimerDisabled = running ? YES : NO;
++	}
+ 	if (!running || !text[0]) { scummverseTourLabel.hidden = YES; return; }
+ 	if (!scummverseTourLabel) {
+ 		scummverseTourLabel = [[UILabel alloc] init];
+@@ -87,7 +93,7 @@ static void scummverseShowTour(UIViewController *controller) {
+ 	char text[200];
+ 	int next = 1, total = 0;
+ 	Scummverse::Tour::status(running, text, sizeof(text), next, total);
+-	NSString *message = @"Your character goes on autopilot and visits every location of the twelve games in turn (Maniac Mansion, Zak McKracken, then every room of your other games), walking across each one and on through a door where one leads there; it warps only where none does. The label at the top names each stop: note its number or code to report a bug. Stopping brings your character back.";
++	NSString *message = @"Your character goes on autopilot and visits every location of the twelve games in turn (Maniac Mansion, Zak McKracken, then every room of your other games), walking through each one in a single pass and on through a door where one leads there; it warps only where none does. The label at the top names each stop: note its number or code to report a bug. Stopping brings your character back.";
+ 	if (running) message = [NSString stringWithFormat:@"%@\n\nNow: %@", message, [NSString stringWithUTF8String:text] ?: @""];
+ 	else if (total) message = [NSString stringWithFormat:@"%@\n\n%d stops; the next is stop %d.", message, total, next];
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Tour every location" message:message preferredStyle:UIAlertControllerStyleAlert];
+diff --git a/engines/scumm/actor.h b/engines/scumm/actor.h
+index ab1350e4..d52662eb 100644
+--- a/engines/scumm/actor.h
++++ b/engines/scumm/actor.h
+@@ -330,6 +330,7 @@ public:
+ 	}
+ 
+ 	void scummverseSeatAt(int x, int y);
++	Common::Point scummverseWalkDest() const { return _walkdata.dest; }
+ 
+ 	void setElevation(int newElevation) {
+ 		if (_elevation != newElevation) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 7bfba9a9..8be61473 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1699,10 +1699,16 @@ protected:
+ 	Common::Array<ScummverseTourLeg> _scummverseTourLegs;
+ 	int _scummverseTourLegAt = 0;
+ 	bool _scummverseTouring = false, _scummverseTourPublished = false, _scummverseTourOnFoot = false, _scummverseTourViaDoor = false;
+-	int _scummverseTourStop = 0, _scummverseTourStep = 1, _scummverseTourPhase = 0, _scummverseTourWait = 0, _scummverseTourLeg = 0;
++	int _scummverseTourStop = 0, _scummverseTourStep = 1, _scummverseTourPhase = 0, _scummverseTourWait = 0;
++	int _scummverseTourShown = 0; // the stop the label names (the walk may be on its way to the next)
++	int _scummverseTourDwell = 0; // ticks in this stop
+ 	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
+ 	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
+ 	void scummverseUpdateTour(int delta);
++	bool scummverseTourAdvance(Actor *a, int delta, int total);
++	void scummverseTourWalkTo(Actor *a, int x, int y);
++	void scummverseTourLeave();
++	bool scummverseTourDoorOut(int &x, int &y);
+ 	void scummverseTourBuild();
+ 	void scummverseTourSegment(int kind, int game, const Common::Array<int> &rooms, const Common::Array<struct TourEdge> &edges);
+ 	bool scummverseTourThere(int index);
+@@ -1751,8 +1757,8 @@ protected:
+ 	// reaches it (at once on a map).
+ 	void scummverseWorldDoors();
+ 	bool scummverseFollowLink(int game, int from, int target, int arrival);
+-	int _scummverseTapX = 0, _scummverseTapY = 0, _scummverseWalkStill = 0;
+-	Common::Point _scummverseWalkPos;
++	int _scummverseTapX = 0, _scummverseTapY = 0, _scummverseWalkStill = 0, _scummverseWalkSteps = 0;
++	Common::Point _scummverseWalkPos, _scummverseWalkDest, _scummverseWalkTrail[64]; // the walk's last spots
+ 	bool _scummverseTapPending = false;
+ 	void scummverseMigrateWorldRooms();
+ 	void scummverseMigrateLegacyWorlds();
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 4ac0ec11..64858961 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ // Scummverse TOUR (included by scumm.cpp): bug-watching. The character the
+ // player controls goes on autopilot and visits every location of the twelve
+-// games in turn, walking across each while the player watches: Maniac
++// games in turn, walking through each while the player watches: Maniac
+ // Mansion's rooms, Zak's world (Zak's apartment, the airport, the street,
+ // the imported places and its logical scenes), then every room in the door
+ // maps of the other ten games (rooms of games not installed are passed
+@@ -35,13 +35,20 @@ static const TourManiacRoom kTourManiacRooms[] = {
+ 	{38, 38, 60, "top-floor bedroom corridor"}, {51, 28, 59, "meteor chamber"}, {52, 4, 56, "gate approach"},
+ };
+ 
+-// A stop's timing, in game ticks: settling in, at most this long for each of
+-// the three walks across (left, right, back to the middle) and to the door
+-// out, a last look; a stop that could not be entered says so this long.
+-static const int kTourSettle = 60, kTourWalk = 600, kTourLinger = 90, kTourRefused = 120;
+-enum { kTourEnter = 0, kTourArrived, kTourWalking, kTourLingering, kTourRefusedStop, kTourToDoor };
+-static const int kTourLegs = 3;
+-static const int kTourLegPercent[kTourLegs] = {12, 88, 50};
++// The guide never stands still and makes one pass through each stop (the
++// user: "no stopping, just continuous walking"; "one clean pass through and
++// only revisit locations to get to ones he hasn't been to yet"): from where
++// it came in straight on to the door out, the next stop's first door. Only
++// where that door is near where it came in (a dead end, doors side by side:
++// within a quarter of the room's width) or there is none (a warp follows)
++// does it first walk to the room's far end (the walkable spot farthest from
++// where it came in). In game ticks: at most this long for
++// each walk (one the walk boxes cut short ends early); every stop is shown
++// at least this long, for its label to be read (where the walk is shorter
++// the guide waits at the door out); a stop that could not be entered says
++// so this long.
++static const int kTourWalk = 600, kTourGlimpse = 60, kTourRefused = 60;
++enum { kTourEnter = 0, kTourArrived, kTourWalking, kTourRefusedStop, kTourToDoor };
+ 
+ // One game's rooms in walking order: from its first room, on foot to the
+ // nearest room not visited yet (the fewest doors; rooms visited before are
+@@ -275,11 +282,11 @@ bool ScummEngine::scummverseTourEnter(int index) {
+ }
+ 
+ void ScummEngine::scummverseTourPublish(const Common::String &label) {
+-	ScummverseTour::publish(_scummverseTouring, label.c_str(), _scummverseTourStop + 1, scummverseTourCount());
++	ScummverseTour::publish(_scummverseTouring, label.c_str(), _scummverseTourShown + 1, scummverseTourCount());
+ }
+ 
+ void ScummEngine::scummverseTourSave() {
+-	ConfMan.setInt("scummverse_tour_stop", _scummverseTourStop + 1);
++	ConfMan.setInt("scummverse_tour_stop", _scummverseTourShown + 1);
+ 	ConfMan.flushToDisk();
+ }
+ 
+@@ -298,6 +305,7 @@ void ScummEngine::scummverseTourStart(int index) {
+ 	}
+ 	_scummverseTouring = true;
+ 	_scummverseTourZak = -1;
++	_scummverseTapPending = false; // (a tap from before is not a door to take)
+ 	_scummverseTourStop = CLIP(index, 0, scummverseTourCount() - 1);
+ 	_scummverseTourStep = 1;
+ 	_scummverseTourOnFoot = false; // (straight there)
+@@ -308,6 +316,7 @@ void ScummEngine::scummverseTourStart(int index) {
+ void ScummEngine::scummverseTourEnd(bool home) {
+ 	if (!_scummverseTouring) return;
+ 	_scummverseTouring = false;
++	_scummverseTransitArmed = false; // (home may be at a road's edge)
+ 	derefActor(VAR(VAR_EGO), "tour guide")->stopActorMoving();
+ 	if (home) {
+ 		const int room = _scummverseTourHome[0];
+@@ -327,10 +336,10 @@ void ScummEngine::scummverseTourCommand(int command, int number) {
+ 	case ScummverseTour::kRestart: scummverseTourStart(0); break;
+ 	case ScummverseTour::kGoTo: scummverseTourStart(number - 1); break;
+ 	case ScummverseTour::kNext:
+-		scummverseTourStart(_scummverseTouring ? _scummverseTourStop + 1 : saved - 1);
++		scummverseTourStart(_scummverseTouring ? _scummverseTourShown + 1 : saved - 1);
+ 		break;
+ 	case ScummverseTour::kPrevious:
+-		if (_scummverseTouring) { scummverseTourStart(_scummverseTourStop - 1); _scummverseTourStep = -1; }
++		if (_scummverseTouring) { scummverseTourStart(_scummverseTourShown - 1); _scummverseTourStep = -1; }
+ 		break;
+ 	case ScummverseTour::kStop: scummverseTourEnd(true); break;
+ 	default: break;
+@@ -340,9 +349,11 @@ void ScummEngine::scummverseTourCommand(int command, int number) {
+ // In a stop (or not): its label (a warp says so), then the walks across.
+ void ScummEngine::scummverseTourArrive(bool entered, bool onFoot) {
+ 	const Common::String name = Common::String::format("Stop %d of %d \xC2\xB7 ", _scummverseTourStop + 1, scummverseTourCount()) + scummverseTourName(_scummverseTourStop);
++	_scummverseTourShown = _scummverseTourStop;
++	scummverseTourSave();
+ 	_scummverseTourViaDoor = entered && onFoot;
+ 	if (entered) {
+-		_scummverseTourPhase = kTourArrived; _scummverseTourWait = kTourSettle; _scummverseTourLeg = 0;
++		_scummverseTourPhase = kTourArrived; _scummverseTourWait = 0; _scummverseTourDwell = 0;
+ 		scummverseTourPublish(onFoot ? name : name + " \xC2\xB7 warped");
+ 	} else {
+ 		_scummverseTourPhase = kTourRefusedStop; _scummverseTourWait = kTourRefused;
+@@ -357,13 +368,44 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 	if (!_scummverseTourPublished) {
+ 		_scummverseTourPublished = true;
+ 		const int saved = ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1;
+-		_scummverseTourStop = CLIP(saved, 1, MAX(1, total)) - 1;
++		_scummverseTourStop = _scummverseTourShown = CLIP(saved, 1, MAX(1, total)) - 1;
+ 		scummverseTourPublish("");
+ 	}
+ 	int command, number;
+ 	if (ScummverseTour::takeRequest(command, number)) scummverseTourCommand(command, number);
+ 	if (!_scummverseTouring) return;
+ 	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
++	// Whatever does not set the guide walking goes straight on to the next
++	// step in this same update, so it never stands a frame between walks.
++	for (int pass = 0; pass < 8 && _scummverseTouring && scummverseTourAdvance(a, pass ? 0 : delta, total); ++pass) {}
++}
++
++// The door out of this stop when the next is reached on foot from here.
++bool ScummEngine::scummverseTourDoorOut(int &x, int &y) {
++	const int next = _scummverseTourStop + 1;
++	return next < scummverseTourCount() && _scummverseTourStops[next].legs && scummverseTourAvailable(next) &&
++		scummverseTourDoorPoint(next, 0, x, y);
++}
++
++// On from this stop to the next (on foot where doors lead there).
++void ScummEngine::scummverseTourLeave() {
++	_scummverseTourOnFoot = true;
++	++_scummverseTourStop;
++	_scummverseTourPhase = kTourEnter;
++}
++
++// Walks the guide to the spot in the nearest walk box; a room without walk
++// boxes (a map) has nowhere to walk (V1 would take the last room's spot).
++void ScummEngine::scummverseTourWalkTo(Actor *a, int x, int y) {
++	if (!getNumBoxes()) return;
++	const AdjustBoxResult spot = a->adjustXYToBeInBox(x, y);
++	a->startWalkActor(spot.x, spot.y, -1);
++}
++
++// One step of the tour's walk; true when the guide is not walking after it
++// (the next step follows at once).
++bool ScummEngine::scummverseTourAdvance(Actor *a, int delta, int total) {
++	bool again = false;
+ 	switch (_scummverseTourPhase) {
+ 	case kTourEnter: {
+ 		// The next stop that can be visited here (going back for Previous).
+@@ -371,65 +413,104 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 		while (_scummverseTourStop >= 0 && _scummverseTourStop < total && !scummverseTourAvailable(_scummverseTourStop))
+ 			_scummverseTourStop += _scummverseTourStep;
+ 		if (_scummverseTourStop < 0 || _scummverseTourStop >= total) {
+-			_scummverseTourStop = _scummverseTourStop < 0 ? 0 : total - 1;
++			_scummverseTourStop = _scummverseTourShown = _scummverseTourStop < 0 ? 0 : total - 1;
+ 			_scummverseTouring = false;
+ 			scummverseTourPublish("");
+ 			scummverseSay(VAR(VAR_EGO), _scummverseTourStep > 0 ? "That was the last stop of the tour." : "That was the first stop of the tour.");
+-			return;
++			return false;
+ 		}
+ 		_scummverseTourStep = 1;
+-		scummverseTourSave();
+ 		// On foot from the stop before, door by door, where doors lead there.
+ 		int x, y;
+ 		_scummverseTourLegAt = 0;
+ 		if (_scummverseTourOnFoot && _scummverseTourStop == from && scummverseTourDoorPoint(_scummverseTourStop, 0, x, y)) {
+-			const AdjustBoxResult door = a->adjustXYToBeInBox(x, y);
+-			a->startWalkActor(door.x, door.y, -1);
++			scummverseTourWalkTo(a, x, y);
+ 			_scummverseTourPhase = kTourToDoor; _scummverseTourWait = kTourWalk;
++			again = !a->_moving; // (already at the door)
+ 			break;
+ 		}
+ 		scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false);
++		again = _scummverseTourPhase == kTourArrived;
+ 		break;
+ 	}
+ 	case kTourToDoor: {
++		if (!_scummverseTourLegAt) _scummverseTourDwell += delta; // (still in the stop before)
+ 		if ((_scummverseTourWait -= delta) > 0 && a->_moving) break;
++		if (!_scummverseTourLegAt && _scummverseTourDwell < kTourGlimpse) break; // (shown a moment at least)
+ 		// At the door (or as near as the walk boxes allow): through it, on to
+ 		// the next door when passing through, or straight to the stop if a
+ 		// door will not take the guide.
+ 		const ScummverseTourStop &stop = _scummverseTourStops[_scummverseTourStop];
+-		if (!scummverseTourThrough(_scummverseTourStop, _scummverseTourLegAt)) { scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false); break; }
+-		if (++_scummverseTourLegAt >= stop.legs) { scummverseTourArrive(true, true); break; }
++		if (!scummverseTourThrough(_scummverseTourStop, _scummverseTourLegAt)) {
++			scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false);
++			again = _scummverseTourPhase == kTourArrived;
++			break;
++		}
++		if (++_scummverseTourLegAt >= stop.legs) { scummverseTourArrive(true, true); again = true; break; }
+ 		int x, y;
+ 		const ScummverseTourLeg &way = _scummverseTourLegs[stop.firstLeg + _scummverseTourLegAt - 1];
+ 		scummverseTourPublish(Common::String::format("Stop %d of %d \xC2\xB7 on the way through ", _scummverseTourStop + 1, total) +
+ 			scummverseTourRoomName(stop.kind, stop.game, way.room));
+-		if (!scummverseTourDoorPoint(_scummverseTourStop, _scummverseTourLegAt, x, y)) { scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false); break; }
+-		const AdjustBoxResult door = a->adjustXYToBeInBox(x, y);
+-		a->startWalkActor(door.x, door.y, -1);
++		if (!scummverseTourDoorPoint(_scummverseTourStop, _scummverseTourLegAt, x, y)) {
++			scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false);
++			again = _scummverseTourPhase == kTourArrived;
++			break;
++		}
++		scummverseTourWalkTo(a, x, y);
+ 		_scummverseTourWait = kTourWalk;
++		again = !a->_moving;
+ 		break;
+ 	}
+-	case kTourArrived:
+-	case kTourWalking:
+-		if ((_scummverseTourWait -= delta) > 0 && (_scummverseTourPhase == kTourArrived || a->_moving)) break;
+-		if (_scummverseTourPhase == kTourWalking) ++_scummverseTourLeg;
+-		if (_scummverseTourLeg >= kTourLegs) { _scummverseTourPhase = kTourLingering; _scummverseTourWait = kTourLinger; break; }
++	case kTourArrived: {
++		// Straight on to the door out when the walk to it is well away from
++		// here (a quarter of the room's width, in pixels; it follows at once);
++		// else first to the walkable spot farthest from here (a walk box's
++		// corner as the walk boxes take it: the room's far end, or the end of
++		// a winding path).
++		const int x = a->getRealPos().x, y = a->getRealPos().y;
++		int doorX = 0, doorY = 0;
++		if (getNumBoxes() && scummverseTourDoorOut(doorX, doorY)) {
++			const AdjustBoxResult spot = a->adjustXYToBeInBox(doorX, doorY);
++			if (ABS(spot.x - x) * 8 + ABS(spot.y - y) * 2 >= _roomWidth / 4) {
++				scummverseTourLeave();
++				again = true;
++				break;
++			}
++		}
+ 		{
+-			// Across the room: a spot this far along it, at the guide's own
+-			// depth, moved into the nearest walk box.
+-			const int x = MAX(1, _roomWidth / 8 * kTourLegPercent[_scummverseTourLeg] / 100);
+-			const AdjustBoxResult target = a->adjustXYToBeInBox(x, a->getRealPos().y);
+-			a->startWalkActor(target.x, target.y, -1);
+-			_scummverseTourPhase = kTourWalking; _scummverseTourWait = kTourWalk;
++			Common::Point far(x, y);
++			long farthest = 0;
++			for (int box = 0; box < getNumBoxes(); ++box) {
++				const BoxCoords c = getBoxCoordinates(box);
++				for (const Common::Point &p : {c.ul, c.ur, c.lr, c.ll}) {
++					const AdjustBoxResult spot = a->adjustXYToBeInBox(p.x, p.y);
++					const long distance = (long)ABS(spot.x - x) * 8 + (long)ABS(spot.y - y) * 2;
++					if (distance > farthest) { farthest = distance; far = Common::Point(spot.x, spot.y); }
++				}
++			}
++			scummverseTourWalkTo(a, far.x, far.y);
+ 		}
++		_scummverseTourPhase = kTourWalking; _scummverseTourWait = kTourWalk;
++		again = !a->_moving; // (already there: on to the door)
+ 		break;
+-	case kTourLingering:
++	}
++	case kTourWalking: {
++		_scummverseTourDwell += delta;
++		if ((_scummverseTourWait -= delta) > 0 && a->_moving) break;
++		int doorX, doorY;
++		if (_scummverseTourDwell < kTourGlimpse && !scummverseTourDoorOut(doorX, doorY)) break; // (shown a moment at least: a warp follows)
++		scummverseTourLeave();
++		again = true;
++		break;
++	}
+ 	case kTourRefusedStop:
+ 		if ((_scummverseTourWait -= delta) > 0) break;
+-		_scummverseTourOnFoot = _scummverseTourPhase == kTourLingering;
++		_scummverseTourOnFoot = false;
+ 		++_scummverseTourStop;
+ 		_scummverseTourPhase = kTourEnter;
++		again = true;
+ 		break;
+ 	default: break;
+ 	}
++	return again;
+ }
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index bb292505..30e2a929 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -183,7 +183,7 @@ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	scummverseUpdateGuests(0, 0);
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	// A tap made before leaving never opens a door here.
+-	_scummverseTapPending = false; _scummverseWalkStill = 0;
++	_scummverseTapPending = false; _scummverseWalkStill = 0; _scummverseWalkSteps = 0;
+ 	int source; const int gameIndex = scummverseWorldGameOf(room, source);
+ 	const WorldScene *landmark = worldLandmark(gameIndex, source);
+ 	const char *place = landmark ? landmark->name : "Exploring";
+@@ -227,7 +227,8 @@ void ScummEngine::scummverseWorldEdges() {
+ // into the walk boxes), so a tap on a door can be told from a tap beside it.
+ void ScummEngine::scummverseWorldTap(int actor, int x, int y) {
+ 	int source;
+-	if (!_scummverseRoaming || actor != VAR(VAR_EGO) || scummverseWorldGameOf(_currentRoom, source) < 0) return;
++	// (The tour's walks are not taps: it takes its doors itself.)
++	if (!_scummverseRoaming || _scummverseTouring || actor != VAR(VAR_EGO) || scummverseWorldGameOf(_currentRoom, source) < 0) return;
+ 	_scummverseTapX = x; _scummverseTapY = y; _scummverseTapPending = true;
+ }
+ 
+@@ -238,15 +239,23 @@ void ScummEngine::scummverseWorldDoors() {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+ 	if (gameIndex < 0 || !WorldBridge::mounted()) return;
+-	if (!worldMap(gameIndex)) { scummverseWorldEdges(); return; }
++	if (!worldMap(gameIndex)) { if (!_scummverseTouring) scummverseWorldEdges(); return; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "door walker");
+-	// Some converted box layouts make the V1 walker step back and forth;
+-	// a walk without progress for about a second ends where it is.
++	// Some converted box layouts make the V1 walker step back and forth, or
++	// go round in a loop: a walk without progress for about a second, or
++	// back at a spot it has passed, ends where it is.
+ 	if (player->_moving) {
+-		const Common::Point at = player->getRealPos();
++		const Common::Point at = player->getRealPos(), dest = player->scummverseWalkDest();
++		if (dest != _scummverseWalkDest) { _scummverseWalkDest = dest; _scummverseWalkSteps = 0; }
+ 		if (at == _scummverseWalkPos) { if (++_scummverseWalkStill > 60) { player->stopActorMoving(); _scummverseWalkStill = 0; } }
+-		else { _scummverseWalkPos = at; _scummverseWalkStill = 0; }
+-	} else _scummverseWalkStill = 0;
++		else {
++			_scummverseWalkPos = at; _scummverseWalkStill = 0;
++			bool seen = false;
++			for (int i = 0; i < MIN(_scummverseWalkSteps, (int)ARRAYSIZE(_scummverseWalkTrail)); ++i) seen |= _scummverseWalkTrail[i] == at;
++			if (seen) { player->stopActorMoving(); _scummverseWalkSteps = 0; }
++			else _scummverseWalkTrail[_scummverseWalkSteps++ % ARRAYSIZE(_scummverseWalkTrail)] = at;
++		}
++	} else { _scummverseWalkStill = 0; _scummverseWalkSteps = 0; }
+ 	if (!_scummverseTapPending) return;
+ 	const bool map = worldRoomKind(gameIndex, source) == kWorldMapRoom || getNumBoxes() == 0;
+ 	if (!map && player->_moving) return;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 9bcf1c29..35fa52bf 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -528,7 +528,7 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	bool edge = (_currentRoom == 1 && x == 0) || (_currentRoom == 44 && x >= 37) ||
+ 		(_currentRoom == 53 && x <= 1);
+ 	if (!edge) _scummverseTransitArmed = true;
+-	if (edge && _scummverseTransitArmed && !player->_moving) {
++	if (edge && _scummverseTransitArmed && !player->_moving && !_scummverseTouring) {
+ 		_scummverseTransitArmed = false;
+ 		if (_currentRoom == 53) scummverseBoard();
+ 		else scummverseTravel(3);

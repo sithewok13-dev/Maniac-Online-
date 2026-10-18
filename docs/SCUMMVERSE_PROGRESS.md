@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0085 (TOUR: every location, numbered).
+Active milestone: Phase 1; latest patch 0086 (TOUR: one clean pass, continuous walking).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1703,3 +1703,61 @@ to every location"; all twelve games.
   Island 2 rooms 61 and 82, Atlantis 48, Day of the Tentacle 21; the tour
   warps there); screenshots checked by eye. The iOS label and menu are
   compiled by Apple CI only after a push; not device-tested.
+
+## Patch 0086 — TOUR: one clean pass, continuous walking
+
+User requests (2026-10-18): "There should be no stopping just continuous
+walking"; then "I don't like the way he doubles back and goes back and
+forth. It should be one clean pass through and only revisit locations to
+get to ones he hasn't been to yet".
+- One pass through each stop: from where the guide comes in straight on to
+  the door out (the next stop's first door). Only where that door's walk
+  spot lies within a quarter of the room's width of where it came in (a
+  dead end entered and left by the same door, or doors side by side), or
+  there is no door out (a warp follows), does it first walk to the
+  walkable spot farthest from where it came in (a walk box corner as the
+  boxes take it: a room's far end, a winding path's other end), the one
+  turn. Rooms are still revisited only on the way to rooms not yet
+  visited (the 0085 route, unchanged).
+- No pauses: a step that starts no walk (already there, a warp, a door
+  taken) is followed by the next in the same update (scummverseTourAdvance,
+  at most 8 steps), so the guide stands at most the one frame between two
+  walks. Every stop is still shown at least a second for its label to be
+  read: where the walk is shorter the guide waits at the door out.
+- The label's stop is now kept apart from the stop being walked to
+  (_scummverseTourShown): Next, Previous, the remembered stop and the
+  menu's "Start at stop N" follow the stop on the label, since the guide
+  heads for the next stop's door as soon as it arrives.
+- Fixed on the way: in other games' rooms the tour's walks counted as taps,
+  so a walk ending near a door (or the side exit of a game without a door
+  map, or the mansion's road and airport edges) took the guide off its
+  route into another room under the old label. Taps and edge exits are
+  ignored while touring (the tour takes its doors itself); a tap pending
+  from before the tour is dropped.
+- Other worlds (players too): a walk that comes back to a spot it has
+  already passed ends there (scummverseWorldDoors). Converted walk boxes
+  could send the V1 walker round a loop (Monkey Island room 141: about
+  10 s circling) or back and forth; the existing check caught only a
+  walker standing still.
+- Found, not fixed: in some rooms of the other games the guide cannot walk
+  from the spot a door puts it on (the walk ends at once: the box there
+  does not lead on); it waits its second and goes on. Part of task #25
+  (converted walk boxes).
+- Independent review of the first version (read-only) found no blocker;
+  applied: the road and airport edge exits are disarmed when the tour ends
+  (home may lie at an edge), and walks go nowhere in a room without walk
+  boxes (no stop has none today). Left as is: the one frame of standing
+  pose where one walk ends and the next begins.
+- iOS: the screen stays awake while the tour runs (idleTimerDisabled), so
+  it can be watched or screen-recorded without the phone locking; docs/
+  ios.md gives each game's first stop for recording a game at a time.
+- Verified (Linux, the user's private copies): tools/test_tour_engine.py
+  now also walks the mansion's stops 2..12 and the first seven stops of
+  Zak's world and of each of the ten other games on their own, requiring
+  every stop in turn (none skipped), the guide in the stop's room until
+  the next, never more than one step without walking apart from the wait
+  at a door (all twelve: 1), at most one turn back in a stop (32 pixels
+  or more; the mansion and Zak strictly, other worlds listed: none turned
+  more than once), and each stop shown at least 14 steps; the rest as in
+  0085 (773 stops entered, 1073 doors, the same 6 failing). The iOS change
+  is compiled by Apple CI only after a push. Not device-tested.

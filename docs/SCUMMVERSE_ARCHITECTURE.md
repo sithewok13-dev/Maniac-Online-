@@ -284,8 +284,13 @@ passed through), else the next unvisited room of the list (a warp). Each
 stop: the doors walked to and used the way a player uses them
 (scummversePassage, the zakLinks travel, scummverseFollowLink), else a warp
 (mansion rooms by startScene, Zak and other worlds by the sandbox's travel),
-all as though landing so no ride holds the guide; three walks across, then
-the next stop; stops of games not installed are passed over; the next stop is kept in the configuration
+all as though landing so no ride holds the guide; one pass through each
+stop without pauses (0086): straight on to the door out, or first to the
+walkable spot farthest from the way in where that door is near it (a dead
+end) or none leads on; any step that starts no walk is followed at once in
+the same update (scummverseTourAdvance); each stop shown at least a second;
+the label's stop (_scummverseTourShown) is kept apart from the stop walked
+to; the tour's walks are not taps on doors or side exits; stops of games not installed are passed over; the next stop is kept in the configuration
 (scummverse_tour_stop). The iOS side (scummverse_tour_ui.inc) shows the
 label over the game and the controls (Worlds menu, or a tap on the label).
 CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
