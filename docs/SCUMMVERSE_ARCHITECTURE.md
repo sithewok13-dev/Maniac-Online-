@@ -273,6 +273,21 @@ drawn dress-up over the sprite's head, `scummverseDrawDressUp`, and drawn
 mirrored facing left when every frame looks right, `oneWay`). Native
 game folders are found at the top of Documents or one folder down
 (base/main.cpp and the iOS status alike).
+TOUR (0085): common/scummverse_tour.{h,cpp} is portable (the interface's
+request slot and the game's published label, both under a mutex);
+engines/scumm/scummverse_tour.inc is the game's side, stepped from
+scummverseUpdateRoaming: an ordered stop list built once from static
+tables (so stop numbers are the same everywhere): per game, from its first
+room, the nearest room not yet visited by doors (a breadth-first search
+over mansionPassages, zakLinks or the game's door map; visited rooms are
+passed through), else the next unvisited room of the list (a warp). Each
+stop: the doors walked to and used the way a player uses them
+(scummversePassage, the zakLinks travel, scummverseFollowLink), else a warp
+(mansion rooms by startScene, Zak and other worlds by the sandbox's travel),
+all as though landing so no ride holds the guide; three walks across, then
+the next stop; stops of games not installed are passed over; the next stop is kept in the configuration
+(scummverse_tour_stop). The iOS side (scummverse_tour_ui.inc) shows the
+label over the game and the controls (Worlds menu, or a tap on the label).
 CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
 (the request slot the interface fills and the game takes, the hold flag,
 whole-pixel enlarging with rows 6/5 of columns, selfie framing, pose plans

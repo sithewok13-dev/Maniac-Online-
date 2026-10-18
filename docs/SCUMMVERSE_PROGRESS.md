@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0084 (the CAMERA's iOS code compiles).
+Active milestone: Phase 1; latest patch 0085 (TOUR: every location, numbered).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1655,3 +1655,51 @@ first time) failed with one error: scummverse_camera_ui.inc used
 `scummverseCameraNoPhotos` before defining it. It is now defined above its
 first use; nothing else changes. Compiled by Apple CI only after this push;
 not device-tested.
+
+## Patch 0085 — TOUR: every location, numbered
+
+User requests (2026-10-18): "an NPC I can spectate who systematically walks
+through every single room/location, which I can just sit back and watch
+looking for bugs. Each room/location it enters should have a label/
+identification number I can make note of to report bugs"; "If there's no
+way to traverse a location it should just warp to it. But I want it to get
+to every location"; all twelve games.
+- The guide is the character the player controls, on autopilot (the camera
+  follows it); Stop brings it back to where the tour began. (A separate
+  NPC would need the sandbox's travel, which moves the controlled
+  character, to move someone else: offered to the user, not built.)
+- 773 stops with every game installed: Maniac Mansion's 37 rooms a kid can
+  stand in (private research of the original scripts: each is a
+  loadRoomWithEgo target; close-ups, title, cutscene and ending rooms
+  excluded; the same rooms as mansionPassages), Zak's 102 (apartment,
+  airport, street, imported rooms, logical scenes), then the 634 rooms of
+  the ten other games' door maps. Stop numbers come from static tables only,
+  so they are the same on every device; stops of games not installed are
+  passed over.
+- Route: per game, from its first room, the nearest room not yet visited by
+  doors (breadth-first over mansionPassages, zakLinks or the door map,
+  passing back through visited rooms: "on the way through …"), else a warp
+  to the next unvisited room; 109 warps (the 12 game starts, rooms no door
+  reaches: by plane, bus, tram or cutscene). Doors are used the way a
+  player's are (scummversePassage, the zakLinks travel,
+  scummverseFollowLink); a door that will not take the guide falls back to
+  a warp. All of it as though landing, so no ride (a plane mid-flight, a
+  tram) holds the guide; other-world travel now honors that too.
+- In each stop: settle, walk across (to 12% and 88% of the room's width
+  and back to the middle, each at most 10 s), a last look, then on.
+- Label (top left, over the game): "Stop 137 of 773 · Zak 84 · Mars pyramid
+  crystal room", "· warped" when warped there; tap it for the controls.
+  Controls (Worlds menu › Tour every location): Start / Start at stop N
+  (remembered in the configuration, scummverse_tour_stop), Start over,
+  Go to stop… (a number), Next, Previous, Stop the tour.
+- Verified (Linux, the user's private copies): tools/test_tour.cpp (ASan/
+  UBSan and TSan: requests, label, whole-character truncation, two
+  threads); tools/test_tour_engine.py (new, in the data suite): stop 1 walked
+  across, stop 2 reached through its door by itself; Stop returns home;
+  Resume at the remembered stop, Next, Previous; stops 2..12 on their own
+  all through doors; every one of the 773 stops entered by number, in the
+  room it names; every door of the route taken from the stop before: 1073
+  doors, 6 fail (door objects absent from the exported scenes: Monkey
+  Island 2 rooms 61 and 82, Atlantis 48, Day of the Tentacle 21; the tour
+  warps there); screenshots checked by eye. The iOS label and menu are
+  compiled by Apple CI only after a push; not device-tested.

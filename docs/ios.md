@@ -29,6 +29,22 @@ the sideloading tool installs it as an update over the previous one; your game
 files and saves in Documents stay. To check which build is running, open the
 in-game menu's **Connected worlds**: its message ends with "Build: patch 0063,
 build 69 (…)" and how many of your other games are exported for that build.
+**Tour every location (watch for bugs)**, in the Worlds menu: your character
+goes on autopilot and visits every location of the twelve games in turn —
+Maniac Mansion's 37 rooms, Zak McKracken's, then every room of your other ten
+games (773 stops with all of them) — walking across each, and on to the next
+through a door, as a player would, wherever doors lead there (passing back
+through rooms already seen if need be); it warps only where no door leads
+on (places reached by plane, bus, tram or cutscene, or a door that does not
+work). A label at the top left names each stop, for example
+"Stop 137 of 773 · Zak 84 · Mars pyramid crystal room" (with "warped" when it
+warped there, "on the way through …" while passing through): note its
+number or code to report a bug. Tap the label (or open the menu again) for Next stop,
+Previous stop, Go to stop… (by number) and Stop the tour, which brings your
+character back to where it began. The tour remembers its place, so Start
+picks up at the next stop; Start over begins again at stop 1. Rooms of games
+you have not added are passed over.
+
 Other games are set up once, at launch, before Maniac Mansion starts; keep the
 app open until then. Folder names ignore case and spaces around them, but
 must otherwise match (`loom`, `samnmax`, …). A game folder is found at the
