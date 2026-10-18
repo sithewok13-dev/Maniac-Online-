@@ -290,7 +290,8 @@ walkable spot farthest from the way in where that door is near it (a dead
 end) or none leads on; any step that starts no walk is followed at once in
 the same update (scummverseTourAdvance); each stop shown at least a second;
 the label's stop (_scummverseTourShown) is kept apart from the stop walked
-to; the tour's walks are not taps on doors or side exits; the interface's
+to; the door the guide sets off to opens first (scummverseTourOpenDoor:
+Maniac's passages, Zak's clean doors, zakOpenDoors); the tour's walks are not taps on doors or side exits; the interface's
 speed (Tour::setSpeed: 1, 2, 4, 8 or 16; 0087, 0088) shortens
 waitForTimer's wait while touring and not paused, so the whole game plays
 faster (scummverse_tour_speed), the screen then shown at most every 16 ms;

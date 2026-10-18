@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0088 (TOUR: control bar, pause, 16x).
+Active milestone: Phase 1; latest patch 0089 (lights on, doors opened).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1826,3 +1826,45 @@ somewhere when tour is enabled. Not hidden in options".
   while paused land on the stops before and after, still paused; Play
   walks on; the rest as in 0087. The iOS bar is compiled by Apple CI only
   after a push. Not device-tested.
+
+## Patch 0089 — Lights on in dark rooms; doors opened before going through
+
+User requests (2026-10-18): "if doors were closed, characters would walk
+through them without opening ... if they come upon a closed door to open
+it automatically"; "I also want the lights to be turned on in dark rooms
+by default if there's an in game light available. Like the maniac mansion
+basement by the reactor".
+- Lights: the original starts six rooms dark (global script 1 sets their
+  "light is off" bit, 2816 + room; script 55 lights a room from it): the
+  phone hall (5), the basement by the reactor (8), the wall-safe closet
+  (9), the crawlspace (15), the medical office (22) and the darkroom (23).
+  Each has its own light (switch, lamps, desk lamp, red light) whose Turn on
+  clears that bit and nothing else (private research of the scripts,
+  confirmed by running each Turn on). The sandbox clears the six bits once
+  per game (var 619, kScummverseLightsVar): at its start, and on loading a
+  save made before. The switches work as before; a light switched off stays
+  off. Zak's rooms and the other games' are already shown lit.
+- Doors: Maniac Mansion's walking characters already opened a door as they
+  set off to it; the tour guide's opened only as it left the room, unseen.
+  The tour now opens the door as the guide sets off to it (both sides).
+  Zak: the player, Zak's walking characters and the tour went through
+  closed doors; now a door opens as someone goes through it, and the door
+  back on arrival, but only Zak's closed doors whose open picture was
+  checked by eye (14 of 30) and that are not in a scene set up as the
+  original's own (zakSceneSetups, held to the original's states by
+  tools/test_maze.py: the Sphinx maze, the pyramids, the jail, the
+  hostel...): 8 doors (zakOpenDoors). In the imported rooms other doors'
+  open pictures draw garbled (the hut, the hostel corridor), reversed (two),
+  or with someone painted in the doorway (the guru's). Opened Zak doors close again when
+  the room is entered anew (its states are restored then).
+- Not done: the other ten games' rooms are exported pictures with their
+  doors drawn in as the room starts; opening them needs each door's open
+  picture in the export (a new export version and re-export), proposed.
+- Verified (Linux, the user's private copies): tools/test_lights_doors.py
+  (new, in the data suite): the six rooms lit in a new sandbox; the
+  basement's switch off (dark, and dark again after leaving and coming
+  back) and on; an old save lit once; the tour walked through Maniac's
+  stops 2..37 and Zak's 38..139: 49 Maniac doors open as the guide set off,
+  5 of Zak's clean doors and 8 doors back on arrival, 122 other Zak door
+  objects left as drawn; tools/test_maze.py passes; the player's walk through Zak's
+  jail door opens the door back (in room 67). Not device-tested.
