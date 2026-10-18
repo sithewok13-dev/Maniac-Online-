@@ -34,6 +34,17 @@ void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
 namespace FakeAI { int appearance[25] = {}; }
 void scummverseTalkAppearance(int actor, int key) { if (actor > 0 && actor < 25) FakeAI::appearance[actor] = key; }
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
+namespace FakeAI { int castGames = 0, castFaces = 0, castShown = 0; int castMembers[12] = {}, castLead[12] = {}; }
+void scummverseCastGame(int slot, const char *, const char *, const unsigned char *rgba) {
+ if (slot == 0) { FakeAI::castGames = FakeAI::castFaces = 0; for (int &m : FakeAI::castMembers) m = 0; }
+ ++FakeAI::castGames; if (rgba) ++FakeAI::castFaces;
+}
+void scummverseCastMember(int slot, const char *, int request) {
+ if (slot < 0 || slot >= 12) return;
+ if (!FakeAI::castMembers[slot]) FakeAI::castLead[slot] = request;
+ ++FakeAI::castMembers[slot];
+}
+void scummverseCastShow() { ++FakeAI::castShown; }
 '''
 
 if __name__ == '__main__':

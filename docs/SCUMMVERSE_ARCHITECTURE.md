@@ -340,4 +340,17 @@ guests at the scene's scale, appearances at a person's height there) into
 the shared character slots 192..255, draws them through the same actor hook,
 and overrides only the name lookup; inventory, verbs, travel and saves stay
 the sandbox character's.
+The character screen (0094) replaces the roster as the way to choose who to
+play: scummverseCastOffer sends one box per game (Maniac, Zak, then
+kWorldGames) with its lead's face drawn from the player's files (the
+roster's portrait for Maniac and Zak, WorldBridge::spritePortrait of the
+exported frames for the rest; leads in catalog kWorldLeads) and its people,
+each as a request: kWorldCastActorRequest + actor (switch, own look) or
+kWorldCastRequest + appearance key (take the look, go where they live).
+The iOS screen (scummverse_cast_ui.inc) only shows them and sends the
+choice back. A new sandbox game skips the opening: runBootscript runs the
+boot scripts (pauses and messages cut short) until the sandbox is ready,
+and the screen opens; "Play as someone else" (command 61) and the game's
+New Kid button open it again. Without SCUMMVERSE_LOCAL_AI it falls back to
+the roster.
 v7/v8 editions are compiled in solely so the player's copies can be exported.

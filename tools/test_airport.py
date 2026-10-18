@@ -24,4 +24,7 @@ if __name__ == '__main__':
         code = code.replace('"@BAD_ZAK@"', json.dumps(tmp))
         code = code.replace('"@SNAPSHOT@"', json.dumps(str(args.snapshot.resolve()) if args.snapshot else ''))
         code = code.replace('"@OLD_SAVE@"', json.dumps(str(args.old_save.resolve()) if args.old_save else ''))
-        run_probe(data, code, 'scummverse_roaming', 'SCUMMVERSE_AIRPORT_PASS', 'airport', PRELUDE + '\n#include "common/savefile.h"\n', args.build)
+        # The game starts with the bad copy too: the boot reaches the sandbox
+        # (mounting Zak from it) before the probe runs.
+        run_probe(data, code, 'scummverse_roaming', 'SCUMMVERSE_AIRPORT_PASS', 'airport', PRELUDE + '\n#include "common/savefile.h"\n', args.build,
+                  extra_config=f'scummverse_zak_path={tmp}\n')

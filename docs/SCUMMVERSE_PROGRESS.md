@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0093 (Ted redrawn from the side, with his glasses).
+Active milestone: Phase 1; latest patch 0094 (the character screen; no opening).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2005,4 +2005,53 @@ User (2026-10-18): "The ted side view is terrible. What about his glasses?"
 - Verified (Linux): tools/test_appearance.py; a screenshot of him facing
   front, left and right was sent to the user for a look. Not
   device-tested.
+
+## Patch 0094 — The character screen, without the opening
+
+User (2026-10-18): skip Maniac Mansion's opening and go straight to a
+character screen of 12 boxes, one per game, each showing its main
+character; a tap plays them, a long press lists everyone in that game;
+"Play as someone else" in the game comes back to it. "Don't put 'all' in
+each box. Just make a note on the screen somewhere which says long press
+for all".
+- A new sandbox game no longer plays the opening: at the end of the boot
+  the boot scripts run on at once (waits and messages cut short, sound
+  stopped) until the sandbox is ready, and the character screen opens.
+  Loading a saved game is unchanged (it never runs the boot).
+- The screen (iPhone, scummverse_cast_ui.inc): "Who do you want to play?",
+  the note "Long press a game for everyone in it", Done, and 12 boxes
+  (3 across in portrait, 6 in landscape, scrolling when they don't fit):
+  Maniac Mansion (Dave), Zak McKracken (Zak), then the ten other games
+  with their leads (catalog kWorldLeads: Guybrush in both Monkey Islands
+  and in COMI, Bobbin, Indy twice, Bernard, Sam, Ben, Boston Low). The faces are
+  drawn from the player's own files, as the roster's are. A game not set
+  up is dimmed with "Add Documents/<folder>" and a tap says how.
+- A tap plays the lead: Dave or Zak as themselves; someone from another
+  game takes their look and goes where they live (Guybrush to Melee
+  Island). The long-press list has everyone with frames: Maniac's people
+  and its four looks (Purple Meteor, Meteor Police, the man-eating
+  plant, Dead Cousin Ted), Zak's people, each game's cast once by name.
+- "Play as someone else" in the Worlds menu (command 61) and the game's
+  own New Kid button open the screen; the separate "Choose character"
+  entry and the old play-as menus are gone. Off the iPhone the roster
+  stays.
+- Long press opens a scrolling list (some games have over thirty people),
+  Cancel closes it; a game not set up says how to add it.
+- Tests: two probes that needed Zak missing at the start (worlds,
+  airport) now start the game without him, since the boot reaches the
+  sandbox before a probe runs. tools/test_cast.py (in the data suite):
+  the sandbox ready at the end of the boot, the screen shown once, 12
+  boxes, the leads (Dave, Zak, each game's), a face for each game set up,
+  Guybrush played on Melee Island, Bernard as himself, "Play as someone
+  else" and New Kid showing it again.
+- Independent review of the iPhone code (it cannot be compiled here): no
+  compile errors found; fixed from it: names that may be missing, frames
+  checked for without reading them (73 MB of files read on each opening),
+  the long list, the Done button's size, light status bar, pressed tiles,
+  labels shrinking to fit, and a retry when an alert is up at the start.
+- Verified (Linux, the user's private copies): data suite 40/40 before
+  the review fixes (two failed on the first run before their setup fix;
+  re-run, passed); after them cast, worlds, airport and appearance again;
+  bootstrap, startup. Not compiled for iOS yet (the screen is iOS only);
+  not device-tested.
 

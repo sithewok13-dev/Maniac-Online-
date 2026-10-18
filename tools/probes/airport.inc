@@ -13,6 +13,7 @@
 	if (scummverseTravel(3) || _currentRoom!=originalRoom || player->getRealPos()!=original || _scummVars[761])
 		error("Invalid airport changed game state");
 	ConfMan.removeKey("scummverse_zak_path",ConfMan.getActiveDomainName());
+	ConfMan.removeKey("scummverse_zak_path",Common::ConfigManager::kApplicationDomain);
 	if (!scummverseTravel(3) || _currentRoom!=53 || _virtscr[0].h!=128 || _numObjectsInRoom!=29 || _ENCD_offs || _EXCD_offs)
 		error("Airport resource import failed");
 	for (int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr && (_objs[i].obj_nr<683 || _objs[i].obj_nr>711)) error("Airport object collision");

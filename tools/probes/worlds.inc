@@ -18,6 +18,7 @@
 	ConfMan.setPath("scummverse_zak_path", Common::Path("/nonexistent/zak"));
 	if (scummverseTravel(1) || _currentRoom != 7 || dave->getRealPos() != original) error("Missing-world transfer was not atomic");
 	ConfMan.removeKey("scummverse_zak_path", ConfMan.getActiveDomainName());
+	ConfMan.removeKey("scummverse_zak_path", Common::ConfigManager::kApplicationDomain);
 	if (!scummverseTravel(1) || _currentRoom != 54 || dave->_room != 54 || dave->_costume != costume || VAR(VAR_EGO) != 3)
 		error("Traveller identity/costume was not preserved");
 	Actor *zak = derefActor(24,"world test");

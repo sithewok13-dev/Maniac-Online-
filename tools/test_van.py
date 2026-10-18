@@ -3,9 +3,10 @@
 
 Needs privately supplied Maniac Mansion and Zak DOS V1 data; with an export
 cache holding Monkey Island (tools/export_worlds.py) the van also lands
-there. Boards at the Mars landing site with a companion, launches from the
-controls, flies with travel locked (saved and loaded in flight), lands in
-San Francisco where it is drawn and boarded again, and flies home to Mars.
+there. Boards at the Mars landing site with a companion, which offers the
+destinations; the chosen one is kept while the van flies with travel locked
+(saved and loaded in flight) until Arrive lands it there, in San Francisco,
+where it is drawn and boarded again, and it flies home to Mars.
 Not an iPhone test.
 """
 import argparse
