@@ -41,7 +41,8 @@ work). A label at the top left names each stop, for example
 "Stop 137 of 773 · Zak 84 · Mars pyramid crystal room" (with "warped" when it
 warped there, "on the way through …" while passing through): note its
 number or code to report a bug. Tap the label (or open the menu again) for Next stop,
-Previous stop, Go to stop… (by number) and Stop the tour, which brings your
+Previous stop, Speed (1×, 2×, 4× or 8×: the whole game plays that much
+faster while touring; remembered), Go to stop… (by number) and Stop the tour, which brings your
 character back to where it began. The tour remembers its place, so Start
 picks up at the next stop; Start over begins again at stop 1. Rooms of games
 you have not added are passed over.

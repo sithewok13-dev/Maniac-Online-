@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0086 (TOUR: one clean pass, continuous walking).
+Active milestone: Phase 1; latest patch 0087 (TOUR: 2x, 4x and 8x speed).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1761,3 +1761,33 @@ get to ones he hasn't been to yet".
   more than once), and each stop shown at least 14 steps; the rest as in
   0085 (773 stops entered, 1073 doors, the same 6 failing). The iOS change
   is compiled by Apple CI only after a push. Not device-tested.
+
+## Patch 0087 — TOUR: 2x, 4x and 8x speed
+
+User requests (2026-10-18): "Can you make options to make him walk in 2x
+and 4x speed?"; "Can you make an 8X also".
+- The tour's controls have Speed: 1x, 2x, 4x, 8x in turn. While touring
+  the whole game plays that much faster (waitForTimer waits a half, a
+  quarter or an eighth as long between game steps), like a video played
+  fast: the
+  guide's steps and legs, other characters and animations alike, rather
+  than the guide alone sliding faster. Normal speed again whenever the
+  tour is not running. The choice is remembered (scummverse_tour_speed).
+  Every stop still lasts at least a second of game time, so an eighth of
+  a second at 8x; the iOS label now refreshes five times a second (was
+  twice) so a quick stop still shows. Played fast, the screen is shown at
+  most about 60 times a second (every 16 ms; the steps between are drawn
+  but not shown), so a display that waits for the screen's refresh does
+  not hold the game back (8x of Maniac Mansion's 9 to 18 steps a second
+  would be more than 60).
+- Portable: common/scummverse_tour Tour::setSpeed/speed (1, 2, 4 or 8,
+  else 1; under the mutex; reset to 1).
+- Verified (Linux, the user's private copies): tools/test_tour.cpp (ASan/
+  UBSan and TSan: speed values, clamping, reset, two threads);
+  tools/test_tour_engine.py: 4x and 8x taken up and remembered, a 500 ms
+  wait 549 ms at 1x, 137 ms at 4x, 68 ms at 8x touring, 550 ms at 8x not
+  touring; back to 1x; the rest as in 0086. The 60-a-second showing is
+  not measured (the test's null screen does not wait). The iOS menu and
+  the faster label refresh are compiled by Apple CI only after a push.
+  Not device-tested (how fast and smoothly an iPhone plays 8x is not
+  known yet).

@@ -36,6 +36,7 @@
 	if (total<100) error("Only %d stops",total);
 	const int homeRoom=_currentRoom, homeX=dave->getRealPos().x, homeY=dave->getRealPos().y;
 	ConfMan.removeKey("scummverse_tour_stop",ConfMan.getActiveDomainName());
+	ConfMan.removeKey("scummverse_tour_speed",ConfMan.getActiveDomainName());
 	Common::String label;
 	settle(1);
 	if (status(label) || !label.empty()) error("Touring before being asked: %s",label.c_str());
@@ -70,6 +71,23 @@
 	if (!status(label) || number(label)!=3) error("Next: '%s'",label.c_str());
 	request(T::kPrevious,0,2);
 	if (!status(label) || number(label)!=2) error("Previous: '%s'",label.c_str());
+	// Speed: 4x and 8x taken up and remembered; the wait between game steps
+	// a quarter and an eighth while touring (not otherwise); back to 1x.
+	{
+		auto waited=[&]() { _lastWaitTime=_system->getMillis(); const uint32 began=_system->getMillis(); waitForTimer(120); return (int)(_system->getMillis()-began); };
+		auto speed=[&](int n) {
+			T::setSpeed(n); settle(1);
+			if (_scummverseTourSpeed!=n || ConfMan.getInt("scummverse_tour_speed")!=n) error("Speed %d not taken (%d, saved %d)",n,_scummverseTourSpeed,ConfMan.getInt("scummverse_tour_speed"));
+		};
+		const int normal=waited();
+		speed(4); const int fast=waited();
+		speed(8); const int faster=waited();
+		_scummverseTouring=false; const int untoured=waited(); _scummverseTouring=true;
+		if (normal<400 || fast>300 || faster>200 || faster>=fast || untoured<400)
+			error("Waits at 1x %d ms, 4x %d ms, 8x %d ms, 8x not touring %d ms (500, 125, 62, 500 asked)",normal,fast,faster,untoured);
+		speed(1);
+		warning("TOUR speed: a 500 ms wait takes %d ms at 1x, %d ms at 4x, %d ms at 8x (%d ms at 8x not touring)",normal,fast,faster,untoured);
+	}
 
 	// Stops walked in turn, from one gone to by number: the guide never stands
 	// still (only the step between two walks, or at the door out until a

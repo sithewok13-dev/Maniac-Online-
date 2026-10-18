@@ -41,6 +41,16 @@ int main() {
 	assert(Tour::status(running, cut, sizeof(cut), next, total) && !strcmp(cut, "Stop 12 of 846 "));
 	std::printf("PASS: label (published, read back, truncated at a whole character, cleared)\n");
 
+	// Speed: 1 until set; 2, 4 and 8 kept, anything else is 1.
+	assert(Tour::speed() == 1);
+	Tour::setSpeed(8); assert(Tour::speed() == 8);
+	Tour::setSpeed(16); assert(Tour::speed() == 1);
+	Tour::setSpeed(4); assert(Tour::speed() == 4);
+	Tour::setSpeed(2); assert(Tour::speed() == 2);
+	Tour::setSpeed(3); assert(Tour::speed() == 1);
+	Tour::setSpeed(4); Tour::setSpeed(0); assert(Tour::speed() == 1);
+	std::printf("PASS: speed (1, 2, 4 or 8)\n");
+
 	// The interface and the game on two threads.
 	Tour::publish(false, "", 1, 2);
 	std::thread game([] {
@@ -48,17 +58,20 @@ int main() {
 			int c, s;
 			Tour::takeRequest(c, s);
 			Tour::publish(i & 1, (i & 1) ? "Stop 1 of 2 \xC2\xB7 Zak 84" : "", 1 + (i & 1), 2);
+			const int speed = Tour::speed();
+			assert(speed == 1 || speed == 2 || speed == 4 || speed == 8);
 		}
 	});
 	for (int i = 0; i < 20000; ++i) {
 		Tour::request(Tour::kNext);
+		Tour::setSpeed(i % 9);
 		bool r; char text[40]; int n, t;
 		Tour::status(r, text, sizeof(text), n, t);
 		assert(!r || !strcmp(text, "Stop 1 of 2 \xC2\xB7 Zak 84"));
 	}
 	game.join();
 	Tour::reset();
-	assert(!Tour::status(running, whole, sizeof(whole), next, total) && !Tour::takeRequest(command, stop));
+	assert(!Tour::status(running, whole, sizeof(whole), next, total) && !Tour::takeRequest(command, stop) && Tour::speed() == 1);
 	std::printf("PASS: two threads; reset\n");
 	return 0;
 }

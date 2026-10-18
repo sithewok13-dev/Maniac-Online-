@@ -290,7 +290,10 @@ walkable spot farthest from the way in where that door is near it (a dead
 end) or none leads on; any step that starts no walk is followed at once in
 the same update (scummverseTourAdvance); each stop shown at least a second;
 the label's stop (_scummverseTourShown) is kept apart from the stop walked
-to; the tour's walks are not taps on doors or side exits; stops of games not installed are passed over; the next stop is kept in the configuration
+to; the tour's walks are not taps on doors or side exits; the interface's
+speed (Tour::setSpeed: 1, 2, 4 or 8; 0087) shortens waitForTimer's wait
+while touring, so the whole game plays faster (scummverse_tour_speed), the
+screen then shown at most every 16 ms; stops of games not installed are passed over; the next stop is kept in the configuration
 (scummverse_tour_stop). The iOS side (scummverse_tour_ui.inc) shows the
 label over the game and the controls (Worlds menu, or a tap on the label).
 CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
