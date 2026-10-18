@@ -1,6 +1,7 @@
 	// Mars tram between the landing site (79 = original 185) and the tram
 	// station (184): boarding wait, countdown, ride, call button, NPC riders,
-	// travel lock and save/load mid-ride.
+	// travel lock, save/load mid-ride, and the tram coming by itself to
+	// whoever waits at a station.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_TRAM_PASS enabled=0"); quitGame(); return; }
 	_scummVars[47]=3; _scummVars[48]=2; _scummVars[49]=5; _scummVars[110]=1; _scummVars[111]=3;
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
@@ -55,4 +56,24 @@
 	runObjectScript(button,13,false,false,nullptr); if (!(_scummVars[799]&2)) error("Call not accepted");
 	run(400);
 	if (!(_scummVars[799]&1) || getState(tram)!=0) error("Called tram did not arrive: station %d phase %d state %d annie %d room %d",_scummVars[799],_scummVars[797],getState(tram),annie->_room,_currentRoom);
+	// Waiting at a station brings it over by itself, after a moment: to the
+	// landing site, then back to the tram station by the pyramid (which has
+	// no call button), and from there it rides back.
+	auto waitFor=[&](int station) {
+		bool sent=false, came=false;
+		for(int n=0;n<300 && !came;++n) {
+			VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4);
+			sent=sent || _scummVars[797]>kTramBoarding;
+			came=(_scummVars[799]&1)==station && !_scummVars[797];
+		}
+		if (!came || !sent || getState(tram)!=0) error("Tram did not come to station %d: at %d phase %d state %d",station,_scummVars[799],_scummVars[797],getState(tram));
+	};
+	if (!scummverseTravel(29) || _currentRoom!=79) error("Cannot return to the landing site");
+	waitFor(0);
+	if (!scummverseTravel(134) || _currentRoom!=184) error("Cannot reach the tram station");
+	waitFor(1);
+	me->putActor(30,60,184); runObjectScript(tram,13,false,false,nullptr);
+	if (_scummVars[797]!=1) error("Boarding at the tram station did not start");
+	run(600);
+	if (_currentRoom!=79 || me->_room!=79 || (_scummVars[799]&1)) error("Ride back from the tram station failed: room %d station %d",_currentRoom,_scummVars[799]);
 	warning("SCUMMVERSE_TRAM_PASS enabled=1"); quitGame();

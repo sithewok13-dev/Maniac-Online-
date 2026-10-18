@@ -1,8 +1,10 @@
 	// Melissa and Leslie's van, flown: boarded at its Mars landing site with a
-	// companion, launched from the controls (countdown), flown with travel
-	// locked (saved and loaded in flight), landed in San Francisco where it
-	// stands drawn and boardable, flown on to another world when exported,
-	// and home to Mars, where the original art shows it again.
+	// companion, the destinations shown aboard, San Francisco chosen there
+	// (countdown, liftoff), flown with travel locked (saved and loaded in
+	// flight), down there on Arrive, where it stands drawn and boardable;
+	// flown on to another world when exported, and home to Mars chosen in
+	// flight (as before a destination was kept), where the original art
+	// shows it again.
 	if(!_scummverseRoaming) { warning("SCUMMVERSE_VAN_PASS enabled=0");quitGame();return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -22,15 +24,17 @@
 	};
 	auto site=[&](int game,int room) { for(int i=0;i<kWorldVanSiteCount;++i) if(kWorldVanSites[i].game==game && kWorldVanSites[i].room==room) return i; error("No van site %d:%d",game,room); return -1; };
 	Actor *me=derefActor(3,"van pilot"), *friendly=derefActor(5,"van companion");
-	// Fly from wherever the van is: board, take off, wait for liftoff.
-	auto flyFrom=[&](bool atMars) {
+	// Fly from wherever the van is: board, choose where to (the request the
+	// destinations send), wait for liftoff.
+	auto flyFrom=[&](bool atMars, int destination) {
 		if(atMars) runObjectScript(scratch(452),13,false,false,nullptr);
 		else { int x,y,w,h; if(!scummverseVanRect(x,y,w,h)) error("No van here"); if(!scummverseVanTap(x+w/2,y+h/2)) error("Van tap did not board"); }
 		if(_currentRoom!=kVanCockpit) error("Not in the cockpit: %d",_currentRoom);
 		settle(2);
+		if(!_scummverseVanOffered || _scummVars[kVanPhaseVar]) error("Destinations not shown aboard (phase %d)",_scummVars[kVanPhaseVar]);
 		friendly->putActor(me->getRealPos().x-3,me->getRealPos().y,kVanCockpit); friendly->showActor();
-		runObjectScript(scratch(490),13,false,false,nullptr);
-		if(_scummVars[kVanPhaseVar]!=1) error("Controls did not start the countdown");
+		scummverseWorldRequest(kWorldVanRequest+destination); scummverseUpdateRoaming(0);
+		if(_scummVars[kVanPhaseVar]!=1 || _scummVars[kVanDestinationVar]!=destination+1) error("Choosing did not start the countdown: phase %d destination %d",_scummVars[kVanPhaseVar],_scummVars[kVanDestinationVar]);
 		if(scummverseTravel(2)) error("Left during the countdown");
 		for(int n=0;n<400 && _currentRoom!=kVanFlightRoom;++n) settle(1);
 		if(_currentRoom!=kVanFlightRoom || _scummVars[kVanSiteVar]!=-1 || me->_visible || friendly->_room!=kVanFlightRoom)
@@ -42,16 +46,18 @@
 	if(_scummverseVanSprite.empty() || _scummverseVanW<100) error("Van picture not taken (%d px wide)",_scummverseVanW);
 	if(getState(scratch(454))&kObjectStateIntrinsic) error("Van not at its landing site at start");
 	_scummVars[770+5]=3;
-	flyFrom(true);
+	const int sf=site(-1,55);
+	flyFrom(true,sf);
 	settle(10); shot("van-flight");
 	if(scummverseTravel(2)) error("Travel allowed in flight");
 	{ Common::String file; _saveLoadDescription="Van in flight";
 	  if(!saveState(15,false,file)||!loadState(15,false)) error("Van save failed");
 	  settle(2);
 	  if(_currentRoom!=kVanFlightRoom || _scummVars[kVanPhaseVar]!=kVanFlying || me->_visible) error("Flight lost on load: view %d phase %d",_currentRoom,_scummVars[kVanPhaseVar]); }
-	// Land in San Francisco (the request the Arrive menu sends).
-	const int sf=site(-1,55);
-	scummverseWorldRequest(kWorldVanRequest+sf); scummverseUpdateRoaming(0); settle(4);
+	// Arrive: down in San Francisco, chosen aboard.
+	settle(20);
+	if(_currentRoom!=kVanFlightRoom) error("Landed before Arrive: %d",_currentRoom);
+	scummverseVanArrive(); settle(4);
 	if(_currentRoom!=55 || _scummVars[kVanSiteVar]!=sf || _scummVars[kVanPhaseVar] || !me->_visible || friendly->_room!=55) error("Landing failed: view %d site %d phase %d",_currentRoom,_scummVars[kVanSiteVar],_scummVars[kVanPhaseVar]);
 	auto drawnHere=[&](const char *where) {
 		int x,y,w,h; if(!scummverseVanRect(x,y,w,h)) error("No van rect in %s",where);
@@ -80,15 +86,15 @@
 	if(!scummverseTravel(5)) error("Cannot return to San Francisco");
 	settle(2);
 	if(otherWorld) {
-		flyFrom(false);
 		const int beach=site(0,20);
-		scummverseWorldRequest(kWorldVanRequest+beach); scummverseUpdateRoaming(0); settle(4);
+		flyFrom(false,beach);
+		scummverseVanArrive(); settle(4);
 		int game,source; game=scummverseWorldGameOf(_currentRoom,source);
 		if(game!=0 || source!=20 || _scummVars[kVanSiteVar]!=beach) error("Did not land on Monkey Island: %d:%d",game,source);
 		drawnHere("Monkey Island"); shot("van-monkey");
-		flyFrom(false);
-	} else flyFrom(false);
-	// Home to Mars: the original art shows it again.
+		flyFrom(false,sf);
+	} else flyFrom(false,sf);
+	// Home to Mars, chosen in flight instead: the original art shows it again.
 	scummverseWorldRequest(kWorldVanRequest+0); scummverseUpdateRoaming(0); settle(4);
 	if(_currentRoom!=kVanLandingSite || _scummVars[kVanSiteVar]!=0 || (getState(scratch(454))&kObjectStateIntrinsic)) error("Not home on Mars: view %d site %d",_currentRoom,_scummVars[kVanSiteVar]);
 	warning("SCUMMVERSE_VAN_PASS enabled=1");

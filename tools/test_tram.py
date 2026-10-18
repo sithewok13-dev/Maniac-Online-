@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mars tram: boarding wait, countdown, ride, call button, NPC riders, save/load."""
+"""Mars tram: boarding wait, countdown, ride, call button, NPC riders, save/load, and coming by itself to whoever waits at a station (both ways, and the ride back from the pyramid's)."""
 import argparse
 from pathlib import Path
 from test_exploration import ROOT, run_probe

@@ -287,6 +287,40 @@
 			warning("APPEARANCE Ted's skates: plate %d pixels, wheels %d of %d turned",plate,wheel-wheelSame,wheel);
 			shot("appearance-ted.ppm");
 		}
+		{
+			// Seen from the side (newly drawn; his costume shows only his
+			// front): narrower than from the front, his nose out ahead of
+			// his body the way he faces; facing away, his own costume.
+			// Drawn over one plain color (the room's own could hide his white).
+			auto body=[&](int facing) {
+				const int cx=dave->getPos().x-_virtscr[0].xstart, fy=dave->getPos().y;
+				for (int y=MAX(0,fy-90);y<MIN<int>(_virtscr[0].h,fy);++y) for (int x=MAX(0,cx-32);x<MIN<int>(_screenWidth,cx+32);++x)
+					*(byte *)_virtscr[0].getBackPixels(x,y)=*(byte *)_virtscr[0].getPixels(x,y)=9;
+				dave->setDirection(facing); dave->startAnimActor(dave->_standFrame);
+				return picture(90,0);
+			};
+			// Columns drawn (window of 64) in a band of rows from the top of the figure.
+			auto extent=[&](const Common::Array<int> &p, int from, int to, int &left, int &right) {
+				int top=-1;
+				for (uint i=0;i<p.size() && top<0;++i) if (p[i]>=0) top=i/64;
+				left=64; right=-1;
+				for (int y=top+from;top>=0 && y<=top+to && y<(int)p.size()/64;++y)
+					for (int x=0;x<64;++x) if (p[y*64+x]>=0) { left=MIN(left,x); right=MAX(right,x); }
+			};
+			const Common::Array<int> front=body(180), away=body(0), left=body(270), right=body(90);
+			// Widths across his middle (rows 20..50 from the top of him).
+			int fl,fr; extent(front,20,50,fl,fr);
+			int w[2]={0,0}; bool nose[2]={false,false};
+			for (int k=0;k<2;++k) {
+				const Common::Array<int> &p=k ? right : left;
+				int hl,hr,cl,cr; extent(p,4,8,hl,hr); extent(p,20,50,cl,cr);
+				w[k]=cr-cl+1; nose[k]=k ? hr>cr : hl<cl;
+			}
+			if (w[0]<=0 || w[0]*10>(fr-fl+1)*8 || w[1]!=w[0] || !nose[0] || !nose[1] || away!=front)
+				error("Ted from the side: %d px wide facing left, %d right, %d from the front; nose ahead %d %d; away as front %d",w[0],w[1],fr-fl+1,nose[0],nose[1],away==front);
+			warning("APPEARANCE Ted from the side: %d px wide at the middle (%d from the front), nose ahead both ways",w[0],fr-fl+1);
+			_fullRedraw=true; settle(1);
+		}
 		request(0);
 		if (dave->_costume!=3 || dave->getElevation() || _scummVars[kScummverseHomeCostumeVar+3] || rolls(dave)>=0 || strcmp((const char *)dave->getActorName(),"Dave"))
 			error("Not Dave again after Ted: costume %d elevation %d",dave->_costume,dave->getElevation());

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0090 (picture-pass fixes).
+Active milestone: Phase 1; latest patch 0091 (van destinations aboard, tram, Ted's side, TOUR bar).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -1918,3 +1918,60 @@ blank and badly placed stops. Fixed here:
   the 9 into or out of the three dropped rooms, 1589 work, 68 fail; 54
   story areas, the Loom cave dropped). The iPhone menus' changes are not
   compiled here (Apple CI builds them). Not device-tested.
+
+## Patch 0091 — The van's destination chosen aboard; the Mars tram comes by itself; Ted from the side; the TOUR bar off the picture
+
+User requests (2026-10-18): "Make the tram work from the pyramid back to
+the great face on mars. It comes after a few seconds."; "Take the controls
+off the screen in tour mode. I want to see the tour unobstructed. Put the
+controls somewhere else, if possible"; "Give Ted a sideview. He's always
+looking forward."
+- Tram: its call button stands at the landing site only, so at the tram
+  station by the pyramid nobody could call it back. Now whoever waits at a
+  station where it is not (and it is idle at the other) brings it over
+  after two seconds ("The tram is on its way."), empty, three seconds'
+  ride; then boarding and the ride back as before (kTramCallWait); not
+  while touring (the tour's pictures keep the tram put).
+- Ted: Maniac's costume for him shows him only from the front. Facing left
+  or right he is newly drawn from the side (a narrower wrapped figure with
+  a nose, in his own colors; the skates seen side-on), the costume's own
+  frames left out then (ClassicCostumeRenderer::drawsFigure, catalog
+  kWorldProfiles).
+- TOUR: the stop's label and the bar move off the game's picture: in
+  landscape into the band left of it, where the renderer drew the picture
+  (published by the iOS graphics manager, scummverseGameRect; the label up
+  to six lines, the buttons in rows of three, or two in a band 88 to 132
+  points wide, which is the iPhones'), in portrait to the top of the chat
+  area under the toolbar; over the picture's top left only where neither
+  has room (a split screen, the smallest phones).
+- Van (user, with a picture of the destinations: "This screen should
+  appear as soon as you get in the van. You choose a destination and then
+  it shows the animation take off. And you can chill in the van until you
+  hit arrive"): aboard on the ground the destinations show at once (on the
+  iPhone; once a visit to the cockpit, not for the tour; the controls show
+  them again); the one chosen is kept (variable 620, kVanDestinationVar)
+  and the countdown and liftoff follow; Arrive lands there. Chosen in
+  flight (no destination kept, as in a save from before), it lands at
+  once, as before. The user's van that always came down at the Shepherds
+  Meadow: on the desktop every landing goes where asked (the meadow first,
+  then San Francisco, Monkey Island, Barnett College, the mansion and the
+  asteroid, each with a save and load in flight); not reproduced.
+- Verified (Linux, the user's private copies): tools/test_tram.py (the
+  tram coming to whoever waits, both ways, and the ride back from the
+  pyramid's station), tools/test_appearance.py (over a plain color: Ted 14
+  pixels wide across his middle from the side, 20 from the front, his
+  nose ahead of him both ways, facing away his own costume), tools/test_van.py
+  (destinations shown aboard, the choice starting the countdown and kept
+  through a save and load in flight, Arrive landing there; a choice made
+  in flight landing at once); the data suite, 39 tests: 38 passed, the
+  camera test once failed (three selfie shots alike on Melee Island) and
+  passed on three reruns (intermittent, cause not found). An independent
+  review then found the landscape band rule unreachable on iPhones (the
+  layout's band is 90 to 120 points there), the side figure tied to the
+  skates, the tram sending itself during the tour, the cut-off redraw flag
+  lost and a weak test; all fixed, and the van, tram, tour, appearance,
+  camera, portrait and Mars air tests passed again. The iPhone code (the
+  TOUR bar's place, the published picture rectangle, the destinations
+  shown on boarding) is not compiled here (Apple CI builds it). Not
+  device-tested.
+

@@ -304,7 +304,12 @@ requests wait in a queue, one taken a game step; paused (0088, Tour::
 publishPaused) only warps by number, Next or Previous are made, and Play
 walks again to the walk under way (_scummverseTourTarget); stops of games not installed are passed over; the next stop is kept in the configuration
 (scummverse_tour_stop). The iOS side (scummverse_tour_ui.inc) shows the
-label over the game and the controls (Worlds menu, or a tap on the label).
+label and the control bar off the game's picture (0091: the band left of
+it in landscape, under the toolbar in portrait, by the layout contract;
+over its top left only without room) and the controls (Worlds menu, or a
+tap on the label). Characters drawn only from the front in their costume
+are newly drawn from the side when facing left or right (0091, catalog
+kWorldProfiles; the renderer's drawsFigure leaves the costume's limbs out).
 CAMERA (0081): three parts. common/scummverse_camera.{h,cpp} is portable
 (the request slot the interface fills and the game takes, the hold flag,
 whole-pixel enlarging with rows 6/5 of columns, selfie framing, pose plans
