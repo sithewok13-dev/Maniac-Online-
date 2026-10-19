@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0094 (the character screen; no opening).
+Active milestone: Phase 1; latest patch 0095 (everyone sits on the plane).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2054,4 +2054,42 @@ for all".
   re-run, passed); after them cast, worlds, airport and appearance again;
   bootstrap, startup. Not compiled for iOS yet (the screen is iOS only);
   not device-tested.
+
+## Patch 0095 — Everyone sits on the plane
+
+User (2026-10-18, playing Dr Fred, a screenshot of a woman standing in the
+aisle): "Why is she not sitting when I got on the plane? ... Everyone
+should sit on the plane and replace the painting. Even the man eating
+plant, Ted, the rat, the parrot, the creator, etc"
+- Someone boarding with the player was already seated (reproduced:
+  Dr Fred with Annie and Melissa following, all three seated). A rider in
+  the cabin without a chair was not: one in by another way, or one the
+  player had stood up and then switched away from. They stood and
+  wandered the aisle.
+- Now anyone in the cabin other than the player walks to their chair (or
+  a free one) and sits; the painted passenger in that chair goes, as for
+  everyone seated. Only the player stands up, by walking, and sits again
+  with the seat as before; no other walk takes a rider out of a chair.
+  Six chairs: a seventh still stands.
+- Looks: the plant, Ted and the Meteor sat on wheels, skates or in the
+  air; now down in the chair. Characters from other games were drawn
+  standing in front of the chair; now they sit as Maniac's own do,
+  behind the seat's front, in the chair's middle, facing the front of
+  the plane. The rat, the parrot and Murray sit up on the cushion, whole;
+  the Creator and Chaos shrink to a seat's height.
+- Tests: the seating probe (a late rider walks to a free chair and sits;
+  another walk does not stand her; played, stood up and left, she sits
+  again in her chair; as the plant she stays down in it); the appearance
+  probe (the plant, Ted, the Meteor, the rat, Guybrush, the Creator and
+  Chaos seated: in the chair, facing front, nothing below the seat's front,
+  centred, no taller than a seat). Screenshots of thirteen looks seated
+  were checked by eye.
+- Independent review: nothing serious; fixed from it: a rider whose way
+  to the chair is blocked sits after a while instead of trying forever;
+  flights saved over six before seating are left as they were; a chair
+  another device's player sits in, or held by someone no longer aboard,
+  is not given out; a seated Maniac look shown again stays in the chair;
+  no wheels or skates in a seat.
+- Verified (Linux, the user's private copies): data suite 40/40 before
+  the review fixes and again after them; startup. Not device-tested.
 

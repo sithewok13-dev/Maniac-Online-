@@ -96,6 +96,14 @@ source chair's foreground mask for identical repeated chairs. Rendering does not
 allocate seats. Imported seated costumes use source size; the source Maniac anchor
 is aligned by one two-pixel cell. A bounded actor pose method bypasses projection
 only for assigned seated riders; walking immediately restores aisle navigation.
+Everyone rides seated (0095): only the player (or another device's) stands
+up, by walking (scummverseKeepsSeat refuses other walks for a seated rider);
+anyone else in the cabin without a chair, or left standing, walks to theirs
+or a free one and sits (scummverseTakeSeat, from the roaming update). Seated,
+Maniac's own looks sit in the chair (no wheels, skates or floating), and
+characters drawn from other games' frames sit as Maniac's own do: clipped
+at the seat front's line and the chair's mask, centred in it, the small
+ones on its cushion, giants shrunk to a seat's height.
 This is local transport integration, not a server, network protocol or game-pack
 acceptance demonstration. Separate concurrent flights remain future work.
 

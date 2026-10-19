@@ -102,6 +102,39 @@
  for(int id : {3,5,20,21,22,23,24}) if(derefActor(id,"legacy rider")->_room!=56 || _scummVars[501+id]) error("Legacy overflow lost rider");
  scummverseArrive();
  for(int id : {3,5,20,21,22,23,24}) if(derefActor(id,"legacy landing")->_room!=57) error("Legacy overflow arrival failed");
+ // Everyone else rides seated: someone in the cabin without a chair walks
+ // to a free one and sits; a walk does not stand a seated rider; a rider
+ // the player stood up and left sits again; a look keeps them in the chair.
+ {
+  const int everyone[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18,19};
+  scummverseTravel(6);
+  for(int id : everyone) derefActor(id,"clear cabin")->putActor(0,0,0);
+  for(int n=1;n<25;++n) _scummVars[501+n]=0;
+  _scummVars[724]=7;_scummVars[725]=1u<<9;_scummVars[727]=9;_scummVars[526]=1;_scummVars[510]=1;
+  Actor *fred=derefActor(9,"seated player");fred->putActor(63,52,56);
+  VAR(VAR_EGO)=9;_scummverseLastEgo=9;scummverseRestoreSeats();
+  Actor *annie=derefActor(20,"late rider");annie->putActor(20,60,56);_scummVars[770+20]=9;
+  auto ride=[&](int steps) { for(int i=0;i<steps && !scummverseSeated(20);++i) { stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(4); } };
+  ride(400);
+  if(!scummverseSeated(20) || annie->getElevation()!=-4 || annie->getRealPos().y!=52 || _scummVars[521]==1)
+   error("Late rider not seated: seat %d at %d,%d elevation %d",_scummVars[521],annie->getRealPos().x,annie->getRealPos().y,annie->getElevation());
+  const int annieSeat=_scummVars[521];
+  annie->startWalkActor(30,60,-1);
+  if(!scummverseSeated(20) || annie->_moving) error("A walk stood up a seated rider");
+  if(!scummverseSwitchActor(20)) error("Cannot play the rider");
+  annie->startWalkActor(30,60,-1);
+  if(scummverseSeated(20)) error("The player could not stand up");
+  for(int i=0;i<40 && annie->_moving;++i) { stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(4); }
+  if(!scummverseSwitchActor(9)) error("Cannot play Dr Fred again");
+  ride(400);
+  if(!scummverseSeated(20) || _scummVars[521]!=annieSeat || annie->getRealPos().y!=52) error("Rider left standing did not sit again");
+  if(!scummverseSetAppearance(20,::Scummverse::WorldCatalog::worldAppearanceKey(::Scummverse::WorldCatalog::kWorldManiacLooks,19))) error("No plant look");
+  for(int i=0;i<4;++i) { stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(4); }
+  if(!scummverseSeated(20) || annie->getElevation()!=-4) error("The plant rolls out of the seat: elevation %d",annie->getElevation());
+  scummverseSetAppearance(20,0);
+  warning("SEATING late rider walked to seat %d and sat",annieSeat);
+  scummverseArrive();
+ }
  // Every available source costume can be seated and rendered in isolation.
  const int cast[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18,19};
  scummverseTravel(6);

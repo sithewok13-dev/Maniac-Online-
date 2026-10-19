@@ -380,6 +380,36 @@
 		request(0);
 		request(indy);
 	}
+	// In a plane seat everyone sits: Maniac's own looks down in the chair
+	// (no wheels, skates or floating), the others behind the seat's front
+	// (nothing of them below it) in the chair's middle, the small ones up on
+	// its cushion, giants no taller than a seat allows.
+	if (scummverseTravel(6)) {
+		for (int id=1;id<25;++id) if (id!=3 && derefActor(id,"cabin")->_room==56) derefActor(id,"cabin")->putActor(0,0,0);
+		for (int n=1;n<25;++n) _scummVars[501+n]=0;
+		_scummVars[724]=7; _scummVars[725]=1u<<3; _scummVars[727]=3; _scummVars[504]=1; _scummVars[526]=1;
+		dave->putActor(63,52,56); scummverseRestoreSeats(); setCameraAtEx(504);
+		static const int looks[][2]={{kWorldManiacLooks,19},{kWorldManiacLooks,12},{kWorldManiacLooks,16},{0,42},{0,1},{8,321},{2,130}};
+		int sprites=0;
+		for (const auto &l : looks) {
+			const int key=worldAppearanceKey(l[0],l[1]);
+			if (!worldNativeLook(key) && !scummverseCharacterInstalled(l[0],l[1])) continue;
+			request(key); _fullRedraw=true; settle(2);
+			if (!scummverseSeated(3) || dave->getElevation()!=-4 || dave->getRealPos().y!=52 || dave->getFacing()!=90)
+				error("%s not seated: elevation %d at %d,%d facing %d",worldAppearance(key)->name,dave->getElevation(),dave->getRealPos().x,dave->getRealPos().y,dave->getFacing());
+			if (worldNativeLook(key)) continue;
+			int left=_screenWidth, right=-1, top=1000, bottom=-1;
+			for (int y=0;y<_virtscr[0].h;++y) for (int x=0;x<_screenWidth;++x) if (*_virtscr[0].getPixels(x,y)>=192) {
+				left=MIN(left,x); right=MAX(right,x); top=MIN(top,y); bottom=MAX(bottom,y); }
+			const int middle=(left+right)/2+_virtscr[0].xstart;
+			if (right<0 || bottom>=80 || bottom-top<8 || bottom-top>84 || middle<63*8 || middle>63*8+40)
+				error("%s in a seat: rows %d..%d, middle %d (chair %d..%d)",worldAppearance(key)->name,top,bottom,middle,63*8,63*8+40);
+			++sprites;
+		}
+		warning("APPEARANCE seated: %d characters from other games",sprites);
+		request(indy);
+		scummverseArrive();
+	}
 	// Unknown keys are refused; key 0 makes Dave himself again.
 	request(worldAppearanceKey(3,999));
 	if (_scummVars[kScummverseAppearanceVar+3]!=indy) error("Unknown character accepted");
