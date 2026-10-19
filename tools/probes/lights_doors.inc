@@ -102,6 +102,11 @@
 	if (_currentRoom!=67) error("The player's walk through door 732 went to room %d",_currentRoom);
 	if (!open(734)) error("The door back in room 67 (734) shut");
 	warning("DOORS the player through Zak's door: the door back open");
+	// Nurse Edna's ladder (object 235) is drawn: the way up to room 20.
+	if (!scummverseTourPlace(21,12,63)) error("Cannot enter Edna's room");
+	settle(2);
+	if (!(getState(235) & kObjectStateIntrinsic)) error("Edna's ladder not drawn: state %d",getState(235));
+	warning("DOORS Edna's ladder drawn");
 	warning("SCUMMVERSE_LIGHTS_DOORS_PASS enabled=1");
 	quitGame();
 	return;

@@ -1,4 +1,4 @@
-	// The character screen: a new sandbox game starts without the opening
+	// The character screen (Dr Fred leads Maniac Mansion): a new sandbox game starts without the opening
 	// (the boot has already run to the sandbox here, at the end of
 	// runBootscript), shows a box per game with its lead first, and plays
 	// whoever is chosen.
@@ -9,7 +9,7 @@
 	settle(4);
 	if(FakeAI::castShown!=1) error("The character screen was shown %d times at the start",FakeAI::castShown);
 	if(FakeAI::castGames!=2+worldGameCount()) error("%d boxes, expected %d",FakeAI::castGames,2+worldGameCount());
-	if(FakeAI::castLead[0]!=kWorldCastActorRequest+3 || FakeAI::castLead[1]!=kWorldCastActorRequest+24)
+	if(FakeAI::castLead[0]!=kWorldCastActorRequest+9 || FakeAI::castLead[1]!=kWorldCastActorRequest+24)
 		error("Leads: Maniac %d, Zak %d",FakeAI::castLead[0]-kWorldCastActorRequest,FakeAI::castLead[1]-kWorldCastActorRequest);
 	int worlds=0;
 	for(int game=0;game<worldGameCount();++game) {

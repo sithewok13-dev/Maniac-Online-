@@ -8,6 +8,17 @@
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
 
 	if (!scummverseTravel(1) || !_scummVars[763]) error("Zak cast failed to initialize");
+	// Actor 19 stays Maniac's man-eating plant with Zak's cast here (the
+	// Zaire villager is the village's resident); a save from before 0098,
+	// with the villager in it, gets the plant back.
+	{
+		Actor *plant=derefActor(ProbeCatalog::kManiacPlantActor,"plant");
+		if(!_scummVars[764] || plant->_costume!=19 || strcmp((const char *)getObjOrActorName(19),"Plant")) error("The plant is not the plant: costume %d",plant->_costume);
+		plant->setActorCostume(ProbeCatalog::kZakVillagerCostume); plant->putActor(27,60,63);
+		scummverseInitVisitors();
+		if(plant->_costume!=19 || plant->_room || strcmp((const char *)getObjOrActorName(19),"Plant")) error("Old save's villager not the plant again: costume %d room %d",plant->_costume,plant->_room);
+		_currentScript=1; if(scummverseOwnsActor(19)) error("The plant room's script cannot place the plant"); _currentScript=0xFF;
+	}
 	for(int id=20;id<=22;++id) {
 		Actor *a=derefActor(id,"cast probe");
 		if(a->_costume!=id+15 || a->_room!=(id==20 ? 101 : 54)) error("Wrong cast resource/spawn %d",id);

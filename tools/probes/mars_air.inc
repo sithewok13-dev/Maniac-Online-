@@ -91,6 +91,23 @@
 				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); } } }
 			warning("MARS_AIR look %d:%d needs air %d",l.game,l.costume,scummverseNeedsAir(dave));
 		}
+		// The landing site's long shot (the tram station) draws people at
+		// 27/62 of their size: someone from another game too.
+		const int far[][2]={{4,74},{3,2},{0,1}};
+		for(const auto &c : far) {
+			if(scummverseCharacterFrames(c[0],c[1]).empty()) continue;
+			const int key=worldAppearanceKey(c[0],c[1]);
+			scummverseWorldRequest(worldAppearanceRequest(key)); scummverseUpdateRoaming(0); settle(4);
+			if(scummverseAppearance(3)!=key) error("Dave did not become %d:%d: %s",c[0],c[1],_scummverseWorldNotice.c_str());
+			line_up(71); dave->_needRedraw=true; settle(1);
+			const int near=dave->_bottom-dave->_top;
+			if(!scummverseTravel(134) || _currentRoom!=184) error("Cannot reach the tram station");
+			park(); setCameraAt(dave->getPos().x,60); dave->_needRedraw=true; settle(2);
+			const int small=dave->_bottom-dave->_top;
+			warning("MARS_AIR look %d:%d long shot %d px (near %d)",c[0],c[1],small,near);
+			if(near<20 || ABS(small*62-near*27)>MAX(3,near*15/100)*62) error("Look %d:%d drawn %d px in the long shot, %d near",c[0],c[1],small,near);
+			break;
+		}
 		scummverseWorldRequest(worldAppearanceRequest(0)); scummverseUpdateRoaming(0); settle(4);
 		if(scummverseAppearance(3) || dave->_costume!=3) error("Not Dave again after the looks on Mars");
 	}

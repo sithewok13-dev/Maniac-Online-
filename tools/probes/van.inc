@@ -97,6 +97,25 @@
 	// Home to Mars, chosen in flight instead: the original art shows it again.
 	scummverseWorldRequest(kWorldVanRequest+0); scummverseUpdateRoaming(0); settle(4);
 	if(_currentRoom!=kVanLandingSite || _scummVars[kVanSiteVar]!=0 || (getState(scratch(454))&kObjectStateIntrinsic)) error("Not home on Mars: view %d site %d",_currentRoom,_scummVars[kVanSiteVar]);
+	// More places than the eight world room slots: a slot given to another
+	// place shows that place, not the one it held (the van kept landing at
+	// one scene once the slots were full). Every installed van site, there
+	// and back to Mars each time, then the first again.
+	{
+		int visited=0;
+		for(int pass=0;pass<2;++pass) for(int i=0;i<kWorldVanSiteCount;++i) {
+			const WorldVanSite &v=kWorldVanSites[i];
+			if(v.game<0 || !scummverseWorldSceneInstalled(v.game,v.room)) continue;
+			if(!scummverseTravelPlace(v.game,v.room)) error("Cannot visit %s",v.label);
+			int source; const int game=scummverseWorldGameOf(_currentRoom,source);
+			if(game!=v.game || source!=v.room || _scummverseWorldRoom!=_currentRoom || _scummverseWorldKey!=v.game*1024+v.room+1)
+				error("%s shows another place: slot %d holds %d:%d, mounted %d key %d",v.label,_currentRoom,game,source,_scummverseWorldRoom,_scummverseWorldKey);
+			++visited;
+			if(!scummverseTravel(kVanLandingSite-50)) error("Cannot return to Mars");
+			if(pass) break;
+		}
+		warning("VAN %d places through the world room slots",visited);
+	}
 	warning("SCUMMVERSE_VAN_PASS enabled=1");
 	quitGame();
 	return;

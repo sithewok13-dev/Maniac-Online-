@@ -103,7 +103,8 @@ or a free one and sits (scummverseTakeSeat, from the roaming update). Seated,
 Maniac's own looks sit in the chair (no wheels, skates or floating), and
 characters drawn from other games' frames sit as Maniac's own do: clipped
 at the seat front's line and the chair's mask, centred in it, the small
-ones on its cushion, giants shrunk to a seat's height.
+ones on its cushion, the big ones crammed in (`kWorldSeatFits`, seated
+poses where they have one).
 This is local transport integration, not a server, network protocol or game-pack
 acceptance demonstration. Separate concurrent flights remain future work.
 
@@ -269,10 +270,34 @@ other-world scene) at its saved spot; flight is a logical scene on the
 cockpit's resource; landing sites are a catalog list. Long shots (0079):
 rooms where the original draws people small list their ratio
 (`zakDistantCostumeRooms`); V1 characters there are drawn at it, and the
-van is scaled against the long shot's people. Overlay frames
+van is scaled against the long shot's people; so are characters drawn from
+other games' frames (0098). Overlay frames
 (`scummverseOverlayFrame`) add a costume frame over chosen ones (the King's
 quiff). A costume variant may name the room whose palette it is exported
-in (Curse's green Murray). Maniac looks may wear a dome (`worldDomed`, the
+in (Curse's green Murray), or keep its own costume with other animations
+(the Dig's nest monster crawls; a stand it names is the only one tried).
+Walks the game never drew both ways are made by the exporter from the
+game's own frames (0098), each a catalog list: `kWorldSideWalks` (a walk
+kept under one facing serves every direction, mirrored for the other;
+a remote one-facing picture is stood on its feet, then turned both ways),
+`kWorldCostumeGrafts` (a guest the game only drew sitting: their own head
+limbs on a relative's stance and walk, the relative's clothes repainted
+by palette index and its head cut off below where the clothes start;
+Doug the Mole Man in his uncle Shuv-Oohl's) and `kWorldLegSwings` (a
+standing four-legged guest: each leg traced up from its foot, the brighter
+near pair swung against the far pair from the hip; the camel). Guests
+drawn only from the front get side views (`kWorldSideViews`: a relative's
+stance and walk, repainted, its head found by its face colour and replaced
+by a newly drawn one, repeated behind it; the three-headed monkey). Some
+get a seated frame (GuestKind `kGuestSeated`, `kWorldSeatPoses`: parts of
+the stance facing right, each turned about a pivot and set from the
+origin or on another part, those marked front in a second picture drawn
+over the seat's front; the camel sitting back with a leg over the armrest,
+the dragon's tail up the seat's back, the nest monster sprawled, the
+three-headed monkey filled solid). In a plane seat the big ones
+(`kWorldSeatFits`) are crammed between the seat's back and past its
+armrest, from the overhead bins down and partly below the seat's front,
+in their seated frame when they have one. Maniac looks may wear a dome (`worldDomed`, the
 air gear's bowl alone) or roll (`worldRoller`: a fixed costume direction
 or their own, decoded through `scummverseCostumeFacing`, and newly drawn
 gear after the limbs by `ClassicCostumeRenderer::drawExtra`: a pot on
@@ -354,7 +379,11 @@ the saved home look (kScummverseHomeCostumeVar + id) is the costume, with
 the colour plus one above it (0 in older saves). Zak's imported costumes are
 sandbox 35..51 (kScummverseFirstZakCostume, kScummverseZakCostumes;
 scummverseMountZakCast); residents stand in their scenes
-through the borrowed actor 15 (zakResidents).
+through the borrowed actor 15 (zakResidents). Zak's people who walk about
+borrow Maniac's unnamed actors 8, 17 and 18 (and 20..22, 24); actor 19 is
+Maniac's man-eating plant (kManiacPlantActor), which the study's entry
+script places, so Zak's Zaire villager is a resident (0098; older saves'
+villager in actor 19 is the plant again).
 The character screen (0094) replaces the roster as the way to choose who to
 play: scummverseCastOffer sends one box per game (Maniac, Zak, then
 kWorldGames) with its lead's face drawn from the player's files (the

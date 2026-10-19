@@ -10,7 +10,7 @@
 
  stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
  const int savedRoom=_currentRoom;
- for(int id : {1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24}) {
+ for(int id : {1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,20,21,22,23,24}) {
   Actor *a=derefActor(id,"perspective actor");
   for(int facing : {0,90,180,270}) {
    a->setFacing(facing);_costumeLoader->costumeDecodeData(a,a->_standFrame,(uint)-1);

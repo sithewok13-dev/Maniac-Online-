@@ -16,7 +16,7 @@
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); }
 	};
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
-	int visited=0, walked=0, edges=0, guests=0, scaled=0;
+	int visited=0, walked=0, edges=0, guests=0, scaled=0, walkers=0;
 	// Pixels of the guest's palette slots on screen inside its drawn extent.
 	auto guestPixels=[&](Actor *g) {
 		int n=0; if (g->_top>=g->_bottom) return 0;
@@ -90,6 +90,53 @@
 		}
 	}
 	if (!visited) error("No exported scenes were visited");
+	// Guests the game never drew walking both ways (grafts, side walks,
+	// swinging legs) walk left and right, in frames that change.
+	for (const auto &c : ::Scummverse::WorldCatalog::kWorldCast) {
+		const int gi=c.game, costume=c.guest.costume;
+		if (!::Scummverse::WorldCatalog::worldCostumeGraft(gi,costume) && !::Scummverse::WorldCatalog::worldSideWalk(gi,costume) && !::Scummverse::WorldCatalog::worldLegSwing(gi,costume)) continue;
+		if (!scummverseTravelPlace(gi,c.room)) continue; // Not exported here.
+		settle(2);
+		Actor *guest=derefActor(25+c.slot,"walking guest");
+		if (scummverseGuestSlot(guest)!=c.slot) error("Guest %s not placed for walking",c.guest.name);
+		const int sprite=_scummverseGuestSprite[c.slot];
+		for (int dir=0;dir<2;++dir) {
+			const int n=::Scummverse::WorldBridge::guestFrames(sprite,dir,1);
+			if (n<4) error("Guest %s walks in %d frames facing %d",c.guest.name,n,dir);
+			int dx0,dy0,w0,h0,dx1,dy1,w1,h1;
+			const byte *a=::Scummverse::WorldBridge::guestFrame(sprite,dir,1,0,dx0,dy0,w0,h0), *b=::Scummverse::WorldBridge::guestFrame(sprite,dir,1,(n+3)/4,dx1,dy1,w1,h1);
+			if (!a || !b || (w0==w1 && h0==h1 && dx0==dx1 && dy0==dy1 && !memcmp(a,b,w0*h0))) error("Guest %s walks in one picture facing %d",c.guest.name,dir);
+		}
+		int dx0,dy0,w0,h0,dx1,dy1,w1,h1;
+		const byte *left=::Scummverse::WorldBridge::guestFrame(sprite,0,0,0,dx0,dy0,w0,h0), *right=::Scummverse::WorldBridge::guestFrame(sprite,1,0,0,dx1,dy1,w1,h1);
+		if (!left || !right || (w0==w1 && h0==h1 && dx0==dx1 && !memcmp(left,right,w0*h0))) error("Guest %s does not turn",c.guest.name);
+		// It walks across its room in them.
+		const Common::Point from=guest->getRealPos();
+		AdjustBoxResult goal=guest->adjustXYToBeInBox(from.x>40 ? from.x-30 : from.x+30, from.y);
+		guest->startWalkActor(goal.x,goal.y,-1); settle(2);
+		if (guest->_moving) { guest->_needRedraw=true; settle(1); if (guest->_top>=guest->_bottom) error("Walking guest %s not drawn",c.guest.name); }
+		warning("WORLD walker %s frames %d/%d",c.guest.name,::Scummverse::WorldBridge::guestFrames(sprite,0,1),::Scummverse::WorldBridge::guestFrames(sprite,1,1));
+		++walkers;
+	}
+	// Guests with a seated pose have a seated picture facing right, no
+	// bigger than a cabin (and one as big over the seat's front, if any).
+	int seatedPoses=0;
+	for (const auto &c : ::Scummverse::WorldCatalog::kWorldCast) {
+		if (!::Scummverse::WorldCatalog::worldSeatPose(c.game,c.guest.costume) || !scummverseTravelPlace(c.game,c.room)) continue;
+		settle(2);
+		Actor *guest=derefActor(25+c.slot,"seated guest");
+		if (scummverseGuestSlot(guest)!=c.slot) error("Guest %s not placed for its seat",c.guest.name);
+		const int sprite=_scummverseGuestSprite[c.slot], kind=::Scummverse::WorldCatalog::kWorldSeatedKind;
+		int dx,dy,w,h;
+		const byte *seated=::Scummverse::WorldBridge::guestFrame(sprite,1,kind,0,dx,dy,w,h);
+		const int n=::Scummverse::WorldBridge::guestFrames(sprite,1,kind);
+		int ox=0,oy=0,ow=w,oh=h;
+		if (n==2) ::Scummverse::WorldBridge::guestFrame(sprite,1,kind,1,ox,oy,ow,oh);
+		if (n<1 || n>2 || ::Scummverse::WorldBridge::guestFrames(sprite,0,kind) || !seated || w<8 || h<8 || w>200 || h>200 || ow!=w || oh!=h)
+			error("Guest %s seated in %d frames (%dx%d, over the seat %dx%d)",c.guest.name,n,w,h,ow,oh);
+		warning("WORLD seated %s %dx%d",c.guest.name,w,h);
+		++seatedPoses;
+	}
 	// Guest behaviour in the first scene that has several.
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
 		int game, source; landmark(k,game,source);
@@ -285,5 +332,5 @@
 	// Home again: the Maniac colors are intact.
 	scummverseTravelLandmark(2); scummverseTravel(2); settle(4);
 	if (_currentRoom>=53 || memcmp(_currentPalette,maniacColors,48)) error("Return home failed: room %d",_currentRoom);
-	warning("WORLD visited %d walked %d edges %d guests %d doors %d scaled %d",visited,walked,edges,guests,doors,scaled);
+	warning("WORLD visited %d walked %d edges %d guests %d doors %d scaled %d walkers %d seated poses %d",visited,walked,edges,guests,doors,scaled,walkers,seatedPoses);
 	warning("SCUMMVERSE_WORLD_VISIT_PASS enabled=1"); quitGame();

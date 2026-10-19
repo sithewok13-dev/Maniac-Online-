@@ -57,7 +57,8 @@
 		if(resident->_room!=4 || resident->_costume!=maniacCostume) error("Resident borrowed an actor in use by the mansion");
 		resident->putActor(0,0,0); scummverseTravel(3);
 	}
-	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24};
+	// (Actor 19 is the man-eating plant, not someone to play.)
+	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,20,21,22,23,24};
 	for(int id:cast) {
 		if(!scummverseSwitchActor(id)) error("Cannot switch actor %d room=%d costume=%d user=%d bus=%d ego=%d",id,derefActor(id,"switch failure")->_room,derefActor(id,"switch failure")->_costume,_userPut,_scummVars[765],VAR(VAR_EGO));
 		if(scummverseOnBus()) for(int tick=0;tick<4;++tick) scummverseServiceBus(60);
@@ -147,17 +148,17 @@
 	for(int n=0;n<40;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || _scummVars[765]) error("Bus did not deliver passenger");
 	// Switching to an NPC already aboard must follow its bus to the airport.
-	_scummVars[765]=kBusBoarding+10;_scummVars[766]=(1u<<18)|(1u<<19);_scummVars[767]=0;
- for(int id : {18,19}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
+	_scummVars[765]=kBusBoarding+10;_scummVars[766]=(1u<<18)|(1u<<17);_scummVars[767]=0;
+ for(int id : {18,17}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
 	if(!scummverseSwitchActor(18) || _currentRoom!=55 || _scummVars[767]!=18) error("Cannot take over bus passenger");
- for(int id : {18,19}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
+ for(int id : {18,17}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
  Common::String busSave; _saveLoadDescription="Moving bus visibility";
  if(!saveState(9,false,busSave) || !loadState(9,false)) error("Bus save/load failed");
- for(int id : {18,19}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
+ for(int id : {18,17}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
  if(_scummVars[765]!=kBusBoarding+10 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
 	scummverseServiceBus(60);scummverseServiceBus(60);
 	if(_currentRoom!=53) error("Passenger takeover lost bus arrival");
- for(int id : {18,19}) {
+ for(int id : {18,17}) {
   Actor *a=derefActor(id,"arriving bus rider");
   if(a->_room!=53 || !a->_visible) error("Bus rider missing on arrival");
  }

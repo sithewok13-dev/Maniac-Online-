@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0097 (Maniac Mansion and Zak McKracken in Other worlds).
+Active milestone: Phase 1; latest patch 0098 (walks, seats, the plant and ladder, the van, the character screen).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2176,4 +2176,127 @@ and Zak still not listed on other worlds?"
 - Verified (Linux, the user's private copies): data suite 40/40 before the
   review fixes and again after; bootstrap, startup. The iPhone menu is not
   compiled yet; not device-tested.
+
+## Patch 0098 — walks, seats, the plant and ladder, the van, the character screen
+
+User (2026-10-19, thirteen screenshots), in their words:
+- "The van likes to go here now when I tell it other places" (a Loom
+  forest). Fixed: a reused world slot room kept showing the place mounted
+  there before (the mount was skipped when the slot's room number
+  matched); the slot now remembers which place it holds
+  (_scummverseWorldKey) and is remounted for another.
+- "Some characters don't occupy the plane seat right" (the VR dragon, a
+  brown quadruped, the camel, the three-headed monkey), "There's a gap i
+  circled where you can see the wall of the plane through the seat. Make
+  that area black like it is for the painted characters." Seated
+  characters from other games are now no wider than a seat (as well as no
+  taller than someone seated) and kept against the seat's back; a chair
+  someone sits in shows the painted chairs' black under its seat, not the
+  wall.
+- "Doug the mole man needs a walking character model. And he shouldn't
+  be holding that bowl. His other mole friend from the game also needs a
+  walking model." Sam & Max only ever draws Doug sitting, holding the bowl
+  (the bowl is part of his body picture; no costume shows him standing).
+  He now walks in his uncle Shuv-Oohl's stance and walk (the same kind of
+  mole man; the game's own frames), with his own head and his own browns
+  for the purple robe; no bowl. Shuv-Oohl (his friend in the cast) has a
+  real side walk, which the game keeps under one facing; the export now
+  walks him in it in every direction (it used his talking gestures before).
+- "The camel's legs need to move when it walks." The game has the camel as
+  one still picture; walking, its legs now swing from the hips (the near
+  pair against the far pair, as a camel paces), eight frames made from
+  that picture.
+- "The nest monster isn't animated at all when it moves. Research how it
+  moves in the dig cutscenes for inspiration." The Dig's own costume for
+  it has a twelve-step crawl (its animation 15), which the export had
+  missed (it found another picture first); it now crawls in it, turned
+  either way, and stands in its first step. The cutscenes themselves
+  (video) were not used.
+- "The scale is not right here on mars with the balloon man". The landing
+  site's long shot (the tram station) draws people at 27/62; characters
+  from other games were drawn full size there. Now at the long shot's size.
+- "There's supposed to be a ladder in Edna's room": its picture (object
+  235) is now on; the way up it already worked.
+- "Put the plant back in this room to be able to climb or the room above
+  isn't accessible." Zak's Zaire villager had been put in actor 19, which
+  is Maniac's man-eating plant, so with Zak's files the plant room's pot
+  was empty. The plant has its actor back (older saves too); the villager
+  is now a resident of the Zaire village (through the borrowed actor, as
+  the other residents) and can be played from Zak's box. The climb is the
+  hatch above the plant, as before.
+- "In the games character menu, list the game's name, but not the
+  character. ... Put "long press to play as another character. Make a
+  progress bar for long press. ... Make Dr Fred the icon for maniac
+  mansion instead of Dave. Make the purple tentacle the icon for DOTT
+  instead of Bernard." Done: each box names its game, the note reads
+  "Long press to play as another character", a bar fills while pressing,
+  and the leads are Dr Fred and Purple Tentacle.
+- The export version is 14: installed games export once more on launch.
+- Tests: tools/test_van.py (every landing site, twice: the place shown is
+  the one asked for); tools/test_cast.py (Dr Fred leads Maniac);
+  tools/test_seating.py (held chairs black under the seat);
+  tools/test_world_visit.py (Doug, Shuv-Oohl, the camel and the nest
+  monster walk left and right in frames that change); tools/test_mars_air.py
+  (someone from another game is drawn at the long shot's size);
+  tools/test_zak_cast.py (actor 19 stays the plant with Zak's cast; an
+  older save's villager becomes the plant again); tools/test_lights_doors.py
+  (Edna's ladder drawn); tools/test_expansion.py (the villager among the
+  residents); tools/test_world.cpp (the new catalog lists).
+- Seats, second and third rounds (the user, seat sheets): "Guybrush doesn't
+  sit in the plane seat right", "Ben from full throttle doesn't look right
+  sitting in the plane seat": people from other games now sink to their
+  waist in the seat (the seat's front hides their legs) as Maniac's own do.
+  "The plant and 3 headed monkey should be facing the front of the plane.
+  Create the views if you need to": the plant has a newly drawn side view
+  (head, jaws and teeth, stem and leaves); the three-headed monkey a side
+  view made from the island's monkey (its stance and walk, repainted) with
+  three newly drawn heads ("The side view of the 3 headed monkey is a
+  mess. Use the pic I attached for inspiration"), joined by necks; seated
+  it is one solid black furry body under them ("Why can you see through
+  the three headed monkey? Fix that": the window showed between its heads,
+  back and tail). "The creator, nest
+  monster, camel and virtual dragon need to be hilariously oversized ...
+  conform [to the] general shape of the seats and look like they're
+  crammed in them. The camel needs to be in a seated, not standing
+  position": crammed between the seat's back and past its armrest, from
+  the overhead bins down (kWorldSeatFits); the camel sits back in the seat
+  ("a more relaxed pose with its leg on the armrest", "his head in a
+  neutral position facing the right of the plane like everyone else"),
+  forelegs folded, a hind leg slung over the armrest and drawn in front of
+  the seat's front; the dragon's tail curls up the seat's back ("isn't sitting in the seat
+  right"), and the nest monster ("reimagined sitting in the seat") lies
+  sprawled, legs over the seat's back and armrest: seated frames made from
+  their own stance at export (kWorldSeatPoses), as previewed to and
+  approved by the user. "Murray from COMI needs to be completely
+  redesigned": his white skull (costume 12) in Plunder Island's colours.
+  "Doug the moleman is facing the wrong direction": his head is turned to
+  face the way his body walks.
+- Review fixes: an older save's plant is restored as soon as it loads (it
+  waited for the character screen or a trip before), never while the
+  player plays the villager, and leaves any ride; the character screen's
+  hold bar is full when the list opens and survives a layout pass; its
+  labels no longer overlap.
+- Tests added: tools/test_world_visit.py (each seated pose: a picture
+  facing right, and one the same size over the seat's front if it has
+  one); tools/test_appearance.py (the camel, dragon, nest monster and
+  three-headed monkey seated inside their chair, nothing below its front
+  but the camel's leg over the armrest); tools/test_seating.py (every held chair, not only the reference
+  one, black under its seat); tools/test_world.cpp (seated frames parsed,
+  found from any facing, standing when not drawn; seat fits, poses and the
+  drawn heads in the catalog).
+- "Is Timmy the monkey added as a playable character?": Timmy is not in
+  any of the twelve games' data (searched every file, plain and in the
+  games' XOR encodings); Monkey Island's monkey and Monkey Island 2's Jojo
+  are playable.
+- Verified (Linux, the user's private copies): all ten games exported
+  again (642 scenes, 261 characters); the seat picture matches the poses
+  the user approved; data suite 40/40 before the review fixes and again
+  after them and the monkey's fill; after the relaxed camel,
+  test_appearance, test_world_visit and test_seating again; portable
+  tests (world, portrait, mobile layout, seats, conversation, camera,
+  tour, net) with sanitizers; bootstrap, startup. Independent review: no
+  memory or crash finding; its save, test and iPhone findings fixed (a
+  seated, mirrored one-way character pushed out of the seat's back, which
+  no character does today, left as is). The iPhone screen is not compiled
+  here; not device-tested.
 

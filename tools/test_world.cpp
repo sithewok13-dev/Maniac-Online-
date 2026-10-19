@@ -101,6 +101,21 @@ static void testSprites() {
 	assert(fit.frame(kGuestFront, kGuestWalk, 0)->dir == kGuestLeft);
 	assert(fit.frame(kGuestBack, kGuestStand, 0)->dir == kGuestFront);
 	assert(!fit.frame(7, kGuestStand, 0) && !fit.frame(kGuestFront, 9, 0));
+	// Seated: not drawn, standing; drawn (facing right only), from any facing;
+	// a kind beyond seated is refused.
+	assert(fit.frame(kGuestFront, kGuestSeated, 0)->kind == kGuestStand && !fit.frame(kGuestFront, kGuestKinds, 0));
+	{
+		std::vector<Frame> withSeat = frames;
+		withSeat.push_back({kGuestRight, kGuestSeated, 0, -12, -30, 24, 30, 90});
+		auto seatBytes = spriteBytes(withSeat);
+		SourceSprite seatSrc; SandboxSprite seatFit;
+		assert(parseSprite(seatBytes.data(), seatBytes.size(), seatSrc, error) && seatSrc.frames.size() == 5);
+		assert(fitSprite(seatSrc, 1.0, 224, 32, seatFit, error) && seatFit.frameCount(kGuestRight, kGuestSeated) == 1);
+		assert(seatFit.frame(kGuestRight, kGuestSeated, 0)->height == 30 && seatFit.frame(kGuestLeft, kGuestSeated, 0)->dir == kGuestRight);
+		assert(seatFit.frame(kGuestRight, kGuestStand, 0)->kind == kGuestStand);
+		seatBytes[seatBytes.size() - (12 + 2 * 24 * 30) + 1] = kGuestKinds; // the seated frame's kind
+		assert(!parseSprite(seatBytes.data(), seatBytes.size(), seatSrc, error));
+	}
 	// Several characters share one palette by RGB value (here colors 30..71
 	// in both, plus 90/91 only in the second), all within the slot budget.
 	auto other = spriteBytes({{kGuestFront, kGuestStand, 0, -6, -20, 12, 20, 30}, {kGuestLeft, kGuestStand, 0, -6, -20, 12, 20, 90}});
@@ -176,14 +191,61 @@ static void testCatalog() {
 	for (const auto &g : kWorldGames) assert(g.heroHeight >= 30 && g.heroHeight <= 480);
 	for (const auto &legacy : kWorldLegacyPlaces) assert(worldLandmark(legacy.game, legacy.room));
 	// Costume variants (one costume, another animation set) stand for a cast
-	// member and name a different real costume; Murray bounces.
+	// member and name a different real costume, or their own with other
+	// animations (the Dig's nest monster crawls); Murray bounces.
 	for (const auto &v : kWorldCostumeVariants) {
-		assert(v.real != v.costume && v.costume < 1024 && worldCostumeVariant(v.game, v.costume) == &v);
+		assert((v.real != v.costume || v.init >= 0 || v.paletteRoom > 0) && v.costume < 1024 && worldCostumeVariant(v.game, v.costume) == &v);
 		bool cast = false;
 		for (const auto &c : kWorldCast) cast = cast || (c.game == v.game && c.guest.costume == v.costume);
 		assert(cast);
 	}
-	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9);
+	assert(!worldCostumeVariant(0, 9) && worldCostumeVariant(0, 906)->real == 9 && worldCostumeVariant(8, 128)->walk == 15);
+	// Walks the game never drew both ways: each entry is a cast member,
+	// found by its own key; a graft's relative is another costume, with
+	// clothes to repaint; legs swing from somewhere inside the picture.
+	auto member = [](int game, int costume) {
+		for (const auto &c : kWorldCast) if (c.game == game && c.guest.costume == costume) return true;
+		return false;
+	};
+	for (const auto &w : kWorldSideWalks) assert(member(w.game, w.costume) && worldSideWalk(w.game, w.costume) == &w && w.facing % 90 == 0);
+	for (const auto &g : kWorldCostumeGrafts) {
+		assert(member(g.game, g.costume) && worldCostumeGraft(g.game, g.costume) == &g && g.body != g.costume && g.head != g.mouth);
+		assert(g.head >= 0 && g.head < 16 && g.mouth >= 0 && g.mouth < 16 && g.neck >= 0 && g.recolor[0][0] && g.recolor[0][1]);
+	}
+	for (const auto &s : kWorldLegSwings) assert(member(s.game, s.costume) && worldLegSwing(s.game, s.costume) == &s && s.hip > 0 && s.hip < 100 && s.reach > 0);
+	assert(worldCostumeGraft(6, 102) && worldSideWalk(6, 201) && worldLegSwing(4, 93) && !worldCostumeGraft(6, 201) && !worldLegSwing(4, 94));
+	// Seat fits are cast members, crammed in, partly sunk, no wider than past
+	// the armrest. Seated poses are theirs: parts cut from inside the stance,
+	// set from the origin or on a part that is; a seated frame is GuestKind's.
+	static_assert(kWorldSeatedKind == kGuestSeated, "seated frames");
+	for (const auto &f : kWorldSeatFits)
+		assert(member(f.game, f.costume) && worldSeatFit(f.game, f.costume) == &f && f.sink > 0 && f.sink < 100 && f.squash >= 100 && f.top > 0 && f.width > 0 && f.width <= 64);
+	for (const auto &p : kWorldSeatPoses) {
+		assert(worldSeatPose(p.game, p.costume) == &p && worldSeatFit(p.game, p.costume));
+		int parts = 0;
+		for (const auto &q : p.parts) {
+			if (q.x1 <= q.x0) continue;
+			// Set on an earlier part or one set from the origin, never on itself.
+			assert(q.x0 >= 0 && q.y0 >= 0 && q.y1 > q.y0 && q.scale > 0 && q.on < 6 && q.on != parts && (q.front == 0 || q.front == 1));
+			assert(q.on < 0 || q.on < parts || p.parts[q.on].on < 0);
+			++parts;
+		}
+		// Parts, or the whole stance with its gaps filled.
+		assert((parts >= 2 || (!parts && p.fill >= 0)) && p.fill >= -1 && p.fill < 256);
+	}
+	assert(worldSeatFit(4, 93) && worldSeatPose(8, 128) && worldSeatPose(0, 34)->fill == 0 && !worldSeatFit(0, 1) && !worldSeatPose(8, 321));
+	// Side views made from a relative: cast members, another costume, heads
+	// drawn anew in a known palette (every letter in the legend), something
+	// repainted.
+	for (const auto &v : kWorldSideViews) {
+		assert(member(v.game, v.costume) && worldSideView(v.game, v.costume) == &v && v.body != v.costume && v.heads >= 1 && v.size > 0 && (v.recolor[0][0] || v.recolor[0][1]));
+		assert(v.head && v.headRows > 0 && v.legend && strlen(v.legend) <= 8 && v.stepX >= 0 && v.stepY >= 0);
+		for (int y = 0; y < v.headRows; ++y) {
+			assert(strlen(v.head[y]) == strlen(v.head[0]));
+			for (const char *c = v.head[y]; *c; ++c) assert(*c == '.' || strchr(v.legend, *c));
+		}
+	}
+	assert(worldSideView(0, 34) && worldSideView(0, 34)->heads == 3 && !worldSideView(0, 6));
 	assert(worldBouncer(9, 49) && worldBouncer(9, 949) && worldBouncer(9, 49)->jaw > 0 && !worldHovers(9, 49) && !worldBouncer(0, 49));
 	// Maniac's own looks: a pseudo game beyond the real ones, found by key,
 	// hovering and airless (the Purple Meteor), domed, rolling; real keys

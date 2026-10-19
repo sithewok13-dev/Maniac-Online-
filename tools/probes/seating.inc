@@ -9,7 +9,7 @@
 
 
  scummverseTravel(3);
- for(int id : {1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18,19}) if(id!=3) derefActor(id,"isolate roster")->putActor(0,0,0);
+ for(int id : {1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18}) if(id!=3) derefActor(id,"isolate roster")->putActor(0,0,0);
  Actor *zak=derefActor(24,"seated Zak");zak->putActor(20,60,53);_scummVars[794]=3;
  _scummVars[733]=7;scummverseBoard();
  int zakSeat=_scummVars[525], daveSeat=_scummVars[504];
@@ -23,13 +23,19 @@
   return cells;
  };
  static const int chairs[6]={63,52,41,30,19,74};
- const Common::Array<byte> empty=chair(74);
+ // The seat and back as chair 74's; under the seat (the last tile row) the
+ // painted chairs' black (chair 52's), not the wall 74 shows there.
+ auto top=[&](const Common::Array<byte> &c) { return Common::Array<byte>(c.data(),40*40); };
+ auto under=[&](const Common::Array<byte> &c) { return Common::Array<byte>(c.data()+40*40,40*8); };
+ const Common::Array<byte> empty=top(chair(74)), black=under(chair(52));
  int painted=0;
  for(int slot=1;slot<=6;++slot) {
   if(chairs[slot-1]==63 || chairs[slot-1]==74) continue;
   const bool held=slot==zakSeat || slot==daveSeat;
-  const bool shownEmpty=chair(chairs[slot-1])==empty;
+  const Common::Array<byte> shown=chair(chairs[slot-1]);
+  const bool shownEmpty=top(shown)==empty;
   if(held!=shownEmpty) error("Chair %d (slot %d) held=%d shown empty=%d",chairs[slot-1],slot,held,shownEmpty);
+  if(held && under(shown)!=black) error("Chair %d (slot %d) shows the wall under its seat",chairs[slot-1],slot);
   if(!held) ++painted;
  }
  if(!painted) error("No painted passenger left to compare");
@@ -42,6 +48,17 @@
   if(_currentRoom!=56 || !scummverseSeated(id)) error("Joiner not seated");
  }
  if(_scummVars[525]!=zakSeat || _scummVars[504]!=daveSeat) error("Joining reassigned seats");
+ // Every held chair besides chair 52 itself (whose row is the black) shows
+ // the black under its seat.
+ int blackened=0;
+ for(int id : {3,20,21,22,23,24}) {
+  const int slot=_scummVars[501+id];
+  if(slot<1 || slot>6 || chairs[slot-1]==63 || chairs[slot-1]==74 || chairs[slot-1]==52) continue;
+  if(under(chair(chairs[slot-1]))!=black) error("Held chair %d shows the wall under its seat",chairs[slot-1]);
+  ++blackened;
+ }
+ if(!blackened) error("No held chair to compare with the painted black");
+ warning("SEATING black under %d more held chairs",blackened);
  unsigned used=0;
  for(int id : {3,20,21,22,23,24}) {
   int slot=_scummVars[501+id];
@@ -76,7 +93,7 @@
  if(scummverseSeated(24) || _scummVars[525]!=-zakSeat || zak->getElevation()) error("Cannot leave seat");
  // Standing up keeps the chair empty (no painted passenger appears in it).
  for(int i=0;i<40 && zak->_moving;++i) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
- if(chair(chairs[zakSeat-1])!=empty) error("Painted passenger reappeared in chair %d after standing",chairs[zakSeat-1]);
+ if(top(chair(chairs[zakSeat-1]))!=empty) error("Painted passenger reappeared in chair %d after standing",chairs[zakSeat-1]);
  scummverseRestoreSeats();if(scummverseSeated(24)) error("Standing passenger reseated automatically");
  stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
  if(!saveState(10,false,save) || !loadState(10,false) || _scummVars[525]!=-zakSeat || scummverseSeated(24))
@@ -106,7 +123,7 @@
  // to a free one and sits; a walk does not stand a seated rider; a rider
  // the player stood up and left sits again; a look keeps them in the chair.
  {
-  const int everyone[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18,19};
+  const int everyone[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18};
   scummverseTravel(6);
   for(int id : everyone) derefActor(id,"clear cabin")->putActor(0,0,0);
   for(int n=1;n<25;++n) _scummVars[501+n]=0;
@@ -136,7 +153,7 @@
   scummverseArrive();
  }
  // Every available source costume can be seated and rendered in isolation.
- const int cast[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18,19};
+ const int cast[]={1,2,3,4,5,6,7,9,10,11,13,14,23,24,20,21,22,8,17,18};
  scummverseTravel(6);
  for(int id : cast) derefActor(id,"clear cabin")->putActor(0,0,0);
  for(int id : cast) {
