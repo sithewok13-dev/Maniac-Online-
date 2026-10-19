@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0096 (Zak McKracken's missing people).
+Active milestone: Phase 1; latest patch 0097 (Maniac Mansion and Zak McKracken in Other worlds).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2150,4 +2150,30 @@ McCracken. Find and add them please"
   airport; updated, passed); after them the full suite again; bootstrap,
   startup. Screenshots of each resident in their room and each look
   walking were checked by eye. Not device-tested.
+
+## Patch 0097 — Maniac Mansion and Zak McKracken in Other worlds
+
+User (2026-10-19, a screenshot of the Other worlds menu): "Why are maniac
+and Zak still not listed on other worlds?"
+- Other worlds listed only the ten games exported from the player's other
+  copies; Maniac's rooms and Zak's places were reached through other
+  entries (Return to Maniac Mansion, Zak's apartment, the airport, the
+  pads, the tour).
+- Now the menu starts with Maniac Mansion and Zak McKracken. Each opens a
+  scrolling list of that game's places, named as the tour names them
+  (Maniac's 37 rooms; Zak's 66 places, a run of numbered places such as a
+  maze's cells by its first; not the plane or the van in flight, which are
+  rides), and a choice takes the player there (the tour's own way in;
+  rides, flights and the van are finished first, as elsewhere; not during
+  the tour). Without Zak's files, Zak McKracken says so.
+- Tests: tools/test_cast.py (both lists, each name once, the kitchen and
+  Lou's Loans reached).
+- Independent review of the iPhone part (it cannot be compiled here): no
+  compile errors found; fixed from it: not during the tour, a spoken
+  reason without Zak's files, the list closes before the trip (so what
+  the arrival shows is not hidden; no double taps), no ride cabins in
+  the list, Maniac arrivals named.
+- Verified (Linux, the user's private copies): data suite 40/40 before the
+  review fixes and again after; bootstrap, startup. The iPhone menu is not
+  compiled yet; not device-tested.
 

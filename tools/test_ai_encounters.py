@@ -45,6 +45,14 @@ void scummverseCastMember(int slot, const char *, int request) {
  ++FakeAI::castMembers[slot];
 }
 void scummverseCastShow() { ++FakeAI::castShown; }
+namespace FakeAI { char placesTitle[64] = ""; int places = 0, placesShown = 0, placeRequest[200] = {}; char placeName[200][64] = {}; }
+static void fakeCopy(char *to, const char *from, int size) { int i = 0; for (; from[i] && i < size - 1; ++i) to[i] = from[i]; to[i] = 0; }
+void scummversePlacesBegin(const char *title) { fakeCopy(FakeAI::placesTitle, title, sizeof(FakeAI::placesTitle)); FakeAI::places = 0; }
+void scummversePlacesItem(const char *name, int request) {
+ if (FakeAI::places < 200) { fakeCopy(FakeAI::placeName[FakeAI::places], name, 64); FakeAI::placeRequest[FakeAI::places] = request; }
+ ++FakeAI::places;
+}
+void scummversePlacesShow() { ++FakeAI::placesShown; }
 '''
 
 if __name__ == '__main__':

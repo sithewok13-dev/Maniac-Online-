@@ -1,0 +1,223 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 80ed5681..91883f13 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -557,7 +557,10 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	return [[NSFileManager defaultManager] fileExistsAtPath:file];
+ }
+ - (void)showScummverseOtherWorldsFrom:(UIViewController *)controller {
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Other worlds" message:@"Scenes from your own copies of other SCUMM games. To add one, copy its files into a folder in Documents named as shown, then restart the app." preferredStyle:UIAlertControllerStyleAlert];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Other worlds" message:@"Maniac Mansion, Zak McKracken and scenes from your own copies of other SCUMM games. To add a game, copy its files into a folder in Documents named as shown, then restart the app." preferredStyle:UIAlertControllerStyleAlert];
++	// The two home games: their places, listed by the game (scummverseHomePlacesOffer).
++	[menu addAction:[UIAlertAction actionWithTitle:@"Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 121); }]; }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Zak McKracken" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 122); }]; }]];
+ 	int first = 0;
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+ 		const BOOL installed = scummverseWorldInstalled(game);
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index ca431633..ca019ac0 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -23,7 +23,8 @@ static UIImage *scummverseCastImage(NSData *data) {
+ @end
+ 
+ // Everyone in one game, from a long press: a list, since some games have
+-// dozens of people.
++// dozens of people. Also the places of Maniac Mansion or Zak McKracken
++// (no character screen under it: a choice is sent and the list closes).
+ @interface ScummverseCastPeopleController : UITableViewController {
+ 	NSArray *_people;
+ 	ScummverseCastController *_screen; // Not retained: it presents this list.
+@@ -48,7 +49,11 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 	return cell;
+ }
+ - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+-	[_screen play:[_people[indexPath.row][1] intValue]];
++	const int request = [_people[indexPath.row][1] intValue];
++	if (_screen) { [_screen play:request]; return; }
++	// Closed first, so whatever the arrival shows is not hidden behind it.
++	tableView.userInteractionEnabled = NO;
++	[self dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(request); }];
+ }
+ - (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
+ @end
+@@ -199,3 +204,41 @@ static void scummverseCastPresent(int tries) {
+ void scummverseCastShow() {
+ 	dispatch_async(dispatch_get_main_queue(), ^{ scummverseCastPresent(10); });
+ }
++
++// A list of places (scummversePlacesBegin/Item/Show), filled in order on the
++// main queue and shown over the game.
++static NSString *scummversePlacesTitle;
++static NSMutableArray *scummversePlaces;
++void scummversePlacesBegin(const char *title) {
++	NSString *name = [[NSString alloc] initWithUTF8String:title ? title : ""];
++	dispatch_async(dispatch_get_main_queue(), ^{
++		[scummversePlacesTitle release]; scummversePlacesTitle = name;
++		if (!scummversePlaces) scummversePlaces = [[NSMutableArray alloc] init];
++		[scummversePlaces removeAllObjects];
++	});
++}
++void scummversePlacesItem(const char *name, int request) {
++	if (!name || !*name) return;
++	NSString *place = [[NSString alloc] initWithUTF8String:name];
++	dispatch_async(dispatch_get_main_queue(), ^{
++		if (place) [scummversePlaces addObject:@[place, @(request)]];
++		[place release];
++	});
++}
++static void scummversePlacesPresent(int tries) {
++	UIResponder *responder = [iOS7AppDelegate iPhoneView];
++	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
++	UIViewController *controller = (UIViewController *)responder;
++	if (!controller || !scummversePlaces.count) return;
++	if (controller.presentedViewController) {
++		if (tries > 0) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummversePlacesPresent(tries - 1); });
++		return;
++	}
++	ScummverseCastPeopleController *list = [[[ScummverseCastPeopleController alloc] initWithPeople:scummversePlaces title:scummversePlacesTitle screen:nil] autorelease];
++	UINavigationController *navigation = [[[UINavigationController alloc] initWithRootViewController:list] autorelease];
++	navigation.modalPresentationStyle = UIModalPresentationFormSheet;
++	[controller presentViewController:navigation animated:YES completion:nil];
++}
++void scummversePlacesShow() {
++	dispatch_async(dispatch_get_main_queue(), ^{ scummversePlacesPresent(5); });
++}
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index ef1fd3fb..8ec6a95e 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -33,6 +33,11 @@ void scummverseTalkAppearance(int actor, int key);
+ void scummverseCastGame(int slot, const char *title, const char *folder, const unsigned char *rgba);
+ void scummverseCastMember(int slot, const char *name, int request);
+ void scummverseCastShow();
++// A list of places to go to (the Other worlds menu's Maniac Mansion and Zak
++// McKracken): a title, then each place with its request, then shown.
++void scummversePlacesBegin(const char *title);
++void scummversePlacesItem(const char *name, int request);
++void scummversePlacesShow();
+ #else
+ inline bool scummverseTalkPicking() { return false; }
+ inline bool scummverseTalkPick(int) { return false; }
+@@ -56,5 +61,8 @@ inline void scummverseTalkAppearance(int, int) {}
+ inline void scummverseCastGame(int, const char *, const char *, const unsigned char *) {}
+ inline void scummverseCastMember(int, const char *, int) {}
+ inline void scummverseCastShow() {}
++inline void scummversePlacesBegin(const char *) {}
++inline void scummversePlacesItem(const char *, int) {}
++inline void scummversePlacesShow() {}
+ #endif
+ #endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 903d3a5d..4902771c 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -262,6 +262,10 @@ static const WorldGuest kWorldZakCast[] = {
+ 	 "a Skolarian, one of the ancient guardians of Earth, appearing as a glowing projection deep inside Mars; solemn, wise, a little weary after ages of waiting, and determined to see the Caponians stopped", 14,
+ 	 {"The crystals hold more power than you know.", "We have waited a very long time for you.", "Beware the Caponians and their machines."}},
+ };
++// Maniac Mansion's rooms and Zak's places in the Other worlds menu travel by
++// worldPlaceRequest under these game numbers (the looks' pseudo games), each
++// room by its sandbox number.
++static const int kWorldManiacPlaces = kWorldManiacLooks, kWorldZakPlaces = kWorldZakLooks;
+ // The colour each one's costume is drawn in (the original scripts').
+ struct WorldTint { short costume, color; };
+ static const WorldTint kWorldZakTints[] = {{44, 1}, {45, 3}, {50, 9}, {46, 9}, {47, 9}, {42, 4}, {43, 1}, {48, 9}, {49, 14}};
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index a94b31c4..0f57f8a0 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1740,6 +1740,8 @@ protected:
+ 	bool scummverseTourAvailable(int index);
+ 	bool scummverseTourPlace(int room, int x, int y);
+ 	bool scummverseTourZakRoom(int room);
++	void scummverseHomePlacesOffer(bool zak);
++	bool scummverseTravelHome(bool zak, int room);
+ 	bool scummverseTourEnter(int index);
+ 	void scummverseTourPublish(const Common::String &label);
+ 	void scummverseTourSave();
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index b601a362..7677b138 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -312,7 +312,9 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		scummverseVanRequest(destination - kWorldVanRequest);
+ 	} else if (destination >= kWorldPlaceRequest) {
+ 		destination -= kWorldPlaceRequest;
+-		scummverseTravelPlace(destination / 1024, destination % 1024);
++		const int game = destination / 1024, room = destination % 1024;
++		if (game == kWorldManiacPlaces || game == kWorldZakPlaces) scummverseTravelHome(game == kWorldZakPlaces, room);
++		else scummverseTravelPlace(game, room);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	} else if (destination) {
+ 		int token = destination >> 8;
+@@ -320,6 +322,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			int command = destination & 255;
+ 			if(command==63) scummverseRosterOffer();
+ 			else if(command==61) scummverseCastOffer();
++			else if(command==121 || command==122) scummverseHomePlacesOffer(command==122); // Maniac's or Zak's places
+ 			else if(command>=129 && command<=152) scummverseSwitchActor(command-128);
+ 			else if(command>=160 && command<160+worldSceneTotal()) scummverseTravelLandmark(command-160);
+ 			else if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 510dfaf3..38576adf 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -197,6 +197,57 @@ bool ScummEngine::scummverseTourZakRoom(int room) {
+ 	return scummverseTravel(destination, 0, x, y) && _currentRoom == room;
+ }
+ 
++// The Other worlds menu's Maniac Mansion and Zak McKracken: their places as
++// the tour visits them (a run of numbered places, such as a maze's cells, by
++// its first), to go to directly.
++void ScummEngine::scummverseHomePlacesOffer(bool zak) {
++	const int kind = zak ? kTourZak : kTourManiac;
++	if (_scummverseTouring) { scummverseSay(VAR(VAR_EGO), "Let's stop the tour first."); return; }
++	if (zak && !scummverseMountZak()) {
++		if (_scummverseWorldNotice.empty()) _scummverseWorldNotice = "Zak's files are not set up. Put them in Documents/zak and restart the app.";
++		scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str());
++		return;
++	}
++	scummverseTourBuild();
++	::scummversePlacesBegin(zak ? "Zak McKracken" : "Maniac Mansion");
++	Common::Array<Common::String> named;
++	for (const auto &stop : _scummverseTourStops) {
++		// (Not the plane or the van in flight: they are rides, not places.)
++		if (stop.kind != kind || (zak && (stop.room == 56 || stop.room == 221))) continue;
++		Common::String name;
++		if (kind == kTourManiac) {
++			for (const auto &r : kTourManiacRooms) if (r.room == stop.room) name = r.name;
++			if (!name.empty()) name.setChar(toupper(name[0]), 0);
++		} else {
++			const char *place = stop.room == 53 ? "San Francisco airport" : stop.room == 54 ? "Zak's apartment" : stop.room == 55 ? "13th Avenue (Zak's street)" : zakSceneName(stop.room);
++			if (place) name = place;
++		}
++		while (!name.empty() && (Common::isDigit(name.lastChar()) || name.lastChar() == ' ')) name.deleteLastChar();
++		if (name.empty() || name.contains("(retired)")) continue;
++		bool seen = false;
++		for (const auto &n : named) if (n == name) seen = true;
++		if (seen) continue;
++		named.push_back(name);
++		::scummversePlacesItem(name.c_str(), worldPlaceRequest(zak ? kWorldZakPlaces : kWorldManiacPlaces, stop.room));
++	}
++	::scummversePlacesShow();
++}
++bool ScummEngine::scummverseTravelHome(bool zak, int room) {
++	if (_scummverseTouring) { scummverseSay(VAR(VAR_EGO), "Let's stop the tour first."); return false; }
++	if (zak) return scummverseTourZakRoom(room);
++	for (const auto &r : kTourManiacRooms) if (r.room == room) {
++		_scummverseWorldNotice.clear();
++		if (scummverseTourPlace(r.room, r.x, r.y)) {
++			Common::String name(r.name); name.setChar(toupper(name[0]), 0);
++			_scummverseWorldNotice = "Maniac Mansion: " + name + ".";
++			return true;
++		}
++		if (_scummverseWorldNotice.empty()) scummverseSay(VAR(VAR_EGO), "I can't get there from here.");
++		return false;
++	}
++	return false;
++}
++
+ // Whether the guide stands in a room (another game's: by its own number).
+ bool ScummEngine::scummverseTourIn(int kind, int game, int room) {
+ 	if (derefActor(VAR(VAR_EGO), "tour guide")->_room != _currentRoom) return false;

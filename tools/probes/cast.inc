@@ -37,6 +37,24 @@
 	// The game's own "New Kid" button: the screen too.
 	_userPut=1; runInputScript(kVerbClickArea,7,0);
 	if(FakeAI::castShown!=3) error("New Kid did not show the character screen");
+	// Other worlds' Maniac Mansion and Zak McKracken: their places, each
+	// named once, and going to one.
+	{
+		auto place=[&](const char *name) { for(int i=0;i<FakeAI::places && i<200;++i) if(!strcmp(FakeAI::placeName[i],name)) return FakeAI::placeRequest[i]; return 0; };
+		scummverseWorldRequest(121); scummverseUpdateRoaming(0);
+		if(FakeAI::placesShown!=1 || strcmp(FakeAI::placesTitle,"Maniac Mansion") || FakeAI::places<30 || !place("Kitchen") || !place("Front lawn"))
+			error("Maniac Mansion's places: shown %d, %s, %d places",FakeAI::placesShown,FakeAI::placesTitle,FakeAI::places);
+		const int maniacPlaces=FakeAI::places;
+		scummverseWorldRequest(place("Kitchen")); scummverseUpdateRoaming(0); settle(2);
+		if(_currentRoom!=7) error("The kitchen is not room 7 but %d",_currentRoom);
+		scummverseWorldRequest(122); scummverseUpdateRoaming(0);
+		if(FakeAI::placesShown!=2 || strcmp(FakeAI::placesTitle,"Zak McKracken") || FakeAI::places<40 || !place("Lou's Loans") || !place("Mars landing site") || !place("Sphinx maze") || place("Sphinx maze entrance")==place("Sphinx maze"))
+			error("Zak's places: shown %d, %s, %d places",FakeAI::placesShown,FakeAI::placesTitle,FakeAI::places);
+		for(int i=0;i<FakeAI::places;++i) for(int j=0;j<i;++j) if(!strcmp(FakeAI::placeName[i],FakeAI::placeName[j])) error("%s listed twice",FakeAI::placeName[i]);
+		scummverseWorldRequest(place("Lou's Loans")); scummverseUpdateRoaming(0); settle(2);
+		if(_currentRoom!=100) error("Lou's Loans is not room 100 but %d",_currentRoom);
+		warning("CAST places: Maniac %d, Zak %d",maniacPlaces,FakeAI::places);
+	}
 	warning("SCUMMVERSE_CAST_PASS enabled=1");
 	quitGame();
 	return;
