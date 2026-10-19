@@ -292,12 +292,13 @@ by a newly drawn one, repeated behind it; the three-headed monkey). Some
 get a seated frame (GuestKind `kGuestSeated`, `kWorldSeatPoses`: parts of
 the stance facing right, each turned about a pivot and set from the
 origin or on another part, those marked front in a second picture drawn
-over the seat's front; the camel sitting back with a leg over the armrest,
+over the seat's front (no pose uses one now); the camel sitting back,
 the dragon's tail up the seat's back, the nest monster sprawled, the
 three-headed monkey filled solid). In a plane seat the big ones
-(`kWorldSeatFits`) are crammed between the seat's back and past its
-armrest, from the overhead bins down and partly below the seat's front,
-in their seated frame when they have one. Maniac looks may wear a dome (`worldDomed`, the
+(`kWorldSeatFits`) are fitted from a set place by the seat's back to past
+its armrest, from a set row down and partly below the seat's front, in
+their seated frame when they have one, nothing left of the seat's back
+line behind the seat's front. Maniac looks may wear a dome (`worldDomed`, the
 air gear's bowl alone) or roll (`worldRoller`: a fixed costume direction
 or their own, decoded through `scummverseCostumeFacing`, and newly drawn
 gear after the limbs by `ClassicCostumeRenderer::drawExtra`: a pot on

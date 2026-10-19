@@ -214,12 +214,12 @@ static void testCatalog() {
 	}
 	for (const auto &s : kWorldLegSwings) assert(member(s.game, s.costume) && worldLegSwing(s.game, s.costume) == &s && s.hip > 0 && s.hip < 100 && s.reach > 0);
 	assert(worldCostumeGraft(6, 102) && worldSideWalk(6, 201) && worldLegSwing(4, 93) && !worldCostumeGraft(6, 201) && !worldLegSwing(4, 94));
-	// Seat fits are cast members, crammed in, partly sunk, no wider than past
-	// the armrest. Seated poses are theirs: parts cut from inside the stance,
+	// Seat fits are cast members, crammed in, partly sunk, starting near the
+	// seat's back. Seated poses are theirs: parts cut from inside the stance,
 	// set from the origin or on a part that is; a seated frame is GuestKind's.
 	static_assert(kWorldSeatedKind == kGuestSeated, "seated frames");
 	for (const auto &f : kWorldSeatFits)
-		assert(member(f.game, f.costume) && worldSeatFit(f.game, f.costume) == &f && f.sink > 0 && f.sink < 100 && f.squash >= 100 && f.top > 0 && f.width > 0 && f.width <= 64);
+		assert(member(f.game, f.costume) && worldSeatFit(f.game, f.costume) == &f && f.sink > 0 && f.sink < 100 && f.squash >= 100 && f.top > 0 && f.width > 0 && f.width <= 64 && f.back >= -16 && f.back <= 16);
 	for (const auto &p : kWorldSeatPoses) {
 		assert(worldSeatPose(p.game, p.costume) == &p && worldSeatFit(p.game, p.costume));
 		int parts = 0;

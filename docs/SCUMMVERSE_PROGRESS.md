@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0098 (walks, seats, the plant and ladder, the van, the character screen).
+Active milestone: Phase 1; latest patch 0099 (the camel sitting back in its seat).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2300,3 +2300,35 @@ User (2026-10-19, thirteen screenshots), in their words:
   no character does today, left as is). The iPhone screen is not compiled
   here; not device-tested.
 
+## Patch 0099 — the camel sitting back in its seat
+
+User (2026-10-19, after the 0098 camel picture and two more), in their
+words: "that looks terrible. There's a section of him cut out. And he's
+not sitting all the way back against the back of the seat"; then "He
+should come further forward and make him bigger to fill up the seat. Why
+is his leg sticking out like that ... His leg is still up unexplainably
+and his back looks cut off against the seat".
+- The camel's seated pose is designed against the cabin picture itself
+  (with a copy of the exporter's pose code): upright, leaning back a
+  little so its hump follows the seat's back from the top of the seat to
+  the cushion (no gap, nothing cut off), head level facing the front near
+  the overhead bins, filling the seat from its back to its front (the
+  user, on a version that left the wall showing in front of its belly:
+  "that gap in the seat again where you can see through the character to
+  the wall of the plane"), its forelegs down in its lap and its hind legs
+  in the seat, behind the seat's front. The gap between
+  neck and legs that showed the window ("a section of him cut out") and
+  the leg over the armrest (its hoof pointed up) are gone.
+- A seat fit says where the picture starts (`back`, pixels right of the
+  seat's place), and like everyone seated the big ones show nothing left
+  of the seat's back line behind the seat's front. Pictures over the
+  seat's front (0098) stay available; no pose uses one now.
+- The export version is 15: installed games export once more on launch
+  (a phone that ran 0098 would keep its camel otherwise).
+- Verified (Linux, the user's private copies): all ten games exported
+  again at version 15; the camel in the seat checked row by row against
+  the seat's back and front (no wall showing in the seat but a pixel at
+  its edge); test_appearance, test_world_visit, test_seating and
+  test_world_setup; tools/test_world.cpp with sanitizers; bootstrap,
+  startup. The full data suite was last run on 0098 (40/40). Not
+  device-tested.
