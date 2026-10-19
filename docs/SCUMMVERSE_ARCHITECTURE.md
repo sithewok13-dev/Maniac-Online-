@@ -347,7 +347,14 @@ the set changes, the frames everyone in the viewed room needs (the scene's
 guests at the scene's scale, appearances at a person's height there) into
 the shared character slots 192..255, draws them through the same actor hook,
 and overrides only the name lookup; inventory, verbs, travel and saves stay
-the sandbox character's.
+the sandbox character's. Maniac's own (kWorldManiacLooks) and Zak's own
+(kWorldZakLooks, 0096: the scene residents) are native looks: the sandbox
+costume itself, Zak's in its colour (kWorldZakTints, actor palette slot 1);
+the saved home look (kScummverseHomeCostumeVar + id) is the costume, with
+the colour plus one above it (0 in older saves). Zak's imported costumes are
+sandbox 35..51 (kScummverseFirstZakCostume, kScummverseZakCostumes;
+scummverseMountZakCast); residents stand in their scenes
+through the borrowed actor 15 (zakResidents).
 The character screen (0094) replaces the roster as the way to choose who to
 play: scummverseCastOffer sends one box per game (Maniac, Zak, then
 kWorldGames) with its lead's face drawn from the player's files (the

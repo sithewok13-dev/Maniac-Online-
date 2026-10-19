@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0095 (everyone sits on the plane).
+Active milestone: Phase 1; latest patch 0096 (Zak McKracken's missing people).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2092,4 +2092,62 @@ plant, Ted, the rat, the parrot, the creator, etc"
   no wheels or skates in a seat.
 - Verified (Linux, the user's private copies): data suite 40/40 before
   the review fixes and again after them; startup. Not device-tested.
+
+## Patch 0096 — Zak McKracken's missing people
+
+User (2026-10-19): "There's a lot of characters missing from Zak
+McCracken. Find and add them please"
+- Found from the player's own Zak files (the original scripts' actor
+  setups, names and costumes, read in the private analysis; every costume
+  drawn to a sheet to identify it). Zak's game names about twenty people;
+  the sandbox had Zak, Annie, Melissa, Leslie, a Caponian, The King, the
+  Zaire shaman and villager, and (in their rooms only) the Nepal guard and
+  the Guru.
+- Added where the original scripts put them, in their costumes and
+  colours (eight more Zak costumes imported, sandbox costumes 44..51): Lou
+  in Lou's Loans, the stewardess on the plane, the bum at the Miami
+  airport, the devotee at the San Francisco airport, the policeman at the
+  Kathmandu guard station, the sentry at Stonehenge, the Skolarian (the
+  projection deep inside Mars) in the projection chamber, and the pilot,
+  who waits at the Seattle airport (his own scene, original room 131, is
+  not imported). They stand there and can be talked to; personalities and
+  lines are newly written.
+- The baker, as in the original: the bakery has no inside; push or use
+  its doorbell on Zak's street (13th Avenue, original room 3) and he
+  comes to the upstairs window (drawn in front of its glass), says the
+  bakery is closed, and goes again after about ten seconds; ring again
+  and he stays and grumbles. (User: "he's always going to be at the
+  window? That doesn't make sense".)
+- They can be played: Zak's box on the character screen now lists them
+  (with the Nepal guard and the Guru) after Zak's people. The character
+  wears their costume in their colour; back as themselves, their own
+  costume and colour return (the saved home look now keeps the colour;
+  older saves keep working).
+- Not added: the bird (seen when Zak flies as it), the Mars and Egypt
+  variants of the four friends, and the TV newsreader. The baker (only
+  ever seen at his window) is not offered to play.
+- Tests: tools/test_zak_cast.py (every resident in their room, drawn; the
+  baker away until the doorbell rings, then at his window speaking, kept
+  by a second ring, gone after a while;
+  every look played in its costume and colour; saved and loaded; Annie
+  herself again; without Zak's files a look cannot be chosen and one worn
+  is dropped); tools/test_cast.py (the Zak box lists them);
+  tools/test_expansion.py (all ten residents, saved and loaded, and the
+  actor returned); tools/test_appearance.py (home look encoding).
+- Independent review: nothing crashing or corrupting saves on normal
+  paths; fixed from it: a saved Zak look without Zak's files (a crash on
+  drawing) is dropped, and refused when chosen; a home look captured
+  before its tint; an older save's home look gains its colour; Zak's
+  costumes failing to mount now say why; rollers, profiles and floating
+  looked up by the look's own game; and an older slip: a guest whose
+  appearance number began another's (Lemonhead) stepped aside whenever
+  someone in the room played Maniac's own. The unused bird costume is
+  not imported. (The baker and his doorbell were added after the review.)
+- A save made while playing one of Maniac's or Zak's own cannot be loaded
+  by builds before 0096 (the saved home look now carries the colour).
+- Verified (Linux, the user's private copies): data suite 39/40 before the
+  review fixes (the expansion probe expected nobody at the San Francisco
+  airport; updated, passed); after them the full suite again; bootstrap,
+  startup. Screenshots of each resident in their room and each look
+  walking were checked by eye. Not device-tested.
 

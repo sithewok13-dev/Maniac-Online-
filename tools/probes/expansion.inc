@@ -31,12 +31,14 @@
 		if(_currentRoom!=scene.room || _resourceMapper[scene.room&0x7F]!=scene.physical)
 			error("Logical scene %d lost on load: view %d mapper %d",scene.room,_currentRoom,_resourceMapper[scene.room&0x7F]);
 	}
-	// Original residents: the Nepal guard and the Guru appear in their own
-	// scenes through the borrowed actor, and the mansion gets it back.
+	// Original residents (the Nepal guard, the Guru and, since 0096, the rest
+	// of Zak's people who stay in one place) appear in their own scenes
+	// through the borrowed actor, and the mansion gets it back.
 	{
 		Actor *resident=derefActor(ProbeCatalog::kZakResidentActor,"resident probe"); const int maniacCostume=resident->_costume;
 		for(const auto &expected:ProbeCatalog::zakResidents) {
 			if(!scummverseTravel(expected.room-50)) error("Cannot visit resident %s",expected.name);
+			if(expected.atWindow) runObjectScript(ProbeCatalog::kZakBakeryBell,9,false,false,nullptr); // Called to the window.
 			stopTalk();VAR(VAR_HAVE_MSG)=0;for(int n=0;n<8;++n) scummLoop(4);
 			if(resident->_room!=expected.room || resident->_costume!=expected.costume || strcmp((const char *)getObjOrActorName(ProbeCatalog::kZakResidentActor),expected.name) || !resident->_visible)
 				error("Resident %s missing: room %d costume %d",expected.name,resident->_room,resident->_costume);
@@ -48,7 +50,8 @@
 			Common::String file;_saveLoadDescription="Resident";
 			if(!saveState(12,false,file)||!loadState(12,false)||resident->_room!=expected.room||resident->_costume!=expected.costume) error("Resident %s lost on load",expected.name);
 		}
-		if(!scummverseTravel(3) || resident->_room!=0 || resident->_costume!=maniacCostume || _scummVars[768]) error("Resident actor not returned: room %d costume %d",resident->_room,resident->_costume);
+		// (Zak's apartment has no resident; the airports have some since 0096.)
+		if(!scummverseTravel(1) || resident->_room!=0 || resident->_costume!=maniacCostume || _scummVars[768]) error("Resident actor not returned: room %d costume %d",resident->_room,resident->_costume);
 		// A mansion scene using the actor (police ending) is never interrupted.
 		resident->putActor(35,63,4); scummverseTravel(17);
 		if(resident->_room!=4 || resident->_costume!=maniacCostume) error("Resident borrowed an actor in use by the mansion");

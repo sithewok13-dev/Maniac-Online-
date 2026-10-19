@@ -171,7 +171,7 @@
 		if (!scummverseTravel(2)) error("Cannot return to the mansion");
 		settle(4);
 		request(meteor);
-		if (_scummVars[kScummverseAppearanceVar+3]!=meteor || FakeAI::appearance[3]!=meteor || dave->_costume!=16 || _scummVars[kScummverseHomeCostumeVar+3]!=3 || _scummverseAvatarSprite[3])
+		if (_scummVars[kScummverseAppearanceVar+3]!=meteor || FakeAI::appearance[3]!=meteor || dave->_costume!=16 || (_scummVars[kScummverseHomeCostumeVar+3]&0xFF)!=3 || _scummverseAvatarSprite[3])
 			error("Not the Meteor: key %d chat %d costume %d home %d sprite %d",_scummVars[kScummverseAppearanceVar+3],FakeAI::appearance[3],dave->_costume,_scummVars[kScummverseHomeCostumeVar+3],_scummverseAvatarSprite[3]);
 		if (strcmp((const char *)dave->getActorName(),"Purple Meteor")) error("Name is %s",(const char *)dave->getActorName());
 		// In the Meteor's own colors (Maniac colors costumes by actor).
@@ -234,7 +234,7 @@
 		}
 		request(plant);
 		if (dave->_costume!=19 || scummverseColorActor(3)!=19 || scummverseDomed(dave) || !worldBreathes(kWorldManiacLooks,19) || rolls(dave)!=0 ||
-			_scummVars[kScummverseHomeCostumeVar+3]!=3 || strcmp((const char *)dave->getActorName(),"Man-Eating Plant"))
+			(_scummVars[kScummverseHomeCostumeVar+3]&0xFF)!=3 || strcmp((const char *)dave->getActorName(),"Man-Eating Plant"))
 			error("Not the plant: costume %d colors %d home %d",dave->_costume,scummverseColorActor(3),_scummVars[kScummverseHomeCostumeVar+3]);
 		// Its costume's directions are growth stages: always the grown plant
 		// (the one facing away), standing in the pot.

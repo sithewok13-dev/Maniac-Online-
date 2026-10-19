@@ -18,7 +18,7 @@
 		int lead=-1; for(const auto &l : kWorldLeads) if(l.game==game) lead=l.costume;
 		if(FakeAI::castLead[2+game]!=kWorldCastRequest+worldAppearanceKey(game,lead)) error("%s: lead request %d",kWorldGames[game].title,FakeAI::castLead[2+game]);
 	}
-	if(FakeAI::castFaces!=2+worlds || FakeAI::castMembers[0]<11 || FakeAI::castMembers[1]<2)
+	if(FakeAI::castFaces!=2+worlds || FakeAI::castMembers[0]<11 || FakeAI::castMembers[1]<2+(int)ARRAYSIZE(kWorldZakCast))
 		error("Faces %d for %d games here; Maniac %d people, Zak %d",FakeAI::castFaces,2+worlds,FakeAI::castMembers[0],FakeAI::castMembers[1]);
 	warning("CAST %d boxes, %d with faces; Maniac %d people, Zak %d",FakeAI::castGames,FakeAI::castFaces,FakeAI::castMembers[0],FakeAI::castMembers[1]);
 	// Another game's lead: played, where they live.
