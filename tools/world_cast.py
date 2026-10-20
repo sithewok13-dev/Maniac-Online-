@@ -54,8 +54,10 @@ EXTRA = {
 }
 REPLACED = {('monkey', 'Cannibals of Monkey Island')}
 # The original engine's own games (no research: their people as that engine
-# has them, each its own costume, the same number as its actor), with newly
-# written personalities and lines.
+# has them; the mansion's each its own costume, the same number as its
+# actor; Zak's in Zak's own costume numbers, each with the colour its
+# scripts give its clothes, `tint`), with newly written personalities and
+# lines (Zak's as the original engine's residents have them).
 HOME = {
     'maniac': [
         {'costume': 3, 'name': 'Dave', 'rooms': [1], 'talkColor': 15,
@@ -126,6 +128,55 @@ HOME = {
          'personality': 'the man-eating plant of the mansion; always hungry, cheerfully menacing, '
                         'and very fond of a drink of water or soda',
          'lines': ['Feed me!', 'Is that a snack? You look like a snack.', 'Water. Or soda. I am not fussy.']},
+    ],    'zak': [
+        {'costume': 1, 'name': 'Zak McKracken', 'rooms': [1], 'talkColor': 13, 'tint': 13,
+         'personality': 'Zak McKracken, a tabloid reporter for the National Inquisitor who dreams of being a real writer; curious, wry, and suddenly in the middle of an alien plot',
+         'lines': ["That would make a great headline.", "Off the record? Sure.", "My editor will never believe this."]},
+        {'costume': 2, 'name': 'Annie Larris', 'rooms': [6], 'talkColor': 14, 'tint': 4,
+         'personality': 'Annie Larris, an insightful archaeologist investigating ancient crystals and alien activity; thoughtful, brave, and practical',
+         'lines': ["That fits with my research.", "Let's look for evidence first.", "The ancient builders knew something."]},
+        {'costume': 3, 'name': 'Melissa China', 'rooms': [185], 'talkColor': 3, 'tint': 3,
+         'personality': "Melissa China, an adventurous Yale student and Leslie's friend; curious, resourceful, and inclined to plan before exploring",
+         'lines': ["Let's plan that properly.", "Leslie would love to hear that.", "I'll add it to our notes."]},
+        {'costume': 4, 'name': 'Leslie Bennett', 'rooms': [185], 'talkColor': 8, 'tint': 7,
+         'personality': "Leslie Bennett, an adventurous Yale student and Melissa's friend; enthusiastic, witty, and eager to explore unfamiliar places",
+         'lines': ["Ha! Let's go find out.", "Melissa will want details.", "Now this is an adventure."]},
+        {'costume': 28, 'name': 'Caponian', 'rooms': [16], 'talkColor': 10, 'tint': 10,
+         'personality': 'a Caponian alien disguised as a telephone-company employee; evasive, bureaucratic, and comically suspicious',
+         'lines': ["The phone company has no comment.", "Please hold. Your call is important.", "That is not a suspicious question at all."]},
+        {'costume': 27, 'name': 'The King', 'rooms': [10], 'talkColor': 1, 'tint': 1,
+         'personality': 'The King, a legendary rock-and-roll singer who has been living aboard an alien spacecraft in the Bermuda Triangle; warm, charming, nostalgic about touring, and grateful to his audience',
+         'lines': ["Thank you. Thank you very much.", "I've played bigger rooms than this one.", "Those spaceships sure get lonely."]},
+        {'costume': 21, 'name': 'Zaire shaman', 'rooms': [151], 'talkColor': 9, 'tint': 9,
+         'personality': 'a knowledgeable shaman from the Zaire village, familiar with ancient crystals; observant and wry, speaking natural English without a caricature accent',
+         'lines': ["The crystals would tell you more.", "Listen carefully. The jungle remembers.", "Patience. Answers come in time."]},
+        {'costume': 26, 'name': 'Nepal guard', 'rooms': [17], 'talkColor': 4, 'tint': 4,
+         'personality': "a guard posted at the Guru's temple door in Kathmandu; formal, watchful, and politely firm that only devotees of the Guru may enter",
+         'lines': ["Only devotees of the Guru may enter.", "Keep moving, traveler.", "The Guru sees visitors in his own time."]},
+        {'costume': 22, 'name': 'Guru', 'rooms': [19], 'talkColor': 15, 'tint': 1,
+         'personality': 'the Guru of Kathmandu, a serene teacher who meditates above the floor and instructs devotees in the ways of the crystals; calm, cryptic, and kind',
+         'lines': ["Patience. The crystal reveals itself slowly.", "You carry restless energy. Breathe.", "A clear mind travels farther than any plane."]},
+        {'costume': 16, 'name': 'Lou', 'rooms': [7], 'talkColor': 1, 'tint': 1,
+         'personality': "Lou, who runs Lou's Loans, the pawn shop on 14th Avenue in San Francisco; a fast-talking, sharp-eyed dealer who will take almost anything in and sell it back for more, friendly enough but never sentimental about a price",
+         'lines': ["Everything in here is for sale. Everything.", "I'll give you two bucks for it. Final offer.", "No refunds, no exceptions, no kidding."]},
+        {'costume': 11, 'name': 'Stewardess', 'rooms': [145], 'talkColor': 3, 'tint': 3,
+         'personality': 'a stewardess on the airline that flies Zak around the world; cheerful, brisk and endlessly patient, with a practised smile for every passenger, even the ones who keep pressing the call button',
+         'lines': ["Please keep your seat belt fastened.", "Peanuts? We have plenty of peanuts.", "We'll be landing shortly. Probably."]},
+        {'costume': 23, 'name': 'Bum', 'rooms': [143], 'talkColor': 8, 'tint': 9,
+         'personality': 'a down-on-his-luck man who has made the Miami airport terminal his home; chatty, philosophical, and sure that the next traveller will spare some change or at least a good story',
+         'lines': ["Spare a little change for a fellow traveller?", "I've been to every gate in this airport. Never left.", "Nice day for not flying anywhere."]},
+        {'costume': 25, 'name': 'Devotee', 'rooms': [145], 'talkColor': 8, 'tint': 9,
+         'personality': 'a robed devotee who greets travellers at the San Francisco airport; serene, earnest and relentlessly cheerful, always hoping to share a flower and a few words about inner peace',
+         'lines': ["Peace be with you, traveller.", "Would you like a flower? It's free.", "Every journey begins with a single step."]},
+        {'costume': 24, 'name': 'Sentry', 'rooms': [134], 'talkColor': 8, 'tint': 9,
+         'personality': 'a sentry who keeps watch at Stonehenge; stiff, serious and suspicious of anyone who comes near the stones, especially at night',
+         'lines': ["Stay back from the stones, please.", "Nothing to see here. Just very old rocks.", "I've got my eye on you."]},
+        {'costume': 29, 'name': 'Skolarian', 'rooms': [195], 'talkColor': 14, 'tint': 14,
+         'personality': 'a Skolarian, one of the ancient guardians of Earth, appearing as a glowing projection deep inside Mars; solemn, wise, a little weary after ages of waiting, and determined to see the Caponians stopped',
+         'lines': ["The crystals hold more power than you know.", "We have waited a very long time for you.", "Beware the Caponians and their machines."]},
+        {'costume': 10, 'name': 'Pilot', 'rooms': [144], 'talkColor': 8, 'tint': 9,
+         'personality': 'an airline pilot between flights, in dark glasses and a crisp uniform; laid-back, full of tall tales about turbulence, and in no hurry to get back to the cockpit',
+         'lines': ["This is your captain speaking. Just kidding.", "Turbulence? I've seen worse.", "I could fly this route with my eyes closed."]},
     ],
 }
 
@@ -191,6 +242,15 @@ def main():
             lines.append('\t\t{' + ', '.join(cstr(l) for l in c['lines'][:3]) + '}}},')
         print(f'{game}: {len(chosen)} of {len(cast)} characters in {len(crowd)} rooms')
         total += len(chosen)
+    lines.append('};')
+    # The clothes colour of each of their costumes (the oldest games colour a
+    # costume by its actor, set by their scripts).
+    tints = [(ALL.index(g), c['costume'], c['tint']) for g in HOME for c in HOME[g] if 'tint' in c]
+    lines.append('static const WorldOwnTint kWorldOwnTints[] = {')
+    if not tints:
+        lines.append('\t{-1, -1, -1},')
+    for i in range(0, len(tints), 8):
+        lines.append('\t' + ' '.join(f'{{{g}, {c}, {t}}},' for g, c, t in tints[i:i+8]))
     lines.append('};')
     (ROOT/'engine/common/scummverse_world_cast.inc').write_text('\n'.join(lines) + '\n')
     print(f'{total} characters')

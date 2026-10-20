@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0109 (the mansion's own places and people in the new engine).
+Active milestone: Phase 1; latest patch 0110 (Zak McKracken's own places and people in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2848,4 +2848,45 @@ User (2026-10-20): "Only 10 games? There's 12."
   numbered for its rooms as imported into the mansion; next). No verb panel
   for the mansion yet (tap to walk, doors as elsewhere). The plant's
   standing frames show its growth stages by facing.
+
+## Patch 0110 — Zak McKracken in the new engine (step 2e, second part)
+
+- Zak McKracken's own places come into the new engine in Zak's own
+  numbers, exported from its own files (the folder named zak, as the
+  original engine finds it): 99 places (Zak's apartment and street, the
+  airports, Seattle, Zaire, Nepal, Egypt and the Sphinx's maze, Stonehenge,
+  Mexico's temple, Peru's carving, the Bermuda craft, Mars and its mazes)
+  and 240 doors, translated from the original engine's own Zak tables
+  (tools/world_maps.py; the import's object numbers turned back into
+  Zak's with the order of each room's objects, private analysis of the
+  user's copy in build/foreign/links/zak-objects.json). Sixteen people
+  (Zak, Annie, Melissa, Leslie, the Caponian, the King, the shaman, the
+  Guru and the residents) in their own colours (kWorldOwnTints), with the
+  personalities the original engine's residents already have.
+- The places Zak's scripts make of one wide room (its logical rooms: the
+  jungle paths, Kinshasa and the hut, the Mars hostel, the mazes' cells)
+  are each cut to the part their entry script lets the camera show, the
+  walk boxes outside switched off (a room of its own is shown whole). Every
+  Zak room is exported with its entry script, so it keeps the colours and
+  walk boxes the script sets (the phone company's cyan, the Guru's brown);
+  what the script changes in the game is put back after its room. A room
+  whose script takes the player on at once (the Seattle airport, the
+  Sphinx maze's dead end) is shown as drawn, without it. Four doors whose
+  object their place's window leaves out are left out (Mars passages 202
+  and 204 back to 193, the shaman's hut, Stonehenge's), counted where
+  Zak's places are exported. An edition other than the checked one is
+  tried once, not at every launch.
+- On the desktop: 99 of 99 places, 16 of 16 people; the sandbox's door test
+  walks all 240 of Zak's doors through. The other games' and the
+  mansion's files are byte-identical to 0109.
+- Known: the airports look alike apart from their signs (as in the game);
+  travel between them is by plane, which the new engine does not ride yet
+  (each airport is reached from its city's places, or from the menu). The rides (plane, bus,
+  tram, the van) come with step 5. The baker, drawn only at his window, is
+  left out. The original engine's own fixes to some Zak places (the
+  Society's stairs, the Sphinx's secret entry, Seattle's loose dirt) are
+  not applied (the game's own states are). On the desktop the export finds
+  Zak in a folder named zak where the app starts (on the iPhone,
+  Documents/zak, as the original engine does), not scummverse_zak_path.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
 

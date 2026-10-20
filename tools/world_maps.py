@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Same order as kWorldGames in engine/common/scummverse_world_catalog.h.
 GAMES = ['monkey', 'monkey2', 'loom', 'indy3', 'atlantis', 'tentacle', 'samnmax', 'ft', 'dig', 'comi']
 # Then the original engine's own games (catalog worldHome), in order.
-HOME = ['maniac']
+HOME = ['maniac', 'zak']
 ALL = GAMES + HOME
 KINDS = {'scene': 0, 'map': 1, 'floor plan': 2}
 # Floor plans: overhead maps a small figure walks around (unlike map rooms,
@@ -53,7 +53,7 @@ TEMPLATE_DOORS = {
 # and actions on objects (story, cutscene and debug transitions are left out).
 TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
 VERSIONS = {'monkey': 4, 'monkey2': 5, 'loom': 3, 'indy3': 3, 'atlantis': 5, 'tentacle': 6, 'samnmax': 6, 'ft': 7, 'dig': 7, 'comi': 8,
-            'maniac': 1}
+            'maniac': 1, 'zak': 1}
 SCUMM = ROOT/'engine/engines/scumm'
 
 
@@ -109,7 +109,98 @@ def load_home(game):
     return sorted((r, (0, r)) for r in visit), links
 
 
+def scene_objects(path):
+    """The object numbers an exported scene shows (an SVW5 file)."""
+    import gzip
+    import struct
+    data = path.read_bytes()
+    if data[:2] == b'\x1f\x8b':
+        data = gzip.decompress(data)
+    if data[:4] != b'SVW5':
+        return None
+    _room, width, height = struct.unpack_from('<HHH', data, 4)
+    p = 12 + 768 + width * height + data[10] * 18
+    count = struct.unpack_from('<H', data, p)[0]
+    return {struct.unpack_from('<H', data, p + 2 + i * 16)[0] for i in range(count)}
+
+
+def load_zak():
+    """Zak's places and doors, from the original engine's Zak tables
+    (scummverse_places.inc), which number Zak's rooms and objects as that
+    engine imports them into the mansion, back in Zak's own numbers: its
+    rooms (or the logical rooms 128+ its scripts make of one resource), and
+    each room's objects in their order there (private analysis of the
+    user's copy, build/foreign/links/zak-objects.json, from zak_objects.py).
+    The rides (the plane, the van's cockpit) are left out, and, where Zak's
+    places are exported (build/worlds), a door whose object its place does
+    not show (cut out of its window) or an arrival at one."""
+    path = ROOT/'build/foreign/links/zak-objects.json'
+    if not path.exists():
+        return [], []
+    objects = {int(k): v for k, v in json.loads(path.read_text()).items()}
+    text = (SCUMM/'scummverse_places.inc').read_text()
+    def table(name):
+        body = text[text.index(name + '[] = {'):]
+        return body[:body.index('\n};')]
+    places = re.findall(r'\{\s*(\d+),\s*"[0-9a-f]{32}",\s*"([^"]*)"', table('zakPlaces'))
+    files = [int(f) for f, _name in places]
+    retired = {56 + i for i, (_f, name) in enumerate(places) if 'retired' in name}
+    logical = {int(r): int(p) for r, p in re.findall(r'\{\s*(\d+),\s*(\d+),\s*"', table('zakLogicalScenes'))}
+    setups = {int(r): int(l) for r, l in re.findall(r'^\s*\{(\d+),(\d+),\d+,\d+,\d+,\d+,\{', table('zakSceneSetups'), re.M)}
+    views = {int(r): int(l) for r, l in re.findall(r'\{(\d+),(\d+),\d+,\d+,\d+,\d+\}', table('zakSceneViews'))}
+    links = re.findall(r'\{\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+))?(?:,\s*-?\d+,\s*-?\d+)?\s*\}', table('zakLinks'))
+    rides = {56, 81, 221}  # (the plane, the van's cockpit, the van in flight)
+    # The import's own rooms: 53 the San Francisco airport (resource 8, its
+    # logical 145), 54 the apartment (1), 55 the street (3); 56.. a slot each.
+    first = {54: 650, 53: 683, 55: 712}
+    def resource(room):
+        if room in (53, 54, 55):
+            return {53: 8, 54: 1, 55: 3}[room]
+        if room in logical:
+            return resource(logical[room])
+        return files[room - 56] if 56 <= room < 56 + len(files) else None
+    def native(room):
+        if room in rides or resource(room) is None:
+            return None
+        if room in logical or room >= 128:
+            return room
+        if room == 53:
+            return 145
+        return setups.get(room) or views.get(room) or resource(room)
+    def native_object(room, obj):
+        file = resource(room)
+        index = obj - first.get(room if room < 56 else 0, 732)
+        table_ = objects.get(file, [])
+        return table_[index] if 0 <= index < len(table_) else None
+    # Every place of the import's (but the rides and the retired), whether or
+    # not a door leads there (the airports: by plane).
+    exported = {}
+    def shows(room, obj):
+        if room not in exported:
+            path = ROOT/'build/worlds'/f'zak-{room}.svw'
+            exported[room] = scene_objects(path) if path.exists() else None
+        return exported[room] is None or obj in exported[room]
+    visit, out, seen = {}, [], set()
+    for room in [53, 54, 55] + list(range(56, 56 + len(files))) + list(logical):
+        if room not in retired and native(room) is not None:
+            visit[native(room)] = resource(room)
+    for room, obj, target, arrival in links:
+        room, obj, target, arrival = int(room), int(obj), int(target), int(arrival or 0)
+        a, b = native(room), native(target)
+        if a is None or b is None or a == b:
+            continue
+        o = native_object(room, obj)
+        if not o or (a, o) in seen or not shows(a, o):
+            continue
+        seen.add((a, o))
+        visit[a] = resource(room); visit[b] = resource(target)
+        out.append((a, o, b, arrival if shows(b, arrival) else 0, 0))
+    return sorted((r, (0, res)) for r, res in visit.items()), out
+
+
 def load(game):
+    if game == 'zak':
+        return load_zak()
     if game in HOME:
         return load_home(game)
     path = ROOT/'build/foreign/links'/f'{game}.json'
@@ -168,6 +259,8 @@ def load(game):
 # descriptions, not game text). Every entrance must be named.
 AREA_NAMES = {
     ('maniac', 52): 'Gate approach',
+    ('zak', 20): 'Egypt: the Sphinx and pyramids', ('zak', 39): 'Mexico: the temple', ('zak', 136): 'Peru: inside the giant carving',
+    ('zak', 183): 'Mars: the pyramid', ('zak', 12): 'Seattle: the forest', ('zak', 17): 'Nepal: Kathmandu', ('zak', 143): 'Miami airport',
     ('monkey', 70): 'Catacombs and the ghost ship', ('monkey', 21): 'Monkey Island jungle', ('monkey', 1): 'Monkey Island beach',
     ('monkey', 30): 'Melee Island shop', ('monkey', 31): 'Melee Island jail',
     ('monkey', 32): 'Melee Island back alley', ('monkey', 42): 'Under the harbor',

@@ -552,7 +552,17 @@ one palette) apply.
   scummverse_roaming.inc's passages, the rides left out) and its cast is
   newly written in tools/world_cast.py (HOME). The original engine's menus,
   visits, tour, wanderers, character screen and status skip home games; the
-  new engine's game menu lists the mansion with the rest.
+  new engine's game menu lists the mansion with the rest. Zak McKracken
+  (0110, index 11) follows the same way from its own folder: its map is
+  the original engine's Zak tables turned back into Zak's own numbers
+  (logical rooms 128+ as pseudo rooms of their resource, objects by their
+  place in their room, build/foreign/links/zak-objects.json), its cast is
+  coloured by kWorldOwnTints; every Zak room is exported with its entry
+  script (room colours and boxes it sets kept, what it changes in the game
+  put back after the room), a logical room is cut to the camera window
+  its script sets (boxes outside switched off), a room whose script leaves
+  at once is exported without it, and doors whose object a window leaves
+  out are dropped when the map is generated (from build/worlds).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

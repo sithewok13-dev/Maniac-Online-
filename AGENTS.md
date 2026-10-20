@@ -41,7 +41,8 @@ to main, codex/** and claude/**; it is not blocked. Each IPA is stamped
 cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 Other worlds: `python3 tools/export_worlds.py game-data/mm-dos monkey2=game-data/<dir> ...`
-(folders: monkey monkey2 loom indy3 atlantis tentacle samnmax ft dig comi)
+(folders: monkey monkey2 loom indy3 atlantis tentacle samnmax ft dig comi zak;
+the mansion comes from the Maniac data itself)
 then `python3 tools/test_world_visit.py game-data/mm-dos` (cache in build/worlds;
 scenes .svw, characters .svc; walks every door, a few minutes). Launch-time
 setup: `python3 tools/test_world_setup.py game-data/mm-dos loom=game-data/loom-ega`.
