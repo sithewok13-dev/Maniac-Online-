@@ -3,6 +3,7 @@
 // c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_wander.cpp engine/common/scummverse_wander.cpp
 #include "common/scummverse_wander.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <set>
@@ -42,11 +43,15 @@ int main() {
 	// A cast of 60, each living somewhere (or nowhere known).
 	std::vector<int> cast, homes;
 	for (int i = 0; i < 60; ++i) { cast.push_back(1000 + i); homes.push_back(i % 5 ? map.places[i % 17] : 0); }
+	Cast people;
+	for (size_t i = 0; i < cast.size(); ++i) people.add(cast[i], homes[i]);
+	people.add(cast[0], 0); people.add(0, 0); // once each; nobody 0
+	assert(people.size() == 60 && people.find(cast[7]) == 7 && people.find(5) < 0);
 	int who[kMostWanderers] = {}, where[kMostWanderers] = {};
 	Wanderers wanderers(who, where);
 	assert(!wanderers.started() && !wanderers.out(1000) && wanderers.where(1000) == 0);
 	Random random(42);
-	wanderers.start(cast, map, 40, random);
+	wanderers.start(people, map, 40, random);
 	{
 		std::set<int> seen;
 		for (int i = 0; i < kMostWanderers; ++i) { assert(who[i] && map.find(where[i]) >= 0); seen.insert(who[i]); }
@@ -56,14 +61,15 @@ int main() {
 	{
 		int w2[kMostWanderers] = {}, p2[kMostWanderers] = {};
 		Wanderers few(w2, p2); Random r(3);
-		few.start(std::vector<int>(cast.begin(), cast.begin() + 3), map, 40, r);
+		Cast three; for (int i = 0; i < 3; ++i) three.add(cast[i], homes[i]);
+		few.start(three, map, 40, r);
 		int n = 0; for (int i = 0; i < kMostWanderers; ++i) n += w2[i] != 0;
 		assert(n == 3);
 		assert(!few.send(cast[0], map.places[0]) && few.send(cast[10], map.places[2]) && few.where(cast[10]) == map.places[2]);
 		assert(!few.send(0, map.places[0]) && !few.send(cast[11], 0));
 		// More of the cast later (games exported since): the free places
 		// fill with those not out yet, nobody twice.
-		few.start(cast, map, 40, r);
+		few.start(people, map, 40, r);
 		std::set<int> seen; for (int i = 0; i < kMostWanderers; ++i) { assert(w2[i]); seen.insert(w2[i]); }
 		assert(seen.size() == kMostWanderers && few.where(cast[10]) == map.places[2]);
 	}
@@ -72,7 +78,7 @@ int main() {
 	// Moving: along doors only (no jumps or joins); the player's place keeps
 	// its wanderers; everyone else moves within a few hops' time.
 	{
-		Rules rules; rules.jump = 0; rules.join = 0; rules.turn = 1 << 30;
+		Rules rules; rules.jump = 0; rules.join = 0; rules.toward = 0; rules.turn = 1 << 30;
 		const int here = where[0];
 		int staying[kMostWanderers], before[kMostWanderers];
 		const int there = wanderers.at(here, staying, kMostWanderers);
@@ -80,7 +86,7 @@ int main() {
 		bool moved = false;
 		for (int t = 0; t < 40; ++t) {
 			int last[kMostWanderers]; for (int i = 0; i < kMostWanderers; ++i) last[i] = where[i];
-			moved = wanderers.advance(60 * 10, here, cast, homes, map, rules, random) || moved;
+			moved = wanderers.advance(60 * 10, here, people, map, rules, random) || moved;
 			for (int i = 0; i < kMostWanderers; ++i) {
 				if (last[i] == here) assert(where[i] == here); // kept while the player watches
 				else if (where[i] != last[i]) {
@@ -100,20 +106,71 @@ int main() {
 	// Jumps go anywhere: the Zak room (no doors) gets visitors; joining
 	// gathers wanderers in fewer places.
 	{
-		Rules rules; rules.jump = 100; rules.join = 0; rules.turn = 1 << 30;
+		Rules rules; rules.jump = 100; rules.join = 0; rules.toward = 0; rules.turn = 1 << 30;
 		bool zak = false;
 		for (int t = 0; t < 200 && !zak; ++t) {
-			wanderers.advance(60 * 30, 0, cast, homes, map, rules, random);
+			wanderers.advance(60 * 30, 0, people, map, rules, random);
 			zak = wanderers.at(placeCode(kZak, 0, 55), nullptr, 0) > 0;
 		}
 		assert(zak);
 		auto spread = [&]() { std::set<int> s; for (int i = 0; i < kMostWanderers; ++i) s.insert(where[i]); return (int)s.size(); };
 		const int wide = spread();
 		rules.jump = 0; rules.join = 100;
-		for (int t = 0; t < 400; ++t) wanderers.advance(60 * 30, 0, cast, homes, map, rules, random);
+		for (int t = 0; t < 400; ++t) wanderers.advance(60 * 30, 0, people, map, rules, random);
 		assert(spread() < wide);
 	}
 	puts("PASS: jumps reach anywhere; joining gathers");
+
+	// Toward the player: to a place next to the player's (and on through its
+	// doors into it, while fewer than a crowd are there).
+	{
+		Rules rules; rules.jump = 0; rules.join = 0; rules.toward = 100; rules.turn = 1 << 30;
+		const int here = placeCode(kManiac, 0, 2), at = map.find(here);
+		const int before = wanderers.at(here, nullptr, 0);
+		int moved = 0;
+		for (int t = 0; t < 20; ++t) {
+			int last[kMostWanderers]; for (int i = 0; i < kMostWanderers; ++i) last[i] = where[i];
+			wanderers.advance(60 * 200, here, people, map, rules, random);
+			for (int i = 0; i < kMostWanderers; ++i) {
+				if (where[i] == last[i]) continue;
+				++moved;
+				bool next = where[i] == here;
+				for (int d : map.doors[at]) next = next || map.places[d] == where[i];
+				assert(next);
+			}
+			assert(wanderers.at(here, nullptr, 0) <= std::max(before, rules.crowd));
+		}
+		assert(moved > 30);
+		// Through doors only (no pull): still no more than a crowd come in.
+		rules.toward = 0;
+		for (int t = 0; t < 50; ++t) wanderers.advance(60 * 200, here, people, map, rules, random);
+		assert(wanderers.at(here, nullptr, 0) <= std::max(before, rules.crowd));
+	}
+	// Weights: a place weighing fifty times another is picked far more often.
+	{
+		Map weighted; weighted.add(placeCode(kManiac, 0, 1), 50); weighted.add(placeCode(kManiac, 0, 1), 1);
+		for (int r = 1; r <= 10; ++r) weighted.add(placeCode(kWorld, 2, r));
+		assert(weighted.total == 60 && weighted.weights[0] == 50);
+		Random r(11); int heavy = 0;
+		for (int n = 0; n < 1000; ++n) heavy += weighted.pick(r) == placeCode(kManiac, 0, 1);
+		assert(heavy > 750 && heavy < 900);
+		Map none; assert(none.pick(r) == 0);
+	}
+	// Weighted characters: two of a small game weighing as much as fifty of a
+	// big one's are as likely to be the one setting out.
+	{
+		Cast games;
+		for (int i = 0; i < 50; ++i) games.add(2000 + i, map.places[0], 1);
+		games.add(3000, map.places[1], 25); games.add(3001, map.places[1], 25);
+		int small = 0;
+		for (uint32_t seed = 1; seed <= 400; ++seed) {
+			int w[2][kMostWanderers] = {}; Wanderers one(w[0], w[1]); Random r(seed);
+			one.start(games, map, 1, r);
+			small += one.out(3000) || one.out(3001);
+		}
+		assert(small > 140 && small < 260);
+	}
+	puts("PASS: toward the player; weighted places and characters");
 
 	// Taking turns: one goes home, someone new sets out from home; never
 	// someone at or living in the player's place; nobody out twice.
@@ -124,7 +181,7 @@ int main() {
 		for (int t = 0; t < 300; ++t) {
 			int last[kMostWanderers], lastWho[kMostWanderers];
 			for (int i = 0; i < kMostWanderers; ++i) { last[i] = where[i]; lastWho[i] = who[i]; }
-			wanderers.advance(60, here, cast, homes, map, rules, random);
+			wanderers.advance(60, here, people, map, rules, random);
 			std::set<int> seen;
 			for (int i = 0; i < kMostWanderers; ++i) {
 				assert(seen.insert(who[i]).second);
@@ -168,16 +225,16 @@ int main() {
 		int a[2][kMostWanderers] = {}, b[2][kMostWanderers] = {};
 		Wanderers one(a[0], a[1]), two(b[0], b[1]);
 		Random r1(9), r2(9); Rules rules;
-		one.start(cast, map, 40, r1); two.start(cast, map, 40, r2);
+		one.start(people, map, 40, r1); two.start(people, map, 40, r2);
 		for (int t = 0; t < 100; ++t) {
-			one.advance(60 * 20, map.places[0], cast, homes, map, rules, r1);
-			two.advance(60 * 20, map.places[0], cast, homes, map, rules, r2);
+			one.advance(60 * 20, map.places[0], people, map, rules, r1);
+			two.advance(60 * 20, map.places[0], people, map, rules, r2);
 		}
 		for (int i = 0; i < kMostWanderers; ++i) assert(a[0][i] == b[0][i] && a[1][i] == b[1][i]);
 		// An empty map: nobody starts or moves.
 		Map none; int w[2][kMostWanderers] = {};
-		Wanderers lost(w[0], w[1]); lost.start(cast, none, 40, r1);
-		assert(!lost.started() && !lost.advance(600, 0, cast, homes, none, rules, r1));
+		Wanderers lost(w[0], w[1]); lost.start(people, none, 40, r1);
+		assert(!lost.started() && !lost.advance(600, 0, people, none, rules, r1));
 	}
 	puts("PASS: deterministic; an empty map moves nobody");
 

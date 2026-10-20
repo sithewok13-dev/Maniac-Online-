@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0101 (wanderers from the other games; chat for 64; fairer character colours).
+Active milestone: Phase 1; latest patch 0102 (every game an equal share of the wanderers; they come by).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2430,3 +2430,32 @@ change"; "I don't need them all on the plans or in the van, following me".
   screen changes (scummverse_talk_ui.inc) are iPhone code, compiled only by
   Apple CI. Not device-tested.
 
+## Patch 0102 — every game an equal share of the wanderers; they come by
+
+User (2026-10-20, on the 0101 IPA): "I'm in maniac mansion and i don't see
+wandering characters from other games aside from the ones from Zak". Spread
+evenly over 743 places, the mansion's 37 rooms held about two of the forty
+between them (a room about one chance in twenty). A first answer weighed
+the mansion's and Zak's rooms four times; the user: "I kind of like that
+they're random and could be anywhere instead of steering them to maniac
+mansion" and "is there a better way to do this to give every game equal
+weight?" Now:
+- Every game has an equal share (kWanderGameShare): a place weighs one game's
+  worth over its game's places, so each of the twelve (the mansion, Zak's
+  world, the other ten) holds about three of the forty whatever its size;
+  who sets out is chosen the same way (a game's characters share one game's
+  worth, Wander::Cast weights), so a big cast does not crowd out a small one.
+- One move in twenty heads for a room next to the player's (Rules::toward),
+  so they are met wherever the player goes; from there a door may bring
+  them in. Those in the player's room stay while watched, so nobody moves
+  in once four are there (Rules::crowd; the user: "Should we try 4?").
+  Engine probe: set out in all twelve games; ten minutes by the kitchen,
+  eight in the mansion and one or two in the kitchen at a time.
+- Asked for next (not in this patch): the mansion's and Zak's own characters
+  in the wanderer pool too.
+- Tests: test_wander.cpp (toward the player, the crowd, weighted places and
+  characters; ASan/UBSan, TSan); test_wander_engine.py logs where they set
+  out (at least six games) and checks they come by.
+- Verified (Linux, the user's private copies): the full data suite (41/41);
+  test_wander.cpp (ASan/UBSan, TSan); bootstrap, startup, package_ipa. Not
+  device-tested.

@@ -418,8 +418,12 @@ std-free bridge `scummverse_wander_engine.h`). Places are one code each
 zakLinks and the generated door maps (a door into a map or floor plan leads
 on to where its doors go). Forty are out at once; who (appearance key) and
 where (place code) are saved in variables 256..335. Off-screen a wanderer is
-only that note: it moves on through a door now and then, sometimes anywhere,
-sometimes to another wanderer; every two and a half minutes one goes home
+only that note: it moves on through a door now and then, sometimes anywhere
+(by place weight: every game an equal share, split over its places),
+sometimes to another wanderer, sometimes to a room next to the player's
+(never into it once four are there, since those there stay while watched);
+who sets out is weighted the same way (a game's characters share one game's
+worth); every two and a half minutes one goes home
 and someone else sets out. Nothing changes in the viewed place, and nobody
 living there leaves or returns while the player watches. A wanderer is not
 at home meanwhile (the scene leaves out that resident).

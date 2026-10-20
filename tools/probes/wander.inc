@@ -28,6 +28,32 @@
 		for (int j=0;j<i;++j) if (who[j]==who[i]) error("%s out twice",worldAppearance(who[i])->name);
 	}
 	warning("WANDER %d places, %d characters",WB::places(),WB::cast());
+	// Where they set out: every game an equal share (spread evenly over the
+	// places, the mansion's 37 of 743 had about two of forty).
+	{
+		int maniac=0, zak=0; bool game[16]={};
+		for (int i=0;i<W::kMostWanderers;++i) {
+			maniac+=W::placeKind(where[i])==W::kManiac; zak+=W::placeKind(where[i])==W::kZak;
+			game[W::placeKind(where[i])==W::kWorld ? 2+W::placeGame(where[i]) : W::placeKind(where[i])]=true;
+		}
+		int games=0; for (bool g : game) games+=g;
+		warning("WANDER set out: %d in the mansion, %d in Zak's places, %d elsewhere, in %d games",maniac,zak,W::kMostWanderers-maniac-zak,games);
+		if (games<6) error("Wanderers set out in only %d games",games);
+	}
+	// Standing in the kitchen for ten minutes, they come by (to it or next door).
+	{
+		int32 kept[2*W::kMostWanderers]; memcpy(kept,who,sizeof(kept));
+		const int kitchen=W::placeCode(W::kManiac,0,7);
+		int near=0, inside=0;
+		for (int n=0;n<60;++n) {
+			WB::advance(60*10,kitchen);
+			for (int i=0;i<W::kMostWanderers;++i) inside+=where[i]==kitchen;
+		}
+		for (int i=0;i<W::kMostWanderers;++i) near+=W::placeKind(where[i])==W::kManiac;
+		warning("WANDER after ten minutes by the kitchen: %d in the mansion, kitchen visits %d",near,inside);
+		if (!inside) error("Nobody came to the kitchen in ten minutes");
+		memcpy(who,kept,sizeof(kept));
+	}
 	// Guybrush (Monkey Island's lead, at home in room 33) and two more in the
 	// living room.
 	const int guybrush=worldAppearanceKey(0,1), living=W::placeCode(W::kManiac,0,3);
