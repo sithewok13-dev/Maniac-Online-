@@ -5,9 +5,13 @@ Needs an export cache (build/worlds, see tools/export_worlds.py) and, for the
 switch, privately supplied Maniac Mansion data. The first place is shown at
 1280x720 in true colour and its lead walks across by taps; every place
 installed is shown with its people, each lead walking as far as the walk
-boxes go; then from Maniac the Worlds menu's New engine (preview) opens the
-sandbox and its Back to Maniac Mansion returns to the same room, from the
-saved game. Pictures go to build/sandbox-shots. Not an iPhone test.
+boxes go; every door of every place is tapped, walked to and gone through
+(at least 95 in 100 reach their place: the rest need the games' own box
+connections, not exported yet); everyone is out for half an hour, those
+coming in are shown, and where everyone is is kept; then from Maniac the
+Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
+Mansion returns to the same room, from the saved game. Pictures go to
+build/sandbox-shots. Not an iPhone test.
 """
 import argparse
 from pathlib import Path
@@ -34,10 +38,12 @@ SWITCH = r'''
 LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the next loop iteration should start\n'
 
 
-def sandbox(exe, worlds, mode, shots, cwd, timeout=900):
+def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False):
+    # (Wanderers off: each place's own people, the same every run.)
     config = Path(cwd)/f'sandbox-{mode}.ini'
-    config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n')
-    result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', 'scummverse:sandbox'], cwd=cwd,
+    config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n'
+                      f'scummverse_wanderers={str(wanderers).lower()}\n')
+    result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', f'--savepath={cwd}', 'scummverse:sandbox'], cwd=cwd,
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
     (ROOT/f'build/sandbox-{mode}.log').write_text(output)
@@ -125,6 +131,10 @@ if __name__ == '__main__':
         print('PASS: the first place at 1280x720 in true colour; its lead walks across')
         sandbox(exe, worlds, 'all', shots, tmp)
         print('PASS: every place installed, its people shown, each lead walking')
+        sandbox(exe, worlds, 'doors', shots, tmp)
+        print('PASS: through the doors of every place (tapped, walked to, gone through)')
+        sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
+        print('PASS: everyone out; those coming in shown; where everyone is kept')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

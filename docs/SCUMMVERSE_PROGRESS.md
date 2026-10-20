@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0104 (the new engine, preview: a place at full resolution in full colour).
+Active milestone: Phase 1; latest patch 0105 (the new engine: walking as the games do, doors, everyone out).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2548,3 +2548,51 @@ FM towns, fate of Atlantis, they're interchangeable?"
   place, every exported place (642) with its people and each lead walking,
   Maniac -> sandbox -> Maniac back in the same room from the same save, and
   the same with a place that cannot be read).
+
+## Patch 0105 — the new engine: walking as the games do, doors, everyone out
+
+User (2026-10-20), on 0104: "New engine feels off is it the walking speed?",
+then "Just keep building in the order you think is right."
+- Walking as the original games do: a step every six ticks, at most 8
+  pixels across and 2 up or down the scene (the SCUMM default walk speed;
+  doubled for Curse of Monkey Island's finer pixels), one walk frame a step
+  (no more sliding feet), smaller steps far away. The camera stays still
+  until the one played comes within a quarter of the screen of an edge, then
+  scrolls to centre them.
+- Doors in all ten games: tap a door, the one played walks to it and goes
+  through to the room beyond, arriving at its door back (the generated door
+  maps of 0062 onward; maps go at once). Neighbouring walk boxes the older
+  games draw two pixels apart now meet (Loom, Indy 3), and with no door to
+  arrive at the player starts where the most doors are in reach. Engine
+  test through every door of every place: 1657 tried, 1570 through to their
+  room (1461 of the 1475 with a door back standing at it), 23 to a door
+  under the tap, 64 stopped short (areas a game joins only through its own
+  box connections, which the export does not save yet: Indy 3, Loom, Curse
+  of Monkey Island mostly).
+- Everyone out, no limit: every installed character from every game is
+  somewhere among 606 places (as Maniac's wanderers: equal share per game,
+  the pull toward the player, four at most drifting into the player's room,
+  small ones aside); a place shows everyone there; those arriving while the
+  player watches come in through a door and walk on; those there stroll.
+  Where the player is and where everyone is is kept between visits
+  (scummverse-sandbox.state in the saves: at each room, every half minute
+  and on leaving).
+- Review fixes: doors without a walk-to point (all of Day of the Tentacle's,
+  Sam & Max's, Full Throttle's, The Dig's and Curse of Monkey Island's) are
+  reached and arrived at the bottom middle of the door, as in Maniac's other
+  worlds (they put everyone in a corner); the place and the one played are
+  checked before the stage changes, and a place that cannot be shown leaves
+  the player where they were; a character whose file is damaged is not
+  tried again; floor plans are walked; of doors only near a tap the nearest
+  wins; the camera keeps up in Curse of Monkey Island; scummverse_place wins
+  over the kept state; the iPhone menu lists a game when any named place of
+  it is installed.
+- iPhone: the new engine's Worlds menu adds "Go to <game>" for each
+  installed game (its first named place); Back to Maniac Mansion as before.
+- Tests: test_stage.cpp (steps of 8 and 2, legs in step, the edge camera
+  both ways and never losing the walker, lookAt, gaps of up to 3 pixels meet
+  and 4 do not, groups of boxes, doors under before near and the nearest of
+  those near); test_sandbox_engine.py adds every door of every place (at
+  least 95 in 100 through, 99 in 100 of those with a door back standing at
+  it) and half an hour with everyone out (someone arrives, everyone shown is
+  on stage, the state written and read back).

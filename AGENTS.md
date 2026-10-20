@@ -28,7 +28,8 @@ with engine/common/scummverse_tour.cpp (ASan, TSan); through the engine,
 SANDBOX ENGINE (engines/scummverse): tools/test_stage.cpp with
 engine/common/scummverse_{stage,world}.cpp (-std=c++11, ASan/UBSan); through the engine,
 `python3 tools/test_sandbox_engine.py game-data/mm-dos` (in the data suite: every
-exported place, and Maniac -> sandbox -> Maniac); test_startup covers a made-up place.
+exported place, every door, everyone out, and Maniac -> sandbox -> Maniac); test_startup
+covers a made-up place.
 WANDERERS: tools/test_wander.cpp with engine/common/scummverse_wander.cpp (ASan, TSan);
 through the engine, `python3 tools/test_wander_engine.py game-data/mm-dos` (in the data suite). LIGHTS
 and DOORS: `python3 tools/test_lights_doors.py game-data/mm-dos` (in the data suite). WiFi sessions: compile tools/test_net.cpp with engine/common/scummverse_net.cpp

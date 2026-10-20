@@ -1,7 +1,7 @@
 // Sandbox stage (common/scummverse_stage.cpp) with synthetic scenes and
 // characters (no game data): the view at any screen size, walk boxes and
 // paths, scales, drawing in true colour, walking, the camera, spots.
-// c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
+// c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_stage.cpp engine/common/scummverse_stage.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_stage.h"
 #include <cassert>
@@ -11,14 +11,16 @@ using namespace Scummverse;
 using namespace Scummverse::Stage;
 
 static void put16(std::vector<uint8_t> &v, int x) { v.push_back((uint8_t)(x & 255)); v.push_back((uint8_t)((x >> 8) & 255)); }
-// An "SVW3" scene: palette c = (c, 255-c, c/2), no objects, box scales.
-static std::vector<uint8_t> sceneBytes(int w, int h, const std::vector<uint8_t> &pixels, const std::vector<World::SourceBox> &boxes) {
+// An "SVW3" scene: palette c = (c, 255-c, c/2), its objects, box scales.
+static std::vector<uint8_t> sceneBytes(int w, int h, const std::vector<uint8_t> &pixels, const std::vector<World::SourceBox> &boxes,
+		const std::vector<World::SourceObject> &objects = std::vector<World::SourceObject>()) {
 	std::vector<uint8_t> d = {'S', 'V', 'W', '3'};
 	put16(d, 7); put16(d, w); put16(d, h); d.push_back((uint8_t)boxes.size()); d.push_back(0);
 	for (int c = 0; c < 256; ++c) { d.push_back((uint8_t)c); d.push_back((uint8_t)(255 - c)); d.push_back((uint8_t)(c / 2)); }
 	d.insert(d.end(), pixels.begin(), pixels.end());
 	for (const auto &b : boxes) { for (int c = 0; c < 4; ++c) { put16(d, b.x[c]); put16(d, b.y[c]); } d.push_back((uint8_t)b.flags); d.push_back((uint8_t)b.mask); }
-	put16(d, 0);
+	put16(d, (int)objects.size());
+	for (const auto &o : objects) for (int f : {o.id, o.x, o.y, o.width, o.height, o.walkX, o.walkY}) put16(d, f);
 	for (const auto &b : boxes) { d.push_back((uint8_t)b.scaleTop); d.push_back((uint8_t)b.scaleBottom); }
 	return d;
 }
@@ -54,7 +56,7 @@ static uint32_t sceneColor(int c) { return 0xFF000000u | (uint32_t)c << 16 | (ui
 static uint32_t spriteColor(int c) { return 0xFF000000u | (uint32_t)c << 16 | (uint32_t)c << 8 | (uint32_t)(255 - c); }
 static bool near(double a, double b, double within = 1e-6) { return std::fabs(a - b) <= within; }
 static bool inSomeBox(const std::vector<Box> &boxes, Point p) {
-	for (const Box &b : boxes) if (inside(b, p, 1.6)) return true;
+	for (const Box &b : boxes) if (inside(b, p, 0.6)) return true;
 	return false;
 }
 
@@ -96,6 +98,9 @@ int main() {
 	const std::vector<Box> boxes = {a, b, up, apart};
 	assert(boxAt(boxes, {50, 120}) == 0 && boxAt(boxes, {170, 60}) == 2 && boxAt(boxes, {230, 120}) == 3 && boxAt(std::vector<Box>(), {0, 0}) == -1);
 	assert(touching(a, b) && touching(b, up) && !touching(a, up) && !touching(b, apart) && touching(stageBox(0, 0, 10, 10), stageBox(2, 2, 8, 8)));
+	assert(touching(stageBox(34, 124, 138, 134), stageBox(140, 132, 206, 134)) && !touching(stageBox(0, 0, 10, 10), stageBox(15, 0, 25, 10))); // (two apart: met; five: not)
+	assert(touching(stageBox(0, 0, 10, 10), stageBox(13, 0, 20, 10)) && !touching(stageBox(0, 0, 10, 10), stageBox(14, 0, 20, 10))); // (three: met; four: not)
+	assert(touching(stageBox(0, 0, 10, 10), stageBox(12, 12, 20, 20)) && kBoxGap == 3); // (diagonally two by two)
 	std::vector<Box> scaled = {stageBox(0, 100, 100, 140)}; scaled[0].scaleTop = 100; scaled[0].scaleBottom = 200;
 	assert(scaleAt(scaled, {50, 100}) == 100 && scaleAt(scaled, {50, 140}) == 200 && scaleAt(scaled, {50, 120}) == 150 && scaleAt(std::vector<Box>(), {1, 1}) == 255);
 	World::SourceScene source;
@@ -111,13 +116,19 @@ int main() {
 	std::vector<Point> route = path(boxes, {20, 120}, {170, 50});
 	assert(route.size() == 3 && near(route.back().x, 170) && near(route.back().y, 50));
 	for (const Point &p : route) assert(inSomeBox(boxes, p));
-	assert(near(route[0].x, 100, 1.6) && near(route[1].y, 100, 1.6));
+	assert(near(route[0].x, 100, kBoxGap + 0.6) && near(route[1].y, 100, kBoxGap + 0.6));
 	route = path(boxes, {20, 120}, {60, 20}); // above the first box
 	assert(route.size() == 1 && near(route[0].x, 60) && near(route[0].y, 100));
 	route = path(boxes, {20, 120}, {280, 120}); // cut off: as near as the boxes reached allow
 	assert(route.size() == 2 && near(route.back().x, 200) && near(route.back().y, 120));
 	assert(path(std::vector<Box>(), {0, 0}, {5, 5}).empty());
-	std::puts("PASS: paths (across, up, into the boxes, cut off, none)");
+	const Links links = linksOf(boxes);
+	Links broken = links; broken.meet.pop_back();
+	assert(!broken.meets(0, 1)); // (a table of the wrong size meets nothing)
+	assert(links.group[0] == links.group[1] && links.group[1] == links.group[2] && links.group[3] != links.group[0]);
+	assert(links.meets(0, 1) && links.meets(1, 0) && !links.meets(0, 2) && !links.meets(0, 9));
+	assert(path(boxes, links, {20, 120}, {170, 50}).size() == 3);
+	std::puts("PASS: paths (across, up, into the boxes, cut off, none; groups of boxes)");
 
 	// A scene drawn once at the screen's size, in its own colours: every
 	// screen pixel shows the source pixel under it.
@@ -181,26 +192,48 @@ int main() {
 	assert(scene.drawnRect(other, hx0, hy0, hx1, hy1) && screen[(size_t)((hy0 + hy1) / 2) * pitch + (hx0 + hx1) / 2] == spriteColor(30));
 	std::puts("PASS: characters (height, scale by place, colours, mask, nearer in front)");
 
-	// Walking: along the path at a person's pace (slower where smaller),
-	// facing the way they go, stepping through the walk frames, standing on
-	// arrival; the camera keeps the one it follows in view.
+	// Walking as the games do: a step every six ticks, at most 8 across and 2
+	// up or down the scene at full scale (smaller where smaller), the legs in
+	// step (a walk frame a step), facing the way they go, standing on arrival.
 	scene.place(hero, {20, 130});
 	scene.walkTo(hero, {300, 130});
 	assert(scene.actor(hero).moving);
-	scene.update(1);
-	assert(scene.actor(hero).dir == 1 && scene.actor(hero).at.x > 20);
-	int ticks = 0;
+	scene.update(1); // (the first step at once)
+	assert(scene.actor(hero).dir == 1 && scene.actor(hero).at.x > 20 && scene.actor(hero).at.x <= 28 && scene.actor(hero).steps == 1);
+	const double stepped = scene.actor(hero).at.x;
+	scene.update(4); // (between steps, still)
+	assert(scene.actor(hero).at.x == stepped && scene.actor(hero).steps == 1);
+	scene.update(2);
+	assert(scene.actor(hero).at.x > stepped && scene.actor(hero).steps == 2);
+	int ticks = 7;
 	while (scene.actor(hero).moving && ticks < 10000) { scene.update(1); ++ticks; }
-	assert(!scene.actor(hero).moving && near(scene.actor(hero).at.x, 300, 1e-6) && ticks > 280 / kWalkSpeed - 2);
+	assert(!scene.actor(hero).moving && near(scene.actor(hero).at.x, 300, 1e-6) && ticks >= 280 / 8 * 6 && ticks <= 280 / 2 * 6);
+	scene.place(hero, {200, 100});
+	scene.walkTo(hero, {200, 140}); // 40 down the scene
+	int down = 0;
+	while (scene.actor(hero).moving && down < 10000) { scene.update(1); ++down; }
+	scene.walkTo(hero, {240, 140}); // 40 across
+	int across = 0;
+	while (scene.actor(hero).moving && across < 10000) { scene.update(1); ++across; }
+	assert(near(scene.actor(hero).at.x, 240) && near(scene.actor(hero).at.y, 140) && down >= 3 * across && across > 0);
 	scene.walkTo(hero, {20, 130});
-	scene.update(6);
+	scene.update(1);
 	assert(scene.actor(hero).dir == 0);
 	scene.render(screen.data(), pitch);
-	assert(scene.drawnRect(hero, x0, y0, x1, y1) && screen[(size_t)((y0 + y1) / 2) * pitch + (x0 + x1) / 2] != spriteColor(40)); // walking, not standing
+	assert(scene.drawnRect(hero, x0, y0, x1, y1));
+	const uint32_t firstStep = screen[(size_t)((y0 + y1) / 2) * pitch + (x0 + x1) / 2];
+	scene.update(6);
+	scene.render(screen.data(), pitch);
+	assert(scene.drawnRect(hero, x0, y0, x1, y1));
+	const uint32_t nextStep = screen[(size_t)((y0 + y1) / 2) * pitch + (x0 + x1) / 2];
+	assert(firstStep != spriteColor(40) && nextStep != spriteColor(40) && firstStep != nextStep); // walking, a frame a step
 	scene.walkTo(hero, scene.actor(hero).at); // nowhere to go
-	scene.update(1);
+	scene.update(6);
 	assert(!scene.actor(hero).moving && scene.actor(hero).route.empty());
 
+	// The camera: centred on the one followed, then still until they come
+	// within a quarter of the screen of an edge, then scrolling to centre
+	// them again; walking about the middle never moves it.
 	const std::vector<uint8_t> wideData = sceneBytes(640, 144, std::vector<uint8_t>((size_t)640 * 144, 9), {box(0, 100, 640, 140)});
 	Scene street;
 	assert(street.load(wideData.data(), wideData.size(), 1.2, 320, 1280, 720, error) && street.view().width == 2560);
@@ -209,14 +242,65 @@ int main() {
 	street.follow(walker);
 	assert(street.view().camera == 0);
 	street.walkTo(walker, {620, 120});
-	for (int t = 0; t < 2000; ++t) street.update(1);
-	assert(street.view().camera == 1280 && street.drawnRect(walker, x0, y0, x1, y1));
+	double scrolledAt = -1;
+	for (int t = 0; t < 4000; ++t) {
+		street.update(1);
+		if (scrolledAt < 0 && street.view().camera) scrolledAt = street.actor(walker).at.x;
+		assert(street.drawnRect(walker, x0, y0, x1, y1) && x0 > 0 && x1 < 1280); // (never off screen)
+	}
+	assert(scrolledAt > 240 && scrolledAt <= 250 && street.view().camera == 1280 && street.drawnRect(walker, x0, y0, x1, y1));
+	street.place(walker, {300, 120});
+	street.follow(walker);
+	const int middle = street.view().camera;
+	assert(middle == 300 * 4 - 640);
+	street.walkTo(walker, {340, 120});
+	for (int t = 0; t < 600; ++t) street.update(1);
+	assert(street.view().camera == middle && near(street.actor(walker).at.x, 340));
+	street.walkTo(walker, {20, 120}); // back to the left: scrolling the other way
+	for (int t = 0; t < 4000; ++t) street.update(1);
+	assert(street.view().camera == 0);
+	street.lookAt(320); // (looking elsewhere: the camera stays while they walk)
+	const int looked = street.view().camera;
+	street.walkTo(walker, {100, 120});
+	for (int t = 0; t < 600; ++t) street.update(1);
+	assert(looked == 320 * 4 - 640 && street.view().camera == looked);
+	street.setWalk(0, -1, 0); // (nonsense: the games' own pace)
+	const int stroller = street.addActor(spriteData.data(), spriteData.size(), 1, 1.2, error);
+	assert(street.actor(stroller).speedX == 8 && street.actor(stroller).speedY == 2 && street.actor(stroller).stepTicks == 1);
+	assert(street.groupAt({50, 120}) == 0 && scene.groupAt({60, 120}) == scene.groupAt({250, 120}));
 	street.place(walker, {0, 120});
 	street.follow(walker);
 	street.render(screen.data(), pitch); // (partly off the left edge: no left-facing stand, the left one)
 	assert(street.view().camera == 0 && street.drawnRect(walker, x0, y0, x1, y1) && x0 == 0);
 	assert(screen[(size_t)((y0 + y1) / 2) * pitch] == spriteColor(40));
-	std::puts("PASS: walking (pace, facing, steps, arrival, the camera)");
+	std::puts("PASS: walking (steps of 8 and 2, legs in step, facing, arrival; the camera at the edges)");
+
+	// Doors and hotspots: the one under a tap beats one only near it, then
+	// the smallest; only those asked about; none beyond the slack.
+	World::SourceObject doorA, hotspot, doorB;
+	doorA.id = 101; doorA.x = 100; doorA.y = 40; doorA.width = 20; doorA.height = 40; doorA.walkX = 110; doorA.walkY = 100;
+	hotspot.id = 102; hotspot.x = 0; hotspot.y = 0; hotspot.width = 320; hotspot.height = 144;
+	doorB.id = 103; doorB.x = 115; doorB.y = 40; doorB.width = 10; doorB.height = 10;
+	const std::vector<uint8_t> doorData = sceneBytes(w, h, pixels, floor, {doorA, hotspot, doorB});
+	Scene hall;
+	assert(hall.load(doorData.data(), doorData.size(), 1.2, 320, 1280, 720, error) && hall.source().objects.size() == 3);
+	const std::vector<int> all = {0, 1, 2}, doorOnly = {0}, doorAndHotspot = {0, 1};
+	assert(hall.objectAt({110, 60}, all) == 0 && hall.objectAt({118, 45}, all) == 2);
+	assert(hall.objectAt({98, 60}, doorAndHotspot) == 1 && hall.objectAt({98, 60}, doorOnly) == 0);
+	assert(hall.objectAt({90, 60}, doorOnly) == -1 && hall.objectAt({110, 60}, std::vector<int>()) == -1 && hall.objectAt({110, 60}, {7}) == -1);
+	// Only near: the nearest, though bigger; as near, the smaller; nothing
+	// of no size.
+	World::SourceObject big, small, flat, twin;
+	big.id = 201; big.x = 10; big.y = 10; big.width = 40; big.height = 40;
+	small.id = 202; small.x = 54; small.y = 20; small.width = 4; small.height = 4;
+	flat.id = 203; flat.x = 52; flat.y = 20; flat.width = 0; flat.height = 10;
+	twin.id = 204; twin.x = 10; twin.y = 10; twin.width = 40; twin.height = 40;
+	const std::vector<uint8_t> nearData = sceneBytes(w, h, pixels, floor, {big, small, flat, twin});
+	Scene porch;
+	assert(porch.load(nearData.data(), nearData.size(), 1.2, 320, 1280, 720, error));
+	assert(porch.objectAt({51, 21}, {0, 1, 2}) == 0 && porch.objectAt({52.5, 21}, {0, 1}) == 1);
+	assert(porch.objectAt({30, 30}, {0, 3}) == 0 && porch.objectAt({30, 30}, {3, 0}) == 3); // (as big: the first)
+	std::puts("PASS: doors (under before near, the smallest, only those asked)");
 
 	// Spots for people: inside the boxes, spread out.
 	for (int n : {1, 4, 12}) {

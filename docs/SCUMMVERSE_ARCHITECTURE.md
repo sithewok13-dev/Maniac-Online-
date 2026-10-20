@@ -455,26 +455,51 @@ one palette) apply.
   place on a screen of any size. View::fit makes the scene as tall as the
   screen allows and no wider than its own game's screen at that size (art
   drawn for 320x200 has pixels 1.2 times taller than wide, Curse of Monkey
-  Island's 640x480 square ones); wider rooms scroll after the one followed.
-  Walk boxes (switched-off boxes and the games' placeholder at -32000
-  dropped; flat ones, lines and points, hold only themselves) meet within a
-  pixel; paths go breadth first through meeting
-  boxes, crossing where best on the way, and end as near the destination as
-  the boxes reached allow. Characters are drawn in true colour from their own
-  palettes, as tall as the scene's people (their game's lead against the
-  scene's, heroHeight) at the box's own scale, a third on map rooms, nearer
-  ones in front; they walk at a person's pace, slower when far (never below
-  a quarter), facing the way they go. Nothing is limited to a palette or to
-  a number of characters. The screen is drawn again only while someone
-  walks.
+  Island's 640x480 square ones); wider rooms scroll after the one followed:
+  the camera centres on them, then scrolls only when they come within a
+  quarter of the screen of an edge. Walk boxes (switched-off boxes and the
+  games' placeholder at -32000 dropped; flat ones, lines and points, hold
+  only themselves) meet within 3 pixels (kBoxGap: the older games draw
+  neighbours two apart); which meet, and the groups reachable from one
+  another, are worked out once per scene (Links). Paths go breadth first
+  through meeting boxes, crossing where best on the way, and end as near
+  the destination as the boxes reached allow. Characters are drawn in true
+  colour from their own palettes, as tall as the scene's people (their
+  game's lead against the scene's, heroHeight) at the box's own scale, a
+  third on map rooms, nearer ones in front. They walk as the games do: a
+  step every six ticks, at most 8 across and 2 up or down the scene (twice
+  that in Curse of Monkey Island's finer pixels), smaller far away (never
+  below a quarter), one walk frame a step, facing the way they go. Nothing
+  is limited to a palette or to a number of characters. The screen is drawn
+  again only while someone walks.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
-  than 720; `scummverse_screen` overrides), in the
-  stage's own 32-bit format or the richest the backend offers (converted with
-  crossBlit). It starts in `scummverse_place` or the first named place
-  installed, with the place's people (kWorldCast) and the game's lead
-  (kWorldLeads) to play; a tap walks the lead there. `scummverse_selftest`
-  (walk, all, back) checks without anyone at the screen.
+  than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
+  or the richest the backend offers (converted with crossBlit). It starts
+  where the player was (`scummverse-sandbox.state` in the saves, written at
+  each room, every half minute and on leaving; `scummverse_place` wins),
+  else in `scummverse_place` or the first named
+  place installed, playing that game's lead (kWorldLeads) in every game. A
+  tap walks there; a tap on a door (a room object with a WorldLink from the
+  generated door maps; switched doors only while shown) walks to its walk-to
+  point (else to the tap: screen-edge exits) and, once there (within 12
+  pixels of its point or of the tap), goes through to its room, arriving at
+  the named object or the door back; a door without a walk-to point (the
+  later games keep it in scripts) is reached at the bottom middle of its
+  rectangle, as in Maniac's other worlds; on maps a tap goes at once (floor
+  plans are walked). With no door to arrive at, the
+  player starts in the group of boxes with the most doors. Everyone is out
+  (WanderBridge, as Maniac's other-world wanderers; each engine builds it
+  afresh when it starts: every installed place but maps, the games' doors,
+  every installed character but the one played, each game an equal share,
+  four at most drifting into the player's place, small ones aside): a place
+  shows everyone there, without a limit; those the wanderers bring in while
+  the player watches come through a door and walk on; those there stroll now
+  and then. Its Worlds menu offers each installed game's first named place
+  (kWorldSandboxGameRequest + game) and Back to Maniac Mansion.
+  `scummverse_selftest` (walk, all, back, doors, wander) checks without
+  anyone at the screen; `scummverse_wanderers=false` shows each place's own
+  people instead.
 - Detection: a folder holding `.svw` files is the sandbox (AdvancedDetector
   fallback); no game file names its own.
 - Opening it: the Worlds menu's New engine (preview) asks Maniac
