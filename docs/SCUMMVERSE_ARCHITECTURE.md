@@ -409,32 +409,32 @@ New Kid button open it again. Without SCUMMVERSE_LOCAL_AI it falls back to
 the roster.
 v7/v8 editions are compiled in solely so the player's copies can be exported.
 
-## Wanderers (0101)
+## Wanderers (0101, everyone out since 0103)
 
 Other games' characters roam outside their home rooms
 (`common/scummverse_wander.{h,cpp}`, plain C++, `tools/test_wander.cpp`;
 std-free bridge `scummverse_wander_engine.h`). Places are one code each
-(kind Maniac/Zak/world, game, room); doors come from mansionPassages,
-zakLinks and the generated door maps (a door into a map or floor plan leads
-on to where its doors go). Forty are out at once; who (appearance key) and
-where (place code) are saved in variables 256..335. Off-screen a wanderer is
-only that note: it moves on through a door now and then, sometimes anywhere
-(by place weight: every game an equal share, split over its places),
-sometimes to another wanderer, sometimes to a room next to the player's
-(never into it once four are there, since those there stay while watched);
-who sets out is weighted the same way (a game's characters share one game's
-worth); every two and a half minutes one goes home
-and someone else sets out. Nothing changes in the viewed place, and nobody
-living there leaves or returns while the player watches. A wanderer is not
-at home meanwhile (the scene leaves out that resident).
+(kind Maniac/Zak/world, game, room, below 65536) and belong to a game;
+doors come from mansionPassages, zakLinks and the generated door maps (a
+door into a map or floor plan leads on to where its doors go). Every
+exported character is out (Wander::Cast, with its game, weight and whether it
+is small); the cast's signature is saved in variable 256 and everyone's place
+two to a variable in 257..398 and 529..599. Off-screen a character is only
+that note: it moves on through a door now and then, sometimes anywhere (by
+place weight: every game an equal share, split over its places; Rules::lean
+could keep some in their own game, 0 now), sometimes to another one, sometimes to a room
+next to the player's (never into it once four are there, small ones aside,
+since those there stay while watched). A scene's residents are out too (the
+scene leaves them out at home; they are visitors wherever they are).
 `engines/scumm/scummverse_wander.inc` shows those in the viewed place as
 visitors, as many as its floor has room for (`Wander::capacity`: one per 40
-pixels of floor, fewer for the characters already there; at most 26 slots):
-Actor_v2 instances outside `_actors` with number 0 (MM V1 numbers objects
-from 30, so more numbered actors would collide). processActors sorts them
-with the actors, walkActors walks them, resetActorBgs restores what they
-covered (they have no strip bits; anyone sharing a restored strip is drawn
-again). They speak as the narrator in their own colour, stand where their
-key and the floor put them (the same after a load), and walk in from a side
-when they arrive while the player watches.
-
+pixels of floor, fewer for the characters already there; small ones always
+fit; at most 26 slots): Actor_v2 instances outside `_actors` with number 0
+(MM V1 numbers objects from 30, so more numbered actors would collide).
+processActors sorts them with the actors, walkActors walks them,
+resetActorBgs restores what they covered (they have no strip bits; anyone
+sharing a restored strip is drawn again). They speak as the narrator in their
+own colour, stand where their key and the floor put them (the same after a
+load), and walk in from a side when they arrive while the player watches.
+Engine tests run with `scummverse_wanderers=false` (residents at home) unless
+they ask for them.

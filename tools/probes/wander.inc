@@ -1,4 +1,5 @@
-	// Wanderers: other games' characters out of their homes, shown where they are.
+	// Wanderers: every other game's character out, mostly in its own game,
+	// shown where it is.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_WANDER_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -18,111 +19,110 @@
 	};
 	auto visitor=[&](int key) { for (int s=0;s<kScummverseVisitorSlots;++s) if (_scummverseVisitors[s].who==key) return s; return -1; };
 	auto shownHere=[&]() { int n=0; for (const ScummverseVisitor &v : _scummverseVisitors) n+=v.who && v.sprite && v.actor && v.actor->_room==_currentRoom && v.actor->_visible; return n; };
+	auto name=[&](int key) { return worldAppearance(key) ? worldAppearance(key)->name : "?"; };
+	auto pixelsOf=[&](const ScummverseVisitor &v) {
+		int mine=0;
+		for (int y=v.drawn.top;y<v.drawn.bottom;++y) for (int x=v.drawn.left;x<v.drawn.right;++x) {
+			const int sx=x-_virtscr[0].xstart;
+			if (sx>=0 && sx<_screenWidth && *_virtscr[0].getPixels(sx,y)>=MAX(16,::Scummverse::WorldBridge::guestFirstSlot())) ++mine;
+		}
+		return mine;
+	};
 	if (!scummverseTravel(2)) error("Cannot return to the mansion");
 	settle(4);
-	// Built and started: forty out, each once, at known places.
-	int32 *who=_scummVars+kScummverseWanderVar, *where=who+W::kMostWanderers;
-	if (WB::places()<60 || WB::cast()<W::kMostWanderers) error("Wanderers' world too small: %d places, %d characters",WB::places(),WB::cast());
-	for (int i=0;i<W::kMostWanderers;++i) {
-		if (!who[i] || !where[i] || !worldAppearance(who[i])) error("Wanderer %d: %d at %d",i,who[i],where[i]);
-		for (int j=0;j<i;++j) if (who[j]==who[i]) error("%s out twice",worldAppearance(who[i])->name);
+	// Everyone out: every installed character somewhere, anywhere at all
+	// (every game an equal share), all over the place.
+	Common::Array<int> keys;
+	for (const auto &c : kWorldCast) {
+		const int key=worldAppearanceKey(c.game,c.guest.costume);
+		if (scummverseCharacterInstalled(c.game,c.guest.costume) && Common::find(keys.begin(),keys.end(),key)==keys.end()) keys.push_back(key);
 	}
-	warning("WANDER %d places, %d characters",WB::places(),WB::cast());
-	// Where they set out: every game an equal share (spread evenly over the
-	// places, the mansion's 37 of 743 had about two of forty).
+	if (WB::places()<60 || WB::cast()!=(int)keys.size() || keys.size()<100) error("Wanderers' world: %d places, %d characters of %d",WB::places(),WB::cast(),(int)keys.size());
 	{
-		int maniac=0, zak=0; bool game[16]={};
-		for (int i=0;i<W::kMostWanderers;++i) {
-			maniac+=W::placeKind(where[i])==W::kManiac; zak+=W::placeKind(where[i])==W::kZak;
-			game[W::placeKind(where[i])==W::kWorld ? 2+W::placeGame(where[i]) : W::placeKind(where[i])]=true;
+		int own=0, maniac=0, zak=0; bool game[16]={};
+		for (int key : keys) {
+			const int at=WB::where(key);
+			if (!at || !scummverseWandering(key)) error("%s is not out",name(key));
+			own+=W::placeKind(at)==W::kWorld && W::placeGame(at)==worldAppearanceGame(key);
+			maniac+=W::placeKind(at)==W::kManiac; zak+=W::placeKind(at)==W::kZak;
+			game[W::placeKind(at)==W::kWorld ? 2+W::placeGame(at) : W::placeKind(at)]=true;
 		}
 		int games=0; for (bool g : game) games+=g;
-		warning("WANDER set out: %d in the mansion, %d in Zak's places, %d elsewhere, in %d games",maniac,zak,W::kMostWanderers-maniac-zak,games);
-		if (games<6) error("Wanderers set out in only %d games",games);
+		warning("WANDER %d places, %d out: %d in their own game, %d in the mansion, %d in Zak's places, in %d games",WB::places(),(int)keys.size(),own,maniac,zak,games);
+		if (own*3>(int)keys.size() || games<11) error("Not all over the place: %d of %d in their own game, %d games",own,(int)keys.size(),games);
 	}
-	// Standing in the kitchen for ten minutes, they come by (to it or next door).
-	{
-		int32 kept[2*W::kMostWanderers]; memcpy(kept,who,sizeof(kept));
-		const int kitchen=W::placeCode(W::kManiac,0,7);
-		int near=0, inside=0;
-		for (int n=0;n<60;++n) {
-			WB::advance(60*10,kitchen);
-			for (int i=0;i<W::kMostWanderers;++i) inside+=where[i]==kitchen;
-		}
-		for (int i=0;i<W::kMostWanderers;++i) near+=W::placeKind(where[i])==W::kManiac;
-		warning("WANDER after ten minutes by the kitchen: %d in the mansion, kitchen visits %d",near,inside);
-		if (!inside) error("Nobody came to the kitchen in ten minutes");
-		memcpy(who,kept,sizeof(kept));
-	}
-	// Guybrush (Monkey Island's lead, at home in room 33) and two more in the
-	// living room.
+	// Saved in the game's variables: the cast's signature and everyone's place.
+	if ((uint32)_scummVars[kScummverseWanderVar]!=WB::signature() || !_scummVars[257]) error("Wanderers not saved in the variables");
 	const int guybrush=worldAppearanceKey(0,1), living=W::placeCode(W::kManiac,0,3);
-	for (int i=1;i<W::kMostWanderers;++i) if (who[i]==guybrush) who[i]=who[0];
-	who[0]=guybrush; where[0]=where[1]=where[2]=living;
-	for (int i=3;i<W::kMostWanderers;++i) if (where[i]==living) where[i]=W::placeCode(W::kManiac,0,1);
-	// At home he is not there while he wanders.
+	if (Common::find(keys.begin(),keys.end(),guybrush)==keys.end()) error("Guybrush not exported");
+	// Guybrush's home (Monkey Island 33) shows none of its own characters at
+	// home: they are out (some may be visiting).
 	if (!scummverseTravelPlace(0,33)) error("Cannot visit Monkey Island: %s",_scummverseWorldNotice.c_str());
 	settle(8);
-	bool home=false;
-	for (int k=0;k<kScummverseGuestSlots;++k) {
-		const WorldGuest *g=worldGuestAt(worldPlaceKey(0,33),k);
-		if (g && worldAppearanceKey(0,g->costume)==guybrush) { home=true; if (derefActor(kScummverseGuestActor+k,"wander home")->_room==_currentRoom) error("Guybrush at home while out wandering"); }
-	}
-	if (!home) error("Guybrush does not live in Monkey Island 33");
+	for (int k=0;k<kScummverseGuestSlots;++k)
+		if (derefActor(kScummverseGuestActor+k,"wander home")->_room==_currentRoom) error("A resident at home in Monkey Island 33 while everyone is out");
 	shot("wander-home.ppm");
-	// In the living room: the three are there, drawn from their frames.
+	// Guybrush and two more in the living room (nobody else there).
+	int four[4]={guybrush,0,0,0};
+	for (int i=1, k=0; i<4 && k<(int)keys.size(); ++k)
+		if (keys[k]!=guybrush && !WB::small(keys[k]) && worldAppearanceGame(keys[k])!=worldAppearanceGame(four[i-1])) four[i++]=keys[k];
+	{
+		int there[64]; const int n=MIN(64,WB::at(living,there,64));
+		for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(W::kManiac,0,1));
+		for (int i=0;i<3;++i) WB::send(four[i],living);
+	}
 	if (!scummverseTourPlace(3,57,59)) error("Cannot enter the living room");
 	settle(8);
 	if (scummverseWanderPlace(_currentRoom)!=living) error("Living room is place %d",scummverseWanderPlace(_currentRoom));
 	if (_scummverseVisitorCapacity<3) error("Living room has room for %d visitors",_scummverseVisitorCapacity);
 	// (The room is wider than the screen: into view beside Dave.)
 	for (int i=0;i<3;++i) {
-		const int s=visitor(who[i]);
-		if (s<0) error("%s not in the living room",worldAppearance(who[i])->name);
+		const int s=visitor(four[i]);
+		if (s<0) error("%s not in the living room",name(four[i]));
 		Actor *a=_scummverseVisitors[s].actor, *dave=derefActor(3,"wander view");
 		const AdjustBoxResult p=a->adjustXYToBeInBox(dave->getRealPos().x+(i-1)*7+(i>0?3:-3),dave->getRealPos().y);
 		a->stopActorMoving(); a->putActor(p.x,p.y,_currentRoom);
 	}
 	settle(2);
 	for (int i=0;i<3;++i) {
-		const int s=visitor(who[i]);
-		if (s<0) error("%s not in the living room",worldAppearance(who[i])->name);
-		const ScummverseVisitor &v=_scummverseVisitors[s];
-		if (!v.sprite || v.drawn.isEmpty()) error("%s not drawn: sprite %d rect %d,%d-%d,%d visible %d room %d/%d costume %d top %d bottom %d",worldAppearance(who[i])->name,v.sprite,v.drawn.left,v.drawn.top,v.drawn.right,v.drawn.bottom,v.actor->_visible,v.actor->_room,_currentRoom,v.actor->_costume,v.actor->_top,v.actor->_bottom);
-		int mine=0;
-		for (int y=v.drawn.top;y<v.drawn.bottom;++y) for (int x=v.drawn.left;x<v.drawn.right;++x) {
-			const int sx=x-_virtscr[0].xstart;
-			if (sx>=0 && sx<_screenWidth && *_virtscr[0].getPixels(sx,y)>=MAX(16,::Scummverse::WorldBridge::guestFirstSlot())) ++mine;
-		}
-		if (mine<100) error("%s drawn with %d pixels",worldAppearance(who[i])->name,mine);
+		const ScummverseVisitor &v=_scummverseVisitors[visitor(four[i])];
+		if (!v.sprite || v.drawn.isEmpty() || pixelsOf(v)<100) error("%s not drawn (%d pixels)",name(four[i]),pixelsOf(v));
 	}
 	if (shownHere()!=3) error("%d visitors shown, expected 3",shownHere());
 	shot("wander-living.ppm");
-	warning("WANDER living room: capacity %d",_scummverseVisitorCapacity);
+	warning("WANDER living room: %s, %s, %s; capacity %d",name(four[0]),name(four[1]),name(four[2]),_scummverseVisitorCapacity);
 	// Someone else arrives while the player watches: it walks in from a side.
-	where[3]=living;
+	WB::send(four[3],living);
 	settle(1);
 	{
-		const int s=visitor(who[3]);
-		if (s<0) error("%s did not arrive",worldAppearance(who[3])->name);
+		const int s=visitor(four[3]);
+		if (s<0) error("%s did not arrive",name(four[3]));
 		const ScummverseVisitor &v=_scummverseVisitors[s];
-		const bool walks=::Scummverse::WorldBridge::guestFrames(v.sprite-1,1,1)>=2 || ::Scummverse::WorldBridge::guestFrames(v.sprite-1,0,1)>=2 || worldBouncer(worldAppearanceGame(who[3]),worldAppearanceCostume(who[3]));
-		if (walks && !v.actor->_moving) error("%s does not walk in",worldAppearance(who[3])->name);
+		const bool walks=::Scummverse::WorldBridge::guestFrames(v.sprite-1,1,1)>=2 || ::Scummverse::WorldBridge::guestFrames(v.sprite-1,0,1)>=2 || worldBouncer(worldAppearanceGame(four[3]),worldAppearanceCostume(four[3]));
+		if (walks && !v.actor->_moving) error("%s does not walk in",name(four[3]));
 		for (int n=0;n<200 && v.actor->_moving;++n) settle(1);
-		if (v.actor->_moving) error("%s never arrives",worldAppearance(who[3])->name);
-		warning("WANDER %s arrived (%s)",worldAppearance(who[3])->name,walks?"walked in":"stands");
+		if (v.actor->_moving) error("%s never arrives",name(four[3]));
+		warning("WANDER %s arrived (%s)",name(four[3]),walks?"walked in":"stands");
 	}
-	// Time passes: the others move on, the living room's stay.
+	// Time passes: the others move on, the living room's stay; nobody more
+	// than a crowd (small ones aside) comes in.
 	{
-		int before[W::kMostWanderers]; for (int i=0;i<W::kMostWanderers;++i) before[i]=where[i];
-		for (int n=0;n<60;++n) scummverseUpdateWanderers(60*30);
-		int moved=0;
-		for (int i=0;i<W::kMostWanderers;++i) {
-			if (before[i]==living && (where[i]!=living || who[i]!=_scummVars[kScummverseWanderVar+i])) error("A living room wanderer left while watched");
-			moved+=before[i]!=where[i];
+		Common::Array<int> before; for (int key : keys) before.push_back(WB::where(key));
+		int most=0;
+		for (int n=0;n<60;++n) {
+			scummverseUpdateWanderers(60*30);
+			int there[64]; const int k=MIN(64,WB::at(living,there,64)); int big=0;
+			for (int i=0;i<k;++i) big+=!WB::small(there[i]);
+			most=MAX(most,big);
 		}
-		if (moved<10) error("Only %d wanderers moved",moved);
+		int moved=0;
+		for (uint i=0;i<keys.size();++i) {
+			if (before[i]==living && WB::where(keys[i])!=living) error("%s left the living room while watched",name(keys[i]));
+			moved+=before[i]!=WB::where(keys[i]);
+		}
+		if (moved<(int)keys.size()/2 || most>4) error("%d of %d moved; %d in the living room at most",moved,(int)keys.size(),most);
 		if (shownHere()<4) error("Visitors went away while watched");
+		warning("WANDER half an hour: %d moved, the living room at most %d",moved,most);
 	}
 	// Walking up to Guybrush: he says one of his lines once, in his colour.
 	{
@@ -163,24 +163,17 @@
 	// The background drawn again under a standing visitor (an object's
 	// state changing there): the visitor is drawn again over it.
 	{
-		const int s=visitor(guybrush);
-		ScummverseVisitor &v=_scummverseVisitors[s];
+		ScummverseVisitor &v=_scummverseVisitors[visitor(guybrush)];
 		v.actor->stopActorMoving(); settle(3);
 		const Common::Rect at=v.drawn;
 		if (at.isEmpty()) error("Guybrush not on screen before the redraw");
 		for (int x=at.left;x<at.right;x+=8) setGfxUsageBit(x/8,USAGE_BIT_DIRTY);
 		_bgNeedsRedraw=true; scummLoop(4);
-		int mine=0;
-		for (int y=at.top;y<at.bottom;++y) for (int x=at.left;x<at.right;++x) {
-			const int sx=x-_virtscr[0].xstart;
-			if (sx>=0 && sx<_screenWidth && *_virtscr[0].getPixels(sx,y)>=MAX(16,::Scummverse::WorldBridge::guestFirstSlot())) ++mine;
-		}
-		if (mine<100) error("Guybrush gone after the background was drawn again (%d pixels)",mine);
+		if (pixelsOf(v)<100) error("Guybrush gone after the background was drawn again (%d pixels)",pixelsOf(v));
 	}
 	// No ghost: someone moved away leaves only the floor behind.
 	{
-		const int s=visitor(who[1]);
-		ScummverseVisitor &v=_scummverseVisitors[s];
+		ScummverseVisitor &v=_scummverseVisitors[visitor(four[1])];
 		settle(2);
 		const Common::Rect was=v.drawn;
 		const int far=v.actor->getRealPos().x<_roomWidth/16 ? _roomWidth/8-6 : 6;
@@ -194,31 +187,41 @@
 			for (const ScummverseVisitor &o : _scummverseVisitors) covered=covered || (o.who && o.drawn.contains(x,y));
 			if (!covered && *_virtscr[0].getPixels(sx,y)!=*_virtscr[0].getBackPixels(sx,y)) ++ghost;
 		}
-		if (ghost) error("%d pixels left behind where %s stood",ghost,worldAppearance(who[1])->name);
+		if (ghost) error("%d pixels left behind where %s stood",ghost,name(four[1]));
 		shot("wander-moved.ppm");
 	}
-	// Saved and loaded: the same wanderers, shown again.
+	// Saved and loaded: everyone where they were, those here shown again.
 	{
-		int32 kept[2*W::kMostWanderers]; memcpy(kept,who,sizeof(kept));
+		Common::Array<int> kept; for (int key : keys) kept.push_back(WB::where(key));
 		Common::String file; _saveLoadDescription="Wanderers";
 		if (!saveState(15,false,file)) error("Save failed");
-		where[5]=W::placeCode(W::kManiac,0,7);
+		WB::send(keys[5],W::placeCode(W::kManiac,0,7));
 		if (!loadState(15,false)) error("Load failed");
 		settle(4);
-		if (memcmp(kept,_scummVars+kScummverseWanderVar,sizeof(kept))) error("Wanderers changed by save and load");
+		for (uint i=0;i<keys.size();++i) if (WB::where(keys[i])!=kept[i]) error("%s moved by save and load",name(keys[i]));
 		if (shownHere()<4) error("%d visitors after loading",shownHere());
 	}
-	// No visitors in the plane, the van's cockpit, or a game's map.
+	// No visitors on the plane or in the van's cockpit.
 	if (scummverseWanderPlace(56) || scummverseWanderPlace(81)) error("Visitors on the plane or in the cockpit");
-	// Taking turns: in time, others set out from home.
+	// Small ones (an animal, a critter) are known and never part of a crowd.
 	{
-		int start[W::kMostWanderers]; memcpy(start,who,sizeof(start));
-		for (int n=0;n<40;++n) scummverseUpdateWanderers(60*150);
-		int fresh=0;
-		for (int i=0;i<W::kMostWanderers;++i) { bool was=false; for (int j=0;j<W::kMostWanderers;++j) was=was||start[j]==who[i]; fresh+=!was; }
-		if (fresh<10) error("Only %d new wanderers set out",fresh);
-		for (int i=0;i<W::kMostWanderers;++i) for (int j=0;j<i;++j) if (who[i]==who[j]) error("Out twice after turns");
-		warning("WANDER %d set out in turn",fresh);
+		const int parrot=worldAppearanceKey(4,72);
+		if (Common::find(keys.begin(),keys.end(),parrot)!=keys.end() && !WB::small(parrot)) error("The parrot is not small");
+		if (WB::small(guybrush)) error("Guybrush is small");
+	}
+	// Standing in the kitchen for ten minutes, they come by (to it or next
+	// door), never more than a crowd.
+	{
+		const int kitchen=W::placeCode(W::kManiac,0,7);
+		int inside=0, most=0;
+		for (int n=0;n<60;++n) {
+			WB::advance(60*10,kitchen);
+			int there[64]; const int k=MIN(64,WB::at(kitchen,there,64)); int big=0;
+			for (int i=0;i<k;++i) big+=!WB::small(there[i]);
+			inside+=k; most=MAX(most,big);
+		}
+		warning("WANDER ten minutes by the kitchen: %d visits, at most %d at once",inside,most);
+		if (!inside || most>4+1) error("Kitchen: %d visits, %d at once",inside,most);
 	}
 	warning("SCUMMVERSE_WANDER_PASS enabled=1");
 	quitGame();

@@ -58,16 +58,6 @@
 	// In other worlds: as tall as a person standing there, in his own game
 	// (Last Crusade) and in another (Monkey Island).
 	const int places[][2]={{3,6},{0,33}};
-	// (Their own characters at home, not out wandering: anyone out from those
-	// games gives their turn to someone from elsewhere.)
-	for (int i=0;i<40;++i) {
-		int32 &who=_scummVars[kScummverseWanderVar+i];
-		if (worldAppearanceGame(who)!=3 && worldAppearanceGame(who)!=0) continue;
-		for (const auto &c : kWorldCast) {
-			const int key=worldAppearanceKey(c.game,c.guest.costume);
-			if (c.game!=3 && c.game!=0 && !scummverseWandering(key)) { who=key; break; }
-		}
-	}
 	for (const auto &place : places) {
 		if (!scummverseTravelPlace(place[0],place[1])) error("Cannot visit %d:%d: %s",place[0],place[1],_scummverseWorldNotice.c_str());
 		settle(8);

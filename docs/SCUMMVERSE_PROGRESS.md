@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0102 (every game an equal share of the wanderers; they come by).
+Active milestone: Phase 1; latest patch 0103 (everyone out, all over the place; small ones; Zak's broom).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2459,3 +2459,50 @@ weight?" Now:
 - Verified (Linux, the user's private copies): the full data suite (41/41);
   test_wander.cpp (ASan/UBSan, TSan); bootstrap, startup, package_ipa. Not
   device-tested.
+
+## Patch 0103 — everyone out, all over the place; small ones; Zak's broom
+
+User (2026-10-20): "Lets do 2 everyone is out", first leaning toward their
+own game, then "I take it back. Make it completely random. I want to see
+them all over the place"; "If one of the wandering characters is small, like a parrot or a
+rat or a crab, can we make that not count toward the 4?"; "Can we make the
+broom from Zak a playable character?"
+- Everyone out: every other-game character whose frames are exported (261
+  with all ten games) is always somewhere; there is no limit of forty and no
+  taking turns. Setting out and going anywhere pick any game, every game an
+  equal share (Rules::lean, the chance to stay in the character's own game,
+  is 0; one number to change); moves through doors, gatherings and the pull
+  toward the player as
+  before (with everyone out, about one in a hundred and twenty-five moves
+  heads for a room next to the player's). A scene's own characters are out
+  too, so its residents are seen as visitors wherever they are (engine probe
+  at the start: 30 of 261 in their own game, 25 in the mansion, 27 in Zak's
+  places, all twelve games visited; standing ten minutes by the kitchen it is
+  at its four most of the time).
+- Saved: the cast's signature in variable 256, everyone's place two to a
+  variable in 257..398 and 529..599 (room for 426); a save from before 0103,
+  a new game or a different cast (games added since) sets everyone out
+  afresh.
+- Small ones: animals and critters (kWorldSmall: parrots, rats, the crab,
+  seagulls, cats, the rabbit, owl, sheep, chicken, ghost pig, critters, both
+  Murrays, the monkeys, Jojo; measured at half a person or less against each
+  game's lead, people exported sitting left out) never count toward the four
+  in the player's room or toward how many a room shows.
+- Zak's broom (his costume 33, read from the player's Zak files like the
+  0096 cast; sandbox costume 52): playable from Zak's box on the character
+  screen, brown, hopping along on its handle (a bouncer like Murray; on the
+  ground at rest), needs no air on Mars; newly written personality and lines.
+- Asked: the alien with the fake nose and glasses is Zak's Caponian (actor 8,
+  costume 38), already playable from Zak's box.
+- Tests: test_wander.cpp rewritten (everyone out anywhere, a lean, weights, the
+  crowd and small ones, saving two to a value; ASan/UBSan, TSan);
+  test_wander_engine.py (everyone out and saved, Monkey Island's residents
+  out, four in the living room, half an hour passing, save and load, ten
+  minutes by the kitchen); test_zak_cast.py (the broom hops and lands);
+  engine tests keep wanderers off (residents at home), so test_world_visit and
+  test_appearance are as in 0100.
+- Verified (Linux, the user's private copies): the full data suite (41/41,
+  run with the lean at three in four; the switch to completely random then
+  re-ran test_wander.cpp and test_wander_engine.py, the only tests with
+  wanderers on); test_zak_cast five times (the broom); bootstrap, startup,
+  package_ipa. Not device-tested.

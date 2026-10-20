@@ -15,9 +15,7 @@
 		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); }
 	};
-	// (Wanderers visit, quietly: their greetings would talk over the guests'.)
-	_scummverseVisitorQuiet=1<<30;
-	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); _scummverseVisitorQuiet=1<<30; scummLoop(4); } };
+	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
 	int visited=0, walked=0, edges=0, guests=0, scaled=0, walkers=0;
 	// Pixels of the guest's palette slots on screen inside its drawn extent.
 	auto guestPixels=[&](Actor *g) {
@@ -31,23 +29,7 @@
 		for (const auto &g : ::Scummverse::WorldCatalog::kWorldGames) { if (index<g.sceneCount) { source=g.scenes[index].room; return; } index-=g.sceneCount; ++game; }
 	};
 	auto at=[&](int k) { int game, source, held; landmark(k,game,source); return scummverseWorldGameOf(_currentRoom,held)==game && held==source; };
-	// A place's own characters out wandering go home before it is checked:
-	// their turn passes to someone living elsewhere.
-	auto home=[&](int game, int room) {
-		using namespace ::Scummverse::WorldCatalog;
-		for (int i=0;i<40;++i) {
-			int32 &who=_scummVars[kScummverseWanderVar+i];
-			bool lives=false;
-			for (const auto &c : kWorldCast) lives=lives || (c.game==game && c.room==room && worldAppearanceKey(c.game,c.guest.costume)==who);
-			if (!lives) continue;
-			for (const auto &c : kWorldCast) {
-				const int key=worldAppearanceKey(c.game,c.guest.costume);
-				if (c.game!=game && !scummverseWandering(key)) { who=key; break; }
-			}
-		}
-	};
 	for (int k=0;k<scummverseWorldSceneCount();++k) {
-		{ int game, source; landmark(k,game,source); home(game,source); }
 		scummverseWorldRequest(((_currentRoom*32+3)<<8)|(160+k)); scummverseUpdateRoaming(4);
 		const int room=_currentRoom;
 		if (!at(k)) {
@@ -113,7 +95,6 @@
 	for (const auto &c : ::Scummverse::WorldCatalog::kWorldCast) {
 		const int gi=c.game, costume=c.guest.costume;
 		if (!::Scummverse::WorldCatalog::worldCostumeGraft(gi,costume) && !::Scummverse::WorldCatalog::worldSideWalk(gi,costume) && !::Scummverse::WorldCatalog::worldLegSwing(gi,costume)) continue;
-		home(gi,c.room);
 		if (!scummverseTravelPlace(gi,c.room)) continue; // Not exported here.
 		settle(2);
 		Actor *guest=derefActor(25+c.slot,"walking guest");
@@ -142,7 +123,6 @@
 	int seatedPoses=0;
 	for (const auto &c : ::Scummverse::WorldCatalog::kWorldCast) {
 		if (!::Scummverse::WorldCatalog::worldSeatPose(c.game,c.guest.costume)) continue;
-		home(c.game,c.room);
 		if (!scummverseTravelPlace(c.game,c.room)) continue;
 		settle(2);
 		Actor *guest=derefActor(25+c.slot,"seated guest");
@@ -163,7 +143,6 @@
 		int game, source; landmark(k,game,source);
 		const int place=::Scummverse::WorldCatalog::worldPlaceKey(game,source);
 		if (!::Scummverse::WorldCatalog::worldGuestAt(place,1)) continue;
-		home(game,source);
 		if (!scummverseTravelLandmark(k)) continue;
 		const ::Scummverse::WorldCatalog::WorldGuest *g=::Scummverse::WorldCatalog::worldGuestAt(place,0);
 		if (scummverseTalkRoom()!=place) error("Dialogue context %d is not place %d",scummverseTalkRoom(),place);
@@ -263,7 +242,6 @@
 		for (int i=0;map && i<map->areaCount;++i) {
 			const int room=map->areas[i].room;
 			if (!scummverseWorldSceneInstalled(g,room)) continue; // Not offered (see the menu).
-			home(g,room);
 			if (!scummverseTravelPlace(g,room)) error("story area %d:%d (%s) not reached: %s",g,room,map->areas[i].name,_scummverseWorldNotice.c_str());
 			int source; if (scummverseWorldGameOf(_currentRoom,source)!=g || source!=room) error("story area %d:%d mounted %d",g,room,source);
 			++areas;
@@ -299,7 +277,6 @@
 	// Every character, in its own room: placed, named, in the talk roster, drawn.
 	int everyone=0, small=0;
 	for (const auto &cast : ::Scummverse::WorldCatalog::kWorldCast) {
-		home(cast.game,cast.room);
 		if (!scummverseTravelPlace(cast.game,cast.room)) error("Character %s: place %d:%d not reached: %s",cast.guest.name,cast.game,cast.room,_scummverseWorldNotice.c_str());
 		settle(6);
 		Actor *guest=derefActor(25+cast.slot,"world guest");

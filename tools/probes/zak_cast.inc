@@ -118,6 +118,30 @@
 			if(annie->_costume!=look.costume || annie->scummversePalette(1)!=worldLookTint(kWorldZakLooks,look.costume) || strcmp((const char *)annie->getActorName(),look.name))
 				error("Annie as %s: costume %d colour %d name %s",look.name,annie->_costume,annie->scummversePalette(1),(const char *)annie->getActorName());
 		}
+		// Zak's broom hops along on its handle and stands at rest.
+		{
+			if(!scummverseSetAppearance(20,worldAppearanceKey(kWorldZakLooks,52))) error("Cannot play as the broom");
+			_scummverseRoamers[20].wait=60000; // (Annie walks only where sent.)
+			if(annie->_room!=_currentRoom) { annie->putActor(30,60,_currentRoom); annie->showActor(); }
+			const AdjustBoxResult to=annie->adjustXYToBeInBox(annie->getRealPos().x>40 ? 10 : 70,annie->getRealPos().y);
+			annie->startWalkActor(to.x,to.y,-1);
+			int highest=0;
+			for(int n=0;n<40 && annie->_moving;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); highest=MAX(highest,(int)annie->getElevation()); }
+			annie->stopActorMoving(); _scummVars[770+20]=0; // (not following anyone either)
+			for(int n=0;n<30 && (annie->_moving || annie->getElevation());++n) { annie->stopActorMoving(); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
+			if(highest<3 || annie->_moving || annie->getElevation()!=0) error("The broom does not hop (highest %d, at rest %d, moving %d)",highest,(int)annie->getElevation(),annie->_moving);
+			// (Beside whoever the camera follows, for the picture.)
+			const Actor *ego=derefActor(VAR(VAR_EGO),"broom picture");
+			const AdjustBoxResult by=annie->adjustXYToBeInBox(ego->getRealPos().x-5,ego->getRealPos().y);
+			annie->putActor(by.x,by.y,_currentRoom); annie->setDirection(270);
+			for(int n=0;n<3;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
+			Common::DumpFile f;
+			if(f.open(Common::Path("/workspace/Maniac-Online/build/zak-broom.ppm"))) {
+				Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
+				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) f.write(_currentPalette+3*(*_virtscr[0].getPixels(x,y)),3);
+			}
+			warning("ZAK CAST broom hops %d high",highest);
+		}
 		scummverseSetAppearance(20,worldAppearanceKey(kWorldZakLooks,44));
 		Common::String file; _saveLoadDescription="Annie as Lou";
 		if(!saveState(8,false,file) || !loadState(8,false)) error("Look save/load failed");

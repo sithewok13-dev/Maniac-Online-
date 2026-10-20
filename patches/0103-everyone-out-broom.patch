@@ -1,0 +1,806 @@
+diff --git a/common/scummverse_wander.cpp b/common/scummverse_wander.cpp
+index b0b8841d..92e35c40 100644
+--- a/common/scummverse_wander.cpp
++++ b/common/scummverse_wander.cpp
+@@ -8,22 +8,18 @@
+ namespace Scummverse {
+ namespace Wander {
+ 
+-int Map::add(int code, int weight) {
++int Map::add(int code, int weight, int group) {
+ 	const int known = find(code);
+ 	if (known >= 0) return known;
+ 	places.push_back(code);
+ 	doors.push_back(std::vector<int>());
+ 	weights.push_back(std::max(1, weight)); total += weights.back();
++	groups.push_back(std::max(0, group));
++	if ((int)members.size() <= groups.back()) members.resize(groups.back() + 1);
++	members[groups.back()].push_back((int)places.size() - 1);
+ 	return (int)places.size() - 1;
+ }
+ 
+-int Map::pick(Random &random) const {
+-	if (places.empty() || total <= 0) return 0;
+-	long at = (long)(random.next() % (uint32_t)total);
+-	for (size_t i = 0; i < places.size(); ++i) if ((at -= weights[i]) < 0) return places[i];
+-	return places.back();
+-}
+-
+ void Map::link(int from, int to) {
+ 	const int a = find(from), b = find(to);
+ 	if (a < 0 || b < 0 || a == b) return;
+@@ -35,9 +31,22 @@ int Map::find(int code) const {
+ 	return -1;
+ }
+ 
+-void Cast::add(int character, int home, int weight) {
++int Map::pick(Random &random) const {
++	if (places.empty() || total <= 0) return 0;
++	long at = (long)(random.next() % (uint32_t)total);
++	for (size_t i = 0; i < places.size(); ++i) if ((at -= weights[i]) < 0) return places[i];
++	return places.back();
++}
++
++int Map::pickIn(int group, Random &random) const {
++	if (group < 0 || group >= (int)members.size() || members[group].empty()) return 0;
++	return places[members[group][random.below((int)members[group].size())]];
++}
++
++void Cast::add(int character, int home, int game, int weight, bool tiny) {
+ 	if (character <= 0 || find(character) >= 0) return;
+-	who.push_back(character); homes.push_back(home); weights.push_back(std::max(1, weight));
++	who.push_back(character); homes.push_back(home); games.push_back(std::max(0, game));
++	weights.push_back(std::max(1, weight)); small.push_back(tiny);
+ }
+ 
+ int Cast::find(int character) const {
+@@ -45,13 +54,10 @@ int Cast::find(int character) const {
+ 	return -1;
+ }
+ 
+-// One of `pool` (cast indices), by the cast's weights.
+-static int pickCast(const std::vector<int> &pool, const Cast &cast, Random &random) {
+-	long total = 0;
+-	for (int c : pool) total += cast.weights[c];
+-	long at = total > 0 ? (long)(random.next() % (uint32_t)total) : 0;
+-	for (size_t k = 0; k < pool.size(); ++k) if ((at -= cast.weights[pool[k]]) < 0) return (int)k;
+-	return (int)pool.size() - 1;
++uint32_t Cast::signature() const {
++	uint32_t h = 2166136261u;
++	for (int c : who) { h ^= (uint32_t)c; h *= 16777619u; }
++	return h | 1;
+ }
+ 
+ uint32_t Random::next() {
+@@ -61,106 +67,73 @@ uint32_t Random::next() {
+ 
+ int Random::below(int n) { return n > 0 ? (int)(next() % (uint32_t)n) : 0; }
+ 
+-bool Wanderers::started() const {
+-	for (int i = 0; i < kMostWanderers; ++i) if (_who[i]) return true;
+-	return false;
++void Wanderers::start(const Cast &cast, const Map &map, const Rules &rules, Random &random) {
++	_where.assign(cast.size(), 0); _clock.assign(cast.size(), -1);
++	if (map.places.empty()) return;
++	for (size_t i = 0; i < cast.size(); ++i) _where[i] = anywhere((int)i, cast, map, rules, random);
+ }
+ 
+-bool Wanderers::out(int character) const { return character && where(character) != 0; }
+-
+-int Wanderers::where(int character) const {
+-	for (int i = 0; character && i < kMostWanderers; ++i) if (_who[i] == character) return _where[i];
+-	return 0;
++void Wanderers::place(int index, int place) {
++	if (index < 0 || index >= (int)_where.size()) return;
++	_where[index] = place; _clock[index] = -1;
+ }
+ 
+-int Wanderers::at(int place, int *characters, int most) const {
++int Wanderers::at(int place, int *indices, int most) const {
+ 	int count = 0;
+-	for (int i = 0; place && i < kMostWanderers; ++i)
+-		if (_who[i] && _where[i] == place) { if (count < most) characters[count] = _who[i]; ++count; }
++	for (size_t i = 0; place && i < _where.size(); ++i)
++		if (_where[i] == place) { if (count < most) indices[count] = (int)i; ++count; }
+ 	return count;
+ }
+ 
+-bool Wanderers::send(int character, int place) {
+-	if (!character || !place || out(character)) return false;
+-	for (int i = 0; i < kMostWanderers; ++i)
+-		if (!_who[i]) { _who[i] = character; _where[i] = place; _clock[i] = -1; return true; }
+-	return false;
++int Wanderers::crowdAt(int place, const Cast &cast) const {
++	int count = 0;
++	for (size_t i = 0; place && i < _where.size(); ++i) count += _where[i] == place && !(i < cast.small.size() && cast.small[i]);
++	return count;
+ }
+ 
+-void Wanderers::start(const Cast &cast, const Map &map, int count, Random &random) {
+-	if (map.places.empty()) return;
+-	std::vector<int> pool;
+-	for (size_t c = 0; c < cast.size(); ++c) if (!out(cast.who[c])) pool.push_back((int)c);
+-	int free = 0;
+-	for (int i = 0; i < kMostWanderers; ++i) free += !_who[i];
+-	count = std::min(count, free);
+-	for (int i = 0; i < count && !pool.empty(); ++i) {
+-		const int pick = pickCast(pool, cast, random);
+-		send(cast.who[pool[pick]], map.pick(random));
+-		pool.erase(pool.begin() + pick);
+-	}
++// In the character's own game most of the time (`lean`), else anywhere (by
++// weight: every game an equal share).
++int Wanderers::anywhere(int index, const Cast &cast, const Map &map, const Rules &rules, Random &random) const {
++	if (random.below(100) < rules.lean && index < (int)cast.games.size())
++		if (const int home = map.pickIn(cast.games[index], random)) return home;
++	return map.pick(random);
+ }
+ 
+-// Where wanderer i goes next: through a door of its place, else (or now and
+-// then) anywhere (by weight), to another wanderer, or toward the player (a
+-// place next to the player's), so they are met wherever the player is; but
+-// not into the player's place once a crowd is there (those there stay while
+-// the player watches, so they would only pile up).
+-int Wanderers::moveFrom(int i, int player, const Map &map, const Rules &rules, Random &random) const {
+-	const int roll = random.below(100);
++// Where character `index` goes next: through a door of its place, else (or
++// now and then) anywhere, to where another one is, or toward the player (a
++// room next to the player's), so they are met wherever the player is; but not
++// into the player's place once a crowd is there (those there stay while the
++// player watches, so they would only pile up); a small one always may.
++int Wanderers::moveFrom(int index, int player, const Cast &cast, const Map &map, const Rules &rules, Random &random) const {
++	const int roll = random.below(1000);
++	const int near = map.find(player), here = map.find(_where[index]);
+ 	int next = 0;
+ 	if (roll < rules.join) {
+-		std::vector<int> others;
+-		for (int j = 0; j < kMostWanderers; ++j) if (j != i && _who[j] && _where[j] != _where[i] && map.find(_where[j]) >= 0) others.push_back(_where[j]);
+-		if (!others.empty()) next = others[random.below((int)others.size())];
+-	}
+-	const int near = map.find(player), here = map.find(_where[i]);
+-	if (next) {
+-		// (Joining another wanderer.)
+-	} else if (roll >= rules.join && roll < rules.join + rules.toward && near >= 0 && !map.doors[near].empty()) {
+-		next = map.places[map.doors[near][random.below((int)map.doors[near].size())]];
++		const int other = random.below((int)_where.size());
++		if (other != index && map.find(_where[other]) >= 0) next = _where[other];
++	} else if (roll < rules.join + rules.toward) {
++		if (near >= 0 && !map.doors[near].empty()) next = map.places[map.doors[near][random.below((int)map.doors[near].size())]];
+ 	} else if (roll >= rules.join + rules.toward + rules.jump && here >= 0 && !map.doors[here].empty()) {
+ 		next = map.places[map.doors[here][random.below((int)map.doors[here].size())]];
+-	} else {
+-		next = map.pick(random);
+ 	}
+-	return next == player && player && at(player, nullptr, 0) >= rules.crowd ? _where[i] : next;
++	if (!next) next = anywhere(index, cast, map, rules, random);
++	if (next != player || !player) return next;
++	return (index < (int)cast.small.size() && cast.small[index]) || crowdAt(player, cast) < rules.crowd ? next : _where[index];
+ }
+ 
+ bool Wanderers::advance(int ticks, int here, const Cast &cast, const Map &map, const Rules &rules, Random &random) {
+ 	if (map.places.empty() || ticks <= 0) return false;
+ 	bool changed = false;
+ 	const int hop = std::max(1, rules.hop);
+-	for (int i = 0; i < kMostWanderers; ++i) {
+-		if (!_who[i]) continue;
++	for (size_t i = 0; i < _where.size(); ++i) {
+ 		if (_clock[i] < 0 || _clock[i] > hop + hop / 2) _clock[i] = hop / 2 + random.below(hop);
+ 		if (_where[i] == here) continue;
+ 		if ((_clock[i] -= ticks) > 0) continue;
+ 		_clock[i] = hop / 2 + random.below(hop);
+-		const int next = moveFrom(i, here, map, rules, random);
++		const int next = moveFrom((int)i, here, cast, map, rules, random);
+ 		if (next != _where[i]) { _where[i] = next; changed = true; }
+ 	}
+-	// Taking turns: one (not where the player is) goes home, and someone not
+-	// out yet, who does not live where the player is, sets out from home.
+-	const int turn = std::max(1, rules.turn);
+-	if (_turnClock < 0 || _turnClock > turn) _turnClock = turn;
+-	if ((_turnClock -= ticks) > 0) return changed;
+-	_turnClock = turn;
+-	// (Nor one who lives there: they would appear at home in front of the
+-	// player.)
+-	std::vector<int> leaving, setting;
+-	for (int i = 0; i < kMostWanderers; ++i) {
+-		if (!_who[i] || _where[i] == here) continue;
+-		const int c = cast.find(_who[i]);
+-		if (here && c >= 0 && cast.homes[c] == here) continue;
+-		leaving.push_back(i);
+-	}
+-	for (size_t c = 0; c < cast.size(); ++c) if (!out(cast.who[c]) && cast.homes[c] != here && cast.homes[c]) setting.push_back((int)c);
+-	if (leaving.empty() || setting.empty()) return changed;
+-	const int i = leaving[random.below((int)leaving.size())];
+-	const int c = setting[pickCast(setting, cast, random)];
+-	_who[i] = cast.who[c]; _where[i] = cast.homes[c]; _clock[i] = -1;
+-	return true;
++	return changed;
+ }
+ 
+ int capacity(int floorWidth, int residents, int pool, int spacing) {
+@@ -178,43 +151,63 @@ struct Bridge {
+ 	Wander::Cast cast;
+ 	Wander::Random random;
+ 	Wander::Rules rules;
+-	int *who = nullptr, *where = nullptr;
+-	std::vector<Wander::Wanderers> wanderers; // one, once bound
++	Wander::Wanderers wanderers;
+ };
+ Bridge &bridge() { static Bridge b; return b; }
+ } // End of anonymous namespace
+ 
+ void reset(unsigned seed) {
+ 	Bridge &b = bridge();
+-	b.map = Wander::Map(); b.cast = Wander::Cast(); b.wanderers.clear();
+-	b.random = Wander::Random(seed); b.rules = Wander::Rules(); b.who = b.where = nullptr;
++	b.map = Wander::Map(); b.cast = Wander::Cast(); b.wanderers = Wander::Wanderers();
++	b.random = Wander::Random(seed); b.rules = Wander::Rules();
+ }
+-void addPlace(int code, int weight) { if (code > 0) bridge().map.add(code, weight); }
++void addPlace(int code, int weight, int group) { if (code > 0 && code < 65536) bridge().map.add(code, weight, group); }
+ void addDoor(int from, int to) { bridge().map.link(from, to); }
+-void addCast(int character, int home, int weight) { bridge().cast.add(character, home, weight); }
++void addCast(int character, int home, int group, int weight, bool small) { bridge().cast.add(character, home, group, weight, small); }
+ int places() { return (int)bridge().map.places.size(); }
+ int cast() { return (int)bridge().cast.size(); }
+-void bind(int *who, int *where) {
+-	Bridge &b = bridge();
+-	if (b.who == who && b.where == where && !b.wanderers.empty()) return;
+-	b.who = who; b.where = where; b.wanderers.clear();
+-	if (who && where) b.wanderers.push_back(Wander::Wanderers(who, where));
+-}
+-void start(int count) {
++void start() {
+ 	Bridge &b = bridge();
+-	if (!b.wanderers.empty()) b.wanderers[0].start(b.cast, b.map, count, b.random);
++	b.wanderers.start(b.cast, b.map, b.rules, b.random);
+ }
++bool started() { return bridge().wanderers.started(); }
+ bool advance(int ticks, int here) {
+ 	Bridge &b = bridge();
+-	return !b.wanderers.empty() && b.wanderers[0].advance(ticks, here, b.cast, b.map, b.rules, b.random);
++	return b.wanderers.started() && b.wanderers.advance(ticks, here, b.cast, b.map, b.rules, b.random);
+ }
+ int at(int place, int *characters, int most) {
+ 	Bridge &b = bridge();
+-	return b.wanderers.empty() ? 0 : b.wanderers[0].at(place, characters, most);
++	std::vector<int> indices(std::max(0, most));
++	const int count = b.wanderers.at(place, indices.data(), most);
++	for (int i = 0; i < std::min(count, most); ++i) characters[i] = b.cast.who[indices[i]];
++	return count;
+ }
+ int where(int character) {
+ 	Bridge &b = bridge();
+-	return b.wanderers.empty() ? 0 : b.wanderers[0].where(character);
++	return b.wanderers.where(b.cast.find(character));
++}
++bool small(int character) {
++	Bridge &b = bridge();
++	const int c = b.cast.find(character);
++	return c >= 0 && b.cast.small[c];
++}
++bool send(int character, int place) {
++	Bridge &b = bridge();
++	const int c = b.cast.find(character);
++	if (c < 0 || place <= 0 || !b.wanderers.started()) return false;
++	b.wanderers.place(c, place);
++	return true;
++}
++unsigned signature() { return bridge().cast.signature(); }
++int packed(int index) {
++	Bridge &b = bridge();
++	return (int)(((uint32_t)b.wanderers.where(2 * index) & 0xFFFF) | ((uint32_t)b.wanderers.where(2 * index + 1) & 0xFFFF) << 16);
++}
++void unpack(int index, int value) {
++	Bridge &b = bridge();
++	b.wanderers.place(2 * index, (int)((uint32_t)value & 0xFFFF));
++	b.wanderers.place(2 * index + 1, (int)((uint32_t)value >> 16));
+ }
++int packedCount() { return ((int)bridge().cast.size() + 1) / 2; }
+ } // End of namespace WanderBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_wander.h b/common/scummverse_wander.h
+index 1d93f616..a2ef8e21 100644
+--- a/common/scummverse_wander.h
++++ b/common/scummverse_wander.h
+@@ -1,17 +1,17 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+-// Scummverse wanderers: characters from the other games out of their home
+-// rooms, roaming every place there is (Maniac Mansion's rooms, Zak's, the
+-// other games'), a few dozen at a time, taking turns (the user: "more actors
+-// roaming outside their home games. It'll be more interesting to find them in
+-// odd places"). Off-screen a wanderer is only a note, who and where: now and
+-// then it moves on through a door of its place, sometimes somewhere far away
+-// (the places the player is most often in weigh more), sometimes to where
+-// another wanderer is (so a few gather), sometimes toward the player (so
+-// they are met wherever the player goes); every so often
+-// one goes home and someone else sets out. The wanderers in the player's
+-// place stay put while the player is there. The game shows those
+-// (engines/scumm/scummverse_wander.inc). Plain types; the same seed moves
+-// them the same way.
++// Scummverse wanderers: every character from the other games is out, roaming
++// every place there is (Maniac Mansion's rooms, Zak's, the other games'), so
++// they turn up in odd places (the user: "more actors roaming outside their
++// home games. It'll be more interesting to find them in odd places";
++// "everyone is out"; "Make it completely random. I want to see them all over
++// the place"). Off-screen a character is only
++// a note of where it is: now and then it moves on through a door of its
++// place, sometimes somewhere far away (anywhere, every game an equal share), sometimes to where another one is (so a few gather),
++// sometimes to a room next to the player's (so they are met wherever the
++// player goes). Those in the player's place stay while the player watches,
++// and nobody moves in once a crowd is there (small ones aside). The game
++// shows those in the viewed place (engines/scumm/scummverse_wander.inc).
++// Plain types; the same seed moves them the same way.
+ #ifndef COMMON_SCUMMVERSE_WANDER_H
+ #define COMMON_SCUMMVERSE_WANDER_H
+ 
+@@ -32,67 +32,65 @@ struct Random {
+ 	int below(int n); // 0..n-1 (0 when n <= 0)
+ };
+ 
+-// The places and the doors between them. A place's weight is how often,
+-// against the others, a wanderer setting out or going anywhere picks it.
++// The places and the doors between them. A place belongs to a game (its
++// group) and weighs how often, against the others, it is picked by someone
++// going anywhere.
+ struct Map {
+ 	std::vector<int> places;             // place codes
+ 	std::vector<std::vector<int>> doors; // per place, the places (indices) its doors lead to
+ 	std::vector<int> weights;            // per place (1 or more)
++	std::vector<int> groups;             // per place, its game
++	std::vector<std::vector<int>> members; // per game, its places (indices)
+ 	long total = 0;                      // of the weights
+-	int add(int code, int weight = 1);   // its index (added if new; a known place keeps its weight)
++	int add(int code, int weight = 1, int group = 0); // its index (added if new; a known place stays as it was)
+ 	void link(int from, int to);         // a door between two added places (codes), once
+ 	int find(int code) const;            // its index, or -1
+ 	int pick(Random &random) const;      // a place code, by weight (0: none)
++	int pickIn(int group, Random &random) const; // one of a game's places (0: it has none)
+ };
+ 
+-// How they move, in game ticks (60 a second).
++// How they move, in game ticks (60 a second); chances in thousandths of a move.
+ struct Rules {
+-	int hop = 60 * 90;   // a wanderer moves on about this often (half as long to half as long again)
+-	int turn = 60 * 150; // one goes home and someone else sets out this often
+-	int jump = 12;       // percent of moves that go anywhere at all
+-	int join = 8;        // percent of moves to where another wanderer is
+-	int toward = 5;      // percent of moves to a place next to the player's
+-	int crowd = 4;       // nobody moves into the player's place once this many are there
++	int hop = 60 * 90;   // each moves on about this often (half as long to half as long again)
++	int join = 80;       // to where another one is
++	int toward = 8;      // to a room next to the player's (with everyone out, a few a minute)
++	int jump = 120;      // anywhere (every game an equal share)
++	int lean = 0;        // percent of setting out and jumps kept in the character's own game (the user: "Make it completely random")
++	int crowd = 4;       // nobody moves into the player's place once this many are there (small ones aside)
+ };
+ 
+-// Everyone who may wander: each character, its home place (0: none known)
+-// and weight (how often, against the others, it is the one to set out; a
+-// game's characters share one game's worth).
++// Everyone who wanders: each character, its home place (0: none known), its
++// game, weight (how often, against the others, it is the one to set out; a
++// game's characters share one game's worth) and whether it is small (an
++// animal or a critter: never part of a crowd).
+ struct Cast {
+-	std::vector<int> who, homes, weights;
+-	void add(int character, int home, int weight = 1); // once each; nobody 0
+-	int find(int character) const;                       // its index, or -1
++	std::vector<int> who, homes, games, weights;
++	std::vector<bool> small;
++	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false); // once each; nobody 0
++	int find(int character) const;     // its index, or -1
+ 	size_t size() const { return who.size(); }
++	uint32_t signature() const;        // the same cast in the same order, the same number (never 0)
+ };
+ 
+-// The wanderers, kept in the game's saved arrays (kMostWanderers each): who
+-// (a character's number, 0: nobody) and where (a place code).
++// Where everyone in the cast is (by cast index).
+ class Wanderers {
+ public:
+-	Wanderers(int *who, int *where) : _who(who), _where(where), _clock(kMostWanderers, -1), _turnClock(-1) {}
+-	// Sets out up to `count` of the cast not out yet (as many as there are
+-	// free places among the wanderers), each at a random place of the map.
+-	void start(const Cast &cast, const Map &map, int count, Random &random);
+-	bool started() const;
+-	// Time passes: the wanderers elsewhere move on now and then; one goes
+-	// home and another, not out yet, sets out from home. Nobody in the place
+-	// `here` moves or goes home, and nobody living there goes home or sets
+-	// out (the player is watching). True when anyone moved, went home or set
+-	// out.
++	// Everyone out, anywhere (in their own game as often as `lean` says).
++	void start(const Cast &cast, const Map &map, const Rules &rules, Random &random);
++	bool started() const { return !_where.empty(); }
++	// Time passes: those elsewhere move on now and then. Nobody in the place
++	// `here` moves. True when anyone moved.
+ 	bool advance(int ticks, int here, const Cast &cast, const Map &map, const Rules &rules, Random &random);
+-	bool out(int character) const;
+-	int where(int character) const; // its place, or 0
+-	// The wanderers in a place, in order (at most `most`); how many there are.
+-	int at(int place, int *characters, int most) const;
+-	// Sets one out somewhere (a test, or the game placing one): false when
+-	// all are out already or it is out.
+-	bool send(int character, int place);
++	int where(int index) const { return index >= 0 && index < (int)_where.size() ? _where[index] : 0; }
++	void place(int index, int place);  // puts one somewhere (a save loaded, a test)
++	// Cast indices of those in a place, in order (at most `most`); how many.
++	int at(int place, int *indices, int most) const;
++	int crowdAt(int place, const Cast &cast) const; // those there but the small ones
+ 
+ private:
+-	int moveFrom(int i, int here, const Map &map, const Rules &rules, Random &random) const;
+-	int *_who, *_where;
+-	std::vector<int> _clock; // ticks until each moves on (-1: not counted yet)
+-	int _turnClock;
++	int moveFrom(int index, int player, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
++	int anywhere(int index, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
++	std::vector<int> _where, _clock; // per cast index: its place; ticks until it moves on (-1: not counted yet)
+ };
+ 
+ } // End of namespace Wander
+diff --git a/common/scummverse_wander_engine.h b/common/scummverse_wander_engine.h
+index 28315aca..4bf797da 100644
+--- a/common/scummverse_wander_engine.h
++++ b/common/scummverse_wander_engine.h
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ // The game's side of the wanderers (common/scummverse_wander.h): places as
+-// numbers, and one set of wanderers kept in the game's saved arrays. Plain
++// numbers, and everyone's place packed into the game's saved variables. Plain
+ // types only (no library headers), for the engine
+ // (engines/scumm/scummverse_wander.inc).
+ #ifndef COMMON_SCUMMVERSE_WANDER_ENGINE_H
+@@ -10,15 +10,13 @@ namespace Scummverse {
+ namespace Wander {
+ 
+ // A place: a room of Maniac Mansion, of Zak McKracken or of another game
+-// (which), as one positive number (0: nowhere).
++// (which), as one positive number below 65536 (0: nowhere).
+ enum PlaceKind { kManiac = 0, kZak = 1, kWorld = 2 };
+ inline int placeCode(int kind, int game, int room) { return 1 + kind * 16384 + game * 1024 + room; }
+ inline int placeKind(int code) { return (code - 1) / 16384; }
+ inline int placeGame(int code) { return (code - 1) % 16384 / 1024; }
+ inline int placeRoom(int code) { return (code - 1) % 1024; }
+ 
+-static const int kMostWanderers = 40;
+-
+ // How many visitors a place shows at once: one for about every `spacing`
+ // pixels of its floor's width, fewer for those living there, at most `pool`.
+ int capacity(int floorWidth, int residents, int pool, int spacing = 40);
+@@ -27,30 +25,38 @@ int capacity(int floorWidth, int residents, int pool, int spacing = 40);
+ 
+ namespace WanderBridge {
+ 
+-// Forgets the places, the cast and the clocks (a game starting); moves are
+-// drawn from `seed`.
++// Forgets the places, the cast and where they are (a game starting); moves
++// are drawn from `seed`.
+ void reset(unsigned seed);
+-// A place, picked `weight` times as often as one of weight 1 by wanderers
+-// setting out or going anywhere.
+-void addPlace(int code, int weight = 1);
++// A place of a game (`group`), picked `weight` times as often as one of
++// weight 1 by someone going anywhere.
++void addPlace(int code, int weight = 1, int group = 0);
+ void addDoor(int from, int to); // between added places
+-// A character who may wander, living at `home` (0: unknown); picked to set
+-// out `weight` times as often as one of weight 1.
+-void addCast(int character, int home, int weight = 1);
++// A character who wanders, living at `home` (0: unknown) in game `group`;
++// picked `weight` times as often as one of weight 1; a small one (an
++// animal, a critter) never counts toward a crowd.
++void addCast(int character, int home, int group = 0, int weight = 1, bool small = false);
+ int places();
+ int cast();
+-// The game's saved arrays of who and where (Wander::kMostWanderers each).
+-void bind(int *who, int *where);
+-// Up to `count` of the cast not out yet set out (into free places) at
+-// random places.
+-void start(int count);
+-// Time passes (ticks, 60 a second); nobody in the place `here` moves, goes
+-// home, or (living there) sets out. True when anyone moved.
++// Everyone out afresh (at places by the rules).
++void start();
++bool started();
++// Time passes (ticks, 60 a second); nobody in the place `here` moves. True
++// when anyone moved.
+ bool advance(int ticks, int here);
+-// The wanderers in a place, in order (at most `most`); how many there are.
++// The characters in a place, in order (at most `most`); how many there are.
+ int at(int place, int *characters, int most);
+-// Where a character is out, or 0 (at home, or never out).
++// Where a character is (0: not in the cast).
+ int where(int character);
++bool small(int character);
++// Puts a character somewhere (a test; false when not in the cast or no place).
++bool send(int character, int place);
++// Saved in the game's variables: the cast's signature (a different cast:
++// everyone out afresh), then two places to a value.
++unsigned signature();
++int packed(int index);                // places 2*index and 2*index+1
++void unpack(int index, int value);
++int packedCount();                    // values needed
+ 
+ } // End of namespace WanderBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 6397db72..809c34c1 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -427,6 +427,11 @@ static const WorldGuest kWorldZakCast[] = {
+ 	{41, "Zaire villager",
+ 	 "a resident of the Zaire village, curious about visitors and knowledgeable about the local jungle; friendly and practical, speaking natural English without a caricature accent", 9,
+ 	 {"Welcome. Mind the jungle paths.", "Visitors always ask that.", "The shaman would know better."}},
++	// (0103, the user: "Can we make the broom from Zak a playable character?"
++	// Zak's costume 33, a broom standing on its handle; it hops along.)
++	{52, "Broom",
++	 "a broom from Zak McKracken's world that has somehow got up and started walking about on its own handle; tidy-minded, bristly and proud, convinced every room it enters needs a good sweep, and a little touchy about being mistaken for a mop", 9,
++	 {"Mind the dust. I just did this floor.", "I am not a mop. Never call me a mop.", "Every room needs a good sweep. This one especially."}},
+ };
+ // Maniac Mansion's rooms and Zak's places in the Other worlds menu travel by
+ // worldPlaceRequest under these game numbers (the looks' pseudo games), each
+@@ -434,7 +439,7 @@ static const WorldGuest kWorldZakCast[] = {
+ static const int kWorldManiacPlaces = kWorldManiacLooks, kWorldZakPlaces = kWorldZakLooks;
+ // The colour each one's costume is drawn in (the original scripts').
+ struct WorldTint { short costume, color; };
+-static const WorldTint kWorldZakTints[] = {{44, 1}, {45, 3}, {50, 9}, {46, 9}, {47, 9}, {42, 4}, {43, 1}, {48, 9}, {49, 14}, {41, 9}};
++static const WorldTint kWorldZakTints[] = {{44, 1}, {45, 3}, {50, 9}, {46, 9}, {47, 9}, {42, 4}, {43, 1}, {48, 9}, {49, 14}, {41, 9}, {52, 9}};
+ inline int worldLookTint(int game, int costume) {
+ 	if (game == kWorldZakLooks)
+ 		for (const auto &t : kWorldZakTints) if (t.costume == costume) return t.color;
+@@ -455,6 +460,7 @@ static const WorldAirless kWorldAirless[] = {
+ 	{kWorldManiacLooks, 16}, {kWorldManiacLooks, 15},       // the Purple Meteor, the Meteor Police (his helmet)
+ 	{2, 130},                                               // Chaos
+ 	{kWorldZakLooks, 49},                                   // the Skolarian (a projection)
++	{kWorldZakLooks, 52},                                   // the broom
+ };
+ inline bool worldBreathes(int game, int costume) {
+ 	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
+@@ -473,11 +479,31 @@ inline bool worldHovers(int game, int costume) {
+ // the head above it lifts off the jaw every other step (their own talking
+ // frames barely move at this size).
+ struct WorldBouncer { short game, costume, jaw; };
+-static const WorldBouncer kWorldBouncers[] = {{9, 49, 54}, {9, 949, 54}};
++static const WorldBouncer kWorldBouncers[] = {{9, 49, 54}, {9, 949, 54}, {kWorldZakLooks, 52, 0}}; // (Zak's broom hops on its handle)
+ inline const WorldBouncer *worldBouncer(int game, int costume) {
+ 	for (const auto &b : kWorldBouncers) if (b.game == game && b.costume == costume) return &b;
+ 	return nullptr;
+ }
++// Small animals and critters (half a person's height or less, measured from
++// the exported frames against each game's lead): wandering, they never count
++// toward a crowd or a room's room for visitors (the user: "If one of the
++// wandering characters is small, like a parrot or a rat or a crab, can we
++// make that not count toward the 4?").
++struct WorldSmall { short game, costume; };
++static const WorldSmall kWorldSmall[] = {
++	{0, 42}, {0, 52}, {0, 31}, {0, 55}, {0, 6},             // Monkey Island: rats, seagull, ghost pig, monkey
++	{1, 39}, {1, 12}, {1, 73}, {1, 76},                     // Monkey Island 2: parrot, map bird, Muenster Monster, Jojo
++	{2, 169}, {2, 14}, {2, 13}, {2, 65},                    // Loom: seagull, rabbit, owl, sheep
++	{4, 72}, {4, 99}, {4, 61},                              // Fate of Atlantis: parrot, crab, jungle rodent
++	{5, 95},                                                // Day of the Tentacle: colonial cat
++	{6, 48}, {6, 51},                                       // Sam & Max: kitten, courier cat
++	{8, 183}, {8, 202}, {8, 113},                           // The Dig: critter, cliff creature, sea turtle
++	{9, 49}, {9, 949}, {9, 67}, {9, 202},                   // Curse: Murray (both), feral chicken, monkey deckhand
++};
++inline bool worldSmall(int game, int costume) {
++	for (const auto &s : kWorldSmall) if (s.game == game && s.costume == costume) return true;
++	return false;
++}
+ // Characters who wear a glass dome everywhere (the Meteor Police officer, as
+ // in the user's reference picture), on Mars too: it is his helmet.
+ struct WorldDomed { short game, costume; };
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 0e0bf4b8..a783ebef 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1397,7 +1397,7 @@ public:
+ 	// Other-world doors: the player's walk targets (scummverse_world_play.inc).
+ 	void scummverseWorldTap(int actor, int x, int y);
+  // Zak's costumes imported as sandbox costumes 35.. (34 is Zak's own).
+- static const int kScummverseFirstZakCostume = 35, kScummverseZakCostumes = 17;
++ static const int kScummverseFirstZakCostume = 35, kScummverseZakCostumes = 18;
+  bool scummverseSeated(int id) const;
+  bool scummversePlaneScene() const { return _scummverseRoaming && _currentRoom==56; }
+  // Cabin chairs held by riders (bit n = seat slot n+1), shown empty.
+@@ -1707,10 +1707,10 @@ protected:
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
+ 	int _scummverseAvatarHop[kScummverseManiacActors] = {};
+-	// Wanderers (scummverse_wander.inc): characters from the other games out
+-	// of their home rooms, roaming every place (common/scummverse_wander.h).
+-	// Who (appearance keys) and where (place codes) are saved in variables
+-	// kScummverseWanderVar.. (who) and the next kMostWanderers (where). Those
++	// Wanderers (scummverse_wander.inc): every character from the other games
++	// out of their home rooms, roaming every place (common/scummverse_wander.h).
++	// The cast's signature is saved in variable kScummverseWanderVar, everyone's
++	// place after it (two to a variable; scummverse_wander.inc). Those
+ 	// in the viewed place are shown as visitors: actors of their own outside
+ 	// _actors (number 0: never taken for one of Maniac's objects, whose
+ 	// numbers start where the actors end), drawn from their exported frames.
+@@ -1732,6 +1732,7 @@ protected:
+ 	uint32 _scummverseVisitorsSig = 0;  // who was in the viewed place
+ 
+ 	bool _scummverseWanderBuilt = false, _scummverseWanderersOn = true;
++	bool _scummverseWanderRead = false; // everyone's place read from the variables (cleared on a load)
+ 	bool _scummverseVisitorsLeft = false; // cleared: chat is told they left
+ 	int _scummverseVisitorCamera = -1; // the camera when visitors were last drawn
+ 	void scummverseWanderBuild();
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 55c8b36f..1091e2e8 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -14,8 +14,15 @@
+ namespace WanderBridge = ::Scummverse::WanderBridge;
+ namespace Wander = ::Scummverse::Wander;
+ 
+-// Out at once (the user's number).
+-static const int kWanderCount = 40;
++// Most visitors a place has in view at once (a crowd of them, gathered).
++static const int kVisitorsAtMost = 64;
++// Everyone's place is saved two to a variable after the cast's signature
++// (kScummverseWanderVar): variables 257..398, then 529..599 (426 characters).
++static const int kWanderSavedFirst[] = {257, 529}, kWanderSavedCount[] = {142, 71};
++static int wanderSavedVar(int index) {
++	return index < kWanderSavedCount[0] ? kWanderSavedFirst[0] + index :
++		index < kWanderSavedCount[0] + kWanderSavedCount[1] ? kWanderSavedFirst[1] + index - kWanderSavedCount[0] : -1;
++}
+ // Every game (the mansion, Zak's world, each other game) has an equal share
+ // of the wanderers, whatever its size: a place weighs kWanderGameShare over
+ // its game's places, a character the same over its game's characters.
+@@ -52,8 +59,10 @@ void ScummEngine::scummverseWanderBuild() {
+ 	if (!_scummverseWanderersOn) return;
+ 	WanderBridge::reset(_rnd.getRandomNumber(0x7FFFFFFE) + 1);
+ 	// One game's places, each weighing an equal share of the game.
+-	auto addGame = [](const Common::Array<int> &places) {
+-		for (int code : places) WanderBridge::addPlace(code, MAX<int>(1, kWanderGameShare / (int)places.size()));
++	// (Its game: the mansion 0, Zak's world 1, another game 2 + its number.)
++	int group = 0;
++	auto addGame = [&group](const Common::Array<int> &places) {
++		for (int code : places) WanderBridge::addPlace(code, MAX<int>(1, kWanderGameShare / (int)places.size()), group);
+ 	};
+ 	auto maniac = [](int room) { return Wander::placeCode(Wander::kManiac, 0, room); };
+ 	Common::Array<int> places;
+@@ -62,7 +71,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 	for (const MansionPassage &p : mansionPassages) if (!p.transit) WanderBridge::addDoor(maniac(p.room), maniac(p.destination));
+ 	if (scummverseMountZak()) {
+ 		auto zak = [](int room) { return Wander::placeCode(Wander::kZak, 0, room); };
+-		places.clear();
++		places.clear(); group = 1;
+ 		for (int room = 53; room < ScummverseContent::kRoomCount; ++room) if (wanderZakRoom(room)) places.push_back(zak(room));
+ 		for (const auto &scene : zakLogicalScenes) if (scene.room >= ScummverseContent::kRoomCount) places.push_back(zak(scene.room));
+ 		addGame(places);
+@@ -79,7 +88,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 			if (!wanderWorldRoom(game, room) || Common::find(places.begin(), places.end(), code) != places.end() || !installed(room)) return;
+ 			places.push_back(code);
+ 		};
+-		places.clear();
++		places.clear(); group = 2 + game;
+ 		for (int i = 0; i < kWorldGames[game].sceneCount; ++i) take(kWorldGames[game].scenes[i].room);
+ 		for (int i = 0; map && i < map->roomCount; ++i) take(map->rooms[i].room);
+ 		addGame(places);
+@@ -97,7 +106,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 	for (const auto &cast : kWorldCast)
+ 		if (cast.game < 64 && scummverseCharacterInstalled(cast.game, cast.guest.costume))
+ 			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room),
+-				MAX(1, kWanderGameShare / games[cast.game]));
++				2 + cast.game, MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 
+@@ -140,18 +149,23 @@ void ScummEngine::scummverseClearVisitors() {
+ // (on arriving there, as many as its floor has room for; later arrivals
+ // walk in while there is room).
+ void ScummEngine::scummverseUpdateWanderers(int delta) {
+-	if (!_scummverseRoaming || !_scummVars || _numVariables < kScummverseWanderVar + 2 * Wander::kMostWanderers) return;
++	if (!_scummverseRoaming || !_scummVars || _numVariables <= kWanderSavedFirst[1] + kWanderSavedCount[1]) return;
+ 	scummverseWanderBuild();
+ 	if (!_scummverseWanderersOn) return;
+-	int32 *who = _scummVars + kScummverseWanderVar, *where = who + Wander::kMostWanderers;
+-	WanderBridge::bind(who, where);
+-	// Out for the first time, or more of the cast than are out (games
+-	// exported since): up to forty.
+-	int out = 0;
+-	for (int i = 0; i < Wander::kMostWanderers; ++i) out += who[i] != 0;
+-	if (out < kWanderCount && out < WanderBridge::cast()) WanderBridge::start(kWanderCount);
++	// Everyone's place, as saved (a game loaded: _scummverseWanderRead
++	// cleared); a new game, a save from before 0103 or a different cast
++	// (games added since): everyone out afresh.
++	const int values = WanderBridge::packedCount();
++	if (!_scummverseWanderRead) {
++		WanderBridge::start();
++		if ((uint32)_scummVars[kScummverseWanderVar] == WanderBridge::signature())
++			for (int i = 0; i < values && wanderSavedVar(i) >= 0; ++i) WanderBridge::unpack(i, _scummVars[wanderSavedVar(i)]);
++		_scummverseWanderRead = true;
++	}
+ 	const int here = scummverseWanderPlace(_currentRoom);
+ 	if (delta > 0) WanderBridge::advance(delta, here);
++	_scummVars[kScummverseWanderVar] = (int32)WanderBridge::signature();
++	for (int i = 0; i < values && wanderSavedVar(i) >= 0; ++i) _scummVars[wanderSavedVar(i)] = WanderBridge::packed(i);
+ 	_scummverseVisitorQuiet = MAX(0, _scummverseVisitorQuiet - delta);
+ 	const bool entering = here != _scummverseVisitorsPlace || _currentRoom != _scummverseVisitorsRoom;
+ 	if (entering) {
+@@ -173,24 +187,26 @@ void ScummEngine::scummverseUpdateWanderers(int delta) {
+ 		_scummverseVisitorCapacity = Wander::capacity(floor, residents, kScummverseVisitorSlots, kVisitorSpacing);
+ 	}
+ 	if (!here) return;
+-	int there[Wander::kMostWanderers];
+-	const int count = MIN<int>(Wander::kMostWanderers, WanderBridge::at(here, there, Wander::kMostWanderers));
++	int there[kVisitorsAtMost];
++	const int count = MIN<int>(kVisitorsAtMost, WanderBridge::at(here, there, kVisitorsAtMost));
+ 	uint32 sig = (uint32)here;
+ 	for (int i = 0; i < count; ++i) sig = sig * 31 + (uint32)there[i];
+ 	if (!entering && sig == _scummverseVisitorsSig) return;
+ 	_scummverseVisitorsSig = sig;
+ 	// Gone from here (a save loaded): away. Then the new ones, while there
+-	// is room.
++	// is room (small ones, animals and critters, always fit).
+ 	int shown = 0;
+ 	for (ScummverseVisitor &v : _scummverseVisitors) {
+ 		if (!v.who) continue;
+ 		bool still = false;
+ 		for (int i = 0; i < count; ++i) still = still || there[i] == v.who;
+-		if (still) { ++shown; continue; }
++		if (still) { shown += !WanderBridge::small(v.who); continue; }
+ 		if (v.actor && v.actor->_room) { v.actor->stopActorMoving(); v.actor->hideActor(); v.actor->_room = 0; }
+ 		v.who = 0; v.sprite = 0; v.placed = false; v.frames.clear();
+ 	}
+-	for (int i = 0; i < count && shown < _scummverseVisitorCapacity; ++i) {
++	for (int i = 0; i < count; ++i) {
++		const bool tiny = WanderBridge::small(there[i]);
++		if (!tiny && shown >= _scummverseVisitorCapacity) continue;
+ 		bool known = false;
+ 		for (const ScummverseVisitor &v : _scummverseVisitors) known = known || v.who == there[i];
+ 		if (known) continue;
+@@ -205,7 +221,7 @@ void ScummEngine::scummverseUpdateWanderers(int delta) {
+ 		if (v.frames.empty() || !WorldBridge::spriteParses(v.frames.data(), v.frames.size())) { v.frames.clear(); continue; }
+ 		v.who = there[i];
+ 		scummversePlaceVisitor(s, !entering);
+-		++shown;
++		shown += !tiny;
+ 	}
+ }
+ 
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 120824cf..4582acd5 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -389,6 +389,7 @@ void ScummEngine::scummverseRestoreWorld() {
+ 	_scummverseCharactersKey.clear(); // Characters playing someone else are mounted again.
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) _scummverseAvatarSprite[id] = 0;
+ 	scummverseClearVisitors(); // (Visitors are placed again, as the save has them.)
++	_scummverseWanderRead = false; // (Everyone's place, read again.)
+ 	int source;
+ 	if (scummverseWorldGameOf(_currentRoom, source) < 0) return;
+ 	_scummverseWorldRoom = 0;
+@@ -1055,6 +1056,12 @@ void ScummEngine::scummverseUpdateGuests(int delta, uint64 chatting) {
+ 		if (a->_room != _currentRoom) continue;
+ 		// In a plane seat: down in it, not up on wheels or floating.
+ 		if (scummverseSeated(id) && a->_room == 56) { a->setElevation(-4); continue; }
++		// Hopping along (Zak's broom), on the ground at rest.
++		if (worldBouncer(game, costume)) {
++			if (worldHop(_scummverseAvatarHop[id], a->_moving, delta)) a->_needRedraw = true;
++			a->setElevation(worldBounceLift(_scummverseAvatarHop[id], kWorldNativeHover));
++			continue;
++		}
+ 		if (!worldHovers(game, costume)) {
+ 			// Up on roller skates, or on the ground.
+ 			const WorldRoller *roller = worldRoller(game, costume);
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index b780bbb8..51e19f30 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -196,10 +196,11 @@ bool ScummEngine::scummverseMountZakCast() {
+ 	if (!readZakFile(directory,0,"7020931d5a2be0a49d68e7a1882363e4",index,problem)) return false;
+ 	// Sandbox costumes 35..43; the last two are the Nepal guard and the Guru.
+ 	// 44..51 (0096): Lou, the stewardess, the bum, the devotee, the sentry,
+-	// the Skolarian projection, the pilot and the baker.
+-	const int files[] = {6,28,28,4,10,38,38,17,19, 7,11,8,8,44,35,40,3}, ids[] = {2,3,4,28,27,21,21,26,22, 16,11,23,25,24,29,10,17};
++	// the Skolarian projection, the pilot and the baker. 52 (0103): the broom.
++	const int files[] = {6,28,28,4,10,38,38,17,19, 7,11,8,8,44,35,40,3, 21}, ids[] = {2,3,4,28,27,21,21,26,22, 16,11,23,25,24,29,10,17, 33};
+ 	const char *hashes[] = {"1a79751f305b2fe6f8ee774de7108304","6282c2c0caa99bdbb38ba36051fb57d3","6282c2c0caa99bdbb38ba36051fb57d3","49d5e57fc1ab56a3b04e83faae000db4","7884b91ca526ffcd4d44bfe22816ec1e","0c701e2facdb1b2413d74ca2c9bdf3d6","0c701e2facdb1b2413d74ca2c9bdf3d6","9754dff5b01d21af693b39063ab96e36","8ac86c0d58bd696acfbe23cddef15eb9",
+-		"44add553cba9f1fee9f4f84b40e69198","b282f83c9bbc14ff1026540b0c61c598","5337090e7a6ebdbfb698ebda3750d926","5337090e7a6ebdbfb698ebda3750d926","884a03db3f6a5a41920aeea82bd81a00","b885304af7e2aa2a742192d19046c1c3","1c03c5bef55a7c4934e11748149d40b2","25a9e059a9df572554ee8ceffc08cb9f"};
++		"44add553cba9f1fee9f4f84b40e69198","b282f83c9bbc14ff1026540b0c61c598","5337090e7a6ebdbfb698ebda3750d926","5337090e7a6ebdbfb698ebda3750d926","884a03db3f6a5a41920aeea82bd81a00","b885304af7e2aa2a742192d19046c1c3","1c03c5bef55a7c4934e11748149d40b2","25a9e059a9df572554ee8ceffc08cb9f",
++		"a6b1551f60dc73fcc76830a87e29e0f1"};
+ 	static_assert(ARRAYSIZE(files) == ARRAYSIZE(_scummverseZakCastCostumes) && ARRAYSIZE(ids) == ARRAYSIZE(files) && ARRAYSIZE(hashes) == ARRAYSIZE(files), "one entry per imported Zak costume");
+ 	const uint table = 2 + 775 + 61 * 3;
+ 	for (int i=0;i<count;++i) {
