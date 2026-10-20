@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0103 (everyone out, all over the place; small ones; Zak's broom).
+Active milestone: Phase 1; latest patch 0104 (the new engine, preview: a place at full resolution in full colour).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2506,3 +2506,45 @@ broom from Zak a playable character?"
   re-ran test_wander.cpp and test_wander_engine.py, the only tests with
   wanderers on); test_zak_cast five times (the broom); bootstrap, startup,
   package_ipa. Not device-tested.
+
+## Patch 0104 — the new engine (preview): a place at full resolution in full colour
+
+User (2026-10-20): "Let's start this: New engine module (recommended): a new
+'game' inside ScummVM, written just for the sandbox. It uses ScummVM's code
+to read all twelve games' files but sets its own rules: no character limit,
+the iPhone's full resolution, full color. Everyone is equal." and "Can we
+make it modular? so if I want to use DOS V1 or V2 maniac mansion, or DOS or
+FM towns, fate of Atlantis, they're interchangeable?"
+- Step 1 of 5 (see ARCHITECTURE, Sandbox engine): a new ScummVM engine,
+  `engines/scummverse` (game id `sandbox`), alongside Maniac. It shows a
+  place exported from the player's own games (the worlds cache) on the
+  device's own pixels held sideways, in true colour (each scene and each
+  character in its own colours, no shared palette), the place's people and
+  the game's lead, who walks where the player taps, through the walk boxes,
+  at a person's size for where they stand, the camera following in wide
+  rooms. No limit on characters.
+- iPhone: Worlds > New engine (preview) saves Maniac and opens it; its
+  Worlds button has Back to Maniac Mansion, which loads that save. Maniac
+  says why when it won't open it (no other game installed yet, a WiFi game,
+  the tour, the save failed); a new engine that cannot start goes back to
+  Maniac on its own. Tapped during a cutscene, it opens when the cutscene
+  ends (as other Worlds requests do). The other buttons (Talk, Camera and so
+  on) do nothing useful there yet; if iOS closes the app while it is in the
+  new engine, the way back to that Maniac save is not kept yet.
+- Not yet: doors between places, everyone out, Maniac Mansion and Zak in
+  it, chat, the character screen, camera and tour, rides; editions as
+  interchangeable adapters is designed (ARCHITECTURE), not built. Areas a
+  game joins only through its own box connections (not exported yet) are
+  walked as near as the boxes allow.
+- Review fixes: flat walk boxes (lines and points, 42% of the exported
+  boxes) no longer join boxes along their whole line (in 128 places
+  characters could have walked through walls); a scene is moved, not copied,
+  into place (up to 44 MB scaled); the screen is drawn again only while
+  someone walks; the iPhone menu asks a flag, not the settings, whether the
+  new engine runs.
+- Tests: test_stage.cpp (view, boxes, flat boxes, paths, colours, drawing,
+  walking, spots; C++11, ASan/UBSan); test_startup (a made-up place shown and walked;
+  the sandbox without places refused); test_sandbox_engine.py (the first
+  place, every exported place (642) with its people and each lead walking,
+  Maniac -> sandbox -> Maniac back in the same room from the same save, and
+  the same with a place that cannot be read).

@@ -438,3 +438,62 @@ own colour, stand where their key and the floor put them (the same after a
 load), and walk in from a side when they arrive while the player watches.
 Engine tests run with `scummverse_wanderers=false` (residents at home) unless
 they ask for them.
+
+## Sandbox engine (0104, preview)
+
+A game of its own inside ScummVM, made for the sandbox (`engines/scummverse`,
+engine id `scummverse`, game id `sandbox`; the user: "a new game inside
+ScummVM, written just for the sandbox ... no character limit, the iPhone's
+full resolution, full color. Everyone is equal"). It plays from the worlds
+cache (`.svw` scenes, `.svc` characters, exported from the player's own games
+by their own SCUMM engines, see Other worlds), never from game files itself,
+so its rules are its own and no game's limits (MM V1's numbering, 16 colours,
+one palette) apply.
+
+- `common/scummverse_stage.{h,cpp}` (plain C++, `tools/test_stage.cpp`; the
+  engine reaches it through the plain-types `scummverse_stage_engine.h`): a
+  place on a screen of any size. View::fit makes the scene as tall as the
+  screen allows and no wider than its own game's screen at that size (art
+  drawn for 320x200 has pixels 1.2 times taller than wide, Curse of Monkey
+  Island's 640x480 square ones); wider rooms scroll after the one followed.
+  Walk boxes (switched-off boxes and the games' placeholder at -32000
+  dropped; flat ones, lines and points, hold only themselves) meet within a
+  pixel; paths go breadth first through meeting
+  boxes, crossing where best on the way, and end as near the destination as
+  the boxes reached allow. Characters are drawn in true colour from their own
+  palettes, as tall as the scene's people (their game's lead against the
+  scene's, heroHeight) at the box's own scale, a third on map rooms, nearer
+  ones in front; they walk at a person's pace, slower when far (never below
+  a quarter), facing the way they go. Nothing is limited to a palette or to
+  a number of characters. The screen is drawn again only while someone
+  walks.
+- `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
+  held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
+  than 720; `scummverse_screen` overrides), in the
+  stage's own 32-bit format or the richest the backend offers (converted with
+  crossBlit). It starts in `scummverse_place` or the first named place
+  installed, with the place's people (kWorldCast) and the game's lead
+  (kWorldLeads) to play; a tap walks the lead there. `scummverse_selftest`
+  (walk, all, back) checks without anyone at the screen.
+- Detection: a folder holding `.svw` files is the sandbox (AdvancedDetector
+  fallback); no game file names its own.
+- Opening it: the Worlds menu's New engine (preview) asks Maniac
+  (kWorldSandboxRequest) to save to the temporary slot and chain the
+  sandbox target (`scummverse-sandbox`, path the worlds cache) then itself at
+  that slot, as Day of the Tentacle's Maniac Mansion easter egg does; the
+  sandbox's Worlds menu (shown while scummverseSandboxActive) has Back to
+  Maniac Mansion (kWorldSandboxRequest + 1). Maniac saves at once and
+  refuses (said by the player's character) without another game's places,
+  in a WiFi game, on the tour, or when the save fails. base/main.cpp
+  continues along such chains (also when the chained sandbox cannot start),
+  gives Maniac its own settings back (and the slot), and gives the sandbox
+  the phone's touch and orientation settings.
+
+Proposed (not built): editions as adapters. The sandbox only reads the cache,
+so any edition its own SCUMM engine can export is interchangeable: Maniac
+Mansion DOS V1 or V2 (enhanced), Zak, Fate of Atlantis DOS or FM Towns, and
+so on. An adapter names an edition (its detection entry), exports its scenes
+and characters under the game's id with the edition's own pixel shape,
+lead height, cast and door map, and the player picks which edition of a game
+the sandbox uses. Maniac Mansion and Zak would then be exported like the other
+ten games, everyone equal.

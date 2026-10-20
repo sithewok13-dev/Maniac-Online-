@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the real null-backend executable, without copyrighted fixtures."""
 from pathlib import Path
+import gzip
+import struct
 import subprocess
 import sys
 import tempfile
@@ -52,7 +54,7 @@ class StartupTests(unittest.TestCase):
     def test_other_game_is_rejected(self):
         result = self.run_game("scumm:monkey")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("only Maniac Mansion (original DOS V1) is supported", result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
 
     def test_saved_launcher_preference_does_not_open_launcher(self):
         self.config.write_text("[scummvm]\ngui_return_to_launcher_at_exit=true\n")
@@ -62,7 +64,39 @@ class StartupTests(unittest.TestCase):
         self.config.write_text("[scummvm]\n\n[other]\nengineid=scumm\ngameid=monkey\npath=.\n")
         result = self.run_game("other")
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("only Maniac Mansion (original DOS V1) is supported", result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
+
+    def test_sandbox_without_places(self):
+        (self.root / "worlds").mkdir()
+        result = self.run_game("scummverse:sandbox")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("SCUMMVERSE: could not start the sandbox", result.stdout)
+
+    def test_sandbox_synthetic_place(self):
+        # A made-up place and lead (no game data): the sandbox shows it at
+        # 1280x720 in true colour and the lead walks across.
+        worlds = self.root / "worlds"
+        worlds.mkdir()
+        w, h = 320, 144
+        scene = b"SVW3" + struct.pack("<HHHBB", 33, w, h, 2, 0)
+        scene += bytes(c for i in range(256) for c in (i, 255 - i, i // 2))
+        scene += bytes((x // 8 + y // 8) % 200 + 20 for y in range(h) for x in range(w))
+        for l, t, r, b in ((10, 100, 160, 140), (160, 100, 310, 140)):
+            scene += struct.pack("<8h", l, t, r, t, r, b, l, b) + bytes(2)
+        scene += struct.pack("<H", 0) + bytes((128, 255, 255, 255))
+        (worlds / "monkey-33.svw").write_bytes(gzip.compress(scene))
+        lead = b"SVC1" + struct.pack("<HH", 1, 2)
+        lead += bytes(c for i in range(256) for c in (i, i, 255 - i))
+        for direction, kind in ((2, 0), (1, 1)):
+            lead += bytes((direction, kind, 0, 0)) + struct.pack("<hhHH", -10, -40, 20, 40)
+            lead += bytes([30]) * 800 + bytes([0] * 20 + [1] * 780)
+        (worlds / "monkey-c1.svc").write_bytes(lead)
+        self.config.write_text("[scummvm]\nscummverse_selftest=walk\nscummverse_screen=1280x720\n")
+        result = self.run_game("scummverse:sandbox")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("1 shown, 1 people, 1 walked across, 0 as near as they go, 0 skipped, 0 failed", result.stdout)
+        self.assertIn("screen 1280x720", result.stdout)
+        self.assertIn("SCUMMVERSE sandbox selftest PASS", result.stdout)
 
     def assert_edition_rejected(self, filename, header):
         # Synthetic detector signatures only, never copyrighted game fixtures.

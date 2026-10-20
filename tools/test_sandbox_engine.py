@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""The sandbox engine (engines/scummverse) through the real executable.
+
+Needs an export cache (build/worlds, see tools/export_worlds.py) and, for the
+switch, privately supplied Maniac Mansion data. The first place is shown at
+1280x720 in true colour and its lead walks across by taps; every place
+installed is shown with its people, each lead walking as far as the walk
+boxes go; then from Maniac the Worlds menu's New engine (preview) opens the
+sandbox and its Back to Maniac Mansion returns to the same room, from the
+saved game. Pictures go to build/sandbox-shots. Not an iPhone test.
+"""
+import argparse
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+from test_exploration import ROOT, command_for
+
+# Test-only: at the top of Maniac's main loop. Once the game has run a while,
+# the menu's New engine (preview); back from the sandbox (loaded from the
+# temporary save), where Maniac is, then stop.
+SWITCH = r'''
+		if (ConfMan.hasKey("scummverse_switch_probe")) {
+			static int scummverseSwitchFrames = 0;
+			if (ConfMan.hasKey("save_slot") && ConfMan.getInt("save_slot") == 100) {
+				warning("SCUMMVERSE_SWITCH_BACK room=%d ego=%d", _currentRoom, VAR(VAR_EGO));
+				quitGame();
+			} else if (++scummverseSwitchFrames == ConfMan.getInt("scummverse_switch_probe")) {
+				warning("SCUMMVERSE_SWITCH_OPEN room=%d ego=%d", _currentRoom, VAR(VAR_EGO));
+				scummverseOpenSandbox();
+			}
+		}
+'''
+LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the next loop iteration should start\n'
+
+
+def sandbox(exe, worlds, mode, shots, cwd, timeout=900):
+    config = Path(cwd)/f'sandbox-{mode}.ini'
+    config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n')
+    result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', 'scummverse:sandbox'], cwd=cwd,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+    output = result.stdout + result.stderr
+    (ROOT/f'build/sandbox-{mode}.log').write_text(output)
+    summary = [line for line in output.splitlines() if 'sandbox selftest' in line or 'sandbox walk' in line]
+    if result.returncode or 'SCUMMVERSE sandbox selftest PASS' not in output:
+        raise SystemExit(f'FAIL: sandbox {mode}\n' + output[-4000:])
+    for line in summary:
+        print('  ' + line.replace('WARNING: ', '').rstrip('!'))
+    return output
+
+
+def switch(data, worlds, frames, broken=False):
+    build = ROOT/'build/null'
+    source = ROOT/'engine/engines/scumm/scumm.cpp'
+    with tempfile.TemporaryDirectory(prefix='scummverse-switch-', dir=ROOT/'build') as tmp:
+        work = Path(tmp)
+        code = source.read_text()
+        if code.count(LOOP) != 1:
+            raise RuntimeError('Pinned main loop boundary changed')
+        probe = work/'scumm.cpp'
+        probe.write_text(code.replace(LOOP, LOOP.split('\n')[0] + '\n' + SWITCH + '\n'.join(LOOP.split('\n')[1:])))
+        cmd = command_for(build, source, 'engines/scumm/scumm.o')
+        cmd[cmd.index(str(source))] = str(probe)
+        cmd[cmd.index('-o')+1] = str(work/'scumm.o')
+        cmd[cmd.index('-MF')+1] = str(work/'scumm.d')
+        subprocess.run(cmd, cwd=build, check=True)
+        archive = work/'libscumm.a'
+        shutil.copy2(build/'engines/scumm/libscumm.a', archive)
+        subprocess.run(['ar', 'r', str(archive), str(work/'scumm.o')], check=True)
+        cmd = command_for(build, 'engines/scumm/libscumm.a', 'scummvm')
+        cmd[cmd.index('engines/scumm/libscumm.a')] = str(archive)
+        exe = work/'scummvm-probe'
+        cmd[cmd.index('-o')+1] = str(exe)
+        subprocess.run(cmd, cwd=build, check=True)
+        config = work/'switch.ini'
+        # (Roaming off: no character offer waiting for a tap at the start.)
+        config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
+                          f'scummverse_switch_probe={frames}\nscummverse_worlds_path={worlds}\nscummverse_selftest=back\n')
+        result = subprocess.run([str(exe), f'--config={config}', f'--path={data}', f'--savepath={work}', '--debuglevel=1'],
+                                cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        output = result.stdout + result.stderr
+        (ROOT/'build/sandbox-switch.log').write_text(output)
+        lines = output.splitlines()
+        opened = [l for l in lines if 'SCUMMVERSE_SWITCH_OPEN' in l]
+        back = [l for l in lines if 'SCUMMVERSE_SWITCH_BACK' in l]
+        # A sandbox that works leaves by the menu's way back; one that cannot
+        # start goes back to Maniac on its own.
+        sandbox_line = 'SCUMMVERSE: could not start the sandbox' if broken else 'SCUMMVERSE sandbox back: leaving'
+        ran = [l for l in lines if sandbox_line in l]
+        if result.returncode or len(opened) != 1 or len(back) != 1 or len(ran) != 1:
+            raise SystemExit('FAIL: switch\n' + output[-6000:])
+        # In order (the log's two streams each in order: ScummVM's own lines,
+        # then the warnings): opened, the sandbox ran and left, back in
+        # Maniac; Maniac saved, the sandbox started, the same save loaded.
+        def first(text):
+            return next((i for i, l in enumerate(lines) if text in l), -1)
+        said = [first('SCUMMVERSE_SWITCH_OPEN'), first(sandbox_line), first('SCUMMVERSE_SWITCH_BACK')]
+        logged = [first('State saved as'), first('Running Scummverse sandbox'), first('State loaded from')]
+        saved = lines[logged[0]].split("'")[1] if logged[0] >= 0 else None
+        loaded = lines[logged[2]].split("'")[1] if logged[2] >= 0 else None
+        if -1 in said + logged or said != sorted(said) or logged != sorted(logged) or saved != loaded:
+            raise SystemExit(f'FAIL: switch out of order {said} {logged} (saved {saved}, loaded {loaded})\n' + output[-6000:])
+        where = opened[0].split('SCUMMVERSE_SWITCH_OPEN ')[1].rstrip('!')
+        again = back[0].split('SCUMMVERSE_SWITCH_BACK ')[1].rstrip('!')
+        if where != again:
+            raise SystemExit(f'FAIL: switch: left Maniac at {where}, came back at {again}')
+        print(f'PASS: Maniac -> new engine{" (broken)" if broken else ""} -> Maniac, back where it was ({where}, from {saved})')
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('data', type=Path)
+    p.add_argument('--worlds', type=Path, default=ROOT/'build/worlds')
+    p.add_argument('--frames', type=int, default=600, help="Maniac's frames before the switch")
+    a = p.parse_args()
+    worlds = a.worlds.resolve()
+    if not list(worlds.glob('*.svw')):
+        print(f'SKIP: no exported places in {worlds} (run tools/export_worlds.py)')
+        raise SystemExit(0)
+    exe = ROOT/'build/null/scummvm'
+    shots = ROOT/'build/sandbox-shots'
+    shots.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='scummverse-sandbox-', dir=ROOT/'build') as tmp:
+        sandbox(exe, worlds, 'walk', shots, tmp)
+        print('PASS: the first place at 1280x720 in true colour; its lead walks across')
+        sandbox(exe, worlds, 'all', shots, tmp)
+        print('PASS: every place installed, its people shown, each lead walking')
+    switch(a.data.resolve(), worlds, a.frames)
+    # A cache whose place cannot be read: back to Maniac all the same.
+    with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
+        (Path(broken)/'monkey-33.svw').write_bytes(b'SVW3 not a scene')
+        switch(a.data.resolve(), Path(broken), a.frames, broken=True)
+    print('PASS: sandbox engine')
