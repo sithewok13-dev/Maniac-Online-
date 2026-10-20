@@ -196,7 +196,7 @@
 	int doors=0, doorFailures=0, doorSkipped=0, doorHidden=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
 		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
-		if (!map) continue;
+		if (!map || ::Scummverse::WorldCatalog::worldHome(g)) continue; // (The mansion is played here itself.)
 		for (int i=0;i<map->linkCount;++i) {
 			const ::Scummverse::WorldCatalog::WorldLink &link=map->links[i];
 			// Rooms the export found no place (one color) are not visited.
@@ -238,7 +238,7 @@
 	// Story areas: each menu entrance mounts its room.
 	int areas=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
-		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
+		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldHome(g) ? nullptr : ::Scummverse::WorldCatalog::worldMap(g);
 		for (int i=0;map && i<map->areaCount;++i) {
 			const int room=map->areas[i].room;
 			if (!scummverseWorldSceneInstalled(g,room)) continue; // Not offered (see the menu).
@@ -253,7 +253,7 @@
 	// show every section (they used to export black).
 	int maps=0, plans=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
-		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
+		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldHome(g) ? nullptr : ::Scummverse::WorldCatalog::worldMap(g);
 		for (int i=0;map && i<map->roomCount;++i) {
 			const int kind=map->rooms[i].kind;
 			if ((kind!=::Scummverse::WorldCatalog::kWorldMapRoom && kind!=::Scummverse::WorldCatalog::kWorldFloorPlan) || !scummverseTravelPlace(g,map->rooms[i].room)) continue;
@@ -277,6 +277,7 @@
 	// Every character, in its own room: placed, named, in the talk roster, drawn.
 	int everyone=0, small=0;
 	for (const auto &cast : ::Scummverse::WorldCatalog::kWorldCast) {
+		if (::Scummverse::WorldCatalog::worldHome(cast.game)) continue;
 		if (!scummverseTravelPlace(cast.game,cast.room)) error("Character %s: place %d:%d not reached: %s",cast.guest.name,cast.game,cast.room,_scummverseWorldNotice.c_str());
 		settle(6);
 		Actor *guest=derefActor(25+cast.slot,"world guest");

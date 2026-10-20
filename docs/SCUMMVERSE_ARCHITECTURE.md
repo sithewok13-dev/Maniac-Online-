@@ -538,6 +538,21 @@ one palette) apply.
   (cutscenes left open, the cutscene stack, nesting, a script of another
   room) are told and passed over (scummverseScriptError); in play they stop
   it as the originals did.
+- The mansion in the new engine (0109): kWorldGames ends with the games the
+  original engine plays itself (`worldHome`, version 1-2: Maniac Mansion,
+  index 10). Its places export like the others' from the game's own folder
+  (base/main.cpp takes the Maniac target's path; export targets run with
+  `scummverse_roaming` off), with the oldest games' differences handled in
+  the exporter: rooms lit (VAR_CURRENT_LIGHTS), boxes and actor positions in
+  their 8 by 2 pixel units, object states as bits (a picture shown while the
+  "on" bit is set; objects without an image of their own share one image
+  pointer and get none), people coloured by their actor (the same number as
+  the costume). Its door map is generated from the original engine's own
+  tables (tools/world_maps.py reads scummverse_tour.inc's rooms and
+  scummverse_roaming.inc's passages, the rides left out) and its cast is
+  newly written in tools/world_cast.py (HOME). The original engine's menus,
+  visits, tour, wanderers, character screen and status skip home games; the
+  new engine's game menu lists the mansion with the rest.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

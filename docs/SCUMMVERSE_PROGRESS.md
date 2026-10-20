@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0108 (things where the games put them, and what each answers).
+Active milestone: Phase 1; latest patch 0109 (the mansion's own places and people in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2805,4 +2805,47 @@ supposed to retain the look and feel of the originals."
   Monkey Island puts no mug out in the SCUMM Bar (untouchable, unseen), so
   none can be taken there yet.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0109 — the mansion in the new engine (step 2e, first part)
+
+User (2026-10-20): "Only 10 games? There's 12."
+- Maniac Mansion's own places now come into the new engine like the other
+  ten games': 37 rooms of the mansion (the tour's stops), 73 doors from the
+  original engine's own passage table (the rides out left out), and 17
+  people (the seven kids, Dr Fred, Sandy, Nurse Edna, Weird Ed, Dead Cousin
+  Ted, both tentacles, the Purple Meteor, the Meteor Police, the plant),
+  with newly written personalities and lines. Dave is its lead. The menu
+  in the new engine lists the mansion with the other games; "Back to the
+  original engine" returns to the game itself.
+- The export handles the oldest games' differences (SCUMM v1): rooms lit,
+  walk boxes and positions in their 8 by 2 pixel units, object pictures by
+  the "on" bit (doors, the fridge, the lab's vault open and closed), no
+  made-up picture for objects without an image, each person in their own
+  colours, and each room drawn from the game's own starting states (the
+  garage shut, the shower curtain drawn, no parcel yet at the mailbox).
+  Only the edition the original engine's tables are checked against (DOS
+  V1 English) is exported, from the folder the game itself starts from. On the desktop: 37 of 37 rooms, 17 of 17 people, 217 of 391
+  objects with a second picture. The other ten games' scenes, characters
+  and panels are byte-identical to 0108.
+- The original engine leaves the mansion out wherever it lists other
+  worlds (menus, visits, tour, wanderers, character screen, status), so
+  nothing changes there.
+- The things pass and the panel capture now give the same result every
+  time: what a room's or a start's scripts pick at random is picked the
+  same (a seed per room). Two exports compared: every things and panel
+  file identical (before, a pirate's pose or an animation frame differed
+  run to run: 412 or 418 things placed).
+- On the iPhone, the mansion is exported from the game's own folder at the
+  next launch (one more game set up).
+- Review fixes: the world-visit, character-screen and wanderer tests leave
+  the mansion out where the original engine does; a visit to a mansion
+  place as "another world" is refused; the mansion's folder is taken from
+  the game's own start (command line included), never searched for.
+- Known: the new engine's wanderers' saved places reset once (its cast
+  grew). In the oldest games an item's "on" picture is the place without
+  it (taken): for the mansion's coming verb panel, pick up will need that
+  way round. Zak McKracken is not in yet (its doors in the original engine are
+  numbered for its rooms as imported into the mansion; next). No verb panel
+  for the mansion yet (tap to walk, doors as elsewhere). The plant's
+  standing frames show its growth stages by facing.
 

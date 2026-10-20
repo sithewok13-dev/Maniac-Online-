@@ -8,12 +8,14 @@
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
 	settle(4);
 	if(FakeAI::castShown!=1) error("The character screen was shown %d times at the start",FakeAI::castShown);
-	if(FakeAI::castGames!=2+worldGameCount()) error("%d boxes, expected %d",FakeAI::castGames,2+worldGameCount());
+	// (A box per other game: the mansion's own is the first.)
+	int others=0; for(int game=0;game<worldGameCount();++game) others+=!worldHome(game);
+	if(FakeAI::castGames!=2+others) error("%d boxes, expected %d",FakeAI::castGames,2+others);
 	if(FakeAI::castLead[0]!=kWorldCastActorRequest+9 || FakeAI::castLead[1]!=kWorldCastActorRequest+24)
 		error("Leads: Maniac %d, Zak %d",FakeAI::castLead[0]-kWorldCastActorRequest,FakeAI::castLead[1]-kWorldCastActorRequest);
 	int worlds=0;
 	for(int game=0;game<worldGameCount();++game) {
-		if(!FakeAI::castMembers[2+game]) continue;
+		if(worldHome(game) || !FakeAI::castMembers[2+game]) continue;
 		++worlds;
 		int lead=-1; for(const auto &l : kWorldLeads) if(l.game==game) lead=l.costume;
 		if(FakeAI::castLead[2+game]!=kWorldCastRequest+worldAppearanceKey(game,lead)) error("%s: lead request %d",kWorldGames[game].title,FakeAI::castLead[2+game]);

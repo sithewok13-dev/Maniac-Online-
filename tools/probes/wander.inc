@@ -35,7 +35,8 @@
 	Common::Array<int> keys;
 	for (const auto &c : kWorldCast) {
 		const int key=worldAppearanceKey(c.game,c.guest.costume);
-		if (scummverseCharacterInstalled(c.game,c.guest.costume) && Common::find(keys.begin(),keys.end(),key)==keys.end()) keys.push_back(key);
+		// (The mansion's own people are its own actors here, not wanderers.)
+		if (!worldHome(c.game) && scummverseCharacterInstalled(c.game,c.guest.costume) && Common::find(keys.begin(),keys.end(),key)==keys.end()) keys.push_back(key);
 	}
 	if (WB::places()<60 || WB::cast()!=(int)keys.size() || keys.size()<100) error("Wanderers' world: %d places, %d characters of %d",WB::places(),WB::cast(),(int)keys.size());
 	{
