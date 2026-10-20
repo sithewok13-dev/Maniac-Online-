@@ -2,6 +2,8 @@
 /build/
 /game-data/
 /maniac/
+# (Exports the app writes when run from here: game data, never committed.)
+/worlds/
 __pycache__/
 *.pyc
 *.log

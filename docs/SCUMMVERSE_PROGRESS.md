@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0106 (the bigger export: box connections, colour cycles, object names and pictures).
+Active milestone: Phase 1; latest patch 0107 (the games' own verb panels in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2648,3 +2648,83 @@ supposed to retain the look and feel of the originals." Step 2b of the plan
   them changing between pictures (the rest look the same in every state, as
   the game draws them here); colour cycles in 143 places, all at least 4
   ticks a step, moving in 142 within the test's walk.
+
+## Patch 0107 — the games' own verb panels in the new engine (step 2c, first part)
+
+User (2026-10-20): "New engine is supposed to retain the look and feel of
+the originals." and "Just keep building in the order you think is right".
+- Export version 18: each game with a verb panel (The Secret of Monkey
+  Island, Monkey Island 2, Indiana Jones and the Last Crusade, Indiana Jones
+  and the Fate of Atlantis, Day of the Tentacle) also exports
+  "<game>-ui.svi": its own start (boot script) is run on at once, without
+  waits, speech or cutscenes (the music's clock moving with the frames,
+  Monkey Island 2's copy protection answered: the engine takes any
+  answer), until its verbs are up; then the panel is taken as the game
+  draws it, with nothing carried and the sentence line empty, each verb
+  also drawn highlighted, the inventory's slots and arrows, the player's
+  talk colour, and two letterings (the sentence line's and the talk's)
+  drawn letter by letter by the game itself. Under a second for each game
+  on the desktop. Loom, Sam & Max and the three later games have other
+  interfaces (later). The catalog says which verb is which (by the games'
+  own verb numbers) and where the inventory is.
+- The new engine shows the panel under the scene, both at one scale, as
+  the original's screen has them. A tap on a verb chooses it (lit as the
+  game lights it; the sentence line names it; a tap near its letters counts),
+  a tap on it again lets it go. A verb then a tap on a thing (named and
+  shown here) walks there and does it, by plain rules (the games' scripts do
+  not run): look and "what is" name it (said over the head in the game's
+  talk lettering), open and turn on show its picture 1 when it shows none,
+  close and turn off picture 0, push and pull its next picture, pick up
+  takes something small that is shown (not a door) into the inventory (names
+  or pictures, as the game has it; arrows when there is more) and the place
+  is without it; the rest is said not to work. What was changed and taken
+  stays (state file "SVS2"; "SVS1" still read). Without a verb, taps walk and
+  go through doors as before. scummverse_verbs=false hides the panel.
+- Export fixes on the way: an object state past the one shown that the game
+  draws as mostly (80 in 100) one block of a colour found nowhere around it
+  (a fill it never shows: Monkey Island 2's doors in magenta, Loom's in its
+  primary colours) ends its pictures (40 objects in the ten games, none of
+  them showing it; dark doorways keep theirs, their black is around them);
+  verb names keep the games' joined letters (Day of the Tentacle's "oo").
+- Known: most small things are not in the scenes, as their games' scripts
+  put them there at run time (the SCUMM Bar's mugs, Day of the Tentacle's
+  battery): little to pick up yet. Next: the export with the games' own
+  object states (each room as its entry script leaves it).
+- Tests: tools/test_panel.cpp (the file whole or not at all, half-empty
+  rectangles refused; layout and taps, a verb's place on screen holding
+  exactly its taps at any scale, rows kept on screen; drawing; names cut at
+  their slot, pictures fitted, a missing slot left alone; scrolling and
+  arrows; on screen at the scene's scale; lettering, wrapping and speech;
+  the rules; things carried from a scene); test_sandbox_engine.py "verbs":
+  5 panels, 52 verbs each chosen and let go by a tap; in each game's first
+  place look (the line said, then gone and the screen drawn again), open,
+  close, push, a door refused, and (in 4) out of reach nothing done; pick-ups
+  (2 things small and shown among the five first places), not to be used
+  again, each looked at by a tap on its slot (a thing carried shows in each
+  game's own way: a name, or its picture); all kept through the state file
+  and shown gone after a reload. With the panel the scene is drawn
+  smaller: the door test's taps land differently (1600 of 1657 through
+  against 1608).
+- Two independent reviews (the export; the panel and the sandbox), fixed
+  before packaging. Export: the start now begins clean (no script slot,
+  cutscene or override left from the places' export, no exit script of the
+  last room: the engine would stop on a cutscene left open); letters only
+  as many as each charset has (Indiana Jones 3's has 226: garbage past it),
+  none for two-byte lettering, each drawn after a space (its own offset as
+  within a line), "nothing" chosen after the charset's colours are loaded;
+  slots and arrows kept on the panel (else none), names ending at an arrow
+  (Indiana Jones 3's); Mac Indiana Jones and FM Towns refused (their verbs
+  are drawn elsewhere); Monkey Island 2 Mac's boot checked as the engine
+  does; the verbs counted again at the end. Panel and sandbox: a slot of
+  no size skipped (it crashed in a fuzzed file); a thing taken is no longer
+  a thing there (it could be opened back into view and taken twice); a line
+  said or gone and a picture shown draw the screen again; what takes a hand
+  needs the one played near it ("I can't reach that."); shut doors and other
+  things in a game's state 0 are things too; the panel's rows kept on
+  screen; push and pull switch two-picture things, else step through those
+  showing them; a verb's place on screen matches its taps exactly; a verb
+  chosen cancels a door walked to; a door not reached clears the sentence
+  line; a thing is carried as it was shown when taken; a panel that cannot
+  be read is reported.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+

@@ -496,15 +496,47 @@ one palette) apply.
   below a quarter), one walk frame a step, facing the way they go. Nothing
   is limited to a palette or to a number of characters. The screen is drawn
   again only while someone walks.
+- `common/scummverse_panel.{h,cpp}` (plain C++, `tools/test_panel.cpp`; the
+  engine reaches it through `scummverse_panel_engine.h`, step 2c, 0107): a
+  game's own verb panel ("<game>-ui.svi", "SVI1"), exported by its SCUMM
+  engine from the game's own start (scummverseExportPanel, after its places
+  and their marker: its boot script run on at once with scummLoop, scripts
+  never waiting, cutscenes left, messages gone, the music's clock moving
+  with the frames through _scummverseMusicTimer, a typed answer where the
+  catalog's WorldPanel names a room that waits for one; then nothing
+  carried, the sentence line and names emptied, every verb in its usual
+  colour; the verb screen as drawn, each verb drawn highlighted, the slots
+  and arrows, and each letter 32..255 drawn by the game on the sentence line
+  in the sentence's own charset and the talk's). The catalog's kWorldVerbs
+  names each verb's use by its game's own number (WorldVerbKind). The panel
+  is laid out under the scene at the scene's scale (as the original's
+  screen: the stage's height is what is left above it), its columns
+  centred; taps hit verbs (or the nearest within 6 panel pixels), slots and
+  arrows; it is composed at its own size (a chosen verb lit, the sentence
+  line in the game's lettering, things carried as names cut at their slot
+  or pictures fitted to theirs, the names lists' arrows only when there is
+  more) and scaled; speech is drawn in the talk lettering at the scene's
+  scale over the one played. `Panel::decide` holds the plain rules (the
+  games' scripts do not run): look names, open/turn on picture 1 from none,
+  close/turn off picture 0, push/pull the next picture, pick up takes small
+  shown things that are not doors (into the inventory; the place then shows
+  picture 0; what takes a hand needs the one played near it); push and pull
+  switch two-picture things, else step through the pictures showing them;
+  the rest is said not to work. Things carried keep only the
+  pixels where they differ from the place without them, in their scene's
+  colours, and go with the one played from panel to panel.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
   or the richest the backend offers (converted with crossBlit). It starts
   where the player was (`scummverse-sandbox.state` in the saves, written at
-  each room, every half minute and on leaving; `scummverse_place` wins),
+  each room, every half minute, on leaving and after each verb; "SVS2" adds
+  the objects shown in another picture and the things carried, "SVS1" is
+  still read; `scummverse_place` wins),
   else in `scummverse_place` or the first named
   place installed, playing that game's lead (kWorldLeads) in every game. A
-  tap walks there; a tap on a door (a room object with a WorldLink from the
+  tap walks there (with the game's panel: a verb chosen first is used on the
+  thing tapped once there, see the panel above); a tap on a door (a room object with a WorldLink from the
   generated door maps; switched doors only while shown) walks to its walk-to
   point (else to the tap: screen-edge exits) and, once there (within 12
   pixels of its point or of the tap), goes through to its room, arriving at

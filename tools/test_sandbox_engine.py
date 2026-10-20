@@ -8,7 +8,10 @@ installed is shown with its people, each lead walking as far as the walk
 boxes go; every door of every place is tapped, walked to and gone through
 (at least 95 in 100 reach their place: the rest need the games' own box
 connections, not exported yet); everyone is out for half an hour, those
-coming in are shown, and where everyone is is kept; then from Maniac the
+coming in are shown, and where everyone is is kept; each game's own verb
+panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle)
+is shown under its first place, every verb chosen and used on the things
+there, what was taken kept; then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -50,7 +53,7 @@ def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False):
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
     (ROOT/f'build/sandbox-{mode}.log').write_text(output)
-    summary = [line for line in output.splitlines() if 'sandbox selftest' in line or 'sandbox walk' in line]
+    summary = [line for line in output.splitlines() if 'sandbox selftest' in line or 'sandbox walk' in line or 'sandbox verbs' in line]
     if result.returncode or 'SCUMMVERSE sandbox selftest PASS' not in output:
         raise SystemExit(f'FAIL: sandbox {mode}\n' + output[-4000:])
     for line in summary:
@@ -174,6 +177,13 @@ if __name__ == '__main__':
         print('PASS: through the doors of every place (tapped, walked to, gone through)')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
+        # Each game's own verb panel (exported from its start): every verb
+        # chosen, used on the things there, kept.
+        output = sandbox(exe, worlds, 'verbs', shots, tmp)
+        panels = int(re.search(r'selftest verbs: (\d+) panels', output).group(1))
+        if panels != len(list(worlds.glob('*-ui.svi'))):
+            raise SystemExit(f'FAIL: {panels} verb panels shown of {len(list(worlds.glob("*-ui.svi")))} exported')
+        print(f'PASS: {panels} games\' own verb panels: each verb chosen; look, open, close, push, pick up; kept')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
