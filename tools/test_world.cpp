@@ -575,6 +575,39 @@ int main() {
 	SandboxScene states; assert(fitScene(src, 32, 16, 240, states, error, 320));
 	assert(states.objects[0].state == 0 && states.objects[1].state == 1 && withObjects.objects[0].state == 1);
 	std::printf("PASS: SVW4 object states (parse, truncation, sandbox, older files shown)\n");
+
+	// SVW5: the game's box connections, colour cycles, each object's name
+	// and pictures (the rectangle without it, then its states); nothing may
+	// be missing or left over; older files have none; the sandbox keeps
+	// what it had.
+	auto v5 = v4;
+	v5[3] = '5';
+	for (int b = 0; b < 5 * 5; ++b) v5.push_back((uint8_t)(b % 5 == 4 ? 255 : b % 5));
+	v5.push_back(2); // cycles
+	for (int f : {8, 0, 200, 207, 0}) v5.push_back((uint8_t)f); // every 8 ticks, 200..207 up
+	for (int f : {6, 0, 210, 215, 2}) v5.push_back((uint8_t)f); // every 6, 210..215 swept
+	const char *doorName = "door";
+	v5.push_back(4); v5.insert(v5.end(), doorName, doorName + 4);
+	v5.push_back(2); // pictures: without it, then shut
+	const size_t shownAt = v5.size();
+	v5.push_back(1); // (the scene shows it shut)
+	for (int f : {12, 6, 4, 2}) put16(v5, f);
+	for (int k = 0; k < 2 * 4 * 2; ++k) v5.push_back((uint8_t)(k < 8 ? 3 : 9));
+	v5.push_back(0); v5.push_back(0); // the other: no name, no pictures
+	SourceScene full;
+	assert(parseScene(v5.data(), v5.size(), full, error));
+	assert(full.boxNext.size() == 25 && full.boxNext[1] == 1 && full.boxNext[4] == 255);
+	assert(full.cycles.size() == 2 && full.cycles[0].delay == 8 && full.cycles[0].first == 200 && full.cycles[0].last == 207 && full.cycles[1].mode == 2);
+	assert(full.objects[0].name == "door" && full.objects[0].pictures.size() == 2 && full.objects[0].pictureWidth == 4 && full.objects[0].pictures[1][0] == 9 && full.objects[0].shown == 1);
+	assert(full.objects[1].name.empty() && full.objects[1].pictures.empty());
+	for (size_t cut = 1; cut < 40; cut += 7) assert(!parseScene(v5.data(), v5.size() - cut, full, error));
+	auto extra = v5; extra.push_back(0); assert(!parseScene(extra.data(), extra.size(), full, error));
+	auto badShown = v5; badShown[shownAt] = 2; assert(!parseScene(badShown.data(), badShown.size(), full, error)); // (past its pictures)
+	auto badCycle = v5; badCycle[v4.size() + 25 + 1 + 2] = 220; assert(!parseScene(badCycle.data(), badCycle.size(), full, error)); // (first after last)
+	assert(parseScene(v4.data(), v4.size(), full, error) && full.boxNext.empty() && full.cycles.empty() && full.objects[0].pictures.empty());
+	assert(parseScene(v5.data(), v5.size(), full, error));
+	SandboxScene fitted5; assert(fitScene(full, 32, 16, 240, fitted5, error, 320) && fitted5.objects.size() == 2 && fitted5.objects[0].state == 0);
+	std::printf("PASS: SVW5 box connections, colour cycles, object names and pictures (parse, truncation, older files, sandbox)\n");
 	// A picture of the scene in another state (a parked car): a 12x8 block of
 	// color 120 at (60,20). Fitted at 2/3 scale into the scene's own colors
 	// (120 is not one of them: it snaps to the nearest), only where it differs.

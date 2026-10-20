@@ -27,8 +27,9 @@ BOXES = {31: ((9, 10, 12), ()), 49: ((7,), ()), 56: ((8, 9), ()), 61: ((12,), ()
 
 def box_flags(path):
     data = gzip.open(path).read()
-    if data[:4] != b'SVW4':
-        raise SystemExit(f'{path.name}: not an SVW4 scene')
+    # ("SVW5" adds sections after the boxes, which stay where "SVW4" has them.)
+    if data[:4] not in (b'SVW4', b'SVW5'):
+        raise SystemExit(f'{path.name}: not an SVW4 or SVW5 scene')
     _, width, height, count = struct.unpack('<HHHB', data[4:11])
     offset = 12 + 768 + width * height
     return [data[offset + 18 * b + 16] for b in range(count)]

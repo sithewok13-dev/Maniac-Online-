@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 using namespace Scummverse;
 using namespace Scummverse::Stage;
 
@@ -22,6 +23,31 @@ static std::vector<uint8_t> sceneBytes(int w, int h, const std::vector<uint8_t> 
 	put16(d, (int)objects.size());
 	for (const auto &o : objects) for (int f : {o.id, o.x, o.y, o.width, o.height, o.walkX, o.walkY}) put16(d, f);
 	for (const auto &b : boxes) { d.push_back((uint8_t)b.scaleTop); d.push_back((uint8_t)b.scaleBottom); }
+	return d;
+}
+// The same as "SVW5": objects with their states, the game's next box from
+// each box toward each other one, colour cycles, names and pictures.
+static std::vector<uint8_t> scene5Bytes(int w, int h, const std::vector<uint8_t> &pixels, const std::vector<World::SourceBox> &boxes,
+		const std::vector<World::SourceObject> &objects, const std::vector<uint8_t> &next, const std::vector<World::SourceCycle> &cycles) {
+	std::vector<uint8_t> d = {'S', 'V', 'W', '5'};
+	put16(d, 7); put16(d, w); put16(d, h); d.push_back((uint8_t)boxes.size()); d.push_back(0);
+	for (int c = 0; c < 256; ++c) { d.push_back((uint8_t)c); d.push_back((uint8_t)(255 - c)); d.push_back((uint8_t)(c / 2)); }
+	d.insert(d.end(), pixels.begin(), pixels.end());
+	for (const auto &b : boxes) { for (int c = 0; c < 4; ++c) { put16(d, b.x[c]); put16(d, b.y[c]); } d.push_back((uint8_t)b.flags); d.push_back((uint8_t)b.mask); }
+	put16(d, (int)objects.size());
+	for (const auto &o : objects) for (int f : {o.id, o.x, o.y, o.width, o.height, o.walkX, o.walkY, o.state}) put16(d, f);
+	for (const auto &b : boxes) { d.push_back((uint8_t)b.scaleTop); d.push_back((uint8_t)b.scaleBottom); }
+	d.insert(d.end(), next.begin(), next.end());
+	d.push_back((uint8_t)cycles.size());
+	for (const auto &c : cycles) { put16(d, c.delay); d.push_back((uint8_t)c.first); d.push_back((uint8_t)c.last); d.push_back((uint8_t)c.mode); }
+	for (const auto &o : objects) {
+		d.push_back((uint8_t)o.name.size()); d.insert(d.end(), o.name.begin(), o.name.end());
+		d.push_back((uint8_t)o.pictures.size());
+		if (o.pictures.empty()) continue;
+		d.push_back((uint8_t)o.shown);
+		for (int f : {o.pictureX, o.pictureY, o.pictureWidth, o.pictureHeight}) put16(d, f);
+		for (const auto &picture : o.pictures) d.insert(d.end(), picture.begin(), picture.end());
+	}
 	return d;
 }
 static World::SourceBox box(int l, int t, int r, int b, int flags = 0, int top = 255, int bottom = 255) {
@@ -301,6 +327,149 @@ int main() {
 	assert(porch.objectAt({51, 21}, {0, 1, 2}) == 0 && porch.objectAt({52.5, 21}, {0, 1}) == 1);
 	assert(porch.objectAt({30, 30}, {0, 3}) == 0 && porch.objectAt({30, 30}, {3, 0}) == 3); // (as big: the first)
 	std::puts("PASS: doors (under before near, the smallest, only those asked)");
+
+	// The game's own connections ("SVW5") join boxes apart, walked across;
+	// touching boxes still meet; a switched-off box stays out (in the middle
+	// of the file: the connections name the file's boxes).
+	{
+		const std::vector<World::SourceBox> parts = {box(10, 100, 100, 140), box(0, 0, 5, 5, 0x80), box(120, 100, 200, 140), box(200, 100, 300, 140)};
+		std::vector<uint8_t> next(16, 255);
+		for (int i = 0; i < 4; ++i) next[i * 4 + i] = (uint8_t)i;
+		next[0 * 4 + 2] = 2; next[2 * 4 + 0] = 0; // file boxes 0 and 2 joined (20 apart); 2 and 3 only touch
+		const std::vector<uint8_t> data = scene5Bytes(w, h, pixels, parts, std::vector<World::SourceObject>(), next, std::vector<World::SourceCycle>());
+		Scene joined;
+		assert(joined.load(data.data(), data.size(), 1.2, 320, 1280, 720, error) && joined.boxes().size() == 3);
+		assert(joined.boxes()[0].source == 0 && joined.boxes()[1].source == 2 && joined.boxes()[2].source == 3);
+		assert(joined.groupAt({50, 120}) == joined.groupAt({150, 120}) && joined.groupAt({150, 120}) == joined.groupAt({250, 120}));
+		const int walker5 = joined.addActor(spriteData.data(), spriteData.size(), 1, 1.2, error);
+		joined.place(walker5, {50, 120});
+		joined.walkTo(walker5, {150, 120});
+		for (int t = 0; t < 2000; ++t) joined.update(1);
+		assert(near(joined.actor(walker5).at.x, 150));
+		joined.walkTo(walker5, {250, 120});
+		for (int t = 0; t < 2000; ++t) joined.update(1);
+		assert(near(joined.actor(walker5).at.x, 250));
+		std::vector<uint8_t> wrong(next); // (naming the kept boxes instead would join 0 and 1 here, not 0 and 2)
+		wrong[0 * 4 + 2] = 255; wrong[2 * 4 + 0] = 255; wrong[0 * 4 + 1] = 1; wrong[1 * 4 + 0] = 0;
+		const std::vector<uint8_t> wrongData = scene5Bytes(w, h, pixels, parts, std::vector<World::SourceObject>(), wrong, std::vector<World::SourceCycle>());
+		Scene unjoined;
+		assert(unjoined.load(wrongData.data(), wrongData.size(), 1.2, 320, 1280, 720, error) && unjoined.groupAt({50, 120}) != unjoined.groupAt({150, 120}));
+		const std::vector<uint8_t> apartData = sceneBytes(w, h, pixels, parts);
+		Scene apart2;
+		assert(apart2.load(apartData.data(), apartData.size(), 1.2, 320, 1280, 720, error) && apart2.groupAt({50, 120}) != apart2.groupAt({150, 120})); // (without them: apart)
+	}
+	std::puts("PASS: the game's own box connections (the file's boxes; joined apart; touching still meet)");
+
+	// Colour cycles against the games' own code (palette.cpp): rotations
+	// turn the palette a step at a time (doCyclePalette), the older games'
+	// sweep maps each entry through a shadow palette; overlapping rotations
+	// add up; a range ending at 255; at most a step an update.
+	{
+		auto rotate = [](uint32_t *palette, int first, int last, bool forward) { // (doCyclePalette)
+			const int num = last - first;
+			uint32_t tmp;
+			if (forward) { tmp = palette[last]; std::memmove(palette + first + 1, palette + first, num * sizeof(uint32_t)); palette[first] = tmp; }
+			else { tmp = palette[first]; std::memmove(palette + first, palette + first + 1, num * sizeof(uint32_t)); palette[last] = tmp; }
+		};
+		std::vector<uint8_t> strip(pixels);
+		for (int x = 0; x < 64; ++x) for (int y = 0; y < 4; ++y) strip[(size_t)y * w + x] = (uint8_t)(192 + x); // 192..255 along the top
+		auto shown = [&](Scene &target, int index) {
+			target.render(screen.data(), pitch);
+			const Point at = target.view().toScreen(index - 192 + 0.5, 1.5);
+			return screen[(size_t)(int)at.y * pitch + (int)at.x];
+		};
+		const std::vector<World::SourceBox> two = {box(10, 100, 160, 140), box(160, 100, 310, 140)};
+		std::vector<uint8_t> next(4, 255);
+		next[0] = 0; next[3] = 1; next[1] = 1; next[2] = 0;
+		World::SourceCycle rising, falling, top;
+		rising.delay = 6; rising.first = 200; rising.last = 207; rising.mode = 0;  // up
+		falling.delay = 4; falling.first = 204; falling.last = 215; falling.mode = 1;  // down, over rising's last four
+		top.delay = 5; top.first = 240; top.last = 255; top.mode = 0;  // up to 255
+		const std::vector<uint8_t> data = scene5Bytes(w, h, strip, two, std::vector<World::SourceObject>(), next, {rising, falling, top});
+		Scene water;
+		assert(water.load(data.data(), data.size(), 1.2, 320, 1280, 720, error));
+		uint32_t palette[256];
+		for (int i = 0; i < 256; ++i) palette[i] = sceneColor(i);
+		int clockA = 0, clockB = 0, clockC = 0, version = 0;
+		for (int tick = 1; tick <= 6 * 8 * 3; ++tick) { // (three times round a)
+			water.update(1);
+			if (++clockA >= rising.delay) { clockA = 0; rotate(palette, rising.first, rising.last, true); ++version; }
+			if (++clockB >= falling.delay) { clockB = 0; rotate(palette, falling.first, falling.last, false); ++version; }
+			if (++clockC >= top.delay) { clockC = 0; rotate(palette, top.first, top.last, true); ++version; }
+			for (int i : {200, 203, 204, 207, 208, 215, 240, 255}) assert(shown(water, i) == palette[i]);
+			assert(water.paletteVersion() == version);
+		}
+		water.update(100); // (a long wait: still a step each, not a jump)
+		rotate(palette, rising.first, rising.last, true); rotate(palette, falling.first, falling.last, false); rotate(palette, top.first, top.last, true);
+		for (int i : {200, 204, 215, 255}) assert(shown(water, i) == palette[i]);
+
+		// The older games' sweep (cyclePalette's small-header branch):
+		// counter from first to last and round; entry j shows the colour of
+		// counter - (j - first), wrapped within the range.
+		World::SourceCycle sweep;
+		sweep.delay = 4; sweep.first = 220; sweep.last = 227; sweep.mode = 2;
+		const std::vector<uint8_t> sweepData = scene5Bytes(w, h, strip, two, std::vector<World::SourceObject>(), next, {sweep});
+		Scene flames;
+		assert(flames.load(sweepData.data(), sweepData.size(), 1.2, 320, 1280, 720, error));
+		for (int i = 220; i <= 227; ++i) assert(shown(flames, i) == sceneColor(i)); // (as drawn until the first frame)
+		int counter = sweep.first;
+		for (int frame = 1; frame <= 2 * 8 + 3; ++frame) {
+			flames.update(4);
+			if (++counter > sweep.last) counter = sweep.first;
+			int value = counter;
+			for (int j = sweep.first; j <= sweep.last; ++j) {
+				assert(shown(flames, j) == sceneColor(value));
+				if (--value < sweep.first) value = sweep.last;
+			}
+		}
+	}
+	std::puts("PASS: colour cycles against the games' own code (up, down, overlapping, to 255, the older sweep)");
+
+	// An object's pictures: the render after showing one is the render of
+	// the scene with that picture in it (one in the middle, one at the
+	// scene's right and bottom edge); not past its pictures.
+	{
+		World::SourceObject chest, edge;
+		chest.id = 301; chest.x = 100; chest.y = 40; chest.width = 21; chest.height = 30; chest.state = 1; chest.name = "chest"; chest.shown = 1;
+		chest.pictureX = 100; chest.pictureY = 40; chest.pictureWidth = 21; chest.pictureHeight = 30;
+		std::vector<uint8_t> shut(630), open(630);
+		for (int i = 0; i < 630; ++i) { shut[i] = (uint8_t)(5 + i % 7); open[i] = (uint8_t)(70 + i % 11); }
+		chest.pictures = {shut, open};
+		edge.id = 302; edge.x = w - 13; edge.y = h - 9; edge.width = 13; edge.height = 9; edge.state = 1;
+		edge.pictureX = w - 13; edge.pictureY = h - 9; edge.pictureWidth = 13; edge.pictureHeight = 9;
+		edge.pictures = {std::vector<uint8_t>(117, 33), std::vector<uint8_t>(117, 44)};
+		const std::vector<World::SourceBox> two = {box(10, 100, 160, 140), box(160, 100, 310, 140)};
+		std::vector<uint8_t> next(4, 255);
+		next[0] = 0; next[3] = 1; next[1] = 1; next[2] = 0;
+		const std::vector<uint8_t> data = scene5Bytes(w, h, pixels, two, {chest, edge}, next, std::vector<World::SourceCycle>());
+		auto pasted = [&](const World::SourceObject &o, int picture) {
+			std::vector<uint8_t> copy(pixels);
+			for (int y = 0; y < o.pictureHeight; ++y)
+				for (int x = 0; x < o.pictureWidth; ++x) copy[(size_t)(o.pictureY + y) * w + o.pictureX + x] = o.pictures[picture][(size_t)y * o.pictureWidth + x];
+			return copy;
+		};
+		for (const int screenWidth : {1280, 300}) { // (larger than the scene, and smaller)
+			const int screenHeight = screenWidth == 1280 ? 720 : 140;
+			std::vector<uint32_t> got((size_t)screenWidth * screenHeight), want((size_t)screenWidth * screenHeight);
+			for (int o = 0; o < 2; ++o)
+				for (int k = 0; k < 2; ++k) {
+					const World::SourceObject &obj = o ? edge : chest;
+					Scene room, reference;
+					assert(room.load(data.data(), data.size(), 1.2, 320, screenWidth, screenHeight, error));
+					assert(room.source().objects[0].shown == 1 && room.source().objects[1].shown == 0); // (the one the scene shows)
+					const std::vector<uint8_t> refData = scene5Bytes(w, h, pasted(obj, k), two, {chest, edge}, next, std::vector<World::SourceCycle>());
+					assert(reference.load(refData.data(), refData.size(), 1.2, 320, screenWidth, screenHeight, error));
+					assert(room.showObject(o, k));
+					room.render(got.data(), screenWidth);
+					reference.render(want.data(), screenWidth);
+					assert(got == want);
+				}
+		}
+		Scene room;
+		assert(room.load(data.data(), data.size(), 1.2, 320, 1280, 720, error) && room.source().objects[0].name == "chest");
+		assert(!room.showObject(0, 2) && !room.showObject(2, 0) && !room.showObject(-1, 0));
+	}
+	std::puts("PASS: object pictures (the render as with the picture in the scene; middle and edge; small and large screens)");
 
 	// Spots for people: inside the boxes, spread out.
 	for (int n : {1, 4, 12}) {

@@ -14,8 +14,11 @@ Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
 """
 import argparse
+import gzip
 from pathlib import Path
+import re
 import shutil
+import struct
 import subprocess
 import tempfile
 from test_exploration import ROOT, command_for
@@ -53,6 +56,35 @@ def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False):
     for line in summary:
         print('  ' + line.replace('WARNING: ', '').rstrip('!'))
     return output
+
+
+def cycles_of(path):
+    """A scene file's colour cycles (delay, first, last, mode); None before SVW5."""
+    data = path.read_bytes()
+    if data[:2] == b'\x1f\x8b':  # (the cache keeps them compressed)
+        data = gzip.decompress(data)
+    if data[:4] != b'SVW5':
+        return None
+    width, height, boxes = struct.unpack_from('<HH', data, 6) + (data[10],)
+    p = 12 + 768 + width * height + boxes * 18
+    objects = struct.unpack_from('<H', data, p)[0]
+    p += 2 + objects * 16 + boxes * 2 + boxes * boxes
+    return [struct.unpack_from('<HBBB', data, p + 1 + i * 5) for i in range(data[p])]
+
+
+def check_cycles(worlds):
+    # As exported: at least a frame (4 ticks) a step, in range, a known mode.
+    places = cycling = 0
+    for path in sorted(worlds.glob('*.svw')):
+        found = cycles_of(path)
+        if found is None:
+            continue
+        places += 1
+        cycling += bool(found)
+        for delay, first, last, mode in found:
+            if delay < 4 or first >= last or mode > 2:
+                raise SystemExit(f'FAIL: {path.name}: colour cycle delay {delay}, {first}..{last}, mode {mode}')
+    return places, cycling
 
 
 def switch(data, worlds, frames, broken=False):
@@ -129,8 +161,15 @@ if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='scummverse-sandbox-', dir=ROOT/'build') as tmp:
         sandbox(exe, worlds, 'walk', shots, tmp)
         print('PASS: the first place at 1280x720 in true colour; its lead walks across')
-        sandbox(exe, worlds, 'all', shots, tmp)
+        output = sandbox(exe, worlds, 'all', shots, tmp)
         print('PASS: every place installed, its people shown, each lead walking')
+        # Objects named and pictured, colours moving where the files have them.
+        objects, named, pictured, moving = map(int, re.search(
+            r'all objects: (\d+), (\d+) named, (\d+) with pictures; (\d+) places with colours moving', output).groups())
+        places, cycling = check_cycles(worlds)
+        if places and (not named or not pictured or (cycling and not moving) or moving > cycling):
+            raise SystemExit(f'FAIL: objects {objects}, {named} named, {pictured} pictured; {moving} places moving of {cycling} with cycles')
+        print(f'PASS: {named} of {objects} objects named, {pictured} with pictures; colours moving in {moving} of {cycling} places with cycles')
         sandbox(exe, worlds, 'doors', shots, tmp)
         print('PASS: through the doors of every place (tapped, walked to, gone through)')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)

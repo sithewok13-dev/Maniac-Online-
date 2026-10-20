@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0105 (the new engine: walking as the games do, doors, everyone out).
+Active milestone: Phase 1; latest patch 0106 (the bigger export: box connections, colour cycles, object names and pictures).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2596,3 +2596,55 @@ then "Just keep building in the order you think is right."
   least 95 in 100 through, 99 in 100 of those with a door back standing at
   it) and half an hour with everyone out (someone arrives, everyone shown is
   on stage, the state written and read back).
+
+## Patch 0106 — the bigger export: box connections, colour cycles, objects' names and pictures
+
+User (2026-10-20): "Will the original objects eventually be implemented which
+you can pick up and interact with or will it remain empty? New engine is
+supposed to retain the look and feel of the originals." Step 2b of the plan
+(objects and verbs are 2c).
+- Export version 17 ("SVW5"): every installed game exports once more on the
+  next launch. Each scene adds the game's own box connections, the room's
+  colour cycles, and every object's name and pictures (without it, and in
+  each of its states). On the desktop all ten games re-exported in 73
+  seconds: 642 places (641 pixel for pixel as before, one pixel apart in one
+  room drawn by an older build), 8562 objects, 5529 named, 4798 with
+  pictures (33 MB of pictures; the cache grows from 95 to 103 MB), colour
+  cycles in 143 places, box connections in all.
+- The new engine: water, fire and lights move where the room cycles its
+  colours (the scene kept as palette indices, a quarter of the memory); the
+  games' own box connections join areas they keep apart: doors gone through
+  rise to 1608 of 1657 (97 in 100; the 49 left are joined only by the games'
+  scripts: stairs, ladders); objects can be shown in any of their pictures
+  (used by 2c).
+- The old engine reads the new scenes and ignores what it has no use for.
+- Tests: test_world.cpp (SVW5: connections, cycles, names, pictures and the
+  one shown, truncation, nothing left over, older files); test_stage.cpp
+  (connections join boxes apart, touching still meet, a matrix naming the
+  file's own box numbers; colour cycles against a port of the games' own
+  palette code: up, down, overlapping, to 255, the older sweep, one step a
+  update; showing a picture renders as the scene with it, in the middle and
+  at the edge, on screens larger and smaller than the scene); the engine's
+  all-places test shows every object picture, then the one the scene shows,
+  and test_sandbox_engine.py checks names, pictures and moving colours, and
+  every exported cycle (at least 4 ticks a step, in range); the door test
+  asks 96 in 100.
+- Two independent reviews (the stage, the export), fixed before packaging:
+  the older games' sweep was exported a step a tick (the frame timer is not
+  running at export): now a frame (4 ticks); the others' cycles at least a
+  frame, the older games' only those started, none with EGA dithering, none
+  left from the last room; overlapping rotations add up (a step an update);
+  in rooms their scripts set up (Monkey Island's maps, Indy 3's, the Dig's
+  presets) objects' pictures did not match the room as shown: each picture
+  is now the scene with what its state changes, and the file says which one
+  the scene shows (always exactly the scene; checked in every place); a room
+  without a box matrix no longer reaches the engine's assert; heights the
+  drawing rounds are put back; objects outside the room's rows, older
+  objects without an image and rows under 8 are not drawn; up to 16 states;
+  name escapes skip their arguments; an empty picture is refused.
+- Measured after the fixes (desktop, Linux): 642 places, pixel for pixel as
+  in export 16 but one pixel in one Monkey Island 2 room (the same in every
+  run now: drawn by an older build); 4798 objects with pictures, 4280 of
+  them changing between pictures (the rest look the same in every state, as
+  the game draws them here); colour cycles in 143 places, all at least 4
+  ticks a step, moving in 142 within the test's walk.

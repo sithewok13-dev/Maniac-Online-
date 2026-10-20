@@ -265,7 +265,24 @@ exported; an older export's scene of it is emptied, and the tour skips empty
 scenes). Loom objects that draw as solid black frames (an animation's later
 steps) show the room without objects instead; Day of the Tentacle's room 11
 is cut to its 144 picture rows. Arrival spot (`fitScene`): the middle of the
-lowest walk box at least a quarter the size of the biggest. Scenes are "SVW4" (object states after those scripts); a door link
+lowest walk box at least a quarter the size of the biggest. Scenes are "SVW5"
+(export version 17; "SVW4" added object states after those scripts): the
+game's own box connections (getNextBox for every pair of boxes; none in a
+room without a matrix), the room's colour cycles as cyclePalette runs them
+(the older games' sweep a step a frame, only those started; the others'
+rotation a step each delay, at most one a frame; none with EGA dithering; a
+frame taken as 4 ticks), and per object its name (printable, without the
+later games' "/id/" keys and escape codes) and pictures: its rectangle
+without it, then in each of its states, and which one the scene shows
+(exactly the scene's rectangle). Each picture is the scene with what that
+state changes: the rectangle drawn in the state against drawn as it is, so
+what the rooms' scripts and presets drew there stays (scripted rooms bring
+the room's object states up to date first, as the game does every frame).
+A state is drawn only when every strip of its image is where the game's
+drawing reads it and the object is within the room's rows; drawing takes
+the image from the global state table, so both it and the room's copy are
+set, then put back with the heights drawing rounds. The old engine reads
+them and ignores what it has no use for; a door link
 marked `switched` is offered only where that object is shown. Exploration
 presets (0074, catalog: classes switched off, variables, room scripts and
 their tints) put a game in an explored state before its rooms are drawn;
@@ -463,7 +480,14 @@ one palette) apply.
   neighbours two apart); which meet, and the groups reachable from one
   another, are worked out once per scene (Links). Paths go breadth first
   through meeting boxes, crossing where best on the way, and end as near
-  the destination as the boxes reached allow. Characters are drawn in true
+  the destination as the boxes reached allow. Where the export has the
+  game's own connections, boxes also meet where either is the other's next
+  box on the way (areas a game joins though apart); touching boxes still
+  meet (a game may route between them through a box switched off here).
+  The scaled scene keeps palette indices, its colours a 256-entry table that
+  the room's colour cycles move (up, down or the older games' sweep), drawn
+  again when they do; an object can be shown in any of its pictures
+  (showObject), the scene and its scaled copy updated in its rectangle. Characters are drawn in true
   colour from their own palettes, as tall as the scene's people (their
   game's lead against the scene's, heroHeight) at the box's own scale, a
   third on map rooms, nearer ones in front. They walk as the games do: a
