@@ -20,4 +20,4 @@ if __name__ == '__main__':
         raise SystemExit(0)
     run_probe(a.data.resolve(), (ROOT/'tools/probes/world_visit.inc').read_text(), 'scummverse_roaming',
               'SCUMMVERSE_WORLD_VISIT_PASS', 'world-visit', PRELUDE, a.build, timeout=1800,
-              extra_config=f'scummverse_worlds_path={a.worlds.resolve()}\n')
+              extra_config=f'scummverse_worlds_path={a.worlds.resolve()}\nscummverse_wanderers=true\n')

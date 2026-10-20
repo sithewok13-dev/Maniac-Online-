@@ -7,7 +7,7 @@ from test_exploration import ROOT, run_probe
 PRELUDE = r'''
 #define SCUMMVERSE_LOCAL_AI 1
 #include <cstring>
-namespace FakeAI { bool accept = false, complete = false; int actor = 0, room = 0, cancels = 0, talk = 0; unsigned roster = 0, group = 0; bool reply = false; int worldRequest = 0, airportOffers = 0; }
+namespace FakeAI { bool accept = false, complete = false; int actor = 0, room = 0, cancels = 0, talk = 0; unsigned long long roster = 0, group = 0; bool reply = false; int worldRequest = 0, airportOffers = 0; }
 bool scummverseTalkPick(int) { return false; }
 bool scummverseAIRequest(int actor, int room, int) {
  if (!FakeAI::accept) return false;
@@ -18,11 +18,11 @@ bool scummverseAIPoll(int &actor, int &room, char *text, int capacity) {
  actor = FakeAI::actor; room = FakeAI::room;
  std::strncpy(text, "Who left the refrigerator open?", capacity); FakeAI::complete = false; return true;
 }
-unsigned scummverseTalkScene(int, int, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity) {
+unsigned long long scummverseTalkScene(int, int, unsigned long long actors, bool canSpeak, int &speaker, char *line, int capacity) {
  FakeAI::roster = actors; line[0] = 0; speaker = 0;
- if (FakeAI::talk && !(actors & (1u << FakeAI::talk))) FakeAI::talk = 0;
+ if (FakeAI::talk && !(actors & (1ull << FakeAI::talk))) FakeAI::talk = 0;
  if (FakeAI::talk && FakeAI::reply && canSpeak) { std::strncpy(line, "Keep out of my refrigerator!", capacity); speaker = FakeAI::talk; FakeAI::reply = false; }
- return (FakeAI::group ? FakeAI::group : FakeAI::talk ? 1u << FakeAI::talk : 0) & actors;
+ return (FakeAI::group ? FakeAI::group : FakeAI::talk ? 1ull << FakeAI::talk : 0) & actors;
 }
 void scummverseRosterFace(int,const unsigned char *) {}
 void scummverseRosterShow(int,unsigned) {}
@@ -33,6 +33,8 @@ void scummverseWorldReport(const char *) {}
 void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
 namespace FakeAI { int appearance[25] = {}; }
 void scummverseTalkAppearance(int actor, int key) { if (actor > 0 && actor < 25) FakeAI::appearance[actor] = key; }
+namespace FakeAI { int wanderers[26] = {}; }
+void scummverseTalkVisitor(int slot, int key) { if (slot >= 0 && slot < 26) FakeAI::wanderers[slot] = key; }
 void scummverseAICancel() { ++FakeAI::cancels; FakeAI::complete = false; }
 namespace FakeAI { int castGames = 0, castFaces = 0, castShown = 0; int castMembers[12] = {}, castLead[12] = {}; }
 void scummverseCastGame(int slot, const char *, const char *, const unsigned char *rgba) {

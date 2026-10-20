@@ -92,6 +92,22 @@ int main() {
  scummverseTalkAppearance(3,worldAppearanceKey(3,999)); assert(std::string(actorName(3))=="Dave"); // Unknown: himself.
  scummverseTalkAppearance(3,0); assert(std::string(actorName(3))=="Dave");
  scummverseTalkAppearance(30,indy); scummverseTalkAppearance(-1,indy); // Out of range: ignored.
+ // Wanderers visiting are talk IDs 30..55 (past 32 bits): named and played
+ // as themselves, picked, joined and left like anyone.
+ const int guybrush=worldAppearanceKey(0,1);
+ scummverseTalkVisitor(0,guybrush); scummverseTalkVisitor(25,indy); scummverseTalkVisitor(26,indy); scummverseTalkVisitor(-1,indy);
+ assert(std::string(actorName(30))=="Guybrush Threepwood" && std::string(actorName(55))=="Indiana Jones" && std::string(personality(55))==worldAppearance(indy)->personality);
+ r.endTalk();
+ const uint64_t far=(uint64_t(1)<<30)|(uint64_t(1)<<55)|(1u<<10);
+ r.scene(10,3,far,true,speaker,text,sizeof(text));
+ assert(r.actorsInRoom()==far && r.toggleTalk(55) && r.talkingTo()==55 && r.talkingWith()==uint64_t(1)<<55);
+ assert(r.toggleTalk(30) && r.talkingTo()==-2 && r.talkingWith()==((uint64_t(1)<<30)|(uint64_t(1)<<55)));
+ r.scene(10,3,(uint64_t(1)<<30)|(1u<<10),true,speaker,text,sizeof(text)); // Indy walks off.
+ assert(r.talkingWith()==uint64_t(1)<<30);
+ assert(!r.toggleTalk(56) && !r.toggleTalk(55)); // Past the last slot; not here.
+ r.endTalk(); assert(r.sendNearby("Ahoy")==1 && r.talkingTo()==-1 && r.talkingWith()==((uint64_t(1)<<30)|(1u<<10)));
+ r.endTalk(); scummverseTalkVisitor(0,0); assert(std::string(actorName(30))=="visitor");
+ std::cout<<"PASS wanderers past 32 talk IDs\n";
  std::cout<<"PASS people chips and nearby composer\n";
  std::cout<<"PASS scene picking, explicit participant membership, departures, stale selections, classic fallback and transcript order\n";
 }

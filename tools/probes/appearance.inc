@@ -15,12 +15,13 @@
 		Common::String h=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h); f.write(h.c_str(),h.size());
 		for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) { byte c=*_virtscr[0].getPixels(x,y); f.write(_currentPalette+3*c,3); }
 	};
-	// Drawn height of a character from its exported frames (slots 192+).
+	// Drawn height of a character from its exported frames (the colours after
+	// the room's own: WorldBridge::guestFirstSlot).
 	auto drawn=[&](Actor *a) {
 		a->_needRedraw=true; settle(1);
 		if (a->_top>=a->_bottom) return 0;
 		int top=a->_bottom, bottom=a->_top;
-		for(int y=a->_top;y<a->_bottom;++y) for(int x=0;x<_screenWidth;++x) if(*_virtscr[0].getPixels(x,y)>=192) { top=MIN(top,y); bottom=MAX(bottom,y+1); }
+		for(int y=a->_top;y<a->_bottom;++y) for(int x=0;x<_screenWidth;++x) if(*_virtscr[0].getPixels(x,y)>=MAX(16,::Scummverse::WorldBridge::guestFirstSlot())) { top=MIN(top,y); bottom=MAX(bottom,y+1); }
 		return bottom>top ? bottom-top : 0;
 	};
 	Actor *dave=derefActor(3,"appearance player");
@@ -57,6 +58,16 @@
 	// In other worlds: as tall as a person standing there, in his own game
 	// (Last Crusade) and in another (Monkey Island).
 	const int places[][2]={{3,6},{0,33}};
+	// (Their own characters at home, not out wandering: anyone out from those
+	// games gives their turn to someone from elsewhere.)
+	for (int i=0;i<40;++i) {
+		int32 &who=_scummVars[kScummverseWanderVar+i];
+		if (worldAppearanceGame(who)!=3 && worldAppearanceGame(who)!=0) continue;
+		for (const auto &c : kWorldCast) {
+			const int key=worldAppearanceKey(c.game,c.guest.costume);
+			if (c.game!=3 && c.game!=0 && !scummverseWandering(key)) { who=key; break; }
+		}
+	}
 	for (const auto &place : places) {
 		if (!scummverseTravelPlace(place[0],place[1])) error("Cannot visit %d:%d: %s",place[0],place[1],_scummverseWorldNotice.c_str());
 		settle(8);
@@ -401,7 +412,7 @@
 				error("%s not seated: elevation %d at %d,%d facing %d",worldAppearance(key)->name,dave->getElevation(),dave->getRealPos().x,dave->getRealPos().y,dave->getFacing());
 			if (worldNativeLook(key)) continue;
 			int left=_screenWidth, right=-1, top=1000, bottom=-1;
-			for (int y=0;y<_virtscr[0].h;++y) for (int x=0;x<_screenWidth;++x) if (*_virtscr[0].getPixels(x,y)>=192) {
+			for (int y=0;y<_virtscr[0].h;++y) for (int x=0;x<_screenWidth;++x) if (*_virtscr[0].getPixels(x,y)>=MAX(16,::Scummverse::WorldBridge::guestFirstSlot())) {
 				left=MIN(left,x); right=MAX(right,x); top=MIN(top,y); bottom=MAX(bottom,y); }
 			const int middle=(left+right)/2+_virtscr[0].xstart;
 			// A pose with a leg over the armrest shows some below the seat's front.

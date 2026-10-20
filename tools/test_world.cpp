@@ -134,6 +134,40 @@ static void testSprites() {
 	assert(both[0].palette == both[1].palette);
 	assert(!fitSprites({src, second}, std::vector<double>{1.0}, 192, 64, both, error));
 	assert(!fitSprites({src, second}, std::vector<double>{1.0, 0.0}, 192, 64, both, error));
+	// Fair shares: with too few slots for everyone's colours, each character
+	// in turn keeps its own most used ones (a small one is not drawn in a big
+	// one's colours), and a colour all but the same as one kept is passed
+	// over while slots are short.
+	{
+		auto made = [](int colors, int side, bool small, int near) {
+			SourceSprite s; SourceFrame f;
+			f.width = f.height = side; f.dx = -side / 2; f.dy = -side;
+			for (int c = 1; c <= colors; ++c) {
+				uint8_t *rgb = &s.palette[c * 3];
+				if (small) { rgb[0] = (uint8_t)(100 + c * 30); rgb[1] = 200; rgb[2] = (uint8_t)(c * 40); }
+				else { rgb[0] = (uint8_t)(c * 6); rgb[1] = (uint8_t)(c * 37 % 256); rgb[2] = (uint8_t)(255 - c * 6); }
+			}
+			if (near) { s.palette[near * 3] = (uint8_t)(s.palette[3] + 1); s.palette[near * 3 + 1] = (uint8_t)(s.palette[4] + 1); s.palette[near * 3 + 2] = s.palette[5]; }
+			// Colour c covers fewer pixels as c grows (colour 1 the most).
+			std::vector<uint8_t> order;
+			for (int c = 1; c <= colors; ++c) for (int n = c; n <= colors; ++n) order.push_back((uint8_t)c);
+			for (int i = 0; i < side * side; ++i) { f.pixels.push_back(order[i % order.size()]); f.mask.push_back(1); }
+			s.frames.push_back(f);
+			return s;
+		};
+		const SourceSprite big = made(40, 40, false, 2), small = made(4, 6, true, 0);
+		std::vector<SandboxSprite> fair;
+		assert(fitSprites({big, small}, 1.0, 16, 8, fair, error) && fair[0].slotCount == 8);
+		auto kept = [&](const SourceSprite &s, int c) {
+			for (int i = 0; i < 8; ++i)
+				if (!memcmp(&fair[0].palette[i * 3], &s.palette[c * 3], 3)) return true;
+			return false;
+		};
+		for (int c = 1; c <= 4; ++c) assert(kept(small, c)); // the small one's own colours
+		assert(kept(big, 1) && !kept(big, 2));                 // big's second, all but its first: passed over
+		// With room for all, every colour is kept exactly.
+		assert(fitSprites({big, small}, 1.0, 16, 240, fair, error) && fair[0].slotCount == 44);
+	}
 	// The bridge keeps characters without any scene (Maniac and Zak rooms);
 	// guests need a scene to scale with.
 	{

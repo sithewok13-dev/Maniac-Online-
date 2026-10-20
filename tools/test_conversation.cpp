@@ -106,5 +106,17 @@ int main() {
 
 	// The player bit (0) can never become a participant.
 	c.reset(1u | edna); assert(c.participants() == edna);
+
+	// Participants past 32 bits (wanderers visiting, IDs 30..55) answer in
+	// turn and leave like anyone.
+	{
+		const uint64_t guybrush = uint64_t(1) << 30, indy = uint64_t(1) << 55, last = uint64_t(1) << 63;
+		Conversation w; w.reset(guybrush | indy | last);
+		assert(w.participants() == (guybrush | indy | last));
+		ReplyJob a, b; w.submit("Ahoy"); assert(w.nextJob(a) && a.speaker == 30); w.complete(a.ticket, "Arr.", "");
+		assert(w.nextJob(b) && b.speaker == 55);
+		assert(w.setParticipants(guybrush)); // Indy leaves mid-reply: cancelled.
+		w.submit("Again"); assert(w.nextJob(a) && a.speaker == 30);
+	}
 	std::cout << "PASS: conversation ordering, backpressure, stale tickets, departures, groups, context and bounds\n";
 }

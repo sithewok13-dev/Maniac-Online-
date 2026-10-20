@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0100 (the Creator walks and talks; the hold ring; riders jump into the van).
+Active milestone: Phase 1; latest patch 0101 (wanderers from the other games; chat for 64; fairer character colours).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2369,3 +2369,64 @@ User (2026-10-20, a screen recording and notes), in their words:
   test_flights, test_companions; tools/test_world.cpp with sanitizers;
   bootstrap, startup. The hold ring is iPhone code, not compiled here.
   Not device-tested.
+
+## Patch 0101 — wanderers from the other games; chat for 64; fairer colours
+
+User (2026-10-20), in their words: "I just want more actors roaming outside
+their home games. It'll be more interesting to find them in odd places";
+"Only 3 per room? I'd like that to be more dynamic"; "No save some slots,
+enough to be safe"; "Is it always the same 40 wanderers or do the characters
+change"; "I don't need them all on the plans or in the van, following me".
+- Wanderers (common/scummverse_wander.*, engines/scumm/scummverse_wander.inc):
+  forty of the other games' characters are out at once, over every place
+  there is (the mansion's rooms, Zak's, the other games' exported rooms but
+  maps and floor plans: 743 places with all ten games here). Off-screen each
+  is a saved note, who and where (variables 256..335); now and then one
+  moves on through a door of its place, sometimes anywhere at all, sometimes
+  to where another is (so a few gather). Every two and a half minutes one
+  goes home and someone not out yet sets out from home, so everyone gets a
+  turn. A wanderer is not at home meanwhile (never two of anyone). While the
+  player watches a place nothing there changes but arrivals.
+- In the viewed place they are drawn as visitors, as many as its floor has
+  room for (one per 40 pixels, fewer for those already there; 26 slots at
+  most): actors of their own outside the game's actor table, since Maniac
+  numbers its objects from where the actors end. They stroll a little,
+  greet the player once in their own colour, walk in from a side when they
+  arrive, wear air gear on Mars, and step aside while someone plays them.
+  They do not follow, ride or sit on the plane.
+- Chat: anyone visiting can be chatted with (the people row, a tap while
+  picking, group talk). Participant lists are 64 bits wide (talk IDs: 1..24
+  the sandbox's people, 25..29 a scene's own, 30..55 wanderers). Follow is
+  offered only for the mansion's and Zak's people.
+- Colours: other games' characters take every palette slot the room leaves:
+  240 in the mansion and Zak's rooms (64 before), after the scene's own in
+  other worlds, where a scene that expects many characters on arrival keeps
+  fewer colours (down to 128). They share them fairly: each in turn keeps
+  its own most used colours, passing over near-duplicates (in a test of ten
+  characters in 64 colours the worst one's average error fell from 10.2 to
+  3.9).
+- Tests: tools/test_wander.cpp (ASan/UBSan, TSan); tools/test_wander_engine.py
+  (data suite); test_conversation and test_scene_talk past 32 IDs;
+  test_world.cpp fair shares; test_appearance and test_world_visit send a
+  checked place's residents home first; colour checks use
+  WorldBridge::guestFirstSlot. Engine tests keep wanderers home
+  (scummverse_wanderers=false in run_probe's config) except test_wander_engine
+  and test_world_visit, so their rooms stay as each expects.
+- Independent review, fixed: strips the engine draws again (an object's
+  state, speech gone) now take visitors there with them (defensive: in this
+  build visitors are drawn every frame anyway, so the new check passed
+  without it too); a scene's own characters stand clear of visitors; a
+  damaged character file is passed over rather than blanking everyone
+  there; chat drops visitors once when they are cleared (a load), so a slot
+  is never taken for whoever had it; more of the cast set out when games are
+  exported later; a crowd is named up to ten in the chat prompt; talk masks
+  past the last wanderer are ignored; colour counting by palette index.
+  Left as is: a visitor's frames are read and all characters refitted when
+  someone arrives (rare; a few frames).
+- Verified (Linux, the user's private copies): the full data suite (41/41,
+  with test_wander_engine new); tools/test_wander.cpp (ASan/UBSan, TSan);
+  test_world.cpp, test_conversation.cpp (sanitizers); test_talk_runtime.py
+  (ASan/UBSan, TSan, no weights); bootstrap, startup, package_ipa. The chat
+  screen changes (scummverse_talk_ui.inc) are iPhone code, compiled only by
+  Apple CI. Not device-tested.
+

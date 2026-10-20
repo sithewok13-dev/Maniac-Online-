@@ -190,6 +190,10 @@ completion, a bounded outbox and departure handling. Providers (local model,
 classic lines, a future server) are outside it; the iOS runtime serializes
 access with its mutex. UI and engine bubbles read the same transcript. Not yet:
 persistence, network delivery acknowledgments or multi-conversation rooms.
+Since 0101 participants are 64-bit (`uint64_t`, IDs 1..63): sandbox characters
+1..24, a scene's own characters 25..29, wanderers visiting 30..55
+(`kScummverseTalkVisitor` + slot; `scummverseTalkVisitor` tells the runtime who
+each is). Only 1..24 can follow.
 
 ## Local WiFi play (patch 0053)
 
@@ -212,8 +216,11 @@ own copy is run once in export mode, and its own engine renders a private
 cache (scenes `.svw`, characters `.svc`, finished marker
 `<game>-v<kWorldExportVersion>.svx`). Portable code (`common/scummverse_world.*`,
 std-free bridge `scummverse_world_engine.h`) fits them to the V1 sandbox on one
-physical room, with palette slots 16..191 for the scene and 192..255 shared by
-its characters. Characters use transient guest actors (Maniac 25..29, never
+physical room, with palette slots from 16 for the scene and every slot after
+its colours shared by its characters (0101: 176 for the scene, fewer down to
+128 when many characters are expected on arrival; in the mansion and Zak's
+rooms characters get 16..255). Characters share them fairly: each in turn
+keeps its own most used colours, passing over near-duplicates. Characters use transient guest actors (Maniac 25..29, never
 saved; Maniac objects start at 30), so the sandbox's walking, speech and chat
 rules apply; only drawing is replaced.
 
@@ -373,7 +380,7 @@ Playing someone from another game (0069): a sandbox character (1..24) has an
 optional saved appearance (a cast member's key). The engine mounts, whenever
 the set changes, the frames everyone in the viewed room needs (the scene's
 guests at the scene's scale, appearances at a person's height there) into
-the shared character slots 192..255, draws them through the same actor hook,
+the shared character slots (WorldBridge::guestFirstSlot onwards), draws them through the same actor hook,
 and overrides only the name lookup; inventory, verbs, travel and saves stay
 the sandbox character's. Maniac's own (kWorldManiacLooks) and Zak's own
 (kWorldZakLooks, 0096: the scene residents) are native looks: the sandbox
@@ -401,3 +408,29 @@ and the screen opens; "Play as someone else" (command 61) and the game's
 New Kid button open it again. Without SCUMMVERSE_LOCAL_AI it falls back to
 the roster.
 v7/v8 editions are compiled in solely so the player's copies can be exported.
+
+## Wanderers (0101)
+
+Other games' characters roam outside their home rooms
+(`common/scummverse_wander.{h,cpp}`, plain C++, `tools/test_wander.cpp`;
+std-free bridge `scummverse_wander_engine.h`). Places are one code each
+(kind Maniac/Zak/world, game, room); doors come from mansionPassages,
+zakLinks and the generated door maps (a door into a map or floor plan leads
+on to where its doors go). Forty are out at once; who (appearance key) and
+where (place code) are saved in variables 256..335. Off-screen a wanderer is
+only that note: it moves on through a door now and then, sometimes anywhere,
+sometimes to another wanderer; every two and a half minutes one goes home
+and someone else sets out. Nothing changes in the viewed place, and nobody
+living there leaves or returns while the player watches. A wanderer is not
+at home meanwhile (the scene leaves out that resident).
+`engines/scumm/scummverse_wander.inc` shows those in the viewed place as
+visitors, as many as its floor has room for (`Wander::capacity`: one per 40
+pixels of floor, fewer for the characters already there; at most 26 slots):
+Actor_v2 instances outside `_actors` with number 0 (MM V1 numbers objects
+from 30, so more numbered actors would collide). processActors sorts them
+with the actors, walkActors walks them, resetActorBgs restores what they
+covered (they have no strip bits; anyone sharing a restored strip is drawn
+again). They speak as the narrator in their own colour, stand where their
+key and the floor put them (the same after a load), and walk in from a side
+when they arrive while the player watches.
+

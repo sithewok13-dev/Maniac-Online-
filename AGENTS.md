@@ -24,7 +24,9 @@ with -Iengine and sanitizers, then run. CAMERA: tools/test_camera.cpp with
 engine/common/scummverse_camera.cpp (sanitizers); through the engine,
 `python3 tools/test_camera_engine.py game-data/mm-dos` (in the data suite). TOUR: tools/test_tour.cpp
 with engine/common/scummverse_tour.cpp (ASan, TSan); through the engine,
-`python3 tools/test_tour_engine.py game-data/mm-dos` (in the data suite; enters every stop). LIGHTS
+`python3 tools/test_tour_engine.py game-data/mm-dos` (in the data suite; enters every stop).
+WANDERERS: tools/test_wander.cpp with engine/common/scummverse_wander.cpp (ASan, TSan);
+through the engine, `python3 tools/test_wander_engine.py game-data/mm-dos` (in the data suite). LIGHTS
 and DOORS: `python3 tools/test_lights_doors.py game-data/mm-dos` (in the data suite). WiFi sessions: compile tools/test_net.cpp with engine/common/scummverse_net.cpp
 (ASan, TSan). Dialogue runtime without weights (ASan/TSan):
 `python3 tools/test_talk_runtime.py`. Apple CI (macos-15) builds the IPA on pushes
