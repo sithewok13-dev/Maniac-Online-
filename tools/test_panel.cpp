@@ -323,8 +323,73 @@ int main() {
 		assert(decide(kPush, none3, "x").picture == 1 && decide(kPull, hidden, "x").picture == 1);
 		assert(decide(kUse, mug, "x").say == "That doesn't seem to work." && decide(kGive, mug, "x").result == kSay && decide(kTalk, mug, "x").result == kSay);
 		assert(decide(kWalk, mug, "x").result == kNothing);
+		// Where the game's script is known: only what it answers.
+		Thing pirate = mug; pirate.answers = 1 << kTalk | 1 << kLook;
+		Thing grog = mug; grog.answers = 1 << kPickUp;
+		Thing hatch = door; hatch.answers = 1 << kClose; // (either of open and close will do)
+		assert(decide(kPickUp, pirate, "pirate").say == "I can't pick that up." && decide(kPickUp, grog, "mug").result == kTake);
+		assert(decide(kOpen, hatch, "hatch").picture == 1 && decide(kOpen, pirate, "x").say == "It doesn't open.");
+		assert(decide(kPush, pirate, "x").say == "It won't budge." && decide(kTurnOn, pirate, "x").say == "It doesn't turn on.");
+		assert(decide(kLook, pirate, "pirate").say == "Pirate." && decide(kUse, grog, "x").result == kSay);
+		// Its catch-all entry alone: not known (all will do); with its own: those.
+		Thing any = mug; any.answers = PanelBridge::kThingAnswersAny;
+		Thing pirateAny = pirate; pirateAny.answers |= PanelBridge::kThingAnswersAny;
+		Thing grogAny = grog; grogAny.answers |= PanelBridge::kThingAnswersAny | PanelBridge::kThingAway;
+		assert(decide(kPickUp, any, "x").result == kTake && decide(kOpen, any, "x").say == "It's already open.");
+		assert(decide(kPickUp, pirateAny, "x").say == "I can't pick that up." && decide(kPickUp, grogAny, "x").result == kTake);
+		Thing nothing = mug; nothing.answers = 0;
+		assert(decide(kPickUp, nothing, "x").say == "I can't pick that up." && decide(kPush, nothing, "x").say == "It won't budge.");
 	}
-	std::puts("PASS: the plain rules (look names, pick up small shown things, open, close, on, off, push, pull; the rest said)");
+	std::puts("PASS: the plain rules (look names, pick up small shown things, open, close, on, off, push, pull; the rest said; what the game's script answers)");
+
+	// Where a game puts things: per room each object's picture and what it
+	// answers; read whole or not at all; kept per game.
+	{
+		std::vector<uint8_t> d = {'S', 'V', 'O', '1'};
+		put16(d, 2);
+		put16(d, 28); put16(d, 2); put16(d, 373); d.push_back(1); put16(d, 1 << kPickUp); put16(d, 341); d.push_back(1); put16(d, 1 << kTalk);
+		put16(d, 33); put16(d, 0);
+		GameThings things;
+		assert(parseThings(d.data(), d.size(), things, error) && things.rooms.size() == 2);
+		const GameThing *mug = things.find(28, 373);
+		assert(mug && mug->picture == 1 && mug->answers == 1 << kPickUp && !things.find(28, 999) && !things.find(33, 373));
+		for (size_t cut = 1; cut < d.size() - 4; ++cut) assert(!parseThings(d.data(), d.size() - cut, things, error));
+		std::vector<uint8_t> extra = d; extra.push_back(0);
+		assert(!parseThings(extra.data(), extra.size(), things, error) && things.rooms.empty());
+		char problem[64];
+		int picture = -1, answers = -1;
+		assert(PanelBridge::loadThings(0, d.data(), d.size(), problem, sizeof(problem)) && PanelBridge::thingsLoaded(0) && !PanelBridge::thingsLoaded(1));
+		assert(PanelBridge::gameThing(0, 28, 341, picture, answers) && picture == 1 && answers == 1 << kTalk && !PanelBridge::gameThing(1, 28, 341, picture, answers));
+		// (One that cannot be read: kept as none, not read again.)
+		assert(!PanelBridge::loadThings(0, extra.data(), extra.size(), problem, sizeof(problem)) && PanelBridge::thingsLoaded(0));
+		assert(!PanelBridge::gameThing(0, 28, 341, picture, answers) && std::strlen(problem) > 0);
+		PanelBridge::clearThings();
+		assert(!PanelBridge::thingsLoaded(0));
+		// In any order in the file; a room only once; at most so many.
+		std::vector<uint8_t> mixed = {'S', 'V', 'O', '1'};
+		put16(mixed, 3);
+		put16(mixed, 90); put16(mixed, 1); put16(mixed, 7); mixed.push_back(2); put16(mixed, PanelBridge::kThingAway);
+		put16(mixed, 12); put16(mixed, 3);
+		for (int id : {30, 10, 20}) { put16(mixed, id); mixed.push_back((uint8_t)(id / 10)); put16(mixed, 1 << kLook); }
+		put16(mixed, 50); put16(mixed, 0);
+		assert(parseThings(mixed.data(), mixed.size(), things, error) && things.rooms.size() == 3);
+		assert(things.rooms[0].first == 12 && things.rooms[2].first == 90);
+		for (int id : {10, 20, 30}) assert(things.find(12, id) && things.find(12, id)->picture == id / 10);
+		assert(things.find(90, 7)->answers == PanelBridge::kThingAway && !things.find(50, 7) && !things.find(11, 10) && !things.find(91, 7));
+		std::vector<uint8_t> twice = {'S', 'V', 'O', '1'};
+		put16(twice, 2);
+		put16(twice, 28); put16(twice, 0); put16(twice, 28); put16(twice, 0);
+		assert(!parseThings(twice.data(), twice.size(), things, error) && things.rooms.empty());
+		std::vector<uint8_t> rooms = {'S', 'V', 'O', '1'};
+		put16(rooms, kMostThingRooms + 1);
+		for (int i = 0; i <= kMostThingRooms; ++i) { put16(rooms, i); put16(rooms, 0); }
+		assert(!parseThings(rooms.data(), rooms.size(), things, error) && error == "too many rooms");
+		std::vector<uint8_t> crowd = {'S', 'V', 'O', '1'};
+		put16(crowd, 1); put16(crowd, 1); put16(crowd, kMostThings + 1);
+		for (int i = 0; i <= kMostThings; ++i) { put16(crowd, i); crowd.push_back(0); put16(crowd, 0); }
+		assert(!parseThings(crowd.data(), crowd.size(), things, error) && error == "too many things" && things.rooms.empty());
+	}
+	std::puts("PASS: where a game puts things (read whole or not at all, any order, a room once, at most so many; per room and object, kept per game)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and
@@ -353,8 +418,9 @@ int main() {
 		assert(PanelBridge::itemCount() == 0);
 		// The rules through the bridge.
 		int picture; char say[64];
-		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, "door", picture, say, sizeof(say)) == kShow && picture == 1);
-		assert(PanelBridge::decide(kLook, false, 0, 0, false, 0, 0, "sign", picture, say, sizeof(say)) == kSay && !strcmp(say, "Sign."));
+		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, -1, "door", picture, say, sizeof(say)) == kShow && picture == 1);
+		assert(PanelBridge::decide(kLook, false, 0, 0, false, 0, 0, -1, "sign", picture, say, sizeof(say)) == kSay && !strcmp(say, "Sign."));
+		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, 1 << kLook, "door", picture, say, sizeof(say)) == kSay && !strcmp(say, "It doesn't open."));
 	}
 	{
 		// The picture itself (Panel side): through a scene parsed here.

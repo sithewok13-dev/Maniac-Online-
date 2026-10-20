@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0107 (the games' own verb panels in the new engine).
+Active milestone: Phase 1; latest patch 0108 (things where the games put them, and what each answers).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2726,5 +2726,83 @@ the originals." and "Just keep building in the order you think is right".
   chosen cancels a door walked to; a door not reached clears the sentence
   line; a thing is carried as it was shown when taken; a panel that cannot
   be read is reported.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0108 — things where the games put them, and what each answers (step 2d)
+
+User (2026-10-20): "Will the original objects eventually be implemented which
+you can pick up and interact with or will it remain empty? New engine is
+supposed to retain the look and feel of the originals."
+- Export version 19: after its verb panel, each of the five verb-panel
+  games also exports "<game>-things.svo": from the game's own start, each
+  of its places is set up again and its entry script run as on arriving
+  (cutscenes skipped as a player skips them, lines not waited for; the
+  game's variables and object states put back after each room), and each
+  object's picture then is kept, with the verbs its own script answers
+  (its own entries in the object's verb table, not the catch-all one;
+  also whether it has a catch-all entry, and whether its game has it
+  untouchable or carried there). The things pass runs only after its
+  panel was captured. The scenes themselves are unchanged, byte for byte
+  (all 903 scene and character files against the 0107 export). On the
+  desktop: Monkey Island 78 of 81 places set up, Monkey Island 2 69 of 71,
+  Indiana Jones 3 99 of 111, Fate of Atlantis 68 of 72, Day of the
+  Tentacle 49 of 50 (the rest are left by their own scripts); objects that
+  can be touched there and answer some verb: 530, 414, 471, 406, 348;
+  answering pick up: 73, 196, 150, 90, 125 (untouchable or carried: 887,
+  224, 1035, 546, 258).
+- The new engine shows each object as its game has it there (what the
+  player opened, closed or took still wins): 412 things in 140 places,
+  the SCUMM Bar's pirates at their tables among them. Each verb now also
+  needs the thing to answer it in its game (open or close, on or off, push
+  or pull, pick up): a mug can be taken, a pirate not. One with only its
+  catch-all entry is not known (every verb does as before); one its game
+  has untouchable or carried there is not a thing in the sandbox. A door
+  its game switches by an object's picture is a door only while shown.
+  Without a things file (Loom, Sam & Max, the later games) the plain rules
+  are as before. The things file is read whole or not at all (any order,
+  a room only once, at most 1024 rooms and 4096 objects a room); one that
+  cannot be read is told once and kept as none.
+- Running every room's entry script out of its story's order reaches the
+  engine's own checks (a script stopped or ending inside a cutscene, the
+  cutscene stack, nesting too deep, a script of another room): while
+  exporting only, those are told and passed over instead of stopping the
+  app (scummverseScriptError; normal play stops as the originals did). The
+  scene export now starts each room with no script, cutscene or override
+  left (one left made the engine stop at the script's end), the things pass
+  keeps the screens the game set itself (the places' layout made a script
+  that restores the verbs draw past the room's screen: memory damage), and
+  the panel capture starts from the engine's own start screens. Review
+  fixes: a script slot taken while exporting keeps no cutscene or override
+  of the script stopped there (one skipped later would have run the slot's
+  new script from the old one's place, or a dead slot: a crash); a
+  cutscene is skipped only where the script that set it still runs; the
+  sentence and object-drawing queues and the game's inventory list are put
+  back each room; Day of the Tentacle's arrays an earlier room freed read
+  as 0; restart, pause and quit from a room's script are passed over; a
+  quit or a failed pass writes no things file, and an older export's panel
+  or things file the new one lacks is emptied. Mac and FM Towns Indiana
+  Jones (no panel captured) get no things file.
+- Tests: tools/test_panel.cpp (the things file read whole or not at all,
+  in any order, a room once, at most so many, kept per game, one that
+  cannot be read kept as none; the rules with what a thing answers, its
+  catch-all entry alone not known); test_sandbox_engine.py: the things
+  placed (412 in 140 places), the SCUMM Bar's file as its scripts answer
+  (a pirate looked at and talked to, not taken; the kitchen door opened
+  and closed; no mug out at the start), doors picked as the sandbox has
+  them (1602 tried, 1537 through, 13 elsewhere, 52 short, 71 not there or
+  shut by their game), and the verbs test picks things by what they
+  answer, passes over one out of reach for another, and looks through each
+  game's places until that game has pushed, taken and declined one: 5
+  pushed, 5 taken (each looked at in its slot), 5 refused because their
+  games do not take them, 5 doors refused, 1 out of reach.
+- Known: Loom, Sam & Max, Full Throttle, The Dig and Curse of Monkey Island
+  have no things file yet (their starts are not run). Not every entry
+  script leaves its room as a player finds it (cutscenes skipped). Actors,
+  verbs and renamed objects are not put back between rooms (only object
+  states are kept, so these do not reach the file). A verb its script
+  answers may still be a refusal there (a sign that answers pick up with
+  a line): the sandbox then takes what the game would not. At its start
+  Monkey Island puts no mug out in the SCUMM Bar (untouchable, unseen), so
+  none can be taken there yet.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
 

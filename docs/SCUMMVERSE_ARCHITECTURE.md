@@ -524,7 +524,20 @@ one palette) apply.
   switch two-picture things, else step through the pictures showing them;
   the rest is said not to work. Things carried keep only the
   pixels where they differ from the place without them, in their scene's
-  colours, and go with the one played from panel to panel.
+  colours, and go with the one played from panel to panel. Where a game
+  puts things ("<game>-things.svo", "SVO1", 0108, scummverseExportThings:
+  from the game's own start, after its panel, each place set up again with
+  its entry script run, cutscenes skipped, the game's variables and object
+  states put back after each room; per object its picture and the verbs its
+  own verb table answers, the catch-all entry aside; bit 14 that it has a
+  catch-all entry, bit 15 that it is untouchable or carried there; only
+  after its panel was captured): the sandbox shows each object so unless
+  the player changed it, leaves out those away, and `decide` also needs the
+  thing to answer the verb there (one with only a catch-all entry is not
+  known). While exporting, the engine's own script checks
+  (cutscenes left open, the cutscene stack, nesting, a script of another
+  room) are told and passed over (scummverseScriptError); in play they stop
+  it as the originals did.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

@@ -11,7 +11,9 @@ connections, not exported yet); everyone is out for half an hour, those
 coming in are shown, and where everyone is is kept; each game's own verb
 panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle)
 is shown under its first place, every verb chosen and used on the things
-there, what was taken kept; then from Maniac the
+there (and on their other places' for pushing and picking up, by what each
+thing's own script answers), what was taken kept; the things are where
+their games put them; then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -73,6 +75,51 @@ def cycles_of(path):
     objects = struct.unpack_from('<H', data, p)[0]
     p += 2 + objects * 16 + boxes * 2 + boxes * boxes
     return [struct.unpack_from('<HBBB', data, p + 1 + i * 5) for i in range(data[p])]
+
+
+def things_of(path):
+    """A things file: {room: {object: (picture, answers)}}."""
+    data = path.read_bytes()
+    if data[:2] == b'\x1f\x8b':
+        data = gzip.decompress(data)
+    if data[:4] != b'SVO1':
+        raise SystemExit(f'FAIL: {path.name}: not a things file')
+    rooms, p, found = struct.unpack_from('<H', data, 4)[0], 6, {}
+    for _ in range(rooms):
+        room, count = struct.unpack_from('<HH', data, p)
+        p += 4
+        found[room] = {}
+        for _ in range(count):
+            obj, picture, answers = struct.unpack_from('<HBH', data, p)
+            found[room][obj] = (picture, answers)
+            p += 5
+    if p != len(data):
+        raise SystemExit(f'FAIL: {path.name}: {len(data) - p} bytes left over')
+    return found
+
+
+# What a verb is in a things file's answers (WorldVerbKind), and its two
+# other bits: a catch-all entry, untouchable or carried there.
+LOOK, PICK_UP, OPEN, CLOSE, TALK = 2, 3, 4, 5, 10
+ANY, AWAY = 1 << 14, 1 << 15
+
+
+def check_things(worlds):
+    # As the SCUMM Bar's own scripts answer (Monkey Island, room 28): a
+    # pirate is talked to, not taken; the kitchen door opens; a mug is taken
+    # once its game puts one out (at its start none is: untouchable, unseen).
+    path = worlds/'monkey-things.svo'
+    if not path.exists():
+        return None
+    bar = things_of(path).get(28, {})
+    expect = {341: ([LOOK, TALK], [PICK_UP], False), 322: ([OPEN, CLOSE], [PICK_UP], False), 373: ([PICK_UP], [], True)}
+    for obj, (has, lacks, away) in expect.items():
+        if obj not in bar:
+            raise SystemExit(f'FAIL: monkey room 28: object {obj} not listed')
+        answers = bar[obj][1]
+        if any(not answers & 1 << k for k in has) or any(answers & 1 << k for k in lacks) or bool(answers & AWAY) != away:
+            raise SystemExit(f'FAIL: monkey room 28: object {obj} answers {answers:#06x}')
+    return len(bar)
 
 
 def check_cycles(worlds):
@@ -173,6 +220,15 @@ if __name__ == '__main__':
         if places and (not named or not pictured or (cycling and not moving) or moving > cycling):
             raise SystemExit(f'FAIL: objects {objects}, {named} named, {pictured} pictured; {moving} places moving of {cycling} with cycles')
         print(f'PASS: {named} of {objects} objects named, {pictured} with pictures; colours moving in {moving} of {cycling} places with cycles')
+        # Things where their games put them (from each game's own start and
+        # each room's entry script), where those were exported.
+        placed, placedPlaces = map(int, re.search(r'all things: (\d+) where their games put them, in (\d+) places', output).groups())
+        if [f for f in worlds.glob('*-things.svo') if f.stat().st_size] and not placed:
+            raise SystemExit('FAIL: no things where their games put them')
+        print(f'PASS: {placed} things where their games put them, in {placedPlaces} places')
+        bar = check_things(worlds)
+        if bar is not None:
+            print(f'PASS: the SCUMM Bar as its scripts answer ({bar} objects: a pirate talked to, not taken; a door opened; no mug out yet)')
         sandbox(exe, worlds, 'doors', shots, tmp)
         print('PASS: through the doors of every place (tapped, walked to, gone through)')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
@@ -181,8 +237,9 @@ if __name__ == '__main__':
         # chosen, used on the things there, kept.
         output = sandbox(exe, worlds, 'verbs', shots, tmp)
         panels = int(re.search(r'selftest verbs: (\d+) panels', output).group(1))
-        if panels != len(list(worlds.glob('*-ui.svi'))):
-            raise SystemExit(f'FAIL: {panels} verb panels shown of {len(list(worlds.glob("*-ui.svi")))} exported')
+        exported = len([f for f in worlds.glob('*-ui.svi') if f.stat().st_size])  # (an emptied one is none)
+        if panels != exported:
+            raise SystemExit(f'FAIL: {panels} verb panels shown of {exported} exported')
         print(f'PASS: {panels} games\' own verb panels: each verb chosen; look, open, close, push, pick up; kept')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
