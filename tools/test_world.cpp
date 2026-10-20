@@ -213,7 +213,8 @@ static void testCatalog() {
 		assert(g.head >= 0 && g.head < 16 && g.mouth >= 0 && g.mouth < 16 && g.neck >= 0 && g.recolor[0][0] && g.recolor[0][1]);
 	}
 	for (const auto &s : kWorldLegSwings) assert(member(s.game, s.costume) && worldLegSwing(s.game, s.costume) == &s && s.hip > 0 && s.hip < 100 && s.reach > 0);
-	assert(worldCostumeGraft(6, 102) && worldSideWalk(6, 201) && worldLegSwing(4, 93) && !worldCostumeGraft(6, 201) && !worldLegSwing(4, 94));
+	for (const auto &f : kWorldOneFacings) assert(member(f.game, f.costume) && worldOneFacing(f.game, f.costume) == &f && !worldSideWalk(f.game, f.costume));
+	assert(worldCostumeGraft(6, 102) && worldSideWalk(6, 201) && worldLegSwing(4, 93) && worldLegSwing(8, 321) && worldOneFacing(8, 321) && !worldCostumeGraft(6, 201) && !worldLegSwing(4, 94));
 	// Seat fits are cast members, crammed in, partly sunk, starting near the
 	// seat's back. Seated poses are theirs: parts cut from inside the stance,
 	// set from the origin or on a part that is; a seated frame is GuestKind's.

@@ -285,7 +285,9 @@ limbs on a relative's stance and walk, the relative's clothes repainted
 by palette index and its head cut off below where the clothes start;
 Doug the Mole Man in his uncle Shuv-Oohl's) and `kWorldLegSwings` (a
 standing four-legged guest: each leg traced up from its foot, the brighter
-near pair swung against the far pair from the hip; the camel). Guests
+near pair swung against the far pair from the hip; the camel, the Dig's
+Creator) and `kWorldOneFacings` (drawn facing one way only: the other
+facing is its mirror). Guests
 drawn only from the front get side views (`kWorldSideViews`: a relative's
 stance and walk, repainted, its head found by its face colour and replaced
 by a newly drawn one, repeated behind it; the three-headed monkey). Some

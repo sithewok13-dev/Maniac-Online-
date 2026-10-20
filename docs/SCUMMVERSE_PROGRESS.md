@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0099 (the camel sitting back in its seat).
+Active milestone: Phase 1; latest patch 0100 (the Creator walks and talks; the hold ring; riders jump into the van).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2332,3 +2332,40 @@ and his back looks cut off against the seat".
   test_world_setup; tools/test_world.cpp with sanitizers; bootstrap,
   startup. The full data suite was last run on 0098 (40/40). Not
   device-tested.
+
+## Patch 0100 — the Creator walks and talks; the hold ring; riders jump into the van
+
+User (2026-10-20, a screen recording and notes), in their words:
+- "Creator isn't animated. Just moves around lifelessly and still." The
+  Dig never walks its Creator: its costume's walk, stand and talk are one
+  still picture (its other animations only gesture, on the spot). It now
+  walks on swinging legs made from its own stride (kWorldLegSwings), talks
+  with its own head and mouth (animation 13, a costume variant), and turns:
+  the game drew it facing right only, so facing left is its mirror
+  (kWorldOneFacings). A variant's own animations each start from its
+  set-up at export (its talk had left its arm tucked in every later
+  picture). In a seat, the big ones without a seated pose keep their
+  standing picture's size and place, so talking does not resize them.
+- "Please make the long press green and goes around the main characters in
+  the first menu. It should take .5 sec." A green ring runs round the box
+  while it is held, half a second.
+- "Can other characters ride in the van? None of the other npcs jump in
+  with me": only those already in its cockpit flew along (a companion who
+  followed the player in). Now whoever stands where the van is parked jumps
+  in when the player picks a destination (not anyone on the bus, a flight
+  or the tram), flies along unseen and steps out beside the player at the
+  landing. tools/test_van.py checks someone standing by the van rides
+  along and steps out.
+- "How big of a deal is it to make the characters in the long press menus
+  visual like the first menu?" Answered (a face for each of the about 260
+  characters, drawn when a list opens, and a grid like the first screen:
+  a patch of its own); not started.
+- The export version is 16: installed games export once more on launch
+  (the Creator's frames are made at export).
+- Verified (Linux, the user's private copies): all ten games exported
+  again at version 16; the Creator's walk, talk and turn checked frame by frame
+  (a moving preview made for the user); test_world_visit (the Creator now
+  among the walkers), test_appearance, test_seating, test_van, test_bus,
+  test_flights, test_companions; tools/test_world.cpp with sanitizers;
+  bootstrap, startup. The hold ring is iPhone code, not compiled here.
+  Not device-tested.

@@ -1,5 +1,5 @@
 	// Melissa and Leslie's van, flown: boarded at its Mars landing site with a
-	// companion, the destinations shown aboard, San Francisco chosen there
+	// companion (and someone standing by it jumps in), the destinations shown aboard, San Francisco chosen there
 	// (countdown, liftoff), flown with travel locked (saved and loaded in
 	// flight), down there on Arrive, where it stands drawn and boardable;
 	// flown on to another world when exported, and home to Mars chosen in
@@ -46,8 +46,12 @@
 	if(_scummverseVanSprite.empty() || _scummverseVanW<100) error("Van picture not taken (%d px wide)",_scummverseVanW);
 	if(getState(scratch(454))&kObjectStateIntrinsic) error("Van not at its landing site at start");
 	_scummVars[770+5]=3;
+	// Someone standing by the van (not a companion) jumps in too.
+	Actor *hitch=derefActor(6,"van hitchhiker");
+	_scummVars[770+6]=0; hitch->putActor(me->getRealPos().x+4,me->getRealPos().y,kVanLandingSite); hitch->showActor();
 	const int sf=site(-1,55);
 	flyFrom(true,sf);
+	if(hitch->_room!=kVanFlightRoom || !(_scummVars[kVanRidersVar]&(1u<<6))) error("The one by the van did not jump in: room %d",hitch->_room);
 	settle(10); shot("van-flight");
 	if(scummverseTravel(2)) error("Travel allowed in flight");
 	{ Common::String file; _saveLoadDescription="Van in flight";
@@ -58,7 +62,8 @@
 	settle(20);
 	if(_currentRoom!=kVanFlightRoom) error("Landed before Arrive: %d",_currentRoom);
 	scummverseVanArrive(); settle(4);
-	if(_currentRoom!=55 || _scummVars[kVanSiteVar]!=sf || _scummVars[kVanPhaseVar] || !me->_visible || friendly->_room!=55) error("Landing failed: view %d site %d phase %d",_currentRoom,_scummVars[kVanSiteVar],_scummVars[kVanPhaseVar]);
+	if(_currentRoom!=55 || _scummVars[kVanSiteVar]!=sf || _scummVars[kVanPhaseVar] || !me->_visible || friendly->_room!=55 || hitch->_room!=55) error("Landing failed: view %d site %d phase %d (passenger in %d)",_currentRoom,_scummVars[kVanSiteVar],_scummVars[kVanPhaseVar],hitch->_room);
+	warning("VAN the one by the van rode along and stepped out");
 	auto drawnHere=[&](const char *where) {
 		int x,y,w,h; if(!scummverseVanRect(x,y,w,h)) error("No van rect in %s",where);
 		setCameraAt(x+w/2,60); _fullRedraw=true; settle(2);
