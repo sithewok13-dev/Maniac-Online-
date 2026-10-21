@@ -680,8 +680,20 @@ int main() {
 		// (Off screen: no rectangle.)
 		const int far = place.addProp(van.data(), 20, 10, 255, palette, {-200, 190}, 40, 2.0);
 		assert(far == 2 && !place.propRect(far, x0, y0, x1, y1) && !place.propRect(3, x0, y0, x1, y1));
-		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.propCount() == 0);
+		// The lights off: the place and the props black, the passer all in the
+		// dark grey (or the colour asked), the rest as before; on again, as
+		// before; lit again with a new place.
+		place.setDark(true);
+		assert(place.dark() && at(10, 10) == 0xFF000000u && at(145, 185) == 0xFF000000u && at(160, 175) == Scene::kDarkColor && at(175, 189) == 0xFF000000u);
+		assert(place.drawnRect(n, x0, y0, x1, y1) && place.propRect(p, x0, y0, x1, y1));
+		place.setDark(true, 0xFF102030u);
+		assert(at(160, 175) == 0xFF102030u);
+		place.setDark(false);
+		assert(!place.dark() && at(10, 10) == sceneColor(9) && at(160, 175) == spriteColor(30) && at(145, 185) == propColor(5));
+		place.setDark(true);
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.propCount() == 0 && !place.dark() && at(10, 10) == sceneColor(9));
 	}
 	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle, where it is hit; gone with the place)");
+	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place)");
 	return 0;
 }

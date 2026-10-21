@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0140 (New kid and talk colour review fixes, new engine).
+Active milestone: Phase 1; latest patch 0141 (the mansion's lights turn off and on, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3777,3 +3777,25 @@ An independent review of 0134.
 - On the desktop: the cast, chat and verb checks, the panel unit test and
   the startup test pass. Full suite not yet rerun. Tested on the desktop
   build only (Linux). Not tested on an iPhone.
+
+## Patch 0141 — the mansion's lights turn off and on (new engine; step 5)
+
+- In the mansion, Turn off on one of its lights (the lamps, lights, wall
+  and desk lamps, the darkroom's red light, the basement's light switch:
+  what its own script turns on and off; not a flashlight) makes the place
+  dark as the original shows it: black, with everyone in grey. Turn on
+  lights it again. A place left dark stays dark when you come back and
+  after the app restarts; other places are not affected. As in Maniac's
+  own engine, every place starts lit.
+- On the desktop: the verbs check turns each of the mansion's 10 lights
+  off and on as a player does (the verb, then a tap on it): off, nothing
+  of the place drawn but people in grey; another place lit; dark again on
+  coming back; kept as written and read back; on, lit. Without the dark
+  kept on coming back it fails (checked). A picture of the dark basement
+  was looked at. The stage unit test covers the dark drawing. Startup
+  test passes. Full suite not yet rerun.
+- Also: the custom characters' check now measures each against the height
+  it is drawn to have (ready for a second custom character).
+- Not yet: a flashlight lighting a dark place; the original's fuse box and
+  breakers. Tested on the desktop build only (Linux). Not tested on an
+  iPhone.

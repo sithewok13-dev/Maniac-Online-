@@ -837,6 +837,14 @@ one palette) apply.
 - The tram's parked bits (0135) are kept in ConfMan
   scummverse_sandbox_tram_parked (tramKeep, when a car comes to stand) and
   read at launch.
+- The mansion's lights (0141): Scene::setDark (StageBridge::setDark) draws
+  no place and no props, everyone in kDarkColor (the games' dark grey),
+  until another place loads. SandboxEngine::isLight: in "maniac", a thing
+  whose game answers both Turn on and Turn off and whose name has "lamp"
+  or "light" (not "flash"); act() turns it before the plain rules
+  (lights(on), the game's picture if it differs). `_dark` (game * 1024 +
+  room) is applied by `enter` and kept in ConfMan scummverse_sandbox_dark
+  (lightsKept/lightsRead: numbers between commas), read at launch.
 - Custom characters (0139): drawn by `tools/custom_characters.py` (plain
   Python, no images read; `--preview DIR` writes PNGs) into
   `common/scummverse_custom_cast.inc` (generated, committed): each an SVC1
