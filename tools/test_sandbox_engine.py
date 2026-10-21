@@ -21,8 +21,10 @@ thing's own script answers), what was taken kept; the things are where
 their games put them; the mansion's and Zak's people are in their colours;
 the iPhone's chat (a stand-in for it) is told who is there, those in a
 conversation stand facing the one played, each line is said over its
-speaker's head, and a tap picks someone when the chat asks whom; then from
-Maniac the
+speaker's head, and a tap picks someone when the chat asks whom; its
+character screen (a stand-in) gets a box per game with its lead's face and
+people, and each game's lead and another are played where they live; then
+from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -304,6 +306,14 @@ if __name__ == '__main__':
         if any(worlds.glob('maniac-*.svw')) and "Maniac's rooms seen" not in output:
             raise SystemExit('FAIL: chat not tried in the mansion')
         print(f'PASS: chat in {places} places: told who is here; those talking stand and face; lines over their speakers; a tap picks someone')
+        # The character screen (a stand-in for the iPhone's): a box per game,
+        # its people; each game's lead and another played where they live.
+        output = sandbox(exe, worlds, 'cast', shots, tmp)
+        m = re.search(r'selftest cast: (\d+) boxes \((\d+) faces\), (\d+) people listed, (\d+) of (\d+) played', output)
+        boxes, faces, people, played = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        if faces < 2 or played < 2 * faces - 2:
+            raise SystemExit(f'FAIL: character screen: {faces} faces, {played} played')
+        print(f'PASS: character screen: {boxes} games, {faces} faces, {people} people; {played} played where they live')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

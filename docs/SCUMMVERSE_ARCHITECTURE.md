@@ -686,6 +686,23 @@ one palette) apply.
   kUnseenLine ticks. The chat's pick mode is never armed by its window yet
   (Runtime::armPick has no caller), so the picking tap is reached only from
   the self-test's stand-in.
+- The character screen in the sandbox (0118, step 4): the Worlds menu's
+  Play as someone else sends kWorldSandboxCastRequest; castOffer gives the
+  iPhone's screen (scummverseCastGame/Member/Show, as Maniac's
+  scummverseCastOffer) a box per game, slot 0 the mansion (the screen
+  starts afresh at slot 0), 1 Zak, 2 + n the others, each with its lead's
+  face (kWorldLeads; WorldBridge::spritePortrait of its .svc) and its
+  installed people (kWorldCast, the lead first, once by name), each as
+  kWorldCastRequest + appearance key (the mansion's and Zak's people too:
+  here they are keys like everyone's, not Maniac's actors). Every polled
+  request now goes to `request`, which takes the back, cast and game
+  requests and the screen's choices (castChoose: hasCharacter and
+  worldAppearance, then the cast's place if installed and walkable, else
+  the game's first; on failure the one played and the place before). The
+  chat's sceneToken | command can fall in the screen's range (place keys of
+  10000 and up); those are no key and do nothing. The calls go through
+  `SandboxEngine::Phone` (the chat's too) for the "cast" self-test's
+  stand-in.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

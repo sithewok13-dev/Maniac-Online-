@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0117 (chat in the new engine: review fixes).
+Active milestone: Phase 1; latest patch 0118 (the character screen in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3212,4 +3212,32 @@ An independent review of 0116 (pushed before it came back).
 - Not taken: nothing in the iPhone's chat asks whom to talk to yet (its
   pick mode is never armed), so the tap that picks someone is tested only
   against the stand-in (0116 corrected).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0118 — the character screen in the new engine (step 4, second part)
+
+- The new engine's Worlds menu has Play as someone else: the same
+  character screen as Maniac's, a box for every game (the mansion first,
+  Zak second, then the others) with its lead's face, drawn from the
+  player's own exported files (a game not exported shows where to add it).
+  A tap on a box plays its lead; a long press lists everyone of that game
+  who is installed (the lead first, each once by name). A choice plays that
+  character in the new engine, in the place where they live (their place
+  in the game's cast, else the game's first place), saved as the one played
+  from then on; "You are playing ..." shows briefly. The mansion's box leads
+  with Dave here (the new engine's lead for it), where Maniac's own screen
+  leads with Dr Fred.
+- The chat's own requests (a place's token and a command) can fall within
+  the character screen's numbers in the new engine; they are no one's key
+  and do nothing.
+- On the desktop (no character screen there): a "cast" check puts a
+  stand-in in: 12 boxes, every lead's face drawn, 299 people listed, each
+  installed, none twice, the lead first; in every game the lead and the last
+  listed are chosen as the screen sends them and are played where they live
+  (once on the stage); a chat request in its range does nothing; the one
+  played is kept in the state. Its picture: cast.png (the twelve faces).
+- Known: the wanderers carry on as they were (whoever is played is passed
+  by when people come on the stage; the one played before is not among
+  them); where everyone is is not carried over to the next launch when the
+  one played changes.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
