@@ -852,6 +852,17 @@ one palette) apply.
   scummverse_sandbox_flashlight), and present's aimFlashlight points it at
   the last tap or mouse move over the place (`_beamX/_beamY`, reset by
   `enter`), else at the one played.
+- Followers (0147): the chat sends its place's token and 64 or 96 plus
+  the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
+  first by `request` (before the character screen's range, which tokens
+  can fall in) into chatCommand. `_followers` (keys) follow `_leader`
+  (the one played; another played lets them go); followStep walks a far
+  one to beside the one played every 20 ticks (not while chatting; stroll
+  skips them); `enter` calls bringFollowers (WanderBridge::send to the
+  place, addPerson if not shown, placed beside). talkScene tells the chat
+  who follows by slot bits through `travel`; the iPhone runtime's
+  follows/canFollow read those bits while scummverseSandboxActive.
+  ConfMan scummverse_sandbox_followers: "leader:key,key".
 - Custom characters (0139): drawn by `tools/custom_characters.py` (plain
   Python, no images read; `--preview DIR` writes PNGs) into
   `common/scummverse_custom_cast.inc` (generated, committed): each an SVC1

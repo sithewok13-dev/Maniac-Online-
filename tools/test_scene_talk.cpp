@@ -6,6 +6,17 @@
 #include <cstdint>
 int main() {
  using namespace ScummverseLocalAI;
+ // Who follows: Maniac's and Zak's people by their numbers; in the new engine
+ // (sandbox), its visitors (kWanderer + slot) by their slots, any of them able
+ // to be asked along. The chat's token from the place told.
+ scummverseTravelScene(5,3,1u<<7,0,0);
+ assert(follows(7) && !follows(8) && canFollow(7) && !canFollow(kWanderer) && sceneToken()==((5*32+3)<<8));
+ scummverseSandboxActive(true);
+ scummverseTravelScene(10033,1,1u<<2,0,0);
+ assert(follows(kWanderer+2) && !follows(kWanderer+3) && !follows(2) && canFollow(kWanderer) && canFollow(kTalkActors-1) && !canFollow(kTalkActors) && !canFollow(kGuestActor));
+ assert(sceneToken()==((10033*32+1)<<8));
+ scummverseSandboxActive(false); scummverseTravelScene(0,0,0,0,0);
+ assert(!follows(kWanderer+2) && !canFollow(kWanderer));
  auto &r=runtime(); int speaker; char text[600];
  unsigned nearby=(1u<<9)|(1u<<10)|(1u<<24);
  r.scene(56,3,nearby,true,speaker,text,sizeof(text));

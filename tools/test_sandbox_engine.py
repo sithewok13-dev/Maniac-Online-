@@ -21,8 +21,9 @@ thing's own script answers), what was taken kept; the things are where
 their games put them; the mansion's and Zak's people are in their colours;
 the iPhone's chat (a stand-in for it) is told who is there, those in a
 conversation stand facing the one played, each line is said over its
-speaker's head, and a tap picks someone when the chat asks whom; its
-character screen (a stand-in) gets a box per game with its lead's face and
+speaker's head, and a tap picks someone when the chat asks whom; someone
+asked along by it follows the one played, through doors too, until asked
+to stay or someone else is played; its character screen (a stand-in) gets a box per game with its lead's face and
 people, and each game's lead and another are played where they live, and a
 last box of custom characters (Crispy first, played where the player is); its
 camera takes a photo of the scene and of the screen and a selfie of three
@@ -341,6 +342,15 @@ if __name__ == '__main__':
         if any(worlds.glob('maniac-*.svw')) and (not c or int(c.group(1)) == 0):
             raise SystemExit('FAIL: lines not in their speakers\' own colours\n' + output[-2000:])
         print(f'PASS: chat in {places} places: told who is here; those talking stand and face; lines over their speakers; a tap picks someone')
+        # Followers (the chat's Follow, a stand-in): asked along, walking after
+        # the one played, through a door beside them, the chat told, kept,
+        # staying when asked, let go when someone else is played; with the
+        # wanderers off and on.
+        output = sandbox(exe, worlds, 'follow', shots, tmp)
+        m = re.search(r'selftest follow: (\d+) asked along, (\d+) walked after, (\d+) through a door, (\d+) told the chat, (\d+) kept, (\d+) stayed, (\d+) let go, (\d+) failed', output)
+        if not m or m.group(8) != '0' or any(m.group(i) != '2' for i in (1, 3, 4, 5, 6, 7)) or m.group(2) == '0':
+            raise SystemExit('FAIL: followers\n' + output[-2000:])
+        print(f'PASS: followers (the chat\'s Follow): asked along, walking after the one played, through a door beside them, the chat told, kept, staying when asked, let go when someone else is played; wanderers off and on')
         # The character screen (a stand-in for the iPhone's): a box per game,
         # its people; each game's lead and another played where they live.
         output = sandbox(exe, worlds, 'cast', shots, tmp)

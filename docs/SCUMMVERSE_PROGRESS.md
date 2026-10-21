@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0146 (the mansion's flashlight in the dark, new engine).
+Active milestone: Phase 1; latest patch 0147 (followers in the new engine: the chat's Follow).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3888,3 +3888,29 @@ place it is round the one played. On or off is kept.
 - Not as the original: the corners are rounded by a simple rule, not the
   original's exact curve; the flashlight needs no batteries here.
   Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0147 — followers in the new engine (the chat's Follow)
+
+User (2026-10-21): "Keep working" (and earlier, option 3: visitors follow
+you). In the new engine anyone there can now be asked along from the chat
+(its Follow button, shown for the new engine's visitors too; Unfollow to
+let them stay). Someone asked along says "I'll come with you.", walks
+after the one played (to beside them, not while talking with you), and
+comes along wherever the one played arrives (through doors, on the rides,
+to places chosen from the menus: every arrival brings them; only the doors
+are checked), beside them (among the wanderers too). Asked to stay they say "See you around!" and stay. They
+follow the one played: playing someone else lets them go. Kept when the
+app restarts.
+- On the desktop: a new "follow" check (the chat a stand-in), with the
+  wanderers off and on: asked along (said, followed), walking after the
+  one played from across the place, through a door and there once beside
+  them (and among the wanderers there), the chat told who follows (by
+  slot), kept as written and read back from the settings, staying when
+  asked (not coming after), and let go when someone else is played. It
+  fails without the walking after and without the coming along (both
+  checked). The chat's own side (who follows, who can be asked) has a
+  unit test in the dialogue runtime tests, which pass. Startup passes.
+- The iPhone chat change (the Follow button for the new engine's
+  visitors) is compiled by the Apple CI only. Not tested on an iPhone.
+- Not yet: followers do not sit in the plane's seats or appear inside the
+  van's cockpit view as Maniac's own engine shows them.
