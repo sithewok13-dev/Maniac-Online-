@@ -664,6 +664,8 @@ int main() {
 		assert(p == 0 && place.propCount() == 1);
 		assert(place.propRect(p, x0, y0, x1, y1) && x0 == 140 && x1 == 180 && y0 == 150 && y1 == 190);
 		assert(at(141, 170) == sceneColor(9) && at(150, 170) == propColor(5) && at(150, 149) == sceneColor(9));
+		// (Hit where drawn, not where left out, nor outside it.)
+		assert(place.propHit(p, 150, 170) && !place.propHit(p, 141, 170) && !place.propHit(p, 150, 149) && !place.propHit(p, 181, 170) && !place.propHit(5, 150, 170));
 		assert(near(place.depthAt({160, 190}), 1) && near(place.depthAt({160, 100}), 128 / 255.0));
 		// (Further back, smaller: 40 rows at full scale, about 30 halfway.)
 		const int q = place.addProp(van.data(), 20, 10, 255, palette, {60, 145}, 40, 2.0);
@@ -680,6 +682,6 @@ int main() {
 		assert(far == 2 && !place.propRect(far, x0, y0, x1, y1) && !place.propRect(3, x0, y0, x1, y1));
 		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.propCount() == 0);
 	}
-	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle; gone with the place)");
+	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle, where it is hit; gone with the place)");
 	return 0;
 }

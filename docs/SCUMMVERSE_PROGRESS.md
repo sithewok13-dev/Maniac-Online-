@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0129 (the Shuttle Bug drawn where it lands in the new engine).
+Active milestone: Phase 1; latest patch 0130 (the parked van and the places list: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3569,3 +3569,27 @@ An independent review of 0125 (Zak's rides).
   it is away (the export has no picture of the sand without it); no cockpit
   or starfield while flying; only the one played rides.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0130 — the parked van and the places list: review fixes
+
+An independent review of 0129 and of 0128's iPhone list.
+- A tap boards the parked van only where the van is drawn: the sky and
+  ground its picture leaves showing around it are the place's again (a door
+  behind them works; it took the whole rectangle).
+- Its size and room above are worked out in the place's own pixels (Curse
+  of Monkey Island's are half the size), it is small on a map as people
+  are, and a picture larger than Maniac takes is not read. Where it stands
+  is kept together with where it is (it was kept in two writes).
+- The iPhone's list of places: taken away while it is still coming up, it
+  now closes once up (it stayed, its rows doing nothing); a list asked for
+  earlier and still waiting to come up no longer closes or answers for a
+  newer one; once a row is chosen its Cancel no longer answers (and after
+  Cancel no row), so a choice is not lost to a Cancel just after it.
+- Checked against the data: the van's picture uses the landing site's own
+  colour numbers (all 6,184 of its pixels are the landing site's there).
+- The "rides" check now taps beside the van's picture (a walk) and on it
+  (aboard), and checks its size against the people there and its shape
+  (each fails with the old behaviour, checked); the stage unit test checks
+  where a prop is hit.
+- The iPhone list changes are built by the IPA job only; not tested on an
+  iPhone. Everything else tested on the desktop build only (Linux).

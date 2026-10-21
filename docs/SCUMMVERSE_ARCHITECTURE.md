@@ -809,7 +809,13 @@ one palette) apply.
   scummverse_sandbox_van_x/_y, kept by vanPark) sized as Maniac does
   (kVanKidHeight against the place's heroHeight, capped by the room above
   and across); a tap in its rectangle walks to its door (kVanDoorAcross)
-  as a kRideWalking van ride (vanWalk).
+  as a kRideWalking van ride (vanWalk). From 0130 the tap tests the
+  prop's drawn pixels (Scene::propHit, as render picks them), vanShow's
+  margins are in the place's pixels (unit = screenWidthOf/320) and its
+  depth takes the map factor; the iPhone places list numbers each list
+  and each withdrawal (scummversePlacesGeneration): a Present for an
+  earlier one does nothing, and one withdrawn while being presented is
+  dismissed by its presentation's completion.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
