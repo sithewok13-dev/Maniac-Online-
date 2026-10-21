@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0136 (the mansion's doors: review fixes).
+Active milestone: Phase 1; latest patch 0137 (the mansion's New kid goes to the kid, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3703,4 +3703,18 @@ An independent review of 0134.
   they came in by stands open (a named arrival that is another door, the
   hall's way into room 6, is left as it was); the door back is kept at
   once (it was opened after the place was saved).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0137 — the mansion's New kid goes to the kid (new engine; step 5)
+
+- New kid on the mansion's panel now goes to the next of its people where
+  they are (among the wanderers; with wanderers off, where they live), as
+  the original's New kid goes to the kid chosen, and the one played before
+  stays standing where they were (out among the wanderers there, so they
+  are there again later). It used to bring the next one to where you stood
+  and the one before vanished.
+- On the desktop: the "cast" check plays the mansion's first, takes New kid
+  among the wanderers, and finds the next played where they were and the
+  one before left where they stood (with the old behaviour it fails,
+  checked); the verbs check's New kid (wanderers off) passes as before.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
