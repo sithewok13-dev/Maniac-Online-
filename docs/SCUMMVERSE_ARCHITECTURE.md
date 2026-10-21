@@ -708,6 +708,20 @@ one palette) apply.
   buildWanderers takes everyone, the one played too; `enter` and
   `arrivals` pass the one played by, so a choice never shows them twice and
   the wanderers' signature does not change with who is played.
+- The camera in the sandbox (0120, step 4): the run loop asks cameraStep
+  first; while it holds (Camera::held, the iOS Photos prompt, or a selfie)
+  nothing else runs (events drained, a press let go, time not carried
+  over). Requests are Maniac's (Camera::takeRequest): a clean photo renders
+  the stage alone into the frame and crops its view; a full one presents
+  and takes the frame whole; both through Camera::shootTrue (square pixels,
+  one whole factor, Camera::squareFactor). A selfie (selfieBegin, Pose,
+  Shoot, End) poses every actor with Camera::planShot's choices through
+  Stage::pose (a way and a frame held; -1 their own), shows the stage, and
+  takes kSelfieSettle, kSelfieNext and kSelfieShow as Maniac's; its frame
+  (Camera::frameSelfie with rowAspect 1: the stage's pixels are square)
+  from the drawn rectangles, fixed at the first shot. Camera::setPlainSink
+  is for the "camera" self-test's stand-in (it replaces the iOS sink while
+  set).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

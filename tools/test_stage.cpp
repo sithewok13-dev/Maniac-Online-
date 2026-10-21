@@ -302,8 +302,28 @@ int main() {
 		assert(!scene.actor(talker).moving && scene.actor(talker).at.x == was.x && scene.actor(talker).at.y == was.y);
 		scene.face(talker, {0, 140});
 		assert(scene.actor(talker).dir == 0);
+		// Posed for a photo: the frame asked for, whatever time does; their
+		// own way or pose where -1; let go, as they were.
+		const uint32_t own = middle();
+		scene.pose(talker, 2, 2, 1);
+		assert(scene.actor(talker).posed && middle() == spriteColor(110));
+		scene.update(kTalkTicks * 3);
+		assert(middle() == spriteColor(110));
+		scene.pose(talker, 1, 1, 0);
+		assert(middle() == spriteColor(130));
+		scene.pose(talker, 2, -1, 0); // (their own pose: standing)
+		assert(middle() == spriteColor(30));
+		scene.talk(talker, true);
+		scene.pose(talker, 2, -1, 0); // (their own: talking)
+		assert(middle() == spriteColor(100) || middle() == spriteColor(110));
+		scene.talk(talker, false);
+		scene.pose(talker, -1, 0, 0); // (their own way: none of its own there)
+		assert(middle() == own);
+		scene.unpose(talker);
+		assert(!scene.actor(talker).posed && middle() == own && scene.actor(talker).dir == 0);
+		scene.pose(-1, 2, 0, 0); scene.unpose(99); // (no one: nothing)
 	}
-	std::puts("PASS: facing a point, talking (talk frames in turn, standing where there are none) and stopping");
+	std::puts("PASS: facing a point, talking (talk frames in turn, standing where there are none), stopping and posing");
 
 	// The camera: centred on the one followed, then still until they come
 	// within a quarter of the screen of an edge, then scrolling to centre

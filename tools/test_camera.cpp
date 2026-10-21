@@ -158,6 +158,49 @@ static void delivery() {
 	puts("PASS: delivery (to the registered sink only, never an empty picture)");
 }
 
+// The sandbox engine's: a true-colour picture already shown square.
+static int g_plainCalls = 0, g_plainWidth = 0, g_plainHeight = 0, g_plainKind = -1;
+static uint8_t g_plainFirst[4], g_plainLast[4];
+static void plain(const uint8_t *rgba, int width, int height, int kind, int, int, void *context) {
+	++g_plainCalls; g_plainWidth = width; g_plainHeight = height; g_plainKind = kind;
+	memcpy(g_plainFirst, rgba, 4);
+	memcpy(g_plainLast, rgba + ((size_t)width * height - 1) * 4, 4);
+	assert(context == &g_plainCalls);
+}
+
+static void trueColour() {
+	int k;
+	squareFactor(3, 2, k); assert(k == 534);         // (1602 by 1068)
+	squareFactor(1280, 720, k); assert(k == 2);
+	squareFactor(2000, 900, k); assert(k == 1);
+	squareFactor(1000, 30, k); assert(k == 2);
+	squareFactor(3000, 4000, k); assert(k == 1);      // (never smaller)
+	squareFactor(800, 2100, k); assert(k == 1);       // (4096 at most: 2 would be 4200)
+	const uint32_t pixels[] = {0xFF102030, 0xFF405060, 0xFF708090, 0xFFA0B0C0,
+	                           0xFF000000, 0xFFFFFFFF, 0xFF123456, 0xFF654321};
+	setPlainSink(plain, &g_plainCalls);
+	// The middle two of each row (pitch 4 words), each pixel 800 by 800.
+	assert(shootTrue(pixels, 4, 4, 2, rect(1, 0, 2, 2), kSelfie, 0, 1));
+	assert(g_plainCalls == 1 && g_plainWidth == 1600 && g_plainHeight == 1600 && g_plainKind == kSelfie);
+	assert(g_plainFirst[0] == 0x40 && g_plainFirst[1] == 0x50 && g_plainFirst[2] == 0x60 && g_plainFirst[3] == 255);
+	assert(g_plainLast[0] == 0x12 && g_plainLast[1] == 0x34 && g_plainLast[2] == 0x56);
+	// Cut to the picture; nothing of it, nothing taken.
+	assert(shootTrue(pixels, 4, 4, 2, rect(3, 1, 5, 5), kClean, 0, 1) && g_plainWidth == 1600 && g_plainHeight == 1600 && g_plainFirst[0] == 0x65);
+	assert(!shootTrue(pixels, 4, 4, 2, rect(4, 0, 2, 2), kClean, 0, 1) && g_plainCalls == 2);
+	assert(!shootTrue(nullptr, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1));
+	setPlainSink(nullptr, nullptr);
+	assert(!shootTrue(pixels, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1) && g_plainCalls == 2);
+	// A selfie framed on square pixels: 4:5 to 4:3 as it is.
+	const Rect view = rect(0, 0, 1280, 720);
+	Rect f = frameSelfie(rect(600, 300, 60, 200), nullptr, 0, view, 1.0);
+	assert(inside(rect(600, 300, 60, 200), f) && inside(f, view));
+	assert(f.w / (double)f.h >= 0.8 - 0.02 && f.w / (double)f.h <= 4.0 / 3 + 0.02);
+	const Rect wide[] = {rect(300, 320, 60, 180), rect(800, 310, 60, 190)};
+	f = frameSelfie(rect(560, 300, 60, 200), wide, 2, view, 1.0);
+	assert(f.w / (double)f.h <= 4.0 / 3 + 0.02);
+	puts("PASS: true colour (whole-pixel enlarging of square pixels, cut to the picture, a plain-types sink); selfies framed on square pixels");
+}
+
 int main() {
 	requests();
 	pictures();
@@ -165,5 +208,6 @@ int main() {
 	poses();
 	names();
 	delivery();
+	trueColour();
 	return 0;
 }

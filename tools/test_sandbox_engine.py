@@ -23,8 +23,10 @@ the iPhone's chat (a stand-in for it) is told who is there, those in a
 conversation stand facing the one played, each line is said over its
 speaker's head, and a tap picks someone when the chat asks whom; its
 character screen (a stand-in) gets a box per game with its lead's face and
-people, and each game's lead and another are played where they live; then
-from Maniac the
+people, and each game's lead and another are played where they live; its
+camera takes a photo of the scene and of the screen and a selfie of three
+(everyone posed, nobody moving), and holds still while asked; then from
+Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -316,6 +318,13 @@ if __name__ == '__main__':
         if faces < 2 or played != expected or played < 2 * faces - 2:
             raise SystemExit(f'FAIL: character screen: {faces} faces, {played} of {expected} played')
         print(f'PASS: character screen: {boxes} games, {faces} faces, {people} people; {played} played where they live')
+        # The camera (a stand-in for the iPhone's Photos): photos of the scene
+        # and of the screen, a selfie of three, held still while asked.
+        output = sandbox(exe, worlds, 'camera', shots, tmp)
+        m = re.search(r'selftest camera: clean (\d+)x(\d+), full (\d+)x(\d+), selfie (\d+) shots (\d+)x(\d+)', output)
+        if not m or int(m.group(5)) != 3:
+            raise SystemExit('FAIL: camera\n' + output[-2000:])
+        print(f'PASS: camera: a photo of the scene ({m.group(1)}x{m.group(2)}), of the screen ({m.group(3)}x{m.group(4)}), a selfie of three ({m.group(6)}x{m.group(7)}), held still')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

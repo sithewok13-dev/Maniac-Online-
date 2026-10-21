@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0119 (the character screen in the new engine: review fixes).
+Active milestone: Phase 1; latest patch 0120 (the camera in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3270,4 +3270,38 @@ An independent review of 0118 (pushed before it came back).
   entering again, and the one played before is out among them. Taking out
   the pass-by on entering fails it (checked). The sandbox engine test now
   requires every choice played.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0120 — the camera in the new engine (step 4, third part)
+
+- The camera button works in the new engine as in Maniac. A photo is the
+  scene alone (clean) or the whole screen with the game's panel (full), at
+  the new engine's own full resolution in full colour, enlarged by whole
+  pixels only when smaller than 1600 across. A selfie of 1, 3 or 5 shots
+  holds the place still (nobody walks, taps wait), poses everyone afresh for
+  each shot from their own frames (facing the camera, mid-step or talking;
+  now and then someone hasn't noticed, or everyone stares at the one
+  played), frames the one played and whoever stands near (4:5 to 4:3), and
+  leaves everyone as they were. While iOS asks for access to Photos the
+  place holds still. The pictures go to the same saving (the Photos album)
+  as Maniac's.
+- The camera module (common/scummverse_camera): a true-colour picture
+  already shown square is enlarged by one whole factor both ways; a
+  selfie's frame can be worked out for square pixels; a plain-types sink
+  lets an engine's own check take the pictures.
+- The stage: someone can be posed (a way and a frame held, whatever they
+  were doing) and let go.
+- On the desktop (no Photos there): a "camera" check with a stand-in sink,
+  in Monkey Island's first place with someone there: a clean photo the
+  scene's size (1918x1036 from a 1280x720 screen: each pixel 2 by 2), its
+  corners and middle as drawn; a full one the screen's (2560x1440); a
+  selfie of three: everyone posed, three shots of one frame in turn, 4:5 to
+  4:3, nobody moving meanwhile, nobody left posed, taking as long as its
+  shots are shown; held, the one played does not walk, let go, walks on.
+  Pictures: camera-full.png, camera-selfie.png. Camera unit test
+  (ASan/UBSan): square factors, enlarging and cutting, the plain sink,
+  square framing. Stage unit test: posing.
+- Known: the selfie's people are framed from where they are drawn (as
+  Maniac's); a photo taken while a line is said keeps the line only in a
+  full one.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
