@@ -277,8 +277,14 @@ if __name__ == '__main__':
         lit = check_lit_people(worlds)
         if lit:
             print(f"PASS: the mansion's and Zak's {lit} people in their colours (not the lights-off grey)")
-        sandbox(exe, worlds, 'doors', shots, tmp)
-        print('PASS: through the doors of every place (tapped, walked to, gone through)')
+        # (A door in a part of the place the game joins by a script is gone
+        # through from as near as the walk boxes allow; The Dig's tram cars are
+        # called, not gone through: the rides check.)
+        output = sandbox(exe, worlds, 'doors', shots, tmp)
+        d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short', output)
+        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 98:
+            raise SystemExit('FAIL: doors\n' + output[-2000:])
+        print(f'PASS: through the doors of every place (tapped, walked to, gone through): {d.group(2)} of {d.group(1)} through, {d.group(3)} elsewhere, {d.group(4)} short')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # Each game's own verb panel (exported from its start): every verb
@@ -340,9 +346,11 @@ if __name__ == '__main__':
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
         unreached = int(re.search(r'(\d+) doors not reached', output).group(1))
-        if unreached * 10 > foot:
+        across = int(re.search(r'(\d+) gone through from as near as the walk boxes allow', output).group(1))
+        if unreached * 100 > foot:
             raise SystemExit(f'FAIL: tour: {unreached} doors not reached for {foot} on foot')
-        print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached); its controls; back where it began')
+        print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached, '
+              f'{across} through from as near as the walk boxes allow); its controls; back where it began')
         # The rides: The Dig's tram, every line both ways (when The Dig is
         # there); Zak's (when Zak is), each part on its own.
         cars = len(list(worlds.glob('dig-*-car.svw')))

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0130 (the parked van and the places list: review fixes).
+Active milestone: Phase 1; latest patch 0131 (doors in parts of a place the games join by script, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3593,3 +3593,30 @@ An independent review of 0129 and of 0128's iPhone list.
   where a prop is hit.
 - The iPhone list changes are built by the IPA job only; not tested on an
   iPhone. Everything else tested on the desktop build only (Linux).
+
+## Patch 0131 — doors across parts a game joins by script (new engine)
+
+Fixing existing gameplay first: in the new engine some doors could not be
+used at all from where the player arrives.
+- Many places are in parts the original joins only by a script (stairs
+  climbed, a ledge let down from, a cliff path): the walk boxes do not
+  meet, and the game's own box table agrees (for example Monkey Island's
+  room 48: its ledge and its ground). The new engine runs no scripts, so a
+  door in the other part was walked toward and nothing happened. A tapped
+  door is now gone through once the player has walked as near to it as the
+  walk boxes allow.
+- The tour reaches 626 of 768 stops on foot (was 604): 2 doors not reached
+  (both in one Atlantis room, a walk longer than the tour waits), 23 gone
+  through from as near as the walk allows (was 25 not reached).
+- The doors check: 1,868 of 1,905 doors gone through (was 1,829 of 1,915),
+  14 to another place, 23 short. The Dig's ten tram car doors are counted
+  apart (a tap there calls the tram; the rides check rides them). It now
+  taps the part of a door the scene shows (a door reaching past the scene's
+  edge was tapped off it) and fails below 98% (was 96%). Without the new
+  rule it fails (checked).
+- Still short (23): Monkey Island's forest exits placed off the picture (13;
+  the forest's own edge exits work), two exits below the picture (Monkey
+  Island 2 room 45, Indiana Jones 3 room 47), five Loom doors under a thing
+  of the same shape (the tap picks the thing), and three in The Dig (an
+  alcove under another object; rooms 61 and 64).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
