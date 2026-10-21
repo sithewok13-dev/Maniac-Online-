@@ -2,10 +2,15 @@
 """What the mansion's things do to other things, through the original scripts.
 
 Needs privately supplied Maniac Mansion DOS V1 data. Opening and closing the
-mailbox and the desk show and hide their open pictures; the gate shows open
-from the garage and from the other side; the hall's secret door has no
-handle ("There's no handle here!") and the gargoyle pushed opens it. The
-new engine's kManiacSets and kManiacOpenedBy follow this. Not an iPhone test.
+mailbox and the desk show and hide their open pictures; the hall's secret
+door has no handle ("There's no handle here!"), the gargoyle pushed or
+pulled opens it, and it shuts behind the one going down its stairs; the
+garden gate moves as one (opened or pulled on the pool deck, all three of
+its sides open, closed or pushed all shut; from the garage or the other
+side, that side and the deck's); the bathroom's shower curtain moves as one;
+its sink runs without its second picture; its shower's tap has no handle.
+The new engine's kManiacSets, kManiacOpenedBy, kManiacTogether,
+kManiacLines and kManiacShutsBehind follow this. Not an iPhone test.
 """
 import argparse
 import hashlib
@@ -22,7 +27,7 @@ def main():
         parser.error('Requires the audited English DOS V1 edition')
     run_probe(data, (ROOT/'tools/probes/mansion_links.inc').read_text(),
               'scummverse_exploration_safety', 'SCUMMVERSE_MANSION_LINKS_PASS', 'mansion-links', timeout=300)
-    print('PASS: the mailbox, the desk, the gate and the gargoyle\'s secret door, as the original scripts')
+    print('PASS: the mailbox, the desk, the gate, the gargoyle\'s secret door, the shower curtain, the sink and the tap, as the original scripts')
 
 
 if __name__ == '__main__':

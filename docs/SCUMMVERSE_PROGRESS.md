@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0152 (the gargoyle's secret door and other mansion links, new engine).
+Active milestone: Phase 1; latest patch 0153 (the shower curtain, the gate as one, the secret door shutting behind, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4005,3 +4005,39 @@ back); the rest are now in the new engine:
   basement; the mailbox and the desk opened and closed. The doors check
   opens the secret door (as the gargoyle would) before trying it. Tested
   on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0152 (27 checks).
+
+## Patch 0153 — the shower curtain, the gate as one (new engine)
+
+User (2026-10-21): "Keep going". The next of the mansion's
+moments, taken again from the original's own scripts by a probe that runs
+each verb through Maniac's own engine:
+- The bathroom's shower curtain moves as one: opening or pulling any of its
+  three parts (or its gathered end) draws it all aside, and the wall behind
+  reads "FOR A GOOD TIME CALL EDNA" with her number; closing any part
+  draws it all back. Pushed, it won't budge (the original has no script
+  for that). The sink there runs without its second picture (it was the
+  wrong way round); the shower's tap turned on says "The handle's
+  missing." and turned off does nothing, as in the original.
+- The garden gate moves as one, as in the original: opened or pulled on
+  the pool deck, all three of its sides open; closed or pushed, all shut;
+  from the garage or the other side, that side and the deck's. Walking
+  through it shut opens it the same way. (Before, push and pull could leave
+  its sides disagreeing.)
+- The hall's secret door shuts behind whoever goes down its stairs (the
+  original closes it); coming back up, it is shut, and the gargoyle opens
+  it again. A paused tour no longer lets the player through a door the
+  game keeps shut (a review finding on 0151/0152).
+- Not done: the TV (turning it on changes only a close-up room that is not
+  a place); the circuit breakers (they start a cut-scene).
+- Checks: tools/test_mansion_links.py now also runs the curtain, the gate
+  from all three sides, the gargoyle pulled, the secret door closed and
+  gone through, the sink and the tap through the original scripts (37
+  steps; passes with the protection on and off). The verbs check opens the
+  curtain by a part and closes it from its end, pushes it, pulls it, runs
+  the sink and the tap, opens and pushes the gate from the deck and pulls
+  and closes it from the garage, tries the shut secret door with a tour
+  paused, sees it kept open, then shut behind on the stairs down; each new
+  rule broken on purpose fails it (checked). The kept check now compares
+  every kept picture, not only how many. Tested on the desktop build only.
+  Not tested on an iPhone.

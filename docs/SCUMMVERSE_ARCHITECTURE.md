@@ -864,6 +864,15 @@ one palette) apply.
   opening the secret door 10/69) and kManiacOpenedBy (a door only another
   thing opens: its own line to Open/Close, never opened by doorOpens), from
   tools/test_mansion_links.py's probe over every thing and verb.
+  From 0153, kManiacTogether (rows: one thing and a verb mask that sets
+  each of its parts, anywhere, to picture 0 or 1; itself among them, act()
+  returns whatever the panel's rules would say: the shower curtain 24/115..117
+  and its end 279, the inverted sink 24/253, the gate 6/138 with 16/143 and
+  52/108; push or pull on such a thing whose script answers only the other
+  won't budge), kManiacLines (a verb's own line, or "" for nothing: the
+  shower tap 24/118) and kManiacShutsBehind (travel leaves the door shut:
+  10/69). travel() applies a door's Open rows when it opens one on the way
+  through; doorAllowed gates the player whenever a tour is off or paused.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

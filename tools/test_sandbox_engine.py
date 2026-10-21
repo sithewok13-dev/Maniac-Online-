@@ -324,10 +324,10 @@ if __name__ == '__main__':
             print(f'PASS: {distaffs} distaff: each note lit; its drafts spun (Opening forwards and backwards); notes that are no draft do nothing')
         # (The mansion's lights: each off, the place dark, kept; on again.)
         lights = re.search(r'(\d+) lights off and (\d+) on again \((\d+) flashlight, (\d+) pool, (\d+) links\)', output)
-        if (worlds/'maniac-1.svw').exists() and (not lights or int(lights.group(1)) < 5 or lights.group(1) != lights.group(2) or lights.group(3) != '1' or lights.group(4) != '1' or lights.group(5) != '2'):
+        if (worlds/'maniac-1.svw').exists() and (not lights or int(lights.group(1)) < 5 or lights.group(1) != lights.group(2) or lights.group(3) != '1' or lights.group(4) != '1' or lights.group(5) != '4'):
             raise SystemExit('FAIL: the mansion\'s lights\n' + output[-2000:])
         if lights and int(lights.group(1)):
-            print(f'PASS: the mansion\'s lights: {lights.group(1)} turned off (the place dark, everyone in grey; again so on coming back, only there; kept) and on again; the flashlight lighting a window where the tap was; the water valve draining and filling the pool, its ladder down only when drained; the gargoyle opening the hall\'s secret door (no handle; shut, going nowhere); the mailbox and the desk opened and closed')
+            print(f'PASS: the mansion\'s lights: {lights.group(1)} turned off (the place dark, everyone in grey; again so on coming back, only there; kept) and on again; the flashlight lighting a window where the tap was; the water valve draining and filling the pool, its ladder down only when drained; the gargoyle opening the hall\'s secret door (no handle; shut, going nowhere, nor with a tour paused; shut behind on the stairs down); the mailbox and the desk opened and closed; the shower curtain drawn aside and back as one (pushed, it won\'t budge), the sink and the tap as the game; the garden gate moving as one')
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)
