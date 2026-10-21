@@ -791,7 +791,15 @@ one palette) apply.
   (`_vanPlace`, ConfMan scummverse_sandbox_van_place), or anywhere it is
   parked by kWorldSandboxVanRequest (the Worlds menu's Board the Shuttle
   Bug); Riding keeps where it was boarded and where it goes (another game
-  for the van).
+  for the van). From 0128: doors and ride objects are one candidate list in
+  `tap` (objectAt's nearest, smaller first); a list of where to carries a
+  cancel request (scummversePlacesCancel, kWorldSandboxStayRequest: closed
+  unchosen or not shown, taken by rideStay) and is withdrawn by
+  scummversePlacesHide (rideOff: from `enter`, walking off, kRideAsk
+  ticks unanswered, the engine closing); a countdown is kept through taps
+  and ends by walking out of reach in rideStep; bus and tram check their
+  target installed; a failed arrival re-enters where it was boarded;
+  rideBoard refuses while touring.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

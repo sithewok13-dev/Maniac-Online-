@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0127 (the Shuttle Bug in the new engine).
+Active milestone: Phase 1; latest patch 0128 (the new engine's rides: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3506,4 +3506,39 @@ An independent review of 0124 (pushed before it came back).
   picture its own engine takes at the landing site; the new engine does
   not have it yet), and at the landing site it is drawn even when away (it
   is part of that place's picture); no cockpit or starfield while flying.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0128 — the new engine's rides: review fixes
+
+An independent review of 0125 (Zak's rides).
+- A tap on a door that overlaps where a ride is boarded goes through the
+  door when the door is the smaller (the 14th Avenue door over Zak's bus
+  boarded the bus). Doors and rides are now one choice: the one tapped most
+  nearly, the smaller where both are.
+- Walking off while a ride counts down, by a tap, now says it left without
+  you (it was silent, and the countdown's line stayed); a tap near where it
+  is boarded keeps it, and a tap on it again walks back to it rather than
+  starting the countdown over.
+- A plane's or the van's list of where to can be closed: its Cancel (and
+  the list not shown at all, something else being over the game) now says
+  "No flight booked." or "The Shuttle Bug stays put." and the ride is not
+  taken; a choice made after that does nothing. Left unanswered for a
+  minute, walked off from, or somewhere else chosen meanwhile (the tour,
+  the menu, playing someone else), the list is taken away. On the iPhone it
+  can no longer be swiped away unheard (its Cancel closes it).
+- The bus and the Mars tram do not count down when their other end is not
+  installed ("The bus isn't running: its other stop isn't installed yet.").
+  A ride whose arrival cannot be shown puts the one played back where they
+  boarded ("That ride couldn't get there.") instead of leaving the game with
+  no one to play.
+- No ride is boarded while touring (paused too); the menu's Board the
+  Shuttle Bug ends the tour first.
+- The "rides" check runs Zak's part without The Dig (and The Dig's without
+  Zak). It now walks off by a tap, taps a door over the bus's stop, and
+  closes a plane's list four ways (Cancel with a late choice after it,
+  unanswered, walked off from, another place chosen).
+- Not checked: a bus or tram whose other end is missing, and an arrival
+  that cannot be shown (every place of Zak is exported here); the iPhone's
+  list (its Cancel, being taken away, not swiping) is compiled for the
+  desktop only as a stand-in, not built for iOS here.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

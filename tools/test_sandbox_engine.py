@@ -343,22 +343,29 @@ if __name__ == '__main__':
         if unreached * 10 > foot:
             raise SystemExit(f'FAIL: tour: {unreached} doors not reached for {foot} on foot')
         print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached); its controls; back where it began')
-        # The rides: The Dig's tram, every line both ways (when The Dig is there).
-        if any(worlds.glob('dig-*-car.svw')):
+        # The rides: The Dig's tram, every line both ways (when The Dig is
+        # there); Zak's (when Zak is), each part on its own.
+        cars = len(list(worlds.glob('dig-*-car.svw')))
+        if cars or (worlds/'zak-3.svw').exists():
             output = sandbox(exe, worlds, 'rides', shots, tmp)
             m = re.search(r'selftest rides: (\d+) tram stations, (\d+) rides, (\d+) waited', output)
-            cars = len(list(worlds.glob('dig-*-car.svw')))
-            if not m or int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
+            if not m or 'selftest PASS' not in output:
                 raise SystemExit('FAIL: rides\n' + output[-2000:])
-            print(f'PASS: The Dig\'s tram: {m.group(1)} stations, called from the ledge, ridden {m.group(2)} times, waiting {m.group(3)} times')
-            # Zak's rides (when Zak is there): the bus and the Mars tram both
-            # ways, a plane to every airport, one missed by walking off.
-            z = re.search(r'(\d+) bus and tram rides, (\d+) flights, (\d+) missed', output)
+            if cars:
+                if int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
+                    raise SystemExit('FAIL: The Dig\'s tram\n' + output[-2000:])
+                print(f'PASS: The Dig\'s tram: {m.group(1)} stations, called from the ledge, ridden {m.group(2)} times, waiting {m.group(3)} times')
+            # Zak's rides: the bus and the Mars tram both ways, a plane to every
+            # airport, one missed by walking off (a tap away), a door over the
+            # bus's stop tapped (the door), a plane's list closed, left
+            # unanswered, walked off from and gone elsewhere from.
+            z = re.search(r'(\d+) bus and tram rides, (\d+) flights, (\d+) missed, (\d+) door taps beside rides, (\d+) lists closed', output)
             airports = len([r for r in range(141, 150) if (worlds/f'zak-{r}.svw').exists()])
-            if (worlds/'zak-3.svw').exists() and (not z or int(z.group(1)) != 4 or int(z.group(2)) != airports or int(z.group(3)) != 1):
-                raise SystemExit('FAIL: Zak\'s rides\n' + output[-2000:])
-            if z and (worlds/'zak-3.svw').exists():
-                print(f'PASS: Zak\'s rides: the bus and the Mars tram both ways, {z.group(2)} flights (each airport, chosen from the list), one missed')
+            if (worlds/'zak-3.svw').exists():
+                if not z or int(z.group(1)) != 4 or int(z.group(2)) != airports or int(z.group(3)) != 1 or int(z.group(4)) < 1 or int(z.group(5)) != 4:
+                    raise SystemExit('FAIL: Zak\'s rides\n' + output[-2000:])
+                print(f'PASS: Zak\'s rides: the bus and the Mars tram both ways, {z.group(2)} flights (each airport, chosen from the list), one missed, '
+                      f'{z.group(4)} doors over where rides are boarded, 4 lists closed or withdrawn')
             # The Shuttle Bug: Mars to Melee Island and back (when both are there).
             v = re.search(r'(\d+) van flights', output)
             if (worlds/'zak-185.svw').exists() and (worlds/'monkey-33.svw').exists():
