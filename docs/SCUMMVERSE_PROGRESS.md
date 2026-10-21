@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0143 (Crispy's face and Suzy as the user describes her, new engine).
+Active milestone: Phase 1; latest patch 0144 (review fixes for custom characters and lights).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3837,4 +3837,23 @@ thighs are bigger and she's a little shorter. She's also Asian."
   both custom characters).
 - On the desktop: the character check plays both, each as tall as drawn;
   pictures of both beside Guybrush were looked at; startup test passes.
+  Not tested on an iPhone.
+
+## Patch 0144 — custom characters and lights: review fixes
+
+An independent review of 0139-0142 found no serious bugs; the small ones:
+- Maniac's own engine refuses a custom character (new engine only) with a
+  line instead of reading past its list of games for its folder.
+- Picking a custom character with everyone out: the one played before
+  stays beside them, once, out among the wanderers here (they used to be
+  left wherever the wanderers last had them).
+- The lights are saved only when they change; the check now saves them to
+  the settings and reads them back from there, as at launch.
+- The chat check needs a line in the mansion itself in its speaker's
+  colour (Zak's alone no longer passes it).
+- iPhone: the custom characters' box never asks for a game folder to be
+  added; the character screen's comment counts its boxes rightly.
+- On the desktop: the cast check (with the new wanderers part, which fails
+  without the fix: checked), the verbs (lights) and chat checks and the
+  startup test pass. The iPhone change is compiled only by the Apple CI.
   Not tested on an iPhone.
