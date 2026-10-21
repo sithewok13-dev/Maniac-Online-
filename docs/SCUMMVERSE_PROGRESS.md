@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0141 (the mansion's lights turn off and on, new engine).
+Active milestone: Phase 1; latest patch 0142 (Suzy, the second custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3799,3 +3799,19 @@ An independent review of 0134.
 - Not yet: a flashlight lighting a dark place; the original's fuse box and
   breakers. Tested on the desktop build only (Linux). Not tested on an
   iPhone.
+
+## Patch 0142 — Suzy, the second custom character (new engine)
+
+User (2026-10-21): "Make another custom character called Suzy." Suzy joins
+Crispy in the character screen's "Custom characters" box: long dark hair
+streaked with silver in a ponytail, a big smile, a green T-shirt with a
+small white bat emblem, light jeans, white sneakers and a black sling bag
+(drawn from the user's photos by a helper; the photos are not stored).
+She walks and talks in four directions, stands about as tall as the
+place's lead, and has her own description and lines for the chat.
+- Custom characters are now drawn with square pixels, as drawn (they were
+  shown 1.2 times taller than drawn).
+- On the desktop: the character check lists both (Crispy first), plays
+  each where the player is, and checks each against the height it is drawn
+  to have; a picture of Suzy beside Guybrush outside the SCUMM Bar was
+  looked at. Full suite not yet rerun. Not tested on an iPhone.

@@ -854,7 +854,7 @@ one palette) apply.
   kWorldCustomCast in the catalog. The sandbox's scan marks them installed;
   readCharacter gives their carried bytes where others read
   `<game>-c<costume>.svc`; addPerson draws them a fixed part of the place's
-  lead (personPerRow) at the 320x200 pixel shape. castOffer adds a last
+  lead (personPerRow) in square pixels (from 0142). castOffer adds a last
   box, slot 2 + worldGameCount(), "Custom characters", its face the first's;
   castHome is the player's place and castChoose plays them there, where the
   one before stood. They are not wanderers and not in Maniac's own engine.

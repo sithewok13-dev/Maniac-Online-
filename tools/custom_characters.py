@@ -10,8 +10,14 @@ drawing; --preview DIR also writes each frame enlarged as PNG (needs Pillow).
 Crispy: the user's eight-pound terrier in his red devil costume for
 Halloween (hood with two horns, cape trimmed in black, its black ties), drawn
 from the user's description and photos (the photos themselves are not kept).
+
+Suzy: smiling, long dark hair streaked with silver pulled back into a
+ponytail; a heather-green T-shirt with a small white oval and a green bat on
+it, light-wash jeans, white sneakers, a black cross-body sling bag and a
+black smartwatch; drawn the same way from the user's photos (not kept).
 """
 import argparse
+import math
 import struct
 from pathlib import Path
 
@@ -269,9 +275,412 @@ def crispy():
     return frames
 
 
+# Suzy's frames: W x H, the body on the middle column.
+W, H = 29, 56
+MID = W // 2  # (the body's axis; the engine puts her feet here)
+
+SUZY_COLOURS = {
+    'K': (0x24, 0x1C, 0x22),  # outline
+    'S': (0xDC, 0xA4, 0x7C),  # skin
+    's': (0xB4, 0x7A, 0x5A),  # skin, shaded
+    'c': (0xE6, 0x8E, 0x78),  # cheeks
+    'H': (0x9C, 0x9A, 0xA2),  # hair, grey
+    'h': (0x3C, 0x34, 0x38),  # hair, dark
+    'L': (0xD4, 0xD4, 0xD8),  # hair, silver
+    'W': (0xF6, 0xF2, 0xEA),  # teeth, emblem, sneakers
+    'M': (0x86, 0x2A, 0x2E),  # mouth, open
+    'G': (0x6C, 0xB6, 0x5E),  # shirt, heather green
+    'g': (0x4A, 0x8A, 0x46),  # shirt, shaded
+    'q': (0x92, 0xCC, 0x7E),  # shirt, lit
+    'b': (0x1E, 0x86, 0x32),  # the bat on the emblem
+    'J': (0x7C, 0xA2, 0xCE),  # jeans, light wash
+    'j': (0x58, 0x7A, 0xAA),  # jeans, shaded
+    'i': (0xA8, 0xC4, 0xE2),  # jeans, faded
+    'n': (0xB4, 0xB4, 0xBE),  # sneakers, shaded
+    'T': (0x18, 0x16, 0x1C),  # bag, strap, watch, hair tie
+    't': (0x4C, 0x4A, 0x56),  # bag, lit
+    'O': (0x8C, 0x5C, 0x34),  # the little bow on the strap
+}
+
+
+# Drawing helpers on top of Canvas: spans of rows, little pictures, layers.
+
+def span(c, y, x0, x1, colour):
+    for x in range(min(x0, x1), max(x0, x1) + 1):
+        c.put(x, y, colour)
+
+
+def rows(c, y0, spans, colour):
+    for i, (x0, x1) in enumerate(spans):
+        span(c, y0 + i, x0, x1, colour)
+
+
+def stamp(c, x0, y0, picture):
+    """A little picture of letters ('.' is nothing) with its top left at x0, y0."""
+    for dy, line in enumerate(picture):
+        for dx, ch in enumerate(line):
+            if ch != '.':
+                c.put(x0 + dx, y0 + dy, ch)
+
+
+def recolour(c, letter, into, where):
+    for y in range(c.height):
+        for x in range(c.width):
+            if c.cells[y][x] == letter and where(x, y):
+                c.cells[y][x] = into
+
+
+def paste(dst, src, outline=True):
+    """A part drawn on its own (outlined round, so it stands out) laid on."""
+    if outline:
+        src.outline()
+    for y in range(src.height):
+        for x in range(src.width):
+            if src.cells[y][x] != ' ':
+                dst.cells[y][x] = src.cells[y][x]
+
+
+def streak_radial(c, cx, cy, width, strands, region, near=None, reach=0):
+    """Her hair (dark, grey, silver) in `region` combed into strands along
+    lines through cx, cy (where it is pulled back to), coloured in turn
+    (within `reach` of that point from `near` instead: darker behind)."""
+    for y in range(c.height):
+        for x in range(c.width):
+            if c.cells[y][x] in 'HhL' and region(x, y):
+                a = math.atan2(x - cx, cy - y)
+                seq = near if near and math.hypot(x - cx, y - cy) <= reach else strands
+                c.cells[y][x] = seq[int(math.floor(a / width)) % len(seq)]
+
+
+def streak_down(c, centre, region, phase=0, strands='hHLHhH'):
+    """A tail of hair streaked along its length (`centre(y)` is its middle)."""
+    for y in range(c.height):
+        for x in range(c.width):
+            if c.cells[y][x] == 'H' and region(x, y):
+                k = int(math.floor(x - centre(y) + 0.5)) + phase
+                c.cells[y][x] = strands[k % len(strands)]
+
+
+# Facing the viewer (and away): the head and the shirt are drawn pixel by
+# pixel; the legs walk.
+
+FRONT_HEAD = [  # x 7..21 (the middle at the 8th letter), y 1..14
+    '.....KKKKK.....',
+    '...KKHLLLHKK...',
+    '..KHHLLLLLHHK..',
+    '.KHhLSSSSSLhHK.',
+    '.KHHSSSSSSSHHK.',
+    '.KHShhSSShhSHK.',
+    '.KhSSSSSSSSShK.',
+    'KShSKKSSSKKShSK',
+    'KShSShSsShSShSK',
+    '.KLcsSSSSSscLK.',
+    '..KSSWWWWWSSK..',
+    '..KSSScccSSSK..',
+    '...KsSSSSSsK...',
+    '....KKsssKK....',
+]
+FRONT_TALK = {  # (rows replaced, talking)
+    11: '..KSSKWWWKSSK..',
+    12: '..KSScMMMcSSK..',
+}
+
+FRONT_BODY = [  # x 4..24 (the middle at the 11th letter), y 15..34
+    '.......KsSSSsK.......',
+    '.....KKgSSSSSgKK.....',
+    '...KKGGGgSSSgGGGKK...',
+    '.KKqqGGGGgggGGGGqqKK.',
+    'KqGGgGGGGGGGGGGGgGGqK',
+    'KGGGgGGGWWWWWGGGgGGGK',
+    'KGGGgGGbbWbWbbGGgGGGK',
+    'KgggggGWbbbbbWGgggggK',
+    'KKKKKgGGWWWWWGGgKKKKK',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKggGGGGGGGggKsSK.',
+    '.KSsKKgGGGGGGGgKKsSK.',
+    '.KSsKKgGGGGGGGgKKsSK.',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKgggggggggggKsSK.',
+    '.KSSKKKKKKKKKKKKKSSK.',
+    '.KSSK...........KSSK.',
+    '.KSSK...........KSSK.',
+    '..KK.............KK..',
+]
+
+BACK_HEAD = [  # x 7..21, y 1..14
+    '.....KKKKK.....',
+    '...KKHLLLHKK...',
+    '..KHHLLLLLHHK..',
+    '.KHhHLLLLLHhHK.',
+    '.KHhHHLLLHHhHK.',
+    '.KHHhHHLHHhHHK.',
+    '.KhHhHHhHHhHhK.',
+    'KSHhHHhHhHHhHSK',
+    'KSHHhHTTTHhHHSK',
+    '.KhHHhHHHhHHhK.',
+    '..KhHHHHHHHhK..',
+    '..KHhHHHHHhHK..',
+    '...KSSHHHSSK...',
+    '....KSSSSSK....',
+]
+
+BACK_BODY = [  # x 4..24, y 15..34
+    '.......KsSSSsK.......',
+    '.....KKgGGGGGgKK.....',
+    '...KKGGGGGGGGGGGKK...',
+    '.KKqqGGGGGGGGGGGqqKK.',
+    'KqGGgGGGGGGGGGGGgGGqK',
+    'KGGGgGGGGGGGGGGGgGGGK',
+    'KGGGgGgGGGGGGGgGgGGGK',
+    'KgggggGgGGGGGgGgggggK',
+    'KKKKKgGGGGGGGGGgKKKKK',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKggGGGGGGGggKsSK.',
+    '.KSsKKgGGGGGGGgKKsSK.',
+    '.KSsKKgGGGGGGGgKKsSK.',
+    '.KSsKgGGGGGGGGGgKsSK.',
+    '.KSsKgggggggggggKsSK.',
+    '.KSSKKKKKKKKKKKKKSSK.',
+    '.KSSK...........KSSK.',
+    '.KSSK...........KSSK.',
+    '..KK.............KK..',
+]
+
+
+def front_legs(c, lift, b, back=False):
+    """Hips, both legs in jeans, the sneakers; `lift` > 0 raises her right foot
+    (the viewer's left; from behind, the viewer's right), < 0 the other."""
+    for y in range(30 + b, 36 + b):
+        span(c, y, 7, 2 * MID - 7, 'J')
+    for mirror in (False, True):
+        up = max(0, lift) if mirror == back else max(0, -lift)
+        X = (lambda x: 2 * MID - x) if mirror else (lambda x: x)
+        bottom = 51 - up
+        for y in range(36 + b, bottom + 1):
+            x0 = 7 if y < 41 - up // 2 else 8 if y < 46 - up else 9
+            span(c, y, X(x0), X(13), 'J')
+        rows(c, bottom + 1, [(X(9), X(13))] + [(X(8), X(13))] * 3, 'W')
+
+
+def jeans_shading(c, b, back=False):
+    recolour(c, 'J', 'j', lambda x, y: y == 32 + b or abs(x - MID) == 2 or abs(x - MID) >= 6)
+    if not back:
+        recolour(c, 'J', 'i', lambda x, y: 37 + b <= y <= 42 and abs(x - MID) in (3, 4))
+        recolour(c, 'J', 'i', lambda x, y: y in (45, 46) and abs(x - MID) == 3)
+
+
+def shoe_shading(c, back=False):
+    """The sneakers' lowest white row (from behind: the heels) shaded."""
+    for x in range(W):
+        ys = [y for y in range(44, H) if c.cells[y][x] == 'W']
+        if ys:
+            c.cells[max(ys)][x] = 'n'
+            if back and len(ys) > 1:
+                c.cells[max(ys) - 1][x] = 'n'
+
+
+def suzy_front(step=0, talking=False):
+    """Facing the viewer: W x H, feet on the bottom row."""
+    c = Canvas(W, H)
+    b = 1 if step in (1, 3) else 0
+    lift = (0, 2, 0, -2)[step]
+    low = Canvas(W, H)
+    front_legs(low, lift, b)
+    paste(c, low)
+    jeans_shading(c, b)
+    shoe_shading(c)
+    behind = Canvas(W, H)
+    rows(behind, 10 + b, [(8, 20)] * 7, 'h')
+    for x in (9, 12, 16, 19):
+        span(behind, 13 + b, x, x, 'H'); span(behind, 14 + b, x, x, 'H')
+    paste(c, behind)
+    stamp(c, 4, 15 + b, FRONT_BODY)
+    # The sling bag at her left hip (the viewer's right), on its strap from
+    # her right shoulder, down under the emblem.
+    bag = Canvas(W, H)
+    rows(bag, 28 + b, [(16, 20)] * 4 + [(17, 19)], 'T')
+    paste(c, bag)
+    span(c, 29 + b, 17, 19, 't')
+    c.put(18, 30 + b, 't')
+    c.line([(10, 16 + b), (10, 22 + b), (16, 28 + b)], 'T')
+    c.put(10, 18 + b, 'O')
+    # The watch on her left wrist.
+    c.put(21, 31 + b, 'T'); c.put(22, 31 + b, 'T')
+    head = FRONT_HEAD[:]
+    if talking:
+        for y, line in FRONT_TALK.items():
+            head[y - 1] = line
+    stamp(c, 7, 1 + b, head)
+    # (Combed back from her forehead; the brows and eyes left alone.)
+    streak_radial(c, MID, 11 + b, 0.28, 'HhLhHL', lambda x, y: y <= 5 + b or abs(x - MID) >= 5)
+    # A few loose strands by her face.
+    for x, y in ((8, 11), (8, 12), (9, 13), (20, 11), (20, 12)):
+        c.put(x, y + b, 'L' if y < 12 else 'H')
+    return c
+
+
+def suzy_back(step=0):
+    """Facing away: W x H, feet on the bottom row."""
+    c = Canvas(W, H)
+    b = 1 if step in (1, 3) else 0
+    lift = (0, 2, 0, -2)[step]
+    low = Canvas(W, H)
+    front_legs(low, lift, b, back=True)
+    paste(c, low)
+    jeans_shading(c, b, back=True)
+    shoe_shading(c, back=True)
+    # Back pockets.
+    for x0 in (9, 16):
+        span(c, 33 + b, x0, x0 + 3, 'j')
+        c.put(x0, 34 + b, 'j'); c.put(x0 + 3, 34 + b, 'j')
+    stamp(c, 4, 15 + b, BACK_BODY)
+    # The strap across her back, from her right shoulder to her left hip.
+    c.line([(18, 16 + b), (10, 29 + b)], 'T')
+    c.put(6, 31 + b, 'T'); c.put(7, 31 + b, 'T')  # the watch
+    stamp(c, 7, 1 + b, BACK_HEAD)
+    streak_radial(c, MID, 12 + b, 0.22, 'hHLHhHhL', lambda x, y: y <= 13 + b)
+    span(c, 9 + b, 13, 15, 'T')  # the hair tie
+    # The ponytail down her back from its tie, swaying a little as she walks.
+    top, end = 10 + b, 27 + b
+    sway = (0, 0.5, 0, -0.5)[step]
+    def centre(y):
+        t = (y - top) / (end - top)
+        return MID + 0.7 * math.sin(t * math.pi * 1.2) + sway * t
+    p = Canvas(W, H)
+    for y in range(top, end + 1):
+        t = (y - top) / (end - top)
+        half = 1.6 + 1.3 * t / 0.15 if t < 0.15 else 2.9 - 2.4 * (t - 0.15) / 0.85
+        span(p, y, int(round(centre(y) - half)), int(round(centre(y) + half)), 'H')
+    paste(c, p)
+    streak_down(c, centre, lambda x, y: top <= y, phase=1, strands='hhHhLh')
+    return c
+
+
+# Facing right.
+
+SIDE_HEAD = [  # x 5..21, y 1..14
+    '......KKKKK......',
+    '....KKHLLLHKK....',
+    '...KHHLLLLHHHK...',
+    '..KHhhHLLHHHSK...',
+    '..KhHHhhHHHSSSK..',
+    '..KHhHHHHhSShhK..',
+    '..KhLhhHSSSSSSK..',
+    '..KHhLhSsSSSKSSK.',
+    '..KhHhHSsSSSSSSK.',
+    '...KhhHSSSScsSK..',
+    '...KhHSSSSSSSWK..',
+    '....KhSSSSSSsK...',
+    '.....KSSSSSSK....',
+    '........KKKKK....',
+]
+SIDE_TALK = {
+    11: '...KhHSSSSSSSWM..',
+    12: '....KHSSSSSMMK...',
+}
+
+POSES = {  # near foot x, far foot x, near up, far up, near knee x, far knee x
+    0: (15, 13, 0, 0, 15, 13),
+    1: (19, 9, 0, 1, 17, 11),
+    2: (14, 16, 0, 2, 14, 17),
+    3: (9, 19, 1, 0, 11, 17),
+}
+
+
+def side_leg(c, fx, kx, up, b, jeans, shoe):
+    top, ky, ankle = 33 + b, 44, 51 - up
+    c.polygon([(10, top), (18, top), (kx + 3, ky), (fx + 2.5, ankle + 1), (fx - 2, ankle + 1), (kx - 2.5, ky)], jeans)
+    rows(c, ankle + 1, [(fx - 2, fx + 1), (fx - 2, fx + 3), (fx - 3, fx + 4), (fx - 3, fx + 4)], shoe)
+
+
+def side_arm(b, dx, skin, sleeve):
+    a = Canvas(W, H)
+    a.polygon([(12.5, 21 + b), (16, 21 + b), (16 + dx, 31 + b), (12.5 + dx, 31 + b)], skin)
+    a.ellipse(12 + dx, 30 + b, 15 + dx, 33 + b, skin)
+    lean = dx / 4
+    a.polygon([(12.5, 16 + b), (15.5, 16 + b), (17, 18 + b), (16.5 + lean, 23.5 + b), (11.5 + lean, 23.5 + b), (11.5, 18 + b)], sleeve)
+    return a
+
+
+def suzy_side(step=0, talking=False):
+    """Facing right: W x H, feet on the bottom row. `step` 0..3 walks."""
+    c = Canvas(W, H)
+    b = 1 if step in (1, 3) else 0
+    nfx, ffx, nup, fup, nkx, fkx = POSES[step]
+    swing = (0, -4, 0, 4)[step]
+    # The far arm and leg, shaded.
+    paste(c, side_arm(b, -swing, 's', 'g'))
+    far = Canvas(W, H)
+    side_leg(far, ffx, fkx, fup, b, 'j', 'n')
+    paste(c, far)
+    # The hips, the near leg.
+    low = Canvas(W, H)
+    rows(low, 30 + b, [(10, 18), (10, 18), (9, 18), (9, 18), (9, 18), (9, 18), (10, 18)], 'J')
+    side_leg(low, nfx, nkx, nup, b, 'J', 'W')
+    paste(c, low)
+    recolour(c, 'J', 'j', lambda x, y: y == 32 + b or x <= 10)
+    recolour(c, 'J', 'i', lambda x, y: 35 + b <= y <= 41 and x >= 15 and c.get(x + 1, y) == 'J')
+    shoe_shading(c)
+    # The shirt and the neck.
+    top = Canvas(W, H)
+    rows(top, 12 + b, [(12, 16)] * 5, 'S')
+    rows(top, 16 + b, [(11, 17), (10, 18), (10, 19), (10, 19), (10, 19), (10, 19), (10, 19), (10, 18),
+                       (10, 18), (11, 18), (11, 18), (11, 18), (11, 18), (10, 18), (10, 18)], 'G')
+    paste(c, top)
+    recolour(c, 'G', 'g', lambda x, y: y >= 29 + b or x <= 11 or (y == 23 + b and x >= 17))
+    recolour(c, 'S', 's', lambda x, y: y <= 15 + b)
+    # The bag at her left hip, on its strap from her right shoulder.
+    bag = Canvas(W, H)
+    rows(bag, 27 + b, [(16, 20)] * 4 + [(17, 19)], 'T')
+    paste(c, bag)
+    span(c, 28 + b, 17, 19, 't')
+    c.line([(11, 17 + b), (16, 27 + b)], 'T')
+    # The ponytail down her back.
+    p = Canvas(W, H)
+    p.polygon([(5, 6 + b), (8, 6 + b), (8.5, 10 + b), (9.5, 15 + b), (10.5, 20 + b), (10, 24 + b), (8.5, 27 + b), (7, 24 + b), (6, 18 + b), (5, 12 + b)], 'H')
+    paste(c, p)
+    streak_down(c, lambda y: 6.5 + max(0, y - 6 - b) * 0.12, lambda x, y: x <= 10 and y >= 6 + b, phase=2, strands='hhHhLh')
+    # The head.
+    head = SIDE_HEAD[:]
+    if talking:
+        for y, line in SIDE_TALK.items():
+            head[y - 1] = line
+    stamp(c, 5, 1 + b, head)
+    streak_radial(c, 7, 7 + b, 0.28, 'HLhHLh', lambda x, y: y <= 13 + b and 8 <= x <= 16, near='hHhhLh', reach=6)
+    c.put(7, 6 + b, 'T'); c.put(7, 7 + b, 'T')  # the hair tie
+    # The near arm, its watch.
+    paste(c, side_arm(b, swing, 'S', 'G'))
+    recolour(c, 'G', 'g', lambda x, y: y == 23 + b)
+    c.put(13 + swing, 30 + b, 'T'); c.put(14 + swing, 30 + b, 'T')
+    return c
+
+
+def suzy():
+    frames = []
+    side = [suzy_side(s) for s in range(4)]
+    for d, flip in ((RIGHT, False), (LEFT, True)):
+        pick = (lambda f: f.mirrored()) if flip else (lambda f: f)
+        frames.append((d, STAND, 0, pick(side[0])))
+        frames += [(d, WALK, i, pick(side[i])) for i in range(4)]
+        frames += [(d, TALK, 0, pick(side[0])), (d, TALK, 1, pick(suzy_side(0, True)))]
+    frames.append((FRONT, STAND, 0, suzy_front()))
+    frames += [(FRONT, WALK, i, suzy_front(i)) for i in range(4)]
+    frames += [(FRONT, TALK, 0, suzy_front()), (FRONT, TALK, 1, suzy_front(0, True))]
+    frames.append((BACK, STAND, 0, suzy_back()))
+    frames += [(BACK, WALK, i, suzy_back(i)) for i in range(4)]
+    return frames
+
+
+for _name, _pic in (('FRONT_HEAD', FRONT_HEAD), ('FRONT_BODY', FRONT_BODY), ('BACK_HEAD', BACK_HEAD),
+                    ('BACK_BODY', BACK_BODY), ('SIDE_HEAD', SIDE_HEAD)):
+    assert len({len(line) for line in _pic}) == 1, _name
+
+
 # The custom characters (their number, name, the art, its colours, and how
 # tall they stand against a person: Crispy is a little dog).
-CUSTOM = [(1, 'Crispy', crispy, CRISPY_COLOURS, 0.3)]
+CUSTOM = [(1, 'Crispy', crispy, CRISPY_COLOURS, 0.3), (2, 'Suzy', suzy, SUZY_COLOURS, 0.95)]
 
 
 def write_inc(path):
