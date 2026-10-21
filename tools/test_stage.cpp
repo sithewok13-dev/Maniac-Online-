@@ -256,6 +256,54 @@ int main() {
 	scene.walkTo(hero, scene.actor(hero).at); // nowhere to go
 	scene.update(6);
 	assert(!scene.actor(hero).moving && scene.actor(hero).route.empty());
+	// Turned towards a point standing (not while walking); talking, its talk
+	// frames in turn, a frame each kTalkTicks (the front stood where it has
+	// none that way).
+	scene.face(hero, {scene.actor(hero).at.x + 50, scene.actor(hero).at.y});
+	assert(scene.actor(hero).dir == 1);
+	scene.face(hero, {scene.actor(hero).at.x - 50, scene.actor(hero).at.y + 5});
+	assert(scene.actor(hero).dir == 0);
+	scene.face(hero, {scene.actor(hero).at.x, scene.actor(hero).at.y + 30});
+	assert(scene.actor(hero).dir == 2);
+	scene.face(hero, scene.actor(hero).at);
+	assert(scene.actor(hero).dir == 2);
+	{
+		const std::vector<Frame> talkFrames = {{2, 0, 0, -10, -40, 20, 40, 30}, {2, 2, 0, -10, -40, 20, 40, 100}, {2, 2, 1, -10, -40, 20, 40, 110},
+			{1, 0, 0, -10, -40, 20, 40, 120}, {1, 1, 0, -10, -40, 20, 40, 130}};
+		const std::vector<uint8_t> talkData = spriteBytes(talkFrames);
+		const int talker = scene.addActor(talkData.data(), talkData.size(), 1, 1.2, error);
+		scene.place(talker, {100, 140});
+		auto middle = [&]() {
+			scene.render(screen.data(), pitch);
+			int a0, b0, a1, b1;
+			assert(scene.drawnRect(talker, a0, b0, a1, b1));
+			return screen[(size_t)((b0 + b1) / 2) * pitch + (a0 + a1) / 2];
+		};
+		assert(middle() == spriteColor(30));
+		scene.talk(talker, true);
+		assert(scene.actor(talker).talking);
+		const uint32_t first = middle();
+		scene.update(kTalkTicks);
+		const uint32_t second = middle();
+		assert((first == spriteColor(100) || first == spriteColor(110)) && (second == spriteColor(100) || second == spriteColor(110)) && first != second);
+		scene.face(talker, {200, 140}); // (no talk frames that way: it stands)
+		assert(scene.actor(talker).dir == 1 && middle() == spriteColor(120));
+		scene.talk(talker, false);
+		scene.face(talker, {100, 200}); // (to the front)
+		assert(scene.actor(talker).dir == 2 && middle() == spriteColor(30));
+		scene.walkTo(talker, {300, 140});
+		scene.update(1);
+		scene.face(talker, {0, 140}); // (walking: still facing the way it goes)
+		assert(scene.actor(talker).dir == 1);
+		// Stopped: standing where they are, and turning again.
+		const Point was = scene.actor(talker).at;
+		scene.stop(talker);
+		scene.update(30);
+		assert(!scene.actor(talker).moving && scene.actor(talker).at.x == was.x && scene.actor(talker).at.y == was.y);
+		scene.face(talker, {0, 140});
+		assert(scene.actor(talker).dir == 0);
+	}
+	std::puts("PASS: facing a point, talking (talk frames in turn, standing where there are none) and stopping");
 
 	// The camera: centred on the one followed, then still until they come
 	// within a quarter of the screen of an edge, then scrolling to centre

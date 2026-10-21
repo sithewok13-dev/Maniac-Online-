@@ -659,6 +659,26 @@ one palette) apply.
   (backwards kWorldVerbClose) through the plain rules; a thing tapped
   (not a door) is chosen, its picture from its place's file, and tapped
   again is looked at.
+- Chat in the sandbox (0116, step 4): SandboxEngine::talkScene tells the
+  iPhone's chat (common/scummverse_ai.h, the same calls Maniac makes) who
+  is here every step: the one played as talk ID 1 with its appearance key
+  (scummverseTalkAppearance, so the chat names and plays them as that cast
+  member), everyone else on the stage as a visitor (scummverseTalkVisitor,
+  talk ID 30 + their slot, slots in stage order without the one played, at
+  most 26), the place as Maniac tells it (the mansion's rooms by their own
+  numbers, the other games' by worldPlaceKey). A line comes back only while
+  none is shown (canSpeak); it is said over its speaker's head (sayAs, the
+  game's talk lettering, kept within the scene's picture) while their talk
+  frames play (Stage `Actor::talking`, a frame each kTalkTicks), for as
+  long as a verb's line, at most 15 seconds. Those in the conversation stop
+  (Scene::stop), face the one played (Scene::face) and do not stroll; the
+  one played turns to them as it begins and to whoever speaks. While the
+  chat asks whom to talk to, a tap on the scene goes to scummverseTalkPick
+  with whoever is drawn in front there (talkIdAt; 0 for no one, which the
+  chat keeps asking), never a walk; a coin game's press is then a plain
+  tap. On leaving, the chat is told no one is here (talkEnd). The calls go
+  through `SandboxEngine::Talk` so the "talk" self-test can put in a
+  stand-in (the desktop has no chat).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

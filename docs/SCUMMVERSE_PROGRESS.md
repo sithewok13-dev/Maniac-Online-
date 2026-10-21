@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0115 (Loom's distaff in the new engine).
+Active milestone: Phase 1; latest patch 0116 (chat in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3141,4 +3141,43 @@ it opens; Loom's distaff, the next, comes first.
   something; the notes are not heard; a note does not animate through its
   glow; only Loom's floppy edition (EGA) is taken (its CD and Mac editions
   keep their drafts and verbs elsewhere: not exported).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0116 — chat in the new engine (step 4, first part)
+
+User (2026-10-21): "Push and keep going", "Don't ask me for permission just
+keep going". Step 4 brings the iPhone's own features to the new engine;
+chat comes first.
+- The Talk button works in the new engine as in Maniac: the chat is told
+  who is in the place every moment (the one played as the character they
+  are, everyone else there by name, up to 26), and the place itself (the
+  mansion's rooms by their own names, the other games' by their places').
+  Replies are said over the speaker's head in the game's own talk
+  lettering, kept within the scene's picture, while their mouth moves (their
+  talk frames); the next line waits until the last is gone. Those in the
+  conversation stop where they are and face the one played, and do not
+  wander off; the one played turns to them as it begins and to whoever
+  speaks. When the chat asks whom to talk to, a tap on someone picks them
+  (a tap on no one keeps it asking; it is never a walk); a coin game's press
+  is then a plain tap. Leaving the new engine tells the chat no one is
+  there.
+- The stage (common/scummverse_stage): standing people turn towards a point
+  (as walking there would turn them), play their talk frames in turn, and
+  stop where they are.
+- Speech over anyone's head (verbs' lines too) now stays within the
+  scene's picture instead of running into the black border.
+- The Worlds menu in the new engine says Talk chats with anyone there.
+- On the desktop (no chat there): a "talk" check puts a stand-in for the
+  chat in, in a place of each game with someone besides the one played (12
+  places): told who is there, the place, and Maniac's rooms by number;
+  someone talked with stops and stays fifteen seconds; their line over them,
+  talking; the next only after it; the one played's own; a tap picking
+  someone while the chat asks, a tap on no one kept for picking, then a tap
+  walking again; the chat cleared on leaving. Its picture: talk.png.
+- Stage unit test (ASan/UBSan): facing, talk frames in turn (standing where
+  a way has none), stopping.
+- Known: everyone's lines are in the one lettering colour (the games give
+  each person their own); with the panel turned off (scummverse_verbs) no
+  lettering is loaded and lines show only in the chat; people beyond the
+  26th in a place cannot be talked with.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

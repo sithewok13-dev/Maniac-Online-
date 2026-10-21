@@ -19,7 +19,10 @@ is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where
 their games put them; the mansion's and Zak's people are in their colours;
-then from Maniac the
+the iPhone's chat (a stand-in for it) is told who is there, those in a
+conversation stand facing the one played, each line is said over its
+speaker's head, and a tap picks someone when the chat asks whom; then from
+Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -291,6 +294,13 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: {spun} distaffs played of {distaffs} exported')
         if distaffs:
             print(f'PASS: {distaffs} distaff: each note lit; its drafts spun (Opening forwards and backwards); notes that are no draft do nothing')
+        # The iPhone's chat (a stand-in for it: the desktop has none), in a
+        # place of each game with someone there.
+        output = sandbox(exe, worlds, 'talk', shots, tmp)
+        places = int(re.search(r'selftest talk: (\d+) places', output).group(1))
+        if places < 2:
+            raise SystemExit(f'FAIL: chat tried in {places} places')
+        print(f'PASS: chat in {places} places: told who is here; those talking stand and face; lines over their speakers; a tap picks someone')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
