@@ -852,6 +852,13 @@ one palette) apply.
   scummverse_sandbox_flashlight), and present's aimFlashlight points it at
   the last tap or mouse move over the place (`_beamX/_beamY`, reset by
   `enter`), else at the one played.
+- Things changing others, doors kept shut (0151): kManiacFollows (a
+  thing whose picture, once changed by act(), is copied to another, here
+  or elsewhere: setPicture writes `_pictures`) and kManiacDoorNeeds (a door
+  travel refuses until another thing shows a picture; not on the tour's
+  way; the doors check meets it first: meetDoorNeed). Taken from the
+  original's scripts by tools/test_pool_valve.py's probe: the water valve
+  (29/66) drains the pool (6/139), whose ladder (6/172) needs it drained.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

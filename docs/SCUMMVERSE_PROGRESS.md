@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0150 (followers and flashlight: review fixes).
+Active milestone: Phase 1; latest patch 0151 (the water valve drains the pool, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3953,3 +3953,28 @@ An independent review of 0146-0149 found no serious bugs; fixed:
   while the one played walks off (fails with the old behaviour: checked);
   three runs in a row pass. The full suite is rerun with it. Not tested
   on an iPhone.
+
+## Patch 0151 — the water valve drains the pool (new engine; step 5)
+
+User (2026-10-21): "Keep going". The next of the mansion's moments, taken
+from the original's own scripts: the basement's water valve. Opening it or
+turning it on (in the basement) drains the swimming pool on the pool deck:
+the pool shows its empty picture, and its ladder now goes down to the pit
+under the pool. Closing it or turning it off fills the pool again, and the
+ladder goes nowhere (as in the original, where it cannot be used while the
+pool is full). Kept like every picture. The tour still visits the pit.
+- How it was found: a probe ran the original DOS V1 valve script through
+  Maniac's own engine and listed every object it changed: the valve
+  (66) and the pool (139) to their second pictures, the ladder (172) from
+  untouchable to usable; closing undoes all three. tools/test_pool_valve.py
+  (with tools/probes/pool_valve.inc, in the data suite) checks this against
+  the game's scripts (needs the private data; its first run is after this
+  patch's full suite).
+- On the desktop: the verbs check opens the valve as a player does, finds
+  the pool drained (a picture of it was looked at) and goes down its
+  ladder to the pit, then closes it, finds the pool full and the ladder
+  going nowhere; without the ladder's rule it fails (checked). The doors
+  check drains the pool before trying that ladder, as the game would.
+- Not done: the reactor's meltdown timer and the glowing key's script (the
+  pit is a place to visit, as the rest of the new engine).
+  Tested on the desktop build only. Not tested on an iPhone.
