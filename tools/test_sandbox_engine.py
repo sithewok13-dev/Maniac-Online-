@@ -11,7 +11,8 @@ connections, not exported yet); everyone is out for half an hour, those
 coming in are shown, and where everyone is is kept; each game's own verb
 panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle,
 the mansion, Zak McKracken; Sam & Max's box over the scene, opened from its
-button, its pointer brought round by right clicks)
+button, its pointer brought round by right clicks; The Dig's grid from its
+button, its one tap doing what fits)
 is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where

@@ -86,14 +86,16 @@ static std::vector<uint8_t> sceneBytes(int shown, bool pictures = true) {
 // cells 6x4 at 6,10 and 14,10, the icon that shuts it at 22,3 4x4; each
 // verb's pointer 3x2 (hot spot 1,1, its top left left clear, colour 60 +
 // verb); the button 4x4 at 0,16 in colour 90.
-struct OverSpec { int pointerVerb = 2; bool twice = false; int buttonY = 16; int closeX = 22; bool trailing = false; };
+struct OverSpec { int pointerVerb = 2; bool twice = false; int buttonY = 16; int closeX = 22; bool trailing = false; int maskValue = 1; bool shaded = false; };
 static std::vector<uint8_t> overBytes(const OverSpec &o = OverSpec()) {
 	const int W = 32, rows = 20;
 	std::vector<uint8_t> d = {'S', 'V', 'I', '2'};
 	for (int f : {W, 20, 0, rows}) put16(d, f);
 	for (int c = 0; c < 256; ++c) put(d, {c, (2 * c) & 255, 255 - c});
 	for (int i = 0; i < W * rows; ++i) d.push_back((uint8_t)(i % 5 + 1));
-	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) d.push_back(x >= 4 && x < 28 && y >= 2 && y < 18 ? 1 : 0);
+	// (Shaded: its bottom rows, 14..17, darken the scene, The Dig's way.)
+	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x)
+		d.push_back((uint8_t)(x >= 4 && x < 28 && y >= 2 && y < 18 ? (o.shaded && y >= 14 ? 2 : (x == 4 && y == 2 ? o.maskValue : 1)) : 0));
 	d.push_back(3);
 	put(d, {kWalk}); put16(d, 7); for (int f : {0, 0, 0, 0}) put16(d, f); d.push_back(0);
 	put(d, {kLook}); put16(d, 4); for (int f : {6, 3, 6, 4}) put16(d, f); d.push_back(0);
@@ -121,6 +123,7 @@ static std::vector<uint8_t> overBytes(const OverSpec &o = OverSpec()) {
 	for (int i = 0; i < 16; ++i) d.push_back(90);
 	for (int i = 0; i < 16; ++i) d.push_back(1);
 	for (int f : {o.closeX, 3, 4, 4}) put16(d, f);
+	d.push_back(128); // (a shaded pixel keeps half its brightness)
 	if (o.trailing) d.push_back(0);
 	return d;
 }
@@ -514,14 +517,15 @@ int main() {
 		assert(parse(data.data(), data.size(), s, error));
 		assert(s.over && s.rows == 20 && s.mask.size() == 32 * 20 && s.mask[2 * 32 + 4] == 1 && s.mask[0] == 0);
 		assert(s.verbs.size() == 3 && s.cursors.size() == 3 && s.cursors[1].rect.width == 3 && s.cursors[2].hotX == 1 && s.cursors[0].mask[0] == 0);
-		assert(s.button.rect.x == 0 && s.button.rect.y == 16 && s.button.rect.width == 4 && s.close.x == 22 && s.slotKind == 2 && s.slots.size() == 2);
+		assert(s.button.rect.x == 0 && s.button.rect.y == 16 && s.button.rect.width == 4 && s.close.x == 22 && s.slotKind == 2 && s.slots.size() == 2 && s.shade == 128);
 		for (size_t cut = 1; cut < data.size(); cut += 29) assert(!parse(data.data(), data.size() - cut, s, error));
 		OverSpec trailing; trailing.trailing = true;
 		OverSpec badVerb; badVerb.pointerVerb = 3;
 		OverSpec again; again.pointerVerb = 1;
 		OverSpec low; low.buttonY = 18;
 		OverSpec farClose; farClose.closeX = 30;
-		for (const OverSpec &bad : {trailing, badVerb, again, low, farClose}) {
+		OverSpec badMask; badMask.maskValue = 3;
+		for (const OverSpec &bad : {trailing, badVerb, again, low, farClose, badMask}) {
 			const std::vector<uint8_t> b = overBytes(bad);
 			assert(!parse(b.data(), b.size(), s, error));
 			// (Cut short anywhere, bad or not: refused, nothing written past.)
@@ -593,7 +597,38 @@ int main() {
 		PanelBridge::nextVerb();
 		assert(PanelBridge::pointerVerb() == 1);
 		PanelBridge::clear();
+		// Shaded (The Dig's grid): the scene there darkened by the shade, a
+		// thing carried in a cell drawn over it; a tap there is the box's.
+		OverSpec shadedSpec; shadedSpec.shaded = true;
+		const std::vector<uint8_t> grid = overBytes(shadedSpec);
+		Panel::Panel q;
+		assert(q.load(grid.data(), grid.size(), error));
+		q.layout(64, 40, 0, 2.0, 2.0);
+		q.open(true);
+		std::vector<uint32_t> scene(64 * 40, 0xFF6040C8u);
+		q.render(scene.data(), 64, 40);
+		assert(scene[30 * 64 + 20] == (0xFF000000u | (0x60 * 128 / 255) << 16 | (0x40 * 128 / 255) << 8 | (0xC8 * 128 / 255)));
+		assert(scene[0] == 0xFF6040C8u && scene[10 * 64 + 20] == rgb(grid[12 + 768 + 5 * 32 + 10]));
+		assert(!q.hit(20, 30).close && q.hit(20, 30).panel);
 	}
-	std::puts("PASS: controls over the scene (a box from its button, shut off it or by its icon; the pointer round its verbs; drawn only where drawn)");
+	{
+		// One tap does what fits (The Dig's): what can be taken is, what is
+		// shut opens, else it is looked at.
+		Thing small; small.pictures = 2; small.shown = 1; small.differs = true; small.width = small.height = 10;
+		Outcome o = decide(kAct, small, "rock");
+		assert(o.result == kTake && o.picture == 0);
+		Thing shut; shut.pictures = 2; shut.shown = 0; shut.differs = true; shut.width = shut.height = 100;
+		o = decide(kAct, shut, "hatch");
+		assert(o.result == kShow && o.picture == 1);
+		Thing wall; wall.pictures = 0; wall.width = wall.height = 100;
+		o = decide(kAct, wall, "space");
+		assert(o.result == kSay && o.say == "Space.");
+		// (No walking, the first verb the tap: the pointer is it.)
+		std::vector<uint8_t> tapOnly = overBytes();
+		tapOnly[4 + 8 + 768 + 2 * 32 * 20 + 1] = kAct;
+		Panel::Panel t;
+		assert(t.load(tapOnly.data(), tapOnly.size(), error) && t.walkVerb() == -1 && t.pointerVerb() == 0 && t.kindOf(0) == kAct);
+	}
+	std::puts("PASS: controls over the scene (a box from its button, shut off it or by its icon; the pointer round its verbs; drawn only where drawn, darkened where shaded; one tap doing what fits)");
 	return 0;
 }

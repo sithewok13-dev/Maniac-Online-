@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0112 (Sam & Max's own controls in the new engine).
+Active milestone: Phase 1; latest patch 0113 (The Dig's own controls in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2990,4 +2990,40 @@ holds, not set up at their start. Sam & Max first; The Dig, the verb coin
   (there is no hovering on a phone). A thing carried cannot yet be used on
   another (the box's way: as the pointer). The box keeps the verb chosen
   only within a place.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0113 — The Dig's own controls in the new engine (step 2f, second part)
+
+- The Dig plays in the new engine with its own controls: its "i" button
+  in the corner; one tap does what fits, as its game's single click does
+  (a thing that can be taken is picked up, one that is shut opens, else it
+  is looked at and named; a door or the ground walks, as before); the
+  button opens its grid of things over the scene, the scene showing
+  darkened through it as the game's shadow colours darken it, what is
+  carried in its cells (a tap there names it); a tap off it shuts it, as
+  does a right click. Its pointer, the crosshair, is drawn where the last
+  tap was. Speech is in its own lettering, in Boston's colour.
+- Captured by its own engine from its start like Sam & Max's: the button,
+  the grid as the game draws it (a blast object: drawn alone over three
+  fills, what it darkens told from what it leaves clear and what it draws;
+  how much it darkens measured on the shadow table it draws through), its
+  40 cells (8 by 5 of 32 by 24, as its inventory lays its things out), its
+  pointer, the talk lettering (the later games' own glyph renderer, letter
+  by letter, as many as the charset has).
+- Export version 20: every game exports once more at the next launch (the
+  controls file gained what a shaded pixel keeps; The Dig's is new).
+- On the desktop: the other games' files are byte-identical to 0112 but
+  Sam & Max's controls (one byte more); the verb test goes through 9 panels
+  (The Dig's: its button and grid, a tap doing what fits, a door gone to
+  with a tap).
+- Review fixes: its lettering is taken in its charset's own colours (as
+  the game loads them for each line); the grid is drawn over three fills,
+  not two, so a darkening that makes two fills one colour is still told
+  from what it draws; with no shadow table that does what it shows, half
+  the brightness; a tap that only looks needs no reach (one out of reach
+  is named, not refused); the verb test asks Sam & Max's icons again.
+- Known: The Dig's things are not placed where its game puts them yet (as
+  Sam & Max's); its magnifying glass and the way it uses one thing on
+  another are not there yet; the grid's darkening is one measure for all
+  its colours (the game's table per colour).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

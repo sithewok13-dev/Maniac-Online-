@@ -589,9 +589,9 @@ one palette) apply.
   each pointer from `_grabbedCursor` as right clicks bring it round (it must
   come back to the first), the button with scummverseCaptureActor, then
   opens the box with a click on the button and draws its objects alone with
-  scummverseCaptureObjects (front and back buffers filled twice, each object
-  drawn with drawObject; what differs between the fills is clear, the
-  screen put back after); the icons are the box's verbs (lit: their next
+  scummverseCaptureObjects (front and back buffers filled three times, each
+  object drawn with drawObject; what keeps the fills is clear, the screen
+  put back after); the icons are the box's verbs (lit: their next
   image, where they have one), the catalog's cells its slots; the talk
   lettering is drawn by a verb slot it borrows (scummverseCaptureLetters,
   the panels' too). "SVI2" is "SVI1" with the panel's mask after its
@@ -602,7 +602,16 @@ one palette) apply.
   hot spot); open, every tap is the box's (`close` off it), drawn only
   where its mask is. The sandbox keeps the whole screen for the scene, a
   right click (EVENT_RBUTTONDOWN) brings the next verb or shuts the box,
-  and the pointer stays the verb chosen.
+  and the pointer stays the verb chosen. The Dig (0113): its box is a blast
+  object (`WorldOverlay::blast`; v6 on ScummEngine_v6::scummverseBlast and
+  scummverseDrawBlast find and draw it alone), its mask 2 where it darkens
+  the scene (a pixel that is neither the same over three fills nor the
+  fills themselves: drawn through a shadow table, the one that turns the
+  fills into what was seen, whose average darkening is the file's shade
+  byte), its
+  only verb kWorldVerbAct (Panel::decide: pick up, else open, else look;
+  doors walked through), its lettering drawn by drawCharV7
+  (scummverseCaptureLettersV7, v7).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
