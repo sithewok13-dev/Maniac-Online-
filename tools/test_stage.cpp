@@ -692,8 +692,24 @@ int main() {
 		assert(!place.dark() && at(10, 10) == sceneColor(9) && at(160, 175) == spriteColor(30) && at(145, 185) == propColor(5));
 		place.setDark(true);
 		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.propCount() == 0 && !place.dark() && at(10, 10) == sceneColor(9));
+		// A flashlight in the dark: the place in 48 x 32 round the point (its
+		// left on a multiple of 8, its top of 2), its corners rounded, the
+		// rest black; kept inside the place; off, all dark; gone with a new
+		// place.
+		place.setDark(true);
+		place.setFlashlight(true, {101, 61});
+		int bx, by, bw, bh;
+		assert(place.flashlight(bx, by, bw, bh) && bx == 72 && by == 44 && bw == 48 && bh == 32);
+		assert(at(90, 60) == sceneColor(9) && at(71, 60) == 0xFF000000u && at(120, 60) == 0xFF000000u && at(90, 43) == 0xFF000000u && at(90, 76) == 0xFF000000u);
+		assert(at(72, 60) == sceneColor(9) && at(119, 75 - 4) == sceneColor(9) && at(72, 44) == 0xFF000000u && at(73, 45) == 0xFF000000u && at(76, 48) == sceneColor(9));
+		place.setFlashlight(true, {2, 199});
+		assert(place.flashlight(bx, by, bw, bh) && bx == 0 && by == 200 - 32);
+		place.setFlashlight(false);
+		assert(!place.flashlight(bx, by, bw, bh) && at(10, 190) == 0xFF000000u);
+		place.setFlashlight(true, {101, 61});
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && !place.flashlight(bx, by, bw, bh));
 	}
 	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle, where it is hit; gone with the place)");
-	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place)");
+	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place); a flashlight in the dark (its rectangle, rounded, kept inside, off, gone with the place)");
 	return 0;
 }

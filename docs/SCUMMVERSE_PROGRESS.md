@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0145 (the iPhone build fixed after 0144).
+Active milestone: Phase 1; latest patch 0146 (the mansion's flashlight in the dark, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3867,3 +3867,24 @@ An independent review of 0139-0142 found no serious bugs; the small ones:
   with a small Objective-C++ mock (clang -fsyntax-only, iOS runtime): the
   old line fails, the new one compiles. The IPA build itself is the Apple
   CI's. Not tested on an iPhone.
+
+## Patch 0146 — the mansion's flashlight in the dark (new engine; step 5)
+
+User (2026-10-21): "Keep working". After the lights (0141), the mansion's
+flashlight: carried and turned on (Turn on, then a tap on it in the
+things carried; Turn off likewise), in a dark place it shows a small
+window of the place, as the original does: 48 x 32 of the place's pixels
+with rounded corners where the pointer last was (the original's follows
+the cursor: on the iPhone, where you last tapped; on the desktop, the
+mouse), the rest still dark and everyone in grey. Before any tap in a
+place it is round the one played. On or off is kept.
+- On the desktop: the verbs check takes the flashlight (or uses it when
+  already carried), makes a place dark, turns it on as a player does,
+  taps the place and finds the window there and no bigger, then turns it
+  off and finds it all dark again; a picture of the beam in the dark
+  basement was looked at. The stage unit test covers the window (its
+  rectangle, rounding, kept inside the place, off, gone with the place).
+  Startup test passes. Full suite not yet rerun.
+- Not as the original: the corners are rounded by a simple rule, not the
+  original's exact curve; the flashlight needs no batteries here.
+  Tested on the desktop build only (Linux). Not tested on an iPhone.

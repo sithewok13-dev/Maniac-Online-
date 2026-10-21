@@ -844,7 +844,14 @@ one palette) apply.
   or "light" (not "flash"); act() turns it before the plain rules
   (lights(on), the game's picture if it differs). `_dark` (game * 1024 +
   room) is applied by `enter` and kept in ConfMan scummverse_sandbox_dark
-  (lightsKept/lightsRead: numbers between commas), read at launch.
+  (lightsKept/lightsRead: numbers between commas), read at launch. The
+  flashlight (0146): Scene::setFlashlight(on, at, 48, 32) shows the place
+  only inside that source rectangle (left & ~7, top & ~1, kept inside,
+  corners rounded within 4 pixels) while dark; the sandbox's useItem turns
+  it on or off for the carried "flashlight" of "maniac" (ConfMan
+  scummverse_sandbox_flashlight), and present's aimFlashlight points it at
+  the last tap or mouse move over the place (`_beamX/_beamY`, reset by
+  `enter`), else at the one played.
 - Custom characters (0139): drawn by `tools/custom_characters.py` (plain
   Python, no images read; `--preview DIR` writes PNGs) into
   `common/scummverse_custom_cast.inc` (generated, committed): each an SVC1
