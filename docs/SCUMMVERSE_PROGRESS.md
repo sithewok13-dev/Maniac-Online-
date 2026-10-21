@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0144 (review fixes for custom characters and lights).
+Active milestone: Phase 1; latest patch 0145 (the iPhone build fixed after 0144).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3857,3 +3857,13 @@ An independent review of 0139-0142 found no serious bugs; the small ones:
   without the fix: checked), the verbs (lights) and chat checks and the
   startup test pass. The iPhone change is compiled only by the Apple CI.
   Not tested on an iPhone.
+
+## Patch 0145 — the iPhone build fixed after 0144
+
+- 0144's character screen change used property syntax on an untyped
+  dictionary value, which Objective-C rejects ("property 'length' not
+  found on object of type 'id'"): the Apple CI's IPA build failed in
+  ios7_video.mm. It now sends the message instead. Reproduced and checked
+  with a small Objective-C++ mock (clang -fsyntax-only, iOS runtime): the
+  old line fails, the new one compiles. The IPA build itself is the Apple
+  CI's. Not tested on an iPhone.
