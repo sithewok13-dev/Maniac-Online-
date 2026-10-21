@@ -612,6 +612,32 @@ one palette) apply.
   only verb kWorldVerbAct (Panel::decide: pick up, else open, else look;
   doors walked through), its lettering drawn by drawCharV7
   (scummverseCaptureLettersV7, v7).
+- A coin held over a thing (0114, step 2f; `WorldCoin`, "SVI3"): Full
+  Throttle's verbs are the parts of a coin a held press opens.
+  ScummEngine::scummverseExportCoin runs its start only until the player
+  has the pointer, then draws the coin and the skull of things alone with
+  scummverseCaptureActor: an actor of the engine's own (the last) wearing
+  their costumes in the catalog's animations, its palette remapped as the
+  game's kernel function 14 does (Actor::remapActorPalette, threshold 0:
+  free entries take the costumes' exact colours, so the file's palette is
+  taken last). Each verb's part is where its lit animation differs from
+  the coin's own, lit through a mask (the scene shows where the lit picture
+  is clear); the skull's arrows are the skull in its arrow animations over
+  the catalog's eye rectangles. "SVI3" is "SVI2" without a button (a right
+  click opens the box), the verbs' rectangles on the coin, and after the
+  shade the coin (its anchor the hot spot), the name's centre and colour,
+  each verb's lit mask and the arrows' pictures. In
+  common/scummverse_panel `Source::coin`: Panel::openCoin places the coin's
+  anchor at the press, the coin kept on screen; coinVerb picks the
+  smallest part under a point (the eyes lie in the skull); renderCoin
+  draws it, the part lit and the name in fonts[0]; the open box's hit gives
+  its arrows (code 4) and scroll goes a thing at a time; kHand is
+  Panel::decide's hand (pick up, open, close, else it doesn't work). The
+  sandbox keeps a press (EVENT_LBUTTONDOWN), opens the coin once it is held
+  kCoinHold (250 ms; the iPhone's long press already waits half a second),
+  lights the part under the pointer (EVENT_MOUSEMOVE) and does its verb when
+  let go (EVENT_LBUTTONUP); a press let go before the coin opens is a tap
+  where it began.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

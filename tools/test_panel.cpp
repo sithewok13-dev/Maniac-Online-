@@ -3,19 +3,26 @@
 // under the scene and what a tap is on, drawing (a verb lit, the sentence
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
-// the plain rules for each verb, things carried from a scene, and controls
-// over the scene (Sam & Max's box, button and pointer).
+// the plain rules for each verb, things carried from a scene, controls
+// over the scene (Sam & Max's box, button and pointer) and Full Throttle's
+// coin and box.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
 //   tools/test_panel.cpp engine/common/scummverse_panel.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_panel.h"
 #include "common/scummverse_panel_engine.h"
 #include "common/scummverse_world.h"
+#include "common/scummverse_world_catalog.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 using namespace Scummverse;
 using namespace Scummverse::Panel;
+
+// (The panel's verb kinds are the catalog's, passed through the bridge.)
+static_assert((int)kWalk == (int)WorldCatalog::kWorldVerbWalk && (int)kWhatIs == (int)WorldCatalog::kWorldVerbWhatIs &&
+	(int)kTakeOff == (int)WorldCatalog::kWorldVerbTakeOff && (int)kAct == (int)WorldCatalog::kWorldVerbAct &&
+	(int)kHand == (int)WorldCatalog::kWorldVerbHand, "verb kinds");
 
 static void put16(std::vector<uint8_t> &v, int x) { v.push_back((uint8_t)(x & 255)); v.push_back((uint8_t)((x >> 8) & 255)); }
 static void put(std::vector<uint8_t> &v, std::initializer_list<int> bytes) { for (int b : bytes) v.push_back((uint8_t)b); }
@@ -124,6 +131,54 @@ static std::vector<uint8_t> overBytes(const OverSpec &o = OverSpec()) {
 	for (int i = 0; i < 16; ++i) d.push_back(1);
 	for (int f : {o.closeX, 3, 4, 4}) put16(d, f);
 	d.push_back(128); // (a shaded pixel keeps half its brightness)
+	if (o.trailing) d.push_back(0);
+	return d;
+}
+
+// A coin game's controls ("SVI3", 32x20 as overBytes): the box at 4..27 x
+// 2..17 with no button (a right click opens it), two cells in one row at
+// 8,10 and 14,10 (6x4), its arrows (up 5,4 3x2 in 150; down 20,4 in 151);
+// one pointer (3x2 in 60, hot spot 1,1); a coin 12x10 (anchor 6,5; pixels
+// 100..102, a hole at 4..7 x 6..8 and its corner clear), two verbs on it:
+// look at 2,1 6x4 lit in 200 (its first pixel clear), the hand at 1,0
+// 10x8 lit in 201 (around look); the name centred at 6,7 in colour 33.
+struct CoinSpec { bool trailing = false; int lookX = 2, handWidth = 10, handHeight = 8, coinWidth = 12, lookKind = kLook; };
+static std::vector<uint8_t> coinBytes(const CoinSpec &o = CoinSpec()) {
+	const int W = 32, rows = 20;
+	std::vector<uint8_t> d = {'S', 'V', 'I', '3'};
+	for (int f : {W, 20, 0, rows}) put16(d, f);
+	for (int c = 0; c < 256; ++c) put(d, {c, (2 * c) & 255, 255 - c});
+	for (int i = 0; i < W * rows; ++i) d.push_back((uint8_t)(i % 5 + 1));
+	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) d.push_back((uint8_t)(x >= 4 && x < 28 && y >= 2 && y < 18));
+	d.push_back(2);
+	put(d, {o.lookKind}); put16(d, 8); for (int f : {o.lookX, 1, 6, 4}) put16(d, f); d.push_back(0);
+	for (int i = 0; i < 24; ++i) d.push_back(200);
+	put(d, {kHand}); put16(d, 9); for (int f : {1, 0, o.handWidth, o.handHeight}) put16(d, f); d.push_back(0);
+	for (int i = 0; i < o.handWidth * o.handHeight; ++i) d.push_back(201);
+	put16(d, 0); put16(d, 0); put(d, {0, 0});
+	put(d, {2, 0, 0, 2});
+	for (int f : {8, 10, 6, 4, 14, 10, 6, 4}) put16(d, f);
+	for (int f : {5, 4, 3, 2, 20, 4, 3, 2}) put16(d, f);
+	d.push_back(11);
+	for (int font = 0; font < 2; ++font) {
+		put(d, {5, 77, 255, 1});
+		put(d, {'A', 4, 0, 0, 3, 5});
+		for (int i = 0; i < 15; ++i) d.push_back(77);
+	}
+	d.push_back(1);
+	d.push_back(0); put16(d, 1); put16(d, 1); put16(d, 3); put16(d, 2);
+	for (int i = 0; i < 6; ++i) d.push_back(60);
+	for (int i = 0; i < 6; ++i) d.push_back(1);
+	for (int f : {0, 0, 0, 0}) put16(d, f); // (no button)
+	for (int f : {0, 0, 0, 0}) put16(d, f);
+	d.push_back(255);
+	put16(d, 6); put16(d, 5); put16(d, o.coinWidth); put16(d, 10);
+	for (int i = 0; i < o.coinWidth * 10; ++i) d.push_back((uint8_t)(100 + i % 3));
+	for (int y = 0; y < 10; ++y) for (int x = 0; x < o.coinWidth; ++x) d.push_back((uint8_t)!((x >= 4 && x < 8 && y >= 6 && y < 9) || (!x && !y)));
+	put16(d, 6); put16(d, 7); d.push_back(33);
+	for (int i = 0; i < 24; ++i) d.push_back(i ? 1 : 0);
+	for (int i = 0; i < o.handWidth * o.handHeight; ++i) d.push_back(1);
+	for (int k = 0; k < 2; ++k) { for (int i = 0; i < 6; ++i) d.push_back((uint8_t)(150 + k)); for (int i = 0; i < 6; ++i) d.push_back(1); }
 	if (o.trailing) d.push_back(0);
 	return d;
 }
@@ -630,5 +685,149 @@ int main() {
 		assert(t.load(tapOnly.data(), tapOnly.size(), error) && t.walkVerb() == -1 && t.pointerVerb() == 0 && t.kindOf(0) == kAct);
 	}
 	std::puts("PASS: controls over the scene (a box from its button, shut off it or by its icon; the pointer round its verbs; drawn only where drawn, darkened where shaded; one tap doing what fits)");
+	{
+		// Full Throttle's coin ("SVI3"): the file whole or not at all.
+		const std::vector<uint8_t> data = coinBytes();
+		Source s;
+		assert(parse(data.data(), data.size(), s, error));
+		assert(s.coin && s.over && s.button.pixels.empty() && s.cursors.size() == 2 && s.cursors[0].rect.width == 3);
+		assert(s.coinPicture.rect.width == 12 && s.coinPicture.rect.height == 10 && s.coinPicture.hotX == 6 && s.coinPicture.hotY == 5);
+		assert(s.coinPicture.mask[0] == 0 && s.coinPicture.mask[1] == 1 && s.nameX == 6 && s.nameY == 7 && s.nameInk == 33);
+		assert(s.verbs.size() == 2 && s.verbs[0].litMask.size() == 24 && s.verbs[0].litMask[0] == 0 && s.verbs[1].kind == kHand && s.verbs[1].litMask.size() == 80);
+		assert(s.upPicture.rect.x == 5 && s.upPicture.pixels[0] == 150 && s.downPicture.rect.x == 20 && s.downPicture.pixels[5] == 151);
+		for (size_t cut = 1; cut < data.size(); ++cut) assert(!parse(data.data(), data.size() - cut, s, error));
+		CoinSpec trailing; trailing.trailing = true;
+		CoinSpec off; off.lookX = 8; // (a part off the coin)
+		CoinSpec none; none.handWidth = none.handHeight = 0; // (a part of nothing)
+		CoinSpec big; big.coinWidth = 300;
+		CoinSpec kind; kind.lookKind = kHand + 1;
+		for (const CoinSpec &bad : {trailing, off, none, big, kind}) {
+			const std::vector<uint8_t> b = coinBytes(bad);
+			assert(!parse(b.data(), b.size(), s, error));
+		}
+		// (Sam & Max's controls are not a coin.)
+		const std::vector<uint8_t> sam = overBytes();
+		assert(parse(sam.data(), sam.size(), s, error) && !s.coin);
+		Panel::Panel q;
+		assert(q.load(sam.data(), sam.size(), error));
+		q.layout(64, 40, 0, 2.0, 2.0);
+		q.openCoin(32, 20, "rat");
+		assert(!q.coin() && !q.coinOpen() && q.coinVerb(26, 14) == -1);
+		// At twice the size: the pointer walks; no button.
+		Panel::Panel p;
+		assert(p.load(data.data(), data.size(), error) && p.coin() && p.over());
+		p.layout(64, 40, 0, 2.0, 2.0);
+		assert(p.pointerVerb() == -1 && p.buttonOnScreen().width == 0 && !p.hit(30, 20).panel);
+		// Held at 32,20: its anchor there (its top left 20,10), the parts
+		// under a point (the smaller where one lies in another), none off them.
+		p.openCoin(32, 20, "A");
+		assert(p.coinOpen() && p.coinLit() == -1);
+		Rect c = p.coinOnScreen();
+		assert(c.x == 20 && c.y == 10 && c.width == 24 && c.height == 20);
+		assert(p.coinVerb(26, 14) == 0 && p.coinVerb(22, 24) == 1 && p.coinVerb(20, 28) == -1 && p.coinVerb(19, 14) == -1 && p.coinVerb(44, 14) == -1);
+		const Rect part = p.partOnScreen(0);
+		assert(part.x == 24 && part.y == 12 && part.width == 12 && part.height == 8 && p.partOnScreen(2).width == 0);
+		// Kept on the screen near its edges.
+		p.openCoin(0, 0, "A");
+		assert(p.coinOnScreen().x == 0 && p.coinOnScreen().y == 0);
+		p.openCoin(64, 40, "A");
+		assert(p.coinOnScreen().x == 40 && p.coinOnScreen().y == 20);
+		// Drawn over the scene: the coin where it is drawn, the scene through
+		// its hole and corner; the part lit (the scene where its lit picture
+		// is clear); the name in its colour over it.
+		p.openCoin(32, 20, "A");
+		std::vector<uint32_t> screen(64 * 40, 7);
+		p.renderCoin(screen.data(), 64, 64, 40);
+		assert(screen[10 * 64 + 20] == 7 && screen[10 * 64 + 22] == rgb(101) && screen[22 * 64 + 34] == 7 && screen[9 * 64 + 22] == 7);
+		assert(screen[24 * 64 + 28] == rgb(33)); // (the name's 'A' at 4,7 of the coin)
+		// (A long name past the coin's edges, not cut at them.)
+		p.openCoin(32, 20, "AAAAAAAA");
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderCoin(screen.data(), 64, 64, 40);
+		assert(screen[24 * 64 + 2] == rgb(33) && screen[24 * 64 + 60] == rgb(33));
+		p.openCoin(32, 20, "A");
+		p.lightCoin(0);
+		assert(p.coinLit() == 0);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderCoin(screen.data(), 64, 64, 40);
+		assert(screen[12 * 64 + 24] == 7 && screen[12 * 64 + 26] == rgb(200) && screen[18 * 64 + 34] == rgb(200));
+		p.lightCoin(5);
+		assert(p.coinLit() == -1);
+		p.shutCoin();
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderCoin(screen.data(), 64, 64, 40);
+		for (uint32_t v : screen) assert(v == 7);
+		assert(p.coinVerb(26, 14) == -1);
+		p.lightCoin(0);
+		assert(p.coinLit() == -1);
+		// Its pointer is the one, wherever: drawn at its hot spot.
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		assert(screen[18 * 64 + 18] == rgb(60) && screen[21 * 64 + 23] == rgb(60));
+		// Its box: its arrows (not the coin's verbs) and cells; a thing at a
+		// time each way; an arrow drawn only where there is more that way.
+		p.open(true);
+		Panel::Panel::Hit h = p.hit(12, 9);
+		assert(h.arrow == -1 && !h.close && p.hit(42, 9).arrow == 1 && p.hit(12, 6).verb == -1 && p.hit(12, 6).arrow == 0 && !p.hit(12, 6).close && p.hit(0, 0).close);
+		std::vector<Item> items(5);
+		for (Item &i : items) { i.name = "rat"; i.width = 2; i.height = 2; i.picture.assign(4, 0xFF00FF00u); }
+		p.setItems(items);
+		assert(p.hit(18, 22).item == 0 && p.hit(30, 22).item == 1);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.render(screen.data(), 64, 40);
+		assert(screen[8 * 64 + 10] != rgb(150) && screen[8 * 64 + 40] == rgb(151));
+		p.scroll(1);
+		assert(p.firstItem() == 1 && p.hit(18, 22).item == 1);
+		p.render(screen.data(), 64, 40);
+		assert(screen[8 * 64 + 10] == rgb(150) && screen[8 * 64 + 40] == rgb(151));
+		p.scroll(10);
+		assert(p.firstItem() == 3);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.render(screen.data(), 64, 40);
+		assert(screen[8 * 64 + 10] == rgb(150) && screen[8 * 64 + 40] != rgb(151));
+		p.scroll(-10);
+		assert(p.firstItem() == 0);
+		items.resize(2);
+		p.setItems(items);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.render(screen.data(), 64, 40);
+		assert(screen[8 * 64 + 10] != rgb(150) && screen[8 * 64 + 40] != rgb(151));
+		// The bridge: the coin, its parts, the box's arrows (code 4); its
+		// parts are not on the panel.
+		char problem[64];
+		int index, x, y, w, hh;
+		assert(PanelBridge::load(data.data(), data.size(), problem, sizeof(problem)) && PanelBridge::coin() && PanelBridge::over());
+		PanelBridge::layout(64, 40, 0, 2.0, 2.0);
+		assert(!PanelBridge::verbShown(0) && !PanelBridge::verbRect(0, x, y, w, hh) && PanelBridge::pointerVerb() == -1);
+		assert(!PanelBridge::coinOpen() && !PanelBridge::coinRect(x, y, w, hh) && !PanelBridge::partRect(0, x, y, w, hh));
+		PanelBridge::openCoin(32, 20, "rat");
+		assert(PanelBridge::coinOpen() && PanelBridge::coinRect(x, y, w, hh) && x == 20 && y == 10 && w == 24 && hh == 20);
+		assert(PanelBridge::partRect(1, x, y, w, hh) && x == 22 && y == 10 && w == 20 && hh == 16);
+		assert(PanelBridge::coinVerb(26, 14) == 0 && PanelBridge::verbKind(1) == kHand);
+		PanelBridge::lightCoin(1);
+		assert(PanelBridge::coinLit() == 1);
+		PanelBridge::shutCoin();
+		assert(!PanelBridge::coinOpen() && PanelBridge::coinLit() == -1);
+		PanelBridge::open(true);
+		assert(PanelBridge::hit(12, 9, index) == 4 && index == -1 && PanelBridge::hit(42, 9, index) == 4 && index == 1 && PanelBridge::hit(0, 0, index) == 6);
+		PanelBridge::clear();
+		assert(!PanelBridge::coin());
+	}
+	{
+		// Full Throttle's hand: what can be taken is, what is shut opens, what
+		// is open shuts, else it doesn't work.
+		Thing small; small.pictures = 2; small.shown = 1; small.differs = true; small.width = small.height = 10;
+		Outcome o = decide(kHand, small, "wrench");
+		assert(o.result == kTake && o.picture == 0);
+		Thing shut; shut.pictures = 2; shut.shown = 0; shut.differs = true; shut.width = shut.height = 100;
+		o = decide(kHand, shut, "door");
+		assert(o.result == kShow && o.picture == 1);
+		shut.shown = 1;
+		o = decide(kHand, shut, "door");
+		assert(o.result == kShow && o.picture == 0);
+		Thing wall; wall.pictures = 0; wall.width = wall.height = 100;
+		o = decide(kHand, wall, "wall");
+		assert(o.result == kSay && o.say == "That doesn't seem to work.");
+	}
+	std::puts("PASS: Full Throttle's coin (read whole; held over a thing where it is, kept on screen; the part under a point, the smaller in another; drawn with the scene through, a part lit, the name; its box's arrows a thing at a time, shown where there is more; its pointer; the hand)");
 	return 0;
 }

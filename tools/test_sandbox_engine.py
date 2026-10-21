@@ -12,7 +12,8 @@ coming in are shown, and where everyone is is kept; each game's own verb
 panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle,
 the mansion, Zak McKracken; Sam & Max's box over the scene, opened from its
 button, its pointer brought round by right clicks; The Dig's grid from its
-button, its one tap doing what fits)
+button, its one tap doing what fits; Full Throttle's coin, held over a thing
+and let go on a part, and its skull of things from a right click)
 is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where
@@ -275,6 +276,13 @@ if __name__ == '__main__':
         if panels != exported:
             raise SystemExit(f'FAIL: {panels} verb panels shown of {exported} exported')
         print(f'PASS: {panels} games\' own verb panels: each verb chosen; look, open, close, push, pick up; kept')
+        # (Full Throttle's coin: each a file of its own kind, each held, lit and let go.)
+        coins = len([f for f in worlds.glob('*-ui.svi') if f.stat().st_size and gzip.decompress(f.read_bytes())[:4] == b'SVI3'])
+        held = int(re.search(r'(\d+) coins', output).group(1))
+        if held != coins:
+            raise SystemExit(f'FAIL: {held} coins held of {coins} exported')
+        if coins:
+            print(f'PASS: {coins} coin held over a thing, each part lit, let go off them; its box from a right click')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

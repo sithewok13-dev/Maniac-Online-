@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0113 (The Dig's own controls in the new engine).
+Active milestone: Phase 1; latest patch 0114 (Full Throttle's own controls in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3026,4 +3026,70 @@ holds, not set up at their start. Sam & Max first; The Dig, the verb coin
   Sam & Max's); its magnifying glass and the way it uses one thing on
   another are not there yet; the grid's darkening is one measure for all
   its colours (the game's table per colour).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0114 — Full Throttle's own controls in the new engine (step 2f, third part)
+
+- Full Throttle plays in the new engine with its own controls: a tap
+  walks (a door goes through, as before); a press held on a thing opens
+  its verb coin there, the game's own (the skull's eyes, its teeth, the
+  hand, the boot), the thing's name in its banner in the game's lettering;
+  moving onto a part lights it as the game does (the eyes glow, the tongue
+  comes out, the hand grabs, the boot kicks); let go on a part, Ben walks
+  over and does it (the eyes name it; the teeth talk; the hand takes what
+  can be taken, opens what is shut, shuts what is open, else "That doesn't
+  seem to work."; the boot moves what a push would); let go off the parts,
+  nothing. A right click (two fingers on the iPhone) opens its skull of
+  things carried in the middle of the screen, four in its mouth; its eyes'
+  arrows show when there are more that way, and a tap on an eye goes one
+  thing along; a tap on a thing names it, a press held on one opens the
+  coin over it; a tap off the skull or another right click shuts it. Its
+  pointer, the red crosshair, is drawn where the last tap was.
+- On the iPhone a long press is the held press: the coin opens a quarter
+  of a second after the phone reports the long press (itself half a
+  second), about three quarters of a second in all.
+- Captured by its own engine ("ft-ui.svi", "SVI3") without playing the
+  story: its start run until the player has the pointer (that pointer, and
+  the palette then); the coin and the skull drawn alone from their
+  costumes by an actor of the engine's own, in their exact colours as the
+  game sets them each time it shows them (its kernel function 14: each
+  costume colour remapped into the palette, a free entry taken where none
+  matches); each part lit (the coin's animation for it, where it differs
+  from the coin's own); the skull's arrows (its animations with the back
+  and forward arrows); the name's lettering (charset 1, colour 7, centred
+  18 pixels below where the coin is held, as its script prints it) and the
+  talk's. The costume and animation numbers, the verb numbers (eyes 8,
+  teeth 10, hand 9, boot 5), where the skull opens, its cells and its eyes
+  are in the catalog (kWorldCoins), read off the user's copy with the
+  engine's own probes (not kept).
+- Export version 21: every game exports once more at the next launch
+  (Full Throttle's controls are new; the other games' files are
+  byte-identical to 0113).
+- On the desktop: the verb test goes through 10 panels (Full Throttle's:
+  its skull opened by a right click and shut by a tap off it and by a right
+  click; the coin not open before the press is held, then open over a
+  thing, each of its four parts lit under the pointer, let go off them
+  nothing done; a press let go at once walks; looking with the coin's eyes,
+  the boot's push and the hand on a thing). Its pictures: verbs-ft.png
+  (the pointer), verbs-ft-coin.png (the coin over the bike, its eyes lit),
+  verbs-ft-box.png (the skull with things carried, its forward arrow).
+- Data suite: 41 of 42 in the full run; test_camera_engine (the old
+  engine's camera, a Melee selfie's three shots alike) failed there and
+  passed run again on its own: a check that poses may make flaky, not
+  touched here. Unit tests with ASan/UBSan pass.
+- Review fixes: the coin and the skull are drawn as the game shows them
+  (set up, then the coin, then a part lit over it), their colours remapped
+  and drawn the same way, on the screen's own rows; the skull's arrows are
+  its wherever they are; the name is drawn on the screen (a long one past
+  the coin's edges); the coin's size on screen is as its pixels map; a coin
+  left open by a lost let-go is shut at the next press, and is lit where
+  the pointer is; the verb test taps the skull's arrows, names a carried
+  thing with the coin and tries the hand until it takes something. Full
+  Throttle's file is byte-identical after them.
+- Known: the coin and the skull do not flicker as the game's do (one
+  picture each, the first of their animations); Full Throttle's things are
+  not placed where its game puts them yet (as Sam & Max's and The Dig's); a
+  carried thing cannot yet be used on another (the game's way: as the
+  pointer); the coin is for the place's things and the things carried, not
+  yet for people.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
