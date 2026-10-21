@@ -28,8 +28,10 @@ camera takes a photo of the scene and of the screen and a selfie of three
 (everyone posed, nobody moving), and holds still while asked; its tour
 visits every place installed, most on foot through doors, its controls
 working, and ends back where it began; The Dig's tram is called from
-each ledge, comes, and is ridden to the other end, where it waits; then
-from Maniac the
+each ledge, comes, and is ridden to the other end, where it waits; Zak's
+bus and Mars tram are boarded and ridden both ways, a plane flies to every
+airport chosen from the list it asks with, and a ride walked off is missed;
+then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -349,6 +351,14 @@ if __name__ == '__main__':
             if not m or int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
                 raise SystemExit('FAIL: rides\n' + output[-2000:])
             print(f'PASS: The Dig\'s tram: {m.group(1)} stations, called from the ledge, ridden {m.group(2)} times, waiting {m.group(3)} times')
+            # Zak's rides (when Zak is there): the bus and the Mars tram both
+            # ways, a plane to every airport, one missed by walking off.
+            z = re.search(r'(\d+) bus and tram rides, (\d+) flights, (\d+) missed', output)
+            airports = len([r for r in range(141, 150) if (worlds/f'zak-{r}.svw').exists()])
+            if (worlds/'zak-3.svw').exists() and (not z or int(z.group(1)) != 4 or int(z.group(2)) != airports or int(z.group(3)) != 1):
+                raise SystemExit('FAIL: Zak\'s rides\n' + output[-2000:])
+            if z and (worlds/'zak-3.svw').exists():
+                print(f'PASS: Zak\'s rides: the bus and the Mars tram both ways, {z.group(2)} flights (each airport, chosen from the list), one missed')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

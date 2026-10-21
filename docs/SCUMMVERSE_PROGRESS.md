@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0124 (The Dig's tram in the new engine).
+Active milestone: Phase 1; latest patch 0125 (Zak's bus, Mars tram and planes in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3424,4 +3424,31 @@ exported).
   and the tour do not ride it (the tour goes on through its door as
   before); only the one played rides (as the new engine has no
   companions yet).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0125 — Zak's bus, Mars tram and planes in the new engine (step 5, second part)
+
+- Zak McKracken's rides run in the new engine. A tap on the bus in Zak's
+  street walks there; "The bus leaves in 5 seconds."; on board, out of
+  sight, to the San Francisco airport, off at its door; that door out is the
+  bus back to the street. The Mars tram likewise between the landing site
+  and the pyramid ("Tram leaving in 5 seconds."; it stands at both in their
+  pictures, so it is not called). A tap on an airport's gate to the planes
+  walks there and asks where to (the iPhone's list of places: every other
+  airport installed, by city); "Flight to Seattle boarding. Departing in 5
+  seconds."; a flight of ten seconds out of sight, then "Welcome to
+  Seattle.", off at that airport's gate. Walked off before it leaves, it
+  goes without the one played ("The bus left without you."). The rides are
+  a table (kWorldRides, kWorldAirports in the catalog) the new engine
+  reads; Maniac's own rides are unchanged.
+- On the desktop: the "rides" check also boards every Zak ride by a tap as
+  a player does (the bus and the tram both ways), misses one by walking off,
+  and flies from San Francisco to every other airport in turn and back to
+  it (9 flights, each chosen from the list it asks with; one to a place no
+  plane goes, or to where it is, does nothing).
+- Known: no plane's cabin, bus or tram is shown while riding (their scenes
+  are not exported for the new engine: Maniac's plane cabin is its own
+  room); no tickets (the CashCard and the reservations terminal are left
+  out); only the one played rides; the van and the mansion's scripted
+  moments are next.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

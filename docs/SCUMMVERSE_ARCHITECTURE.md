@@ -766,6 +766,18 @@ one palette) apply.
   puts the car in view from the state (tunnel: slid; 0: dissolved). A tap
   on a car's door walks to the ledge; taps wait while riding. `announce`
   draws a line at the top of the place.
+- Rides between a game's places in the sandbox (0125, step 5; the
+  catalog's kWorldRides {game, room, object, target, arrival, kind} and
+  kWorldAirports {game, room, gate, city}): a tap (walking) on a ride's
+  object (worldRideAt) walks to its walk-to point (SandboxEngine::Riding,
+  kRideWalking); there a plane asks where to through the Phone's places
+  list (scummversePlacesBegin/Item/Show, each other installed airport as
+  worldPlaceRequest; the choice comes back to `request` in the place range
+  and rideChosen takes it only while asking, from where it is), the others
+  count down at once; kRideBoarded ticks after, the one played is hidden,
+  and after kRideTrip of its kind `enter`s the target at its arrival
+  object. Walking off before then cancels it with a line; taps wait while
+  riding; `enter` lets any pending ride go.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
