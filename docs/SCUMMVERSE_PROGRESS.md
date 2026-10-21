@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0126 (The Dig's tram in the new engine: review fixes).
+Active milestone: Phase 1; latest patch 0127 (the Shuttle Bug in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3481,4 +3481,29 @@ An independent review of 0124 (pushed before it came back).
   checked), a car colour that is another of the place's, and an object
   under the car.
 - Maniac's Dig tram test passes.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0127 — the Shuttle Bug in the new engine (step 5, third part)
+
+- Melissa and Leslie's Shuttle Bug flies in the new engine. A tap on its
+  door at the Mars landing site walks there and asks where to (the
+  iPhone's list of places: the van's sites in every game installed, by
+  their names, as Maniac's van offers them); "Liftoff in 5 seconds."; a
+  flight of ten seconds out of sight, then "The Shuttle Bug touches down."
+  where the place puts someone arriving. It stays parked there (kept
+  between launches); the Worlds menu's Board the Shuttle Bug takes off
+  again from where it stands (elsewhere it says where it is parked). The
+  mansion's and Zak's sites are those sure to be the place named (the
+  landing site, the Mars pyramid, the mansion's entry road, Zak's street,
+  the Seattle forest, the Zaire village, Kathmandu, the Sphinx,
+  Stonehenge); the jungles, the Face and Fourteenth Avenue are left out of
+  the new engine's list for now.
+- On the desktop: the "rides" check boards it at its door on Mars, flies it
+  to Melee Island (chosen from the list, which does not offer where it is),
+  boards it there from the menu and flies home, and asked for elsewhere it
+  names where it is.
+- Known: the van is not drawn where it lands (Maniac draws it from the
+  picture its own engine takes at the landing site; the new engine does
+  not have it yet), and at the landing site it is drawn even when away (it
+  is part of that place's picture); no cockpit or starfield while flying.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

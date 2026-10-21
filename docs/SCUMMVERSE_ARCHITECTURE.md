@@ -783,7 +783,15 @@ one palette) apply.
   count down at once; kRideBoarded ticks after, the one played is hidden,
   and after kRideTrip of its kind `enter`s the target at its arrival
   object. Walking off before then cancels it with a line; taps wait while
-  riding; `enter` lets any pending ride go.
+  riding; `enter` lets any pending ride go. The van (0127,
+  kWorldRideVan): its sites are kWorldVanSites through worldVanPlace (the
+  other games' rooms as listed; the mansion's and Zak's by
+  kWorldVanPlaces, the sandbox's numbering), offered as kWorldVanRequest +
+  site and taken by rideSite; boarded at its door only where it is parked
+  (`_vanPlace`, ConfMan scummverse_sandbox_van_place), or anywhere it is
+  parked by kWorldSandboxVanRequest (the Worlds menu's Board the Shuttle
+  Bug); Riding keeps where it was boarded and where it goes (another game
+  for the van).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
