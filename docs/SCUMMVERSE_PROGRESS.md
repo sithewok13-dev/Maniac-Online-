@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0147 (followers in the new engine: the chat's Follow).
+Active milestone: Phase 1; latest patch 0148 (the follow check made steady).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3914,3 +3914,13 @@ app restarts.
   visitors) is compiled by the Apple CI only. Not tested on an iPhone.
 - Not yet: followers do not sit in the plane's seats or appear inside the
   van's cockpit view as Maniac's own engine shows them.
+
+## Patch 0148 — the follow check made steady
+
+- The full suite's run of 0147's "follow" check failed once with the
+  wanderers on ("came after though asked to stay"): with only two people
+  in the place, the one asked to stay strolled at random to a spot near
+  the one played. Not a following fault; strolling is now held off while
+  the check measures walking after and staying (only following moves
+  them then). Five runs in a row pass; the full suite is rerun with it.
+- The Apple CI built 0147's IPA (the chat's Follow change compiles).
