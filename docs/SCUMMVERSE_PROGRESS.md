@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0110 (Zak McKracken's own places and people in the new engine).
+Active milestone: Phase 1; latest patch 0111 (the classic verb panel for the mansion and Zak in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2890,3 +2890,53 @@ User (2026-10-20): "Only 10 games? There's 12."
   Documents/zak, as the original engine does), not scummverse_zak_path.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
 
+## Patch 0111 — the mansion's and Zak's verb panels in the new engine (step 2e, third part)
+
+- The mansion and Zak McKracken now play in the new engine with their own
+  verb panel, as the other five games with one do: the mansion's 15 verbs
+  (Push, Pull, Give, Open, Close, Read, Walk to, Pick up, What is, Unlock,
+  New kid, Use, Turn on, Turn off, Fix) and Zak's 14 (with Put on and Take
+  off), in green under the place, the sentence line, the four inventory
+  slots with their arrows, and the game's own lettering. Each is captured
+  by the game's own SCUMM engine from its start (the mansion's verbs from
+  the script that sets them up, Zak's from its boot script; then drawn on
+  a cleared verb screen, each verb also lit, the slots, arrows and
+  sentence line where the engine itself puts them, each letter drawn by
+  the game).
+- What the verbs do there: Read names a thing as Look does; Unlock opens
+  what opens ("It isn't locked." otherwise); Fix, Put on and Take off
+  answer with a plain line ("It doesn't need fixing."); New kid plays the next of the game's people
+  (its cast's order, all of them, not only the kids) where the one played
+  stands. Pick up follows the oldest games' way round: a thing is there in
+  its first picture and gone once taken (its "on" picture), and is carried
+  as it looked. Where things are, and what each answers, comes from the
+  mansion's and Zak's own scripts, as for the other games (0108).
+- On the desktop: the sandbox's verb test goes through 7 panels (the
+  mansion's and Zak's included): 81 verbs chosen, things looked at, opened,
+  closed, pushed, 7 taken and looked at in their slot, doors and what
+  their games do not let be taken refused, out of reach refused, New kid
+  played and back. The other ten games' files and the mansion's are
+  byte-identical to 0110; of Zak's, its people change (in colour) and two
+  places (12 and 19, scripted) change once with a fixed seed for what
+  their scripts pick at random.
+- Fixed from 0110: Zak's sixteen people came into the new engine all in one
+  grey (after a scripted room the export put the game's variables back,
+  the lights with them, before drawing its people; the oldest games draw
+  everyone grey with the lights off). They are now drawn lit, in the
+  colours Zak's scripts give them through its own colour table (Zak in
+  green, Annie in magenta). The sandbox test now fails on any of the
+  mansion's or Zak's people in that grey alone.
+- Review fixes: the panel capture no longer runs the exit script of the
+  last place exported when Zak's start changes rooms (no effect on today's
+  files, which stay byte-identical); it also needs four verbs up at the
+  end, not only at some point, and only verbs shown in full; New kid passes
+  over someone who cannot be shown, and says so when no one can. The export
+  version stays 19: no phone has had a 19 export yet (0106 to 0110 are not
+  pushed), so the first build with 0111 exports every game afresh.
+- Known: the arrows are drawn as arrows, not the game's own glyphs. The one
+  played before New kid is not left standing there. The mansion's lines are
+  shown in white, not each kid's own colour (its panel is captured from the
+  script that sets up the verbs, before any kid is chosen). The games' own replies
+  are not used (their scripts do not run in the new engine): the lines are
+  the new engine's plain ones.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.

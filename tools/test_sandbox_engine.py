@@ -9,11 +9,13 @@ boxes go; every door of every place is tapped, walked to and gone through
 (at least 95 in 100 reach their place: the rest need the games' own box
 connections, not exported yet); everyone is out for half an hour, those
 coming in are shown, and where everyone is is kept; each game's own verb
-panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle)
+panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle,
+the mansion, Zak McKracken)
 is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where
-their games put them; then from Maniac the
+their games put them; the mansion's and Zak's people are in their colours;
+then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -120,6 +122,33 @@ def check_things(worlds):
         if any(not answers & 1 << k for k in has) or any(answers & 1 << k for k in lacks) or bool(answers & AWAY) != away:
             raise SystemExit(f'FAIL: monkey room 28: object {obj} answers {answers:#06x}')
     return len(bar)
+
+
+def colours_of(path):
+    """A character file's colours drawn (palette indices), over all its frames."""
+    data = path.read_bytes()
+    if data[:4] != b'SVC1':
+        raise SystemExit(f'FAIL: {path.name}: not a character file')
+    frames, p, used = struct.unpack_from('<H', data, 6)[0], 8 + 768, set()
+    for _ in range(frames):
+        width, height = struct.unpack_from('<HH', data, p + 8)
+        p += 12
+        pixels, mask = data[p:p + width * height], data[p + width * height:p + 2 * width * height]
+        used.update(c for c, m in zip(pixels, mask) if m)
+        p += 2 * width * height
+    return used
+
+
+def check_lit_people(worlds):
+    # The oldest games draw everyone in one grey (8, and black) while the
+    # lights say not to colour them: none of their people exported so.
+    people = 0
+    for game in ('maniac', 'zak'):
+        for path in sorted(worlds.glob(f'{game}-c*.svc')):
+            people += 1
+            if colours_of(path) <= {0, 8}:
+                raise SystemExit(f'FAIL: {path.name}: in grey only (as with the lights off)')
+    return people
 
 
 def check_cycles(worlds):
@@ -229,6 +258,9 @@ if __name__ == '__main__':
         bar = check_things(worlds)
         if bar is not None:
             print(f'PASS: the SCUMM Bar as its scripts answer ({bar} objects: a pirate talked to, not taken; a door opened; no mug out yet)')
+        lit = check_lit_people(worlds)
+        if lit:
+            print(f"PASS: the mansion's and Zak's {lit} people in their colours (not the lights-off grey)")
         sandbox(exe, worlds, 'doors', shots, tmp)
         print('PASS: through the doors of every place (tapped, walked to, gone through)')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)

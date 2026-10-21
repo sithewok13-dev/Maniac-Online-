@@ -563,6 +563,24 @@ one palette) apply.
   its script sets (boxes outside switched off), a room whose script leaves
   at once is exported without it, and doors whose object a window leaves
   out are dropped when the map is generated (from build/worlds).
+  Their verb panels (0111) come from ScummEngine_v2::scummverseExportPanelOld:
+  the verb screen set up as the edition's (initScreens 16,152 for the
+  mansion, 16,144 for Zak), the game's verbs killed, then WorldPanel's start
+  script (the mansion's 164) or the boot script run until at least four
+  verbs stand unchanged for 30 frames; the verb screen cleared and the
+  verbs drawn plain and each lit; the sentence line, the four slots and the
+  arrows taken from the engine's own `_mouseOverBoxesV2`; letters 32..127
+  drawn by drawString in charset 2. It writes the same "SVI1" as the later
+  games' panel (scummverseWriteUi). The oldest games' verbs add WorldVerbKind
+  Read, Unlock, Fix, New kid, Put on and Take off; worldVerbAnswerKind maps
+  each to the verb whose answer bit it uses in the things file (Read as
+  look, Unlock as open, the rest as use; New kid none). `Panel::Thing`'s
+  `takenShown` is their pick-up way round (there in picture 0, taken in 1),
+  and PanelBridge::addItem's `without` the picture of the place without it.
+  The oldest games' people are exported with VAR_CURRENT_LIGHTS lit (actor
+  colours on) and the variable put back after: their costumes draw everyone
+  in one grey otherwise, and a scripted room's put-back variables may not
+  be lit.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

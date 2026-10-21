@@ -339,8 +339,19 @@ int main() {
 		assert(decide(kPickUp, pirateAny, "x").say == "I can't pick that up." && decide(kPickUp, grogAny, "x").result == kTake);
 		Thing nothing = mug; nothing.answers = 0;
 		assert(decide(kPickUp, nothing, "x").say == "I can't pick that up." && decide(kPush, nothing, "x").say == "It won't budge.");
+		// The oldest games' own verbs: read names it, unlock opens, the rest said.
+		assert(decide(kRead, mug, "note").say == "Note." && decide(kUnlock, door, "door").picture == 1);
+		assert(decide(kUnlock, plain, "x").say == "It isn't locked." && decide(kUnlock, open, "door").say == "It's already open.");
+		assert(decide(kFix, mug, "x").result == kSay && decide(kPutOn, mug, "x").result == kSay && decide(kTakeOff, mug, "x").result == kSay);
+		assert(decide(kNewKid, mug, "x").result == kNothing);
+		// Their things are there in picture 0 and taken in 1 ("on").
+		Thing old = mug; old.takenShown = true; old.shown = 0;
+		o = decide(kPickUp, old, "key");
+		assert(o.result == kTake && o.picture == 1);
+		Thing oldGone = old; oldGone.shown = 1;
+		assert(decide(kPickUp, oldGone, "key").say == "I can't pick that up.");
 	}
-	std::puts("PASS: the plain rules (look names, pick up small shown things, open, close, on, off, push, pull; the rest said; what the game's script answers)");
+	std::puts("PASS: the plain rules (look names, pick up small shown things, open, close, on, off, push, pull; the rest said; what the game's script answers; the oldest games' verbs and their way of taking)");
 
 	// Where a game puts things: per room each object's picture and what it
 	// answers; read whole or not at all; kept per game.
@@ -416,11 +427,15 @@ int main() {
 		assert(PanelBridge::addItem(unshown.data(), unshown.size(), 50, nullptr) && PanelBridge::itemName(0, name, sizeof(name)) == 3);
 		PanelBridge::removeItem(0);
 		assert(PanelBridge::itemCount() == 0);
+		// (The oldest games' way: picture 0, against the place without it, 1.)
+		assert(PanelBridge::addItem(scene.data(), scene.size(), 50, "key", 0, 1) && PanelBridge::itemCount() == 1);
+		PanelBridge::removeItem(0);
 		// The rules through the bridge.
 		int picture; char say[64];
 		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, -1, "door", picture, say, sizeof(say)) == kShow && picture == 1);
 		assert(PanelBridge::decide(kLook, false, 0, 0, false, 0, 0, -1, "sign", picture, say, sizeof(say)) == kSay && !strcmp(say, "Sign."));
 		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, 1 << kLook, "door", picture, say, sizeof(say)) == kSay && !strcmp(say, "It doesn't open."));
+		assert(PanelBridge::decide(kPickUp, false, 2, 0, true, 8, 8, -1, "key", picture, say, sizeof(say), true) == kTake && picture == 1);
 	}
 	{
 		// The picture itself (Panel side): through a scene parsed here.
