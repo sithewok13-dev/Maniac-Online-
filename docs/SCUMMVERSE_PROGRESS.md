@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0121 (the camera in the new engine: review fixes).
+Active milestone: Phase 1; latest patch 0122 (the tour in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3325,4 +3325,34 @@ An independent review of 0120 (pushed before it came back).
   shown. With the old framing it fails (checked). The camera unit test
   frames a wide group with both near ones in, and the iPhone's saving
   taken back after a check.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0122 — the tour in the new engine (step 4, fourth part)
+
+- The new engine's Worlds menu has Tour every location (watch for bugs),
+  with the same controls as Maniac's: the label at the top naming each stop
+  ("Stop 12/768 · loom 21 · ...", the mansion's and Zak's as "Maniac 12",
+  "Zak 84"), the bar under it (previous, pause or play, next, speed 1x to
+  16x), go to a stop by number, stop. The one played goes on autopilot
+  through every place installed: the mansion's, Zak's, then every other
+  game's, in one pass across each and on through a door where one leads to
+  the next stop (through places seen before if need be), warping only where
+  none does; a stop that cannot be shown says so and the tour goes on.
+  Paused, the one played stands (and can be walked about); Next and
+  Previous go from stop to stop and stay paused. Stopped, or at the end, back
+  where it began, at the same spot; it resumes at the stop it was at (kept
+  between launches). Taps wait while it tours; going to a game, back to
+  Maniac or playing someone else ends it there. While touring, where the
+  one played was before the tour stays saved.
+- On the desktop: a "tour" check through the tour's own requests: 768
+  stops, every place installed once (The Dig's subway cars are rides, not
+  places), each game begun at its first place, every way on foot a chain of
+  doors from the stop before; Go to stop 3 and its label, paused standing,
+  Next and Previous staying paused, played walking on, stopped back where it
+  began to resume at its stop; then the whole tour at 16 times the speed:
+  every stop in turn (628 on foot, 140 warped, none not shown; 422,912 game
+  ticks, about two hours at 1x) and back where it began.
+- Known: the mansion's rooms are named by its map where they have names
+  (Maniac's own tour names all 37); rides (the bus, the plane, the van,
+  the Dig's subway) are not stops in the new engine yet (step 5).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

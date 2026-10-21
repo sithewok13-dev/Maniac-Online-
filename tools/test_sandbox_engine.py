@@ -25,8 +25,9 @@ speaker's head, and a tap picks someone when the chat asks whom; its
 character screen (a stand-in) gets a box per game with its lead's face and
 people, and each game's lead and another are played where they live; its
 camera takes a photo of the scene and of the screen and a selfie of three
-(everyone posed, nobody moving), and holds still while asked; then from
-Maniac the
+(everyone posed, nobody moving), and holds still while asked; its tour
+visits every place installed, most on foot through doors, its controls
+working, and ends back where it began; then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -325,6 +326,16 @@ if __name__ == '__main__':
         if not m or int(m.group(5)) != 3:
             raise SystemExit('FAIL: camera\n' + output[-2000:])
         print(f'PASS: camera: a photo of the scene ({m.group(1)}x{m.group(2)}), of the screen ({m.group(3)}x{m.group(4)}), a selfie of three ({m.group(6)}x{m.group(7)}), held still')
+        # The tour: every place installed a stop, the whole of it at 16x.
+        output = sandbox(exe, worlds, 'tour', shots, tmp)
+        m = re.search(r'selftest tour: (\d+) stops \((\d+) on foot, (\d+) warped, (\d+) not shown\)', output)
+        if not m:
+            raise SystemExit('FAIL: tour\n' + output[-2000:])
+        stops, foot, warped, refused = (int(m.group(i)) for i in range(1, 5))
+        svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name)])  # (not The Dig's subway cars)
+        if stops != svw or foot * 2 < stops:
+            raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
+        print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown); its controls; back where it began')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

@@ -726,6 +726,22 @@ one palette) apply.
   the sink set before (the iOS one) and puts it back when let go.
   cameraHold is the run loop's holding (events drained, a press and a coin
   let go, the chat pumped while iOS asks for Photos).
+- The tour in the sandbox (0122, step 4; common/scummverse_tour.h, the
+  iPhone's label, bar and menu unchanged): tourBuild orders each game's
+  installed places (the mansion, Zak, then catalog order) as Maniac's
+  scummverseTourSegment does: from the game's first place, breadth first
+  over its map's links to the nearest not visited (TourStop::legs, the
+  links in turn; places seen before passed through), else the next not
+  visited (a warp). The run loop takes Tour::takeRequest into tourCommand;
+  step runs tourStep (kTourAcross: to the far end, or straight to the door
+  out when it is more than a quarter of the place away; kTourToDoor: then
+  `travel` through each leg; kTourRefusedStop: kTourRefused ticks), each
+  stop shown at least kTourGlimpse ticks, each walk at most kTourWalk; the
+  run loop's ticks are multiplied by Tour::speed while touring. Taps wait
+  while touring unpaused; requests that change the place end it
+  (tourEnd(false)); saveState does nothing while touring (where it began
+  stays saved; tourStart saves it); the stop to resume at is ConfMan's
+  scummverse_sandbox_tour_stop (1-based).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
