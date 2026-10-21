@@ -750,6 +750,22 @@ one palette) apply.
   `leg` is the way's position (tourPlan keeps it: a pause on the way goes
   on); a place passed through publishes its own label; a request back to
   Maniac ends the tour home.
+- The Dig's tram in the sandbox (0124, step 5; kWorldTramLines): `enter`
+  mounts the station's car ("<game>-<room>-car.svw") as the stage's second
+  picture (Stage::mountPicture: the scene in another state, only where it
+  differs, remapped to the scene's colours; showPicture(dx, amount) slides
+  it within its rectangle or dissolves it, rescaling that rectangle; the
+  scene's object pictures are applied after it), before the place's
+  things. SandboxEngine::Tram is Maniac's phase machine (kTramOpen 90,
+  kTramClose 390, kTramGone 480, kTramThere 600, kTramDone 690 ticks;
+  `parked` two bits a line) without Maniac's variables: tramStep calls the
+  car when the one played stands still on the ledge (within 3 source
+  pixels a 320-wide unit, re-armed beyond 6; not while touring), hides them
+  (Stage::hide) when the doors close on them, enters the other end at
+  kTramThere, and shows them walking to the exit at kTramDone; tramShow
+  puts the car in view from the state (tunnel: slid; 0: dissolved). A tap
+  on a car's door walks to the ledge; taps wait while riding. `announce`
+  draws a line at the top of the place.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

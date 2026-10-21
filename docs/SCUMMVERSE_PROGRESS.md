@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0123 (the tour in the new engine: review fixes).
+Active milestone: Phase 1; latest patch 0124 (The Dig's tram in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3389,4 +3389,39 @@ An independent review of 0122 (pushed before it came back).
   skip rather than fail. Whole tour: 768 stops, 604 on foot, 164 warped,
   25 doors not reached (as the doors check's walks that stop short), none
   not shown.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0124 — The Dig's tram in the new engine (step 5, first part)
+
+User (2026-10-21): "Keep going?" Step 5 brings the rides to the new
+engine; The Dig's tram comes first (its stations' cars were already
+exported).
+- In the new engine The Dig's five tram lines run as in Maniac's other
+  worlds: walking onto a station's platform ledge calls its car (a tap on
+  the car's door walks there instead of going through it); the car comes
+  out of its tunnel (or toward the viewer, fading in), "Here comes the
+  tram."; its doors open ("The doors open. All aboard!") for five seconds
+  ("Doors closing!"), and with the one played on the ledge as they close it
+  leaves, the one played out of sight while riding, to the other end, where
+  its doors open and they step off; the car stays there. Called where it
+  stands, it is waiting, open ("The tram is here. All aboard!"); left
+  without the one played, it stays, open. Announcements are drawn at the
+  top of the place in the game's lettering.
+- The stage: a place can hold a second picture of itself (the same place
+  in another state, the car parked: only where it differs, in the place's
+  own colours), shown slid by any amount within its own rectangle or as a
+  dissolve; someone can be hidden (not drawn).
+- On the desktop: a "rides" check takes every line both ways as a player
+  does (10 stations): a tap on the car's door walks to the ledge (not
+  through), the car is called and drawn, ridden to the other end unseen,
+  stepped off there, and there, called again, waiting open and left
+  without the one played. Picture: tram.png. Stage unit test (ASan/UBSan):
+  the second picture shown, slid, dissolved, its nearest colours, refused
+  when not the same size or no different; someone hidden. The doors check
+  now counts the 10 car doors as stopped short (they walk to the ledge):
+  1829 of 1915 through (1839 before), 73 short.
+- Known: where the car is is not kept between launches; the wanderers
+  and the tour do not ride it (the tour goes on through its door as
+  before); only the one played rides (as the new engine has no
+  companions yet).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

@@ -27,7 +27,9 @@ people, and each game's lead and another are played where they live; its
 camera takes a photo of the scene and of the screen and a selfie of three
 (everyone posed, nobody moving), and holds still while asked; its tour
 visits every place installed, most on foot through doors, its controls
-working, and ends back where it began; then from Maniac the
+working, and ends back where it began; The Dig's tram is called from
+each ledge, comes, and is ridden to the other end, where it waits; then
+from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -339,6 +341,14 @@ if __name__ == '__main__':
         if unreached * 10 > foot:
             raise SystemExit(f'FAIL: tour: {unreached} doors not reached for {foot} on foot')
         print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached); its controls; back where it began')
+        # The rides: The Dig's tram, every line both ways (when The Dig is there).
+        if any(worlds.glob('dig-*-car.svw')):
+            output = sandbox(exe, worlds, 'rides', shots, tmp)
+            m = re.search(r'selftest rides: (\d+) tram stations, (\d+) rides, (\d+) waited', output)
+            cars = len(list(worlds.glob('dig-*-car.svw')))
+            if not m or int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
+                raise SystemExit('FAIL: rides\n' + output[-2000:])
+            print(f'PASS: The Dig\'s tram: {m.group(1)} stations, called from the ledge, ridden {m.group(2)} times, waiting {m.group(3)} times')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

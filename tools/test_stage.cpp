@@ -549,5 +549,57 @@ int main() {
 	}
 	assert(scene.spots(0).empty());
 	std::puts("PASS: spots (in the boxes, spread out)");
+
+	// A second picture of the place (The Dig's tram car parked): only where
+	// it differs, shown, slid out of view, half slid, dissolved; the scene's
+	// own colours (a colour the scene lacks: its nearest); not the same size,
+	// or no difference, refused. Someone hidden is not drawn.
+	{
+		std::vector<uint8_t> plain((size_t)320 * 200, 9), parked = plain;
+		for (int y = 40; y < 60; ++y) for (int x = 100; x < 140; ++x) parked[(size_t)y * 320 + x] = 12;
+		const std::vector<uint8_t> plainData = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		std::vector<uint8_t> parkedData = sceneBytes(320, 200, parked, {box(0, 100, 320, 190)});
+		Scene place;
+		assert(place.load(plainData.data(), plainData.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> out((size_t)320 * 200);
+		auto at = [&](int x, int y) { place.render(out.data(), 320); return out[(size_t)y * 320 + x]; };
+		assert(at(120, 50) == sceneColor(9));
+		const std::vector<uint8_t> smaller = sceneBytes(160, 200, std::vector<uint8_t>((size_t)160 * 200, 12), {});
+		assert(!place.mountPicture(smaller.data(), smaller.size(), error) && !place.pictureMounted());
+		assert(!place.mountPicture(plainData.data(), plainData.size(), error)); // (nothing differs)
+		assert(place.mountPicture(parkedData.data(), parkedData.size(), error) && place.pictureMounted() && place.pictureWidth() == 40);
+		assert(at(120, 50) == sceneColor(9)); // (not shown yet)
+		place.showPicture(0, 256);
+		assert(at(100, 40) == sceneColor(12) && at(139, 59) == sceneColor(12) && at(99, 50) == sceneColor(9) && at(140, 50) == sceneColor(9));
+		place.showPicture(40, 256); // (slid out of its rectangle: hidden)
+		assert(at(120, 50) == sceneColor(9) && at(139, 59) == sceneColor(9));
+		place.showPicture(20, 256); // (half: in from the left of its rectangle)
+		assert(at(110, 50) == sceneColor(9) && at(130, 50) == sceneColor(12));
+		place.showPicture(0, 0);
+		assert(at(120, 50) == sceneColor(9));
+		place.showPicture(0, 128);
+		int shownHalf = 0;
+		for (int y = 40; y < 60; ++y) for (int x = 100; x < 140; ++x) shownHalf += at(x, y) == sceneColor(12);
+		assert(shownHalf > 800 * 3 / 10 && shownHalf < 800 * 7 / 10);
+		// (A colour the scene lacks: its nearest of the scene's.)
+		for (int c = 0; c < 256; ++c) { parkedData[12 + c * 3] = (uint8_t)c; parkedData[12 + c * 3 + 1] = (uint8_t)(255 - c); parkedData[12 + c * 3 + 2] = (uint8_t)(c / 2); }
+		parkedData[12 + 12 * 3 + 2] = 7; // (12's blue a little off: still 12 nearest)
+		assert(place.mountPicture(parkedData.data(), parkedData.size(), error));
+		place.showPicture(0, 256);
+		assert(at(120, 50) == sceneColor(12));
+		// A new place: no picture.
+		assert(place.load(plainData.data(), plainData.size(), 1.0, 320, 320, 200, error) && !place.pictureMounted());
+		// Someone hidden: not drawn, no rectangle; shown again.
+		const std::vector<uint8_t> rider = spriteBytes({{2, 0, 0, -10, -40, 20, 40, 30}});
+		const int n = place.addActor(rider.data(), rider.size(), 1, 1.0, error);
+		place.place(n, {160, 150});
+		int a0, b0, a1, b1;
+		assert(place.drawnRect(n, a0, b0, a1, b1));
+		place.hide(n, true);
+		assert(!place.drawnRect(n, a0, b0, a1, b1) && at(160, 140) == sceneColor(9));
+		place.hide(n, false);
+		assert(place.drawnRect(n, a0, b0, a1, b1));
+	}
+	std::puts("PASS: a second picture of the place (shown, slid, dissolved, its nearest colours; refused when not the same size or the same); someone hidden");
 	return 0;
 }
