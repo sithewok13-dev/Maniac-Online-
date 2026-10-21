@@ -830,6 +830,9 @@ one palette) apply.
   `_pictures`); reachDoor opens a shut door and waits kDoorOpening ticks
   (`_opening`, counted down in step) before travel; travel opens the door
   gone through (the tour's) and, after `enter`, the door back.
+- The tram's parked bits (0135) are kept in ConfMan
+  scummverse_sandbox_tram_parked (tramKeep, when a car comes to stand) and
+  read at launch.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

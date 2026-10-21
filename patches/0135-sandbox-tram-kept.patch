@@ -1,0 +1,72 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e33c0149..c52875a2 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -75,6 +75,7 @@ static const int kRideBoarded = 300, kRideTrip[] = {180, 180, 600, 600}; // (bus
+ static const int kRideAsk = 60 * 60; // (its list of where to unanswered: withdrawn)
+ // Where the van is parked (kept between launches: game * 1024 + room).
+ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
++static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -1690,6 +1691,14 @@ void SandboxEngine::rideStep(int ticks) {
+ 
+ // ---- The Dig's tram ----
+ 
++// (Where each line's car stands; one called away is kept where it stood
++// until it stands somewhere again.)
++void SandboxEngine::tramKeep() {
++	if (_testing) return;
++	ConfMan.setInt(kTramParkedKey, (int)_tram.parked);
++	ConfMan.flushToDisk();
++}
++
+ // Ticks from the call: arriving until kTramOpen, boarding until kTramClose,
+ // leaving until kTramGone, riding, at the other end from kTramThere, its
+ // doors open there until kTramDone (as Maniac's).
+@@ -1776,6 +1785,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 			if (!onLedge()) {
+ 				// Not without the one played: it waits here, open.
+ 				_tram.parked = (_tram.parked & ~(3u << (tripLine * 2))) | ((unsigned)(1 + from) << (tripLine * 2));
++				tramKeep();
+ 				_tram.phase = _tram.trip = 0;
+ 				tramShow();
+ 				return;
+@@ -1810,6 +1820,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 				_tram.armed = false; // (stepping off is not a call)
+ 			}
+ 			_tram.parked = (_tram.parked & ~(3u << (tripLine * 2))) | ((unsigned)(2 - from) << (tripLine * 2));
++			tramKeep();
+ 			_tram.phase = _tram.trip = 0;
+ 			_tram.riding = false;
+ 			_dirty = true;
+@@ -2128,6 +2139,7 @@ Common::Error SandboxEngine::run() {
+ 	Tour::reset();
+ 	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
++	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+ 	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
+ 
+ 	if (ConfMan.hasKey("scummverse_selftest")) {
+@@ -3533,6 +3545,8 @@ static void show() { ++shown; }
+ // off the ledge) it stays, open. A picture of a car in: tram.png.
+ Common::Error SandboxEngine::ridesTest() {
+ 	_wanderers = false;
++	// (Where the cars stood when the game was last left, as read at launch.)
++	warning("SCUMMVERSE sandbox rides: tram cars kept as left: %u", _tram.parked);
+ 	int failed = 0, stations = 0, rides = 0, waits = 0, game = -1, zak = -1;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox rides: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "?", _room, what); };
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index fff43965..a20b10a9 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -198,6 +198,7 @@ private:
+ 	void tramCall(int line, int end);
+ 	void tramStep(int ticks);
+ 	void tramShow();
++	void tramKeep();                    // where the cars stand, kept between launches
+ 	// The rides between a game's places (step 5; kWorldRides: Zak's bus,
+ 	// the Mars tram, the planes): a tap on where one is boarded walks there;
+ 	// there, a few seconds' countdown (a plane asks where to first, the

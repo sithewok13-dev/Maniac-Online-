@@ -64,11 +64,11 @@ SWITCH = r'''
 LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the next loop iteration should start\n'
 
 
-def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False):
+def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False, extra=''):
     # (Wanderers off: each place's own people, the same every run.)
     config = Path(cwd)/f'sandbox-{mode}.ini'
     config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n'
-                      f'scummverse_wanderers={str(wanderers).lower()}\n')
+                      f'scummverse_wanderers={str(wanderers).lower()}\n{extra}')
     result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', f'--savepath={cwd}', 'scummverse:sandbox'], cwd=cwd,
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
@@ -364,10 +364,14 @@ if __name__ == '__main__':
         # there); Zak's (when Zak is), each part on its own.
         cars = len(list(worlds.glob('dig-*-car.svw')))
         if cars or (worlds/'zak-3.svw').exists():
-            output = sandbox(exe, worlds, 'rides', shots, tmp)
+            # (The first line's car left at its second station last time: read
+            # back so at launch.)
+            output = sandbox(exe, worlds, 'rides', shots, tmp, extra='scummverse_sandbox_tram_parked=2\n')
             m = re.search(r'selftest rides: (\d+) tram stations, (\d+) rides, (\d+) waited', output)
             if not m or 'selftest PASS' not in output:
                 raise SystemExit('FAIL: rides\n' + output[-2000:])
+            if 'tram cars kept as left: 2' not in output:
+                raise SystemExit('FAIL: where the tram cars stood not read back\n' + output[-2000:])
             if cars:
                 if int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
                     raise SystemExit('FAIL: The Dig\'s tram\n' + output[-2000:])

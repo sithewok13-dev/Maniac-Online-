@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0134 (the mansion's doors open as you go through, new engine).
+Active milestone: Phase 1; latest patch 0135 (The Dig's tram cars kept where they stand, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3674,4 +3674,15 @@ them:
 - On the desktop: the doors check sees 25 mansion doors opening as they are
   gone through, 49 left open, 52 open on arrival; a picture of the front
   door opening was looked at.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0135 — The Dig's tram cars kept where they stand (new engine)
+
+- Where each of The Dig's five tram cars stands is now kept between
+  launches (it was forgotten: every car came again when called). A car
+  called away is kept where it stood until it stands somewhere again.
+- On the desktop: the "rides" check starts with the first line's car left
+  at its second station last time and finds it read back so; the rides
+  themselves pass as before. The writing of it (only when not testing) was
+  not run by a check.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
