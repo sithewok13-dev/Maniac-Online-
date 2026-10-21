@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0142 (Suzy, the second custom character, new engine).
+Active milestone: Phase 1; latest patch 0143 (Crispy's face and Suzy as the user describes her, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3815,3 +3815,26 @@ place's lead, and has her own description and lines for the chat.
   each where the player is, and checks each against the height it is drawn
   to have; a picture of Suzy beside Guybrush outside the SCUMM Bar was
   looked at. Full suite not yet rerun. Not tested on an iPhone.
+
+## Patch 0143 — Crispy's face, Suzy as she is (new engine)
+
+User (2026-10-21): "Can you give him more facial features than that? Give
+him distinct facial features like the photos" (Crispy), and of Suzy: "her
+hair ... is more black than gray, with some gray streaks. Also her butt and
+thighs are bigger and she's a little shorter. She's also Asian."
+- Crispy's head is redrawn pixel by pixel so his face reads at game size:
+  big dark eyes clouded with age, bushy white eyebrows, a big black nose, a
+  grey moustache and a scraggly grey-white beard breaking the outline, tan
+  folded ears under the hood; his mouth opens in the beard as he talks.
+  His body, costume and walk are as before.
+- Suzy: mostly black hair with a few grey streaks (strongest at the
+  hairline), fuller hips, butt and thighs, three rows shorter (about 0.88
+  of a person now), and her face redrawn from the photos (rounder face,
+  gently almond eyes that narrow as she smiles, her big smile, her skin
+  tone). Drawn by helpers from the user's photos; the photos are not
+  stored.
+- The full suite passed at 0142 (all 24 checks, including the lights and
+  both custom characters).
+- On the desktop: the character check plays both, each as tall as drawn;
+  pictures of both beside Guybrush were looked at; startup test passes.
+  Not tested on an iPhone.
