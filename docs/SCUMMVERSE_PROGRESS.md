@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0151 (the water valve drains the pool, new engine).
+Active milestone: Phase 1; latest patch 0152 (the gargoyle's secret door and other mansion links, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3980,3 +3980,28 @@ pool is full). Kept like every picture. The tour still visits the pit.
 - Not done: the reactor's meltdown timer and the glowing key's script (the
   pit is a place to visit, as the rest of the new engine).
   Tested on the desktop build only. Not tested on an iPhone.
+
+## Patch 0152 — the gargoyle's secret door and other mansion links (new engine)
+
+User (2026-10-21): "Keep going". The pool's probe, run over every thing of
+the mansion and every verb its script answers (open, close, turn on and
+off, push, pull), listed which other things each changes in the original.
+Most are a door and its other side (the new engine already opens the door
+back); the rest are now in the new engine:
+- The front hall's secret door has no handle: opening or closing it says
+  "There's no handle here!" (the original's line), and shut it goes
+  nowhere. Pushing or pulling the gargoyle opens it (it stays open), and
+  through it is the basement. It is not opened on the way through as the
+  other doors are.
+- Opening and closing the mailbox and the desk show them open and shut.
+- The garden gate opened or pulled shows open from the garage and from the
+  other side too; closed, shut from all three.
+- Not done: the shower curtains (Dead Cousin Ted's), the TV's picture.
+- tools/test_mansion_links.py (tools/probes/mansion_links.inc, in the data
+  suite) checks these against the original scripts: passes with the
+  protection on and off.
+- On the desktop: the verbs check finds the secret door shut, its line,
+  going nowhere; the gargoyle pushed opening it and the way through to the
+  basement; the mailbox and the desk opened and closed. The doors check
+  opens the secret door (as the gargoyle would) before trying it. Tested
+  on the desktop build only. Not tested on an iPhone.

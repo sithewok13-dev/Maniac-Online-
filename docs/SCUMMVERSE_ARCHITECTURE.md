@@ -859,6 +859,11 @@ one palette) apply.
   way; the doors check meets it first: meetDoorNeed). Taken from the
   original's scripts by tools/test_pool_valve.py's probe: the water valve
   (29/66) drains the pool (6/139), whose ladder (6/172) needs it drained.
+  From 0152, kManiacSets (a verb on one thing shows a picture of another:
+  the mailbox and desk hotspots, the gate's other views, the gargoyle 10/351
+  opening the secret door 10/69) and kManiacOpenedBy (a door only another
+  thing opens: its own line to Open/Close, never opened by doorOpens), from
+  tools/test_mansion_links.py's probe over every thing and verb.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens
