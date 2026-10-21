@@ -638,6 +638,27 @@ one palette) apply.
   lights the part under the pointer (EVENT_MOUSEMOVE) and does its verb when
   let go (EVENT_LBUTTONUP); a press let go before the coin opens is a tap
   where it began.
+- Loom's distaff (0115, step 2f; `WorldDistaff`, "SVI4"): a panel under
+  the scene whose verbs are notes (kWorldVerbNote, their ids 0 c to 7 high
+  C). ScummEngine::scummverseExportDistaff runs Loom's start, taps its
+  choice of how hard (the catalog's object), runs on to the first place,
+  marks every draft learned and every note known (the debugger's variables:
+  drafts from 50, two each, the notes three bits each; 122 the notes known)
+  and runs the script that draws the distaff (18); the verb screen as it is
+  then is the panel (the staff's letters and notes are drawn by the script,
+  not as verbs), each note's verb (1 to 8) lit by drawing its glow's verb
+  over it (from the catalog's, every fifth), the drafts read from those
+  variables. "SVI4" is "SVI1" with, after the letterings, the box where the
+  thing chosen is shown and the drafts (name, notes). In
+  common/scummverse_panel `Source::distaff`: Panel::play records a note (lit
+  as the selected verb) and at the fourth returns the draft it spins (16
+  more backwards); `choose` keeps the thing chosen, drawn fitted in the
+  box (Panel::fit, the slots' too); the sentence line is not drawn. The
+  sandbox (chooseVerb, spin, chooseThing) plays a tapped note, unlit after
+  half a second, and spins Opening as kWorldVerbOpen on the thing chosen
+  (backwards kWorldVerbClose) through the plain rules; a thing tapped
+  (not a door) is chosen, its picture from its place's file, and tapped
+  again is looked at.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

@@ -13,7 +13,8 @@ panel (Monkey Island 1 and 2, Indiana Jones 3 and 4, Day of the Tentacle,
 the mansion, Zak McKracken; Sam & Max's box over the scene, opened from its
 button, its pointer brought round by right clicks; The Dig's grid from its
 button, its one tap doing what fits; Full Throttle's coin, held over a thing
-and let go on a part, and its skull of things from a right click)
+and let go on a part, and its skull of things from a right click; Loom's
+distaff, its notes lit, its Opening draft spun forwards and backwards)
 is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where
@@ -283,6 +284,13 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: {held} coins held of {coins} exported')
         if coins:
             print(f'PASS: {coins} coin held over a thing, each part lit, let go off them; its box from a right click')
+        # (Loom's distaff: each its own kind of file, its drafts spun.)
+        distaffs = len([f for f in worlds.glob('*-ui.svi') if f.stat().st_size and gzip.decompress(f.read_bytes())[:4] == b'SVI4'])
+        spun = int(re.search(r'(\d+) distaffs', output).group(1))
+        if spun != distaffs:
+            raise SystemExit(f'FAIL: {spun} distaffs played of {distaffs} exported')
+        if distaffs:
+            print(f'PASS: {distaffs} distaff: each note lit; its drafts spun (Opening forwards and backwards); notes that are no draft do nothing')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

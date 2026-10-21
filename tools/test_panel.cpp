@@ -4,8 +4,8 @@
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
 // the plain rules for each verb, things carried from a scene, controls
-// over the scene (Sam & Max's box, button and pointer) and Full Throttle's
-// coin and box.
+// over the scene (Sam & Max's box, button and pointer), Full Throttle's
+// coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
 //   tools/test_panel.cpp engine/common/scummverse_panel.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_panel.h"
@@ -22,7 +22,7 @@ using namespace Scummverse::Panel;
 // (The panel's verb kinds are the catalog's, passed through the bridge.)
 static_assert((int)kWalk == (int)WorldCatalog::kWorldVerbWalk && (int)kWhatIs == (int)WorldCatalog::kWorldVerbWhatIs &&
 	(int)kTakeOff == (int)WorldCatalog::kWorldVerbTakeOff && (int)kAct == (int)WorldCatalog::kWorldVerbAct &&
-	(int)kHand == (int)WorldCatalog::kWorldVerbHand, "verb kinds");
+	(int)kHand == (int)WorldCatalog::kWorldVerbHand && (int)kNote == (int)WorldCatalog::kWorldVerbNote, "verb kinds");
 
 static void put16(std::vector<uint8_t> &v, int x) { v.push_back((uint8_t)(x & 255)); v.push_back((uint8_t)((x >> 8) & 255)); }
 static void put(std::vector<uint8_t> &v, std::initializer_list<int> bytes) { for (int b : bytes) v.push_back((uint8_t)b); }
@@ -179,6 +179,48 @@ static std::vector<uint8_t> coinBytes(const CoinSpec &o = CoinSpec()) {
 	for (int i = 0; i < 24; ++i) d.push_back(i ? 1 : 0);
 	for (int i = 0; i < o.handWidth * o.handHeight; ++i) d.push_back(1);
 	for (int k = 0; k < 2; ++k) { for (int i = 0; i < 6; ++i) d.push_back((uint8_t)(150 + k)); for (int i = 0; i < 6; ++i) d.push_back(1); }
+	if (o.trailing) d.push_back(0);
+	return d;
+}
+
+// Loom's distaff ("SVI4", 64x16 under the scene from row 184, as
+// panelBytes): three notes, c (id 0) at 2,2, e (2) at 10,2 and g (4) at
+// 18,2, 6x4 each, lit in 200, 201, 202; no slots; the thing chosen shown at
+// 40,4 16x8; three drafts: Opening g c g e, Sleep c e e c (the same both
+// ways), Calm c c c e.
+struct DistaffSpec { bool trailing = false; int noteId = 0, noteKind = kNote, iconX = 40, draftBits = 0; bool asPanel = false; };
+static std::vector<uint8_t> distaffBytes(const DistaffSpec &o = DistaffSpec()) {
+	const int W = 64, rows = 16;
+	std::vector<uint8_t> d = {'S', 'V', 'I', (uint8_t)(o.asPanel ? '1' : '4')};
+	for (int f : {W, 200, 184, rows}) put16(d, f);
+	for (int c = 0; c < 256; ++c) put(d, {c, (2 * c) & 255, 255 - c});
+	for (int i = 0; i < W * rows; ++i) d.push_back((uint8_t)(i % 5 + 1));
+	d.push_back(3);
+	const int ids[3] = {o.noteId, 2, 4};
+	for (int k = 0; k < 3; ++k) {
+		put(d, {o.noteKind}); put16(d, ids[k]); for (int f : {2 + 8 * k, 2, 6, 4}) put16(d, f);
+		d.push_back(1); d.push_back((uint8_t)"ceg"[k]);
+		for (int i = 0; i < 24; ++i) d.push_back((uint8_t)(200 + k));
+	}
+	put16(d, 0); put16(d, 0); put(d, {0, 9});
+	put(d, {2, 0, 0, 0});
+	for (int f = 0; f < 8; ++f) put16(d, 0);
+	d.push_back(11);
+	for (int font = 0; font < 2; ++font) {
+		put(d, {5, 77, 255, 1});
+		put(d, {'A', 4, 0, 0, 3, 5});
+		for (int i = 0; i < 15; ++i) d.push_back(77);
+	}
+	if (!o.asPanel) {
+		for (int f : {o.iconX, 4, 16, 8}) put16(d, f);
+		d.push_back(3);
+		const char *names[3] = {"Opening", "Sleep", "Calm"};
+		const int notes[3][4] = {{4, 0, 4, 2}, {0, 2, 2, 0}, {0, 0, 0, 2}};
+		for (int i = 0; i < 3; ++i) {
+			d.push_back((uint8_t)std::strlen(names[i])); for (const char *c = names[i]; *c; ++c) d.push_back((uint8_t)*c);
+			put16(d, notes[i][0] | notes[i][1] << 3 | notes[i][2] << 6 | notes[i][3] << 9 | (i ? 0 : o.draftBits));
+		}
+	}
 	if (o.trailing) d.push_back(0);
 	return d;
 }
@@ -829,5 +871,85 @@ int main() {
 		assert(o.result == kSay && o.say == "That doesn't seem to work.");
 	}
 	std::puts("PASS: Full Throttle's coin (read whole; held over a thing where it is, kept on screen; the part under a point, the smaller in another; drawn with the scene through, a part lit, the name; its box's arrows a thing at a time, shown where there is more; its pointer; the hand)");
+	{
+		// Loom's distaff ("SVI4"): the file whole or not at all.
+		const std::vector<uint8_t> data = distaffBytes();
+		Source s;
+		assert(parse(data.data(), data.size(), s, error));
+		assert(s.distaff && !s.over && s.verbs.size() == 3 && s.verbs[1].kind == kNote && s.verbs[1].id == 2 && s.icon.x == 40 && s.icon.height == 8);
+		assert(s.drafts.size() == 3 && s.drafts[0].name == "Opening" && s.drafts[0].notes[0] == 4 && s.drafts[0].notes[3] == 2 && s.drafts[1].notes[2] == 2);
+		for (size_t cut = 1; cut < data.size(); ++cut) assert(!parse(data.data(), data.size() - cut, s, error));
+		DistaffSpec trailing; trailing.trailing = true;
+		DistaffSpec far; far.noteId = 8; // (no such note)
+		DistaffSpec notNote; notNote.noteKind = kLook; // (a verb that is no note)
+		DistaffSpec off; off.iconX = 60; // (its box off the panel)
+		DistaffSpec bits; bits.draftBits = 0x1000;
+		DistaffSpec panel; panel.asPanel = true; // (notes on a panel that is no distaff)
+		for (const DistaffSpec &bad : {trailing, far, notNote, off, bits, panel}) {
+			const std::vector<uint8_t> b = distaffBytes(bad);
+			assert(!parse(b.data(), b.size(), s, error));
+		}
+		// Notes played: each lit; the fourth spins the draft they make (its
+		// index; 16 more backwards; one the same both ways forwards; none -2).
+		Panel::Panel p;
+		assert(p.load(data.data(), data.size(), error) && p.distaff() && !p.coin() && !p.over());
+		assert(p.play(2) == -1 && p.selected() == 2 && p.play(0) == -1 && p.play(2) == -1 && p.played() == 3);
+		assert(p.play(1) == 0 && p.played() == 0);
+		assert(p.play(1) == -1 && p.play(2) == -1 && p.play(0) == -1 && p.play(2) == 16);
+		assert(p.play(0) == -1 && p.play(1) == -1 && p.play(1) == -1 && p.play(0) == 1);
+		assert(p.play(1) == -1 && p.play(1) == -1 && p.play(1) == -1 && p.play(1) == -2 && p.played() == 0);
+		assert(p.play(5) == -1 && p.play(-1) == -1 && p.played() == 0);
+		p.play(0); p.clearPlayed();
+		assert(p.played() == 0);
+		// Drawn under the scene: the note lit; no sentence line; the thing
+		// chosen fitted in its box, until let go.
+		p.layout(64, 200, 184, 1.0, 1.0);
+		p.select(1);
+		p.setSentence("A");
+		std::vector<uint32_t> screen(64 * 200, 7);
+		p.render(screen.data(), 64, 200);
+		assert(screen[186 * 64 + 10] == rgb(201) && screen[186 * 64 + 2] == rgb(data[12 + 768 + 2 * 64 + 2]) && screen[184 * 64] == rgb(data[12 + 768]));
+		Item thing; thing.name = "leaf"; thing.width = thing.height = 2; thing.picture.assign(4, 0xFF00FF00u);
+		p.choose(thing);
+		assert(p.hasChosen());
+		p.render(screen.data(), 64, 200);
+		assert(screen[(184 + 7) * 64 + 47] == 0xFF00FF00u && screen[(184 + 4) * 64 + 40] != 0xFF00FF00u);
+		p.unchoose();
+		p.render(screen.data(), 64, 200);
+		assert(!p.hasChosen() && screen[(184 + 7) * 64 + 47] != 0xFF00FF00u);
+		// (Not a distaff: no notes played.)
+		const std::vector<uint8_t> under = panelBytes();
+		Panel::Panel q;
+		assert(q.load(under.data(), under.size(), error) && !q.distaff() && q.play(0) == -1);
+		// The bridge: its notes' verbs, drafts, the thing chosen from a scene.
+		char problem[64], name[16];
+		int verb, notes[4], x, y, w, h;
+		assert(PanelBridge::load(data.data(), data.size(), problem, sizeof(problem)) && PanelBridge::distaff() && !PanelBridge::coin());
+		PanelBridge::layout(64, 200, 184, 1.0, 1.0);
+		assert(PanelBridge::draftCount() == 3 && PanelBridge::draftName(2, name, sizeof(name)) == 4 && !std::strcmp(name, "Calm"));
+		assert(PanelBridge::draftNotes(1, notes) && notes[0] == 0 && notes[1] == 2 && !PanelBridge::draftNotes(3, notes));
+		assert(PanelBridge::noteVerb(4, verb) && verb == 2 && !PanelBridge::noteVerb(7, verb));
+		assert(PanelBridge::hit(12, 187, verb) == 2 && verb == 1 && PanelBridge::play(verb) == -1 && PanelBridge::playedNotes() == 1);
+		PanelBridge::clearPlayed();
+		assert(PanelBridge::playedNotes() == 0 && PanelBridge::iconRect(x, y, w, h) && x == 40 && y == 188 && w == 16 && h == 8);
+		const std::vector<uint8_t> scene = sceneBytes(1);
+		assert(!PanelBridge::choose(scene.data(), scene.size(), 51, "mug") && !PanelBridge::chosen());
+		assert(PanelBridge::choose(scene.data(), scene.size(), 50, "mug") && PanelBridge::chosen());
+		PanelBridge::unchoose();
+		assert(!PanelBridge::chosen());
+		// (One shown in its picture 0, a thing shut: drawn whole, centred.)
+		const std::vector<uint8_t> shut = sceneBytes(0);
+		assert(PanelBridge::choose(shut.data(), shut.size(), 50, "mug", 0) && PanelBridge::chosen());
+		std::vector<uint32_t> box(64 * 200, 7);
+		PanelBridge::render(box.data(), 64, 200);
+		assert(box[192 * 64 + 48] == (0xFF000000u | 3u << 16 | 252u << 8 | 1u) && box[192 * 64 + 42] != (0xFF000000u | 3u << 16 | 252u << 8 | 1u));
+		PanelBridge::unchoose();
+		PanelBridge::clear();
+		assert(!PanelBridge::distaff() && !PanelBridge::iconRect(x, y, w, h));
+		// (A panel that is no distaff takes no thing chosen.)
+		assert(PanelBridge::load(under.data(), under.size(), problem, sizeof(problem)) && !PanelBridge::choose(scene.data(), scene.size(), 50, "mug"));
+		PanelBridge::clear();
+	}
+	std::puts("PASS: Loom's distaff (read whole; its notes lit, four spinning a draft forwards or backwards, or none; no sentence line; the thing chosen in its box)");
 	return 0;
 }

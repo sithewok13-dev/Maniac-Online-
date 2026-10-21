@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0114 (Full Throttle's own controls in the new engine).
+Active milestone: Phase 1; latest patch 0115 (Loom's distaff in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3092,4 +3092,53 @@ holds, not set up at their start. Sam & Max first; The Dig, the verb coin
   carried thing cannot yet be used on another (the game's way: as the
   pointer); the coin is for the place's things and the things carried, not
   yet for people.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0115 — Loom's distaff in the new engine (step 2f, fourth part)
+
+User (2026-10-21): "Keep working". The Curse of Monkey Island's coin is
+held back: the copy here has only its COMI.LA0 to LA2, not its RESOURCE
+folder's fonts (FONT0.NUT to FONT4.NUT), and its start stops on the first
+it opens; Loom's distaff, the next, comes first.
+- Loom plays in the new engine with its own controls: its distaff under
+  the scene as the game draws it once every note is known, the staff below
+  it with the notes' letters and coloured notes (the Practice level's). A
+  tap on a note lights it in its glow, as the game's does; four notes spin a
+  draft: Opening spins open the thing chosen (Bobbin walks over), and the
+  same notes backwards (Closing) shut it, as in Loom; another of its drafts
+  says "Nothing happens." (not taken up by the plain rules yet); notes that
+  spin no draft do nothing. A tap on a thing chooses it: its picture in the
+  box at the bottom right, where the game shows its icon, and Bobbin walks
+  over; a second tap on it examines it (names it). Doors and the ground walk
+  as before.
+- Captured by its own engine ("loom-ui.svi", "SVI4"): its start run until
+  its choice of how hard, Practice tapped as a player does, then on until
+  the first place; every note known and every draft learned (as the
+  debugger's "drafts learn" does) and the game's own script draws the
+  distaff; the panel as it draws it; each note's verb lit in the fourth
+  frame of its glow (its colour bright); the sixteen drafts as that start
+  chose their notes (Loom chooses them when a game starts; variables 50 to
+  81, read as the debugger's "drafts" reads them); the talk lettering.
+- Export version 22: every game exports once more at the next launch
+  (Loom's controls are new; the other games' files are byte-identical to
+  0114).
+- On the desktop: the verb test goes through 11 panels (Loom's: each note
+  lit and let go, its sixteen drafts, notes that are no draft doing
+  nothing, Sleep saying it does nothing yet; its first place, the tents,
+  has nothing named, so a thing in another of its places is chosen, then
+  examined by a second tap, opened by Opening and shut by it backwards).
+  Its picture: verbs-loom.png (a note lit).
+- Data suite 42/42; unit tests with ASan/UBSan pass.
+- Review fixes: a thing chosen is examined by a second tap even where it
+  has no picture for the box; a note just played no longer takes a tap on a
+  door for itself (taps walk); the export refuses a note whose glow drew
+  nothing; a thing shown in its first picture (a shut one) is drawn whole
+  in the box, and the box follows it when a draft opens or shuts it; the
+  verb test waits for the line looked at to go and checks it gets back to
+  the first place. Loom's file is byte-identical after them.
+- Known: the game's own icons for the things chosen are not used (the
+  thing's own picture is shown in their box); only Opening and Closing do
+  something; the notes are not heard; a note does not animate through its
+  glow; only Loom's floppy edition (EGA) is taken (its CD and Mac editions
+  keep their drafts and verbs elsewhere: not exported).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
