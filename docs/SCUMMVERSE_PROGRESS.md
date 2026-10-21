@@ -3968,8 +3968,10 @@ pool is full). Kept like every picture. The tour still visits the pit.
   (66) and the pool (139) to their second pictures, the ladder (172) from
   untouchable to usable; closing undoes all three. tools/test_pool_valve.py
   (with tools/probes/pool_valve.inc, in the data suite) checks this against
-  the game's scripts (needs the private data; its first run is after this
-  patch's full suite).
+  the game's scripts (needs the private data): it passes with the
+  protection on and off (the probe goes back to the basement before each
+  turn: unprotected, a script takes the kid elsewhere after). The full
+  suite passed with this patch (27 checks).
 - On the desktop: the verbs check opens the valve as a player does, finds
   the pool drained (a picture of it was looked at) and goes down its
   ladder to the pit, then closes it, finds the pool full and the ladder

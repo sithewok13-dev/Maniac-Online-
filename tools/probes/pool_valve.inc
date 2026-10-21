@@ -22,8 +22,10 @@
 	};
 	// Open (1) and turn on (4) drain; close (2) and turn off (5) fill.
 	const int verbs[4][2] = {{1, 1}, {2, 0}, {4, 1}, {5, 0}};
-	setup(29);
+	// (Back in the basement each time: unprotected, a script may take the
+	// kid elsewhere after.)
 	for (const auto &v : verbs) {
+		setup(29);
 		VAR(VAR_ACTIVE_OBJECT1) = 66;
 		runObjectScript(66, v[0], false, false, nullptr);
 		pump(300);
