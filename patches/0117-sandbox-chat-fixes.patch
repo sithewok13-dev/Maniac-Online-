@@ -1,0 +1,229 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 21c41b99..e428822e 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -60,6 +60,8 @@ static const char *const kStateFile = "scummverse-sandbox.state";
+ // How long a press is held before Full Throttle's coin opens (ms; on the
+ // iPhone, after its own long press).
+ static const uint32 kCoinHold = 250;
++// How long a line no one sees is kept (ticks; the chat shows it).
++static const int kUnseenLine = 30;
+ 
+ static bool squarePixels(int game) { return kWorldGames[game].version >= 8; }
+ static double pixelAspect(int game) { return squarePixels(game) ? 1.0 : 1.2; }
+@@ -70,7 +72,7 @@ static bool walkable(int game, int room) {
+ }
+ 
+ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
+-	_talk = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick};
++	_talk = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick, scummverseTravelScene};
+ }
+ 
+ SandboxEngine::~SandboxEngine() {
+@@ -258,7 +260,10 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_press = Press();
+ 	_chosen = -1; _noteClock = 0;
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
+-	_action = 0; _target = -1; _speech.clear(); _speaker = -1; _speechClock = 0; _chatting = 0;
++	_action = 0; _target = -1; _speech.clear(); _speaker = -1; _speechClock = 0;
++	// (Everyone here is put on the stage again, in new slots: the
++	// conversation ends, as Maniac's does when the one played changes.)
++	talkEnd();
+ 	PanelBridge::select(-1);
+ 	sentence("");
+ 	// Things where the game puts them (its own start and the room's entry
+@@ -635,8 +640,11 @@ void SandboxEngine::sayAs(int actor, const Common::String &line) {
+ 	StageBridge::talk(actor, !line.empty());
+ 	_dirty = true;
+ 	// (Longer lines stay longer, as the games' talk delay has it; a chat's
+-	// longest some fifteen seconds.)
+-	_speechClock = MIN<int>(60 + 4 * line.size(), 900);
++	// longest some fifteen seconds. Not seen, someone out of view or no
++	// lettering, half a second: the chat shows it, and the next waits on it.)
++	int x0, y0, x1, y1;
++	const bool seen = PanelBridge::loaded() && StageBridge::drawnRect(actor, x0, y0, x1, y1);
++	_speechClock = seen ? MIN<int>(60 + 4 * line.size(), 900) : kUnseenLine;
+ }
+ 
+ // The actor in a talk slot, and back: everyone here but the one played, in
+@@ -659,6 +667,8 @@ void SandboxEngine::talkScene() {
+ 	// (Maniac's rooms by their own numbers, as Maniac tells the chat; the
+ 	// other games' as places.)
+ 	const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++	// (As Maniac's each step: the chat's window starts afresh in a new place.)
++	_talk.travel(room, kTalkPlayer, 0, 0, 0);
+ 	char line[600];
+ 	int speaker = 0;
+ 	const unsigned long long chatting = _talk.scene(room, kTalkPlayer, here, _speech.empty(), speaker, line, sizeof(line));
+@@ -675,6 +685,7 @@ void SandboxEngine::talkScene() {
+ 	}
+ 	// The one played turns to them as it begins, and to whoever speaks.
+ 	if (first >= 0 && !_chatting) { StageBridge::position(first, x, y); StageBridge::face(_player, x, y); }
++	if (chatting != _chatting) _dirty = true; // (turned: drawn again)
+ 	_chatting = chatting;
+ 	if (!chatting || !speaker || !line[0]) return;
+ 	const int n = speaker == kTalkPlayer ? _player : speaker >= kTalkVisitor && speaker < kTalkVisitor + kTalkSlots ? slotActor(speaker - kTalkVisitor, _player) : -1;
+@@ -689,6 +700,7 @@ void SandboxEngine::talkEnd() {
+ 	_talk.scene(0, 0, 0, false, speaker, line, sizeof(line));
+ 	for (int s = 0; s < kTalkSlots; ++s) _talk.visitor(s, 0);
+ 	_talk.appearance(kTalkPlayer, 0);
++	_talk.travel(0, 0, 0, 0, 0);
+ 	_chatting = 0;
+ }
+ 
+@@ -1694,7 +1706,7 @@ Common::Error SandboxEngine::verbsTest() {
+ // it, and the conversation it is told to have (a line said when it may).
+ namespace FakeTalk {
+ static int player = -1, visitors[SandboxEngine::kTalkSlots];
+-static int room = -1, visitor = -1, picked = -1, speaker = 0;
++static int room = -1, visitor = -1, picked = -1, speaker = 0, travelRoom = -1, travelEgo = -1;
+ static unsigned long long actors = 0, chatting = 0;
+ static bool canSpeak = false, picking = false;
+ static Common::String next;
+@@ -1710,6 +1722,7 @@ static unsigned long long scene(int r, int v, unsigned long long a, bool can, in
+ 	return chatting;
+ }
+ static bool isPicking() { return picking; }
++static void travel(int r, int ego, unsigned, int, unsigned) { travelRoom = r; travelEgo = ego; }
+ static bool pick(int actor) {
+ 	if (!picking) return false;
+ 	picked = actor;
+@@ -1727,14 +1740,16 @@ static bool pick(int actor) {
+ // while the chat asks whom (and is not a walk), and walks again after; a new
+ // place ends it; closing tells the chat no one is here. A picture of a line.
+ Common::Error SandboxEngine::talkTest() {
+-	_talk = {FakeTalk::appearance, FakeTalk::visitorOf, FakeTalk::scene, FakeTalk::isPicking, FakeTalk::pick};
++	_talk = {FakeTalk::appearance, FakeTalk::visitorOf, FakeTalk::scene, FakeTalk::isPicking, FakeTalk::pick, FakeTalk::travel};
+ 	_wanderers = false;
+-	int places = 0, lines = 0, picks = 0, failed = 0;
++	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, failed = 0;
+ 	bool maniac = false, shown = false;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox talk: %s-%d: %s", kWorldGames[_game].gameid, _room, what); };
+ 	auto told = [&]() {
+-		const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++		// (Maniac's rooms by number, the others' 10000 + game * 1000 + room.)
++		const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : 10000 + _game * 1000 + _room;
+ 		if (FakeTalk::player != _playerKey || FakeTalk::visitor != kTalkPlayer || FakeTalk::room != room) return false;
++		if (FakeTalk::travelRoom != room || FakeTalk::travelEgo != kTalkPlayer) return false;
+ 		for (int s = 0; s < kTalkSlots; ++s) {
+ 			const int n = slotActor(s, _player);
+ 			const bool on = n < (int)_onStage.size();
+@@ -1751,6 +1766,14 @@ Common::Error SandboxEngine::talkTest() {
+ 				if (talkIdAt(px, py) == kTalkVisitor + actorSlot(n, _player) && (!PanelBridge::loaded() || !PanelBridge::hit(px, py, on))) return true;
+ 		return false;
+ 	};
++	// Out of view: put beside the one played.
++	auto beside = [&](int n) {
++		double x, y;
++		int px, py;
++		StageBridge::position(_player, x, y);
++		for (int side = 0; side < 4 && !pointOn(n, px, py); ++side) StageBridge::place(n, x + (side & 1 ? -1 : 1) * (side < 2 ? 40 : 20) * screenWidthOf(_game) / 320.0, y);
++		return pointOn(n, px, py);
++	};
+ 	Common::String problem;
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+ 		if (!someoneToPlay(g)) continue;
+@@ -1764,19 +1787,40 @@ Common::Error SandboxEngine::talkTest() {
+ 		}
+ 		if (!entered) continue;
+ 		++places;
++		// (The last place's conversation ended on the way in.)
++		if (FakeTalk::room != 0 || FakeTalk::chatting || FakeTalk::travelRoom != 0) fail("the chat not told the stage changed");
+ 		step(1);
+ 		if (!told()) fail("the chat not told who is here");
+ 		if (_chatting || _speaker >= 0) fail("a conversation from the last place");
+ 		maniac = maniac || !strcmp(kWorldGames[g].gameid, "maniac");
+ 		// Talking with the first of them, as they walk: they stop and stay.
+ 		const int a = slotActor(0, _player), bit = kTalkVisitor;
+-		double xs[4], ys[4];
+-		const int spots = StageBridge::spots(4, xs, ys);
+-		if (spots) StageBridge::walkTo(a, xs[spots - 1], ys[spots - 1]);
++		double xs[12], ys[12], ax, ay;
++		const int spots = StageBridge::spots(12, xs, ys);
++		StageBridge::position(a, ax, ay);
++		int far = -1;
++		for (int i = 0; i < spots; ++i)
++			if (far < 0 || (xs[i] - ax) * (xs[i] - ax) + (ys[i] - ay) * (ys[i] - ay) > (xs[far] - ax) * (xs[far] - ax) + (ys[far] - ay) * (ys[far] - ay)) far = i;
++		if (far >= 0) StageBridge::walkTo(a, xs[far], ys[far]);
++		const bool walking = StageBridge::moving(a);
+ 		FakeTalk::chatting = 1ULL << bit;
++		_dirty = false;
+ 		step(1);
+-		if (StageBridge::moving(a) || _chatting != FakeTalk::chatting) fail("someone talked with not standing");
++		if ((walking && StageBridge::moving(a)) || _chatting != FakeTalk::chatting) fail("someone talked with not standing");
++		if (!_dirty) fail("a conversation begun not drawn");
++		walked += walking;
++		// (Strolling asked again and again: never them.)
++		for (int t = 0; t < 300; ++t) { _strollClock = 0; stroll(1); if (StageBridge::moving(a)) { fail("someone talked with strolled off"); break; } }
+ 		for (int t = 0; t < 900; ++t) { step(1); if (StageBridge::moving(a)) { fail("someone talked with walked off"); break; } }
++		// A line from out of view: gone at once (the chat shows it); then in view.
++		int q0, q1, q2, q3;
++		if (!StageBridge::drawnRect(a, q0, q1, q2, q3)) {
++			FakeTalk::next = "Over here!"; FakeTalk::speaker = bit;
++			step(1);
++			if (_speech != "Over here!" || _speechClock > kUnseenLine) fail("a line out of view kept as long as one seen"); else ++unseen;
++			for (int t = 0; t < 100 && !_speech.empty(); ++t) step(1);
++			if (!beside(a)) { fail("not brought into view"); continue; }
++		}
+ 		// Their line over them; the next once it is gone; the one played's own.
+ 		const Common::String first = "Fancy meeting you here.", second = "Well, I never.", third = "Likewise, I'm sure.";
+ 		FakeTalk::next = first; FakeTalk::speaker = bit;
+@@ -1786,7 +1830,9 @@ Common::Error SandboxEngine::talkTest() {
+ 		FakeTalk::next = second;
+ 		int waited = 1;
+ 		for (; waited < 2000 && _speech != second; ++waited) { step(1); if (waited == 1 && FakeTalk::canSpeak) fail("the chat may speak over a line"); }
+-		if (_speech != second || waited < 60 + 4 * (int)first.size()) fail("the next line not after the first"); else ++lines;
++		// (As long as it is seen; with no lettering, The Curse of Monkey
++		// Island's here, as one not seen.)
++		if (_speech != second || waited < (PanelBridge::loaded() ? 60 + 4 * (int)first.size() : kUnseenLine)) fail("the next line not after the first"); else ++lines;
+ 		FakeTalk::next = third; FakeTalk::speaker = kTalkPlayer;
+ 		for (int t = 0; t < 2000 && _speech != third; ++t) step(1);
+ 		if (_speech != third || _speaker != _player || !StageBridge::talking(_player) || StageBridge::talking(a)) fail("the one played's line not over them"); else ++lines;
+@@ -1801,9 +1847,7 @@ Common::Error SandboxEngine::talkTest() {
+ 		int px, py;
+ 		double x0, y0, x1, y1;
+ 		StageBridge::position(_player, x0, y0);
+-		// (Out of view, beside the one played.)
+-		for (int side = 0; side < 4 && !pointOn(b, px, py); ++side) StageBridge::place(b, x0 + (side & 1 ? -1 : 1) * (side < 2 ? 40 : 20) * screenWidthOf(g) / 320.0, y0);
+-		if (!pointOn(b, px, py)) { fail("no one to tap"); continue; }
++		if (!beside(b) || !pointOn(b, px, py)) { fail("no one to tap"); continue; }
+ 		FakeTalk::picking = true; FakeTalk::picked = -1;
+ 		tap(px, py);
+ 		step(1);
+@@ -1820,6 +1864,13 @@ Common::Error SandboxEngine::talkTest() {
+ 		tap(px, py);
+ 		if (!StageBridge::moving(_player) && _door < 0 && !_action) fail("a tap after picking not a walk");
+ 		StageBridge::stop(_player);
++		// The same place again (as playing someone else here puts everyone on
++		// the stage again): the conversation ends, everyone told again.
++		if (!FakeTalk::chatting) fail("no conversation to end");
++		if (!enter(g, _room, 0, problem)) { fail("not shown again"); continue; }
++		if (_chatting || FakeTalk::chatting || FakeTalk::room != 0) fail("a conversation kept over the stage changing");
++		step(1);
++		if (!told()) fail("the chat not told again who is here");
+ 	}
+ 	// Closing: no one here, no conversation.
+ 	talkEnd();
+@@ -1827,8 +1878,8 @@ Common::Error SandboxEngine::talkTest() {
+ 	for (int s = 0; s < kTalkSlots; ++s) cleared = cleared && !FakeTalk::visitors[s];
+ 	if (!cleared) { ++failed; warning("SCUMMVERSE sandbox talk: the chat not cleared on leaving"); }
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said, %d picked, Maniac's rooms %s, %d failed", places, lines, picks, maniac ? "seen" : "not here", failed);
+-	if (!places || failed || lines != places * 3 || picks != places) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said (%d out of view), %d picked, %d stopped walking, Maniac's rooms %s, %d failed", places, lines, unseen, picks, walked, maniac ? "seen" : "not here", failed);
++	if (!places || failed || lines != places * 3 || picks != places || !walked) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index f5d352c8..9b310a6d 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -166,6 +166,7 @@ private:
+ 		unsigned long long (*scene)(int room, int visitor, unsigned long long actors, bool canSpeak, int &speaker, char *line, int capacity);
+ 		bool (*picking)();
+ 		bool (*pick)(int actor);
++		void (*travel)(int room, int ego, unsigned companions, int from, unsigned arrivals); // (the place, for the chat's window)
+ 	};
+ 	Talk _talk;
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)

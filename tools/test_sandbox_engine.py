@@ -300,6 +300,9 @@ if __name__ == '__main__':
         places = int(re.search(r'selftest talk: (\d+) places', output).group(1))
         if places < 2:
             raise SystemExit(f'FAIL: chat tried in {places} places')
+        # (The mansion's rooms go to the chat by their own numbers.)
+        if any(worlds.glob('maniac-*.svw')) and "Maniac's rooms seen" not in output:
+            raise SystemExit('FAIL: chat not tried in the mansion')
         print(f'PASS: chat in {places} places: told who is here; those talking stand and face; lines over their speakers; a tap picks someone')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.

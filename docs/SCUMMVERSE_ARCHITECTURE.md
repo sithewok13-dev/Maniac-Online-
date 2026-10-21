@@ -678,7 +678,14 @@ one palette) apply.
   chat keeps asking), never a walk; a coin game's press is then a plain
   tap. On leaving, the chat is told no one is here (talkEnd). The calls go
   through `SandboxEngine::Talk` so the "talk" self-test can put in a
-  stand-in (the desktop has no chat).
+  stand-in (the desktop has no chat). Each step also tells the chat's window
+  the place (scummverseTravelScene, as Maniac's companions code does; its
+  token resets the window's transcript); `enter` ends any conversation
+  (talkEnd), since the stage's slots are given out again. A line whose
+  speaker is out of view, or with no lettering loaded, is kept only
+  kUnseenLine ticks. The chat's pick mode is never armed by its window yet
+  (Runtime::armPick has no caller), so the picking tap is reached only from
+  the self-test's stand-in.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

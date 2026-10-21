@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0116 (chat in the new engine).
+Active milestone: Phase 1; latest patch 0117 (chat in the new engine: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3159,7 +3159,9 @@ chat comes first.
   wander off; the one played turns to them as it begins and to whoever
   speaks. When the chat asks whom to talk to, a tap on someone picks them
   (a tap on no one keeps it asking; it is never a walk); a coin game's press
-  is then a plain tap. Leaving the new engine tells the chat no one is
+  is then a plain tap. (Corrected in 0117: nothing in the iPhone's chat asks
+  whom yet; its people are chosen by their name buttons. The tap is tested
+  only against the stand-in, as Maniac's own tap for it is unused too.) Leaving the new engine tells the chat no one is
   there.
 - The stage (common/scummverse_stage): standing people turn towards a point
   (as walking there would turn them), play their talk frames in turn, and
@@ -3180,4 +3182,34 @@ chat comes first.
   each person their own); with the panel turned off (scummverse_verbs) no
   lettering is loaded and lines show only in the chat; people beyond the
   26th in a place cannot be talked with.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0117 — chat in the new engine: review fixes
+
+An independent review of 0116 (pushed before it came back).
+- The new engine now tells the iPhone's chat window which place it is in,
+  as Maniac does every moment: going through a door clears the old
+  conversation from the window (it stayed under "Nobody nearby"), the chat
+  no longer reads Maniac's last journey into a new place, and Maniac's
+  Arrive button cannot show there.
+- Whenever everyone in a place is put on the stage again (playing someone
+  else there, a door that could not be shown, a game chosen from the menu),
+  the conversation ends, as Maniac's does when the one played changes; it
+  could go on with people's places among the chat's names shifted.
+- People turning to a conversation are drawn at once, not with the first
+  line.
+- A line from someone out of view, or in a game whose lettering is not
+  loaded (the Curse of Monkey Island's), goes after half a second (the
+  chat shows it) instead of holding the next line back for up to fifteen.
+- The "talk" check now: someone set walking stops when talked with; asked
+  to stroll three hundred times, they never do; the conversation's start is
+  drawn; a line from out of view goes at once; the place is checked by its
+  numbers as the chat reads them; the chat's window is told the place; the
+  same place entered again ends the conversation and tells the chat who is
+  there again; the mansion's rooms are required when its files are there.
+  Taking out either the conversation's end or the strolling guard makes it
+  fail (checked).
+- Not taken: nothing in the iPhone's chat asks whom to talk to yet (its
+  pick mode is never armed), so the tap that picks someone is tested only
+  against the stand-in (0116 corrected).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
