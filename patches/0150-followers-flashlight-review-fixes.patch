@@ -1,0 +1,190 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 1d01f02a..44b4ecca 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -401,7 +401,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	tramShow();
+ 	vanShow();
+ 	StageBridge::setDark(_dark.contains(game * 1024 + room));
+-	_beamX = _beamY = -1;
++	_beamSet = false;
+ 	_strollClock = 120 + _random.getRandomNumber(240);
+ 	if (!_testing) saveState();
+ 	return true;
+@@ -450,8 +450,8 @@ void SandboxEngine::aimFlashlight() {
+ 	const bool on = flashlightLit();
+ 	double x = _beamX, y = _beamY;
+ 	int x0, y0, x1, y1;
+-	if (on && x < 0 && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) StageBridge::toScene((x0 + x1) / 2, (y0 + y1) / 2, x, y);
+-	else if (on && x < 0 && _player >= 0) StageBridge::position(_player, x, y);
++	if (on && !_beamSet && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) StageBridge::toScene((x0 + x1) / 2, (y0 + y1) / 2, x, y);
++	else if (on && !_beamSet && _player >= 0) StageBridge::position(_player, x, y);
+ 	StageBridge::setFlashlight(on, x, y);
+ }
+ 
+@@ -505,7 +505,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
+-	_beamX = x; _beamY = y; // (the flashlight where the pointer is)
++	_beamX = x; _beamY = y; _beamSet = true; // (the flashlight where the pointer is)
+ 	const int wasOpening = _opening, wasDoor = _door;
+ 	_door = -1; _action = 0; _target = -1; _opening = 0;
+ 	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
+@@ -882,6 +882,12 @@ void SandboxEngine::talkScene() {
+ 		const int n = slotActor(s, _player);
+ 		if (n >= (int)_onStage.size() || !(chatting & (1ULL << (kTalkVisitor + s)))) continue;
+ 		if (first < 0) first = n;
++		// (Someone following, far behind: comes on, talking.)
++		const double offset = followOffset(_onStage[n]);
++		if (offset) {
++			StageBridge::position(n, x, y);
++			if (sqrt((x - px) * (x - px) + (y - py) * (y - py)) > fabs(offset) + 2 * 24.0 * screenWidthOf(_game) / 320) continue;
++		}
+ 		if (StageBridge::moving(n)) StageBridge::stop(n);
+ 		StageBridge::face(n, px, py);
+ 	}
+@@ -928,19 +934,30 @@ void SandboxEngine::follow(int key, bool on) {
+ 
+ // Who is far from the one played walks to beside them (now and then, not
+ // while talking); one walking on is let be.
++// (Each one's own spot beside them, by their place in the following: left
++// and right, further out in turn; negative on the left.)
++double SandboxEngine::followOffset(int key) const {
++	if (!following(key)) return 0;
++	int side = 0;
++	for (int k : _followers) { if (k == _playerKey) continue; ++side; if (k == key) break; }
++	const double reach = 24.0 * screenWidthOf(_game) / 320;
++	return (side % 2 ? -1 : 1) * reach * (0.5 + side / 2);
++}
++
+ void SandboxEngine::followStep(int ticks) {
+ 	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty()) return;
+ 	_followClock = 20;
+ 	double px, py, x, y;
+ 	StageBridge::position(_player, px, py);
+ 	const double reach = 24.0 * screenWidthOf(_game) / 320;
+-	int side = 0;
+ 	for (uint n = 0; n < _onStage.size(); ++n) {
+-		if ((int)n == _player || !following(_onStage[n])) continue;
+-		++side;
+-		if (StageBridge::moving(n) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) continue;
++		const double offset = (int)n == _player ? 0 : followOffset(_onStage[n]);
++		if (!offset || StageBridge::moving(n)) continue;
+ 		StageBridge::position(n, x, y);
+-		if ((x - px) * (x - px) + (y - py) * (y - py) > reach * reach) StageBridge::walkTo(n, px + (side % 2 ? -1 : 1) * reach * (0.5 + side / 2), py);
++		// (Near enough: stays; talking with the one played, stays unless far.)
++		const double apart = sqrt((x - px) * (x - px) + (y - py) * (y - py));
++		const bool talking = actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player))));
++		if (apart > fabs(offset) + reach && (!talking || apart > fabs(offset) + 2 * reach)) StageBridge::walkTo(n, px + offset, py);
+ 	}
+ }
+ 
+@@ -953,16 +970,13 @@ void SandboxEngine::bringFollowers() {
+ 	double px, py;
+ 	StageBridge::position(_player, px, py);
+ 	const int here = place(_game, _room);
+-	const double reach = 24.0 * screenWidthOf(_game) / 320;
+-	int side = 0;
+ 	for (int key : _followers) {
+ 		if (key == _playerKey) continue;
+ 		if (_wanderers && here) WanderBridge::send(key, here);
+ 		int n = -1;
+ 		for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == key) n = i;
+ 		if (n < 0 && (n = addPerson(key)) >= 0) _onStage.push_back(key);
+-		++side;
+-		if (n >= 0) StageBridge::place(n, px + (side % 2 ? -1 : 1) * reach * (0.5 + side / 2), py);
++		if (n >= 0) { StageBridge::stop(n); StageBridge::place(n, px + followOffset(key), py); }
+ 	}
+ 	_people = _onStage.size();
+ }
+@@ -1144,6 +1158,8 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ 	Carried c;
+ 	c.game = game; c.room = room; c.id = id; c.name = name; c.picture = picture;
+ 	_carried.push_back(c);
++	// (The flashlight is found off.)
++	if (isFlashlight(c) && _flashlight) { _flashlight = false; if (!_testing) { ConfMan.setBool(kFlashlightKey, false); ConfMan.flushToDisk(); } }
+ 	return true;
+ }
+ 
+@@ -2466,7 +2482,7 @@ Common::Error SandboxEngine::run() {
+ 		if (_wanderers) buildWanderers();
+ 	}
+ 	if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
+-	if (resumed) { StageBridge::place(_player, x, y); StageBridge::follow(_player); saveState(); }
++	if (resumed) { StageBridge::place(_player, x, y); StageBridge::follow(_player); bringFollowers(); saveState(); }
+ 	tourReady();
+ 	uint32 last = g_system->getMillis();
+ 	int carry = 0, palette = StageBridge::paletteVersion();
+@@ -2493,7 +2509,7 @@ Common::Error SandboxEngine::run() {
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
+ 			// (A flashlight in the dark follows the pointer, as the original's.)
+-			else if (event.type == Common::EVENT_MOUSEMOVE && flashlightLit()) { StageBridge::toScene(event.mouse.x, event.mouse.y, _beamX, _beamY); changed = true; }
++			else if (event.type == Common::EVENT_MOUSEMOVE && flashlightLit()) { StageBridge::toScene(event.mouse.x, event.mouse.y, _beamX, _beamY); _beamSet = true; changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+ 		if (_press.down && !_press.held && g_system->getMillis() - _press.at >= kCoinHold) { hold(); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+@@ -3272,7 +3288,7 @@ static bool pick(int actor) {
+ Common::Error SandboxEngine::followTest() {
+ 	_phone.appearance = FakeTalk::appearance; _phone.visitor = FakeTalk::visitorOf; _phone.scene = FakeTalk::scene;
+ 	_phone.picking = FakeTalk::isPicking; _phone.pick = FakeTalk::pick; _phone.travel = FakeTalk::travel;
+-	int failed = 0, asked = 0, walked = 0, through = 0, told = 0, kept = 0, stayed = 0, letGo = 0;
++	int failed = 0, asked = 0, walked = 0, walkedTalking = 0, through = 0, told = 0, kept = 0, stayed = 0, letGo = 0;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox follow: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "-", _room, what); };
+ 	auto apart = [](double ax, double ay, double bx, double by) { return sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by)); };
+ 	// (The one played to the spot farthest from someone.)
+@@ -3318,6 +3334,18 @@ Common::Error SandboxEngine::followTest() {
+ 			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
+ 			if (apart(px, py, x, y) > 2 * reach) fail("not walked after the one played"); else ++walked;
+ 		}
++		// (Talking with the one played, the chat open: still comes after when
++		// left far behind.)
++		FakeTalk::chatting = 1ULL << (kTalkVisitor + actorSlot(n, _player));
++		step(1);
++		if (!(_chatting & FakeTalk::chatting)) fail("not in the conversation");
++		else if (awayFrom(n) > 3 * reach) {
++			for (int t = 0; t < 60 * 30; ++t) { _strollClock = 1 << 20; step(1); }
++			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
++			if (apart(px, py, x, y) > 3 * reach) fail("not walked after the one played while talking"); else ++walkedTalking;
++		}
++		FakeTalk::chatting = 0;
++		step(1);
+ 		// Through the door: there once, beside the one played; the chat told.
+ 		const int fromRoom = _room;
+ 		if (!travel(link) || _room == fromRoom) { fail("not through the door"); continue; }
+@@ -3361,9 +3389,9 @@ Common::Error SandboxEngine::followTest() {
+ 	}
+ 	_wanderers = false;
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest follow: %d asked along, %d walked after, %d through a door, %d told the chat, %d kept, %d stayed, %d let go, %d failed",
+-		asked, walked, through, told, kept, stayed, letGo, failed);
+-	if (failed || asked != 2 || through != 2 || told != 2 || kept != 2 || stayed != 2 || letGo != 2 || !walked) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest follow: %d asked along, %d walked after (%d while talking), %d through a door, %d told the chat, %d kept, %d stayed, %d let go, %d failed",
++		asked, walked, walkedTalking, through, told, kept, stayed, letGo, failed);
++	if (failed || asked != 2 || through != 2 || told != 2 || kept != 2 || stayed != 2 || letGo != 2 || !walked || !walkedTalking) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a53e3fd6..a2d41d7b 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -126,6 +126,7 @@ private:
+ 	bool following(int key) const;
+ 	void follow(int key, bool on);
+ 	void followStep(int ticks);
++	double followOffset(int key) const;     // how far beside the one played they stand (source pixels; 0: not following)
+ 	void bringFollowers();                  // (enter's: beside the one played)
+ 	void followersKeep() const;
+ 	Common::String followersKept() const;
+@@ -340,7 +341,8 @@ private:
+ 	Common::Array<int> _followers;          // their keys (kept)
+ 	int _leader = 0;                        // the one played they follow
+ 	int _followClock = 0;
+-	double _beamX = -1, _beamY = -1;        // where its beam points (source pixels; -1: round the one played)
++	double _beamX = 0, _beamY = 0;          // where its beam points (source pixels)
++	bool _beamSet = false;                  // (else round the one played)
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them

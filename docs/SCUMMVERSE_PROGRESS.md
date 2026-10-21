@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0149 (followers checked on Zak's bus).
+Active milestone: Phase 1; latest patch 0150 (followers and flashlight: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3934,3 +3934,22 @@ app restarts.
 - Not yet: on the plane they do not take seats as Maniac's own engine's
   passengers do. Tested on the desktop build only. Not tested on an
   iPhone.
+
+## Patch 0150 — followers and the flashlight: review fixes
+
+An independent review of 0146-0149 found no serious bugs; fixed:
+- Someone following who is in the chat with you (the chat open, as when
+  you tap Follow) was held standing where they were; now, left far
+  behind, they come after you while talking, and stand to talk once near.
+- Followers stand at their own spot beside the one played (left and right
+  in turn) and only walk when farther than it; those further out no
+  longer set off again and again where they stood.
+- On launch, followers are put beside where the one played was saved
+  (they were put by the place's starting spot).
+- The flashlight is found off when picked up (an old "on" no longer
+  carries over), and its beam keeps where it was pointed even at the
+  picture's left edge.
+- On the desktop: the follow check now also has the follower in the chat
+  while the one played walks off (fails with the old behaviour: checked);
+  three runs in a row pass. The full suite is rerun with it. Not tested
+  on an iPhone.

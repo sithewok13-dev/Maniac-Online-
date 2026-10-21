@@ -347,10 +347,10 @@ if __name__ == '__main__':
         # staying when asked, let go when someone else is played; with the
         # wanderers off and on.
         output = sandbox(exe, worlds, 'follow', shots, tmp)
-        m = re.search(r'selftest follow: (\d+) asked along, (\d+) walked after, (\d+) through a door, (\d+) told the chat, (\d+) kept, (\d+) stayed, (\d+) let go, (\d+) failed', output)
-        if not m or m.group(8) != '0' or any(m.group(i) != '2' for i in (1, 3, 4, 5, 6, 7)) or m.group(2) == '0':
+        m = re.search(r'selftest follow: (\d+) asked along, (\d+) walked after \((\d+) while talking\), (\d+) through a door, (\d+) told the chat, (\d+) kept, (\d+) stayed, (\d+) let go, (\d+) failed', output)
+        if not m or m.group(9) != '0' or any(m.group(i) != '2' for i in (1, 4, 5, 6, 7, 8)) or m.group(2) == '0' or m.group(3) == '0':
             raise SystemExit('FAIL: followers\n' + output[-2000:])
-        print(f'PASS: followers (the chat\'s Follow): asked along, walking after the one played, through a door beside them, the chat told, kept, staying when asked, let go when someone else is played; wanderers off and on')
+        print(f'PASS: followers (the chat\'s Follow): asked along, walking after the one played (talking too), through a door beside them, the chat told, kept, staying when asked, let go when someone else is played; wanderers off and on')
         # The character screen (a stand-in for the iPhone's): a box per game,
         # its people; each game's lead and another played where they live.
         output = sandbox(exe, worlds, 'cast', shots, tmp)
