@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0137 (the mansion's New kid goes to the kid, new engine).
+Active milestone: Phase 1; latest patch 0138 (the mansion's and Zak's people speak in their own colours, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3717,4 +3717,18 @@ An independent review of 0134.
   among the wanderers, and finds the next played where they were and the
   one before left where they stood (with the old behaviour it fails,
   checked); the verbs check's New kid (wanderers off) passes as before.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0138 — the mansion's and Zak's people speak in their own colours (new engine)
+
+- In the mansion and in Zak's places, each person's lines are now shown in
+  their own talk colour (the cast's, in the panel's colours, as the games
+  show them: Dave white, Syd and Sandy yellow, Weird Ed and Michael light
+  cyan...). They were all in the panel's one colour. Visitors from the
+  other games keep the panel's colour, and the other games' places are as
+  before (their own colours are not known to the new engine yet).
+- On the desktop: the chat check finds a line said in the mansion and one
+  in Zak's place in the speaker's own colour (more of the line's pixels in
+  it than the place has without the line); in the panel's one colour it
+  fails (checked). The panel unit test passes.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

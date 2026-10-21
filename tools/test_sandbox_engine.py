@@ -329,6 +329,10 @@ if __name__ == '__main__':
         # (The mansion's rooms go to the chat by their own numbers.)
         if any(worlds.glob('maniac-*.svw')) and "Maniac's rooms seen" not in output:
             raise SystemExit('FAIL: chat not tried in the mansion')
+        # (The mansion's and Zak's people speak in their own colours.)
+        c = re.search(r'(\d+) in their speakers\' own colours', output)
+        if any(worlds.glob('maniac-*.svw')) and (not c or int(c.group(1)) == 0):
+            raise SystemExit('FAIL: lines not in their speakers\' own colours\n' + output[-2000:])
         print(f'PASS: chat in {places} places: told who is here; those talking stand and face; lines over their speakers; a tap picks someone')
         # The character screen (a stand-in for the iPhone's): a box per game,
         # its people; each game's lead and another played where they live.
