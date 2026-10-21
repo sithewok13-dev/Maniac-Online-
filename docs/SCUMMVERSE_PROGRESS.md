@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0133 (doors across parts joined by script: review fixes).
+Active milestone: Phase 1; latest patch 0134 (the mansion's doors open as you go through, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3655,4 +3655,23 @@ An independent review of 0131.
 - The checks: the doors check counts doors gone through only from as near
   as the walk allows (38) and fails if there are none or too many (a tenth
   of all); the tour's count (23) is held to the same.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0134 — the mansion's doors open as you go through (new engine; step 5, the mansion's moments)
+
+User (2026-10-21): "Don't wait for me keep going". The first of the
+mansion's scripted moments in the new engine, as Maniac's own engine does
+them:
+- A shut door of the mansion is seen opening as the one played reaches
+  it, for a moment, before they go through; the door they come in by stands
+  open. Doors stay as left (kept between launches, as when opened by hand).
+  It follows the game's own Open: only where the game's script opens and
+  shuts that door and its open picture differs. The tour's way through
+  opens them too.
+- Zak's doors are left as drawn (as Maniac's own engine leaves most of
+  them): some of their open pictures have someone painted in the doorway
+  (the guru's), checked by eye against the mansion's, which are all clean.
+- On the desktop: the doors check sees 25 mansion doors opening as they are
+  gone through, 49 left open, 52 open on arrival; a picture of the front
+  door opening was looked at.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

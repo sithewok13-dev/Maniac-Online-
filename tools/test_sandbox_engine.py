@@ -285,6 +285,13 @@ if __name__ == '__main__':
         # (Some doors only from as near as the walk allows, not most.)
         if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99 or not 0 < int(d.group(6)) * 10 < int(d.group(1)):
             raise SystemExit('FAIL: doors\n' + output[-2000:])
+        # (The mansion's doors open as one goes through, where its game opens
+        # them; the door back stands open.)
+        o = re.search(r'selftest doors opening: (\d+) seen opening, (\d+) left open behind, (\d+) open on arrival', output)
+        if (worlds/'maniac-1.svw').exists() and (not o or int(o.group(1)) == 0 or int(o.group(2)) < int(o.group(1)) or int(o.group(3)) == 0):
+            raise SystemExit('FAIL: doors opening\n' + output[-2000:])
+        if o:
+            print(f'PASS: the mansion\'s doors: {o.group(1)} seen opening as gone through, {o.group(2)} left open, {o.group(3)} open on arrival')
         print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
               f'{d.group(3)} elsewhere, {d.group(4)} short ({d.group(6)} from as near as the walk boxes allow); {d.group(5)} with no spot of their own')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)

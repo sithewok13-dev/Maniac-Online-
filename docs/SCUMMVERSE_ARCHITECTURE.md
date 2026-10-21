@@ -824,6 +824,12 @@ one palette) apply.
   (counted as `across`), 0 when the walk was cut off. From 0133 the end
   is kept with its link (`_doorGoalLink`, set by walkToDoor only when a way
   was worked out, cleared by `enter`) and counts only for that door.
+- The mansion's moments (0134, step 5): SandboxEngine::openDoor shows a
+  mansion door open by PanelBridge::decide(kWorldVerbOpen) (the game's
+  answers, a differing open picture) through showPicture (kept in
+  `_pictures`); reachDoor opens a shut door and waits kDoorOpening ticks
+  (`_opening`, counted down in step) before travel; travel opens the door
+  gone through (the tour's) and, after `enter`, the door back.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
