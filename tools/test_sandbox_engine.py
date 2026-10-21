@@ -281,10 +281,11 @@ if __name__ == '__main__':
         # through from as near as the walk boxes allow; The Dig's tram cars are
         # called, not gone through: the rides check.)
         output = sandbox(exe, worlds, 'doors', shots, tmp)
-        d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short', output)
-        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 98:
+        d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short.*?(\d+) with no spot a tap finds them', output)
+        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99:
             raise SystemExit('FAIL: doors\n' + output[-2000:])
-        print(f'PASS: through the doors of every place (tapped, walked to, gone through): {d.group(2)} of {d.group(1)} through, {d.group(3)} elsewhere, {d.group(4)} short')
+        print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
+              f'{d.group(3)} elsewhere, {d.group(4)} short; {d.group(5)} with no spot of their own')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # Each game's own verb panel (exported from its start): every verb

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0131 (doors in parts of a place the games join by script, new engine).
+Active milestone: Phase 1; latest patch 0132 (the doors check taps where a player's tap finds a door).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3620,3 +3620,22 @@ used at all from where the player arrives.
   of the same shape (the tap picks the thing), and three in The Dig (an
   alcove under another object; rooms 61 and 64).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0132 — the doors check taps where a player's tap finds a door
+
+- The new engine's doors check tapped each door's middle. Where a smaller
+  thing sits there (Loom's gate and Cob, a door panel), the tap chose the
+  thing and the door counted as unreachable, though a tap beside the thing
+  goes through. It now taps the spot of the door nearest its middle that a
+  player's tap finds: one no other door takes and, where a walking tap
+  takes things first (Loom's distaff, a pointer over the scene), no thing
+  over it. Doors with no such spot are counted (41, Monkey Island's forest
+  exits outside the picture among them).
+- Result: 1,887 of 1,905 doors gone through (was 1,868), 3 to another
+  place, 15 short: Monkey Island's 13 forest exits placed outside the
+  picture (each a twin of one of the forest's own edge exits, to the same
+  place and arrival, which work) and two Loom doors under a thing of the
+  same place (the Glassmakers' crystal, the dragon's cave).
+  It now fails below 99% (was 98%).
+- No change to how the game plays; the check measures what a player can do.
+- Tested on the desktop build only (Linux).
