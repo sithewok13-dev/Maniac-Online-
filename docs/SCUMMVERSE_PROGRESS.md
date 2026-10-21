@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0153 (the shower curtain, the gate as one, the secret door shutting behind, new engine).
+Active milestone: Phase 1; latest patch 0154 (Extra, the third custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4041,3 +4041,23 @@ each verb through Maniac's own engine:
   rule broken on purpose fails it (checked). The kept check now compares
   every kept picture, not only how many. Tested on the desktop build only.
   Not tested on an iPhone.
+
+## Patch 0154 — Extra, the third custom character (new engine)
+
+User (2026-10-21): "Make a new character named "Extra". He's an 8 pound
+Chihuahua." (nine photos). Drawn in tools/custom_characters.py from the
+photos (the photos are not kept): a glossy black coat with a blue-grey
+sheen, big tall pointed ears with pink insides, huge round brown eyes with
+a catch-light and a tan rim, a black button nose, the white goatee on his
+chin and a white wisp on his chest, a thin tail curled over his back with a
+pale tip, and a thin orange collar (from one photo; it also keeps him seen
+in dark rooms); the costume's wings in one photo are not drawn. Side,
+front and back, walking and talking (his jaw drops, a pink tongue), a
+dog's height (0.3 of a person, as Crispy). In the Custom characters box
+after Crispy and Suzy, played where the player is; the chat has his own
+description and lines.
+- Drawing done by a helper from the photos; looked at here enlarged and in
+  the engine (beside Guybrush at the Scumm Bar, at his height).
+- On the desktop: the cast check plays all three custom characters where
+  the player is (3; shot of each). Tested on the desktop build only. Not
+  tested on an iPhone.
