@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0139 (custom characters, Crispy first, new engine).
+Active milestone: Phase 1; latest patch 0140 (New kid and talk colour review fixes, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3755,3 +3755,25 @@ An independent review of 0134.
 - Not yet: he is not among the wanderers and not in Maniac's own engine's
   character screen (only the new engine's). Tested on the desktop build
   only (Linux). Not tested on an iPhone.
+
+## Patch 0140 — New kid and talk colours: review fixes (new engine)
+
+- An independent review of 0137 and 0138 found the New kid's next kid,
+  when already in the same place, stood on the spot the one before was put
+  on (both stacked). Now the next kid stays where they stood and the one
+  before stays where they were; one coming from elsewhere does not land on
+  the one before. New kid also ends a paused tour first, keeps the count
+  of people on the stage right, and keeps the wanderers' record of where
+  the kid is when they were found nowhere.
+- Tests: the character check now also plays New kid with the next kid
+  already in the same place and checks both spots, each person on the
+  stage once, and the stage in step with the actors (fails without the fix:
+  checked). The chat check now fails if no line in the mansion is in its
+  speaker's colour. The panel unit test now covers the talk colour bridge
+  (a line in a given colour, else the panel's).
+- Not fixed (noted): with the wanderers on, most New kid presses move to
+  another game (they wander everywhere), and the cast's colours assume the
+  DOS editions' palette.
+- On the desktop: the cast, chat and verb checks, the panel unit test and
+  the startup test pass. Full suite not yet rerun. Tested on the desktop
+  build only (Linux). Not tested on an iPhone.

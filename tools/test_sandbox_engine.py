@@ -343,11 +343,11 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: character screen: no summary\n' + output[-2000:])
         # (The mansion's New kid: the next played where they are, the one
         # played before left where they stood.)
-        k = re.search(r'(\d+) new kids where they are', output)
-        if (worlds/'maniac-1.svw').exists() and (not k or int(k.group(1)) != 1):
+        k = re.search(r'(\d+) new kids where they are \((\d+) here already\)', output)
+        if (worlds/'maniac-1.svw').exists() and (not k or int(k.group(1)) != 1 or int(k.group(2)) != 1):
             raise SystemExit('FAIL: New kid\n' + output[-2000:])
         if k and int(k.group(1)):
-            print('PASS: the mansion\'s New kid: the next played where they are, the one before left where they stood')
+            print('PASS: the mansion\'s New kid: the next played where they are (here already: where they stood), the one before left where they stood')
         boxes, faces, people, played, expected = (int(m.group(i)) for i in range(1, 6))
         if faces < 2 or played != expected or played < 2 * faces - 2:
             raise SystemExit(f'FAIL: character screen: {faces} faces, {played} of {expected} played')

@@ -564,6 +564,16 @@ int main() {
 		std::vector<uint8_t> broken = data; broken.pop_back();
 		assert(!PanelBridge::load(broken.data(), broken.size(), problem, sizeof(problem)) && !PanelBridge::loaded() && PanelBridge::itemCount() == 1);
 		assert(PanelBridge::load(data.data(), data.size(), problem, sizeof(problem)));
+		// A line in one of the panel's colours, else (none, or none of its
+		// colours) in its talk colour.
+		assert(PanelBridge::talkColor(-1) == rgb(11) && PanelBridge::talkColor(256) == rgb(11) && PanelBridge::talkColor(5) == rgb(5));
+		for (int color : {5, -1}) {
+			std::vector<uint32_t> said((size_t)200 * 140, 0);
+			PanelBridge::say(said.data(), 200, 200, 100, "AB", 100, 60, 2.0, 2.0, color);
+			int inked = 0, other = 0;
+			for (uint32_t c : said) { inked += c == rgb(color < 0 ? 11 : color); other += c == rgb(color < 0 ? 5 : 11); }
+			assert(inked > 0 && !other);
+		}
 		PanelBridge::unload();
 		assert(!PanelBridge::loaded() && PanelBridge::itemCount() == 1);
 		PanelBridge::clear();
