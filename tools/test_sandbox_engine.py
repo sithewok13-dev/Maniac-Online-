@@ -287,11 +287,13 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: doors\n' + output[-2000:])
         # (The mansion's doors open as one goes through, where its game opens
         # them; the door back stands open.)
-        o = re.search(r'selftest doors opening: (\d+) seen opening, (\d+) left open behind, (\d+) open on arrival', output)
-        if (worlds/'maniac-1.svw').exists() and (not o or int(o.group(1)) == 0 or int(o.group(2)) < int(o.group(1)) or int(o.group(3)) == 0):
+        o = re.search(r'selftest doors opening: (\d+) of (\d+) seen opening, (\d+) of (\d+) left open behind, (\d+) of (\d+) doors back open on arrival, (\d+) of (\d+) the game', output)
+        if (worlds/'maniac-1.svw').exists() and (not o or int(o.group(2)) == 0 or int(o.group(6)) == 0 or o.group(1) != o.group(2) or o.group(3) != o.group(4)
+                                                 or o.group(5) != o.group(6) or o.group(7) != o.group(8)):
             raise SystemExit('FAIL: doors opening\n' + output[-2000:])
         if o:
-            print(f'PASS: the mansion\'s doors: {o.group(1)} seen opening as gone through, {o.group(2)} left open, {o.group(3)} open on arrival')
+            print(f'PASS: the mansion\'s doors, each from as the game leaves it: {o.group(1)} seen opening as gone through and left open, '
+                  f'{o.group(5)} doors back open on arrival, {o.group(7)} the game does not open left as they were')
         print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
               f'{d.group(3)} elsewhere, {d.group(4)} short ({d.group(6)} from as near as the walk boxes allow); {d.group(5)} with no spot of their own')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)

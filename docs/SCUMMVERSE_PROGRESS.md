@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0135 (The Dig's tram cars kept where they stand, new engine).
+Active milestone: Phase 1; latest patch 0136 (the mansion's doors: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3685,4 +3685,22 @@ them:
   at its second station last time and finds it read back so; the rides
   themselves pass as before. The writing of it (only when not testing) was
   not run by a check.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0136 — the mansion's doors: review fixes
+
+An independent review of 0134.
+- The doors check could pass without the doors opening (state carried over
+  from door to door). It now takes each mansion door from as the game
+  leaves it and checks it alone: 49 of 49 doors the game opens are seen
+  opening and left open, 50 of 50 doors back are open on arrival, and 24
+  of 24 the game does not open (stairs, a ladder, a hole) are left as they
+  were. Without the door back opening it fails (checked).
+- The tour no longer opens doors on its way (it saved every mansion door
+  open); it leaves every place as it finds it, and the tour check says so.
+- A second tap on a door as it opens no longer stops the one played going
+  through; a door to a place not installed is not opened; only the door
+  they came in by stands open (a named arrival that is another door, the
+  hall's way into room 6, is left as it was); the door back is kept at
+  once (it was opened after the place was saved).
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

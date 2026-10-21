@@ -829,7 +829,11 @@ one palette) apply.
   answers, a differing open picture) through showPicture (kept in
   `_pictures`); reachDoor opens a shut door and waits kDoorOpening ticks
   (`_opening`, counted down in step) before travel; travel opens the door
-  gone through (the tour's) and, after `enter`, the door back.
+  gone through and, after `enter`, the door back. From 0136: doorOpens
+  (index, picture, shut) says whether and to which picture; travel opens
+  only the arrival that is the link back to where they came from, never on
+  the tour's way, and saves after; a second tap on the door opening keeps
+  `_opening`.
 - The tram's parked bits (0135) are kept in ConfMan
   scummverse_sandbox_tram_parked (tramKeep, when a car comes to stand) and
   read at launch.
