@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0138 (the mansion's and Zak's people speak in their own colours, new engine).
+Active milestone: Phase 1; latest patch 0139 (custom characters, Crispy first, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3732,3 +3732,26 @@ An independent review of 0134.
   it than the place has without the line); in the panel's one colour it
   fails (checked). The panel unit test passes.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0139 — custom characters: Crispy (new engine)
+
+- A new last box on the new engine's character screen, "Custom
+  characters", with Crispy first: the user's 8 lb terrier in his red devil
+  Halloween costume (hood with two horns, capelet with black trim). Picked,
+  he is played right where the player is, standing where the one before
+  stood, about a third of a person tall, and he is kept when the app
+  restarts. He has walking and talking frames in four directions, and his
+  own description and lines for the chat ("Woof! Trick or treat!" and so
+  on; the chat with him is not tried on an iPhone).
+- His drawing is made by tools/custom_characters.py (pixel art drawn in
+  code, from looking at the user's photos; no photo is stored or read by
+  the tool) into engine/common/scummverse_custom_cast.inc, so he needs no
+  game files and is carried in the app.
+- On the desktop: the character check finds the custom box last, titled,
+  with a face, Crispy first; plays him from the start place's lead and
+  finds him there, where the lead stood, 0.30 of the lead's height, and
+  kept in the saved state. A picture of him beside Guybrush outside the
+  SCUMM Bar was checked by eye. Unit tests and the startup test pass.
+- Not yet: he is not among the wanderers and not in Maniac's own engine's
+  character screen (only the new engine's). Tested on the desktop build
+  only (Linux). Not tested on an iPhone.

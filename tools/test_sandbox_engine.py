@@ -23,7 +23,8 @@ the iPhone's chat (a stand-in for it) is told who is there, those in a
 conversation stand facing the one played, each line is said over its
 speaker's head, and a tap picks someone when the chat asks whom; its
 character screen (a stand-in) gets a box per game with its lead's face and
-people, and each game's lead and another are played where they live; its
+people, and each game's lead and another are played where they live, and a
+last box of custom characters (Crispy first, played where the player is); its
 camera takes a photo of the scene and of the screen and a selfie of three
 (everyone posed, nobody moving), and holds still while asked; its tour
 visits every place installed, most on foot through doors, its controls
@@ -351,6 +352,12 @@ if __name__ == '__main__':
         if faces < 2 or played != expected or played < 2 * faces - 2:
             raise SystemExit(f'FAIL: character screen: {faces} faces, {played} of {expected} played')
         print(f'PASS: character screen: {boxes} games, {faces} faces, {people} people; {played} played where they live')
+        # (The custom characters' box last, Crispy first: played where the
+        # player is, about a third of a person tall.)
+        c = re.search(r'(\d+) custom played where the player is \(([\d.]+) of a person tall\)', output)
+        if not c or int(c.group(1)) < 1 or not 0.2 <= float(c.group(2)) <= 0.45:
+            raise SystemExit('FAIL: custom characters\n' + output[-2000:])
+        print(f'PASS: custom characters: {c.group(1)} in their own box (Crispy first), played where the player is, {c.group(2)} of a person tall')
         # The camera (a stand-in for the iPhone's Photos): photos of the scene
         # and of the screen, a selfie of three, held still while asked.
         output = sandbox(exe, worlds, 'camera', shots, tmp)

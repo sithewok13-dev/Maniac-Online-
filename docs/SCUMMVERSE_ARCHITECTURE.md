@@ -837,6 +837,19 @@ one palette) apply.
 - The tram's parked bits (0135) are kept in ConfMan
   scummverse_sandbox_tram_parked (tramKeep, when a car comes to stand) and
   read at launch.
+- Custom characters (0139): drawn by `tools/custom_characters.py` (plain
+  Python, no images read; `--preview DIR` writes PNGs) into
+  `common/scummverse_custom_cast.inc` (generated, committed): each an SVC1
+  file carried in the binary (kWorldCustomArt: costume, bytes, scene rows of
+  a person per art row) under the pseudo-game kWorldCustomLooks (1002, as
+  kWorldManiacLooks and kWorldZakLooks), named and voiced by
+  kWorldCustomCast in the catalog. The sandbox's scan marks them installed;
+  readCharacter gives their carried bytes where others read
+  `<game>-c<costume>.svc`; addPerson draws them a fixed part of the place's
+  lead (personPerRow) at the 320x200 pixel shape. castOffer adds a last
+  box, slot 2 + worldGameCount(), "Custom characters", its face the first's;
+  castHome is the player's place and castChoose plays them there, where the
+  one before stood. They are not wanderers and not in Maniac's own engine.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
