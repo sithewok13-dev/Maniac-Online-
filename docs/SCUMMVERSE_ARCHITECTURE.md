@@ -765,7 +765,13 @@ one palette) apply.
   kTramThere, and shows them walking to the exit at kTramDone; tramShow
   puts the car in view from the state (tunnel: slid; 0: dissolved). A tap
   on a car's door walks to the ledge; taps wait while riding. `announce`
-  draws a line at the top of the place.
+  draws a line at the top of the place. From 0126: Stage::showObject keeps
+  the second picture's `clean` copy as the place is now and shows the
+  picture again over it (as last shown: Picture::applied, dx, amount); the
+  dissolve's scatter mixes x and y (scattered(); Maniac's
+  WorldBridge::showPicture likewise); `armed` starts false at each station
+  (a tap on the car's door arms it); a ride whose player is seen again
+  (another `enter`) is no longer theirs.
 - Rides between a game's places in the sandbox (0125, step 5; the
   catalog's kWorldRides {game, room, object, target, arrival, kind} and
   kWorldAirports {game, room, gate, city}): a tap (walking) on a ride's

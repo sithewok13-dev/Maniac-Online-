@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0125 (Zak's bus, Mars tram and planes in the new engine).
+Active milestone: Phase 1; latest patch 0126 (The Dig's tram in the new engine: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3451,4 +3451,34 @@ exported).
   room); no tickets (the CashCard and the reservations terminal are left
   out); only the one played rides; the van and the mansion's scripted
   moments are next.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0126 — The Dig's tram in the new engine: review fixes
+
+An independent review of 0124 (pushed before it came back).
+- Put somewhere else while riding (the Worlds menu, the tour, playing
+  someone else), the one played is no longer taken back to The Dig's
+  station when the car arrives, and taps work again at once. The tour's
+  guide is never taken aboard. Once aboard, nothing of the one played's own
+  goes on (a door or a verb walked to).
+- Put on a ledge (the tour ending there, a launch resuming there) is no
+  call: the ledge calls once the one played has been off it (a tap on the
+  car's door still calls it, even from on the ledge).
+- A tram whose other end is not installed is not called ("This tram's
+  other end isn't installed yet.").
+- An object shown in another picture where the car stands (its doors) is
+  kept under the car and shows as it is when the car goes (the car's slide
+  put the place's old look back over it).
+- The dissolve (a car coming toward the viewer) is a scatter: it was a
+  wipe in vertical stripes, in Maniac's own Dig tram too (common
+  scummverse_world).
+- Zak's rides (0125) likewise leave nothing of the one played's own going
+  once aboard.
+- The "rides" check compares the place with and without the car at the
+  same moment (the colours cycle; it passed with the car never drawn,
+  checked), and checks the car gone from where it left and staying where it
+  went. The stage unit test checks a scatter both ways (stripes fail it,
+  checked), a car colour that is another of the place's, and an object
+  under the car.
+- Maniac's Dig tram test passes.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

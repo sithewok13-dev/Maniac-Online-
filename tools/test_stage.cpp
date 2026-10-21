@@ -578,17 +578,56 @@ int main() {
 		place.showPicture(0, 0);
 		assert(at(120, 50) == sceneColor(9));
 		place.showPicture(0, 128);
-		int shownHalf = 0;
-		for (int y = 40; y < 60; ++y) for (int x = 100; x < 140; ++x) shownHalf += at(x, y) == sceneColor(12);
-		assert(shownHalf > 800 * 3 / 10 && shownHalf < 800 * 7 / 10);
-		// (A colour the scene lacks: its nearest of the scene's.)
-		for (int c = 0; c < 256; ++c) { parkedData[12 + c * 3] = (uint8_t)c; parkedData[12 + c * 3 + 1] = (uint8_t)(255 - c); parkedData[12 + c * 3 + 2] = (uint8_t)(c / 2); }
-		parkedData[12 + 12 * 3 + 2] = 7; // (12's blue a little off: still 12 nearest)
+		int shownHalf = 0, rowsShown = 0;
+		for (int y = 40; y < 60; ++y) {
+			int inRow = 0;
+			for (int x = 100; x < 140; ++x) inRow += at(x, y) == sceneColor(12);
+			shownHalf += inRow;
+			rowsShown += inRow > 0 && inRow < 40;
+		}
+		int columnsMixed = 0;
+		for (int x = 100; x < 140; ++x) {
+			int inColumn = 0;
+			for (int y = 40; y < 60; ++y) inColumn += at(x, y) == sceneColor(12);
+			columnsMixed += inColumn > 0 && inColumn < 20;
+		}
+		// (Scattered, not in stripes either way: about half, every row and
+		// nearly every column part shown.)
+		assert(shownHalf > 800 * 3 / 10 && shownHalf < 800 * 7 / 10 && rowsShown == 20 && columnsMixed >= 36);
+		// (A colour the scene lacks: its nearest of the scene's. The car's 12 is
+		// the scene's 40 exactly; the rest a little off.)
+		for (int c = 0; c < 256; ++c) {
+			parkedData[12 + c * 3] = (uint8_t)c; parkedData[12 + c * 3 + 1] = (uint8_t)(255 - c); parkedData[12 + c * 3 + 2] = (uint8_t)(c / 2 ^ 1);
+		}
+		parkedData[12 + 12 * 3] = 40; parkedData[12 + 12 * 3 + 1] = 215; parkedData[12 + 12 * 3 + 2] = 20;
 		assert(place.mountPicture(parkedData.data(), parkedData.size(), error));
 		place.showPicture(0, 256);
-		assert(at(120, 50) == sceneColor(12));
+		assert(at(120, 50) == sceneColor(40) && at(99, 50) == sceneColor(9));
 		// A new place: no picture.
 		assert(place.load(plainData.data(), plainData.size(), 1.0, 320, 320, 200, error) && !place.pictureMounted());
+		// An object shown in another picture under the car's rectangle: the
+		// place under it as the object is now, the car still over it.
+		{
+			World::SourceObject lamp;
+			lamp.id = 7; lamp.x = 90; lamp.y = 30; lamp.width = 20; lamp.height = 10; lamp.walkX = 100; lamp.walkY = 120; lamp.state = 0;
+			lamp.name = "lamp"; lamp.shown = 0; lamp.pictureX = 90; lamp.pictureY = 30; lamp.pictureWidth = 20; lamp.pictureHeight = 20;
+			lamp.pictures = {std::vector<uint8_t>(400, 9), std::vector<uint8_t>(400, 77)};
+			const std::vector<uint8_t> lit = scene5Bytes(320, 200, plain, {box(0, 100, 320, 190)}, {lamp}, {0}, {});
+			std::vector<uint8_t> litParked = parked;
+			const std::vector<uint8_t> litCar = scene5Bytes(320, 200, litParked, {box(0, 100, 320, 190)}, {lamp}, {0}, {});
+			assert(place.load(lit.data(), lit.size(), 1.0, 320, 320, 200, error));
+			assert(place.mountPicture(litCar.data(), litCar.size(), error));
+			place.showPicture(0, 256);
+			assert(place.showObject(0, 1));
+			assert(at(95, 35) == sceneColor(77) && at(105, 45) == sceneColor(12)); // (the lamp outside the car, the car over it)
+			place.showPicture(40, 256); // (the car gone: the lamp lit where it was)
+			assert(at(105, 45) == sceneColor(77) && at(120, 50) == sceneColor(9));
+			place.showPicture(0, 256);
+			assert(place.showObject(0, 0)); // (out again under the car)
+			place.showPicture(40, 256);
+			assert(at(105, 45) == sceneColor(9));
+		}
+		assert(place.load(plainData.data(), plainData.size(), 1.0, 320, 320, 200, error));
 		// Someone hidden: not drawn, no rectangle; shown again.
 		const std::vector<uint8_t> rider = spriteBytes({{2, 0, 0, -10, -40, 20, 40, 30}});
 		const int n = place.addActor(rider.data(), rider.size(), 1, 1.0, error);
