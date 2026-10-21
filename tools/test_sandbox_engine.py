@@ -310,9 +310,11 @@ if __name__ == '__main__':
         # its people; each game's lead and another played where they live.
         output = sandbox(exe, worlds, 'cast', shots, tmp)
         m = re.search(r'selftest cast: (\d+) boxes \((\d+) faces\), (\d+) people listed, (\d+) of (\d+) played', output)
-        boxes, faces, people, played = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
-        if faces < 2 or played < 2 * faces - 2:
-            raise SystemExit(f'FAIL: character screen: {faces} faces, {played} played')
+        if not m:
+            raise SystemExit('FAIL: character screen: no summary\n' + output[-2000:])
+        boxes, faces, people, played, expected = (int(m.group(i)) for i in range(1, 6))
+        if faces < 2 or played != expected or played < 2 * faces - 2:
+            raise SystemExit(f'FAIL: character screen: {faces} faces, {played} of {expected} played')
         print(f'PASS: character screen: {boxes} games, {faces} faces, {people} people; {played} played where they live')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0118 (the character screen in the new engine).
+Active milestone: Phase 1; latest patch 0119 (the character screen in the new engine: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3231,7 +3231,8 @@ An independent review of 0116 (pushed before it came back).
   the character screen's numbers in the new engine; they are no one's key
   and do nothing.
 - On the desktop (no character screen there): a "cast" check puts a
-  stand-in in: 12 boxes, every lead's face drawn, 299 people listed, each
+  stand-in in: 12 boxes, every lead's face drawn, 299 people listed (294
+  from 0119: those sharing a look once), each
   installed, none twice, the lead first; in every game the lead and the last
   listed are chosen as the screen sends them and are played where they live
   (once on the stage); a chat request in its range does nothing; the one
@@ -3239,5 +3240,34 @@ An independent review of 0116 (pushed before it came back).
 - Known: the wanderers carry on as they were (whoever is played is passed
   by when people come on the stage; the one played before is not among
   them); where everyone is is not carried over to the next launch when the
-  one played changes.
+  one played changes. (Both changed in 0119.)
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0119 — the character screen in the new engine: review fixes
+
+An independent review of 0118 (pushed before it came back).
+- The screen offers only those a choice can play: installed, shown before
+  without trouble, and with a place to be; a game's face is the first of
+  them (whom a tap on its box plays), so no box shows a face that plays no
+  one or someone else. A choice that cannot be played says so ("... can't
+  be played here yet.") instead of nothing; a request in the screen's range
+  that is no one's (the chat's) stays silent.
+- People of a game who share one look (Loom's Flute and Stopper and the
+  glassmakers, Day of the Tentacle's) are listed once, under the first
+  name, so the name chosen is the one shown and talked to.
+- Everyone wanders, the one played among them (passed by wherever people
+  come on the stage): the one played before is out again after a choice,
+  and where everyone is now stays from one launch to the next whoever is
+  played (it was dropped when the one played changed).
+- A choice not shown puts the one played before back where they stood.
+- The "cast" check now: a face exactly where someone can be played, never
+  a face of a few pixels, every face different; nobody listed twice by
+  name or by look; the lead first wherever the lead can be played; the lead
+  checked in their own room from the leads' table (not the rule the engine
+  uses), the last listed in their cast place; a one-person game counted
+  once; and with everyone out, someone wandering chosen, sent to the place
+  as a wanderer, is shown once over a minute of people coming and on
+  entering again, and the one played before is out among them. Taking out
+  the pass-by on entering fails it (checked). The sandbox engine test now
+  requires every choice played.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

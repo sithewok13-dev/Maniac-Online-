@@ -702,7 +702,12 @@ one palette) apply.
   chat's sceneToken | command can fall in the screen's range (place keys of
   10000 and up); those are no key and do nothing. The calls go through
   `SandboxEngine::Phone` (the chat's too) for the "cast" self-test's
-  stand-in.
+  stand-in. castHome is the one rule for both the screen and a choice
+  (installed, not `_broken`, in the cast, a place to be); the people are
+  listed once by name and once by key; a box's face is its first person's.
+  buildWanderers takes everyone, the one played too; `enter` and
+  `arrivals` pass the one played by, so a choice never shows them twice and
+  the wanderers' signature does not change with who is played.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
