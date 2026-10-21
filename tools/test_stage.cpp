@@ -640,5 +640,46 @@ int main() {
 		assert(place.drawnRect(n, a0, b0, a1, b1));
 	}
 	std::puts("PASS: a second picture of the place (shown, slid, dissolved, its nearest colours; refused when not the same size or the same); someone hidden");
+	// A prop (the Shuttle Bug parked): in its own colours (none where it is
+	// left out), as tall as asked at full scale and smaller where people are
+	// smaller, its pixels as much taller than wide as asked, on its bottom
+	// centre; in front of those further, behind the nearer, in front of no
+	// one on its row; its rectangle; gone with a new place.
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190, 0, 128, 255)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto at = [&](int x, int y) { place.render(shown.data(), 320); return shown[(size_t)y * 320 + x]; };
+		uint8_t palette[768];
+		for (int c = 0; c < 256; ++c) { palette[c * 3] = (uint8_t)(255 - c); palette[c * 3 + 1] = 0; palette[c * 3 + 2] = (uint8_t)c; }
+		auto propColor = [](int c) { return 0xFF000000u | (uint32_t)(255 - c) << 16 | (uint32_t)c; };
+		std::vector<uint8_t> van(20 * 10, 5);
+		for (int y = 0; y < 10; ++y) van[y * 20] = 255; // (its left column left out)
+		assert(place.addProp(van.data(), 0, 10, 255, palette, {160, 190}, 40, 2.0) < 0);
+		const std::vector<uint8_t> none(20 * 10, 255);
+		assert(place.addProp(none.data(), 20, 10, 255, palette, {160, 190}, 40, 2.0) < 0 && place.propCount() == 0);
+		const int p = place.addProp(van.data(), 20, 10, 255, palette, {160, 190}, 40, 2.0);
+		assert(p == 0 && place.propCount() == 1);
+		assert(place.propRect(p, x0, y0, x1, y1) && x0 == 140 && x1 == 180 && y0 == 150 && y1 == 190);
+		assert(at(141, 170) == sceneColor(9) && at(150, 170) == propColor(5) && at(150, 149) == sceneColor(9));
+		assert(near(place.depthAt({160, 190}), 1) && near(place.depthAt({160, 100}), 128 / 255.0));
+		// (Further back, smaller: 40 rows at full scale, about 30 halfway.)
+		const int q = place.addProp(van.data(), 20, 10, 255, palette, {60, 145}, 40, 2.0);
+		assert(q == 1 && place.propRect(q, x0, y0, x1, y1) && y1 == 145 && std::abs((y1 - y0) - 30) <= 1);
+		// Someone further than the van: behind it; on its row: in front.
+		const std::vector<uint8_t> passer = spriteBytes({{2, 0, 0, -10, -40, 20, 40, 30}});
+		const int n = place.addActor(passer.data(), passer.size(), 1, 1.0, error);
+		place.place(n, {160, 175});
+		assert(at(160, 160) == propColor(5));
+		place.place(n, {160, 190});
+		assert(at(160, 175) == spriteColor(30));
+		// (Off screen: no rectangle.)
+		const int far = place.addProp(van.data(), 20, 10, 255, palette, {-200, 190}, 40, 2.0);
+		assert(far == 2 && !place.propRect(far, x0, y0, x1, y1) && !place.propRect(3, x0, y0, x1, y1));
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.propCount() == 0);
+	}
+	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle; gone with the place)");
 	return 0;
 }

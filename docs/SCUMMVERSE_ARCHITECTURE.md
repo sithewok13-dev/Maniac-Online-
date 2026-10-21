@@ -799,7 +799,17 @@ one palette) apply.
   ticks unanswered, the engine closing); a countdown is kept through taps
   and ends by walking out of reach in rideStep; bus and tram check their
   target installed; a failed arrival re-enters where it was boarded;
-  rideBoard refuses while touring.
+  rideBoard refuses while touring. From 0129 the parked van is a stage prop
+  (Scene::addProp: palette indices, `none` transparent, own colours,
+  standing on its bottom centre, `rows` tall at full scale times depthAt,
+  sorted with the actors by row, props behind actors on the same row;
+  propRect; cleared by load): SandboxEngine::vanShow reads zak-van.svv
+  (Maniac's capture) in zak-185's palette (StageBridge::paletteOf) and
+  places it beside the landing point (`_vanX/_vanY`, ConfMan
+  scummverse_sandbox_van_x/_y, kept by vanPark) sized as Maniac does
+  (kVanKidHeight against the place's heroHeight, capped by the room above
+  and across); a tap in its rectangle walks to its door (kVanDoorAcross)
+  as a kRideWalking van ride (vanWalk).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0128 (the new engine's rides: review fixes).
+Active milestone: Phase 1; latest patch 0129 (the Shuttle Bug drawn where it lands in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3541,4 +3541,31 @@ An independent review of 0125 (Zak's rides).
   that cannot be shown (every place of Zak is exported here); the iPhone's
   list (its Cancel, being taken away, not swiping) is compiled for the
   desktop only as a stand-in, not built for iOS here.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0129 — the Shuttle Bug drawn where it lands (new engine)
+
+- Where the Shuttle Bug lands in the new engine (Melee Island, the
+  mansion's road and the other sites), it now stands there: beside where
+  the one played stepped out, on the side with more room, as much taller
+  than the people there as in Zak's long shot of it (as Maniac parks it),
+  people nearer than it in front of it and those further behind. It is
+  there again each time (where it stands is kept between launches). A tap
+  on it walks to its door and asks where to, as at its door on Mars; the
+  Worlds menu still works too.
+- Its picture is the one Maniac takes at the Mars landing site (kept beside
+  the other worlds as zak-van.svv once Maniac has been there with the van
+  in place). Until then the new engine does not draw it and the menu is the
+  way aboard.
+- The stage has "props" for this: still pictures in their own colours,
+  standing among the people by the row they stand on (unit-tested: colours,
+  size and perspective, order with people, rectangle, gone with the place).
+- On the desktop: the "rides" check flies it to Melee Island, finds it drawn
+  beside the one played and taller than them, boards it by a tap on it and
+  flies home (not drawn over the landing site's own picture of it), flies
+  back by the menu and finds it drawn where it landed again. Without its
+  drawing on landing the check fails (checked).
+- Known: at the Mars landing site the van is still part of the picture when
+  it is away (the export has no picture of the sand without it); no cockpit
+  or starfield while flying; only the one played rides.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

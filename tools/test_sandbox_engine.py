@@ -366,12 +366,16 @@ if __name__ == '__main__':
                     raise SystemExit('FAIL: Zak\'s rides\n' + output[-2000:])
                 print(f'PASS: Zak\'s rides: the bus and the Mars tram both ways, {z.group(2)} flights (each airport, chosen from the list), one missed, '
                       f'{z.group(4)} doors over where rides are boarded, 4 lists closed or withdrawn')
-            # The Shuttle Bug: Mars to Melee Island and back (when both are there).
-            v = re.search(r'(\d+) van flights', output)
+            # The Shuttle Bug: Mars to Melee Island and back, and there again
+            # (when both are there); drawn there and boarded by a tap on it
+            # when Maniac has taken its picture (zak-van.svv).
+            v = re.search(r'(\d+) van flights, (\d+) by a tap on it', output)
             if (worlds/'zak-185.svw').exists() and (worlds/'monkey-33.svw').exists():
-                if not v or int(v.group(1)) != 2:
+                drawn = (worlds/'zak-van.svv').exists()
+                if not v or int(v.group(1)) != 3 or int(v.group(2)) != int(drawn):
                     raise SystemExit('FAIL: the Shuttle Bug\n' + output[-2000:])
-                print('PASS: the Shuttle Bug: from its door on Mars to Melee Island, from the menu there back to Mars; not where it is not')
+                print('PASS: the Shuttle Bug: from its door on Mars to Melee Island, ' + ('drawn there beside the one played, boarded by a tap on it' if drawn else 'from the menu there (no picture of it taken yet)')
+                      + ', back to Mars (not drawn over its own picture), to Melee again (drawn where it landed); not where it is not')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
