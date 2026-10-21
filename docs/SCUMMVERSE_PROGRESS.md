@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0148 (the follow check made steady).
+Active milestone: Phase 1; latest patch 0149 (followers checked on Zak's bus).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3924,3 +3924,13 @@ app restarts.
   the check measures walking after and staying (only following moves
   them then). Five runs in a row pass; the full suite is rerun with it.
 - The Apple CI built 0147's IPA (the chat's Follow change compiles).
+
+## Patch 0149 — followers checked on a ride
+
+- The rides check now has someone following when the one played takes
+  Zak's bus: they come along and are off beside the one played at the
+  other end, there once. (Followers already came along on every arrival;
+  this checks it on a ride.) The full suite passed at 0148 (26 checks).
+- Not yet: on the plane they do not take seats as Maniac's own engine's
+  passengers do. Tested on the desktop build only. Not tested on an
+  iPhone.
