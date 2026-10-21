@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0111 (the classic verb panel for the mansion and Zak in the new engine).
+Active milestone: Phase 1; latest patch 0112 (Sam & Max's own controls in the new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -2939,4 +2939,55 @@ User (2026-10-20): "Only 10 games? There's 12."
   script that sets up the verbs, before any kid is chosen). The games' own replies
   are not used (their scripts do not run in the new engine): the lines are
   the new engine's plain ones.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0112 — Sam & Max's own controls in the new engine (step 2f, first part)
+
+User (2026-10-21): "Keep going". Step 2f: the games without a verb panel
+(Loom, Sam & Max, Full Throttle, The Dig, The Curse of Monkey Island) each
+have controls of their own, drawn by their scripts when the player taps or
+holds, not set up at their start. Sam & Max first; The Dig, the verb coin
+(Full Throttle, Curse of Monkey Island) and Loom's distaff follow.
+- Sam & Max plays in the new engine with its own controls: its box button
+  in the corner of the scene; the pointer as the verb (walking, look, use,
+  talk, pick up, its own five pointers), a right click (two fingers on the
+  iPhone) bringing the next round as the game does; a tap on the button
+  opens the box over the scene (the game's own cardboard box, its verb
+  icons along the top, what is carried in its cells), an icon there is the
+  pointer from then on and shuts it, as do its own box icon, a tap off it
+  and a right click (its box icon also gives the walking pointer back); a
+  carried thing tapped there is looked at (named) or
+  has the pointer's verb used on it. Speech is in the game's lettering, in
+  Sam's colour. The verbs do what the other games' do (the plain rules);
+  Sam & Max's own replies are not used.
+- Captured by the game's own engine from its start ("samnmax-ui.svi",
+  "SVI2"): the start run until the button stands in the scene and the
+  player has the pointer; each pointer as a right click brings it round
+  (checked to come back to the first); the button drawn alone; the box as a
+  tap on the button opens it, its objects drawn alone over two fills (its
+  picture and icons, what it leaves clear kept, not what the start put in
+  it); its cells (6 by 5 of 40 by 24, as the game lays its things out); the
+  talk lettering. The verb numbers (walk 7, look 4, use 5, talk 6, pick up
+  3) and the icons' objects are in the catalog (kWorldOverlays), read off
+  the user's copy.
+- On the desktop: the other games' files are byte-identical to 0111 (the
+  panels' lettering capture is now one function for both); the new engine's
+  verb test goes through 8 panels: Sam & Max's box opened from its button
+  and shut by its icon, a tap off it and a right click, its pointer brought
+  round all five verbs back to walking, each icon chosen, looking, doors
+  refused, out of reach refused, a carried thing looked at in its cell.
+- On a phone without a two-finger right click: the box's own box icon
+  shuts it and gives the walking pointer back, and the use pointer on a
+  door goes through it, as the game's does (look names a door, as before).
+- Review fixes: a damaged controls file is refused without writing past
+  the pointers it lists (each cut tested); opening the box or a right click
+  drops what was being walked to; the box's capture puts the whole screen
+  back (each icon was drawn whole over the others).
+- Known: Sam & Max's things are not placed where its game puts them yet
+  (its rooms' scripts, run out of their story's order, do not end: the
+  things pass is left out for it; the plain rules apply, so nothing there
+  was taken in the test). The pointer is drawn where the last tap was
+  (there is no hovering on a phone). A thing carried cannot yet be used on
+  another (the box's way: as the pointer). The box keeps the verb chosen
+  only within a place.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

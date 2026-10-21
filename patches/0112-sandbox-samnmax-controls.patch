@@ -1,0 +1,1124 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index d44a4845..f8c47e44 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -36,12 +36,18 @@ bool within(const Rect &r, int width, int height) {
+ 
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 	out = Source();
+-	if (!data || size < 12 || std::memcmp(data, "SVI1", 4)) { error = "not a verb panel"; return false; }
++	// ("SVI2": controls over the scene; the same with a mask, pointers, a button.)
++	const bool over = data && size >= 4 && !std::memcmp(data, "SVI2", 4);
++	if (!data || size < 12 || (!over && std::memcmp(data, "SVI1", 4))) { error = "not a verb panel"; return false; }
++	out.over = over;
+ 	Reader r(data + 4, data + size);
+ 	out.screenWidth = r.u16(); out.screenHeight = r.u16(); out.top = r.u16(); out.rows = r.u16();
+ 	if (out.screenWidth < 8 || out.screenWidth > 1024 || out.rows < 1 || out.rows > 480 || out.top + out.rows > out.screenHeight) { error = "bad panel size"; return false; }
+ 	std::vector<uint8_t> palette;
+-	if (!r.bytes(768, palette) || !r.bytes((size_t)out.screenWidth * out.rows, out.pixels)) { error = "truncated panel"; return false; }
++	if (!r.bytes(768, palette) || !r.bytes((size_t)out.screenWidth * out.rows, out.pixels) || (over && !r.bytes((size_t)out.screenWidth * out.rows, out.mask))) {
++		error = "truncated panel"; return false;
++	}
++	for (uint8_t &m : out.mask) m = m != 0;
+ 	std::memcpy(out.palette, palette.data(), 768);
+ 	const int verbs = r.u8();
+ 	for (int i = 0; i < verbs && r.ok; ++i) {
+@@ -83,6 +89,32 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 			f.glyphs[code] = g;
+ 		}
+ 	}
++	if (over && r.ok) {
++		// (A picture: u16 width, height, then its pixels and mask.)
++		auto picture = [&](Picture &p) {
++			p.rect.width = r.u16(); p.rect.height = r.u16();
++			if (p.rect.width > 256 || p.rect.height > 256) return false;
++			r.bytes((size_t)p.rect.width * p.rect.height, p.pixels);
++			r.bytes((size_t)p.rect.width * p.rect.height, p.mask);
++			for (uint8_t &m : p.mask) m = m != 0;
++			return true;
++		};
++		out.cursors.assign(out.verbs.size(), Picture());
++		const int cursors = r.u8();
++		for (int i = 0; i < cursors && r.ok; ++i) {
++			const int verb = r.u8();
++			Picture p;
++			p.hotX = r.s16(); p.hotY = r.s16();
++			if (!picture(p)) { error = "bad pointer"; return false; }
++			if (!r.ok) break;
++			if (verb >= (int)out.verbs.size() || !out.cursors[verb].pixels.empty() || p.pixels.empty()) { error = "bad pointer"; return false; }
++			out.cursors[verb] = p;
++		}
++		out.button.rect.x = r.s16(); out.button.rect.y = r.s16();
++		if (!picture(out.button) || (r.ok && (out.button.pixels.empty() || !within(out.button.rect, out.screenWidth, out.screenHeight)))) { error = "bad button"; return false; }
++		out.close = r.rect();
++		if (r.ok && !within(out.close, out.screenWidth, out.rows)) { error = "bad button"; return false; }
++	}
+ 	if (!r.ok) { error = "truncated panel"; return false; }
+ 	if (r.p != r.end) { error = "truncated panel"; return false; }
+ 	return true;
+@@ -227,6 +259,20 @@ Rect Panel::onScreen(const Rect &r) const {
+ 
+ Panel::Hit Panel::hit(int screenX, int screenY) const {
+ 	Hit h;
++	if (_loaded && _source.over) {
++		// Over the scene: shut, only its button; open, every tap is the
++		// box's (off it, or its icon that shuts it, shuts it).
++		if (!_open) { h.panel = h.button = buttonOnScreen().contains(screenX, screenY); return h; }
++		h.panel = true;
++		if (screenY < _top || screenY >= _top + _screenRows || screenX < _left || screenX >= _left + _columns || _rowScale <= 0 || _colScale <= 0) { h.close = true; return h; }
++		const int x = std::min(_source.screenWidth - 1, (int)((screenX - _left) / _colScale));
++		const int y = std::min(_source.rows - 1, (int)((screenY - _top) / _rowScale));
++		if (!_source.mask[(size_t)y * _source.screenWidth + x] || _source.close.contains(x, y)) { h.close = true; h.icon = _source.close.contains(x, y); return h; }
++		for (size_t i = 0; i < _source.verbs.size(); ++i) if (_source.verbs[i].rect.contains(x, y)) { h.verb = (int)i; return h; }
++		for (size_t c = 0; c < _source.slots.size(); ++c)
++			if (_source.slots[c].contains(x, y) && _first + (int)c < (int)_items.size()) { h.item = _first + (int)c; return h; }
++		return h;
++	}
+ 	if (!_loaded || screenY < _top || screenY >= _top + _screenRows) return h;
+ 	h.panel = true;
+ 	if (screenX < _left || screenX >= _left + _columns || _rowScale <= 0 || _colScale <= 0) return h;
+@@ -252,6 +298,37 @@ Panel::Hit Panel::hit(int screenX, int screenY) const {
+ 	return h;
+ }
+ 
++void Panel::nextVerb() {
++	const int n = (int)_source.verbs.size();
++	if (!over() || !n) return;
++	const int next = (pointerVerb() + 1) % n;
++	_selected = _source.verbs[next].kind == kWalk ? -1 : next;
++}
++
++Rect Panel::buttonOnScreen() const { return over() ? onScreen(_source.button.rect) : Rect(); }
++
++void Panel::picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const {
++	if (p.rect.width <= 0 || p.rect.height <= 0 || _rowScale <= 0 || _colScale <= 0) return;
++	const int w = (int)std::lround(p.rect.width * _colScale), h = (int)std::lround(p.rect.height * _rowScale);
++	for (int sy = std::max(0, y); sy < std::min(screenHeight, y + h); ++sy) {
++		const int ry = std::min(p.rect.height - 1, (int)((sy - y) / _rowScale));
++		for (int sx = std::max(0, x); sx < std::min(screenWidth, x + w); ++sx) {
++			const size_t at = (size_t)ry * p.rect.width + std::min(p.rect.width - 1, (int)((sx - x) / _colScale));
++			if (p.mask[at]) screen[(size_t)sy * pitch + sx] = color(p.pixels[at]);
++		}
++	}
++}
++
++void Panel::renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const {
++	if (!over() || !screen) return;
++	const Rect b = buttonOnScreen();
++	if (b.width > 0 && b.height > 0) picture(screen, pitch, screenWidth, screenHeight, _source.button, b.x, b.y);
++	const int v = pointerVerb();
++	if (!pointer || v < 0 || v >= (int)_source.cursors.size()) return;
++	const Picture &c = _source.cursors[v];
++	picture(screen, pitch, screenWidth, screenHeight, c, pointerX - (int)std::lround(c.hotX * _colScale), pointerY - (int)std::lround(c.hotY * _rowScale));
++}
++
+ int Panel::kindOf(int verb) const { return verb >= 0 && verb < (int)_source.verbs.size() ? _source.verbs[verb].kind : kWalk; }
+ 
+ int Panel::walkVerb() const {
+@@ -330,7 +407,7 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		for (int y = 0; y < v.rect.height; ++y)
+ 			for (int x = 0; x < v.rect.width; ++x) canvas[(size_t)(v.rect.y + y) * W + v.rect.x + x] = color(v.lit[(size_t)y * v.rect.width + x]);
+ 	}
+-	if (!_sentence.empty()) {
++	if (!_sentence.empty() && !_source.over) {
+ 		const int width = textWidth(0, _sentence);
+ 		const int x = _source.sentenceCentred ? _source.sentenceX - width / 2 : _source.sentenceX;
+ 		text(canvas, 0, _sentence, std::max(0, x), _source.sentenceY, color(_source.sentenceColor), W);
+@@ -371,16 +448,19 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ }
+ 
+ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+-	if (!_loaded || !screen) return;
++	if (!_loaded || !screen || (_source.over && !_open)) return;
+ 	std::vector<uint32_t> canvas;
+ 	compose(canvas);
+ 	const int W = _source.screenWidth;
++	// (Over the scene: only where the box is drawn.)
++	const bool over = _source.over;
+ 	for (int row = _top; row < std::min(screenHeight, _top + _screenRows); ++row) {
+ 		uint32_t *out = screen + (size_t)row * pitch;
+ 		const int y = std::min(_source.rows - 1, (int)((row - _top) / _rowScale));
+ 		for (int x = 0; x < _screenWidth; ++x) {
+-			if (x < _left || x >= _left + _columns) { out[x] = 0xFF000000u; continue; }
+-			out[x] = canvas[(size_t)y * W + std::min(W - 1, (int)((x - _left) / _colScale))];
++			if (x < _left || x >= _left + _columns) { if (!over) out[x] = 0xFF000000u; continue; }
++			const size_t at = (size_t)y * W + std::min(W - 1, (int)((x - _left) / _colScale));
++			if (!over || _source.mask[at]) out[x] = canvas[at];
+ 		}
+ 	}
+ }
+@@ -451,11 +531,26 @@ int hit(int screenX, int screenY, int &index) {
+ 	const Panel::Panel::Hit h = panel().hit(screenX, screenY);
+ 	index = -1;
+ 	if (!h.panel) return 0;
++	if (h.button) return 5;
++	if (h.close) return h.icon ? 7 : 6;
+ 	if (h.verb >= 0) { index = h.verb; return 2; }
+ 	if (h.item >= 0) { index = h.item; return 3; }
+ 	if (h.arrow) { index = h.arrow; return 4; }
+ 	return 1;
+ }
++bool over() { return panel().over(); }
++void open(bool open) { panel().open(open); }
++bool isOpen() { return panel().isOpen(); }
++void nextVerb() { panel().nextVerb(); }
++int pointerVerb() { return panel().pointerVerb(); }
++bool buttonRect(int &x, int &y, int &width, int &height) {
++	const Panel::Rect r = panel().buttonOnScreen();
++	x = r.x; y = r.y; width = r.width; height = r.height;
++	return width > 0 && height > 0;
++}
++void renderControls(unsigned int *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) {
++	panel().renderControls(screen, pitch, screenWidth, screenHeight, pointerX, pointerY, pointer);
++}
+ void select(int verb) { panel().select(verb); }
+ int selected() { return panel().selected(); }
+ int verbCount() { return (int)panel().source().verbs.size(); }
+@@ -471,6 +566,7 @@ static bool screenRect(const Panel::Rect &source, int &x, int &y, int &width, in
+ bool verbRect(int verb, int &x, int &y, int &width, int &height) {
+ 	return verbShown(verb) && screenRect(panel().source().verbs[verb].rect, x, y, width, height);
+ }
++bool closeRect(int &x, int &y, int &width, int &height) { return panel().over() && screenRect(panel().source().close, x, y, width, height); }
+ int slotCount() { return (int)panel().source().slots.size(); }
+ bool slotRect(int slot, int &x, int &y, int &width, int &height) {
+ 	return slot >= 0 && slot < slotCount() && screenRect(panel().source().slots[slot], x, y, width, height);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 8e69b9fe..5d4d4384 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -7,6 +7,9 @@
+ // under the scene at the scene's scale; a tap on it picks a verb or a thing
+ // carried. `decide` says what a verb does to a thing in the scene: the
+ // games' own scripts do not run here, so the same plain rules hold for all.
++// A game whose controls are over the scene ("SVI2", step 2f: Sam & Max) has
++// its panel as a box opened over the scene from a button, and its pointer
++// as the verb (a right click the next).
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+@@ -44,6 +47,9 @@ struct Font {
+ // A verb on the panel (no rectangle: one only named, as walking is in the
+ // later games); `lit` is its rectangle drawn highlighted.
+ struct Verb { int kind = 0, id = 0; Rect rect; std::string name; std::vector<uint8_t> lit; };
++// A picture of the controls over the scene: palette indices, `mask` 1 where
++// it is drawn (elsewhere the scene shows); a pointer's hot spot.
++struct Picture { Rect rect; int hotX = 0, hotY = 0; std::vector<uint8_t> pixels, mask; };
+ struct Source {
+ 	int screenWidth = 0, screenHeight = 0, top = 0, rows = 0;
+ 	uint8_t palette[768] = {};
+@@ -57,8 +63,18 @@ struct Source {
+ 	Rect up, down; // the inventory's arrows (from the panel's own when its slots hold names)
+ 	int talkColor = 0;
+ 	Font fonts[2]; // the sentence line's, the talk's
++	// Over the scene ("SVI2"): the panel is a box over it (`mask` 1 where it
++	// is drawn), opened from `button` (on the game's screen); each verb's
++	// pointer (cursors[k] is verbs[k]'s, none where it has no rectangle);
++	// the icon that shuts the box.
++	bool over = false;
++	std::vector<uint8_t> mask;
++	std::vector<Picture> cursors;
++	Picture button;
++	Rect close;
+ };
+-// Bytes of an "SVI1" file (uncompressed); false (with `error`) when malformed.
++// Bytes of an "SVI1" or "SVI2" file (uncompressed); false (with `error`) when
++// malformed.
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error);
+ 
+ // A thing carried: its name and picture (0xAARRGGBB, width * height).
+@@ -120,9 +136,24 @@ public:
+ 	// A rectangle of the panel on screen.
+ 	Rect onScreen(const Rect &source) const;
+ 	// What a tap is on: a verb, a slot (its item's number) or an arrow
+-	// (-1 up, 1 down); nothing: all -1 / 0.
+-	struct Hit { int verb = -1, item = -1, arrow = 0; bool panel = false; };
++	// (-1 up, 1 down); nothing: all -1 / 0. Over the scene: the button while
++	// the box is shut; while it is open, every tap is the box's (off it, or
++	// on the icon that shuts it: `close`; `icon` that icon).
++	struct Hit { int verb = -1, item = -1, arrow = 0; bool panel = false, button = false, close = false, icon = false; };
+ 	Hit hit(int screenX, int screenY) const;
++	// Over the scene: the box opened or shut (always shut under the scene),
++	// the verb the pointer is (walking: the walk verb), and the next one a
++	// right click brings (in the verbs' order, round to walking).
++	bool over() const { return _loaded && _source.over; }
++	void open(bool open) { _open = open && over(); }
++	bool isOpen() const { return _open; }
++	int pointerVerb() const { return _selected >= 0 ? _selected : walkVerb(); }
++	void nextVerb();
++	// The button where the scene is (screen pixels; none under the scene).
++	Rect buttonOnScreen() const;
++	// The button, and the pointer with its hot spot at (x, y), on a screen
++	// of 0xAARRGGBB at the layout's scale (under the scene: nothing).
++	void renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const;
+ 	// The verb chosen (an index into source().verbs; -1: walking).
+ 	void select(int verb) { _selected = verb; }
+ 	int selected() const { return _selected; }
+@@ -153,8 +184,9 @@ public:
+ 
+ private:
+ 	void text(std::vector<uint32_t> &canvas, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
++	void picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const;
+ 	Source _source;
+-	bool _loaded = false;
++	bool _loaded = false, _open = false;
+ 	int _screenWidth = 0, _top = 0, _screenRows = 0, _left = 0, _columns = 0;
+ 	double _rowScale = 1, _colScale = 1;
+ 	int _selected = -1, _first = 0;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 5bf17aca..717f8b92 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -31,8 +31,22 @@ void layout(int screenWidth, int screenHeight, int top, double rowScale, double
+ int top();
+ int screenRows();
+ // A tap: 0 not on the panel, 1 on it (nothing there), 2 a verb, 3 a thing
+-// carried, 4 an arrow (`index` -1 up, 1 down).
++// carried, 4 an arrow (`index` -1 up, 1 down); over the scene, 5 the button
++// (the box shut), 6 off the box, 7 its icon that shuts it (the box open).
+ int hit(int screenX, int screenY, int &index);
++// Controls over the scene (Sam & Max, "SVI2"): the panel is a box opened
++// over the scene from a button; the pointer is the verb (pointerVerb: the
++// chosen one, else walking), a right click the next. Where the button and
++// the icon that shuts the box are on screen; the button and the pointer
++// (its hot spot at pointerX, pointerY) drawn over the scene.
++bool over();
++void open(bool open);
++bool isOpen();
++void nextVerb();
++int pointerVerb();
++bool buttonRect(int &x, int &y, int &width, int &height);
++bool closeRect(int &x, int &y, int &width, int &height);
++void renderControls(unsigned int *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer);
+ // The verb chosen (-1: walking) and the verbs (their kinds as the catalog's
+ // WorldVerbKind; shown: on the panel).
+ void select(int verb);
+@@ -59,7 +73,8 @@ void removeItem(int item);
+ void clearItems();
+ void scroll(int by);
+ int firstItem();
+-// The panel's rows of a screen of 0xAARRGGBB, `pitch` pixels a row.
++// The panel's rows of a screen of 0xAARRGGBB, `pitch` pixels a row (over
++// the scene: the box, while it is open).
+ void render(unsigned int *screen, int pitch, int screenHeight);
+ // Speech in the game's talk lettering and the player's talk colour,
+ // centred on `centreX`, ending at `bottomY`, rows from `limit` on untouched.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index bec8eb75..3d29741e 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -666,7 +666,8 @@ static const WorldLegacyPlace kWorldLegacyPlaces[] = {
+ // verb numbers), its sentence line, its inventory slots (names, or
+ // pictures) and their scroll arrows, and the room where its start waits
+ // for a typed answer (Monkey Island 2's copy protection; the engine takes
+-// any answer). Loom, Sam & Max and the later games have none of these.
++// any answer). Loom, Sam & Max and the later games have none of these
++// (Sam & Max's controls: kWorldOverlays).
+ enum WorldVerbKind {
+ 	kWorldVerbWalk = 1, kWorldVerbLook, kWorldVerbPickUp, kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush,
+ 	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs,
+@@ -715,6 +716,9 @@ static const WorldVerb kWorldVerbs[] = {
+ 	{11, 4, kWorldVerbTurnOn}, {11, 10, kWorldVerbPull}, {11, 2, kWorldVerbClose}, {11, 14, kWorldVerbPickUp},
+ 	{11, 7, kWorldVerbTakeOff}, {11, 5, kWorldVerbTurnOff}, {11, 3, kWorldVerbGive}, {11, 12, kWorldVerbRead},
+ 	{11, 15, kWorldVerbWhatIs}, {11, 11, kWorldVerbUse},
++	// Sam & Max Hit the Road: five, its pointer's (see kWorldOverlays).
++	{6, 7, kWorldVerbWalk}, {6, 4, kWorldVerbLook}, {6, 5, kWorldVerbUse}, {6, 6, kWorldVerbTalk},
++	{6, 3, kWorldVerbPickUp},
+ };
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+@@ -733,6 +737,25 @@ inline const WorldPanel *worldPanel(int game) {
+ 	for (const auto &p : kWorldPanels) if (p.game == game) return &p;
+ 	return nullptr;
+ }
++// A game whose controls are over the scene, not under it (the new engine's
++// step 2f; "<game>-ui.svi" all the same). Sam & Max: the pointer is the verb
++// and a right click the next one (`verbs`, the game's own numbers in the
++// order its pointer goes round: walking, look, use, talk, pick up); a box of
++// things opens from a button (`button`, the actor in the scene's corner)
++// over the scene: the object that is its picture (`box`), each verb's icon
++// in it (`icons`, by object; 0 none) and the one that shuts it (`close`);
++// its cells (the first's top left, their size, how many across and down).
++struct WorldOverlay {
++	short game, button, box, close, cellX, cellY, cellWidth, cellHeight, columns, rows;
++	short verbs[6], icons[6]; // (a 0 verb ends them)
++};
++static const WorldOverlay kWorldOverlays[] = {
++	{6, 1, 995, 888, 40, 48, 40, 24, 6, 5, {7, 4, 5, 6, 3, 0}, {0, 879, 880, 881, 882, 0}},
++};
++inline const WorldOverlay *worldOverlay(int game) {
++	for (const auto &o : kWorldOverlays) if (o.game == game) return &o;
++	return nullptr;
++}
+ inline int worldVerbKind(int game, int verb) {
+ 	for (const auto &v : kWorldVerbs) if (v.game == game && v.verb == verb) return v.kind;
+ 	return 0;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index b913f7b6..fe0e1f37 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -105,6 +105,7 @@ struct Box;
+ struct BoxCoords;
+ struct FindObjectInRoom;
+ struct ScummverseGuestFrame;
++struct ScummverseUiFont;
+ 
+ // Use g_scumm from error() ONLY
+ extern ScummEngine *g_scumm;
+@@ -1650,6 +1651,10 @@ protected:
+ 	bool scummverseExportPanel(int game, const Common::Path &file, Common::String &problem);
+ 	// (The oldest games' panel: their engine's own sentence line and inventory.)
+ 	virtual bool scummverseExportPanelOld(int game, const Common::Path &file, Common::String &problem) { problem = "no verb panel"; return false; }
++	// (Controls over the scene: Sam & Max's pointer and box of things.)
++	bool scummverseExportOverlay(int game, const Common::Path &file, Common::String &problem);
++	bool scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask);
++	void scummverseCaptureLetters(int slot, int charset, int ink, VirtScreen &vs, int top, int rows, ScummverseUiFont &font);
+ 	int _scummverseMusicTimer = -1; // The panel export's own music clock (-1: the music's).
+ 	bool _scummverseExporting = false; // In the other worlds' export (scripts run out of their story's order).
+ 	bool _scummverseAuditedManiac = false; // (Maniac Mansion DOS V1 English, its tables checked against)
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 5e9adc97..69f74c5f 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1429,7 +1429,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, kWorldExportVersion)), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	// The verb panel last (its game's start changes the game), after the
+ 	// marker: a start that fails costs the panel, never the places.
+-	if (written && worldPanel(gameIndex)) {
++	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex))) {
+ 		Common::String problem;
+ 		const Common::Path ui = dir.appendComponent(Common::String::format("%s-ui.svi", game->gameid));
+ 		const Common::Path things = dir.appendComponent(Common::String::format("%s-things.svo", game->gameid));
+@@ -1438,6 +1438,11 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		if (!scummverseExportPanel(gameIndex, ui, problem)) {
+ 			warning("SCUMMVERSE world export: %s verb panel skipped (%s)", game->gameid, problem.c_str());
+ 			empty(ui); empty(things);
++		} else if (!worldPanel(gameIndex)) {
++			// (Sam & Max's rooms' scripts, run out of their story's order, do
++			// not end: its things are not placed yet.)
++			warning("SCUMMVERSE_WORLD_PANEL %s", game->gameid);
++			empty(things);
+ 		} else {
+ 			warning("SCUMMVERSE_WORLD_PANEL %s", game->gameid);
+ 			// Then, from that start, the things where the game puts them.
+@@ -1519,7 +1524,11 @@ struct ScummverseUiVerb { int kind, id, x, y, width, height; Common::String name
+ struct ScummverseUiRect { int x, y, width, height; };
+ struct ScummverseUiGlyph { int code, advance, x, y, width, height; Common::Array<byte> pixels; };
+ struct ScummverseUiFont { int height, ink, none; Common::Array<ScummverseUiGlyph> glyphs; };
++// (Controls over the scene: a picture where the game draws it, what it
++// leaves clear (mask 0), and a pointer's hot spot.)
++struct ScummverseUiPicture { int x = 0, y = 0, width = 0, height = 0, hotX = 0, hotY = 0; Common::Array<byte> pixels, mask; };
+ struct ScummverseUi {
++	int layout = 0; // 0: under the scene ("SVI1"); 1: over it ("SVI2", see kWorldOverlays)
+ 	int width = 0, screenHeight = 0, top = 0, rows = 0;
+ 	const byte *palette = nullptr;
+ 	Common::Array<byte> image;
+@@ -1530,16 +1539,24 @@ struct ScummverseUi {
+ 	ScummverseUiRect arrows[2] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+ 	int talk = 15;
+ 	ScummverseUiFont fonts[2];
++	// (Over the scene: what the picture leaves clear, each verb's pointer,
++	// the button that opens it, the icon that shuts it.)
++	Common::Array<byte> mask;
++	Common::Array<ScummverseUiPicture> cursors;
++	ScummverseUiPicture button;
++	ScummverseUiRect close = {0, 0, 0, 0};
+ };
+ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file, Common::String &problem) {
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write("SVI1", 4);
++	const bool over = ui.layout == 1;
++	out.write(over ? "SVI2" : "SVI1", 4);
+ 	for (int f : {ui.width, ui.screenHeight, ui.top, ui.rows}) scummverseWrite16(out, f);
+ 	out.write(ui.palette, 768);
+ 	out.write(ui.image.data(), ui.image.size());
++	if (over) out.write(ui.mask.data(), ui.mask.size());
+ 	out.writeByte(MIN<uint>(ui.verbs.size(), 255));
+ 	for (uint i = 0; i < ui.verbs.size() && i < 255; ++i) {
+ 		const ScummverseUiVerb &v = ui.verbs[i];
+@@ -1563,11 +1580,83 @@ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file,
+ 			out.writeByte(g.width); out.writeByte(g.height); out.write(g.pixels.data(), g.pixels.size());
+ 		}
+ 	}
++	if (over) {
++		auto picture = [&](const ScummverseUiPicture &p) {
++			for (int f : {p.width, p.height}) scummverseWrite16(out, f);
++			out.write(p.pixels.data(), p.pixels.size()); out.write(p.mask.data(), p.mask.size());
++		};
++		out.writeByte(MIN<uint>(ui.cursors.size(), 255));
++		for (uint i = 0; i < ui.cursors.size() && i < 255; ++i) {
++			out.writeByte(i); scummverseWrite16(out, ui.cursors[i].hotX); scummverseWrite16(out, ui.cursors[i].hotY);
++			picture(ui.cursors[i]);
++		}
++		scummverseWrite16(out, ui.button.x); scummverseWrite16(out, ui.button.y); picture(ui.button);
++		for (int f : {ui.close.x, ui.close.y, ui.close.width, ui.close.height}) scummverseWrite16(out, f);
++	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+ 	return true;
+ }
+ 
++// A charset's lettering as the game draws it (for scummverseWriteUi): each
++// character after a space on a line (the pen as within a line), in `ink`, by
++// the text verb in `slot` drawn at the pen (8, 4 rows into `vs`, whose first
++// screen row is `top`), read back from `rows` of `vs`; as many letters as the
++// charset has. The slot and its name are put back.
++void ScummEngine::scummverseCaptureLetters(int slot, int charset, int ink, VirtScreen &vs, int top, int rows, ScummverseUiFont &font) {
++	typedef ScummverseUiGlyph Glyph;
++	VerbSlot &line = _verbs[slot];
++	const VerbSlot kept = line;
++	Common::Array<byte> keptName;
++	for (const byte *c = getResourceAddress(rtVerb, slot); c && *c; ++c) keptName.push_back(*c);
++	keptName.push_back(0);
++	auto at = [&](int x, int y) -> byte & { return *((byte *)vs.getPixels(x, y)); };
++	const byte *resource = charset >= 0 && charset < _numCharsets ? getResourceAddress(rtCharset, charset) : nullptr;
++	const int count = !resource ? 0 : _game.version <= 3 ? resource[4] : READ_LE_UINT16(resource + (_game.version == 4 ? 17 : 29) + 2);
++	const int penX = 8, penY = top + 4, boxW = 64, boxH = MIN(rows, 32);
++	auto draw = [&](const byte *text) {
++		loadPtrToResource(rtVerb, slot, text);
++		line = kept;
++		line.charset_nr = charset; line.center = false; line.curmode = 1; line.hicolor = 0; line.color = ink;
++		line.curRect.left = penX; line.curRect.top = penY; line.oldRect.left = -1;
++		drawVerb(slot, 0);
++		_charset->setCurID(charset);
++	};
++	// (A first one loads the charset's own colours: "nothing" is none of them.)
++	const byte warm[2] = {'A', 0};
++	draw(warm);
++	int none = 255;
++	auto used = [&](int c) {
++		if (c == ink) return true;
++		for (int k = 0; k < 16; ++k) if (_charsetColorMap[k] == c) return true;
++		return false;
++	};
++	while (none > 0 && used(none)) --none;
++	font.ink = ink; font.none = none;
++	font.height = MIN(_charset->getFontHeight(), 255);
++	const int space = _charset->getCharWidth(' ');
++	for (int code = 32; code < MIN(count, 256); ++code) {
++		if (code == '@' || code == 0xFE || code == 0xFF || (_useCJKMode && code >= 0x80)) continue;
++		for (int y = 0; y < boxH; ++y) for (int x = 0; x < boxW; ++x) at(x, y) = none;
++		const byte text[3] = {' ', (byte)code, 0};
++		draw(text);
++		const int pen = penX + space;
++		int x0 = boxW, y0 = boxH, x1 = 0, y1 = 0;
++		for (int y = 0; y < boxH; ++y)
++			for (int x = 0; x < boxW; ++x)
++				if (at(x, y) != none) { x0 = MIN(x0, x); y0 = MIN(y0, y); x1 = MAX(x1, x + 1); y1 = MAX(y1, y + 1); }
++		Glyph g;
++		g.code = code; g.advance = CLIP(_charset->getCharWidth(code), 0, 255);
++		if (x0 >= x1) { x0 = pen; y0 = penY - top; x1 = x0; y1 = y0; }
++		g.x = CLIP(x0 - pen, -128, 127); g.y = CLIP(y0 - (penY - top), -128, 127);
++		g.width = MIN(x1 - x0, 64); g.height = MIN(y1 - y0, 64);
++		for (int y = y0; y < y0 + g.height; ++y) for (int x = x0; x < x0 + g.width; ++x) g.pixels.push_back(at(x, y));
++		if (g.advance || g.width) font.glyphs.push_back(g);
++	}
++	loadPtrToResource(rtVerb, slot, keptName.data());
++	line = kept;
++}
++
+ // The game's verb panel as its own start leaves it ("<game>-ui.svi", the new
+ // engine's step 2c; read by common/scummverse_panel.cpp): "SVI1", u16 the
+ // game's screen width, height, the panel's first row and its rows;
+@@ -1584,8 +1673,15 @@ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file,
+ // line's, the talk's): u8 height, u8 the ink they were drawn in, u8 the
+ // colour standing for nothing drawn, u8 count and per letter u8 code, u8
+ // advance, int8 x, y (from the pen), u8 width, height and its pixels.
++// "SVI2" (controls over the scene, scummverseExportOverlay) is the same with
++// the panel's mask (width * rows, 1 where drawn) after its pixels, and after
++// the letterings: u8 pointer count and per pointer u8 its verb (an index
++// into the verbs), int16 hot spot x, y, u16 width, height, pixels and mask;
++// the button: int16 x, y (screen pixels), u16 width, height, pixels, mask;
++// the icon that shuts the panel: int16 x, y, u16 width, height.
+ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldPanel *panel = worldPanel(gameIndex);
++	if (!panel && worldOverlay(gameIndex)) return scummverseExportOverlay(gameIndex, file, problem);
+ 	if (!panel) { problem = "no verb panel"; return false; }
+ 	if (_game.version <= 2) return scummverseExportPanelOld(gameIndex, file, problem);
+ 	// (Mac Indiana Jones draws its verbs in a window of its own, FM Towns on
+@@ -1796,7 +1892,6 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	// The lettering: each character as the game draws it on the sentence
+ 	// line, after a space (the pen as within a line), in the sentence's
+ 	// colour; its own charset's and the talk's, as many letters as each has.
+-	typedef ScummverseUiGlyph Glyph;
+ 	typedef ScummverseUiFont Font;
+ 	VerbSlot &line = _verbs[sentence];
+ 	const VerbSlot kept = line;
+@@ -1804,54 +1899,10 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	for (const byte *c = getResourceAddress(rtVerb, sentence); c && *c; ++c) keptName.push_back(*c);
+ 	keptName.push_back(0);
+ 	const int ink = line.color;
+-	auto letters = [&](int charset, Font &font) {
+-		const byte *resource = charset >= 0 && charset < _numCharsets ? getResourceAddress(rtCharset, charset) : nullptr;
+-		const int count = !resource ? 0 : _game.version <= 3 ? resource[4] : READ_LE_UINT16(resource + (_game.version == 4 ? 17 : 29) + 2);
+-		const int penX = 8, penY = top + 4, boxW = 64, boxH = MIN(rows, 32);
+-		auto draw = [&](const byte *text) {
+-			loadPtrToResource(rtVerb, sentence, text);
+-			line = kept;
+-			line.charset_nr = charset; line.center = false; line.curmode = 1; line.hicolor = 0; line.color = ink;
+-			line.curRect.left = penX; line.curRect.top = penY; line.oldRect.left = -1;
+-			drawVerb(sentence, 0);
+-			_charset->setCurID(charset);
+-		};
+-		// (A first one loads the charset's own colours: "nothing" is none of them.)
+-		const byte warm[2] = {'A', 0};
+-		draw(warm);
+-		int none = 255;
+-		auto used = [&](int c) {
+-			if (c == ink) return true;
+-			for (int k = 0; k < 16; ++k) if (_charsetColorMap[k] == c) return true;
+-			return false;
+-		};
+-		while (none > 0 && used(none)) --none;
+-		font.ink = ink; font.none = none;
+-		font.height = MIN(_charset->getFontHeight(), 255);
+-		const int space = _charset->getCharWidth(' ');
+-		for (int code = 32; code < MIN(count, 256); ++code) {
+-			if (code == '@' || code == 0xFE || code == 0xFF || (_useCJKMode && code >= 0x80)) continue;
+-			for (int y = 0; y < boxH; ++y) for (int x = 0; x < boxW; ++x) at(x, y) = none;
+-			const byte text[3] = {' ', (byte)code, 0};
+-			draw(text);
+-			const int pen = penX + space;
+-			int x0 = boxW, y0 = boxH, x1 = 0, y1 = 0;
+-			for (int y = 0; y < boxH; ++y)
+-				for (int x = 0; x < boxW; ++x)
+-					if (at(x, y) != none) { x0 = MIN(x0, x); y0 = MIN(y0, y); x1 = MAX(x1, x + 1); y1 = MAX(y1, y + 1); }
+-			Glyph g;
+-			g.code = code; g.advance = CLIP(_charset->getCharWidth(code), 0, 255);
+-			if (x0 >= x1) { x0 = pen; y0 = penY - top; x1 = x0; y1 = y0; }
+-			g.x = CLIP(x0 - pen, -128, 127); g.y = CLIP(y0 - (penY - top), -128, 127);
+-			g.width = MIN(x1 - x0, 64); g.height = MIN(y1 - y0, 64);
+-			for (int y = y0; y < y0 + g.height; ++y) for (int x = x0; x < x0 + g.width; ++x) g.pixels.push_back(at(x, y));
+-			if (g.advance || g.width) font.glyphs.push_back(g);
+-		}
+-	};
+ 	Font fonts[2];
+ 	const int talkFont = _string[0]._default.charset;
+-	letters(kept.charset_nr, fonts[0]);
+-	letters(talkFont >= 0 && talkFont < _numCharsets && getResourceAddress(rtCharset, talkFont) ? talkFont : kept.charset_nr, fonts[1]);
++	scummverseCaptureLetters(sentence, kept.charset_nr, ink, vs, top, rows, fonts[0]);
++	scummverseCaptureLetters(sentence, talkFont >= 0 && talkFont < _numCharsets && getResourceAddress(rtCharset, talkFont) ? talkFont : kept.charset_nr, ink, vs, top, rows, fonts[1]);
+ 	loadPtrToResource(rtVerb, sentence, keptName.data());
+ 	line = kept;
+ 	const int talk = ego && isValidActor(ego) ? _actors[ego]->_talkColor : 15;
+@@ -1868,6 +1919,209 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	return scummverseWriteUi(ui, file, problem);
+ }
+ 
++// Objects as the game draws them, alone, over `area` of the main screen (its
++// own rows and the visible columns): what they draw (mask 1) against what
++// they leave clear, each drawn twice over two fills; the screen as it was
++// after (all of it: an object draws whole, past `area`).
++bool ScummEngine::scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask) {
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const Common::Rect r(MAX<int>(0, area.left), MAX<int>(0, area.top), MIN<int>(area.right, _screenWidth), MIN<int>(area.bottom, vs.h));
++	if (r.isEmpty() || !vs.hasTwoBuffers || vs.w < _screenWidth) return false;
++	const int w = r.width(), h = r.height(), W = _screenWidth, H = vs.h;
++	Common::Array<byte> front(W * H), back(W * H), pass[2];
++	for (int y = 0; y < H; ++y) {
++		memcpy(&front[y * W], vs.getPixels(0, y), W);
++		memcpy(&back[y * W], vs.getBackPixels(0, y), W);
++	}
++	for (int p = 0; p < 2; ++p) {
++		for (int y = 0; y < h; ++y) {
++			memset(vs.getPixels(r.left, r.top + y), p ? 255 : 254, w);
++			memset(vs.getBackPixels(r.left, r.top + y), p ? 255 : 254, w);
++		}
++		for (int obj : objects) {
++			const int i = getObjectIndex(obj);
++			if (i > 0) drawObject(i, 0);
++		}
++		pass[p].resize(w * h);
++		for (int y = 0; y < h; ++y) memcpy(&pass[p][y * w], vs.getPixels(r.left, r.top + y), w);
++	}
++	for (int y = 0; y < H; ++y) {
++		memcpy(vs.getPixels(0, y), &front[y * W], W);
++		memcpy(vs.getBackPixels(0, y), &back[y * W], W);
++	}
++	pixels.resize(w * h); mask.resize(w * h);
++	for (int i = 0; i < w * h; ++i) { mask[i] = pass[0][i] == pass[1][i]; pixels[i] = mask[i] ? pass[0][i] : 0; }
++	return true;
++}
++
++// The controls a game keeps over the scene ("<game>-ui.svi" as "SVI2", the
++// new engine's step 2f; see kWorldOverlays): from its own start, run on at
++// once until its button stands in the scene and the player has the pointer;
++// each verb's pointer as a right click brings it round (back to the first,
++// else none); the button as the game draws it; the box as it opens from a
++// tap on the button, drawn alone (its picture, its verb icons and the one
++// that shuts it, not what the start put in it), each icon also in its next
++// image where it has one (lit); its cells; the talk lettering.
++bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &file, Common::String &problem) {
++	const WorldOverlay *overlay = worldOverlay(gameIndex);
++	if (!overlay) { problem = "no controls"; return false; }
++	if (_game.version < 6 || _game.heversion) { problem = "its controls are drawn its own way"; return false; }
++	Actor *button = overlay->button > 0 && overlay->button < _numActors ? _actors[overlay->button] : nullptr;
++	if (!button) { problem = "no button"; return false; }
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) { vm.slot[i].status = ssDead; vm.slot[i].cutsceneOverride = 0; vm.slot[i].freezeCount = 0; }
++	_currentScript = 0xFF; vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF;
++	memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
++	_EXCD_offs = 0;
++	if (_game.version < 7) initScreens(16, 144);
++	int args[NUM_SCRIPT_LOCAL];
++	memset(args, 0, sizeof(args));
++	// (Sam & Max's start waits on its sounds loading; its own way past it.)
++	args[0] = _game.id == GID_SAMNMAX && !_bootParam ? -1 : _bootParam;
++	_rnd.setSeed(0x5C0BE); // (The same start each time.)
++	runScript(1, 0, 0, args);
++	int frame = 0;
++	auto frames = [&](int count) {
++		for (int n = 0; n < count && !shouldQuit(); ++n, ++frame) {
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i)
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++			scummverseSkipCutscene();
++			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++			_talkDelay = 0;
++			_scummverseMusicTimer = frame * 4;
++			scummLoop(4);
++			_sound->stopAllSounds();
++		}
++	};
++	// (Mouse buttons as the engine's events set them: down and clicked.)
++	auto click = [&](byte &mouseButton) { mouseButton = 1 | 2; frames(1); mouseButton = 0; };
++	auto ready = [&]() { return button->isInCurrentRoom() && button->_visible && _userPut > 0 && _cursor.state > 0 && _cursor.width > 0 && _cursor.height > 0; };
++	int steady = 0;
++	while (frame < 3000 && !shouldQuit() && steady < 30) { frames(1); steady = ready() ? steady + 1 : 0; }
++	if (steady < 30 || shouldQuit()) { _scummverseMusicTimer = -1; problem = "its controls never showed"; return false; }
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const int W = _screenWidth, top = vs.topline, rows = MIN<int>(vs.h, _screenHeight - top);
++	if (top != 0 || rows <= 0 || vs.w < W) { _scummverseMusicTimer = -1; problem = "no screen"; return false; }
++	ScummverseUi ui;
++	ui.layout = 1; ui.width = W; ui.screenHeight = _screenHeight; ui.top = top; ui.rows = rows; ui.palette = _currentPalette;
++	// Each verb's pointer, a right click to the next; round to the first again.
++	int verbCount = 0;
++	while (verbCount < 6 && overlay->verbs[verbCount]) ++verbCount;
++	_mouse.x = W / 2; _mouse.y = top + rows / 2;
++	frames(5);
++	auto pointer = [&]() {
++		ScummverseUiPicture c;
++		c.width = _cursor.width; c.height = _cursor.height; c.hotX = _cursor.hotspotX; c.hotY = _cursor.hotspotY;
++		for (int i = 0; i < c.width * c.height && i < (int)sizeof(_grabbedCursor); ++i) {
++			const byte v = _grabbedCursor[i];
++			c.mask.push_back(v != 255); c.pixels.push_back(v != 255 ? v : 0);
++		}
++		return c;
++	};
++	auto same = [](const ScummverseUiPicture &a, const ScummverseUiPicture &b) { return a.width == b.width && a.height == b.height && a.pixels == b.pixels && a.mask == b.mask; };
++	for (int k = 0; k < verbCount; ++k) {
++		ui.cursors.push_back(pointer());
++		if (k && same(ui.cursors[k], ui.cursors[k - 1])) { _scummverseMusicTimer = -1; problem = "its pointer did not change"; return false; }
++		click(_rightBtnPressed); frames(20);
++	}
++	if (!verbCount || !same(pointer(), ui.cursors[0])) { _scummverseMusicTimer = -1; problem = "its pointer does not go round"; return false; }
++	// The button, as drawn alone (the screen put back after).
++	{
++		Common::Array<byte> kept(W * rows);
++		for (int y = 0; y < rows; ++y) memcpy(&kept[y * W], vs.getPixels(0, y), W);
++		ScummverseGuestFrame f;
++		const bool drawn = scummverseCaptureActor(vs, W, rows, button, 0, 0, f);
++		for (int y = 0; y < rows; ++y) memcpy(vs.getPixels(0, y), &kept[y * W], W);
++		if (!drawn) { _scummverseMusicTimer = -1; problem = "no button"; return false; }
++		ui.button.x = f.dx; ui.button.y = f.dy; ui.button.width = f.width; ui.button.height = f.height;
++		ui.button.pixels = f.pixels; ui.button.mask = f.mask;
++	}
++	// The box, opened by a tap on the button.
++	auto shown = [&](int obj) { return obj > 0 && getObjectIndex(obj) > 0 && getState(obj) > 0; };
++	_mouse.x = ui.button.x + ui.button.width / 2; _mouse.y = top + ui.button.y + ui.button.height / 2;
++	frames(3);
++	click(_leftBtnPressed);
++	int open = 0;
++	for (int n = 0; n < 300 && !shouldQuit() && open < 10; ++n) { frames(1); open = shown(overlay->box) ? open + 1 : 0; }
++	if (open < 10) { _scummverseMusicTimer = -1; problem = "its box never opened"; return false; }
++	Common::Array<int> parts;
++	parts.push_back(overlay->box);
++	for (int k = 0; k < verbCount; ++k) if (overlay->icons[k]) parts.push_back(overlay->icons[k]);
++	if (overlay->close) parts.push_back(overlay->close);
++	for (int obj : parts) if (!shown(obj)) { _scummverseMusicTimer = -1; problem = "its box is not whole"; return false; }
++	if (!scummverseCaptureObjects(parts, Common::Rect(0, 0, W, rows), ui.image, ui.mask)) { _scummverseMusicTimer = -1; problem = "its box cannot be drawn"; return false; }
++	// An object's rectangle on the box (screen pixels, cut to it).
++	auto place = [&](int obj) {
++		const ObjectData &o = _objs[getObjectIndex(obj)];
++		const int x0 = CLIP<int>(o.x_pos - vs.xstart, 0, W), y0 = CLIP<int>(o.y_pos - top, 0, rows);
++		const int x1 = CLIP<int>(o.x_pos - vs.xstart + o.width, x0, W), y1 = CLIP<int>(o.y_pos - top + o.height, y0, rows);
++		return ScummverseUiRect{x0, y0, x1 - x0, y1 - y0};
++	};
++	for (int k = 0; k < verbCount; ++k) {
++		ScummverseUiVerb v;
++		v.kind = worldVerbKind(gameIndex, overlay->verbs[k]); v.id = overlay->verbs[k];
++		v.x = v.y = v.width = v.height = 0;
++		if (!v.kind) { _scummverseMusicTimer = -1; problem = "a verb the catalog does not name"; return false; }
++		const int icon = overlay->icons[k];
++		if (icon) {
++			const ScummverseUiRect r = place(icon);
++			v.x = r.x; v.y = r.y; v.width = r.width; v.height = r.height;
++			// (Lit: its next image, where it has one, on the box.)
++			const int state = getState(icon);
++			Common::Array<byte> lit, litMask;
++			Common::Array<int> pair;
++			pair.push_back(overlay->box); pair.push_back(icon);
++			const bool next = getObjectImageCount(icon) > state;
++			if (next) putState(icon, state + 1);
++			const bool drawn = next && scummverseCaptureObjects(pair, Common::Rect(r.x, r.y, r.x + r.width, r.y + r.height), lit, litMask);
++			if (next) putState(icon, state);
++			for (int y = 0; y < r.height; ++y)
++				for (int x = 0; x < r.width; ++x) {
++					const int at = y * r.width + x;
++					v.lit.push_back(drawn && litMask[at] ? lit[at] : ui.image[(r.y + y) * W + r.x + x]);
++				}
++		}
++		ui.verbs.push_back(v);
++	}
++	if (overlay->close) ui.close = place(overlay->close);
++	// Its cells.
++	ui.slotKind = 2;
++	for (int row = 0; row < overlay->rows; ++row)
++		for (int column = 0; column < overlay->columns; ++column) {
++			const ScummverseUiRect r = {overlay->cellX + column * overlay->cellWidth, overlay->cellY + row * overlay->cellHeight, overlay->cellWidth, overlay->cellHeight};
++			if (r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows) ui.slots.push_back(r);
++		}
++	// Shut again (the start as it was for the things after).
++	if (overlay->close) {
++		_mouse.x = ui.close.x + ui.close.width / 2; _mouse.y = top + ui.close.y + ui.close.height / 2;
++		frames(3);
++		click(_leftBtnPressed);
++		frames(30);
++	}
++	// The talk lettering, in the player's talk colour, drawn by a verb of
++	// its own (the game has none on the screen).
++	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
++	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
++	int slot = -1;
++	for (int i = 1; i < _numVerbs && slot < 0; ++i) if (!_verbs[i].verbid) slot = i;
++	const int charset = _string[0]._default.charset;
++	if (slot < 0 || charset < 0 || charset >= _numCharsets || !getResourceAddress(rtCharset, charset)) { _scummverseMusicTimer = -1; problem = "no lettering"; return false; }
++	{
++		Common::Array<byte> front(W * rows), back(W * rows);
++		for (int y = 0; y < rows; ++y) { memcpy(&front[y * W], vs.getPixels(0, y), W); memcpy(&back[y * W], vs.getBackPixels(0, y), W); }
++		VerbSlot &v = _verbs[slot];
++		const VerbSlot was = v;
++		v.verbid = 0x7FFF; v.type = kTextVerbType; v.saveid = 0; v.key = 0; v.prep = 0; v.imgindex = 0; v.origLeft = 0;
++		v.dimcolor = v.bkcolor = 0;
++		scummverseCaptureLetters(slot, charset, ui.talk, vs, top, rows, ui.fonts[1]);
++		v = was;
++		_res->nukeResource(rtVerb, slot);
++		for (int y = 0; y < rows; ++y) { memcpy(vs.getPixels(0, y), &front[y * W], W); memcpy(vs.getBackPixels(0, y), &back[y * W], W); }
++	}
++	ui.fonts[0] = ui.fonts[1];
++	_scummverseMusicTimer = -1;
++	return scummverseWriteUi(ui, file, problem);
++}
++
+ // The oldest games' verb panel (as scummverseExportPanel writes it): the
+ // verbs their scripts set up (the mansion's from its script that does so,
+ // as the original engine's sandbox starts; else from the game's own start,
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index ceb4850b..cd972bcc 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -234,11 +234,13 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		warning("SCUMMVERSE sandbox: %s verb panel not shown (%s)", g.gameid, error);
+ 		panel = false;
+ 	}
+-	if (panel) {
++	// (Controls over the scene, Sam & Max's: the scene keeps the screen; its
++	// box opens over it.)
++	if (panel && !PanelBridge::over()) {
+ 		const int sceneRows = data.size() > 10 ? data[8] | data[9] << 8 : 0;
+ 		const double scale = MIN((double)_height / MAX(1, sceneRows + PanelBridge::rows()), _width * pixelAspect(game) / MAX(1, PanelBridge::columns()));
+ 		stageHeight = _height - PanelBridge::rowsAt(scale);
+-	} else {
++	} else if (!panel) {
+ 		PanelBridge::unload();
+ 	}
+ 	if (!StageBridge::load(data.data(), data.size(), pixelAspect(game), screenWidthOf(game), _width, stageHeight, error, sizeof(error))) { problem = error; return false; }
+@@ -246,8 +248,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		int left, top, width, height;
+ 		double rowScale, colScale;
+ 		StageBridge::view(left, top, width, height, rowScale, colScale);
+-		PanelBridge::layout(_width, _height, top + height, rowScale, colScale);
++		PanelBridge::layout(_width, _height, PanelBridge::over() ? top : top + height, rowScale, colScale);
+ 	}
++	_pointerX = _pointerY = -1;
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
+ 	_action = 0; _target = -1; _speech.clear(); _speechClock = 0;
+ 	PanelBridge::select(-1);
+@@ -346,8 +349,15 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	case 2: chooseVerb(on); return;
+ 	case 3: useItem(on); return;
+ 	case 4: PanelBridge::scroll(on); return;
++	case 5: _action = 0; _target = -1; _door = -1; PanelBridge::open(true); _dirty = true; return;
++	case 6: PanelBridge::open(false); _dirty = true; return;
++	// (Its own box icon: shut, and walking again, for a phone without two
++	// fingers' right click.)
++	case 7: PanelBridge::open(false); PanelBridge::select(-1); _dirty = true; return;
+ 	default: break;
+ 	}
++	// (Over the scene, the pointer is where the last tap was.)
++	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
+ 	_door = -1; _action = 0; _target = -1;
+@@ -355,12 +365,14 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	// shown here), walked to first; else walking.
+ 	const int verb = PanelBridge::loaded() ? PanelBridge::selected() : -1;
+ 	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+-	PanelBridge::select(-1);
++	// (A panel's verb is used once; a pointer stays the verb it is.)
++	if (!PanelBridge::over()) PanelBridge::select(-1);
+ 	if (kind != kWorldVerbWalk) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+ 		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+-		if (thing >= 0) {
++		// (Sam & Max's use pointer on a door goes through it, as its game's does.)
++		if (thing >= 0 && !(PanelBridge::over() && kind == kWorldVerbUse && isDoor(thing))) {
+ 			char name[80], verbName[40];
+ 			StageBridge::objectName(thing, name, sizeof(name));
+ 			PanelBridge::verbName(verb, verbName, sizeof(verbName));
+@@ -423,6 +435,13 @@ void SandboxEngine::sentence(const Common::String &text) {
+ 
+ void SandboxEngine::chooseVerb(int verb) {
+ 	_action = 0; _target = -1; _door = -1;
++	// (Sam & Max's box: an icon is the pointer from then on; the box shuts.)
++	if (PanelBridge::over()) {
++		PanelBridge::select(PanelBridge::verbKind(verb) == kWorldVerbWalk ? -1 : verb);
++		PanelBridge::open(false);
++		_dirty = true;
++		return;
++	}
+ 	if (verb == PanelBridge::selected() || PanelBridge::verbKind(verb) == kWorldVerbWalk) {
+ 		PanelBridge::select(-1); sentence(""); return;
+ 	}
+@@ -462,13 +481,25 @@ void SandboxEngine::newKid() {
+ 	say("There's no one else here to play.");
+ }
+ 
++// A right click (two fingers on the iPhone): over the scene, as in Sam &
++// Max, the next verb for the pointer (where the click was), or the box shut.
++void SandboxEngine::rightClick(int screenX, int screenY) {
++	if (!PanelBridge::loaded() || !PanelBridge::over()) return;
++	_action = 0; _target = -1; _door = -1;
++	if (PanelBridge::isOpen()) PanelBridge::open(false);
++	else { PanelBridge::nextVerb(); _pointerX = screenX; _pointerY = screenY; }
++	_dirty = true;
++}
++
+ // A thing carried: looked at, it is named; nothing else works on it here.
+ void SandboxEngine::useItem(int item) {
+ 	const int verb = PanelBridge::selected();
+-	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
++	int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	char name[80];
+ 	PanelBridge::itemName(item, name, sizeof(name));
+-	PanelBridge::select(-1);
++	// (In Sam & Max's box the pointer stays the verb it is; walking there looks.)
++	if (!PanelBridge::over()) PanelBridge::select(-1);
++	else if (kind == kWorldVerbWalk) kind = kWorldVerbLook;
+ 	if (kind == kWorldVerbWalk) { sentence(name); return; }
+ 	sentence("");
+ 	int picture;
+@@ -651,15 +682,20 @@ void SandboxEngine::request(int code) {
+ void SandboxEngine::present() {
+ 	StageBridge::render(_frame.data(), _width);
+ 	if (PanelBridge::loaded()) {
++		// Over the scene (Sam & Max): its box while open, else its button and
++		// the pointer where the last tap was.
++		const bool over = PanelBridge::over();
++		if (over && PanelBridge::isOpen()) PanelBridge::render(_frame.data(), _width, _height);
++		else if (over) PanelBridge::renderControls(_frame.data(), _width, _width, _height, _pointerX, _pointerY, _pointerX >= 0);
+ 		// Speech over the one played's head, at the scene's scale.
+ 		int x0, y0, x1, y1;
+ 		if (!_speech.empty() && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) {
+ 			int left, top, width, height;
+ 			double rowScale, colScale;
+ 			StageBridge::view(left, top, width, height, rowScale, colScale);
+-			PanelBridge::say(_frame.data(), _width, _width, PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2, y0 - (int)(4 * rowScale), rowScale, colScale);
++			PanelBridge::say(_frame.data(), _width, _width, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2, y0 - (int)(4 * rowScale), rowScale, colScale);
+ 		}
+-		PanelBridge::render(_frame.data(), _width, _height);
++		if (!over) PanelBridge::render(_frame.data(), _width, _height);
+ 	}
+ 	if (_format == kStageFormat) {
+ 		g_system->copyRectToScreen(_frame.data(), _width * 4, 0, 0, _width, _height);
+@@ -829,6 +865,7 @@ Common::Error SandboxEngine::run() {
+ 		Common::Event event;
+ 		while (g_system->getEventManager()->pollEvent(event))
+ 			if (event.type == Common::EVENT_LBUTTONDOWN) { tap(event.mouse.x, event.mouse.y); changed = true; }
++			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+ 		if (const int code = scummverseWorldPoll()) if (code > kWorldSandboxRequest) { request(code); changed = true; }
+ 		const uint32 now = g_system->getMillis();
+@@ -875,22 +912,37 @@ Common::Error SandboxEngine::verbsTest() {
+ 		for (int v = 0; v < PanelBridge::verbCount(); ++v) if (PanelBridge::verbKind(v) == kind && PanelBridge::verbShown(v)) return v;
+ 		return -1;
+ 	};
++	// A verb chosen as a player does: a tap on it; over the scene (Sam &
++	// Max), its icon in the box the button opens.
++	auto pick = [&](int v) {
++		int x, y, w, h, bx, by, bw, bh;
++		if (!PanelBridge::verbRect(v, x, y, w, h)) return false;
++		if (PanelBridge::over()) {
++			if (!PanelBridge::buttonRect(bx, by, bw, bh)) return false;
++			tapRect(bx, by, bw, bh);
++			if (!PanelBridge::isOpen()) return false;
++		}
++		tapRect(x, y, w, h);
++		return true;
++	};
+ 	// A verb used on an object: false when the panel has no such verb or a
+ 	// tap on the object's middle is for another one.
+ 	auto use = [&](int kind, int object) {
+ 		const int v = verbOf(kind);
+-		int x, y, w, h, id, ox, oy, ow, oh, wx, wy, state, sx, sy;
+-		if (v < 0 || !PanelBridge::verbRect(v, x, y, w, h) || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
++		if (v < 0 || !PanelBridge::verbShown(v) || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
+ 		_speech.clear();
+-		tapRect(x, y, w, h);
++		if (!pick(v)) return false;
++		// (The pointer stays the verb it is: back to walking after.)
++		auto done = [&](bool used) { if (PanelBridge::over()) PanelBridge::select(-1); return used; };
+ 		StageBridge::lookAt(ox + ow / 2.0);
+ 		StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
+-		if (sx < 0 || sx >= _width || sy < 0 || sy >= PanelBridge::top()) { PanelBridge::select(-1); return false; }
++		if (sx < 0 || sx >= _width || sy < 0 || sy >= (PanelBridge::over() ? _height : PanelBridge::top())) { PanelBridge::select(-1); return false; }
+ 		tap(sx, sy);
+-		if (_target != object) { _action = 0; _target = -1; return false; }
++		if (_target != object) { _action = 0; _target = -1; return done(false); }
+ 		settle();
+ 		// (Not got to: another one is tried.)
+-		return _speech != "I can't reach that.";
++		return done(_speech != "I can't reach that.");
+ 	};
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+ 		int room;
+@@ -903,13 +955,55 @@ Common::Error SandboxEngine::verbsTest() {
+ 		int left, top, width, height;
+ 		double rowScale, colScale;
+ 		StageBridge::view(left, top, width, height, rowScale, colScale);
+-		if (PanelBridge::top() != top + height || PanelBridge::top() + PanelBridge::screenRows() > _height) fail("not under the scene", g);
++		const bool over = PanelBridge::over();
++		if (PanelBridge::top() != (over ? top : top + height) || PanelBridge::top() + PanelBridge::screenRows() > _height) fail(over ? "not over the scene" : "not under the scene", g);
++		// Over the scene (Sam & Max): the box opens from its button and shuts
++		// by its icon, a tap off it and a right click; a right click brings
++		// each verb round as the pointer, back to walking.
++		if (over) {
++			int bx, by, bw, bh, cx, cy, cw, ch;
++			if (!PanelBridge::buttonRect(bx, by, bw, bh) || !PanelBridge::closeRect(cx, cy, cw, ch)) fail("no button", g);
++			else {
++				tapRect(bx, by, bw, bh);
++				if (!PanelBridge::isOpen()) fail("the box not opened", g);
++				// (Its own icon shuts it, the pointer walking again.)
++				PanelBridge::select(verbOf(kWorldVerbLook));
++				tapRect(cx, cy, cw, ch);
++				if (PanelBridge::isOpen() || PanelBridge::selected() != -1) fail("the box not shut by its icon", g);
++				tapRect(bx, by, bw, bh); tap(0, 0);
++				if (PanelBridge::isOpen()) fail("the box not shut by a tap off it", g);
++				tapRect(bx, by, bw, bh); rightClick(_width / 2, _height / 2);
++				if (PanelBridge::isOpen()) fail("the box not shut by a right click", g);
++			}
++			Common::HashMap<int, bool> round;
++			PanelBridge::select(-1);
++			for (int k = 0; k < PanelBridge::verbCount(); ++k) { round[PanelBridge::pointerVerb()] = true; rightClick(_width / 2, _height / 2); }
++			if ((int)round.size() != PanelBridge::verbCount() || PanelBridge::selected() != -1) fail("the pointer not round its verbs", g);
++			// The use pointer on a door goes through it (walked to).
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int id, ox, oy, w, h, wx, wy, state, sx, sy;
++				if (!isDoor(o) || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
++				StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++				if (sx < 0 || sx >= _width || sy < 0 || sy >= _height || !pick(verbOf(kWorldVerbUse))) continue;
++				tap(sx, sy);
++				if (_door < 0 || _action) fail("a door not gone to with the use pointer", g);
++				_door = -1; _action = 0; _target = -1;
++				PanelBridge::select(-1);
++				break;
++			}
++		}
+ 		// Each verb chosen, then let go ("New kid": someone else played).
+ 		int shownVerbs = 0;
+ 		for (int v = 0; v < PanelBridge::verbCount(); ++v) {
+ 			int x, y, w, h;
+ 			if (!PanelBridge::verbRect(v, x, y, w, h)) continue;
+ 			++shownVerbs; ++verbs;
++			if (over) {
++				// (Its icon: the pointer from then on, the box shut.)
++				if (!pick(v) || PanelBridge::selected() != v || PanelBridge::isOpen()) fail("a verb not chosen", g); else ++chosen;
++				PanelBridge::select(-1);
++				continue;
++			}
+ 			if (PanelBridge::verbKind(v) == kWorldVerbNewKid) {
+ 				const int before = _playerKey;
+ 				tapRect(x, y, w, h);
+@@ -928,7 +1022,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!walk) tapRect(x, y, w, h);
+ 			if (PanelBridge::selected() != -1) fail("a verb not let go", g);
+ 		}
+-		if (shownVerbs < 9) fail("fewer than nine verbs", g);
++		if (shownVerbs < (over ? 4 : 9)) fail("fewer verbs than the game has", g);
+ 		Common::Array<int> things;
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 		auto facts = [&](int o, int &id, int &pictures, int &shown, bool &door, bool &small) {
+@@ -1003,11 +1097,19 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (_speech != "I can't pick that up." || PanelBridge::itemCount() != (int)_carried.size()) fail("a door taken", g); else ++refused;
+ 			break;
+ 		}
+-		// The panel in use: a verb chosen, the sentence, what is carried.
++		// The panel in use: a verb chosen, the sentence, what is carried (over
++		// the scene: the pointer, then the box open).
+ 		const int look = verbOf(kWorldVerbLook);
+ 		if (look >= 0) { PanelBridge::select(look); char name[40]; PanelBridge::verbName(look, name, sizeof(name)); sentence(name); }
++		_pointerX = _width / 2; _pointerY = _height / 2;
+ 		present();
+ 		if (ConfMan.hasKey("scummverse_shots")) shot(Common::String::format("verbs-%s.png", kWorldGames[g].gameid));
++		if (over) {
++			PanelBridge::open(true);
++			present();
++			if (ConfMan.hasKey("scummverse_shots")) shot(Common::String::format("verbs-%s-box.png", kWorldGames[g].gameid));
++			PanelBridge::open(false);
++		}
+ 		PanelBridge::select(-1);
+ 		// Pushing and picking up where the game has such things: here, else
+ 		// in its other places (the named ones first).
+@@ -1053,8 +1155,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 				// (Scrolled to it: the last carried, past the slots shown.)
+ 				for (int turn = 0; turn < 64 && PanelBridge::itemCount() - 1 - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
+ 				const int slot = PanelBridge::itemCount() - 1 - PanelBridge::firstItem();
+-				if (looking >= 0 && PanelBridge::verbRect(looking, x, y, w, h)) {
+-					tapRect(x, y, w, h);
++				if (looking >= 0 && pick(looking)) {
++					// (Over the scene: in the box, opened again.)
++					int bx, by, bw, bh;
++					if (PanelBridge::over() && PanelBridge::buttonRect(bx, by, bw, bh)) tapRect(bx, by, bw, bh);
+ 					char name[80];
+ 					PanelBridge::itemName(PanelBridge::itemCount() - 1, name, sizeof(name));
+ 					if (PanelBridge::slotRect(slot, x, y, w, h)) {
+@@ -1062,6 +1166,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 						if (_speech.empty() || toupper((unsigned char)_speech[0]) != toupper((unsigned char)name[0])) fail("a thing carried not looked at", g);
+ 						else ++items;
+ 					}
++					if (PanelBridge::over()) { PanelBridge::open(false); PanelBridge::select(-1); }
+ 				}
+ 				break;
+ 			}
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index b1d75302..503f0399 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -82,6 +82,7 @@ private:
+ 	bool isCarried(int game, int room, int id) const;
+ 	void sentence(const Common::String &text);
+ 	void chooseVerb(int verb);
++	void rightClick(int screenX, int screenY);
+ 	void newKid();
+ 	void useItem(int item);
+ 	void act();
+@@ -129,6 +130,7 @@ private:
+ 	Common::String _speech;                 // what the one played says
+ 	int _speechClock = 0;
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
++	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them
+ 	Common::HashMap<int, int> _pictures;    // objects in another picture (thingKey; taken: 0)
+ 	struct Carried { int game, room, id, picture; Common::String name; };

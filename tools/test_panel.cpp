@@ -3,7 +3,8 @@
 // under the scene and what a tap is on, drawing (a verb lit, the sentence
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
-// the plain rules for each verb, and things carried from a scene.
+// the plain rules for each verb, things carried from a scene, and controls
+// over the scene (Sam & Max's box, button and pointer).
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
 //   tools/test_panel.cpp engine/common/scummverse_panel.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_panel.h"
@@ -76,6 +77,51 @@ static std::vector<uint8_t> sceneBytes(int shown, bool pictures = true) {
 	for (int f : {4, 4, 8, 6}) put16(d, f);
 	for (int i = 0; i < 48; ++i) d.push_back(3);
 	for (int y = 0; y < 6; ++y) for (int x = 0; x < 8; ++x) d.push_back((uint8_t)(x >= 3 && x < 5 && y >= 2 && y < 4 ? 9 : 3));
+	return d;
+}
+
+// Controls over the scene ("SVI2", Sam & Max's way): a box 32x20 from row
+// 0 of a 32x20 screen, drawn (mask 1) at x 4..27, y 2..17; a walk verb only
+// named, look and use icons at 6,3 and 14,3 (6x4, lit 200 and 201), two
+// cells 6x4 at 6,10 and 14,10, the icon that shuts it at 22,3 4x4; each
+// verb's pointer 3x2 (hot spot 1,1, its top left left clear, colour 60 +
+// verb); the button 4x4 at 0,16 in colour 90.
+struct OverSpec { int pointerVerb = 2; bool twice = false; int buttonY = 16; int closeX = 22; bool trailing = false; };
+static std::vector<uint8_t> overBytes(const OverSpec &o = OverSpec()) {
+	const int W = 32, rows = 20;
+	std::vector<uint8_t> d = {'S', 'V', 'I', '2'};
+	for (int f : {W, 20, 0, rows}) put16(d, f);
+	for (int c = 0; c < 256; ++c) put(d, {c, (2 * c) & 255, 255 - c});
+	for (int i = 0; i < W * rows; ++i) d.push_back((uint8_t)(i % 5 + 1));
+	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) d.push_back(x >= 4 && x < 28 && y >= 2 && y < 18 ? 1 : 0);
+	d.push_back(3);
+	put(d, {kWalk}); put16(d, 7); for (int f : {0, 0, 0, 0}) put16(d, f); d.push_back(0);
+	put(d, {kLook}); put16(d, 4); for (int f : {6, 3, 6, 4}) put16(d, f); d.push_back(0);
+	for (int i = 0; i < 24; ++i) d.push_back(200);
+	put(d, {kUse}); put16(d, 5); for (int f : {14, 3, 6, 4}) put16(d, f); d.push_back(0);
+	for (int i = 0; i < 24; ++i) d.push_back(201);
+	put16(d, 0); put16(d, 0); put(d, {0, 0});
+	put(d, {2, 0, 0, 2});
+	for (int f : {6, 10, 6, 4, 14, 10, 6, 4}) put16(d, f);
+	for (int f = 0; f < 8; ++f) put16(d, 0);
+	d.push_back(11);
+	for (int font = 0; font < 2; ++font) {
+		put(d, {5, 77, 255, 1});
+		put(d, {'A', 4, 0, 0, 3, 5});
+		for (int i = 0; i < 15; ++i) d.push_back(77);
+	}
+	d.push_back(o.twice ? 4 : 3);
+	for (int k = 0; k < (o.twice ? 4 : 3); ++k) {
+		d.push_back((uint8_t)(k == 2 ? o.pointerVerb : k % 3));
+		put16(d, 1); put16(d, 1); put16(d, 3); put16(d, 2);
+		for (int i = 0; i < 6; ++i) d.push_back((uint8_t)(60 + k));
+		for (int i = 0; i < 6; ++i) d.push_back(i ? 1 : 0);
+	}
+	put16(d, 0); put16(d, o.buttonY); put16(d, 4); put16(d, 4);
+	for (int i = 0; i < 16; ++i) d.push_back(90);
+	for (int i = 0; i < 16; ++i) d.push_back(1);
+	for (int f : {o.closeX, 3, 4, 4}) put16(d, f);
+	if (o.trailing) d.push_back(0);
 	return d;
 }
 
@@ -461,5 +507,93 @@ int main() {
 		PanelBridge::clear();
 	}
 	std::puts("PASS: things carried from a scene (only the thing itself), kept panel to panel and without one, cleared");
+	{
+		// Controls over the scene (Sam & Max): the file whole or not at all.
+		const std::vector<uint8_t> data = overBytes();
+		Source s;
+		assert(parse(data.data(), data.size(), s, error));
+		assert(s.over && s.rows == 20 && s.mask.size() == 32 * 20 && s.mask[2 * 32 + 4] == 1 && s.mask[0] == 0);
+		assert(s.verbs.size() == 3 && s.cursors.size() == 3 && s.cursors[1].rect.width == 3 && s.cursors[2].hotX == 1 && s.cursors[0].mask[0] == 0);
+		assert(s.button.rect.x == 0 && s.button.rect.y == 16 && s.button.rect.width == 4 && s.close.x == 22 && s.slotKind == 2 && s.slots.size() == 2);
+		for (size_t cut = 1; cut < data.size(); cut += 29) assert(!parse(data.data(), data.size() - cut, s, error));
+		OverSpec trailing; trailing.trailing = true;
+		OverSpec badVerb; badVerb.pointerVerb = 3;
+		OverSpec again; again.pointerVerb = 1;
+		OverSpec low; low.buttonY = 18;
+		OverSpec farClose; farClose.closeX = 30;
+		for (const OverSpec &bad : {trailing, badVerb, again, low, farClose}) {
+			const std::vector<uint8_t> b = overBytes(bad);
+			assert(!parse(b.data(), b.size(), s, error));
+			// (Cut short anywhere, bad or not: refused, nothing written past.)
+			for (size_t cut = bad.trailing ? 2 : 1; cut < b.size(); ++cut) assert(!parse(b.data(), b.size() - cut, s, error));
+		}
+		// (A panel under the scene is none of this.)
+		const std::vector<uint8_t> under = panelBytes();
+		assert(parse(under.data(), under.size(), s, error) && !s.over && s.cursors.empty());
+		// Over a scene at twice the size: shut, only its button; open, every
+		// tap the box's (off it or its icon that shuts it, shut).
+		Panel::Panel p;
+		assert(p.load(data.data(), data.size(), error) && p.over() && !p.isOpen());
+		p.layout(64, 40, 0, 2.0, 2.0);
+		const Rect b = p.buttonOnScreen();
+		assert(b.x == 0 && b.y == 32 && b.width == 8 && b.height == 8);
+		Panel::Panel::Hit h = p.hit(2, 34);
+		assert(h.panel && h.button && h.verb < 0);
+		h = p.hit(30, 20);
+		assert(!h.panel && h.verb < 0 && !h.close);
+		p.open(true);
+		assert(p.isOpen());
+		assert(p.hit(0, 0).close && !p.hit(0, 0).icon && p.hit(63, 39).close && p.hit(46, 8).close && p.hit(46, 8).icon);
+		h = p.hit(14, 8);
+		assert(h.verb == 1 && !h.close);
+		assert(p.hit(30, 8).verb == 2 && p.hit(14, 22).item == -1 && !p.hit(14, 22).close);
+		std::vector<Item> items(1);
+		items[0].name = "rat"; items[0].width = 2; items[0].height = 2; items[0].picture.assign(4, 0xFF00FF00u);
+		p.setItems(items);
+		assert(p.hit(14, 22).item == 0 && p.hit(30, 22).item == -1);
+		// The pointer: walking, look, use, then walking again.
+		assert(p.pointerVerb() == 0);
+		p.nextVerb(); assert(p.selected() == 1 && p.pointerVerb() == 1);
+		p.nextVerb(); assert(p.selected() == 2);
+		p.nextVerb(); assert(p.selected() == -1 && p.pointerVerb() == 0);
+		// Drawn: the box only where it is drawn, only while open; the
+		// button and the pointer (its hot spot where asked), not while open.
+		std::vector<uint32_t> screen(64 * 40, 7);
+		p.render(screen.data(), 64, 40);
+		assert(screen[0] == 7 && screen[63 * 1] == 7 && screen[4 * 64 + 8] == rgb(data[12 + 768 + 2 * 32 + 4]));
+		assert(screen[22 * 64 + 16] == 0xFF00FF00u && screen[22 * 64 + 14] != 0xFF00FF00u); // (the rat in the middle of its cell)
+		p.open(false);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.render(screen.data(), 64, 40);
+		for (uint32_t c : screen) assert(c == 7);
+		p.select(1);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		assert(screen[33 * 64 + 1] == rgb(90) && screen[39 * 64 + 7] == rgb(90));
+		// (Look's pointer, 3x2 at twice the size, hot spot 1,1 on 20,20: from 18,18.)
+		assert(screen[18 * 64 + 18] == 7 && screen[18 * 64 + 20] == rgb(61) && screen[21 * 64 + 23] == rgb(61) && screen[22 * 64 + 24] == 7);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, false);
+		assert(screen[18 * 64 + 20] == 7 && screen[33 * 64 + 1] == rgb(90));
+		// Under the scene: no button, nothing drawn, never open.
+		Panel::Panel under2;
+		assert(under2.load(under.data(), under.size(), error) && !under2.over());
+		under2.open(true);
+		assert(!under2.isOpen() && under2.buttonOnScreen().width == 0);
+		// The bridge's codes: 5 the button, 6 off the box, 7 its icon.
+		char problem[64];
+		int index;
+		assert(PanelBridge::load(data.data(), data.size(), problem, sizeof(problem)) && PanelBridge::over());
+		PanelBridge::layout(64, 40, 0, 2.0, 2.0);
+		assert(PanelBridge::hit(2, 34, index) == 5);
+		PanelBridge::open(true);
+		assert(PanelBridge::isOpen() && PanelBridge::hit(0, 0, index) == 6 && PanelBridge::hit(46, 8, index) == 7);
+		assert(PanelBridge::hit(14, 8, index) == 2 && index == 1);
+		int x, y, w, hh;
+		assert(PanelBridge::buttonRect(x, y, w, hh) && x == 0 && y == 32 && PanelBridge::closeRect(x, y, w, hh) && x == 44 && y == 6);
+		PanelBridge::nextVerb();
+		assert(PanelBridge::pointerVerb() == 1);
+		PanelBridge::clear();
+	}
+	std::puts("PASS: controls over the scene (a box from its button, shut off it or by its icon; the pointer round its verbs; drawn only where drawn)");
 	return 0;
 }

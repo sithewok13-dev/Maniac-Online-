@@ -581,6 +581,28 @@ one palette) apply.
   colours on) and the variable put back after: their costumes draw everyone
   in one grey otherwise, and a scripted room's put-back variables may not
   be lit.
+- Controls over the scene (0112, step 2f; `WorldOverlay`, "SVI2"): a game
+  without a verb panel has its controls drawn by its scripts when the
+  player taps (Sam & Max: the pointer is the verb, a right click the next;
+  a box of things opens from a button). ScummEngine::scummverseExportOverlay
+  runs the game's start until its button actor stands in the scene, takes
+  each pointer from `_grabbedCursor` as right clicks bring it round (it must
+  come back to the first), the button with scummverseCaptureActor, then
+  opens the box with a click on the button and draws its objects alone with
+  scummverseCaptureObjects (front and back buffers filled twice, each object
+  drawn with drawObject; what differs between the fills is clear, the
+  screen put back after); the icons are the box's verbs (lit: their next
+  image, where they have one), the catalog's cells its slots; the talk
+  lettering is drawn by a verb slot it borrows (scummverseCaptureLetters,
+  the panels' too). "SVI2" is "SVI1" with the panel's mask after its
+  pixels and, after the letterings, each verb's pointer, the button and the
+  box's shutting icon (see scummverseWriteUi). In common/scummverse_panel
+  `Source::over` makes the panel a box laid over the scene's view: shut,
+  only its button is hit and drawn (renderControls, with the pointer at its
+  hot spot); open, every tap is the box's (`close` off it), drawn only
+  where its mask is. The sandbox keeps the whole screen for the scene, a
+  right click (EVENT_RBUTTONDOWN) brings the next verb or shuts the box,
+  and the pointer stays the verb chosen.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
