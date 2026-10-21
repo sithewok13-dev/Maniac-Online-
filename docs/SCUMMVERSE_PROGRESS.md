@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0120 (the camera in the new engine).
+Active milestone: Phase 1; latest patch 0121 (the camera in the new engine: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3304,4 +3304,25 @@ An independent review of 0118 (pushed before it came back).
 - Known: the selfie's people are framed from where they are drawn (as
   Maniac's); a photo taken while a line is said keeps the line only in a
   full one.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0121 — the camera in the new engine: review fixes
+
+An independent review of 0120 (pushed before it came back).
+- In a place wider than the screen a selfie was framed over the whole
+  scene, not the part shown: near the screen's edge its frame ran off it
+  and the picture came out cut, narrower than 4:5, the one played at its
+  edge. Photos and selfies now take the part of the scene on the screen.
+- A check that stands in for the Photos saving puts the iPhone's own back
+  when it is done (it ended the saving for the rest of the run).
+- Held for a selfie or the Photos question, Full Throttle's coin is shut if
+  it was open, and the chat goes on while iOS asks (its replies wait).
+- The "camera" check now also: someone is walking when the selfie starts;
+  each shot is the posed scene as drawn on its own; the shots are 4:5 to
+  4:3 by their own measure; it goes through the run loop's own holding;
+  and in a wide place scrolled to its far side (one where a frame over the
+  whole scene would run off the screen), a selfie stays within the part
+  shown. With the old framing it fails (checked). The camera unit test
+  frames a wide group with both near ones in, and the iPhone's saving
+  taken back after a check.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.

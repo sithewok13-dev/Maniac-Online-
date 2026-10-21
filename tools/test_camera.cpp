@@ -175,7 +175,7 @@ static void trueColour() {
 	squareFactor(2000, 900, k); assert(k == 1);
 	squareFactor(1000, 30, k); assert(k == 2);
 	squareFactor(3000, 4000, k); assert(k == 1);      // (never smaller)
-	squareFactor(800, 2100, k); assert(k == 1);       // (4096 at most: 2 would be 4200)
+	squareFactor(800, 2100, k); assert(k == 1);       // (long enough already)
 	const uint32_t pixels[] = {0xFF102030, 0xFF405060, 0xFF708090, 0xFFA0B0C0,
 	                           0xFF000000, 0xFFFFFFFF, 0xFF123456, 0xFF654321};
 	setPlainSink(plain, &g_plainCalls);
@@ -190,14 +190,25 @@ static void trueColour() {
 	assert(!shootTrue(nullptr, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1));
 	setPlainSink(nullptr, nullptr);
 	assert(!shootTrue(pixels, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1) && g_plainCalls == 2);
+	// Standing in for the sink set before (the iPhone's), which is back after.
+	const int before = g_calls;
+	setSink(sink, &g_calls);
+	setPlainSink(plain, &g_plainCalls);
+	assert(shootTrue(pixels, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1) && g_plainCalls == 3 && g_calls == before);
+	setPlainSink(plain, &g_plainCalls); // (again: still the iPhone's held)
+	setPlainSink(nullptr, nullptr);
+	assert(shootTrue(pixels, 4, 4, 2, rect(0, 0, 2, 2), kClean, 0, 1) && g_plainCalls == 3 && g_calls == before + 1);
+	setSink(nullptr, nullptr);
 	// A selfie framed on square pixels: 4:5 to 4:3 as it is.
 	const Rect view = rect(0, 0, 1280, 720);
 	Rect f = frameSelfie(rect(600, 300, 60, 200), nullptr, 0, view, 1.0);
 	assert(inside(rect(600, 300, 60, 200), f) && inside(f, view));
 	assert(f.w / (double)f.h >= 0.8 - 0.02 && f.w / (double)f.h <= 4.0 / 3 + 0.02);
-	const Rect wide[] = {rect(300, 320, 60, 180), rect(800, 310, 60, 190)};
+	// (Two near either side: a wide group, made 4:3 by room above and below.)
+	const Rect wide[] = {rect(380, 320, 60, 180), rect(660, 310, 60, 190)};
 	f = frameSelfie(rect(560, 300, 60, 200), wide, 2, view, 1.0);
-	assert(f.w / (double)f.h <= 4.0 / 3 + 0.02);
+	assert(inside(wide[0], f) && inside(wide[1], f) && inside(rect(560, 300, 60, 200), f));
+	assert(f.w / (double)f.h <= 4.0 / 3 + 0.02 && f.w / (double)f.h >= 4.0 / 3 - 0.02);
 	puts("PASS: true colour (whole-pixel enlarging of square pixels, cut to the picture, a plain-types sink); selfies framed on square pixels");
 }
 

@@ -719,9 +719,13 @@ one palette) apply.
   Stage::pose (a way and a frame held; -1 their own), shows the stage, and
   takes kSelfieSettle, kSelfieNext and kSelfieShow as Maniac's; its frame
   (Camera::frameSelfie with rowAspect 1: the stage's pixels are square)
-  from the drawn rectangles, fixed at the first shot. Camera::setPlainSink
-  is for the "camera" self-test's stand-in (it replaces the iOS sink while
-  set).
+  from the drawn rectangles, fixed at the first shot, within `shown` (the
+  part of the scene on the screen: View::width less the camera, cut at the
+  screen, as Scene::render draws it; the clean photo's crop too).
+  Camera::setPlainSink is for the "camera" self-test's stand-in; it holds
+  the sink set before (the iOS one) and puts it back when let go.
+  cameraHold is the run loop's holding (events drained, a press and a coin
+  let go, the chat pumped while iOS asks for Photos).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
