@@ -335,7 +335,10 @@ if __name__ == '__main__':
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name)])  # (not The Dig's subway cars)
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
-        print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown); its controls; back where it began')
+        unreached = int(re.search(r'(\d+) doors not reached', output).group(1))
+        if unreached * 10 > foot:
+            raise SystemExit(f'FAIL: tour: {unreached} doors not reached for {foot} on foot')
+        print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached); its controls; back where it began')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

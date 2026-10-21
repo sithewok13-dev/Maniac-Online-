@@ -741,7 +741,15 @@ one palette) apply.
   while touring unpaused; requests that change the place end it
   (tourEnd(false)); saveState does nothing while touring (where it began
   stays saved; tourStart saves it); the stop to resume at is ConfMan's
-  scummverse_sandbox_tour_stop (1-based).
+  scummverse_sandbox_tour_place (game * 1024 + room, written and flushed at
+  each stop by tourKeep). From 0123: run() calls tourReady (build and
+  publish) once the first place is shown; kTourToDoor goes through only a
+  link of the place it is in that the one played reached (tourReached:
+  within kDoorReach of the door's walkable point; maps a tap away), else
+  warps on (Touring::unreached); a walk to a door gets kTourDoorWalk ticks;
+  `leg` is the way's position (tourPlan keeps it: a pause on the way goes
+  on); a place passed through publishes its own label; a request back to
+  Maniac ends the tour home.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

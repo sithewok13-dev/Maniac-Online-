@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0122 (the tour in the new engine).
+Active milestone: Phase 1; latest patch 0123 (the tour in the new engine: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3351,8 +3351,42 @@ An independent review of 0120 (pushed before it came back).
   Next and Previous staying paused, played walking on, stopped back where it
   began to resume at its stop; then the whole tour at 16 times the speed:
   every stop in turn (628 on foot, 140 warped, none not shown; 422,912 game
-  ticks, about two hours at 1x) and back where it began.
+  ticks, about two hours at 1x) and back where it began. (Corrected in
+  0123: "on foot" counted doors gone through without checking they were
+  reached; with that checked, 532, then 604 once walks to a door may last
+  longer.)
 - Known: the mansion's rooms are named by its map where they have names
   (Maniac's own tour names all 37); rides (the bus, the plane, the van,
   the Dig's subway) are not stops in the new engine yet (step 5).
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
+
+## Patch 0123 — the tour in the new engine: review fixes
+
+An independent review of 0122 (pushed before it came back).
+- The iPhone's tour menu is told the stops as the new engine starts: it
+  offered "Start the tour" while resuming a saved stop, hid "Start over at
+  stop 1", and Go to stop stopped at 1.
+- The tour goes through a door only when the one played reached it (as a
+  player's tap on a door needs); otherwise it says so in the log and warps
+  on, counted apart. A walk to a door may last up to 40 seconds (at 1x;
+  the longest places took longer than the 10 a walk across gets, and the
+  tour went through from afar).
+- Paused on the way through a place between two stops, then played, it
+  goes on along the same way (it warped); through only a door of the
+  place it is in; a walk of the player's own does not go on into the tour.
+- A place passed through between two stops is labelled so ("Stop 12/768 ·
+  on the way, through loom 21 · ...") for a bug report to name it.
+- Back to the original engine while touring brings the one played home
+  first, so where it began is what is saved.
+- Where it resumes is kept at each stop (iOS may close the app without a
+  word), as the place, not its number (another game installed does not
+  move it).
+- A tour into another game's room of the same number is drawn at once.
+- The "tour" check now also: the start tells the menu where it resumes (a
+  place kept as the fifth stop's); a way passed through is labelled so,
+  paused there and played it reaches the next stop on foot; every way's
+  places are installed; the label's whole stop count; too few places
+  skip rather than fail. Whole tour: 768 stops, 604 on foot, 164 warped,
+  25 doors not reached (as the doors check's walks that stop short), none
+  not shown.
 - Tested on the desktop build only (Linux). Not tested on an iPhone.
