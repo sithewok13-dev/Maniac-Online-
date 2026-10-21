@@ -821,7 +821,9 @@ one palette) apply.
   goes through when the player stands by the door's point, the tap, or
   that end (a part of the place the game joins to the door's only by a
   script); the tour's tourReached returns 1 at the door, 2 at that end
-  (counted as `across`), 0 when the walk was cut off.
+  (counted as `across`), 0 when the walk was cut off. From 0133 the end
+  is kept with its link (`_doorGoalLink`, set by walkToDoor only when a way
+  was worked out, cleared by `enter`) and counts only for that door.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format

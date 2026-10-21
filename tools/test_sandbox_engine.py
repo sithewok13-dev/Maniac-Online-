@@ -281,11 +281,12 @@ if __name__ == '__main__':
         # through from as near as the walk boxes allow; The Dig's tram cars are
         # called, not gone through: the rides check.)
         output = sandbox(exe, worlds, 'doors', shots, tmp)
-        d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short.*?(\d+) with no spot a tap finds them', output)
-        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99:
+        d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short.*?(\d+) with no spot a tap finds them, (\d+) from as near', output)
+        # (Some doors only from as near as the walk allows, not most.)
+        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99 or not 0 < int(d.group(6)) * 10 < int(d.group(1)):
             raise SystemExit('FAIL: doors\n' + output[-2000:])
         print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
-              f'{d.group(3)} elsewhere, {d.group(4)} short; {d.group(5)} with no spot of their own')
+              f'{d.group(3)} elsewhere, {d.group(4)} short ({d.group(6)} from as near as the walk boxes allow); {d.group(5)} with no spot of their own')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # Each game's own verb panel (exported from its start): every verb
@@ -348,8 +349,8 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
         unreached = int(re.search(r'(\d+) doors not reached', output).group(1))
         across = int(re.search(r'(\d+) gone through from as near as the walk boxes allow', output).group(1))
-        if unreached * 100 > foot:
-            raise SystemExit(f'FAIL: tour: {unreached} doors not reached for {foot} on foot')
+        if unreached * 100 > foot or not 0 < across * 10 < foot:
+            raise SystemExit(f'FAIL: tour: {unreached} doors not reached, {across} from as near as the walk allows, for {foot} on foot')
         print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached, '
               f'{across} through from as near as the walk boxes allow); its controls; back where it began')
         # The rides: The Dig's tram, every line both ways (when The Dig is

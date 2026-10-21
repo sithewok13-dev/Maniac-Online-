@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0132 (the doors check taps where a player's tap finds a door).
+Active milestone: Phase 1; latest patch 0133 (doors across parts joined by script: review fixes).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -3639,3 +3639,20 @@ used at all from where the player arrives.
   It now fails below 99% (was 98%).
 - No change to how the game plays; the check measures what a player can do.
 - Tested on the desktop build only (Linux).
+
+## Patch 0133 — doors across parts joined by script: review fixes
+
+An independent review of 0131.
+- Where a walk toward a door ends now belongs to that door: a door tapped
+  while the tour was paused, then Play, no longer sends the one played
+  through that door when the tour's own walk ends (the tour now drops a
+  door walk of the player's own when it picks up again).
+- Boarding the van from the Worlds menu stops any walk to a door or thing
+  the player had started.
+- A walk with no way worked out leaves no end to go through from (it could
+  not happen today, but it no longer fails open), and a new place starts
+  with none.
+- The checks: the doors check counts doors gone through only from as near
+  as the walk allows (38) and fails if there are none or too many (a tenth
+  of all); the tour's count (23) is held to the same.
+- Tested on the desktop build only (Linux). Not tested on an iPhone.
