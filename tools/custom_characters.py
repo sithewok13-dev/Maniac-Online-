@@ -1669,7 +1669,7 @@ def extra():
 # black smartwatch on her left wrist.  Every pixel is in the tables below (the
 # picture itself is not read).
 
-W, H = 32, 56
+SUZY2_W, SUZY2_H = 32, 56
 SUZY2_TOP = 4  # the top of her hair; the soles' outline on row 55
 
 SUZY2_COLOURS = {
@@ -1700,7 +1700,7 @@ SUZY2_COLOURS = {
 
 
 def suzy2_blank():
-    return Canvas(W, H)
+    return Canvas(SUZY2_W, SUZY2_H)
 
 
 def suzy2_rows_at(c, table, dy=0, dx=0):
@@ -1786,7 +1786,7 @@ SUZY2_FRONT_STRANDS = [
 def suzy2_strands(c, spec, dy=0, dx=0, flip=False):
     for x, y0, y1, ch in spec:
         if flip:
-            x = W - 1 - x
+            x = SUZY2_W - 1 - x
         for y in range(y0, y1 + 1):
             if c.get(x + dx, y + dy) in 'hdHL':
                 c.put(x + dx, y + dy, ch)
@@ -1871,15 +1871,15 @@ def suzy2_front(step=0, talking=False):
 # ----------------------------------------------------------------- side --
 
 def suzy2_layer():
-    return Canvas(W, H)
+    return Canvas(SUZY2_W, SUZY2_H)
 
 
 def suzy2_lay(dst, src, outline=True):
     """A part drawn on its own, outlined round, laid over what is there."""
     if outline:
         src.outline('K')
-    for y in range(H):
-        for x in range(W):
+    for y in range(SUZY2_H):
+        for x in range(SUZY2_W):
             if src.cells[y][x] != ' ':
                 dst.cells[y][x] = src.cells[y][x]
 
@@ -1983,11 +1983,11 @@ def suzy2_side_leg(c, fx, kx, up, b, near):
             leg.put(x0, y, 'j')
     inside = [leg.cells[ankle][:]]
     leg.outline('K')
-    for x in range(1, W - 1):  # the hem's row: outlined at its ends only
+    for x in range(1, SUZY2_W - 1):  # the hem's row: outlined at its ends only
         if inside[0][x] != ' ' and inside[0][x - 1] != ' ' and inside[0][x + 1] != ' ':
             leg.cells[ankle][x] = 'j'
     for y in range(hip, hip + 3):  # no outline across her hips (the torso's there)
-        for x in range(W):
+        for x in range(SUZY2_W):
             if leg.cells[y][x] == 'K' and c.get(x, y) not in ' K':
                 leg.cells[y][x] = ' '
     suzy2_lay(c, leg, outline=False)
@@ -2036,8 +2036,8 @@ def suzy2_side(step=0, talking=False):
     suzy2_side_arm(c, b, swing, near=True)
     suzy2_final_outline(c)
     # A far leg hidden but for its outline: no doubled outline beside the near one.
-    for y in range(38, H - 4):
-        for x in range(1, W - 2):
+    for y in range(38, SUZY2_H - 4):
+        for x in range(1, SUZY2_W - 2):
             if (c.cells[y][x] == 'K' and c.get(x - 1, y) == ' ' and c.get(x + 1, y) == 'K'
                     and c.get(x + 2, y) not in ' K'):
                 c.cells[y][x] = ' '
@@ -2141,6 +2141,23 @@ def suzy2():
     frames.append((BACK, STAND, 0, suzy2_back()))
     frames += [(BACK, WALK, i, suzy2_back(i)) for i in range(4)]
     return frames
+
+
+def _each_name_once():
+    """Each character's section keeps its own names: one defined twice at the
+    top level would change an earlier character's drawing (0166's Suzy 2 had
+    redefined Suzy's W and H)."""
+    import ast
+    seen = set()
+    for node in ast.parse(Path(__file__).read_text()).body:
+        names = [node.name] if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else \
+            [x.id for t in node.targets for x in ast.walk(t) if isinstance(x, ast.Name)] if isinstance(node, ast.Assign) else []
+        for name in names:
+            assert name not in seen, f'{name} defined twice in tools/custom_characters.py'
+            seen.add(name)
+
+
+_each_name_once()
 
 
 CUSTOM = [(1, 'Crispy', crispy, CRISPY_COLOURS, 0.3), (2, 'Suzy', suzy, SUZY_COLOURS, 0.95),

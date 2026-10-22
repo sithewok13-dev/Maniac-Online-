@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0166 (Suzy 2, a fifth custom character, new engine).
+Active milestone: Phase 1; latest patch 0167 (Suzy's own drawing put back after 0166, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4352,3 +4352,16 @@ was read only, never copied.
 - On the desktop: the cast check plays all five custom characters, 0
   failed; looked at in the engine beside Guybrush. Tested on the desktop
   build only. Not tested on an iPhone.
+
+## Patch 0167 — Suzy's own drawing put back after 0166 (new engine)
+
+Found on reading 0166's diff: Suzy 2's section defined the canvas size
+names W and H again (32x56), and Suzy's own frames, built from them, were
+drawn 32 wide: shifted, her pictures changed. Suzy 2's are now SUZY2_W and
+SUZY2_H; Crispy's, Suzy's, Extra's and the Sith Ewok's data are byte for
+byte as 0165 built them (checked), Suzy 2's as the panel's.
+- tools/custom_characters.py now refuses a top-level name defined twice
+  (with the old line back it stops, naming W; checked).
+- On the desktop: the cast check plays all five custom characters, 0 failed.
+  Tested on the desktop build only. Not tested on an iPhone; 0166's IPA has
+  Suzy drawn wrong.
