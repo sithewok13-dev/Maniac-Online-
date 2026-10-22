@@ -1660,9 +1660,493 @@ def extra():
     return frames
 
 
+# --------------------------------------------------------------- Suzy 2 ----
+
+# Suzy 2: drawn as close as the size allows to the user's picture: very long
+# dark hair with grey streaks falling mostly over her left shoulder, a broad
+# smile, a green T-shirt with a white oval and a dark green bat, slim faded blue
+# jeans flared a little at the ankle, light grey sneakers with white soles, a
+# black smartwatch on her left wrist.  Every pixel is in the tables below (the
+# picture itself is not read).
+
+W, H = 32, 56
+SUZY2_TOP = 4  # the top of her hair; the soles' outline on row 55
+
+SUZY2_COLOURS = {
+    'K': (0x22, 0x18, 0x1A),  # outline
+    'h': (0x30, 0x22, 0x20),  # hair, dark brown-black
+    'd': (0x52, 0x40, 0x3A),  # hair, its sheen
+    'H': (0x84, 0x78, 0x74),  # hair, grey streaks
+    'L': (0xB8, 0xB2, 0xAE),  # hair, silver streaks
+    'S': (0xEC, 0x9A, 0x62),  # skin, warm tan
+    's': (0xB8, 0x68, 0x3E),  # skin, shaded
+    'l': (0xF8, 0xB8, 0x84),  # skin, lit
+    'c': (0xD8, 0x6E, 0x4E),  # cheeks
+    'r': (0xC0, 0x4C, 0x40),  # lip
+    'M': (0x6E, 0x1E, 0x22),  # mouth, open
+    'W': (0xF8, 0xF2, 0xE2),  # teeth, the emblem, soles
+    'G': (0x4A, 0xA2, 0x56),  # shirt, green
+    'q': (0x72, 0xC6, 0x6E),  # shirt, lit
+    'g': (0x2E, 0x70, 0x3A),  # shirt, shaded
+    'b': (0x0C, 0x4E, 0x16),  # the bat
+    'J': (0x4C, 0x68, 0x9E),  # jeans
+    'i': (0x7E, 0x94, 0xC0),  # jeans, faded
+    'j': (0x2C, 0x40, 0x72),  # jeans, dark
+    'n': (0xC8, 0xC4, 0xCE),  # sneakers, light grey
+    'm': (0x8E, 0x88, 0x98),  # sneakers, shaded, laces
+    'T': (0x0E, 0x0C, 0x10),  # watch strap
+    'u': (0x5E, 0x62, 0x6E),  # watch face
+}
+
+
+def suzy2_blank():
+    return Canvas(W, H)
+
+
+def suzy2_rows_at(c, table, dy=0, dx=0):
+    """{row: (x0, letters)}; '.' leaves what is there."""
+    for y, (x0, s) in table.items():
+        crispy_stamp(c, x0 + dx, y + dy, [s])
+
+
+def suzy2_shift_region(c, x0, x1, y0, y1, dy):
+    """Columns x0..x1, rows y0..y1, moved dy rows (what they leave is empty)."""
+    cols = {x: [c.get(x, y) for y in range(y0, y1 + 1)] for x in range(x0, x1 + 1)}
+    for x in range(x0, x1 + 1):
+        for y in range(y0, y1 + 1):
+            c.cells[y][x] = ' '
+    for x in range(x0, x1 + 1):
+        for i, ch in enumerate(cols[x]):
+            if ch != ' ':
+                c.put(x, y0 + i + dy, ch)
+
+
+def suzy2_final_outline(c):
+    """Any drawn pixel left at the silhouette's edge becomes the outline."""
+    c.outline('K')
+
+
+# ---------------------------------------------------------------- front --
+
+SUZY2_FRONT_UPPER = {  # rows 4..37: head, shirt, arms, hips ('h' hair is streaked after)
+    4:  (13, 'KKKKKK'),
+    5:  (11, 'KKhhhhhhhKK'),
+    6:  (10, 'KhhhhhhhhhhK'),
+    7:  (10, 'KhhhSSSShhhhK'),
+    8:  (10, 'KhhSSSSSShhhK'),
+    9:  (10, 'KhSKKSSKKShhK'),
+    10: (10, 'KhScSSsScShhK'),
+    11: (10, 'KhSKWWWWKShhhK'),
+    12: (10, 'KhhsSrrSSSshhK'),
+    13: (10, 'KhhKsSSSSsKhhhK'),
+    14: (10, 'KhhhKssKhhhhhhK'),
+    15: (8, 'KGGhdgSSSSghhhhhK'),
+    16: (7, 'KqqGhGGggggGhhhhhGK'),
+    17: (7, 'KqGgGWWWWWWGhhhhhGK'),
+    18: (7, 'KqGgWbWbbWbWhhhhhGK'),
+    19: (7, 'KqGgWbbbbbbWhhhhhgKK'),
+    20: (7, 'KgggGWWbbWWGhhhhhgKhK'),
+    21: (7, 'KSsKqGGGGGGGhhhhsSKhK'),
+    22: (7, 'KSsKqGGGGGGGhhhhsSKhhK'),
+    23: (7, 'KSsKGGGGGGGghhhhsSKhhK'),
+    24: (7, 'KSsKGGGGGGGghhhhsSKhhK'),
+    25: (7, 'KSsKGGGGGGGghhhhsSKhhK'),
+    26: (7, 'KSsKGGGGGGgghhhhsSKhhK'),
+    27: (7, 'KSsKGGGGGGGghhhhsSKhhK'),
+    28: (7, 'KSsKgGGGGGGghhhhsSKhK'),
+    29: (7, 'KSsKggggggghhghKsSKhK'),
+    30: (7, 'KSsKjJJJJiJJhJhKsSKhK'),
+    31: (7, 'KSsKJjJJJjJJjJKTuTKK'),
+    32: (6, 'KSSsKJJjJJjJjJJKsSSK'),
+    33: (6, 'KSSsKJJiiJjJiiJKSSsK'),
+    34: (6, 'KSSsKJJiiJjJiiJKSSsK'),
+    35: (6, 'KsSsKjJiiJjJiiJKsSsK'),
+    36: (6, 'KKKKKjjiiJjJiijKKKKK'),
+    37: (11, 'KjiiJjJiijK'),
+}
+
+# Her hair's strands: (x, first row, last row, letter) over the 'h' hair.
+SUZY2_FRONT_STRANDS = [
+    # the crown, parted near the middle; grey at her right temple
+    (14, 5, 5, 'd'), (16, 5, 6, 'd'), (18, 5, 6, 'd'), (12, 5, 5, 'H'), (13, 5, 5, 'L'),
+    (11, 8, 12, 'H'), (12, 6, 6, 'L'), (13, 6, 6, 'H'), (11, 6, 7, 'd'),
+    (19, 6, 7, 'd'), (20, 9, 12, 'd'), (21, 7, 8, 'H'),
+    # the left side's strands to her shoulder
+    (11, 14, 14, 'H'), (12, 14, 15, 'd'),
+    # the long fall over her left shoulder
+    (20, 13, 15, 'H'), (20, 16, 17, 'L'), (22, 15, 18, 'd'), (21, 18, 21, 'd'),
+    (19, 19, 22, 'd'), (20, 22, 24, 'H'), (21, 25, 28, 'd'), (19, 26, 27, 'H'),
+    (22, 13, 14, 'L'), (22, 20, 23, 'L'), (21, 14, 15, 'd'), (20, 27, 28, 'H'),
+    # the strands hanging outside her left arm
+    (26, 21, 22, 'H'), (27, 22, 25, 'd'), (26, 25, 25, 'H'), (27, 27, 27, 'H'),
+    (26, 29, 29, 'H'),
+]
+
+
+def suzy2_strands(c, spec, dy=0, dx=0, flip=False):
+    for x, y0, y1, ch in spec:
+        if flip:
+            x = W - 1 - x
+        for y in range(y0, y1 + 1):
+            if c.get(x + dx, y + dy) in 'hdHL':
+                c.put(x + dx, y + dy, ch)
+
+
+# Her legs from the crotch (row 38) to the hem (row 51): the viewer's left leg
+# (x0, letters); the other is its mirror round column 16 (her axis), sharing
+# the seam's outline down to row 41, then parted.
+SUZY2_MID = 16
+SUZY2_LEG_LEFT = [
+    (11, 'KjiiJK'),   # 38 the crotch: one seam between the thighs
+    (11, 'KjiiJK'),
+    (11, 'KjiiJK'),
+    (11, 'KjiiJK'),
+    (11, 'KjiJK'),    # 42 parted above the knee
+    (11, 'KjiJK'),
+    (11, 'KjiJK'),
+    (11, 'KjJJK'),    # 45 shins, darker
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (10, 'KjJJJK'),   # 50 flare
+    (10, 'KjjjjK'),   # 51 hem
+]
+SUZY2_SHOE_LEFT = [
+    (9, 'KnmnmnK'),   # laces
+    (8, 'KnnnnnnK'),
+    (8, 'KWWWWWWK'),
+    (8, 'KKKKKKKK'),
+]
+SUZY2_KNEE = 5  # the row taken out first when a leg bends
+
+
+def suzy2_mirror_x(x0, s, axis=SUZY2_MID):
+    return (2 * axis - (x0 + len(s) - 1), s[::-1])
+
+
+def suzy2_front_legs(c, lift_left, lift_right, b, leg=None, shoe=None):
+    leg, shoe = leg or SUZY2_LEG_LEFT, shoe or SUZY2_SHOE_LEFT
+    for lift, flip in ((lift_left, False), (lift_right, True)):
+        legs = list(leg)
+        drop = b + lift
+        # Bending: rows taken out round the knee.
+        for _ in range(drop):
+            del legs[SUZY2_KNEE]
+        y = 38 + b
+        for x0, s in legs:
+            if flip:
+                x0, s = suzy2_mirror_x(x0, s)
+            crispy_stamp(c, x0, y, [s])
+            y += 1
+        for x0, s in shoe:
+            if flip:
+                x0, s = suzy2_mirror_x(x0, s)
+            crispy_stamp(c, x0, y, [s])
+            y += 1
+
+
+SUZY2_FRONT_TALK = {12: (10, 'KhhsMMMMSSshhK'), 13: (10, 'KhhKsrrSSsKhhhK')}
+
+
+def suzy2_front(step=0, talking=False):
+    c = suzy2_blank()
+    b = 1 if step in (1, 3) else 0
+    lift = (0, 2, 0, 2)[step]
+    suzy2_front_legs(c, lift if step == 1 else 0, lift if step == 3 else 0, b)
+    up = dict(SUZY2_FRONT_UPPER)
+    if talking:
+        up.update(SUZY2_FRONT_TALK)
+    suzy2_rows_at(c, up, dy=b)
+    suzy2_strands(c, SUZY2_FRONT_STRANDS, dy=b)
+    # Arms swing a little: the arm forward (with the other leg) a row shorter.
+    if step == 1:
+        suzy2_shift_region(c, 22, 31, 27 + b, 37 + b, -1)
+    elif step == 3:
+        suzy2_shift_region(c, 0, 9, 27 + b, 37 + b, -1)
+    suzy2_final_outline(c)
+    return c
+
+
+# ----------------------------------------------------------------- side --
+
+def suzy2_layer():
+    return Canvas(W, H)
+
+
+def suzy2_lay(dst, src, outline=True):
+    """A part drawn on its own, outlined round, laid over what is there."""
+    if outline:
+        src.outline('K')
+    for y in range(H):
+        for x in range(W):
+            if src.cells[y][x] != ' ':
+                dst.cells[y][x] = src.cells[y][x]
+
+
+def suzy2_spans(c, table, dy=0, dx=0):
+    """{row: (x0, x1, letter)} filled."""
+    for y, (x0, x1, ch) in table.items():
+        for x in range(x0, x1 + 1):
+            c.put(x + dx, y + dy, ch)
+
+
+SUZY2_SIDE_HEAD = {  # facing right
+    4:  (12, 'KKKKK'),
+    5:  (10, 'KKhhhhhKK'),
+    6:  (9, 'KhhhhhhhhhK'),
+    7:  (9, 'KhhhhhhhhhSK'),
+    8:  (9, 'KhhhhhhhhSSSK'),
+    9:  (9, 'KhhhhhhhSSKSK'),
+    10: (9, 'KhhhhhhhScSSSK'),
+    11: (9, 'KhhhhhhhSSKWK'),
+    12: (9, 'KhhhhhhhSSSrK'),
+    13: (9, 'KhhhhhhSSSSK'),
+    14: (9, 'KhhhhhsssKK'),
+}
+SUZY2_SIDE_TALK = {12: (9, 'KhhhhhhhSSSMK'), 13: (9, 'KhhhhhhSSSrK')}
+SUZY2_SIDE_HEAD_STRANDS = [(12, 5, 5, 'H'), (13, 5, 5, 'L'), (15, 5, 6, 'd'), (11, 6, 7, 'H'), (12, 6, 6, 'L'),
+                     (17, 6, 7, 'd'), (14, 7, 9, 'd'), (16, 8, 12, 'H'), (12, 8, 13, 'd'), (10, 9, 13, 'd')]
+
+SUZY2_SIDE_TORSO = {  # facing right, rows 15..38 (x0, letters)
+    15: (13, 'KGGssGK'),
+    16: (11, 'KggGGGGGGK'),
+    17: (11, 'KggGGGGGqqK'),
+    18: (11, 'KggGGGGGGqK'),
+    19: (11, 'KggGGGGGGWK'),
+    20: (11, 'KggGGGGGGWK'),
+    21: (11, 'KggGGGGGGGK'),
+    22: (11, 'KggGGGGGGK'),
+    23: (11, 'KggGGGGGGK'),
+    24: (11, 'KggGGGGGGK'),
+    25: (11, 'KggGGGGGGK'),
+    26: (11, 'KggGGGGGGK'),
+    27: (11, 'KggGGGGGGK'),
+    28: (11, 'KggGGGGGGK'),
+    29: (11, 'KggggggggK'),
+    30: (11, 'KjjJJJJJJK'),
+    31: (10, 'KjjJJJJJJJK'),
+    32: (10, 'KjjJJJJJjJK'),
+    33: (10, 'KjjJJJJjJJK'),
+    34: (10, 'KjjJJJJJJJK'),
+    35: (10, 'KjjJJJJJJJK'),
+    36: (10, 'KjjJJJJJJJK'),
+    37: (11, 'KjJJJJJJJK'),
+    38: (11, 'KjJJJJJJK'),
+}
+
+# The long hair down her back (rows 15..33): (x0, letters), swaying `sway`
+# columns from row 26 down.
+SUZY2_SIDE_HAIR = {
+    15: (9, 'KhHdh'), 16: (9, 'KhHdh'), 17: (9, 'KhHdh'), 18: (9, 'KhHhd'), 19: (9, 'KhLhd'),
+    20: (9, 'KhLhh'), 21: (9, 'KdLhh'), 22: (9, 'KdHhh'), 23: (9, 'KdhHh'), 24: (9, 'KhhHh'),
+    25: (9, 'KhhHd'), 26: (9, 'KhdHK'), 27: (9, 'KhdhK'), 28: (9, 'KhdLK'), 29: (9, 'KhdLK'),
+    30: (9, 'KhhLK'), 31: (9, 'KdhK'), 32: (9, 'KhK'), 33: (10, 'K'),
+}
+
+# Walk cycle (facing right): near foot x, far foot x, near up, far up,
+# near knee x, far knee x, the near hand's swing (columns forward).
+SUZY2_SIDE_POSES = {
+    0: (16, 14, 0, 0, 16, 14, 0),
+    1: (21, 10, 0, 1, 18, 12, -4),
+    2: (15, 16, 0, 2, 15, 18, 0),
+    3: (10, 21, 1, 0, 12, 18, 4),
+}
+
+SUZY2_SIDE_SHOE = [  # facing right, the ankle at the 4th letter
+    '.KnnmK..',
+    'KnnnnmnK',
+    'KWWWWWWK',
+    'KKKKKKKK',
+]
+
+
+def suzy2_side_leg(c, fx, kx, up, b, near):
+    """Hip to knee to ankle in slim jeans (faded in front), the sneaker."""
+    leg = suzy2_layer()
+    hip, knee, ankle = 37 + b, 46, 51 - up
+    for y in range(hip, ankle + 1):
+        if y <= knee:
+            t = (y - hip) / (knee - hip)
+            cx = 15.5 + (kx - 15.5) * t
+            half = 3.5 - 1.0 * t
+        else:
+            t = (y - knee) / max(1, ankle - knee)
+            cx = kx + (fx - kx) * t
+            half = 2.5 + 0.5 * t * t
+        x0, x1 = int(round(cx - half)), int(round(cx + half)) - 1
+        for x in range(x0, x1 + 1):
+            leg.put(x, y, 'J' if near else 'j')
+        if near:
+            leg.put(x1, y, 'i' if hip + 1 <= y <= knee + 1 else 'J')
+            leg.put(x1 - 1, y, 'i' if hip + 2 <= y <= knee - 2 else 'J')
+            leg.put(x0, y, 'j')
+    inside = [leg.cells[ankle][:]]
+    leg.outline('K')
+    for x in range(1, W - 1):  # the hem's row: outlined at its ends only
+        if inside[0][x] != ' ' and inside[0][x - 1] != ' ' and inside[0][x + 1] != ' ':
+            leg.cells[ankle][x] = 'j'
+    for y in range(hip, hip + 3):  # no outline across her hips (the torso's there)
+        for x in range(W):
+            if leg.cells[y][x] == 'K' and c.get(x, y) not in ' K':
+                leg.cells[y][x] = ' '
+    suzy2_lay(c, leg, outline=False)
+    shoe = SUZY2_SIDE_SHOE if near else [r.replace('n', 'm').replace('W', 'n') for r in SUZY2_SIDE_SHOE]
+    crispy_stamp(c, fx - 3, ankle + 1, shoe)
+
+
+def suzy2_side_arm(c, b, dx, near):
+    """Her arm from the shoulder (the sleeve), swung dx columns at the hand."""
+    sk, sk2, sh, hem = ('S', 's', 'G', 'g') if near else ('s', 's', 'g', 'g')
+    sleeve = {17: (13, 'KGGGGK'), 18: (13, 'KGGGGK'), 19: (13, 'KGGGGK'), 20: (13, 'KggggK')}
+    if dx > 0:
+        sleeve = {17: (13, 'KGGGGK'), 18: (13, 'KGGGGK'), 19: (14, 'KGGGGK'), 20: (14, 'KggggK')}
+    elif dx < 0:
+        sleeve = {17: (13, 'KGGGGK'), 18: (12, 'KGGGGK'), 19: (12, 'KGGGGK'), 20: (12, 'KggggK')}
+    for y in range(21, 35):
+        o = int(round(dx * (y - 19) / 15))
+        if y <= 30:
+            crispy_stamp(c, 14 + o, y + b, ['K' + sk + sk2 + 'K'])
+        elif y == 31:
+            crispy_stamp(c, 14 + o, y + b, ['KTuK' if near else 'KssK'])
+        else:
+            crispy_stamp(c, 14 + o, y + b, ['K' + sk + sk + sk2 + 'K'] if y < 34 else ['KsSsK'])
+    o = int(round(dx * 16 / 15))
+    crispy_stamp(c, 15 + o, 35 + b, ['KKK'])
+    for y, (x0, s) in sleeve.items():
+        s = s.replace('G', sh).replace('g', hem)
+        crispy_stamp(c, x0, y + b, [s])
+
+
+def suzy2_side(step=0, talking=False):
+    c = suzy2_blank()
+    b = 1 if step in (1, 3) else 0
+    nfx, ffx, nup, fup, nkx, fkx, swing = SUZY2_SIDE_POSES[step]
+    if swing:
+        suzy2_side_arm(c, b, -swing * 3 // 2, near=False)
+    suzy2_side_leg(c, ffx, fkx, fup, b, near=False)
+    suzy2_rows_at(c, SUZY2_SIDE_TORSO, dy=b)
+    suzy2_side_leg(c, nfx, nkx, nup, b, near=True)
+    suzy2_rows_at(c, SUZY2_SIDE_HAIR, dy=b)
+    head = dict(SUZY2_SIDE_HEAD)
+    if talking:
+        head.update(SUZY2_SIDE_TALK)
+    suzy2_rows_at(c, head, dy=b)
+    suzy2_strands(c, SUZY2_SIDE_HEAD_STRANDS, dy=b)
+    suzy2_side_arm(c, b, swing, near=True)
+    suzy2_final_outline(c)
+    # A far leg hidden but for its outline: no doubled outline beside the near one.
+    for y in range(38, H - 4):
+        for x in range(1, W - 2):
+            if (c.cells[y][x] == 'K' and c.get(x - 1, y) == ' ' and c.get(x + 1, y) == 'K'
+                    and c.get(x + 2, y) not in ' K'):
+                c.cells[y][x] = ' '
+    return c
+
+
+# ----------------------------------------------------------------- back --
+
+SUZY2_BACK_UPPER = {  # rows 4..40: her hair over most of her back, the shirt, arms, hips
+    4:  (13, 'KKKKKK'),
+    5:  (11, 'KKhhhhhhhKK'),
+    6:  (10, 'KhhhhhhhhhhK'),
+    7:  (9, 'KhhhhhhhhhhhK'),
+    8:  (9, 'KhhhhhhhhhhhK'),
+    9:  (9, 'KhhhhhhhhhhhK'),
+    10: (9, 'KhhhhhhhhhhhK'),
+    11: (8, 'KhhhhhhhhhhhhK'),
+    12: (8, 'KhhhhhhhhhhhhK'),
+    13: (8, 'KhhhhhhhhhhhhhK'),
+    14: (8, 'KhhhhhhhhhhhhKK'),
+    15: (8, 'KhhhhhhhhhhhhGGK'),
+    16: (7, 'KGGhhhhhhhhhhhGGGK'),
+    17: (7, 'KGgGhhhhhhhhhhgGGK'),
+    18: (7, 'KGgGhhhhhhhhhhgGGK'),
+    19: (7, 'KGgGhhhhhhhhhhgGGK'),
+    20: (7, 'KgggGhhhhhhhhGgggK'),
+    21: (7, 'KsSKhhhhhhhhhhKSsK'),
+    22: (7, 'KsSKGhhhhhhhhhKSsK'),
+    23: (7, 'KsSKGhhhhhhhhGKSsK'),
+    24: (7, 'KsSKGhhhhhhhhGKSsK'),
+    25: (7, 'KsSKGhhhhhhhhGKSsK'),
+    26: (7, 'KsSKGhhhhhhhhGKSsK'),
+    27: (7, 'KsSKGhhhhhhhhGKSsK'),
+    28: (7, 'KsSKgGhhhhhhhgKSsK'),
+    29: (7, 'KsSKgghhhhhhggKSsK'),
+    30: (7, 'KsSKjjhhhhhhjjKSsK'),
+    31: (7, 'KTuKjJhhhhhhJjKSsK'),
+    32: (6, 'KsSSKJJhJhhJhJJKSSsK'),
+    33: (6, 'KsSSKJJjjJjJjjJKsSSK'),
+    34: (6, 'KsSSKJJjjJjJjjJKsSSK'),
+    35: (6, 'KsSsKJJJJJjJJJJKsSsK'),
+    36: (6, 'KKKKKjJJJJjJJJjKKKKK'),
+    37: (11, 'KjJJJjJJJjK'),
+}
+SUZY2_BACK_STRANDS = [
+    (12, 5, 6, 'H'), (13, 5, 5, 'L'), (15, 5, 9, 'd'), (11, 8, 11, 'H'), (14, 9, 14, 'd'),
+    (10, 10, 16, 'd'), (19, 8, 11, 'H'), (17, 7, 13, 'd'), (13, 13, 19, 'H'), (16, 15, 20, 'd'),
+    (12, 18, 24, 'd'), (18, 18, 23, 'H'), (15, 21, 26, 'L'), (17, 25, 29, 'd'), (14, 27, 30, 'H'),
+    (19, 12, 17, 'd'), (9, 16, 18, 'd'),
+]
+SUZY2_BACK_LEG = [
+    (11, 'KjJJJK'),   # 38 the seat's seam
+    (11, 'KjJJJK'),
+    (11, 'KjJJJK'),
+    (11, 'KjJJJK'),
+    (11, 'KjJJK'),    # 42 parted
+    (11, 'KjjjK'),    # 43 the knee's crease
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),    # 45
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (11, 'KjJJK'),
+    (10, 'KjJJJK'),   # 50
+    (10, 'KjjjjK'),   # 51
+]
+SUZY2_BACK_SHOE = [
+    (9, 'KnmmmnK'),   # the heel tab
+    (8, 'KnnnnnnK'),
+    (8, 'KWWWWWWK'),
+    (8, 'KKKKKKKK'),
+]
+
+
+def suzy2_back(step=0):
+    c = suzy2_blank()
+    b = 1 if step in (1, 3) else 0
+    # (from behind her right foot is on the viewer's right)
+    suzy2_front_legs(c, 2 if step == 3 else 0, 2 if step == 1 else 0, b, SUZY2_BACK_LEG, SUZY2_BACK_SHOE)
+    suzy2_rows_at(c, SUZY2_BACK_UPPER, dy=b)
+    suzy2_strands(c, SUZY2_BACK_STRANDS, dy=b)
+    if step == 1:
+        suzy2_shift_region(c, 0, 9, 27 + b, 37 + b, -1)
+    elif step == 3:
+        suzy2_shift_region(c, 22, 31, 27 + b, 37 + b, -1)
+    suzy2_final_outline(c)
+    return c
+
+
+def suzy2():
+    frames = []
+    side = [suzy2_side(s) for s in range(4)]
+    for d, flip in ((RIGHT, False), (LEFT, True)):
+        pick = (lambda f: f.mirrored()) if flip else (lambda f: f)
+        frames.append((d, STAND, 0, pick(side[0])))
+        frames += [(d, WALK, i, pick(side[i])) for i in range(4)]
+        frames += [(d, TALK, 0, pick(side[0])), (d, TALK, 1, pick(suzy2_side(0, True)))]
+    frames.append((FRONT, STAND, 0, suzy2_front()))
+    frames += [(FRONT, WALK, i, suzy2_front(i)) for i in range(4)]
+    frames += [(FRONT, TALK, 0, suzy2_front()), (FRONT, TALK, 1, suzy2_front(0, True))]
+    frames.append((BACK, STAND, 0, suzy2_back()))
+    frames += [(BACK, WALK, i, suzy2_back(i)) for i in range(4)]
+    return frames
+
+
 CUSTOM = [(1, 'Crispy', crispy, CRISPY_COLOURS, 0.3), (2, 'Suzy', suzy, SUZY_COLOURS, 0.95),
           (3, 'Extra', extra, EXTRA_COLOURS, 0.3 * 40 / 38),  # (drawn 38 rows tall in his 40: 0.3 of a person, as Crispy)
-          (4, 'Sith Ewok', ewok, EWOK_COLOURS, 0.6 * 48 / 46)]  # (drawn 46 rows tall in 48: about 0.6 of a person, as an Ewok)
+          (4, 'Sith Ewok', ewok, EWOK_COLOURS, 0.6 * 48 / 46),  # (drawn 46 rows tall in 48: about 0.6 of a person, as an Ewok)
+          (5, 'Suzy 2', suzy2, SUZY2_COLOURS, 0.95)]  # (52 rows tall in 56, as Suzy)
 
 
 def write_inc(path):

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0165 (Extra redrawn from the user's model, new engine).
+Active milestone: Phase 1; latest patch 0166 (Suzy 2, a fifth custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4325,5 +4325,30 @@ art as closely as possible". The picture was read only, never copied.
 - In tools/custom_characters.py (his section replaced; every name prefixed;
   the panel's frames pixel for pixel, checked).
 - On the desktop: the cast check plays all four custom characters, 0
+  failed; looked at in the engine beside Guybrush. Tested on the desktop
+  build only. Not tested on an iPhone.
+
+## Patch 0166 — Suzy 2, a fifth custom character (new engine)
+
+User (2026-10-22): a pixel-art picture, "Make a Suzy 2 as close as possible
+to this pic". A new character beside Suzy (hers is unchanged). The picture
+was read only, never copied.
+- An artists' panel: four artists (sampled from the picture and cleaned up
+  by hand; drawn by hand; sampled at twice the size and reduced by hand;
+  readability first), three judges (likeness; reading at game size; as the
+  user). Two chose the reduced one (C), one the sampled one; C refined with
+  all the notes, then a skeptical check: likeness 7 of 10, reads in the
+  game, consistent, clean; the picture not read at run time.
+- Drawn as the picture: very long dark hair with grey and silver streaks,
+  most of it over her left shoulder down to her wrist, a broad white grin,
+  a green crew-neck T-shirt with a white oval emblem and a dark green bat,
+  a black watch on her left wrist, blue jeans with faded thighs, light grey
+  sneakers; her back covered by the hair past the waist; a real stride from
+  the side. 32x56, 52 rows tall, 0.95 of a person as Suzy.
+- In the catalog as costume 5 (her description and lines for the chat, the
+  talk colour light cyan so she is told from Suzy); in
+  tools/custom_characters.py with every name prefixed (the panel's frames
+  pixel for pixel, checked).
+- On the desktop: the cast check plays all five custom characters, 0
   failed; looked at in the engine beside Guybrush. Tested on the desktop
   build only. Not tested on an iPhone.
