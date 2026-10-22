@@ -889,6 +889,15 @@ one palette) apply.
   it in `_pictures` for one the stage has no second picture for; pictureOf
   reads the stage only for one it has; reachDoor applies a door's Open rows
   when it opens it.
+  From 0161 the records also cover read, pick up and fix (not use or
+  unlock: those want a second thing), and bit 1 of the after byte says the
+  kid took it (ThingEffect::taken; values past 3 are a bad effect).
+  effectOf carries a thing taken (carry, then picture 1) and says its line;
+  plainAnswer leaves to the plain rules a read, pick up or fix that says
+  nothing and changes nothing, and a take from picture 1 (the mansion's
+  picture without it). useItem reads a carried thing by its record (from 1,
+  else 0). The mansion's marker is now maniac-v24 (worldExportVersion: the
+  mansion 2 ahead; tools/test_world_setup.py reads the lead from the header).
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

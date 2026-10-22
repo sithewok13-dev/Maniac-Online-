@@ -568,12 +568,17 @@ int main() {
 		assert(things.effect(24, 253, kTurnOn, 1) && things.effect(24, 253, kTurnOn, 1)->line.empty() && things.effect(7, 88, kClose, 0));
 		assert(!things.effect(24, 115, kOpen, 0) && !things.effect(24, 115, kClose, 1) && !things.effect(25, 115, kOpen, 1));
 		for (size_t cut = 1; cut < d.size() - 4; ++cut) assert(!parseThings(d.data(), d.size() - cut, things, error));
-		std::vector<uint8_t> bad = d; bad[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1] = 2; // (a picture past 1)
+		std::vector<uint8_t> bad = d; bad[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1] = 4; // (a picture past 1, not taken)
 		assert(!parseThings(bad.data(), bad.size(), things, error) && error == "bad effect");
+		// (From 0161: bit 1 of the picture after, taken by the one who used it.)
+		std::vector<uint8_t> took = d; took[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1] = 3;
+		assert(parseThings(took.data(), took.size(), things, error) && things.effect(24, 253, kTurnOn, 1)->taken && things.effect(24, 253, kTurnOn, 1)->after == 1);
+		assert(!things.effect(24, 115, kOpen, 1)->taken);
 		char problem[64], said[16];
 		int after = -1, others[6], count = -1, room, id, kind, from;
 		assert(PanelBridge::loadThings(3, d.data(), d.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 3);
-		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said)) && after == 0 && count == 2 && others[3] == 6 && others[4] == 139 && others[5] == 1 && line == said);
+		bool taken = true;
+		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said), &taken) && after == 0 && !taken && count == 2 && others[3] == 6 && others[4] == 139 && others[5] == 1 && line == said);
 		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 1, said, sizeof(said)) && count == 1);
 		assert(!PanelBridge::thingEffect(3, 24, 115, kOpen, 0, after, others, count, 2, said, sizeof(said)) && !PanelBridge::thingEffect(4, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said)));
 		assert(PanelBridge::effectAt(3, 0, room, id, kind, from) && room == 7 && id == 88 && kind == kClose && from == 0 && !PanelBridge::effectAt(3, 3, room, id, kind, from));

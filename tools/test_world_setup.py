@@ -20,13 +20,14 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = int(re.search(r'kWorldExportVersion = (\d+);',
-                        (ROOT/'engine/common/scummverse_world_catalog.h').read_text()).group(1))
+CATALOG = (ROOT/'engine/common/scummverse_world_catalog.h').read_text()
+VERSION = int(re.search(r'kWorldExportVersion = (\d+);', CATALOG).group(1))
+MANSION_AHEAD = int(re.search(r'!\*mansion && !\*gameid \? (\d+) : 0', CATALOG).group(1))
 
 
 def version(game):
-    """A game's export marker version (worldExportVersion: the mansion's one ahead)."""
-    return VERSION + (1 if game == 'maniac' else 0)
+    """A game's export marker version (worldExportVersion: the mansion's ahead)."""
+    return VERSION + (MANSION_AHEAD if game == 'maniac' else 0)
 
 
 def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):

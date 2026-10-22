@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0160 (Extra by an artists' panel, smaller head, new engine).
+Active milestone: Phase 1; latest patch 0161 (the mansion's things read, picked up and fixed as its own scripts answer, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4198,3 +4198,28 @@ from the user's photos (read only, never copied):
 - On the desktop: the cast check plays all three custom characters (3);
   looked at in the engine beside Guybrush. Tested on the desktop build only.
   Not tested on an iPhone.
+- The full suite passed with 0160 (28 checks).
+
+## Patch 0161 — read, pick up and fix as the mansion's scripts answer (new engine)
+
+Step 5 goes on (the mansion's scripted moments). A survey of the mansion's
+own scripts for fix, unlock, use, read and pick up (private analysis, in
+build/ only) found 340 answers: every read says something; 37 picks take the
+thing, 40 refuse with a line ("It's too heavy!"); fix mostly says why not.
+Use and unlock want a second thing; left for later.
+- The export (on the device, from the player's own data, as 0155) now also
+  records read, pick up and fix: 1040 records (was 654), 90 of them taken.
+  The mansion is exported again once (marker maniac-v24); the other games
+  are not.
+- The new engine: a thing read says the line its script says; picked up,
+  it is taken as its script takes it (its line too: "Hmm, they're
+  uncanceled.") or refused with its script's line, and what the script
+  sets elsewhere is set (the doormat lifted); fixed, its script's line. A
+  thing carried, read, says its script's line. One whose script says
+  nothing and changes nothing keeps the new engine's own answer.
+- Checked: the verbs check replays every record as a player does it: 962
+  as the scripts answer (5 out of reach; 44 taken, then put back; 10 of
+  those read while carried; 73 left to the plain rules), 0 failed. The
+  panel's parser test reads the taken bit and refuses values past 3.
+- Tested on the desktop build only. Not tested on an iPhone. An independent
+  review is running; its fixes come in a later patch.
