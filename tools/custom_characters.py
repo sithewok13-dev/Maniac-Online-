@@ -21,14 +21,16 @@ thighs, white sneakers, a black cross-body sling bag and a black
 smartwatch; a little shorter than the people of a place. Drawn the same way
 from the user's photos and corrections (the photos are not kept).
 
-Extra: the user's eight-pound black Chihuahua, drawn from the user's photos
-(the photos are not kept); his glossy jet-black coat a charcoal a step above
-the outline, with blue-grey sheen, so he reads in a dark room; big, tall,
-pointed ears set wide, pinkish tan inside; huge round dark-brown eyes with a
-white catch-light in a thin tan rim; a short muzzle with a few grey hairs, a
-black button nose; his white chin (a little white goatee) and a white wisp
-on his chest; thin legs, small dark paws; a thin tail curled up over his
-back to a pale tip; his orange collar.
+Extra: the user's eight-pound black Chihuahua, drawn again by hand, pixel by
+pixel, from the user's photos (the photos are not kept) after the first
+drawing looked nothing like him: big, tall, pointed ears set high on an apple
+dome, dusky pinkish brown inside; big round dark-brown eyes set wide, with a
+shine, the tan skin under them; a short muzzle with grey hairs, a black
+button nose; his white goatee under the mouth and a few white hairs on his
+chest; a compact, deep-chested body on short legs; a thin tail curled up
+over his back to a pale tip. His glossy black a step above the outline, with
+a blue-grey sheen, so he reads in a dark room. No collar (that photo was his
+costume).
 """
 import argparse
 import math
@@ -815,263 +817,221 @@ for _name, _pic in (('FRONT_HEAD', FRONT_HEAD), ('FRONT_BODY', FRONT_BODY), ('BA
 
 # ---------------------------------------------------------------- Extra ----
 
-# Extra's colours: letter -> RGB (' ' is never drawn). His black coat is a
-# charcoal a step above the outline, with blue-grey sheen, so his shape and
-# his face still read in a dark room.
+# Extra's colours: letter -> RGB (' ' is never drawn). His glossy black coat
+# a step above the outline, with a blue-grey sheen, so his shape and his face
+# still read in a dark room.
 EXTRA_COLOURS = {
-    'K': (0x0A, 0x09, 0x0E),  # outline, near-black
-    'B': (0x2E, 0x2E, 0x3A),  # fur, charcoal-black
-    'b': (0x1C, 0x1C, 0x26),  # fur, shaded
-    'L': (0x50, 0x58, 0x70),  # fur, blue-grey sheen
-    'l': (0x7E, 0x8C, 0xAA),  # fur, sheen at its brightest
-    'P': (0xC4, 0x86, 0x74),  # inner ear, pinkish tan
-    'p': (0x84, 0x52, 0x48),  # inner ear, shaded
-    'r': (0x9C, 0x6A, 0x4C),  # the tan rim round the eyes
-    'E': (0x5A, 0x32, 0x20),  # eye, dark brown
-    'D': (0x18, 0x0E, 0x0C),  # eye, the pupil
-    'w': (0xFF, 0xFF, 0xFF),  # the eyes' catch-light
-    'N': (0x0E, 0x0C, 0x10),  # nose
-    'n': (0x6C, 0x6E, 0x7E),  # nose, lit
-    'W': (0xF2, 0xF0, 0xEC),  # the white chin, the chest tuft, the tail's tip
-    'g': (0xAE, 0xB0, 0xBA),  # silver-grey hairs
-    'G': (0x6A, 0x6C, 0x7A),  # grey hairs on the muzzle
-    'M': (0x5C, 0x18, 0x22),  # mouth, inside
-    'T': (0xEC, 0x86, 0x96),  # tongue
-    'O': (0xF4, 0x7C, 0x20),  # collar, reflective orange
-    'o': (0xB0, 0x4C, 0x12),  # collar, shaded
+    'K': (0x09, 0x08, 0x0C),  # outline
+    'B': (0x26, 0x25, 0x2E),  # fur, black
+    'b': (0x17, 0x16, 0x1D),  # fur, in shadow
+    'L': (0x4A, 0x50, 0x66),  # fur, its gloss
+    'l': (0x86, 0x90, 0xAE),  # fur, gloss at its brightest
+    'P': (0xB4, 0x7C, 0x6A),  # inside the ears, a dusky pinkish brown
+    'p': (0x7A, 0x48, 0x3E),  # inside the ears, deeper
+    'r': (0xA0, 0x6A, 0x4A),  # the tan skin under the eyes
+    'E': (0x62, 0x36, 0x20),  # eye, dark brown
+    'D': (0x14, 0x0A, 0x08),  # eye, the pupil
+    'w': (0xFF, 0xFF, 0xFF),  # the eyes' shine
+    'N': (0x0C, 0x0B, 0x10),  # nose
+    'n': (0x76, 0x74, 0x82),  # nose, lit
+    'W': (0xF2, 0xF0, 0xEA),  # the white chin, white hairs, the tail's tip
+    'g': (0xAC, 0xAC, 0xB4),  # grey hairs
+    'G': (0x6A, 0x6A, 0x76),  # grey hairs, darker
+    'M': (0x5E, 0x1A, 0x22),  # mouth, inside
+    'T': (0xEC, 0x88, 0x98),  # tongue
 }
 EXTRA_FUR = 'BbLl'
 
 
-def extra_over(c, draw, over=EXTRA_FUR):
-    """What `draw` paints on a blank canvas laid on `c`, only over `over`."""
+def extra_over(c, draw, only=EXTRA_FUR):
+    """What `draw` paints on a blank canvas laid on `c`, only over `only`."""
     t = Canvas(c.width, c.height)
     draw(t)
     for y in range(c.height):
         for x in range(c.width):
-            if t.cells[y][x] != ' ' and c.cells[y][x] in over:
+            if t.cells[y][x] != ' ' and c.cells[y][x] in only:
                 c.cells[y][x] = t.cells[y][x]
 
 
-# ---------------------------------------------------------------- side ----
+def extra_outline(c, letters='BbLlPpg'):
+    """His silhouette's edge (fur, ear or grey beside nothing) in 'K'; the
+    face drawn into it keeps its own lines."""
+    edge = [(x, y) for y in range(c.height) for x in range(c.width)
+            if c.cells[y][x] in letters and any(c.get(x + dx, y + dy) == ' ' for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+    for x, y in edge:
+        c.cells[y][x] = 'K'
 
-# The tail from x 10, y 8 (b adds the bob): thin, curled up over his back,
-# its tip pale.
-EXTRA_SIDE_TAIL = [
-    "...KKKK.",   # 8
-    "..KLBBBK",   # 9
-    ".KLKKKBK",   # 10
-    ".KBK.KgK",   # 11
-    ".KBK.KWK",   # 12
-    ".KBK..K.",   # 13
-    ".KBK....",   # 14
-    "..KBK...",   # 15
-    "..KBK...",   # 16
-    "...KBK..",   # 17
-    "...KBK..",   # 18
-    "....KB..",   # 19
+
+# His head in profile, facing right, pixel by pixel (filled; the outline
+# comes after): the near ear tall and pointed, dusky pink inside, the far one
+# in shadow beside it; the apple dome; the big round eye with its shine, the
+# tan under it; the stop, the short muzzle, the black nose; grey hairs about
+# the mouth and the white chin under it.
+EXTRA_SIDE_HEAD = [
+    "....B.....b........",  # 0
+    "....BB...bb........",  # 1
+    "...BPB...bbb.......",  # 2
+    "...BPPB..bpb.......",  # 3
+    "..BPPPB..bpbb......",  # 4
+    "..BpPPPB.bppb......",  # 5
+    "..BpPPPBbbppbb.....",  # 6
+    ".BBBpPPPBbbpbb.....",  # 7
+    ".BBBppPPBBBbbbB....",  # 8
+    ".BBBBBpPBBBBBBBB...",  # 9
+    ".BBBBBBpBBKKKKBBB..",  # 10
+    "BBBBBBBBBKDDDwKBB..",  # 11
+    "BBBBBBBBBKDDDDKBBB.",  # 12
+    "BBBBBBBBBKEDDEKBBBN",  # 13
+    "BBBBBBBBBBKEEKBBBNN",  # 14
+    "BBBBBBBBBBrrrrBBNnN",  # 15
+    "BBBBBBBBBBBBBBGBBNN",  # 16
+    "BBBBBBBBBBBBBGBgGB.",  # 17
+    "BBBBBBBBBBBBBBgKKK.",  # 18
+    "BBBBBBBBBBBBBBgWWW.",  # 19
+    ".BBBBBBBBBBBBBgWW..",  # 20
+    "..BBBBBBBBBBBBB....",  # 21
 ]
-# The eye in profile, from x 35, y 9: big, round, bulging.
-EXTRA_SIDE_EYE = [
-    ".DDD.",
-    "DDDwD",
-    "rDDDD",
-    "rEDEr",
-    ".rrr.",
+EXTRA_SIDE_TALK = [  # rows 18..21 of the head: the jaw dropped, the tongue
+    "BBBBBBBBBBBBBBgKMM.",
+    "BBBBBBBBBBBBBBgKTM.",
+    ".BBBBBBBBBBBBBgWWW.",
+    "..BBBBBBBBBBBBBgW..",
 ]
-# The muzzle, the nose, the mouth and the white chin: from x 40, y 11.
-EXTRA_SIDE_MUZZLE = [
-    "BBBK...",   # 11
-    "BBLLKKK",   # 12 the muzzle's top, lit; the nose
-    "BBBBNnN",   # 13
-    "BGBBNNN",   # 14
-    "BBGBKNK",   # 15
-    "BGKKKK.",   # 16 the mouth
-    "BgWWWK.",   # 17 the white chin
-    "gWWWK..",   # 18
-    "KgWK...",   # 19
+# His head from the front, its left half (mirrored): the ears big, tall and
+# pointed, up and out; the dome; the big round eyes set wide, the tan under
+# them; the black nose; grey about the muzzle; the white goatee.
+EXTRA_FRONT_HALF = [
+    "K............",  # 0
+    "KK...........",  # 1
+    "KPK..........",  # 2
+    "KPPK.........",  # 3
+    "KpPPK........",  # 4
+    "KpPPPK...KKKK",  # 5
+    "KBpPPPKKKBBBB",  # 6
+    "KBppPPPBBBBBB",  # 7
+    ".KBppPBBBBBBB",  # 8
+    ".KBBppBBBBBBB",  # 9
+    ".KBBKKKKBBBBB",  # 10
+    ".KBKDDDwKBBBB",  # 11
+    ".KBKDDDDKBBBB",  # 12
+    "..KKEDDEKBBKN",  # 13
+    "..KBKEEKBBNNN",  # 14
+    "..KBrrrrBBGNN",  # 15
+    "...KBBBBGBGKN",  # 16
+    "...KBBBBBgGKK",  # 17
+    "....KBBBgGgWW",  # 18
+    ".....KBBBgWWW",  # 19
+    "......KBBBggW",  # 20
+    "........KKKKK",  # 21
 ]
-EXTRA_SIDE_TALK = [  # the jaw dropped a row: rows 16..20
-    "BGKMMMK",   # 16 the mouth open
-    "BGKMTTK",   # 17 the tongue
-    "BgWWWWK",   # 18 the white chin, lowered
-    "BgWWWK.",   # 19
-    "KKgWK..",   # 20
+EXTRA_FRONT_HEAD = [h + h[::-1] for h in EXTRA_FRONT_HALF]  # 26 wide
+EXTRA_FRONT_TALK = [  # rows 17..20, x 9..16 of the head: the mouth open
+    "gGKMMKGg",
+    "gKMTTMKg",
+    "BgWWWWgB",
+    "BBgWWgBB",
 ]
+# The tail from behind, from x 13, y 19: curled up over his back, its tip pale.
+EXTRA_BACK_TAIL = [
+    "..KKKK.",
+    ".KBLLBK",
+    "KBKKKWK",
+    "KBK.KK.",
+    "KBK....",
+    ".KBK...",
+    ".KBBK..",
+    "..KBK..",
+]
+
+
+def extra_paws(c, x0, top, dy, colour='B'):
+    """A leg, straight down, to its paw (lifted `dy` in step)."""
+    c.polygon([(x0, top), (x0 + 3, top), (x0 + 3, 37 - dy), (x0, 37 - dy)], colour)
+    c.line([(x0 - 1, 37 - dy), (x0 + 3, 37 - dy)], colour)
+    c.line([(x0 - 1, 38 - dy), (x0 + 3, 38 - dy)], colour)
 
 
 def extra_side(step=0, talking=False):
-    """Facing right: 48 x 40, feet on the bottom rows. `step` 0..3 walks."""
+    """Facing right: 48 x 40, feet on rows 37..38. `step` 0..3 walks."""
     c = Canvas(48, 40)
     b = 1 if step in (1, 3) else 0  # (a bob as the legs pass)
-    sw = (0, 4, 0, -4)[step]
+    sw = (0, 3, 0, -3)[step]
 
-    def leg(points, colour):
-        # Thin, to a small paw (the body bobs; the paw stays on the ground).
-        c.line([(x, y + b) for x, y in points[:-1]] + [points[-1]], colour, 3)
-        fx = points[-1][0]
-        c.line([(fx - 1, 37), (fx + 2, 37)], colour)
-        c.line([(fx - 1, 38), (fx + 2, 38)], colour)
-    # The far legs, shaded, swinging opposite the near ones; the hind
-    # legs angled at the hock.
-    leg([(14, 24), (15 - sw / 2, 28), (13 - sw, 32), (13 - sw, 36)], 'b')
-    leg([(29, 26), (29 + sw, 36)], 'b')
-    # The body: slim, the chest deep, the belly tucked up; the haunch.
-    c.polygon([(13, 21 + b), (16, 19.5 + b), (22, 19.5 + b), (27, 18.5 + b), (31, 17 + b), (35, 18.5 + b),
-               (36.5, 22 + b), (35, 26.5 + b), (32, 28.5 + b), (27, 28.5 + b), (23, 25.5 + b), (19, 25 + b),
-               (14, 26 + b)], 'B')
-    c.ellipse(12, 19.5 + b, 20, 27 + b, 'B')
+    def leg(top, knee, foot, colour):
+        c.line([(top[0], top[1] + b), (knee[0], knee[1] + b), foot], colour, 3)
+        c.line([(foot[0] - 1, 37), (foot[0] + 3, 37)], colour)
+        c.line([(foot[0] - 1, 38), (foot[0] + 3, 38)], colour)
+    # The far legs, in shadow, swinging opposite the near ones.
+    leg((18, 27), (16 - sw / 2, 32), (17 - sw, 36), 'b')
+    leg((36, 28), (36 + sw / 2, 32), (36 + sw, 36), 'b')
+    # The tail, a curl up over his back.
+    c.line([(17, 22 + b), (15, 18 + b), (15, 14 + b), (17, 12 + b), (20, 12 + b), (21, 14 + b)], 'B', 2)
+    # The body: compact and deep-chested, the belly tucked, the haunch round;
+    # the neck rising to the back of his head.
+    c.polygon([(17, 21 + b), (24, 20 + b), (28, 19 + b), (30, 15 + b), (34, 13 + b), (38, 18 + b), (41, 24 + b),
+               (40, 29 + b), (36, 31 + b), (30, 30 + b), (26, 28 + b), (22, 29 + b), (17, 29 + b)], 'B')
+    c.ellipse(14, 20 + b, 24, 30 + b, 'B')
     # The near legs.
-    leg([(18, 24), (19 + sw / 2, 28), (17 + sw, 32), (17 + sw, 36)], 'B')
-    leg([(33, 26), (33 - sw, 36)], 'B')
-    # The ears, the far one shaded, and the head: an apple-domed skull, a
-    # short muzzle.
-    c.polygon([(32.5, 9 + b), (36, 0.5 + b), (38.5, 0.5 + b), (42, 9.5 + b)], 'b')
-    c.ellipse(24, 6 + b, 41, 21 + b, 'B')
-    c.polygon([(38, 11 + b), (41, 11.5 + b), (44, 12 + b), (46, 12.5 + b), (47, 14 + b), (46.5, 16 + b),
-               (45, 17 + b), (44.5, 18.5 + b), (42, 20 + b), (37, 21 + b)], 'B')
-    c.polygon([(26.5, 8.5 + b), (27, 4 + b), (28.5, -0.5 + b), (30.5, -0.5 + b), (34, 7.5 + b)], 'B')
-    c.outline()
-    # The tail, thin, curled up over his back to its pale tip.
-    crispy_stamp(c, 10, 8 + b, EXTRA_SIDE_TAIL)
-    # Sheen on the skull, along the back and the haunch.
-    extra_over(c, lambda t: t.line([(34, 7 + b), (35, 7 + b)], 'l'))
-    extra_over(c, lambda t: t.line([(25, 14 + b), (26, 11 + b), (27, 10 + b)], 'L'))
-    extra_over(c, lambda t: t.line([(34, 16 + b), (36, 16 + b)], 'L'))
-    extra_over(c, lambda t: t.line([(17, 20 + b), (22, 20 + b), (27, 19 + b), (30, 18 + b)], 'L'))
-    extra_over(c, lambda t: t.line([(13, 23 + b), (14, 21 + b)], 'L'))
-    # The inner ears, pinkish; the far one's edge lit.
-    extra_over(c, lambda t: t.polygon([(28, 1.5 + b), (30, 1.5 + b), (33, 7.5 + b), (28, 8 + b)], 'P'), 'B')
-    extra_over(c, lambda t: t.line([(28, 3 + b), (28, 8 + b)], 'p'), 'P')
-    extra_over(c, lambda t: t.polygon([(37, 2 + b), (38, 2 + b), (40.5, 8 + b), (37, 8 + b)], 'p'), 'b')
-    extra_over(c, lambda t: t.line([(36, 3 + b), (36, 7 + b)], 'L'), 'b')
-    # The face: the eye, the muzzle, the nose, the white chin.
-    crispy_stamp(c, 35, 9 + b, EXTRA_SIDE_EYE)
-    crispy_stamp(c, 40, 11 + b, EXTRA_SIDE_MUZZLE)
+    leg((20, 27), (19 + sw / 2, 32), (19 + sw, 36), 'B')
+    leg((38, 28), (38 - sw / 2, 32), (38 - sw, 36), 'B')
+    crispy_stamp(c, 29, 1 + b, EXTRA_SIDE_HEAD)
     if talking:
-        crispy_stamp(c, 40, 16 + b, EXTRA_SIDE_TALK)
-    # A wisp of white on his chest; the collar behind his head.
-    c.put(33, 24 + b, 'g'); c.put(34, 24 + b, 'W'); c.put(33, 25 + b, 'g')
-    extra_over(c, lambda t: t.line([(26, 17 + b), (29, 21 + b), (34, 22 + b)], 'O'), EXTRA_FUR + 'K')
-    extra_over(c, lambda t: t.line([(26, 18 + b), (28, 21 + b), (29, 22 + b), (34, 23 + b)], 'o'), EXTRA_FUR + 'K')
+        crispy_stamp(c, 29, 19 + b, EXTRA_SIDE_TALK)
+    extra_outline(c)
+    # His gloss: the dome, along his back, the haunch, the tail, the neck.
+    for points, colour in (([(33, 9 + b), (35, 8 + b), (37, 8 + b)], 'L'), ([(36, 8 + b), (36, 8 + b)], 'l'),
+                           ([(23, 21 + b), (28, 20 + b)], 'L'), ([(26, 21 + b), (26, 21 + b)], 'l'),
+                           ([(15, 25 + b), (16, 22 + b), (18, 21 + b)], 'L'), ([(15, 17 + b), (15, 15 + b)], 'L'),
+                           ([(31, 15 + b), (31, 18 + b)], 'L')):
+        extra_over(c, lambda t: t.line(points, colour))
+    # The tail's pale tip; white hairs on his chest.
+    c.put(21, 14 + b, 'g'); c.put(20, 14 + b, 'g')
+    c.put(40, 25 + b, 'g'); c.put(39, 26 + b, 'W')
     return c
-
-
-# --------------------------------------------------------------- front ----
-
-# The face from the front, its left half: x 7..17 (the centre last), from y 11.
-EXTRA_FRONT_FACE_HALF = [
-    # x 7..17
-    "...LL......",  # 11 the brow, glossy
-    "...KDDK....",  # 12 the eyes, big, round and dark, tan-rimmed
-    "..KDDDwK...",  # 13
-    "..EDDDDE...",  # 14
-    "..rEDDEr...",  # 15
-    "...rrrr....",  # 16
-]
-EXTRA_FRONT_FACE_LOW = [
-    # x 7..27: 7  10   15   20   25
-    ".........NnN.........",  # 17 the nose
-    "........NNNNN........",  # 18
-    ".......G.NNN.G.......",  # 19
-    "......G.G.K.G.G......",  # 20 grey hairs on the muzzle
-    "........KKgKK........",  # 21 the mouth
-    ".......gWWWWWg.......",  # 22 the white chin
-    "........gWWWg........",  # 23
-    "..........g..........",  # 24
-]
-EXTRA_FRONT_FACE = crispy_mirror_rows(EXTRA_FRONT_FACE_HALF) + EXTRA_FRONT_FACE_LOW
-EXTRA_FRONT_TALK = [  # the jaw dropped a row, rows 21..25, x 14..20
-    ".KMMMK.",
-    ".KMTMK.",
-    "gWWWWWg",
-    ".gWWWg.",
-    "...g...",
-]
-
-
-def extra_ears(c):
-    """Both ears from the front (or behind): big, tall, set wide."""
-    c.polygon([(14, 8.5), (4.5, -0.5), (3, 0.5), (6.5, 15.5)], 'B')
-    c.polygon([(20, 8.5), (29.5, -0.5), (31, 0.5), (27.5, 15.5)], 'B')
 
 
 def extra_front(step=0, talking=False):
-    """Facing the viewer: 34 x 40, feet on the bottom rows."""
+    """Facing the viewer: 34 x 40, feet on rows 37..38."""
     c = Canvas(34, 40)
     lift = (0, 1, 0, -1)[step]
-    # The front legs, thin, and the paws (one lifted a little in step).
-    for x0, dy in ((14, max(0, lift)), (20, max(0, -lift))):
-        c.line([(x0, 28), (x0, 37 - dy)], 'B', 3)
-        c.line([(x0 - 2, 38 - dy), (x0 + 2, 38 - dy)], 'B')
-        c.line([(x0 - 2, 37 - dy), (x0 + 2, 37 - dy)], 'B')
-    # The chest.
-    c.ellipse(11, 22, 23, 32, 'B')
-    # The ears, big and wide, and the head.
-    extra_ears(c)
-    c.ellipse(6, 5, 28, 22, 'B')
-    c.ellipse(9, 13, 25, 25, 'B')
-    c.outline()
-    # The inner ears, pinkish.
-    c.polygon([(12, 9.5), (5, 2.5), (8, 13.5)], 'P')
-    c.polygon([(22, 9.5), (29, 2.5), (26, 13.5)], 'P')
-    # Sheen on the crown and the cheeks.
-    extra_over(c, lambda t: t.line([(12, 8), (17, 7), (22, 8)], 'L'))
-    extra_over(c, lambda t: t.line([(16, 7), (18, 7)], 'l'))
-    extra_over(c, lambda t: t.line([(8, 17), (9, 18)], 'L'))
-    extra_over(c, lambda t: t.line([(26, 17), (25, 18)], 'L'))
-    crispy_stamp(c, 7, 11, EXTRA_FRONT_FACE)
+    # The front legs and paws (one lifted a little in step), the chest.
+    extra_paws(c, 12, 28, max(0, lift))
+    extra_paws(c, 19, 28, max(0, -lift))
+    c.ellipse(10, 18, 24, 32, 'B')
+    extra_outline(c)
+    crispy_stamp(c, 4, 6, EXTRA_FRONT_HEAD)
     if talking:
-        crispy_stamp(c, 14, 21, EXTRA_FRONT_TALK)
-    # The collar, the chest's white tuft.
-    extra_over(c, lambda t: t.line([(11, 25), (23, 25)], 'O'), EXTRA_FUR + 'K')
-    extra_over(c, lambda t: t.line([(11, 26), (23, 26)], 'o'), EXTRA_FUR + 'K')
-    c.put(17, 29, 'W'); c.put(17, 30, 'g')
+        crispy_stamp(c, 13, 23, EXTRA_FRONT_TALK)
+    # (Not mirrored: the gloss on his dome, the shine on his nose.)
+    for x, y, colour in ((12, 11, 'L'), (13, 11, 'L'), (14, 11, 'l'), (15, 11, 'L'), (11, 12, 'L'), (15, 21, 'n'), (16, 20, 'L')):
+        c.put(x, y, colour)
+    # His chest's gloss and its few white hairs.
+    extra_over(c, lambda t: t.line([(12, 30), (12, 28)], 'L'))
+    c.put(17, 29, 'g'); c.put(17, 30, 'W'); c.put(16, 31, 'g')
     return c
 
 
-# The tail from behind, from x 14, y 24: curled up over his back, its tip pale.
-EXTRA_BACK_TAIL = [
-    ".KKKK.",   # 24
-    "KLllLK",   # 25
-    "KLKKgK",   # 26
-    "KLK.WK",   # 27
-    "KLK.K.",   # 28
-    ".KLK..",   # 29
-    ".KLK..",   # 30
-    "..KLK.",   # 31
-    "..KBK.",   # 32
-]
-
-
 def extra_back(step=0):
-    """Facing away: 34 x 40, feet on the bottom rows."""
+    """Facing away: 34 x 40, feet on rows 37..38."""
     c = Canvas(34, 40)
     lift = (0, 1, 0, -1)[step]
-    # The hind legs and the rear.
-    for x0, dy in ((13, max(0, lift)), (21, max(0, -lift))):
-        c.line([(x0, 30), (x0, 37 - dy)], 'B', 3)
-        c.line([(x0 - 2, 38 - dy), (x0 + 2, 38 - dy)], 'B')
-        c.line([(x0 - 2, 37 - dy), (x0 + 2, 37 - dy)], 'B')
-    c.ellipse(10, 21, 24, 34, 'B')
-    # The ears from behind, and the back of the head.
-    extra_ears(c)
-    c.ellipse(6, 5, 28, 22, 'B')
-    c.outline()
-    # Sheen on the crown, the ears' backs and the haunches.
-    extra_over(c, lambda t: t.line([(12, 8), (17, 7), (22, 8)], 'L'))
-    extra_over(c, lambda t: t.line([(15, 8), (19, 8)], 'l'))
-    extra_over(c, lambda t: t.line([(5, 3), (7, 11)], 'L'))
-    extra_over(c, lambda t: t.line([(29, 3), (27, 11)], 'L'))
-    extra_over(c, lambda t: t.line([(5, 1), (9, 5)], 'p'))
-    extra_over(c, lambda t: t.line([(29, 1), (25, 5)], 'p'))
-    extra_over(c, lambda t: t.line([(11, 27), (12, 25)], 'L'))
-    extra_over(c, lambda t: t.line([(23, 27), (22, 25)], 'L'))
-    # The collar at his nape.
-    extra_over(c, lambda t: t.line([(11, 22), (23, 22)], 'O'), EXTRA_FUR + 'K')
-    extra_over(c, lambda t: t.line([(11, 23), (23, 23)], 'o'), EXTRA_FUR + 'K')
-    # The tail curled up over his back, its pale tip.
-    crispy_stamp(c, 14, 24, EXTRA_BACK_TAIL)
+    # The hind legs, the hips, the neck.
+    extra_paws(c, 12, 30, max(0, lift))
+    extra_paws(c, 19, 30, max(0, -lift))
+    c.ellipse(9, 23, 25, 35, 'B')
+    c.ellipse(12, 18, 22, 27, 'B')
+    # The back of his head, round, and the ears (as from the front, all black).
+    crispy_stamp(c, 4, 6, [''.join('.' if ch == '.' else 'B' for ch in row) for row in EXTRA_FRONT_HEAD[:12]])
+    c.ellipse(7, 10, 27, 24, 'B')
+    extra_outline(c)
+    # The skull's edge over his neck, in shadow; his gloss; the ears' backs.
+    extra_over(c, lambda t: t.line([(11, 23), (14, 25), (20, 25), (23, 23)], 'b'))
+    for points, colour in (([(12, 12), (21, 12)], 'L'), ([(15, 12), (17, 12)], 'l'), ([(5, 8), (8, 14)], 'L'),
+                           ([(29, 8), (26, 14)], 'L'), ([(11, 32), (12, 28)], 'L'), ([(23, 32), (22, 28)], 'L'),
+                           ([(9, 17), (10, 15)], 'L')):
+        extra_over(c, lambda t: t.line(points, colour))
+    # The tail curled up on his back, its pale tip.
+    crispy_stamp(c, 14, 25, EXTRA_BACK_TAIL)
     return c
 
 
@@ -1091,9 +1051,8 @@ def extra():
     return frames
 
 
-for _name, _pic in (('EXTRA_SIDE_TAIL', EXTRA_SIDE_TAIL), ('EXTRA_SIDE_EYE', EXTRA_SIDE_EYE),
-                    ('EXTRA_SIDE_MUZZLE', EXTRA_SIDE_MUZZLE), ('EXTRA_SIDE_TALK', EXTRA_SIDE_TALK),
-                    ('EXTRA_FRONT_FACE', EXTRA_FRONT_FACE), ('EXTRA_FRONT_TALK', EXTRA_FRONT_TALK),
+for _name, _pic in (('EXTRA_SIDE_HEAD', EXTRA_SIDE_HEAD), ('EXTRA_SIDE_TALK', EXTRA_SIDE_TALK),
+                    ('EXTRA_FRONT_HEAD', EXTRA_FRONT_HEAD), ('EXTRA_FRONT_TALK', EXTRA_FRONT_TALK),
                     ('EXTRA_BACK_TAIL', EXTRA_BACK_TAIL)):
     assert len({len(line) for line in _pic}) == 1, _name
     assert set(''.join(_pic)) <= set(EXTRA_COLOURS) | {'.'}, _name

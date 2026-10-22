@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0155 (every thing of the mansion as its own script answers, new engine).
+Active milestone: Phase 1; latest patch 0156 (Extra drawn again, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4093,3 +4093,24 @@ records them from the player's own copy:
   (any order, whole or not at all). Exported with tools/export_worlds.py
   through the app's own launch path. Tested on the desktop build only. Not
   tested on an iPhone (the first launch there exports the mansion again).
+- The full suite passed with 0155 (28 checks).
+
+## Patch 0156 — Extra drawn again (new engine)
+
+User (2026-10-22): "Extra looks nothing like the pictures". The first
+drawing (made by a helper) had a small head, small ears, long thin legs and
+an orange collar from the costume photo. Drawn again here by hand, his head
+pixel by pixel from the photos (not kept), side and front at one scale:
+- Big, tall, pointed ears set high on an apple dome, dusky pinkish brown
+  inside (the far one in shadow from the side); big round dark-brown eyes
+  set wide, with a shine and the tan skin under them; a short muzzle with
+  grey hairs, a black button nose with its shine; the white goatee under the
+  mouth; a few white hairs on his chest; a compact, deep-chested body on
+  short legs, the neck rising to the back of his head; the tail curled up
+  over his back to a pale tip. No collar.
+- From behind: the round back of his head and his ears, his neck, his hips,
+  the tail curled on his back.
+- On the desktop: the cast check plays all three custom characters (3);
+  looked at enlarged on dark, grey and light backgrounds and in the engine
+  beside Guybrush at the Scumm Bar. Tested on the desktop build only. Not
+  tested on an iPhone.
