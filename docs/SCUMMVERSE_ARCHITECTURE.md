@@ -928,7 +928,22 @@ one palette) apply.
   the sentence "<verb> <it> with/to"); the second, carried or here,
   completes it (pairWith: walked to the one here, if any, then act ->
   pairUp; _pairing carries the other to the arrival). Another verb or a
-  tap on the floor lets go. pairUp answers by the plain rules for now.
+  tap on the floor lets go. pairUp answers by the plain rules where
+  pairOwn finds nothing.
+  From 0171 the mansion's things file is "SVO4": effects have a second
+  (u16 with: 0 none, 0xFFFF any other) and after bits 2-3 (the first or
+  second used up); an other's picture 2 is a thing the kid has then. The
+  export runs, from each place as arrived (its state kept and put back
+  between runs, re-entered if a script leaves), Use on every thing with a
+  Use entry with each that can be carried (and the carried ones' own Use
+  with every thing), Unlock and Fix on every thing with one, the carried
+  ones owned by the kid; per first, the most common answer is kept once
+  (with 0xFFFF) and only seconds answered otherwise are listed; answers
+  that leave the place are not. pairOwn looks up the one here's script
+  first (as the mansion's own sentences run: "Use X in Y" answers by Y's),
+  then the first's (PanelBridge::pairEffect: that second's own, else the
+  usual); it says the line, sets the one here's picture after and the
+  others, carries what is had, and drops what is used up. Marker maniac-v28.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

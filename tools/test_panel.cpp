@@ -605,6 +605,43 @@ int main() {
 		assert(PanelBridge::loadThings(3, three.data(), three.size(), problem, sizeof(problem)) && PanelBridge::thingParent(3, 7, 90, parent, parentPicture) && parent == 89 && parentPicture == 1);
 		assert(!PanelBridge::thingParent(3, 7, 89, parent, parentPicture) && !PanelBridge::thingParent(4, 7, 90, parent, parentPicture));
 		assert(parseThings(d.data(), d.size(), things, error) && things.parents.empty()); // ("SVO2": none)
+		// ("SVO4", from 0171: each effect names its second thing (0 none,
+		// 0xFFFF any other), its after's bits 2 and 3 the first or second
+		// used up, an other's picture 2 one had then. Looked up: that second's
+		// own, else the usual; single things as before.)
+		{
+			std::vector<uint8_t> four = {'S', 'V', 'O', '4'};
+			put16(four, 1); put16(four, 1); put16(four, 1); put16(four, 50); four.push_back(0); put16(four, 0);
+			put16(four, 3);
+			auto effect = [&](int id, int kind, int with, int after, int otherPicture, const std::string &said) {
+				put16(four, 1); put16(four, id); four.push_back((uint8_t)kind); four.push_back(0); put16(four, with); four.push_back((uint8_t)after);
+				four.push_back(otherPicture >= 0 ? 1 : 0);
+				if (otherPicture >= 0) { put16(four, 7); put16(four, 90); four.push_back((uint8_t)otherPicture); }
+				four.push_back((uint8_t)said.size()); four.insert(four.end(), said.begin(), said.end());
+			};
+			effect(55, kUse, 50, 1 | 8, 2, "Click.");
+			effect(55, kUse, 0xFFFF, 0, -1, "It doesn't work.");
+			effect(55, kOpen, 0, 0, -1, "");
+			put16(four, 0);
+			assert(parseThings(four.data(), four.size(), things, error) && things.effects.size() == 3);
+			const ThingEffect *own = things.effect(1, 55, kUse, 0, 50), *usual = things.effect(1, 55, kUse, 0, kAnyOther);
+			assert(own && own->with == 50 && own->after == 1 && own->secondGone && !own->firstGone && !own->taken && own->others[0].picture == 2 && own->line == "Click.");
+			assert(usual && usual->line == "It doesn't work." && things.effect(1, 55, kOpen, 0) && !things.effect(1, 55, kUse, 0));
+			int after, others[3], count, flags;
+			char said[32];
+			assert(PanelBridge::loadThings(5, four.data(), four.size(), problem, sizeof(problem)));
+			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 50, after, others, count, 1, said, sizeof(said), flags) && flags == (4 | 8) && count == 1 && others[2] == 2 && std::string(said) == "Click.");
+			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 61, after, others, count, 1, said, sizeof(said), flags) && flags == 0 && count == 0 && std::string(said) == "It doesn't work.");
+			assert(!PanelBridge::pairEffect(5, 1, 55, kUnlock, 0, 50, after, others, count, 1, said, sizeof(said), flags));
+			int room, id, kind, from, with = -1;
+			assert(PanelBridge::effectAt(5, 0, room, id, kind, from, &with) && kind == kOpen && with == 0);
+			std::vector<uint8_t> bad = four;
+			bad[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1 + 2] = 16; // (an after past its bits)
+			assert(!parseThings(bad.data(), bad.size(), things, error) && error == "bad effect");
+			std::vector<uint8_t> three = four;
+			three[3] = '3'; // (read as "SVO3": the seconds misread, refused whole)
+			assert(!parseThings(three.data(), three.size(), things, error));
+		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);

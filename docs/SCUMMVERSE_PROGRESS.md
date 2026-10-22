@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0170 (two things: Use with, Give to, Unlock with, new engine).
+Active milestone: Phase 1; latest patch 0171 (two things as the mansion's own scripts answer, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4437,4 +4437,26 @@ Unlock and Fix worked on one thing only.
   Use, taps it (the sentence ends "with", the verb lit), taps another
   thing here (walked to, the plain answer, the sentence cleared), then
   again and the floor (let go, walking). 0 failed.
+- Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0170.
+
+## Patch 0171 — two things as the mansion's own scripts answer (new engine)
+
+0170's two-thing sentences now answer as the mansion's own scripts do.
+- The export (on the device, from the player's own data) runs each thing's
+  script with each other thing as its second (the ones that can be carried
+  owned by the kid), from its place as the kid arrives, and records the
+  answer: its line, its picture after, the others it sets, what the kid has
+  then, and what is used up. Each thing's usual answer is kept once; only
+  the seconds answered otherwise are listed: 234 records, 48 of them a
+  thing's own answer to one second (for example the cassette tape put in
+  the recorder, dimes in the arcade game, the faucet handle on the shower,
+  the paint remover on the blotch, the key in the front door, the lockers'
+  key). Use answers by what it is used on, as the mansion's sentences run.
+  The mansion exports once more (maniac-v28).
+- Checked: the verbs check replays each own answer as a player has it (the
+  second carried, then Use, or Unlock and Fix on the one here): 47 as the
+  scripts answer (1 not tried: its second has no place), 0 failed; looked
+  up the other way round, 21 fail (checked). The panel parser test reads
+  the seconds, the used-up bits and the usual answer.
 - Tested on the desktop build only. Not tested on an iPhone.
