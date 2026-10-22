@@ -333,7 +333,7 @@ if __name__ == '__main__':
         pairs = re.search(r'selftest pairs: (\d+) games used a thing carried with a thing here; (\d+) of the mansion\'s own as its scripts answer \((\d+) not tried; (\d+) as found\)', output)
         if not pairs or int(pairs.group(1)) < 5 or ((worlds/'maniac-1.svw').exists() and (int(pairs.group(2)) < 80 or pairs.group(4) != '3')):
             raise SystemExit('FAIL: two things (Use, a thing carried, a thing here; the mansion\'s own)\n' + output[-2000:])
-        print(f'PASS: two things: in {pairs.group(1)} games Use, a thing carried ("Use it with", the verb still lit), then a thing here (walked to, the plain answer); a tap on the floor lets go; {pairs.group(2)} of the mansion\'s own answers (Use, Unlock, Fix with a thing carried) as its scripts give them ({pairs.group(3)} not tried); as found, from the picture the place shows: the paint remover on the blotch, the trunk's key, the coin box's key ({pairs.group(4)})')
+        print(f'PASS: two things: in {pairs.group(1)} games Use, a thing carried ("Use it with", the verb still lit), then a thing here (walked to, the plain answer); a tap on the floor lets go; {pairs.group(2)} of the mansion\'s own answers (Use, Unlock, Fix with a thing carried) as its scripts give them ({pairs.group(3)} not tried); as found, from the picture the place shows: the paint remover on the blotch, the trunk\'s key, the coin box\'s key ({pairs.group(4)})')
         # (From 0155: the mansion's things as their own scripts answer, from
         # its things file: every use replayed as a player does it; from 0161
         # read, picked up and fixed too, some taken.)
