@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0159 (review fixes for 0153-0155, new engine).
+Active milestone: Phase 1; latest patch 0160 (Extra by an artists' panel, smaller head, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4167,3 +4167,34 @@ An independent review of 0153-0155 (read only). Fixed:
   (an interrupted export keeps the old file: the new engine's own rules
   then); the handwritten tables answer before the records (they agree).
 - Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0159 (28 checks).
+
+## Patch 0160 — Extra by an artists' panel, a smaller head (new engine)
+
+User (2026-10-22): "Can you add more agents to work on this. His head is
+still oversized" (and ultracode on). Two multi-agent rounds, each drawing
+from the user's photos (read only, never copied):
+- Round 1: four artists (the current drawing with a smaller head; measured
+  from the photo held up; a classic small-dog sprite; a deer-type build),
+  three judges (likeness; proportions; reading at game size and pixel
+  quality), the winner refined, then a skeptical check. Small heads now, but
+  read as a deer or a rabbit (likeness 5.5 of 10); one artist's face, ears
+  and tail were the best, its head still big.
+- Round 2: three artists put that face, those broad flaring ears, the
+  rounded chest and the curled tail on the small head and slim build; four
+  judges (one as his owner: "is that Extra?") chose the same one three
+  times of four; polished; the check passed it on head size, slenderness,
+  ears and legs (likeness 6.5 of 10), better than the drawing in the game and
+  than round 1.
+- Now: from the side, head and snout 11 px on a 27 px body (about 41%; the
+  last drawing about 60%); from the front, the skull 10 px wide over a 12 px
+  rounded chest (the last 14 over 12); ears broad triangles flaring out more
+  than up; thin legs about as long as his chest is deep, fur in every leg in
+  every frame; the neck sloping forward. Drawn 31 rows tall in his 40, made
+  as tall in the game as before (0.3 of a person, as Crispy).
+- In tools/custom_characters.py with every name of his prefixed (Suzy's
+  drawing has a SIDE_HEAD of its own); the generator's frames are the
+  panel's pixel for pixel (checked).
+- On the desktop: the cast check plays all three custom characters (3);
+  looked at in the engine beside Guybrush. Tested on the desktop build only.
+  Not tested on an iPhone.
