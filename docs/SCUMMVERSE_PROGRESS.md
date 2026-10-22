@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0156 (Extra drawn again, new engine).
+Active milestone: Phase 1; latest patch 0157 (Extra with his own build, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4114,3 +4114,19 @@ pixel by pixel from the photos (not kept), side and front at one scale:
   looked at enlarged on dark, grey and light backgrounds and in the engine
   beside Guybrush at the Scumm Bar. Tested on the desktop build only. Not
   tested on an iPhone.
+
+## Patch 0157 — Extra with his own build (new engine)
+
+User (2026-10-22): "Nope it still sucks. His head is way too big. Make it
+look more like the real dog". Looked again at the photo of him standing:
+he is a stocky little dog, not a leggy one. Drawn again, row by row:
+- A long, round, deep body (a little barrel) on short sturdy legs; a round
+  head about a third of his body's length, held at about the height of his
+  back on a short thick neck; a short snout; tall, wide-based ears; the tail
+  carried up in a curl to its pale tip. His face as before at this size: the
+  big dark eye with its shine and the tan under it, the black nose, grey
+  about the mouth, the white goatee; white hairs on his chest; his belly a
+  little shaggy. Front and back at the same build (broad chest and hips).
+- On the desktop: the cast check plays all three custom characters (3);
+  looked at enlarged and in the engine beside Guybrush. Tested on the
+  desktop build only. Not tested on an iPhone.
