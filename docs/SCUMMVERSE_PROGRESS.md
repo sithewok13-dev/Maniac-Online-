@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0175 (something lit: the L key, a saber's frames and glow, new engine).
+Active milestone: Phase 1; latest patch 0176 (something lit: review fixes, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4546,4 +4546,30 @@ Ewok 2 himself (drawn by an artist panel from the sheets) follows.
   (the Sith Ewok given lighting frames, not committed) it passed with 1 lit,
   and with the real cast (none carry one yet) 0 failed. Startup test passes.
   Tested on the desktop build only. Not tested on an iPhone.
+
+## Patch 0176 — something lit: review fixes (new engine)
+
+An independent review of 0175 (two reviewers, each finding verified) found:
+- The lighting-up frames were not drawn: the new engine draws again only
+  while someone walks or talks (StageBridge::busy), and lighting up was not
+  counted, so the screen stayed on the first frame (or, putting it out, on
+  the last, the blade looking lit). busy() now counts it.
+- L pressed again halfway restarted from the other end (the blade jumping
+  out full, or gone): it now turns back from the frame shown.
+- Talking lit with no frames of its own dropped to the unlit pose (the
+  blade gone): now lit standing, as the old engine's frame fallback has it.
+- The iPhone's keyboard may send a capital L (keycode 'L'): L is now taken
+  in either case (by keycode or by its letter).
+- The cast check could not fail for a lighter not lighting: it now counts
+  those that can light and fails unless each did, presses the key as the
+  iPhone sends it (capital, then small), checks the place is redrawn while
+  lighting (busy), and fails when the one played does not walk (it tries
+  both ways).
+- The bridge's pose numbers' compile-time check no longer warns
+  (-Wenum-compare).
+Tests: test_stage (-Wall -Werror, ASan/UBSan) adds turning back halfway both
+ways, lit talking as lit standing, and the bridge busy while lighting up and
+not after; passes. The cast check passes with a stand-in lighter (not
+committed: 1 lit) and with the real cast (0 lit, 0 failed); startup test
+passes. Tested on the desktop build only. Not tested on an iPhone.
 

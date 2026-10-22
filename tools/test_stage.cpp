@@ -4,6 +4,7 @@
 // c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_stage.cpp engine/common/scummverse_stage.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_stage.h"
+#include "common/scummverse_stage_engine.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -81,6 +82,7 @@ static std::vector<uint8_t> spriteBytes(const std::vector<Frame> &frames) {
 static uint32_t sceneColor(int c) { return 0xFF000000u | (uint32_t)c << 16 | (uint32_t)(255 - c) << 8 | (uint32_t)(c / 2); }
 static uint32_t spriteColor(int c) { return 0xFF000000u | (uint32_t)c << 16 | (uint32_t)c << 8 | (uint32_t)(255 - c); }
 static bool near(double a, double b, double within = 1e-6) { return std::fabs(a - b) <= within; }
+static int x0n(const Scene &place, int n) { return (int)place.actor(n).at.x; }
 static bool inSomeBox(const std::vector<Box> &boxes, Point p) {
 	for (const Box &b : boxes) if (inside(b, p, 0.6)) return true;
 	return false;
@@ -764,6 +766,19 @@ int main() {
 		place.stop(n);
 		assert(place.shownKind(n) == World::kGuestStand);
 		assert(place.light(n, true, false) && place.shownKind(n) == World::kGuestLitStand);
+		// (Turned back halfway: from the frame shown, the other way; lit
+		// talking with no frames of its own, as lit standing.)
+		assert(place.light(n, false, false) && place.light(n, true));
+		place.update(kIgniteTicks);
+		assert(at(x0n(place, n), 170) == spriteColor(41) && place.light(n, false) && at(x0n(place, n), 170) == spriteColor(41));
+		place.update(kIgniteTicks); assert(at(x0n(place, n), 170) == spriteColor(40));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestStand && place.actor(n).switching == 0);
+		assert(place.light(n, true));
+		place.update(2 * kIgniteTicks); assert(at(x0n(place, n), 170) == spriteColor(42) && place.light(n, false) && at(x0n(place, n), 170) == spriteColor(42));
+		place.update(kIgniteTicks); assert(at(x0n(place, n), 170) == spriteColor(41) && place.light(n, true) && at(x0n(place, n), 170) == spriteColor(41));
+		place.update(2 * kIgniteTicks); assert(place.shownKind(n) == World::kGuestLitStand);
+		place.talk(n, true); assert(place.shownKind(n) == World::kGuestLitStand && at(x0n(place, n), 170) == spriteColor(50));
+		place.talk(n, false);
 		// (In the dark: the glow added to black, the blade as drawn, the rest
 		// dark.)
 		place.setDark(true);
@@ -771,6 +786,22 @@ int main() {
 		assert(at(cx, y - 38) == 0xFF000000u + (50u << 16) + (50u << 8) + 205u && at(cx, y - 33) == spriteColor(50) && at(cx, y - 10) == Scene::kDarkColor);
 		place.setDark(false);
 	}
-	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, walking ends them; none without ignite frames); a glow's light added, a lit blade in the dark");
+	// (The bridge: busy while lighting up, so the frames are drawn.)
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		std::vector<Frame> frames = {{2, World::kGuestStand, 0, -10, -40, 20, 40, 30}, {2, World::kGuestLitStand, 0, -10, -40, 20, 40, 50}};
+		for (int i = 0; i < 3; ++i) frames.push_back({2, World::kGuestIgnite, i, -10, -40, 20, 40, (uint8_t)(40 + i)});
+		const std::vector<uint8_t> bytes = spriteBytes(frames);
+		char problem[128];
+		assert(StageBridge::load(d.data(), d.size(), 1.0, 320, 320, 200, problem, sizeof(problem)));
+		const int n = StageBridge::addActor(bytes.data(), bytes.size(), 1, 1.0, problem, sizeof(problem));
+		assert(n == 0 && StageBridge::canLight(n) && !StageBridge::busy());
+		assert(StageBridge::light(n, true, true) && StageBridge::lit(n) && StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseIgnite);
+		StageBridge::update(3 * kIgniteTicks - 1); assert(StageBridge::busy());
+		StageBridge::update(1); assert(!StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseLitStand);
+		assert(StageBridge::light(n, false, true) && StageBridge::busy() && !StageBridge::lit(n));
+	}
+	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, turned back halfway, walking ends them; lit talking as lit standing; none without ignite frames; busy while lighting); a glow's light added, a lit blade in the dark");
 	return 0;
 }
