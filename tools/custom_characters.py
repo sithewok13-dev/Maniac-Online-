@@ -404,6 +404,473 @@ def crispy():
     return frames
 
 
+# ----------------------------------------------------------- Sith Ewok ----
+
+# The Sith Ewok: a short, stocky Ewok in a very dark charcoal-purple hooded
+# robe (two round bear ears on the hood, a thick cowl round the neck, wide
+# sleeves), brown fur, small glowing amber eyes under a stern brow, a black
+# nose and a frown; a brown belt with a little square silver buckle and a
+# black and silver crossguard hilt hanging at the left hip (the viewer's right
+# from the front). 40 x 48, the soles on row 46 (row 47 empty). The robe is
+# lit at its rims and folds in a muted purple-grey and outlined in near-black,
+# so it reads on dark backgrounds too.
+#
+# Walking bobs the figure down a row on steps 1 and 3: the finished body is squashed
+# by one row in the robe below the hands (so its shading does not shimmer),
+# then the hilt (hanging from the belt) and the feet are drawn.
+EWOK_COLOURS = {
+    'K': (0x0C, 0x08, 0x0C),  # outline, near-black
+    'k': (0x1C, 0x14, 0x1C),  # inside the hood; deep folds
+    'r': (0x2C, 0x22, 0x2C),  # robe, shaded
+    'R': (0x3C, 0x30, 0x3C),  # robe
+    'h': (0x5A, 0x4A, 0x58),  # robe, lit folds
+    'H': (0x80, 0x6E, 0x7C),  # robe, its brightest rim
+    'P': (0x3E, 0x1E, 0x10),  # the dark brown inner panel
+    'm': (0x4A, 0x22, 0x0E),  # fur, deepest
+    'f': (0x7A, 0x3A, 0x14),  # fur, shaded
+    'F': (0xA6, 0x56, 0x22),  # fur
+    'L': (0xCC, 0x80, 0x44),  # fur, lit; the muzzle
+    'N': (0x10, 0x08, 0x08),  # nose, mouth
+    'M': (0x6C, 0x14, 0x14),  # mouth, open
+    'Y': (0xFF, 0xD8, 0x8C),  # eye, its glow
+    'O': (0xE8, 0x7C, 0x1C),  # eye, amber
+    'B': (0x70, 0x3A, 0x1C),  # belt
+    'b': (0x46, 0x22, 0x12),  # belt, shaded
+    'S': (0xDC, 0xD4, 0xCC),  # silver, lit
+    's': (0x8C, 0x84, 0x80),  # silver
+    'G': (0x26, 0x26, 0x2C),  # the hilt's black grip
+    'g': (0x5E, 0x5A, 0x60),  # the grip's steel edge
+    'C': (0xC8, 0x70, 0x38),  # the hilt's copper ring
+}
+EWOK_ROBE = 'rRhH'
+EWOK_FUR = 'mfFL'
+EWOK_CUT = 34   # the robe row taken out on a bob
+
+
+def ewok_over(c, x, y, colour, only=EWOK_ROBE):
+    """`colour` at (x, y) only where `only` is."""
+    if c.get(x, y) in only:
+        c.put(x, y, colour)
+
+
+def ewok_over_line(c, points, colour, only=EWOK_ROBE):
+    t = Canvas(c.width, c.height)
+    t.line(points, colour)
+    for y in range(c.height):
+        for x in range(c.width):
+            if t.cells[y][x] != ' ':
+                ewok_over(c, x, y, colour, only)
+
+
+def ewok_mirror_rows(half):
+    """Rows from their left half, mirrored about the last column."""
+    return [h + h[-2::-1] for h in half]
+
+
+def ewok_bob(c):
+    """Down a row: the robe row CUT taken out, everything above it lowered."""
+    del c.cells[EWOK_CUT]
+    c.cells.insert(0, [' '] * c.width)
+
+
+# ------------------------------------------------------------- the hilt ----
+# A black grip with a silver edge and catches, one copper ring in its lower
+# third; the crossguard's short silver quillons near the bottom (row 39), the
+# emitter under them, all centred on the grip.
+EWOK_HILT = [
+    "KKKK",   # 24
+    "KSSK",   # 25 the pommel
+    "KssK",
+    "KgGK",   # the black grip
+    "KgGK",
+    "KgGK",
+    "KSsK",   # 30 a silver band
+    "KgGK",
+    "KgGK",
+    "KgGK",
+    "KCCK",   # 34 the copper ring
+    "KgGK",
+    "KgGK",
+    "KssK",   # 37 the collar over the guard
+]
+EWOK_GUARD = [
+    "KKKKKKKK",   # 38
+    "KSsSSsSK",   # 39 the quillons
+    "KKKgGKKK",
+    "..KSsK..",   # 41 the emitter
+    "..KKKK..",
+]
+
+
+def ewok_hilt(c, x, y):
+    """The hilt's grip at x+1..x+2 from row y (its top outline)."""
+    crispy_stamp(c, x, y, EWOK_HILT)
+    crispy_stamp(c, x - 2, y + len(EWOK_HILT), EWOK_GUARD)
+
+
+# -------------------------------------------------------------- the feet ----
+EWOK_FOOT_FRONT = [
+    ".KKKKKK.",
+    "KfFLLFfK",
+    "KFLLLLFK",
+    "KFfFfFfK",   # the toes
+    "KKKKKKKK",   # the soles (row 46)
+]
+EWOK_FOOT_BACK = [   # heels
+    ".KKKKKK.",
+    "KfffffmK",
+    "KFFFFfmK",
+    "KFLLFfmK",
+    "KKKKKKKK",
+]
+EWOK_FOOT_SIDE = [   # facing right, the near foot
+    "..KKKKK..",
+    ".KfFFFLK.",
+    "KfFFFLLLK",
+    "KfFFfFfFK",
+    "KKKKKKKKK",
+]
+EWOK_FOOT_FAR = [    # the far foot, in shadow
+    "..KKKKK..",
+    ".KmffFfK.",
+    "KmffFFfFK",
+    "KmfmfmfmK",
+    "KKKKKKKKK",
+]
+
+
+def ewok_hem_line(c):
+    """A dark line where the robe's hem lies on a foot."""
+    for y in range(38, 46):
+        for x in range(c.width):
+            if c.get(x, y) in EWOK_ROBE + 'kP' and c.get(x, y + 1) in EWOK_FUR:
+                c.put(x, y, 'K')
+
+
+def ewok_foot(c, x, lift, rows, hem):
+    """A foot from (x, 42 - lift); a lifted foot shows only below the hem."""
+    for dy, row in enumerate(rows):
+        y = 42 - lift + dy
+        if lift and y < hem:
+            continue
+        for dx, ch in enumerate(row):
+            if ch != '.':
+                c.put(x + dx, y, ch)
+
+
+# ------------------------------------------------------------- the front ----
+# The face in the hood's opening, x 14..26 (axis x 20), from y 7.
+EWOK_FRONT_FACE = ewok_mirror_rows([
+    "kkkkkkk",   # 7  the hood's shadow over the brow
+    "kkkkmmm",   # 8
+    "kmmmfff",   # 9
+    "fmmmFFF",   # 10 the stern brow, its inner ends lower
+    "fOYmmFF",   # 11 the glowing eyes
+    "fFFFFFL",   # 12
+    "fFFFLNN",   # 13 the nose
+    "fFFLLLN",   # 14
+    "kfFLLLL",   # 15
+    "kfFLLNN",   # 16 the frown
+    "kffLNLL",   # 17
+    ".kffLLL",   # 18
+])
+EWOK_FRONT_TALK = ewok_mirror_rows([  # rows 16..18: the mouth open a little
+    "kfFLLNN",
+    "kffLNMM",
+    ".kffLNM",
+])
+EWOK_EAR = [".KKKK.",   # the round ear on the hood, from its top
+       "KhHHhK",
+       "KhrkrK",
+       "KRkkrR"]
+
+
+def ewok_robe_body(c, sway):
+    """The robe from the shoulders to the hem (front and back alike)."""
+    c.polygon([(10, 19), (31, 19), (36 + sway, 45), (5 + sway, 45)], 'R')
+    # the wide sleeves
+    c.polygon([(12, 19), (7, 21), (3, 26), (3, 29), (12, 29), (13, 24)], 'R')
+    c.polygon([(29, 19), (34, 21), (38, 26), (38, 29), (29, 29), (28, 24)], 'R')
+
+
+def ewok_shade_robe(c, sway):
+    """The robe's sides in shadow toward the hem."""
+    for y in range(24, 46):
+        for x in range(40):
+            if c.get(x, y) == 'R':
+                t = (y - 24) // 5
+                if x < 9 + sway + t or x > 31 + sway - t:
+                    c.put(x, y, 'r')
+
+
+EWOK_HAND = [  # the viewer's left hand, hanging out of the sleeve, from x 5, y 28
+    "KFLLFK",
+    "KFLLFK",
+    "KFFFfK",
+    "KfmfmK",   # the fingers
+    ".KKKK.",
+]
+EWOK_HAND_BACK = [  # seen from behind: the back of the paw, darker
+    "KffFfK",
+    "KfFFfK",
+    "KffFmK",
+    "KmfmmK",
+    ".KKKK.",
+]
+
+
+def ewok_hands(c, rows=EWOK_HAND):
+    for x in list(range(5, 12)) + list(range(29, 36)):
+        ewok_over(c, x, 27, 'k')   # the sleeves' openings, dark
+    crispy_stamp(c, 5, 28, rows)
+    crispy_stamp(c, 30, 28, [r[::-1] for r in rows])
+
+
+def ewok_cowl(c):
+    c.ellipse(7, 15, 33, 24, 'R')
+
+
+def ewok_hood(c, back=False):
+    c.ellipse(9, 1, 15, 7, 'R')
+    c.ellipse(25, 1, 31, 7, 'R')
+    if back:
+        c.polygon([(10, 11), (30, 11), (28, 19), (20, 22), (12, 19)], 'R')
+    c.ellipse(8, 3, 32, 20, 'R')
+
+
+def ewok_sleeve_folds(c):
+    ewok_over_line(c, [(7, 22), (4, 26)], 'H')
+    ewok_over_line(c, [(9, 23), (8, 26)], 'k')
+    ewok_over_line(c, [(33, 22), (36, 26)], 'h')
+    ewok_over_line(c, [(31, 23), (32, 26)], 'k')
+
+
+def ewok_cowl_folds(c):
+    ewok_over_line(c, [(9, 17), (14, 20), (20, 21), (26, 20), (31, 17)], 'h')
+    ewok_over_line(c, [(8, 20), (14, 23), (20, 24), (26, 23), (32, 20)], 'k')
+    ewok_over_line(c, [(11, 22), (20, 23), (29, 22)], 'r')
+    ewok_over_line(c, [(8, 17), (8, 20)], 'h')
+    ewok_over_line(c, [(32, 17), (32, 20)], 'r')
+
+
+def ewok_hood_lights(c):
+    ewok_over_line(c, [(12, 5), (16, 4), (24, 4), (28, 5)], 'H')
+    ewok_over_line(c, [(11, 6), (9, 10), (9, 13)], 'h')
+    ewok_over_line(c, [(31, 8), (31, 13)], 'r')
+    for x0 in (9, 26):
+        crispy_stamp(c, x0, 1, EWOK_EAR if x0 < 20 else [r[::-1] for r in EWOK_EAR])
+
+
+def ewok_belt(c, y, x0=12, x1=29):
+    for x in range(x0, x1):
+        if c.get(x, y) not in ' K':
+            c.put(x, y, 'B')
+        if c.get(x, y + 1) not in ' K':
+            c.put(x, y + 1, 'b')
+
+
+def ewok_front(step=0, talking=False):
+    c = Canvas(40, 48)
+    sway = (0, 1, 0, -1)[step]
+    ewok_robe_body(c, sway)
+    ewok_cowl(c)
+    ewok_hood(c)
+    c.outline()
+    ewok_shade_robe(c, sway)
+    # the inner panel down the front, between the buckle and the hilt
+    for y in range(28, 44):
+        s = sway if y > 40 else 0
+        for x in range(19, 22):
+            c.put(x + s, y, 'P')
+        ewok_over(c, 18 + s, y, 'h')
+        ewok_over(c, 22 + s, y, 'k')
+    # robe folds
+    ewok_over_line(c, [(14, 28), (12 + sway, 44)], 'k')
+    ewok_over_line(c, [(15, 28), (14 + sway, 43)], 'h')
+    ewok_over_line(c, [(28, 29), (29 + sway, 44)], 'k')
+    ewok_over_line(c, [(9, 30), (8 + sway, 43)], 'h', 'r')
+    ewok_sleeve_folds(c)
+    ewok_hands(c)
+    ewok_cowl_folds(c)
+    ewok_hood_lights(c)
+    # the face, in the hood's opening, its edge lit
+    crispy_stamp(c, 14, 7, EWOK_FRONT_FACE)
+    if talking:
+        crispy_stamp(c, 14, 16, EWOK_FRONT_TALK)
+    ewok_over_line(c, [(13, 8), (12, 12), (13, 17)], 'h')
+    ewok_over_line(c, [(27, 8), (28, 12), (27, 17)], 'r')
+    ewok_over_line(c, [(15, 6), (25, 6)], 'h')
+    # the belt, its buckle
+    ewok_belt(c, 26)
+    crispy_stamp(c, 19, 25, ["sSs", "sKs", "sss"])
+    b = 1 if step in (1, 3) else 0
+    if b:
+        ewok_bob(c)
+    # the hilt at the left hip (the viewer's right)
+    ewok_hilt(c, 24, 24 + b)
+    lift = (0, 1, 0, -1)[step]
+    ewok_foot(c, 9 + sway, max(0, lift), EWOK_FOOT_FRONT, 43)
+    ewok_foot(c, 24 + sway, max(0, -lift), EWOK_FOOT_FRONT, 43)
+    ewok_hem_line(c)
+    return c
+
+
+# -------------------------------------------------------------- the back ----
+
+def ewok_back(step=0):
+    c = Canvas(40, 48)
+    sway = (0, 1, 0, -1)[step]
+    ewok_robe_body(c, sway)
+    ewok_cowl(c)
+    ewok_hood(c, back=True)
+    c.outline()
+    ewok_shade_robe(c, sway)
+    # the robe's folds down the back
+    for x0, x1, colour in ((16, 15, 'h'), (20, 20, 'k'), (24, 25, 'h'), (13, 11, 'k'), (27, 29, 'k'),
+                           (11, 9, 'h'), (29, 31, 'r')):
+        ewok_over_line(c, [(x0, 28), (x1 + sway, 44)], colour)
+    ewok_over_line(c, [(21, 30), (21 + sway, 43)], 'r')
+    ewok_sleeve_folds(c)
+    ewok_hands(c, EWOK_HAND_BACK)
+    # the cowl round the shoulders, under the hood's long back
+    ewok_over_line(c, [(8, 18), (10, 22), (14, 24)], 'h')
+    ewok_over_line(c, [(32, 18), (30, 22), (26, 24)], 'r')
+    ewok_over_line(c, [(9, 16), (12, 19)], 'k')
+    ewok_over_line(c, [(31, 16), (28, 19)], 'k')
+    # the hood's back: lit crown, soft folds, its shadowed tip
+    ewok_hood_lights(c)
+    ewok_over_line(c, [(14, 7), (13, 11), (13, 16)], 'h')
+    ewok_over_line(c, [(21, 8), (21, 15), (20, 19)], 'r')
+    ewok_over_line(c, [(26, 7), (27, 11), (27, 16)], 'r')
+    ewok_over_line(c, [(13, 19), (20, 22), (27, 19)], 'k')
+    ewok_over_line(c, [(12, 18), (20, 21), (28, 18)], 'r')
+    ewok_belt(c, 26)
+    b = 1 if step in (1, 3) else 0
+    if b:
+        ewok_bob(c)
+    # the hilt at the left side (the viewer's left)
+    ewok_hilt(c, 12, 24 + b)
+    lift = (0, 1, 0, -1)[step]
+    ewok_foot(c, 9 + sway, max(0, -lift), EWOK_FOOT_BACK, 43)
+    ewok_foot(c, 24 + sway, max(0, lift), EWOK_FOOT_BACK, 43)
+    ewok_hem_line(c)
+    return c
+
+
+# -------------------------------------------------------------- the side ----
+# Facing right. The face in profile under the hood's brim, x 22..31, from y 8.
+EWOK_SIDE_FACE = [
+    # x 22..31
+    "kkkkkkkK..",   # 8  the brim's shadow
+    "kkkkkkkkK.",   # 9  the forehead, deep in the hood
+    "kkfmmmmmK.",   # 10 the brow, jutting
+    "kfFFmOYFK.",   # 11 the eye under it, glowing
+    "kfFFFFFLNK",   # 12 the blunt snout, the black nose at its tip
+    "kmfFFFLLNK",   # 13
+    "kmfFFLLLLK",   # 14
+    "kmfFFLNNK.",   # 15 the frown
+    "kkmfFLLK..",   # 16 the chin
+    "kkmfffK...",   # 17
+    "kkkmfK....",   # 18
+]
+EWOK_SIDE_TALK = [  # rows 15..16
+    "kmfFFNMNK.",
+    "kkmfFMNK..",
+]
+EWOK_SIDE_HAND = [  # the hanging hand, out of the sleeve
+    "KFLLFK",
+    "KFFLFK",
+    "KFFFfK",
+    "KfmfmK",   # the fingers
+    ".KKKK.",
+]
+
+
+def ewok_side(step=0, talking=False):
+    c = Canvas(40, 48)
+    sway = (0, 1, 0, -1)[step]
+    stride = (0, 2, 0, -2)[step]
+    # the far foot, behind
+    ewok_foot(c, 12 - stride, 0, EWOK_FOOT_FAR, 44)
+    # the robe: the back flaring out to the hem, the front falling straight
+    c.polygon([(12, 18), (28, 18), (29, 28), (31 + sway, 45), (7 + sway, 45), (9, 30), (10, 22)], 'R')
+    # the cowl
+    c.ellipse(9, 15, 29, 24, 'R')
+    # the hood: tall, its crown toward the back, its brim forward over the
+    # face, its back draping down to the shoulders
+    c.polygon([(9, 21), (9, 12), (11, 7), (14, 3), (18, 1), (24, 1), (28, 3),
+               (31, 6), (31, 8), (23, 8), (23, 19), (14, 22)], 'R')
+    # the face's silhouette under the brim
+    for dy, row in enumerate(EWOK_SIDE_FACE):
+        for dx, ch in enumerate(row):
+            if ch != '.':
+                c.put(22 + dx, 8 + dy, 'F')
+    # the hanging sleeve
+    arm = (0, 1, 0, -1)[step]
+    c.polygon([(15, 18), (21, 18), (23 + arm, 24), (23 + arm, 29), (14 + arm, 29), (13, 24)], 'R')
+    c.outline()
+    # the face recessed under the brim
+    crispy_stamp(c, 22, 8, EWOK_SIDE_FACE)
+    if talking:
+        crispy_stamp(c, 22, 15, EWOK_SIDE_TALK)
+    ewok_over_line(c, [(21, 9), (20, 13), (21, 18)], 'h')
+    ewok_over_line(c, [(24, 3), (28, 4), (30, 7)], 'H')
+    ewok_over_line(c, [(23, 7), (30, 7)], 'h')
+    # the hood's crown and back lit, its lower back in shadow
+    ewok_over_line(c, [(10, 10), (12, 6), (15, 3)], 'H')
+    ewok_over_line(c, [(16, 2), (23, 2)], 'H')
+    ewok_over_line(c, [(10, 12), (10, 17)], 'h')
+    ewok_over_line(c, [(13, 8), (13, 17)], 'r')
+    ewok_over_line(c, [(17, 6), (17, 14), (16, 18)], 'r')
+    # the cowl's folds
+    ewok_over_line(c, [(10, 18), (16, 20), (23, 20), (28, 18)], 'h')
+    ewok_over_line(c, [(10, 21), (17, 23), (24, 23), (28, 21)], 'k')
+    # the robe: shaded at the back, lit down the front, its folds
+    for y in range(24, 46):
+        for x in range(40):
+            if c.get(x, y) == 'R' and x < 11 + sway + (y - 24) // 6:
+                c.put(x, y, 'r')
+    ewok_over_line(c, [(28, 24), (30 + sway, 43)], 'H')
+    ewok_over_line(c, [(11, 31), (9 + sway, 44)], 'k')
+    ewok_over_line(c, [(14, 32), (13 + sway, 44)], 'h')
+    ewok_over_line(c, [(19, 33), (19 + sway, 44)], 'k')
+    ewok_over_line(c, [(26, 29), (27 + sway, 44)], 'k')
+    ewok_over_line(c, [(10, 23), (9, 30)], 'h')
+    # the sleeve: its lit front edge, the dark opening over the wrist, the hand
+    ewok_over_line(c, [(20, 19), (22 + arm, 25)], 'H')
+    ewok_over_line(c, [(15, 21), (14 + arm, 26)], 'k')
+    ewok_over_line(c, [(17, 22), (17 + arm, 26)], 'h')
+    for x in range(15, 23):
+        ewok_over(c, x + arm, 27, 'k')
+    crispy_stamp(c, 15 + arm, 28, EWOK_SIDE_HAND)
+    # the belt from the arm to the front
+    ewok_belt(c, 26, 21, 31)
+    b = 1 if step in (1, 3) else 0
+    if b:
+        ewok_bob(c)
+    # the hilt in front of the hip
+    ewok_hilt(c, 23, 24 + b)
+    ewok_foot(c, 21 + stride, 0, EWOK_FOOT_SIDE, 44)
+    ewok_hem_line(c)
+    return c
+
+
+def ewok():
+    frames = []
+    side = [ewok_side(s) for s in range(4)]
+    for d, flip in ((RIGHT, False), (LEFT, True)):
+        pick = (lambda f: f.mirrored()) if flip else (lambda f: f)
+        frames.append((d, STAND, 0, pick(side[0])))
+        frames += [(d, WALK, i, pick(side[i])) for i in range(4)]
+        frames += [(d, TALK, 0, pick(side[0])), (d, TALK, 1, pick(ewok_side(0, True)))]
+    frames.append((FRONT, STAND, 0, ewok_front()))
+    frames += [(FRONT, WALK, i, ewok_front(i)) for i in range(4)]
+    frames += [(FRONT, TALK, 0, ewok_front()), (FRONT, TALK, 1, ewok_front(0, True))]
+    frames.append((BACK, STAND, 0, ewok_back()))
+    frames += [(BACK, WALK, i, ewok_back(i)) for i in range(4)]
+    return frames
+
+
 # ------------------------------------------------------------- preview ----
 
 
@@ -1176,7 +1643,8 @@ assert all(set(''.join(_rows)) <= set(EXTRA_COLOURS) | {'.'} for _rows in (EXTRA
 # The custom characters (their number, name, the art, its colours, and how
 # tall they stand against a person: Crispy and Extra are little dogs).
 CUSTOM = [(1, 'Crispy', crispy, CRISPY_COLOURS, 0.3), (2, 'Suzy', suzy, SUZY_COLOURS, 0.95),
-          (3, 'Extra', extra, EXTRA_COLOURS, 0.3 * 40 / 31)]  # (drawn 31 rows tall in his 40: 0.3 of a person, as Crispy)
+          (3, 'Extra', extra, EXTRA_COLOURS, 0.3 * 40 / 31),  # (drawn 31 rows tall in his 40: 0.3 of a person, as Crispy)
+          (4, 'Sith Ewok', ewok, EWOK_COLOURS, 0.6 * 48 / 46)]  # (drawn 46 rows tall in 48: about 0.6 of a person, as an Ewok)
 
 
 def write_inc(path):

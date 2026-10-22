@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0163 (Crispy redrawn from the user's model, new engine).
+Active milestone: Phase 1; latest patch 0164 (the Sith Ewok, a fourth custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4273,5 +4273,31 @@ User (2026-10-22): a pixel-art model of Crispy, "Use this model for Crispy"
 - In tools/custom_characters.py (every name of his prefixed; the frames are
   the panel's pixel for pixel, checked). As tall as before (0.3 of a person).
 - On the desktop: the cast check plays all three custom characters, 0
+  failed; looked at in the engine beside Guybrush. Tested on the desktop
+  build only. Not tested on an iPhone.
+
+## Patch 0164 — the Sith Ewok, a fourth custom character (new engine)
+
+User (2026-10-22): a front, side and back model sheet, "Make a new Sith Ewok
+character" (ultracode on). The sheet was read only, never copied.
+- An artists' panel: four artists (sampled from each view and cleaned up by
+  hand; drawn by hand; sampled at twice the size and reduced by hand;
+  readability first), three judges (likeness; reading at game size; as the
+  user). Scores were close (one judge chose B, two A; B's total was highest);
+  B refined with all the notes, then a skeptical check: likeness 7 of 10,
+  reads in the game, consistent, clean; the sheet not read at run time.
+- Drawn: a short, stout Ewok in a charcoal-purple hooded robe with two round
+  ears on the hood, a thick cowl, wide sleeves and furry hands, glowing amber
+  eyes under a stern brow, a black nose and a frown; a brown belt with a
+  silver buckle and the crossguard hilt at the left hip (the viewer's right
+  from the front, the near side from the side, the left from the back); the
+  robe lit at its rims so it reads on dark places. 40x48, drawn 46 rows tall,
+  about 0.6 of a person. Talking opens the mouth; walking bobs and sways the
+  hem. Left as the check found it: the face window squarer and brighter than
+  the sheet's, the hood's crown flatter, the robe wider at the hem.
+- In the catalog as costume 4 (its description and lines for the chat, the
+  talk colour light magenta); in tools/custom_characters.py with every name
+  prefixed (the panel's frames pixel for pixel, checked).
+- On the desktop: the cast check plays all four custom characters, 0
   failed; looked at in the engine beside Guybrush. Tested on the desktop
   build only. Not tested on an iPhone.
