@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0168 (the mansion's things inside others: shown and taken only when open, new engine).
+Active milestone: Phase 1; latest patch 0169 (review fixes for 0168: drawn in the original's order, doors behind things, letters not yet in the mailbox; new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4390,4 +4390,29 @@ found them before the container.
   changes the fridge check fails (checked). The stage and panel parser
   tests cover the new reading (looksAs; "SVO3": its order, cut short, one
   inside itself, listed twice).
+- Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0168.
+
+## Patch 0169 — review fixes for 0168 (new engine)
+
+An independent review of 0168 (three reviewers, each finding checked by
+another; read only). Fixed:
+- Drawn again in the original's order (from its last object to its first)
+  with what overlaps them: 0168's order left a strip of the shower curtain
+  shut after it was drawn aside (its rod's picture painted over it), and a
+  corner of the envelope in the safe after it was taken.
+- A door inside something shut is no way through until it is open: the
+  grating behind the bushes, the hole behind the blotch of paint, the door
+  behind its padlock (walked through before, and kept open).
+- The letters in the mailbox are not there until the mail comes, as the
+  original has them (their state says so): opening the mailbox no longer
+  shows them to be taken. The mansion exports once more (maniac-v27).
+- The mansion's old things file is emptied before its export's marker, so
+  an export that stops after its places never pairs them with an older
+  file (it has none then: the new engine's own rules).
+- Checked: the shower curtain now looks so (pixel for pixel), the envelope
+  taken from the safe behind the painting, the grating behind the bushes,
+  the mailbox's letters; drawn in 0168's order four checks fail (checked).
+  The verbs check: 848 as the scripts answer (74 away: the letters and
+  others not yet there), 0 failed.
 - Tested on the desktop build only. Not tested on an iPhone.

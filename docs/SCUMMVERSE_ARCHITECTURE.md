@@ -914,6 +914,14 @@ one palette) apply.
   one covers what is in it and what was taken stays gone when it opens.
   StageBridge::looksAs tells whether the scene where an object is looks
   as one of its pictures. Marker maniac-v26.
+  From 0169 layInside draws as the original's drawRoomObjects: the family
+  (things inside others and what holds them) and every object overlapping
+  it, from the last stage index to the first (the first on top), one
+  inside one shut left out; nothing in a room without parents. A door
+  inside one shut is no door for doorAllowed, doorOpens, a tap's walk and
+  the wanderers' arrivals. The things pass marks away a V1-2 thing whose
+  state has the untouchable bit (as findObject). The mansion's old things
+  file is emptied before its marker. Marker maniac-v27.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens
