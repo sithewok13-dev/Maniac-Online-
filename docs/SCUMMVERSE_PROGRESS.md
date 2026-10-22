@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0158 (Extra slender, new engine).
+Active milestone: Phase 1; latest patch 0159 (review fixes for 0153-0155, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4142,3 +4142,28 @@ his face, ears, white goatee and curled tail as before.
 - On the desktop: the cast check plays all three custom characters (3);
   looked at enlarged and in the engine beside Guybrush. Tested on the
   desktop build only. Not tested on an iPhone.
+
+## Patch 0159 — review fixes for 0153-0155 (new engine)
+
+An independent review of 0153-0155 (read only). Fixed:
+- The garden gate walked up to shut now opens as one (all its sides), as
+  opened with the verb: the door is opened on reaching it, before the way
+  through, so 0153's rule in travel() was never reached that way.
+- A thing of the mansion's with no second picture keeps the picture its game
+  counts it in (its own, and as another's), so its next verb starts from
+  there (not exercised by the mansion's records: none of those things
+  changes its own).
+- What a thing's script sets elsewhere leaves a thing carried as it is.
+- The secret door shuts behind also with a tour paused.
+- The export: one look per room for what answers which verb (then a run
+  only for those), the verb and its objects set as the engine sets them
+  for a sentence (no record changed), a line's break kept as a space.
+- The verbs check's replay now fails on a record not found again or a
+  thing not reached, expects silence where the record says nothing, and
+  replays things with no second picture from each picture too: 646 replayed
+  (8 out of reach), 0 failed. A check walks up to the shut gate on the
+  pool deck: all its sides open (without the fix it fails, checked).
+- Left as they are: the mansion's marker is written before its things file
+  (an interrupted export keeps the old file: the new engine's own rules
+  then); the handwritten tables answer before the records (they agree).
+- Tested on the desktop build only. Not tested on an iPhone.

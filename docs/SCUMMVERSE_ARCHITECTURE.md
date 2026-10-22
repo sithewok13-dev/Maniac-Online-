@@ -884,6 +884,11 @@ one palette) apply.
   non-doors only. worldExportVersion() puts the mansion one ahead
   ("maniac-v23"), so only it exports again; main.cpp, the iOS worlds UI,
   world_visit.inc and test_world_setup.py use it.
+  From 0159: thingBit() is a thing's picture as its game counts (the stage's,
+  else `_pictures`, else the things file's); setPicture and effectOf keep
+  it in `_pictures` for one the stage has no second picture for; pictureOf
+  reads the stage only for one it has; reachDoor applies a door's Open rows
+  when it opens it.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens
