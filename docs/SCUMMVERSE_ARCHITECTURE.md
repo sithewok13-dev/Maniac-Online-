@@ -898,6 +898,11 @@ one palette) apply.
   picture without it). useItem reads a carried thing by its record (from 1,
   else 0). The mansion's marker is now maniac-v24 (worldExportVersion: the
   mansion 2 ahead; tools/test_world_setup.py reads the lead from the header).
+  From 0162 not fix (the mansion's wants a second thing: "with"); marker
+  maniac-v25. A take is the plain rules' too where the stage has no picture
+  without the thing (one inside a thing shut when exported: the stage has
+  no parents), and useItem loads the carried thing's game's things file
+  (loadThings, as enter does) if it was not entered since the start.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

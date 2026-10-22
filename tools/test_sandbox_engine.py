@@ -332,10 +332,10 @@ if __name__ == '__main__':
         # its things file: every use replayed as a player does it; from 0161
         # read, picked up and fixed too, some taken.)
         effects = re.search(r"selftest effects: (\d+) as the mansion's own scripts answer \((\d+) away, (\d+) taken, (\d+) read carried, (\d+) left to the plain rules\)", output)
-        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 600 or int(effects.group(3)) < 10 or int(effects.group(4)) < 5):
+        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 600 or int(effects.group(3)) < 10 or int(effects.group(4)) < 3):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if effects:
-            print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there)")
+            print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture without it)")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0161 (the mansion's things read, picked up and fixed as its own scripts answer, new engine).
+Active milestone: Phase 1; latest patch 0162 (review fixes for 0161: nothing taken from inside a thing shut, a carried thing read anywhere, fix left out; new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4223,3 +4223,30 @@ Use and unlock want a second thing; left for later.
   panel's parser test reads the taken bit and refuses values past 3.
 - Tested on the desktop build only. Not tested on an iPhone. An independent
   review is running; its fixes come in a later patch.
+- The full suite passed with 0161.
+
+## Patch 0162 — review fixes for 0161 (new engine)
+
+An independent review of 0161 (three reviewers, each finding checked by
+another; read only). Fixed:
+- Things inside something shut when exported (the fridge's food, the key
+  under the mat, the dimes in the piggy bank, the envelope in the safe, the
+  tape behind the panel and others) could be picked up with it shut, and
+  stayed drawn after: the stage has no picture of the place without them.
+  Now refused as before 0161 (the plain rules). Taking them once their
+  container is open needs the export to know what each is inside; not done.
+- Reading a thing carried from the mansion gave its plain name after a start
+  elsewhere (the mansion's things file not read yet): now read when needed.
+- Fix is left out: the mansion's fix wants a second thing ("fix ... with"),
+  so its one-thing answers were the wrong ones. The mansion exports once
+  more (maniac-v25).
+- Rejected after checking: the marker written before the things file (as
+  0159 left it), old builds and the after byte (each build exports again),
+  the replay's checks and the suite's floors.
+- Checked: the verbs check replays 901 as the scripts answer (5 out of
+  reach; 26 taken then put back, 5 of those read while carried with the
+  things file cleared first; 82 left to the plain rules: those taken with no
+  picture without them are tried and must not be taken), 0 failed. Without
+  the shut-container rule the check fails (four things taken); without the
+  load on reading it fails (five lines); both checked.
+- Tested on the desktop build only. Not tested on an iPhone.
