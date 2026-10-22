@@ -498,6 +498,23 @@ cannot start goes home too, even when it was the first run. The
 kWorldStoryNeeds check lives in `common/scummverse_story.h`
 (`storyMissing`) for both.
 
+From the new engine (0185): its Worlds menu also has "Play the original
+games" (the same list). `SandboxEngine::openStory` checks the story's target
+and files as the mansion does, saves the sandbox, drops its own way back
+(the mansion at slot 100, queued when the sandbox was opened: a story goes on
+only with nothing queued after it) and chains the story with no slot, so it
+starts from its newest save; the home rule brings the mansion back at its
+slot 100, saved when the sandbox was opened. The sandbox's `story` selftest
+and `test_sandbox_engine.py`'s third switch walk Maniac -> sandbox ->
+Maniac's own story -> Maniac.
+
+Zak imported from the Files app (0185, iOS): the importer keeps its copy in
+Application Support (`ConnectedWorlds/zak-<uuid>`, outside the Documents
+chroot). The backend adds a `connectedworlds:` virtual drive for that folder
+(as upstream's `appbundle:`), and `addStoryTarget` gives Zak's story target
+the path `connectedworlds:/zak-<uuid>` (from `iOS7_getZakDirectory()`) when
+Documents has no zak folder; the menus count such a Zak as found.
+
 ## Wanderers (0101, everyone out since 0103)
 
 Other games' characters roam outside their home rooms

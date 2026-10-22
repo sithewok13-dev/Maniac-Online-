@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0184 (story play: Maniac's own story, going on at the next start, Save now; 0183 The Curse's verb coin in the new engine; 0181 story play: the original games opened from Maniac).
+Active milestone: Phase 1; latest patch 0185 (story play from the new engine, imported Zak; 0184 Maniac's own story, going on at the next start, Save now; 0183 The Curse's verb coin in the new engine; 0181 story play: the original games opened from Maniac).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4882,3 +4882,20 @@ Story play's next steps (the user's "all 12 games playable start to finish",
   ScummVM's menu saved it again on the way out (passed).
   The iPhone menus and the hidden buttons are compiled for iOS only by Apple
   CI; not tested on an iPhone.
+
+## Patch 0185 — the original games from the new engine; an imported Zak's story
+
+- The new engine's Worlds menu has "Play the original games" too (the same
+  list as the mansion's). Opening one keeps the new engine's place, plays the
+  game from its newest save, and leaving it brings the mansion back where it
+  was when the new engine was opened.
+- On the phone, a Zak brought in with "Import Zak from this app" (kept in the
+  app's own storage, not in Documents) can now be played as a story; before,
+  only a Documents/zak folder counted. The app adds a drive for its own
+  copies of game files, as ScummVM does for the app bundle.
+- Tested on the desktop build only: the new engine's suite (all of it, with a
+  new switch: the mansion -> the new engine -> Maniac's own story, left by
+  ScummVM's menu and saved on the way out -> the mansion where it was), the
+  startup tests (20). The imported-Zak path is iPhone-only: syntax-checked
+  here with the iPhone setting on; compiled for iOS only by Apple CI; not
+  tested on an iPhone.

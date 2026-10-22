@@ -53,8 +53,18 @@ from test_exploration import ROOT, command_for
 # temporary save), where Maniac is, then stop.
 SWITCH = r'''
 		if (ConfMan.hasKey("scummverse_switch_probe")) {
-			static int scummverseSwitchFrames = 0;
-			if (ConfMan.hasKey("save_slot") && ConfMan.getInt("save_slot") == 100) {
+			static int scummverseSwitchFrames = 0, scummverseStoryFrames = 0;
+			if (_scummverseStory) {
+				// (Maniac's own story, opened from the sandbox: a while, then
+				// ScummVM's menu's way out, home to the mansion.)
+				if (++scummverseStoryFrames == 120) {
+					warning("SCUMMVERSE_SWITCH_STORY %s additions=%d room=%d", _targetName.c_str(),
+						_scummverseRoaming + _scummverseExplorationDoors + _scummverseExplorationSafety + _scummverseAuditedManiac, _currentRoom);
+					Common::Event event;
+					event.type = Common::EVENT_RETURN_TO_LAUNCHER;
+					_system->getEventManager()->pushEvent(event);
+				}
+			} else if (ConfMan.hasKey("save_slot") && ConfMan.getInt("save_slot") == 100) {
 				warning("SCUMMVERSE_SWITCH_BACK room=%d ego=%d", _currentRoom, VAR(VAR_EGO));
 				quitGame();
 			} else if (++scummverseSwitchFrames == ConfMan.getInt("scummverse_switch_probe")) {
@@ -184,7 +194,7 @@ def check_cycles(worlds):
     return places, cycling
 
 
-def switch(data, worlds, frames, broken=False):
+def switch(data, worlds, frames, broken=False, story=False):
     build = ROOT/'build/null'
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix='scummverse-switch-', dir=ROOT/'build') as tmp:
@@ -210,7 +220,7 @@ def switch(data, worlds, frames, broken=False):
         config = work/'switch.ini'
         # (Roaming off: no character offer waiting for a tap at the start.)
         config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
-                          f'scummverse_switch_probe={frames}\nscummverse_worlds_path={worlds}\nscummverse_selftest=back\n')
+                          f'scummverse_switch_probe={frames}\nscummverse_worlds_path={worlds}\nscummverse_selftest={"story" if story else "back"}\n')
         result = subprocess.run([str(exe), f'--config={config}', f'--path={data}', f'--savepath={work}', '--debuglevel=1'],
                                 cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
@@ -220,10 +230,24 @@ def switch(data, worlds, frames, broken=False):
         back = [l for l in lines if 'SCUMMVERSE_SWITCH_BACK' in l]
         # A sandbox that works leaves by the menu's way back; one that cannot
         # start goes back to Maniac on its own.
-        sandbox_line = 'SCUMMVERSE: could not start the sandbox' if broken else 'SCUMMVERSE sandbox back: leaving'
+        sandbox_line = 'SCUMMVERSE: could not start the sandbox' if broken else 'SCUMMVERSE sandbox story: leaving' if story else 'SCUMMVERSE sandbox back: leaving'
         ran = [l for l in lines if sandbox_line in l]
         if result.returncode or len(opened) != 1 or len(back) != 1 or len(ran) != 1:
             raise SystemExit('FAIL: switch\n' + output[-6000:])
+        if story:
+            # The sandbox's Play the original games: Maniac's own story (none
+            # of the mansion's additions), left by ScummVM's menu, saved on
+            # the way out; then the mansion where it was.
+            told = [l for l in lines if 'SCUMMVERSE_SWITCH_STORY' in l]
+            if len(told) != 1 or 'scummverse-story-maniac additions=0 ' not in told[0] or \
+                    not any('scummverse-story-maniac saved on quitting' in l for l in lines):
+                raise SystemExit('FAIL: switch: the sandbox did not open Maniac\'s own story\n' + output[-6000:])
+            where = opened[0].split('SCUMMVERSE_SWITCH_OPEN ')[1].rstrip('!')
+            again = back[0].split('SCUMMVERSE_SWITCH_BACK ')[1].rstrip('!')
+            if where != again:
+                raise SystemExit(f'FAIL: switch: left Maniac at {where}, came back at {again}')
+            print(f'PASS: Maniac -> new engine -> Maniac\'s own story -> Maniac, back where it was ({where})')
+            return
         # In order (the log's two streams each in order: ScummVM's own lines,
         # then the warnings): opened, the sandbox ran and left, back in
         # Maniac; Maniac saved, the sandbox started, the same save loaded.
@@ -458,4 +482,5 @@ if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
         (Path(broken)/'monkey-33.svw').write_bytes(b'SVW3 not a scene')
         switch(a.data.resolve(), Path(broken), a.frames, broken=True)
+    switch(a.data.resolve(), worlds, a.frames, story=True)
     print('PASS: sandbox engine')
