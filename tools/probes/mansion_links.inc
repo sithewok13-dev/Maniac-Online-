@@ -1,6 +1,7 @@
 	// What the mansion's things do to other things, through the original
 	// scripts (DOS V1): the new engine's kManiacSets, kManiacOpenedBy,
-	// kManiacTogether, kManiacLines and kManiacShutsBehind follow this.
+	// kManiacTogether and kManiacShutsBehind follow this (from 0155 the things
+	// file records it all for every thing; see test_sandbox_engine.py).
 	// Object states: 8 the second picture, 2 untouchable (no picture).
 	const bool safe = _scummverseExplorationSafety;
 	auto clearScripts = [&]() {

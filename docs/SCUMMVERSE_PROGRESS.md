@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0154 (Extra, the third custom character, new engine).
+Active milestone: Phase 1; latest patch 0155 (every thing of the mansion as its own script answers, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4061,3 +4061,35 @@ description and lines.
 - On the desktop: the cast check plays all three custom characters where
   the player is (3; shot of each). Tested on the desktop build only. Not
   tested on an iPhone.
+- The full suite passed with 0154 (27 checks).
+
+## Patch 0155 — every thing of the mansion as its own script answers (new engine)
+
+User (2026-10-21): "Keep going". A probe ran every thing of the mansion
+through Maniac's own engine with each verb that changes a picture (open,
+close, turn on and off, push, pull), from both of its pictures, and
+compared that with the new engine: about two in three answered otherwise
+(the original's own lines, "I can't reach it." and the like, and pictures
+the wrong way round, such as the kitchen's tap and the circuit breakers).
+Rather than copy the game's lines into the project, the export now
+records them from the player's own copy:
+- When the mansion is set up (on the iPhone at the next launch, once: only
+  Maniac is exported again, "maniac-v23"), its things file also records,
+  for each thing that is not a door, what its own script does to each of
+  those verbs from each picture: the line it says, its picture after, and
+  the pictures of the things it sets elsewhere (even as they were: closing
+  the valve fills the pool however it was found). 654 of them; the 617 the
+  probe also saw are the same.
+- The new engine answers so for every thing of the mansion's that is not a
+  door (doors still open as you go): the line, the picture, the others.
+  A light its script will not let you reach is no longer turned off.
+  The handwritten tap line of 0153 is gone (the record has it, and only
+  where the original says it).
+- On the desktop: every recorded use is done again as a player does it
+  (485; 169 are things out of reach, or pictures the game never has them
+  in), each with the original's line, picture and others; with the records
+  ignored, 289 differ (checked). The verbs check expects the original's
+  answer where one is known. tools/test_panel.cpp reads the new things file
+  (any order, whole or not at all). Exported with tools/export_worlds.py
+  through the app's own launch path. Tested on the desktop build only. Not
+  tested on an iPhone (the first launch there exports the mansion again).

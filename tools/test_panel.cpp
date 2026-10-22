@@ -548,6 +548,42 @@ int main() {
 	}
 	std::puts("PASS: where a game puts things (read whole or not at all, any order, a room once, at most so many; per room and object, kept per game)");
 
+	// What a thing's own script does to a verb ("SVO2"): from a picture, its
+	// picture after, the others it changes, its line; looked up whatever the
+	// file's order; read whole or not at all; "SVO1" has none.
+	{
+		std::vector<uint8_t> d = {'S', 'V', 'O', '2'};
+		put16(d, 1); put16(d, 24); put16(d, 1); put16(d, 115); d.push_back(1); put16(d, 1 << kOpen | 1 << kClose);
+		put16(d, 3);
+		put16(d, 24); put16(d, 253); d.push_back(kTurnOn); d.push_back(1); d.push_back(0); d.push_back(0); d.push_back(0);
+		put16(d, 24); put16(d, 115); d.push_back(kOpen); d.push_back(1); d.push_back(0); d.push_back(2);
+		put16(d, 24); put16(d, 116); d.push_back(0); put16(d, 6); put16(d, 139); d.push_back(1);
+		const std::string line = "Not now.";
+		d.push_back((uint8_t)line.size()); d.insert(d.end(), line.begin(), line.end());
+		put16(d, 7); put16(d, 88); d.push_back(kClose); d.push_back(0); d.push_back(0); d.push_back(0); d.push_back(0);
+		GameThings things;
+		assert(parseThings(d.data(), d.size(), things, error) && things.effects.size() == 3 && things.find(24, 115));
+		const ThingEffect *e = things.effect(24, 115, kOpen, 1);
+		assert(e && e->after == 0 && e->others.size() == 2 && e->others[1].room == 6 && e->others[1].id == 139 && e->others[1].picture == 1 && e->line == line);
+		assert(things.effect(24, 253, kTurnOn, 1) && things.effect(24, 253, kTurnOn, 1)->line.empty() && things.effect(7, 88, kClose, 0));
+		assert(!things.effect(24, 115, kOpen, 0) && !things.effect(24, 115, kClose, 1) && !things.effect(25, 115, kOpen, 1));
+		for (size_t cut = 1; cut < d.size() - 4; ++cut) assert(!parseThings(d.data(), d.size() - cut, things, error));
+		std::vector<uint8_t> bad = d; bad[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1] = 2; // (a picture past 1)
+		assert(!parseThings(bad.data(), bad.size(), things, error) && error == "bad effect");
+		char problem[64], said[16];
+		int after = -1, others[6], count = -1, room, id, kind, from;
+		assert(PanelBridge::loadThings(3, d.data(), d.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 3);
+		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said)) && after == 0 && count == 2 && others[3] == 6 && others[4] == 139 && others[5] == 1 && line == said);
+		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 1, said, sizeof(said)) && count == 1);
+		assert(!PanelBridge::thingEffect(3, 24, 115, kOpen, 0, after, others, count, 2, said, sizeof(said)) && !PanelBridge::thingEffect(4, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said)));
+		assert(PanelBridge::effectAt(3, 0, room, id, kind, from) && room == 7 && id == 88 && kind == kClose && from == 0 && !PanelBridge::effectAt(3, 3, room, id, kind, from));
+		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
+		put16(plain, 0);
+		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
+		PanelBridge::clearThings();
+	}
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all)");
+
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and
 	// without a panel; cleared.

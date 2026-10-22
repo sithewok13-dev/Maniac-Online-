@@ -870,9 +870,20 @@ one palette) apply.
   and its end 279, the inverted sink 24/253, the gate 6/138 with 16/143 and
   52/108; push or pull on such a thing whose script answers only the other
   won't budge), kManiacLines (a verb's own line, or "" for nothing: the
-  shower tap 24/118) and kManiacShutsBehind (travel leaves the door shut:
-  10/69). travel() applies a door's Open rows when it opens one on the way
+  shower tap 24/118; removed in 0155) and kManiacShutsBehind (travel
+  leaves the door shut: 10/69). travel() applies a door's Open rows when it opens one on the way
   through; doorAllowed gates the player whenever a tour is off or paused.
+  From 0155, the mansion's things file is "SVO2" (Panel::ThingEffect):
+  scummverseExportThings, for Maniac V1 only, runs each non-door thing's
+  open/close/on/off/push/pull script (its own entry or the catch-all) from
+  each picture, arriving as the probes do (startScene, scripts stopped, kid
+  3 alone), until it ends; putState records what a script sets while
+  `_scummverseStatesSet` points somewhere (only then). act() asks
+  PanelBridge::thingEffect after the handwritten tables and the lights
+  (isLight and its branch defer to an effect that only refuses), for
+  non-doors only. worldExportVersion() puts the mansion one ahead
+  ("maniac-v23"), so only it exports again; main.cpp, the iOS worlds UI,
+  world_visit.inc and test_world_setup.py use it.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

@@ -35,7 +35,7 @@
 		if (!at(k)) {
 			// Only a game that was never exported may be missing.
 			int game, source; landmark(k,game,source);
-			const Common::String marker=Common::String::format("%s-v%d.svx",::Scummverse::WorldCatalog::kWorldGames[game].gameid,::Scummverse::WorldCatalog::kWorldExportVersion);
+			const Common::String marker=Common::String::format("%s-v%d.svx",::Scummverse::WorldCatalog::kWorldGames[game].gameid,::Scummverse::WorldCatalog::worldExportVersion(::Scummverse::WorldCatalog::kWorldGames[game].gameid));
 			if (Common::FSNode(ConfMan.getPath("scummverse_worlds_path")).getChild(marker).exists()) error("Scene %d of an exported game not visited: %s",k,_scummverseWorldNotice.c_str());
 			warning("WORLD scene %d not visited: %s",k,_scummverseWorldNotice.c_str()); continue;
 		}

@@ -24,6 +24,11 @@ VERSION = int(re.search(r'kWorldExportVersion = (\d+);',
                         (ROOT/'engine/common/scummverse_world_catalog.h').read_text()).group(1))
 
 
+def version(game):
+    """A game's export marker version (worldExportVersion: the mansion's one ahead)."""
+    return VERSION + (1 if game == 'maniac' else 0)
+
+
 def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
     """Start the app once; returns (log, finished marker written, attempt count)."""
     with tempfile.TemporaryDirectory(prefix='scummverse-setup-', dir=ROOT/'build') as tmp:
@@ -36,7 +41,7 @@ def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
             (docs/'__MACOSX'/Path(folder_name).name).mkdir(parents=True)
         worlds = docs/'worlds'
         worlds.mkdir()
-        attempt = worlds/f'{game}-v{VERSION}.try'
+        attempt = worlds/f'{game}-v{version(game)}.try'
         if attempts is not None:
             attempt.write_bytes(b'SVT1' + bytes([attempts]))
         (docs/'scummvm.ini').write_text('[scummvm]\n')
@@ -54,7 +59,7 @@ def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
         except subprocess.TimeoutExpired:
             proc.kill()
         count = attempt.read_bytes()[4] if attempt.exists() and attempt.stat().st_size > 4 else None
-        return ''.join(lines), (worlds/f'{game}-v{VERSION}.svx').exists(), count
+        return ''.join(lines), (worlds/f'{game}-v{version(game)}.svx').exists(), count
 
 
 def main():

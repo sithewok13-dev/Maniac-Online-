@@ -10,7 +10,8 @@ its sides open, closed or pushed all shut; from the garage or the other
 side, that side and the deck's); the bathroom's shower curtain moves as one;
 its sink runs without its second picture; its shower's tap has no handle.
 The new engine's kManiacSets, kManiacOpenedBy, kManiacTogether,
-kManiacLines and kManiacShutsBehind follow this. Not an iPhone test.
+kManiacShutsBehind follow this (from 0155 the things file records what
+every thing does). Not an iPhone test.
 """
 import argparse
 import hashlib
