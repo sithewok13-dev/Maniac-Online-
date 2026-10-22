@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0157 (Extra with his own build, new engine).
+Active milestone: Phase 1; latest patch 0158 (Extra slender, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4127,6 +4127,18 @@ he is a stocky little dog, not a leggy one. Drawn again, row by row:
   big dark eye with its shine and the tan under it, the black nose, grey
   about the mouth, the white goatee; white hairs on his chest; his belly a
   little shaggy. Front and back at the same build (broad chest and hips).
+- On the desktop: the cast check plays all three custom characters (3);
+  looked at enlarged and in the engine beside Guybrush. Tested on the
+  desktop build only. Not tested on an iPhone.
+
+## Patch 0158 — Extra slender (new engine)
+
+User (2026-10-22): "He's not chunky at all". 0157 read his build wrongly
+from a photo taken from above. From the photo of him held up: slender and
+fine-boned, a slim body on thin legs, a round head about as wide as his
+body, huge ears angled up and out (about as tall as his head), big eyes, a
+short snout. Drawn again row by row so: side, front and back at that build,
+his face, ears, white goatee and curled tail as before.
 - On the desktop: the cast check plays all three custom characters (3);
   looked at enlarged and in the engine beside Guybrush. Tested on the
   desktop build only. Not tested on an iPhone.
