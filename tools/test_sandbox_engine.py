@@ -383,9 +383,10 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: character screen: {faces} faces, {played} of {expected} played')
         print(f'PASS: character screen: {boxes} games, {faces} faces, {people} people; {played} played where they live')
         # (The custom characters' box last, Crispy first: played where the
-        # player is, about a third of a person tall.)
+        # player is, about a third of a person tall; Sith Ewok 2 lights his
+        # saber at L.)
         c = re.search(r'(\d+) custom played where the player is \(([\d.]+) of a person tall; (\d+) among the wanderers; (\d+) lit what they carry\)', output)
-        if not c or int(c.group(1)) < 1 or not 0.2 <= float(c.group(2)) <= 0.45 or c.group(3) != '1':
+        if not c or int(c.group(1)) < 1 or not 0.2 <= float(c.group(2)) <= 0.45 or c.group(3) != '1' or int(c.group(4)) < 1:
             raise SystemExit('FAIL: custom characters\n' + output[-2000:])
         print(f'PASS: custom characters: {c.group(1)} in their own box (Crispy first), played where the player is, {c.group(2)} of a person tall; among the wanderers, the one before left beside them; {c.group(4)} lit what they carry at L (the others nothing)')
         # The camera (a stand-in for the iPhone's Photos): photos of the scene

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0179 (Suzy 3, a SCUMM v8-style custom character, new engine).
+Active milestone: Phase 1; latest patch 0180 (Sith Ewok 2, his saber lit by L, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4658,4 +4658,46 @@ check plays all eight where the player is, as tall as drawn, 0 failed; a shot
 shows her on Monkey Island's dock between two Guybrushes, about nine tenths
 of his height. Known: from the back her hips read wider than from the front.
 Tested on the desktop build only. Not tested on an iPhone.
+
+## Patch 0180 — Sith Ewok 2 and his lightsaber (new engine)
+
+User (2026-10-22), with three sheets (the saber off; igniting with both
+paws; lit, walking): "make a Sith Ewok 2, and use the newest generation of
+SCUMM, SCUMM version 8 (v8). Make it look as close to the attached image as
+possible. The lightsaber should be switched off by default, but there should
+be an unused key that ignites it. He grabs the hilt with both hands while it
+ignites, but switches to only holding it in his right hand while he walks
+around with it ignited." The engine's part came first (0175, 0176: the L key,
+the lighting-up frames, lit poses, a glow's added light). Drawn by an artist
+panel (four artists, three judges, the winner refined, checked: likeness 8,
+v8 quality 7, both paws on the hilt while it lights, the right paw only lit,
+clean): 80 frames, 241 colours. Saber off (121 x 132, as the first sheet:
+the deep hood with its ear bumps, the stern face and amber eyes, the cowl,
+the belt and buckle, the hilt hanging at it, bare paws): standing, walking,
+talking. Lighting up (181 x 240, the body where it stands off): the paws on
+the hilt, raised, then the blade at a quarter, half, three quarters, full,
+the cross-guard blades growing, a burst of sparks. Lit (as the third sheet):
+standing (two crackles, alternating), walking and talking with it in his
+right paw, red light on his robe. The blade's core and edges, its sparks and
+his amber eyes show in the dark (mask 3); its red haze is added light
+(mask 2). Lit frames are trimmed to what is drawn (tools/custom_characters.py
+svc(trim=...), for a lit one only: the others' bytes are unchanged). The
+sheets are not kept or read: every frame is baked into the generator (lzma
++ base85 in its section; the section's names prefixed sewok2_, its frames
+checked equal to the panel's). Costume 9, about 0.6 of a person (as the Sith
+Ewok), talk colour 2 (red). The generated file grows to 3.3 MB.
+- Tests: the cast check now plays a real lighter: L (as the iPhone sends it,
+  capital) lights it (the lighting-up frames while he stands, the place drawn
+  meanwhile), then lit; walking lit; lit in the next place; l puts it out;
+  standing as before; the others light nothing; 9 custom played, 1 lit, 0
+  failed; shots of him off, lighting and lit on Monkey Island's dock beside
+  Guybrush. tools/test_sandbox_engine.py now requires at least one lighter.
+  Startup test passes. Known (the check's notes): from behind his lit feet
+  are flattened; a soft band at the lit robe's hem; a few stray orange pixels
+  on two back lighting-up frames; the stance changes from standing to the
+  sheet's wide combat stance as it lights and back as he walks (as the
+  sheets have it); the hilt moves from his belt to his paws between frames;
+  the blade is cleaner than the sheets' crackling one. Tested on the desktop
+  build only. Not tested on an iPhone (the L key there: pinch to bring up the
+  keyboard).
 
