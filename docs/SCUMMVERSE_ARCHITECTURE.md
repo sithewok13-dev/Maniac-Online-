@@ -944,6 +944,14 @@ one palette) apply.
   then the first's (PanelBridge::pairEffect: that second's own, else the
   usual); it says the line, sets the one here's picture after and the
   others, carries what is had, and drops what is used up. Marker maniac-v28.
+  From 0172 each pair run sets the first's picture before it runs (from 0
+  and 1 for one here; a carried first is put in the kid's inventory, as
+  taken, and looked up from 0); a run that starts a cut-scene or takes the
+  kid away is not recorded, nor the lab suit's ending; the usual answer
+  uses nothing up and gives nothing. pairOwn looks up only the picture the
+  thing is in, lets the usual answer use nothing up, and passes a usual
+  one that says and changes nothing on (to the plain rules). enter() lets
+  go of a half made sentence. Marker maniac-v29.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

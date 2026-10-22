@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0171 (two things as the mansion's own scripts answer, new engine).
+Active milestone: Phase 1; latest patch 0172 (review fixes for 0170-0171, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4459,4 +4459,30 @@ Unlock and Fix worked on one thing only.
   scripts answer (1 not tried: its second has no place), 0 failed; looked
   up the other way round, 21 fail (checked). The panel parser test reads
   the seconds, the used-up bits and the usual answer.
+- Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0171.
+
+## Patch 0172 — review fixes for 0170-0171 (new engine)
+
+An independent review of the two-thing sentences (three reviewers, each
+finding checked by another; read only). Fixed:
+- A sentence half made ("Use the key with") was kept through a change of
+  place (the Worlds menu, the character screen, the tour, a ride) and took
+  the next tap there, in any game: now let go on entering a place.
+- The export filed each answer under the picture its thing was in after
+  its script began, not before: 18 of the mansion's own answers could not
+  be reached in play (the paint remover on the blotch, the trunk's and the
+  coin boxes' keys, the padlocks, the faucet handle). Each run now sets the
+  thing's picture first, from each of its pictures; 101 own answers.
+- A carried first's own script never ran (it was not in the kid's
+  inventory): it is now, as taken. A usual answer that says and changes
+  nothing gives the plain line, as for one thing.
+- The usual answer never uses anything up (the lab suit's used up whatever
+  was used with it); runs that start a cut-scene or take the kid away are
+  not recorded, nor the suit's ending (as play refuses it).
+- Checked: 97 own answers replayed as the scripts give them (4 not tried:
+  no place for their second); the blotch, the trunk and the coin box
+  answered from the picture the place shows them in (with the old picture
+  reading those three fail, checked); a half made sentence let go on
+  entering a place; the mansion exports once more (maniac-v29). 0 failed.
 - Tested on the desktop build only. Not tested on an iPhone.
