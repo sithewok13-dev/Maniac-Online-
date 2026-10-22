@@ -536,6 +536,10 @@ int main() {
 		Scene room;
 		assert(room.load(data.data(), data.size(), 1.2, 320, 1280, 720, error) && room.source().objects[0].name == "chest");
 		assert(!room.showObject(0, 2) && !room.showObject(2, 0) && !room.showObject(-1, 0));
+		// (Looked at where it is: as the picture shown, until another is
+		// drawn over it.)
+		assert(room.showObject(0, 0) && room.looksAs(0, 0) && !room.looksAs(0, 1) && room.showObject(0, 1) && room.looksAs(0, 1) && !room.looksAs(0, 0));
+		assert(!room.looksAs(0, 2) && !room.looksAs(2, 0) && !room.looksAs(-1, 0));
 	}
 	std::puts("PASS: object pictures (the render as with the picture in the scene; middle and edge; small and large screens)");
 

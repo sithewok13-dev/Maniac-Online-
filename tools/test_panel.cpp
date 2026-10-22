@@ -582,6 +582,29 @@ int main() {
 		assert(PanelBridge::thingEffect(3, 24, 115, kOpen, 1, after, others, count, 1, said, sizeof(said)) && count == 1);
 		assert(!PanelBridge::thingEffect(3, 24, 115, kOpen, 0, after, others, count, 2, said, sizeof(said)) && !PanelBridge::thingEffect(4, 24, 115, kOpen, 1, after, others, count, 2, said, sizeof(said)));
 		assert(PanelBridge::effectAt(3, 0, room, id, kind, from) && room == 7 && id == 88 && kind == kClose && from == 0 && !PanelBridge::effectAt(3, 3, room, id, kind, from));
+		// ("SVO3", from 0168: then what each thing is inside, and the
+		// picture that one shows it in; looked up whatever the order; one
+		// inside itself or listed twice refused.)
+		std::vector<uint8_t> three = d;
+		three[3] = '3';
+		put16(three, 2);
+		put16(three, 7); put16(three, 90); put16(three, 89); three.push_back(1);
+		put16(three, 1); put16(three, 55); put16(three, 54); three.push_back(1);
+		assert(parseThings(three.data(), three.size(), things, error) && things.parents.size() == 2 && things.effects.size() == 3);
+		assert(things.parent(1, 55) && things.parent(1, 55)->parent == 54 && things.parent(7, 90)->picture == 1 && !things.parent(7, 89) && !things.parent(1, 90));
+		for (size_t cut = 1; cut < 16; ++cut) assert(!parseThings(three.data(), three.size() - cut, things, error));
+		std::vector<uint8_t> self = three;
+		self[self.size() - 3] = 55; self[self.size() - 2] = 0; // (the key inside itself)
+		assert(!parseThings(self.data(), self.size(), things, error) && error == "bad parent");
+		std::vector<uint8_t> twice = d;
+		twice[3] = '3';
+		put16(twice, 2);
+		for (int k = 0; k < 2; ++k) { put16(twice, 1); put16(twice, 55); put16(twice, 54); twice.push_back(1); }
+		assert(!parseThings(twice.data(), twice.size(), things, error) && error == "a parent twice");
+		int parent = -1, parentPicture = -1;
+		assert(PanelBridge::loadThings(3, three.data(), three.size(), problem, sizeof(problem)) && PanelBridge::thingParent(3, 7, 90, parent, parentPicture) && parent == 89 && parentPicture == 1);
+		assert(!PanelBridge::thingParent(3, 7, 89, parent, parentPicture) && !PanelBridge::thingParent(4, 7, 90, parent, parentPicture));
+		assert(parseThings(d.data(), d.size(), things, error) && things.parents.empty()); // ("SVO2": none)
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);

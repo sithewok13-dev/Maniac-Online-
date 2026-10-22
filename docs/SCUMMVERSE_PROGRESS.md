@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0167 (Suzy's own drawing put back after 0166, new engine).
+Active milestone: Phase 1; latest patch 0168 (the mansion's things inside others: shown and taken only when open, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4365,3 +4365,29 @@ byte as 0165 built them (checked), Suzy 2's as the panel's.
 - On the desktop: the cast check plays all five custom characters, 0 failed.
   Tested on the desktop build only. Not tested on an iPhone; 0166's IPA has
   Suzy drawn wrong.
+- The full suite passed with 0167 (five custom characters).
+
+## Patch 0168 — things inside others, shown and taken only when open (new engine)
+
+Step 5 goes on, from 0162's review: the mansion's things inside another
+(the fridge's food, the key under the door mat, the dimes in the piggy
+bank, the envelope in the safe behind the painting, the tape behind the
+loose panel, the tools in the trunk: 49 of them) were drawn as the shut
+container, so they could not be taken once it was open, and a tap there
+found them before the container.
+- The export (the mansion's, on the device): what each thing is inside and
+  the picture that one shows it in ("SVO3"); each such thing drawn with what
+  it is in opened, so its pictures are the open container with it and
+  without it. The mansion exports once more (maniac-v26).
+- The new engine: one inside a shut thing is not touched (a tap finds the
+  container); opened, it is drawn and can be taken; shut again, the
+  container covers it; opened again, what was taken stays gone.
+- Checked: the verbs check opens the fridge, takes the cheese, shuts it,
+  leaves and comes back, opens it again (the cheese still gone, the lettuce
+  there), and lifts the mat and takes the key; the replay opens each
+  thing's container before using it: 917 as the scripts answer (5 out of
+  reach, 42 taken), 0 failed. Without drawing again after a picture
+  changes the fridge check fails (checked). The stage and panel parser
+  tests cover the new reading (looksAs; "SVO3": its order, cut short, one
+  inside itself, listed twice).
+- Tested on the desktop build only. Not tested on an iPhone.

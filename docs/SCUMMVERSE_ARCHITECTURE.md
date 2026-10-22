@@ -903,6 +903,17 @@ one palette) apply.
   without the thing (one inside a thing shut when exported: the stage has
   no parents), and useItem loads the carried thing's game's things file
   (loadThings, as enter does) if it was not entered since the start.
+  From 0168 the mansion's things file is "SVO3": after the effects, each
+  thing inside another (its game's parent and parent state, as a picture;
+  Panel::ThingParent, PanelBridge::thingParent). The mansion's export
+  draws such a thing's pictures with each it is in opened (put back after;
+  the fill filter looks round it at that render). insideShut: not a thing
+  while any it is in shows another picture; layInside (after enter's
+  placing and after every showPicture) draws, from the outside in, each
+  thing something is inside and each inside one not shut in, so a shut
+  one covers what is in it and what was taken stays gone when it opens.
+  StageBridge::looksAs tells whether the scene where an object is looks
+  as one of its pictures. Marker maniac-v26.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens
