@@ -66,6 +66,14 @@ class StartupTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
 
+    def test_saved_story_target_is_rejected(self):
+        # Story play's own targets (one per game, kept in the configuration)
+        # are opened from Maniac's Worlds menu only, never at the start.
+        self.config.write_text("[scummvm]\n\n[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\npath=.\nscummverse_story=true\n")
+        result = self.run_game("scummverse-story-monkey")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
+
     def test_sandbox_without_places(self):
         (self.root / "worlds").mkdir()
         result = self.run_game("scummverse:sandbox")

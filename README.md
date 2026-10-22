@@ -57,6 +57,9 @@ Launching the binary with no arguments uses `maniac/` beneath the current workin
 directory. `--path=/path/to/data` overrides that location. Startup always selects
 Maniac Mansion/original DOS V1. Diagnostic commands such as `--version`, `--list-games`, and
 `--detect` remain available. Errors and game exit cannot open the ScummVM launcher.
+From Maniac's Worlds menu, "Play the original games" opens another game's own
+story (its folder in Documents, its own engine as ScummVM runs it); leaving it
+saves its place (slot 99, "Story") and brings Maniac back where it was.
 
 ## Headless verification
 

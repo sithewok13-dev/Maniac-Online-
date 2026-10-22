@@ -424,7 +424,44 @@ boot scripts (pauses and messages cut short) until the sandbox is ready,
 and the screen opens; "Play as someone else" (command 61) and the game's
 New Kid button open it again. Without SCUMMVERSE_LOCAL_AI it falls back to
 the roster.
-v7/v8 editions are compiled in solely so the player's copies can be exported.
+v7/v8 editions are compiled in so the player's copies can be exported, and
+for story play.
+
+## Story play (0181)
+
+The original games, each in its own engine as ScummVM runs it, opened from
+Maniac's Worlds menu ("Play the original games"). Each game found in
+Documents has a persistent target, `scummverse-story-<id>` (engineid scumm,
+its folder, `scummverse_story=true`, no platform: its edition is detected as
+it starts), set up at each launch by base/main.cpp and, for a folder added
+while the app runs, when it is opened (`common/scummverse_story.h`, which
+also holds the Documents folder lookup the exports use); the start guard is
+unchanged (only Maniac or the sandbox from the command line). A game whose
+story needs a file its folder lacks (`kWorldStoryNeeds`: Full Throttle's
+DATA, The Curse's RESOURCE fonts; its engine would stop the app) is refused
+in words. The hub
+Maniac's `scummverseOpenStory` (a sibling of `scummverseOpenSandbox`: not
+during WiFi or the tour) saves Maniac to slot 100 and chains the game's
+target at its story save, slot 99 (`kWorldStorySlot`, an ordinary save named
+"Story", so iMUSE state is kept), when it has one. In a story the engine
+carries none of the mansion's additions (`_scummverseStory`; the roaming,
+doors and safety gates are the audited Maniac's, and other worlds' rooms
+192-199 are read only in the audited Maniac); `scummverseUpdateStory`
+answers the Worlds menu: Back to Maniac Mansion (`kWorldStoryHomeRequest`)
+or another game's story (`kWorldStoryRequest + game`), each after saving to
+slot 99 (not while the game has the controls, `_userPut <= 0`, nor while its
+own save or load waits; retried for 8 seconds of game time, then the player
+chooses Leave or Stay). Any other way out (the game's Quit, ScummVM's menu)
+saves it in `go()` on quitting (`scummverseStoryQuit`). A story is opened
+from the newer of slot 99 and its autosave (slot 0). The home rule is
+main.cpp's: a story run
+that ends with nothing queued (Back, the game's own Quit or Return to
+Launcher, or a game that cannot start) chains Maniac at its slot 100. The
+codes sit above the sandbox's games (a static_assert keeps them apart), so
+the sandbox ignores them. iOS: `scummverseStoryPlaying()` (the catalog index
+of the story playing, -1 none) switches the Worlds button to the story's
+menu (Go to <game> for each folder found, Back to Maniac Mansion).
+`tools/test_story_engine.py` walks it through the real engine.
 
 ## Wanderers (0101, everyone out since 0103)
 

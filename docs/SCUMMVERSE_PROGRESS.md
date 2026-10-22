@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0180 (Sith Ewok 2, his saber lit by L, new engine).
+Active milestone: Phase 1; latest patch 0181 (story play: the original games opened from Maniac).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4701,3 +4701,82 @@ Ewok), talk colour 2 (red). The generated file grows to 3.3 MB.
   build only. Not tested on an iPhone (the L key there: pinch to bring up the
   keyboard).
 
+
+## Patch 0181 — Story play: the original games, opened from Maniac (first step)
+
+User (2026-10-22): "is it possible to make a story mode where all 12 games
+are playable from start to finish, at the same time? Meaning you can
+teleport to monkey island and play a some, then go to Indiana jones and play
+some. Save, and it saves all your progress?" and later "You don't have to
+hold story mode or anything to else. I want you to keep working on
+everything." A read-only design pass (four agents: the start-up and chained
+targets, the save slots, the iOS menus, then a design) found ScummVM runs one
+engine at a time, so "at the same time" is: each game keeps its own place,
+saved when it is left and loaded when it is opened again. This is its first
+step.
+- Maniac's Worlds menu has "Play the original games": each game with a folder
+  in Documents, "Start <game>" or "Continue <game>" (it has a story save);
+  one without reads "<game> (add Documents/<folder>)". A game opens in its
+  own engine as ScummVM runs it (none of the mansion's additions): its own
+  start, menus, controls, films and music. Maniac is saved first (slot 100,
+  as for the new engine) and comes back exactly there.
+- In a game, the Worlds button offers "Go to <another game>" and "Back to
+  Maniac Mansion". Leaving saves the game's place to its story save (slot 99,
+  "Story", an ordinary save: its own save and load menus list it, and its
+  music state is kept), and it starts there next time. Leaving any other way
+  (the game's own Quit, ScummVM's menu) saves it on the way out too. It is
+  not saved while the game has the controls (its opening, a cutscene, a
+  film) or its own menus are up: the leaving waits up to 8 seconds of the
+  game's time, then asks: Leave (it starts again where it was last saved)
+  or Stay. A game opened again goes on from the newer of its story save and
+  its autosave (ScummVM's own, every 5 minutes and when the phone puts the
+  app away), so a place left where it could not be saved is not lost.
+- Each game has its own target, kept from one launch to the next
+  ("scummverse-story-monkey" and so on, its saves "scummverse-story-
+  monkey.s99"...), its folder looked up again at each launch (and when it is
+  opened, for a folder added while the app runs), its edition found as it
+  starts (common/scummverse_story.h, shared by base/main.cpp and the
+  engine). The start-up rule is unchanged (the app starts only
+  Maniac, or the new engine). A game that quits, or cannot start, comes back
+  to Maniac.
+- A game is refused, in words, when a file its story cannot go on without is
+  missing (the engine would stop, and the app with it): Full Throttle's bike
+  fights (its DATA folder: ROADRASH.RIP and the rest), The Curse of Monkey
+  Island's lettering (its RESOURCE folder: FONT0.NUT to FONT4.NUT). Their
+  places in the new engine need neither.
+- Another game's own rooms 192 to 199 are its own: only the mansion reads
+  them as other worlds' slots.
+- Copy protection: Monkey Island 2's opening asks for the recipe from its
+  code wheel (ScummVM takes any number; type one with the keyboard, a pinch
+  on the iPhone), and Sam & Max's asks you to dress them as the manual
+  shows; both are the games' own, as ScummVM runs them.
+- Tests (desktop, null backend): tools/test_story_engine.py (new, in the data
+  suite) runs the real engine with a Documents folder of the supplied games;
+  the Worlds menu's requests go through the poll the story code reads. Each
+  of Monkey Island, Loom, Indiana Jones and the Last Crusade, Fate of
+  Atlantis, Day of the Tentacle, The Dig, The Curse of Monkey Island (with
+  the fonts the user sent) and Zak McKracken: opened from Maniac (a request
+  left from before dropped), started fresh, played past its opening, saved
+  by Back to Maniac Mansion and left; Maniac back in the same room with the
+  same kid each time. Then each opened again from its story save with every
+  variable as saved (bar the two the engine itself sets on loading), going
+  on to the next game directly (Go to); the last left as ScummVM's own menu
+  does (Return to Launcher), saved on the way out, and opened again from
+  there. Full Throttle here (only FT.LA0 and FT.LA1) is refused for its
+  missing ROADRASH.RIP, as it must be. Monkey Island 2 and Sam & Max are not
+  in the default run: their copy protection waits for the player.
+  tools/test_startup.py (14): a saved story target cannot be started from
+  the command line.
+- Reviewed by two reviewers, each finding checked: fixed, a game left by its
+  own Quit or ScummVM's menu was not saved (now saved on quitting, and the
+  newer autosave taken when it could not be); a folder added while the app
+  runs is set up when opened (it was refused as missing); the story save
+  could disturb a save the game itself had waiting (now it waits for it,
+  and puts the game's save settings back); the 8 seconds were wall-clock
+  time (now the game's own); the test now goes through the requests'
+  handling, checks the save as written, a request left from before, and a
+  quit's save. Rejected: none of substance.
+- Not yet (the design's next steps): Maniac Mansion's own original story
+  apart from the hub; saving all the games together as one snapshot; the
+  app starting in the game last played; the Talk, AI and camera buttons
+  hidden in a game (they do nothing there).
