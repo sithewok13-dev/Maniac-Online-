@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0174 (custom characters kept compressed, new engine).
+Active milestone: Phase 1; latest patch 0175 (something lit: the L key, a saber's frames and glow, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4511,3 +4511,39 @@ whole by the new engine (as the export's own files are). The generated
 file goes from 1.4 MB to 68 KB. On the desktop the cast check plays all
 five custom characters as before, as tall, 0 failed. Tested on the desktop
 build only. Not tested on an iPhone.
+
+## Patch 0175 — something lit: the L key, its frames and its glow (new engine)
+
+User (2026-10-22), with three sheets of a Sith Ewok 2 (the saber off,
+igniting, lit): "The lightsaber should be switched off by default, but there
+should be an unused key that ignites it. He grabs the hilt with both hands
+while it ignites, but switches to only holding it in his right hand while
+he walks around with it ignited." This patch is the engine's part; Sith
+Ewok 2 himself (drawn by an artist panel from the sheets) follows.
+
+- Character files ("SVC1") may carry four more poses: lighting up (its
+  frames played forwards; backwards, putting it out) and standing, walking
+  and talking with it lit (World::GuestKind 4..7). A missing facing of
+  those takes the nearest facing's, else the unlit pose.
+- A frame's mask may now say 2: its colour is light added to what is
+  behind (a blade's red haze over any place), or 3: drawn even in the dark
+  (the blade itself where the lights are off); 1 as before.
+- The stage: light(actor, on, played): standing, its lighting-up frames in
+  turn, 8 ticks each (six: about four fifths of a second), then its lit
+  poses; walking ends the frames. Posed for a photo, lit, its lit poses.
+- The new engine: the L key (on the iPhone, pinch to bring up the keyboard)
+  lights what the one played carries or puts it out; nothing for those
+  carrying none. It stays lit through doors and places while the same one
+  is played, and starts off (not kept when the app closes).
+- tools/custom_characters.py: lit poses' numbers, glow and shine letters per
+  character, its height against a person from its first (standing) frame.
+- Tests: test_stage (the frames in turn, lit standing and walking, put out
+  backwards, at once, walking ends them, nobody else lights; a glow added
+  to the place and to the dark, a lit blade in the dark) passes with
+  ASan/UBSan. The cast check gains: for one carrying something lit, L
+  lights it (its frames, then lit, walking lit, lit in the next place, put
+  out, standing as before), for the others L does nothing; with a stand-in
+  (the Sith Ewok given lighting frames, not committed) it passed with 1 lit,
+  and with the real cast (none carry one yet) 0 failed. Startup test passes.
+  Tested on the desktop build only. Not tested on an iPhone.
+

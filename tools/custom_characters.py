@@ -41,9 +41,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Facings and poses as the engine numbers them (World::SourceFrame).
+# Facings and poses as the engine numbers them (World::SourceFrame); one
+# carrying something lit (Sith Ewok 2's saber) lights it up (played
+# backwards, puts it out) and stands, walks and talks with it lit.
 LEFT, RIGHT, FRONT, BACK = 0, 1, 2, 3
 STAND, WALK, TALK = 0, 1, 2
+IGNITE, LIT_STAND, LIT_WALK, LIT_TALK = 4, 5, 6, 7
 
 class Canvas:
     """A small picture of letters (' ' is nothing), drawn with simple shapes."""
@@ -875,9 +878,12 @@ def ewok():
 # ------------------------------------------------------------- preview ----
 
 
-def svc(frames, colours, costume):
-    """The engine's character file: frames (dir, kind, index, canvas)."""
+def svc(frames, colours, costume, glow=(), shine=()):
+    """The engine's character file: frames (dir, kind, index, canvas).
+    Letters in `glow` are light added to what is behind them (mask 2), in
+    `shine` drawn even in the dark (mask 3): a lit blade and its haze."""
     letters = list(colours)
+    number = {letter: i + 1 for i, letter in enumerate(letters)}
     palette = bytearray(768)
     for i, letter in enumerate(letters):
         palette[(i + 1) * 3:(i + 1) * 3 + 3] = bytes(colours[letter])
@@ -890,8 +896,8 @@ def svc(frames, colours, costume):
             for x in range(w):
                 ch = canvas.cells[y][x]
                 if ch != ' ':
-                    pixels[y * w + x] = letters.index(ch) + 1
-                    mask[y * w + x] = 1
+                    pixels[y * w + x] = number[ch]
+                    mask[y * w + x] = 2 if ch in glow else 3 if ch in shine else 1
         # (The feet at the bottom row's middle.)
         out += struct.pack('<BBBBhhHH', d, kind, index, 0, -(w // 2), -(h - 1), w, h) + pixels + mask
     return bytes(out)
@@ -2173,11 +2179,14 @@ def write_inc(path):
              '// characters, newly drawn there (not taken from any game). Do not edit.',
              '']
     table = []
-    for costume, name, art, colours, height in CUSTOM:
+    for costume, name, art, colours, height, *light in CUSTOM:
         # (Gzip-compressed from 0174, as the export's files; the engine reads
-        # it whole. mtime 0: the same bytes each time.)
-        data = gzip.compress(svc(art(), colours, costume), compresslevel=9, mtime=0)
-        tallest = max(f[3].height for f in art())
+        # it whole. mtime 0: the same bytes each time. Its height against a
+        # person by its first frame, standing, as the engine checks it: a
+        # lit blade's frames are taller.)
+        frames = art()
+        data = gzip.compress(svc(frames, colours, costume, *light), compresslevel=9, mtime=0)
+        tallest = frames[0][3].height
         ident = 'kWorldCustom' + name.replace(' ', '')
         lines.append(f'static const unsigned char {ident}[] = {{')
         for i in range(0, len(data), 24):
@@ -2194,7 +2203,7 @@ def write_inc(path):
 def preview(directory):
     from PIL import Image
     directory.mkdir(parents=True, exist_ok=True)
-    for costume, name, art, colours, _ in CUSTOM:
+    for costume, name, art, colours, *_ in CUSTOM:
         frames = art()
         scale = 8
         width = sum(f[3].width for f in frames) * scale + 4 * len(frames)

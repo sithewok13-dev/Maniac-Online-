@@ -1,0 +1,324 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 6ba91dfc..a3938caf 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -328,6 +328,24 @@ void Scene::unpose(int n) { if (n >= 0 && n < (int)_actors.size()) _actors[n].po
+ 
+ void Scene::hide(int n, bool hidden) { if (n >= 0 && n < (int)_actors.size()) _actors[n].hidden = hidden; }
+ 
++// Its ignite frames: as many as the facing with most (0: it lights nothing).
++static int igniteFrames(const World::SourceSprite &s) {
++	int count[World::kGuestDirections] = {};
++	for (const World::SourceFrame &f : s.frames) if (f.kind == World::kGuestIgnite) ++count[f.dir];
++	return *std::max_element(count, count + World::kGuestDirections);
++}
++
++bool Scene::canLight(int n) const { return n >= 0 && n < (int)_actors.size() && igniteFrames(_actors[n].sprite) > 0; }
++
++bool Scene::light(int n, bool on, bool played) {
++	if (!canLight(n)) return false;
++	Actor &a = _actors[n];
++	if (a.lit == on) return true;
++	a.lit = on;
++	a.switching = played ? igniteFrames(a.sprite) * kIgniteTicks : 0;
++	return true;
++}
++
+ void Scene::stop(int n) {
+ 	if (n < 0 || n >= (int)_actors.size()) return;
+ 	_actors[n].route.clear(); _actors[n].moving = false;
+@@ -354,6 +372,7 @@ void Scene::update(int ticks) {
+ 	}
+ 	for (Actor &a : _actors) {
+ 		a.tick += ticks;
++		if (a.switching) a.switching = a.moving ? 0 : std::max(0, a.switching - ticks);
+ 		if (!a.moving) continue;
+ 		a.stepClock += ticks;
+ 		while (a.moving && a.stepClock >= a.stepTicks) {
+@@ -383,6 +402,12 @@ static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int
+ 		for (const World::SourceFrame &f : s.frames) if (f.dir == dir && f.kind == kind && k++ == index) return &f;
+ 	}
+ 	const int facings[] = {dir, dir == 0 ? 1 : dir == 1 ? 0 : 2, 2, 1, 0, 3};
++	// (Lighting or lit, missing that facing: the nearest facing's, else
++	// unlit.)
++	if (kind >= World::kGuestIgnite) {
++		for (int d : facings) if (d != dir) for (const World::SourceFrame &f : s.frames) if (f.dir == d && f.kind == kind) return pick(s, d, kind, step);
++		if (kind >= World::kGuestLitStand) return pick(s, dir, kind - World::kGuestLitStand, step);
++	}
+ 	for (int d : facings) for (const World::SourceFrame &f : s.frames) if (f.dir == d && f.kind == 0) return &f;
+ 	return s.frames.empty() ? nullptr : &s.frames.front();
+ }
+@@ -394,10 +419,16 @@ static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &
+ 	Placement p;
+ 	if (a.hidden) return p;
+ 	// (Walking, its steps; talking, a frame each kTalkTicks; else standing.
+-	// Posed, as posed.)
+-	const int own = a.moving ? 1 : a.talking ? 2 : 0;
+-	const int kind = a.posed && a.poseKind >= 0 ? a.poseKind : own;
+-	const int index = a.posed && a.poseKind >= 0 ? a.poseIndex : own == 1 ? a.steps : a.tick / kTalkTicks;
++	// Lit, so with it lit; lighting it up or putting it out, standing, its
++	// ignite frames in turn (backwards going out). Posed, as posed: lit,
++	// with it lit.)
++	int own = a.moving ? 1 : a.talking ? 2 : 0, ownIndex = own == 1 ? a.steps : a.tick / kTalkTicks;
++	if (a.switching && !a.moving) {
++		const int frames = igniteFrames(a.sprite), shown = std::min(frames - 1, frames - 1 - (a.switching - 1) / kIgniteTicks);
++		own = World::kGuestIgnite; ownIndex = a.lit ? shown : frames - 1 - shown;
++	} else if (a.lit) own += World::kGuestLitStand;
++	const int kind = a.posed && a.poseKind >= 0 ? a.poseKind + (a.lit ? World::kGuestLitStand : 0) : own;
++	const int index = a.posed && a.poseKind >= 0 ? a.poseIndex : ownIndex;
+ 	p.frame = pick(a.sprite, a.posed && a.poseDir >= 0 ? a.poseDir : a.dir, kind, index);
+ 	if (!p.frame) return p;
+ 	p.down = v.rowScale * a.height * scaleAt(boxes, a.at) / 255.0;
+@@ -433,6 +464,19 @@ bool Scene::drawnRect(int n, int &x0, int &y0, int &x1, int &y1) const {
+ 	return rectOf(placeOf(_actors[n], _view, _boxes), _view, x0, y0, x1, y1);
+ }
+ 
++int Scene::shownKind(int n) const {
++	if (n < 0 || n >= (int)_actors.size()) return -1;
++	const Placement p = placeOf(_actors[n], _view, _boxes);
++	return p.frame ? p.frame->kind : -1;
++}
++
++// Light added: each channel summed, at most full.
++static uint32_t added(uint32_t under, uint32_t light) {
++	uint32_t out = 0xFF000000u;
++	for (int shift = 0; shift < 24; shift += 8) out |= (uint32_t)std::min(255u, ((under >> shift) & 0xFF) + ((light >> shift) & 0xFF)) << shift;
++	return out;
++}
++
+ bool Scene::propRect(int n, int &x0, int &y0, int &x1, int &y1) const {
+ 	if (n < 0 || n >= (int)_props.size()) return false;
+ 	const Prop &prop = _props[n];
+@@ -503,7 +547,11 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 				const int col = std::min(f.width - 1, (int)((x - p.x0) / p.across));
+ 				if (col < 0) continue;
+ 				const size_t i = (size_t)row * f.width + col;
+-				if (f.mask[i]) out[x] = _dark ? _darkColor : colors[f.pixels[i]];
++				const uint8_t mask = f.mask[i];
++				// (A glow: its light added to what is behind; a lit blade
++				// shows even in the dark.)
++				if (mask == 2) out[x] = added(out[x], colors[f.pixels[i]]);
++				else if (mask) out[x] = _dark && mask != 3 ? _darkColor : colors[f.pixels[i]];
+ 			}
+ 		}
+ 	}
+@@ -753,6 +801,12 @@ void unpose(int actor) { stage().unpose(actor); }
+ bool posed(int actor) { return valid(actor) && stage().actor(actor).posed; }
+ void hide(int actor, bool hidden) { stage().hide(actor, hidden); }
+ bool hidden(int actor) { return valid(actor) && stage().actor(actor).hidden; }
++bool light(int actor, bool on, bool played) { return stage().light(actor, on, played); }
++bool lit(int actor) { return valid(actor) && stage().actor(actor).lit; }
++bool canLight(int actor) { return stage().canLight(actor); }
++static_assert(kPoseIgnite == World::kGuestIgnite && kPoseLitStand == World::kGuestLitStand && kPoseLitWalk == World::kGuestLitWalk && kPoseLitTalk == World::kGuestLitTalk && kPoseSeated == World::kGuestSeated,
++	"the bridge's poses are the world's");
++int shownKind(int actor) { return stage().shownKind(actor); }
+ bool mountPicture(const unsigned char *data, size_t size, char *error, int capacity) {
+ 	std::string problem;
+ 	if (stage().mountPicture(data, size, problem)) return true;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 0b663298..9f19b521 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -110,10 +110,17 @@ struct Actor {
+ 	bool posed = false;
+ 	int poseDir = -1, poseKind = -1, poseIndex = 0;
+ 	bool hidden = false;    // not drawn (riding out of sight)
++	// Carrying something lit (Sith Ewok 2's saber): its lit poses. Lighting
++	// it up or putting it out: ticks of its ignite frames left, shown in
++	// turn while it stands (backwards going out); walking ends them.
++	bool lit = false;
++	int switching = 0;
+ 	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
+ };
+ // Ticks a talk frame shows (the mouth moving about seven times a second).
+ static const int kTalkTicks = 8;
++// Ticks an ignite frame shows (six of them: about four fifths of a second).
++static const int kIgniteTicks = 8;
+ 
+ // Far away, smaller, slower steps, but never below kSlowest of a full one.
+ static const double kSlowest = 0.25;
+@@ -138,6 +145,13 @@ public:
+ 	void pose(int actor, int dir, int kind, int index);
+ 	void unpose(int actor);
+ 	void hide(int actor, bool hidden); // (not drawn, nor its rectangle)
++	// Lighting up what it carries (on) or putting it out: its ignite frames
++	// in turn while it stands, then its lit poses (or its own again); at
++	// once when not `played`. Only for those with ignite frames (false).
++	bool light(int actor, bool on, bool played = true);
++	bool canLight(int actor) const;
++	// The pose of the frame drawn now (a GuestKind; -1 none drawn).
++	int shownKind(int actor) const;
+ 	void update(int ticks);              // walking and animation (60 ticks a second)
+ 	// The camera keeps this one in view: centred now, then scrolling only
+ 	// when they come near an edge (a quarter of the screen), as the games do.
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index de800c1e..8c700be1 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -39,6 +39,15 @@ bool posed(int actor);
+ // Not drawn (riding out of sight), until shown again.
+ void hide(int actor, bool hidden);
+ bool hidden(int actor);
++// Lighting up what it carries (Sith Ewok 2's saber) or putting it out: its
++// ignite frames in turn while it stands (at once when not `played`), then
++// its lit poses or its own. False for those that light nothing.
++bool light(int actor, bool on, bool played);
++bool lit(int actor);
++bool canLight(int actor);
++// The pose drawn now (-1 none): as World::GuestKind.
++enum { kPoseStand, kPoseWalk, kPoseTalk, kPoseSeated, kPoseIgnite, kPoseLitStand, kPoseLitWalk, kPoseLitTalk };
++int shownKind(int actor);
+ // The place in another state (a .svw of the same size: The Dig's tram car
+ // parked), only where it differs; shown shifted dx source pixels within its
+ // rectangle (|dx| at least its width: hidden), amount/256 of its pixels (a
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index c7e2a791..b02f9ce0 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -514,7 +514,8 @@ const SpriteFrame *SandboxSprite::frame(int dir, int kind, int index) const {
+ 	static const int facings[kGuestDirections][4] = {
+ 		{kGuestLeft, kGuestFront, kGuestRight, kGuestBack}, {kGuestRight, kGuestFront, kGuestLeft, kGuestBack},
+ 		{kGuestFront, kGuestLeft, kGuestRight, kGuestBack}, {kGuestBack, kGuestFront, kGuestLeft, kGuestRight}};
+-	static const int kinds[kGuestKinds][2] = {{kGuestStand, kGuestStand}, {kGuestWalk, kGuestStand}, {kGuestTalk, kGuestStand}, {kGuestSeated, kGuestStand}};
++	static const int kinds[kGuestKinds][2] = {{kGuestStand, kGuestStand}, {kGuestWalk, kGuestStand}, {kGuestTalk, kGuestStand}, {kGuestSeated, kGuestStand},
++		{kGuestIgnite, kGuestStand}, {kGuestLitStand, kGuestStand}, {kGuestLitWalk, kGuestWalk}, {kGuestLitTalk, kGuestLitStand}};
+ 	if (dir < 0 || dir >= kGuestDirections || kind < 0 || kind >= kGuestKinds) return nullptr;
+ 	for (int k : kinds[kind]) for (int d : facings[dir]) {
+ 		const int count = frameCount(d, k);
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index f49d5958..ee737a1c 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -87,14 +87,18 @@ struct SandboxScene {
+ 
+ // A character from another game: frames rendered by its own engine ("SVC1"),
+ // facing left, right, the viewer or away, standing, walking or talking (and
+-// some, made from their stance, seated).
++// some, made from their stance, seated). A custom one may carry something it
++// lights (Sith Ewok 2's saber): its lighting up (played backwards, going
++// out) and its standing, walking and talking with it lit.
+ enum GuestDirection { kGuestLeft, kGuestRight, kGuestFront, kGuestBack, kGuestDirections };
+-enum GuestKind { kGuestStand, kGuestWalk, kGuestTalk, kGuestSeated, kGuestKinds };
++enum GuestKind { kGuestStand, kGuestWalk, kGuestTalk, kGuestSeated, kGuestIgnite, kGuestLitStand, kGuestLitWalk, kGuestLitTalk, kGuestKinds };
+ 
+ struct SourceFrame {
+ 	int dir = 0, kind = 0, index = 0;
+ 	int dx = 0, dy = 0, width = 0, height = 0;   // top left relative to the feet
+-	std::vector<uint8_t> pixels, mask;           // mask 1 = opaque
++	// mask 1 = opaque; 2 = light added to what is behind (a glow); 3 =
++	// opaque, and so even in the dark (a lit blade).
++	std::vector<uint8_t> pixels, mask;
+ };
+ 
+ struct SourceSprite {
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 9ac8dd09..4efd922f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -351,6 +351,8 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_player = addPerson(_playerKey);
+ 	if (_player < 0) { problem = "the one played is not installed"; return false; }
+ 	_onStage.push_back(_playerKey);
++	// (What they carry lit still lit, the same one played.)
++	if (_litKey != _playerKey || !StageBridge::light(_player, true, false)) _litKey = 0;
+ 	Common::Array<int> keys;
+ 	if (_wanderers && place(game, room)) {
+ 		int found[512];
+@@ -2732,6 +2734,16 @@ bool SandboxEngine::selfieBegin(int shots) {
+ 	return true;
+ }
+ 
++// The L key: the one played lights what it carries (Sith Ewok 2's saber:
++// both paws on the hilt as it springs out, then carried lit in the right)
++// or puts it out (the same backwards); nothing for those carrying none.
++void SandboxEngine::lightKey() {
++	if (_player < 0 || !StageBridge::canLight(_player)) return;
++	const bool on = !StageBridge::lit(_player);
++	StageBridge::light(_player, on, true);
++	_litKey = on ? _playerKey : 0;
++}
++
+ // Everyone faces the camera and strikes a pose from their own frames:
+ // standing, mid-step or talking (now and then one hasn't noticed, or they
+ // all stare at the one played); drawn so, the place held still.
+@@ -2983,6 +2995,7 @@ Common::Error SandboxEngine::run() {
+ 			// (A flashlight in the dark follows the pointer, as the original's.)
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && flashlightLit()) { StageBridge::toScene(event.mouse.x, event.mouse.y, _beamX, _beamY); _beamSet = true; changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
++			else if (event.type == Common::EVENT_KEYDOWN && event.kbd.keycode == Common::KEYCODE_l && !event.kbdRepeat) { lightKey(); changed = true; }
+ 		if (_press.down && !_press.held && g_system->getMillis() - _press.at >= kCoinHold) { hold(); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+ 		if (const int code = scummverseWorldPoll()) { request(code); changed = true; }
+@@ -4605,7 +4618,7 @@ Common::Error SandboxEngine::castTest() {
+ 	// first), each carried; each chosen (from the start's lead) played where
+ 	// the player is, standing where the one before stood, as tall against
+ 	// the lead as drawn to be (Crispy about a third of a person).
+-	int customs = 0, customsAmong = 0;
++	int customs = 0, customsAmong = 0, lighters = 0;
+ 	double tall = 0;
+ 	{
+ 		const int slot = 2 + worldGameCount();
+@@ -4644,6 +4657,39 @@ Common::Error SandboxEngine::castTest() {
+ 			if (meant <= 0 || part < meant * 0.75 || part > meant * 1.3) { fail("not as tall against a person as drawn to be", m.name.c_str()); continue; }
+ 			if (!customs) tall = part;
+ 			++customs;
++			// (One carrying something lit: L lights it, standing, its ignite
++			// frames in turn, then lit; walking with it lit; lit still in the
++			// next place; L puts it out, the frames again, then as before. L
++			// lights nothing for the others.)
++			if (!StageBridge::canLight(_player)) {
++				lightKey();
++				if (StageBridge::lit(_player) || _litKey) fail("lit with nothing to light", m.name.c_str());
++			} else {
++				Common::String file = "custom-" + m.name;
++				file.toLowercase();
++				lightKey();
++				if (!StageBridge::lit(_player) || _litKey != key || StageBridge::shownKind(_player) != StageBridge::kPoseIgnite) { fail("not lighting up at L", m.name.c_str()); continue; }
++				step(24);
++				if (StageBridge::shownKind(_player) != StageBridge::kPoseIgnite) { fail("not lighting up for long", m.name.c_str()); continue; }
++				if (ConfMan.hasKey("scummverse_shots")) { present(); shot((file + "-lighting.png").c_str()); }
++				step(60);
++				if (StageBridge::shownKind(_player) != StageBridge::kPoseLitStand) { fail("not standing lit", m.name.c_str()); continue; }
++				if (ConfMan.hasKey("scummverse_shots")) { present(); shot((file + "-lit.png").c_str()); }
++				double wx = cx + 40, wy = cy;
++				StageBridge::walkable(wx, wy);
++				StageBridge::walkTo(_player, wx, wy);
++				step(1);
++				if (StageBridge::moving(_player) && StageBridge::shownKind(_player) != StageBridge::kPoseLitWalk) { fail("not walking lit", m.name.c_str()); continue; }
++				StageBridge::stop(_player);
++				enter(_game, _room, 0, problem);
++				StageBridge::place(_player, cx, cy);
++				if (!StageBridge::lit(_player) || StageBridge::shownKind(_player) != StageBridge::kPoseLitStand) { fail("not lit in the next place", m.name.c_str()); continue; }
++				lightKey();
++				if (StageBridge::lit(_player) || _litKey || StageBridge::shownKind(_player) != StageBridge::kPoseIgnite) { fail("not going out at L", m.name.c_str()); continue; }
++				step(60);
++				if (StageBridge::shownKind(_player) != StageBridge::kPoseStand) { fail("not standing as before, put out", m.name.c_str()); continue; }
++				++lighters;
++			}
+ 			// (A picture of each beside the lead, then as they were.)
+ 			if (ConfMan.hasKey("scummverse_shots")) {
+ 				const int leadKey = worldAppearanceKey(game, lead), beside = addPerson(leadKey);
+@@ -4713,8 +4759,8 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers), %d failed",
+-		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, failed);
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d failed",
++		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, failed);
+ 	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast) || customsAmong != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 8fca7c85..eb1683c8 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -330,6 +330,8 @@ private:
+ 	bool _wanderers = false;
+ 	bool _testing = false;
+ 	int _playerKey = 0;                     // the one played (appearance key)
++	int _litKey = 0;                        // the one played, carrying something lit (0: none lit)
++	void lightKey();                        // the L key: lights it up or puts it out
+ 	int _game = -1, _room = 0, _player = -1, _people = 0;
+ 	Common::Array<int> _onStage;            // each actor's appearance key
+ 	int _door = -1;                         // the door walked to (index in the game's map)

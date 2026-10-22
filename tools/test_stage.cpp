@@ -715,5 +715,62 @@ int main() {
 	}
 	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle, where it is hit; gone with the place)");
 	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place); a flashlight in the dark (its rectangle, rounded, kept inside, off, gone with the place)");
+	// Something lit (Sith Ewok 2's saber): lighting it up, its ignite frames
+	// in turn while standing (8 ticks each), then its lit poses (standing,
+	// walking); putting it out, the ignite frames backwards, then its own;
+	// at once when not played; walking ends the frames. Those without
+	// ignite frames light nothing. A glow's light is added to what is behind
+	// it (in the dark too); a lit blade shows in the dark.
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto at = [&](int x, int y) { place.render(shown.data(), 320); return shown[(size_t)y * 320 + x]; };
+		std::vector<Frame> frames = {{2, World::kGuestStand, 0, -10, -40, 20, 40, 30}, {2, World::kGuestWalk, 0, -10, -40, 20, 40, 31},
+			{2, World::kGuestLitStand, 0, -10, -40, 20, 40, 50}, {2, World::kGuestLitWalk, 0, -10, -40, 20, 40, 51}, {0, World::kGuestWalk, 0, -10, -40, 20, 40, 32}};
+		for (int i = 0; i < 3; ++i) frames.push_back({2, World::kGuestIgnite, i, -10, -40, 20, 40, (uint8_t)(40 + i)});
+		std::vector<uint8_t> bytes = spriteBytes(frames);
+		// (The lit standing frame's top rows a glow, (50, 50, 205) added; the
+		// next rows a lit blade. Lit walking, facing the viewer only: so
+		// walking either way.)
+		size_t lit = 4 + 4 + 768;
+		for (int f = 0; f < 2; ++f) lit += 12 + 2 * 20 * 40;
+		for (int i = 0; i < 20 * 5; ++i) bytes[lit + 12 + 20 * 40 + 20 + i] = 2;
+		for (int i = 0; i < 20 * 5; ++i) bytes[lit + 12 + 20 * 40 + 20 * 6 + i] = 3;
+		const std::vector<uint8_t> plainOne = spriteBytes({{2, 0, 0, -10, -40, 20, 40, 30}});
+		const int n = place.addActor(bytes.data(), bytes.size(), 1, 1.0, error), other = place.addActor(plainOne.data(), plainOne.size(), 1, 1.0, error);
+		place.place(n, {160, 180}); place.place(other, {40, 180});
+		assert(place.canLight(n) && !place.canLight(other) && !place.light(other, true) && !place.canLight(7));
+		assert(place.shownKind(n) == World::kGuestStand && !place.actor(n).lit);
+		assert(place.light(n, true) && place.actor(n).lit && place.shownKind(n) == World::kGuestIgnite && at(160, 170) == spriteColor(40));
+		place.update(kIgniteTicks); assert(at(160, 170) == spriteColor(41));
+		place.update(kIgniteTicks); assert(at(160, 170) == spriteColor(42));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestLitStand && at(160, 170) == spriteColor(50));
+		// (The glow over the place's colour 9, (9, 246, 4): (59, 255, 209); the
+		// blade as drawn.)
+		assert(at(160, 142) == 0xFF000000u + (59u << 16) + (255u << 8) + 209u && at(160, 147) == spriteColor(50));
+		assert(place.light(n, true) && place.shownKind(n) == World::kGuestLitStand); // (lit already)
+		place.walkTo(n, {260, 180}); place.update(1);
+		assert(place.shownKind(n) == World::kGuestLitWalk && at((int)place.actor(n).at.x, 170) == spriteColor(51));
+		place.stop(n);
+		assert(place.light(n, false) && !place.actor(n).lit && place.shownKind(n) == World::kGuestIgnite);
+		const int x = (int)place.actor(n).at.x;
+		assert(at(x, 170) == spriteColor(42));
+		place.update(kIgniteTicks); assert(at(x, 170) == spriteColor(41));
+		place.walkTo(n, {60, 180}); place.update(1);
+		assert(place.actor(n).switching == 0 && place.shownKind(n) == World::kGuestWalk && at((int)place.actor(n).at.x, 170) == spriteColor(32));
+		place.stop(n);
+		assert(place.shownKind(n) == World::kGuestStand);
+		assert(place.light(n, true, false) && place.shownKind(n) == World::kGuestLitStand);
+		// (In the dark: the glow added to black, the blade as drawn, the rest
+		// dark.)
+		place.setDark(true);
+		const int y = (int)place.actor(n).at.y, cx = (int)place.actor(n).at.x;
+		assert(at(cx, y - 38) == 0xFF000000u + (50u << 16) + (50u << 8) + 205u && at(cx, y - 33) == spriteColor(50) && at(cx, y - 10) == Scene::kDarkColor);
+		place.setDark(false);
+	}
+	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, walking ends them; none without ignite frames); a glow's light added, a lit blade in the dark");
 	return 0;
 }

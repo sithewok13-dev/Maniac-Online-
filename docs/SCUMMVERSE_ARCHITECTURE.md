@@ -980,6 +980,12 @@ one palette) apply.
   box, slot 2 + worldGameCount(), "Custom characters", its face the first's;
   castHome is the player's place and castChoose plays them there, where the
   one before stood. They are not wanderers and not in Maniac's own engine.
+  One may carry something lit (0175): poses 4..7 (World::GuestKind: lighting
+  up, played backwards to put it out; standing, walking, talking lit) and
+  mask 2 (light added to what is behind) and 3 (drawn in the dark). The
+  stage's light(actor, on, played) shows the lighting-up frames while it
+  stands, then the lit poses; the sandbox's L key (lightKey) toggles it for
+  the one played, kept through places by _litKey while the same one plays.
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
