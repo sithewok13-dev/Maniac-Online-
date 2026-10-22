@@ -463,6 +463,41 @@ of the story playing, -1 none) switches the Worlds button to the story's
 menu (Go to <game> for each folder found, Back to Maniac Mansion).
 `tools/test_story_engine.py` walks it through the real engine.
 
+Maniac Mansion's own story (0184) is `scummverse-story-maniac`: the folder
+the mansion itself plays from (main.cpp's `maniacPath`, refreshed at each
+launch; `addStoryTarget(game, maniacPath)`), platform dos, and
+`scummverse_roaming`, `scummverse_exploration_doors` and
+`scummverse_exploration_safety` false; in the engine a story is never the
+audited Maniac (`auditedManiac` requires `!_scummverseStory`), so every
+addition behind those gates and the other worlds' rooms are off whatever the
+keys say, and the camera refuses ("No camera in this game"). Its saves are
+its own (`scummverse-story-maniac.sNN`), apart from the mansion's
+`maniac.*`. The start guard also refuses any story target named on the
+command line (gameid maniac included; known by its prefix in any case, or by
+its `scummverse_story` key). On the phone the Talk, AI and Camera buttons,
+the conversation bar and Arrive hide while any story plays (a chat left open
+shuts; the Worlds button stays), and the menus call it "Maniac Mansion
+(original story)". The story menu's Save now (`kWorldStorySaveRequest`,
+below the home code) writes the story save and the game goes on; a leave
+whose chain is refused clears `_scummverseStorySaved`, so quitting saves
+again. Of a story save and an autosave made in the same minute, the one
+with more time played is the newer.
+
+Going on at the next start (0184): a story that has played five seconds of
+its own time writes `scummverse_story_playing=<target>` to the application
+domain (flushed); the mansion clears it whenever it starts. At launch
+main.cpp takes it (`Scummverse::storyToResume()`: a story domain whose
+folder is there and whose `kWorldStoryNeeds` files are all present; the key
+is removed and flushed before anything starts, so a game that stops the app
+as it starts is not opened at every launch) and starts that target after any
+exports (`scummverseQueueWorldExports(then, ...)`) or at once, Maniac's
+command-line settings set aside. A story started with no save named goes on
+from its newest (`scummverseStorySlotOf`, kept in `_scummverseStoryFrom`).
+The home rule then brings the mansion back at its slot 100; a story that
+cannot start goes home too, even when it was the first run. The
+kWorldStoryNeeds check lives in `common/scummverse_story.h`
+(`storyMissing`) for both.
+
 ## Wanderers (0101, everyone out since 0103)
 
 Other games' characters roam outside their home rooms

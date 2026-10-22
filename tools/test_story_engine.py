@@ -19,6 +19,16 @@ handling of them is what runs.
   (Return to Launcher, no request), which must save it on the way out.
 - Third: Maniac opens that last game again: it starts from the save made on
   the way out, exactly as it was, and goes back.
+- Then the app starts again as if it had been stopped in the last game's
+  story (the mansion clears the mark, so it is put in): it goes on in that
+  game from its newest save, where it was; Save now saves it and it goes on;
+  once it has played a few seconds the engine marks it on disk; ScummVM's
+  autosave; the app is stopped at once (as the phone stops it). Started
+  again with nothing put in: it goes on from that newer autosave, Save now,
+  then ScummVM's menu (Return to Launcher) saves it again on the way out,
+  and the mansion comes back where it was.
+Maniac Mansion's own story (its data, with none of the mansion's additions)
+is the first game unless --no-maniac. Every story starts with none of them.
 Films are cut short; a start that asks something is clicked through.
 Monkey Island 2's and Sam & Max's openings are their copy protection (a
 recipe from the code wheel; dressing Sam and Max), which wait for the
@@ -58,7 +68,7 @@ PROBE = r'''
 		if (ConfMan.hasKey("scummverse_story_probe")) {
 			using namespace ::Scummverse::WorldCatalog;
 			static int probeSeen = 0, probePass = 0, probeAt = 0, probeLast = -1, probeFirstRoom = 0;
-			static bool probeAsked = false;
+			static bool probeAsked = false, probeSavedNow = false, probeAutosaving = false;
 			static Common::Array<bool> probeRefused;
 			Common::Array<int> games;
 			for (const Common::String &g : Common::StringTokenizer(ConfMan.get("scummverse_story_probe_games"), ",").split()) games.push_back(atoi(g.c_str()));
@@ -68,6 +78,8 @@ PROBE = r'''
 			const int frames = ConfMan.getInt("scummverse_story_probe");
 			const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : -1;
 			const bool fresh = probeSeen != g_probeEngines;
+			// (The app started again in a story: only Back, then done.)
+			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_resume")) probePass = 5;
 			if (fresh) { probeSeen = g_probeEngines; g_probeFrames = 0; probeAsked = false; probeFirstRoom = 0; }
 			if (!probeFirstRoom) probeFirstRoom = _currentRoom;
 			++g_probeFrames;
@@ -97,7 +109,9 @@ PROBE = r'''
 			} else {
 				if (fresh) {
 					const int slot = ConfMan.hasKey("save_slot") ? ConfMan.getInt("save_slot") : -1;
-					warning("SCUMMVERSE_STORY_START %s v%d room=%d ego=%d slot=%d", _targetName.c_str(), _game.version, _currentRoom, ego, slot);
+					// (None of the mansion's additions in any story.)
+					const int additions = _scummverseRoaming + _scummverseExplorationDoors + _scummverseExplorationSafety + _scummverseAuditedManiac;
+					warning("SCUMMVERSE_STORY_START %s v%d additions=%d room=%d ego=%d from=%d slot=%d", _targetName.c_str(), _game.version, additions, _currentRoom, ego, _scummverseStoryFrom, slot);
 					if (probePass >= 1) {
 						int differ = 0, firstDiff = -1;
 						const Common::Array<int32> &kept = g_probeVars[_targetName];
@@ -166,6 +180,37 @@ PROBE = r'''
 						event.type = Common::EVENT_RETURN_TO_LAUNCHER;
 						_system->getEventManager()->pushEvent(event);
 					}
+				}
+				// (Gone on with at the start: the menu's Save now first, the
+				// game going on. The first time, once it is marked to go on in
+				// at the next start, ScummVM's autosave, then the app stopped
+				// at once, as the phone stops it; the second time, ScummVM's
+				// own menu, Return to Launcher, which must save it again.)
+				if (probePass == 5 && !probeSavedNow && g_probeFrames >= frames / 8 && can) {
+					probeSavedNow = true;
+					warning("SCUMMVERSE_STORY_SAVE_NOW %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+					g_probeRequest = kWorldStorySaveRequest;
+				}
+				if (probePass == 5 && probeSavedNow && !probeAsked && g_probeFrames >= frames / 4 && can) {
+					if (ConfMan.getInt("scummverse_story_probe_resume") == 1) {
+						if (_scummverseStoryPlayed < 0) {
+							probeAsked = probeAutosaving = true;
+							saveGameState(getAutosaveSlot(), "Autosave", true);
+						}
+					} else {
+						probeAsked = true;
+						probePass = 4;
+						warning("SCUMMVERSE_STORY_QUIT %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+						Common::Event event;
+						event.type = Common::EVENT_RETURN_TO_LAUNCHER;
+						_system->getEventManager()->pushEvent(event);
+					}
+				}
+				if (probeAutosaving && !_saveLoadFlag) {
+					warning("SCUMMVERSE_STORY_AUTOSAVED %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+					// (The null backend's quit: the process ends here, nothing
+					// more saved or written.)
+					_system->quit();
 				}
 				if (probePass == 3 && !probeAsked && g_probeFrames >= frames / 4 && can) {
 					probeAsked = true;
@@ -249,15 +294,19 @@ def main():
     p.add_argument('games', nargs='*', help='folder=path pairs, e.g. monkey=game-data/monkey1-vga')
     p.add_argument('--frames', type=int, default=240, help='frames before each leaves (and Maniac before it opens one)')
     p.add_argument('--worlds', type=Path, default=ROOT/'build/worlds')
+    p.add_argument('--no-maniac', action='store_true', help="leave out Maniac Mansion's own story")
     a = p.parse_args()
     pairs = [g.split('=', 1) for g in a.games] if a.games else [(k, str(ROOT/'game-data'/v)) for k, v in DEFAULT.items() if (ROOT/'game-data'/v).is_dir()]
     games = [(k, Path(v).resolve()) for k, v in pairs]
+    for k, _ in games:
+        if k not in CATALOG or k == 'maniac':
+            raise SystemExit(f'not a story game: {k} (Maniac Mansion\'s own story is the mansion\'s data)')
+    # (The mansion's own story: from the folder the mansion plays from.)
+    if not a.no_maniac:
+        games.insert(0, ('maniac', a.maniac.resolve()))
     if not games:
         print('SKIP: story play: no games supplied')
         return
-    for k, _ in games:
-        if k not in CATALOG or k == 'maniac':
-            raise SystemExit(f'not a story game: {k}')
     order = [CATALOG.index(k) for k, _ in games]
     with tempfile.TemporaryDirectory(prefix='scummverse-story-', dir=ROOT/'build') as tmp:
         work = Path(tmp)
@@ -265,7 +314,8 @@ def main():
         docs = work/'documents'
         docs.mkdir()
         for k, path in games:
-            (docs/k).symlink_to(path)
+            if k != 'maniac':
+                (docs/k).symlink_to(path)
         # (Every game already set up: no exports at the start.)
         (docs/'worlds').mkdir()
         for marker in Path(a.worlds).glob('*.svx'):
@@ -326,6 +376,7 @@ def main():
                 continue
             if not begun[0].endswith('slot=-1'):
                 fail.append(f'{k}: first start not fresh ({begun[0]})')
+            fail += [f'{k}: started with the mansion\'s additions ({b})' for b in begun if ' additions=0 ' not in b]
             for b in begun[1:]:
                 if not b.endswith('slot=99'):
                     fail.append(f'{k}: not started from its story save ({b})')
@@ -356,11 +407,79 @@ def main():
         stray = sorted(f.name for f in saves.iterdir() if f.name.startswith('maniac.s') and f.name != 'maniac.s00')
         if stray:
             fail.append(f'Maniac saves written by story play: {stray}')
+        # The app started again, stopped in the last game's story: it goes on
+        # there from its newest save (the one made as it went back, where it
+        # was); Save now saves it there and it goes on; once it has played a
+        # few seconds it is marked (on disk) to go on in; ScummVM's autosave;
+        # then the app stopped at once, as the phone stops it. Started again:
+        # it goes on from that autosave (newer, in the same minute or later),
+        # Save now, then ScummVM's menu (Return to Launcher) saves it again on
+        # the way out, and the mansion comes back after it, where it was.
+        marked = [l for l in lines if 'goes on at the next start' in l]
+        if ok and not marked:
+            fail.append('no story marked to go on in at the next start')
+        if ok and not fail:
+            ini = config.read_text()
+            if 'scummverse_story_playing' in ini:
+                fail.append('the mansion did not clear the story to go on in')
+            target = f'scummverse-story-{last}'
+
+            def start(mode, inject):
+                text = config.read_text()
+                text = re.sub(r'scummverse_story_probe_resume=\d+\n', '', text)
+                head = f'[scummvm]\nscummverse_story_probe_resume={mode}\n' + (f'scummverse_story_playing={target}\n' if inject else '')
+                config.write_text(text.replace('[scummvm]\n', head, 1))
+                run = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
+                                     cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1800)
+                out = run.stdout + run.stderr
+                (ROOT/f'build/story-engine-resume{mode}.log').write_text(out)
+                keep = [l for l in out.splitlines() if 'SCUMMVERSE_STORY_' in l or 'SCUMMVERSE story' in l or 'could not start' in l or 'going on with' in l]
+                return run, out, keep, [l.split('SCUMMVERSE_STORY_START ', 1)[1] for l in keep if 'SCUMMVERSE_STORY_START ' in l]
+
+            def where(text):
+                m = re.search(r'room=(\d+) ego=(-?\d+)', text)
+                return m.groups() if m else None
+            # (Stopped in it: the key put in, as the first run's mansion cleared it.)
+            first, more, relines, restart = start(1, True)
+            last_saved = [s for s in saved if s.startswith(target + ' ')][-1]
+            autosaved = [l.split('SCUMMVERSE_STORY_AUTOSAVED ', 1)[1] for l in relines if 'SCUMMVERSE_STORY_AUTOSAVED ' in l]
+            if first.returncode or not autosaved:
+                fail.append(f'started again: not autosaved and stopped (exit {first.returncode})')
+            elif len(restart) != 1 or not restart[0].startswith(target + ' ') or not re.search(r' from=(99|0) slot=-1', restart[0]):
+                fail.append(f'started again: did not go on in {last} from its save: {restart}')
+            elif where(restart[0]) != where(last_saved) and ' from=99 ' in restart[0]:
+                fail.append(f'{last} went on at {restart[0]}, saved at {where(last_saved)}')
+            elif not any(f'{target} saved now' in l for l in relines):
+                fail.append(f'{last}: Save now did not save it')
+            elif f'scummverse_story_playing={target}' not in config.read_text():
+                fail.append(f'{last}: not marked on disk to go on in at the next start')
+            lines += relines
+            output += more
+            if not fail:
+                # (Stopped again: the engine's own mark, nothing put in.)
+                second, more, relines, restart = start(2, False)
+                if second.returncode or not any('SCUMMVERSE_STORY_DONE' in l for l in relines):
+                    fail.append(f'second start did not finish (exit {second.returncode})')
+                elif len(restart) != 1 or not restart[0].startswith(target + ' ') or ' from=0 slot=-1' not in restart[0]:
+                    fail.append(f'second start did not go on in {last} from its newer autosave: {restart}')
+                elif where(restart[0]) != where(autosaved[0]):
+                    fail.append(f'{last} went on at {restart[0]}, autosaved at {autosaved[0]}')
+                elif not any(f'{target} saved now' in l for l in relines) or not any(f'{target} saved on quitting' in l for l in relines):
+                    fail.append(f'{last}: Save now, then ScummVM\'s menu, did not save it both times')
+                elif not any('SCUMMVERSE_STORY_HOME' in l for l in relines):
+                    fail.append('the mansion did not come back after the story gone on in')
+                elif 'scummverse_story_playing' in config.read_text():
+                    fail.append('the story to go on in was not cleared')
+                else:
+                    report.append(f'the app stopped in {last} went on there from its story save, Save now, marked on disk, autosaved and '
+                                  f'stopped; started again from that newer autosave, Save now, saved again leaving by ScummVM\'s menu, then the mansion')
+                lines += relines
+                output += more
         if fail:
             raise SystemExit('FAIL: story play\n  ' + '\n  '.join(fail) + '\n' + '\n'.join(lines[-60:]) + '\n' + output[-3000:])
         print(f'PASS: story play: Maniac opens each of {len(ok)} games (a request from before dropped), each saves and goes back, '
               f'Maniac where it was; each again from its story save exactly as saved, on to the next; the last quit as '
-              f'ScummVM\'s menu does, saved on the way out and started again from there: {"; ".join(report)}')
+              f'ScummVM\'s menu does, saved on the way out and started again from there; the app started again in a story: {"; ".join(report)}')
 
 
 if __name__ == '__main__':

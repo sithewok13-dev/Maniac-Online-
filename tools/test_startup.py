@@ -2,6 +2,7 @@
 """Exercise the real null-backend executable, without copyrighted fixtures."""
 from pathlib import Path
 import gzip
+import re
 import struct
 import subprocess
 import sys
@@ -73,6 +74,71 @@ class StartupTests(unittest.TestCase):
         result = self.run_game("scummverse-story-monkey")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
+
+    def test_saved_maniac_story_target_is_rejected(self):
+        # The mansion's own story is Maniac Mansion too, but it is opened from
+        # the mansion only: never the one the app starts as.
+        self.config.write_text("[scummvm]\n\n[scummverse-story-maniac]\nengineid=scumm\ngameid=maniac\npath=.\nplatform=dos\nscummverse_story=true\nscummverse_roaming=false\n")
+        for name in ("scummverse-story-maniac", "SCUMMVERSE-STORY-MANIAC"):
+            result = self.run_game(name)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
+
+    def test_any_story_marked_target_is_rejected(self):
+        # (Known by its key, whatever it is named.)
+        self.config.write_text("[scummvm]\n\n[mine]\nengineid=scumm\ngameid=maniac\npath=.\nplatform=dos\nscummverse_story=true\n")
+        result = self.run_game("mine")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("only Maniac Mansion (original DOS V1) and the sandbox are supported", result.stdout)
+
+    def test_maniac_story_target_follows_the_mansion(self):
+        # Set up from the mansion's own folder at each start, with none of
+        # the mansion's additions (even when its data is missing).
+        data = self.root / "my original disks"
+        data.mkdir()
+        self.assert_data_failure(self.run_game(f"--path={data}", "scumm:maniac"))
+        config = self.config.read_text()
+        self.assertIn("[scummverse-story-maniac]", config)
+        story = config.split("[scummverse-story-maniac]")[1].split("\n[")[0]
+        for line in ("gameid=maniac", "platform=dos", "scummverse_story=true", "scummverse_roaming=false",
+                     "scummverse_exploration_doors=false", "scummverse_exploration_safety=false", f"path={data}"):
+            self.assertIn(line + "\n", story + "\n", story)
+
+    def test_story_playing_goes_on_then_the_mansion(self):
+        # Stopped in a story: the next start goes on in it (here it cannot
+        # start: no data), then the mansion; the story to go on in is taken.
+        (self.root / "monkey").mkdir()
+        # (Already set up for the worlds: no export first, so the story is the
+        # first run itself.)
+        (self.root / "worlds").mkdir()
+        catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
+        version = re.search(r"kWorldExportVersion = (\d+);", catalog).group(1)
+        (self.root / "worlds" / f"monkey-v{version}.svx").write_bytes(b"")
+        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n\n"
+                               "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\ndescription=The Secret of Monkey Island\n"
+                               f"path={self.root / 'monkey'}\nscummverse_story=true\n")
+        result = self.run_game()
+        self.assertIn("SCUMMVERSE: going on with scummverse-story-monkey", result.stdout)
+        self.assertNotIn("world export", result.stdout)
+        self.assertIn("SCUMMVERSE: could not start The Secret of Monkey Island", result.stdout)
+        self.assert_data_failure(result)
+        self.assertNotIn("scummverse_story_playing", self.config.read_text())
+
+    def test_story_playing_is_taken_at_any_start(self):
+        # (The sandbox started instead: the mark is taken all the same, so a
+        # game that stops the app is not opened at every start.)
+        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n")
+        result = self.run_game("scummverse:sandbox")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("scummverse_story_playing", self.config.read_text())
+
+    def test_story_playing_without_its_folder_is_dropped(self):
+        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n\n"
+                               "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\npath=gone\nscummverse_story=true\n")
+        result = self.run_game()
+        self.assertNotIn("going on with", result.stdout)
+        self.assert_data_failure(result)
+        self.assertNotIn("scummverse_story_playing", self.config.read_text())
 
     def test_sandbox_without_places(self):
         (self.root / "worlds").mkdir()

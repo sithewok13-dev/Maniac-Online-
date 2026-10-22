@@ -41,8 +41,8 @@ to main, codex/** and claude/**; it is not blocked. Each IPA is stamped
 cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 STORY PLAY (the original games from Maniac's Worlds menu): `python3 tools/test_story_engine.py
-game-data/mm-dos` (in the data suite; every game folder under game-data/: opened, saved, back,
-reopened from its save exactly, game to game, quit-saved; tens of minutes).
+game-data/mm-dos` (in the data suite; Maniac's own story and every game folder under game-data/:
+opened, saved, back, reopened from its save exactly, game to game, quit-saved; tens of minutes).
 Other worlds: `python3 tools/export_worlds.py game-data/mm-dos monkey2=game-data/<dir> ...`
 (folders: monkey monkey2 loom indy3 atlantis tentacle samnmax ft dig comi zak;
 the mansion comes from the Maniac data itself)

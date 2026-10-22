@@ -58,7 +58,8 @@ directory. `--path=/path/to/data` overrides that location. Startup always select
 Maniac Mansion/original DOS V1. Diagnostic commands such as `--version`, `--list-games`, and
 `--detect` remain available. Errors and game exit cannot open the ScummVM launcher.
 From Maniac's Worlds menu, "Play the original games" opens another game's own
-story (its folder in Documents, its own engine as ScummVM runs it); leaving it
+story (its folder in Documents, its own engine as ScummVM runs it), or Maniac
+Mansion's own (the same data, none of the mansion's additions); leaving it
 saves its place (slot 99, "Story") and brings Maniac back where it was.
 
 ## Headless verification

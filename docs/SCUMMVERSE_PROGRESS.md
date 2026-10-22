@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0183 (The Curse's verb coin in the new engine; 0182 Sith Ewok 2 polished; 0181 story play: the original games opened from Maniac).
+Active milestone: Phase 1; latest patch 0184 (story play: Maniac's own story, going on at the next start, Save now; 0183 The Curse's verb coin in the new engine; 0181 story play: the original games opened from Maniac).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4833,3 +4833,52 @@ from the user's own copy, as Full Throttle's were (0114):
   new case for the Curse's layout; the sandbox suite; the export from the
   user's copy, its verb test (12 panels, 2 coins) and screenshots of the
   coin and the chest. Not tested on an iPhone.
+
+## Patch 0184 — Maniac Mansion's own story; the app goes on in the story it was in
+
+Story play's next steps (the user's "all 12 games playable start to finish",
+"save, and it saves all your progress"):
+- Maniac Mansion's original story is one of the games in "Play the original
+  games" ("Maniac Mansion (original story)"): the same data the mansion plays
+  from, with none of the mansion's additions (no roaming, doors, safety,
+  other worlds, visitors, custom characters or camera). Its saves are its own
+  ("Story", slot 99), apart from the mansion's; leaving it brings the mansion
+  back where it was, and Go to takes it to another game's story and back.
+- The app goes on where it was left: put away or stopped in a game's story
+  (after it has played a few seconds), the next start opens that game again
+  from its newest save (its story save or the autosave); Back to Maniac
+  Mansion then brings the mansion back where it was. A game whose folder or
+  needed files are gone is not opened; a game that cannot start goes back to
+  the mansion. Once the mansion is playing, the next start is the mansion.
+- The story menu (Worlds, in a game) has Save now: it saves where you are
+  (its "Story" save) and the game goes on.
+- In any story game the Talk, AI and Camera buttons, the conversation bar
+  and Arrive are hidden (a chat left open shuts; the Worlds button stays, to
+  leave); the camera also refuses in the engine.
+- A story's target named on the command line is refused, the mansion's own
+  story included, however it is spelled (only the mansion and the sandbox
+  start the app).
+- Fixed after an independent review: the guard's spelling (a target named in
+  capitals got past it); a "Go to" refused for missing files left later
+  quits unsaved; a save and an autosave in the same minute are now told
+  apart by time played; the conversation bar and Arrive stayed over a story.
+- Tested on the desktop build only: the startup tests (20; new: the
+  mansion's story target set up from the mansion's folder without its
+  additions and refused on the command line in any spelling or by its key;
+  a stopped story gone on with, then the mansion; one whose folder is gone
+  dropped; the mark taken even when the sandbox starts) and the story probe
+  with the mansion's own story first (opened, saved, back, reopened exactly,
+  game to game; every story started without the additions; then the app
+  started again in the last game, where it was, Save now there, and the
+  mansion after it): 9 games passed (the mansion's own story, Monkey Island,
+  Loom, Indiana Jones and the Last Crusade, Fate of Atlantis, Day of the
+  Tentacle, The Dig, The Curse of Monkey Island, Zak McKracken), Full
+  Throttle refused here (its DATA files are missing from this copy). After
+  the review's fixes, the mansion's own story, Monkey Island and Loom again,
+  with the stopped-app test made stricter: the app started in Loom's story,
+  Save now, the engine's own mark found on disk, an autosave, the app
+  stopped at once; started again with nothing put in, it went on from that
+  newer autosave (same minute: told apart by time played), Save now, then
+  ScummVM's menu saved it again on the way out (passed).
+  The iPhone menus and the hidden buttons are compiled for iOS only by Apple
+  CI; not tested on an iPhone.
