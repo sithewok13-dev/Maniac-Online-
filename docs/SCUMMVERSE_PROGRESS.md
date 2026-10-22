@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0162 (review fixes for 0161: nothing taken from inside a thing shut, a carried thing read anywhere, fix left out; new engine).
+Active milestone: Phase 1; latest patch 0163 (Crispy redrawn from the user's model, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4250,3 +4250,28 @@ another; read only). Fixed:
   the shut-container rule the check fails (four things taken); without the
   load on reading it fails (five lines); both checked.
 - Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0162.
+
+## Patch 0163 — Crispy redrawn from the user's model (new engine)
+
+User (2026-10-22): a pixel-art model of Crispy, "Use this model for Crispy"
+(ultracode on). The model was read only, never copied into the project.
+- An artists' panel: four artists (the side view sampled from the model and
+  cleaned up by hand; drawn by hand; sampled at twice the size and reduced by
+  hand; the old drawing changed to match), three judges (likeness to the
+  model; reading at game size and pixel quality; as his owner). All three
+  chose the sampled one; refined with their notes, then a skeptical check:
+  likeness 7 of 10, reads in the game, consistent, clean, better than the
+  old drawing; the model not read at run time.
+- Now: a scruffy tan terrier in a three-quarter side view as the model, the
+  red hood with two crescent horns framing his face in a dark rim, dark eyes
+  with glints, a big black nose, a cream beard, black ties under his chin
+  with the red flap hanging at his chest, the red cape over his back with
+  its black edge, the tan rump and the tail up; front and back to match.
+  Left as the check found it: the fur cleaner than the model's wiry coat,
+  the horns thin at 1x.
+- In tools/custom_characters.py (every name of his prefixed; the frames are
+  the panel's pixel for pixel, checked). As tall as before (0.3 of a person).
+- On the desktop: the cast check plays all three custom characters, 0
+  failed; looked at in the engine beside Guybrush. Tested on the desktop
+  build only. Not tested on an iPhone.

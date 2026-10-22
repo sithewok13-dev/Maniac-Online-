@@ -110,31 +110,6 @@ class Canvas:
         return m
 
 
-# Crispy's colours: letter -> RGB (' ' is never drawn).
-CRISPY_COLOURS = {
-    'K': (0x22, 0x18, 0x18),  # outline
-    'R': (0xDD, 0x26, 0x20),  # costume red
-    'r': (0x9C, 0x14, 0x16),  # costume red, shaded
-    'h': (0xFF, 0x62, 0x50),  # costume red, lit
-    'T': (0x12, 0x10, 0x12),  # black trim and ties
-    't': (0x48, 0x40, 0x44),  # trim, lit
-    'W': (0xF4, 0xE8, 0xCC),  # fur, pale cream
-    'F': (0xDC, 0xC3, 0x96),  # fur, biscuit
-    'f': (0xB0, 0x8E, 0x5E),  # fur, shaded (ears)
-    'w': (0xFF, 0xFC, 0xF2),  # white wisps: eyebrows, whisker tips
-    'g': (0xC4, 0xBE, 0xB2),  # grey whiskers and beard
-    'm': (0x96, 0x8E, 0x86),  # beard, shaded grey
-    'G': (0x5C, 0x54, 0x52),  # dark grey: lips, muzzle pigment, eye rims
-    'N': (0x16, 0x14, 0x16),  # nose
-    'n': (0x6A, 0x66, 0x70),  # nose, lit
-    'E': (0x26, 0x24, 0x2C),  # eye
-    'e': (0x8A, 0x9C, 0xB0),  # eye, clouded
-    'c': (0xD8, 0xE6, 0xF2),  # eye, cloud's glint
-    'M': (0x58, 0x16, 0x1C),  # mouth, inside
-    'P': (0xE6, 0x86, 0x92),  # tongue
-}
-
-
 def crispy_stamp(c, x, y, rows):
     """Letters onto `c` from (x, y); '.' leaves what is there."""
     for dy, row in enumerate(rows):
@@ -143,223 +118,273 @@ def crispy_stamp(c, x, y, rows):
                 c.put(x + dx, y + dy, ch)
 
 
-def crispy_mirror_rows(half, centre=True):
-    """Rows from their left half: mirrored about the last column (centre)."""
-    return [h + (h[-2::-1] if centre else h[::-1]) for h in half]
+# Crispy, the user's eight-pound terrier, in his red devil costume.
+#
+# Drawn from the user's model picture: a scruffy tan terrier, a red hood with
+# two curved horns framing his face in a dark rim, a red cape over his back
+# tied under his chin with black ties (one red flap hanging at his chest), his
+# tail up.  Every pixel is baked into the letter tables below.
+
+CRISPY_COLOURS = {
+    'K': (0x1A, 0x10, 0x10),  # outline, hood rim, cape trim, ties
+    'h': (0xF2, 0x44, 0x34),  # costume red, lit
+    'R': (0xCE, 0x16, 0x14),  # costume red
+    'r': (0x96, 0x08, 0x10),  # costume red, shaded
+    'q': (0x5A, 0x0C, 0x12),  # costume red, deep shadow
+    'w': (0xFA, 0xEC, 0xD4),  # whisker and beard wisps
+    'W': (0xF0, 0xCC, 0x9C),  # fur, cream
+    'F': (0xDC, 0xAA, 0x74),  # fur, tan
+    'f': (0xBC, 0x88, 0x56),  # fur, shaded
+    'd': (0x82, 0x5A, 0x3C),  # fur, dark (eye rims, far legs)
+    'E': (0x1E, 0x12, 0x0E),  # eye
+    'e': (0xF4, 0xF0, 0xE8),  # eye glint
+    'N': (0x16, 0x12, 0x12),  # nose
+    'n': (0x80, 0x78, 0x7A),  # nose, lit
+    'M': (0x5A, 0x14, 0x1A),  # mouth, inside
+    'P': (0xEC, 0x80, 0x90),  # tongue
+}
+
+
+def crispy_table(c, x0, y0, rows):
+    """A letter table onto `c` from (x0, y0); '.' is nothing."""
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch != '.':
+                c.put(x0 + x, y0 + y, ch)
+
+
+def crispy_ring(c):
+    """A 1-pixel 'K' line round the outside of everything drawn."""
+    edge = [(x, y) for y in range(c.height) for x in range(c.width)
+            if c.cells[y][x] == ' ' and any(c.get(x + dx, y + dy) not in (' ', 'K')
+                                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+    for x, y in edge:
+        c.cells[y][x] = 'K'
+
+
+def crispy_column(c, x, top, foot, leg, paw):
+    """A straight leg: `leg` letters on rows top..foot-1 from x, `paw` on foot."""
+    for y in range(top, foot):
+        crispy_table(c, x, y, [leg])
+    crispy_table(c, x, foot, [paw])
 
 
 # ---------------------------------------------------------------- side ----
 
-# The face in profile, facing right: x 35..47, from y 3 (b adds the bob).
-CRISPY_SIDE_FACE = [
-    # 3333344444444
-    # 5678901234567
-    "...TFFFK.....",  # 3  the forehead, biscuit, under the hood
-    "...TFFFFK....",  # 4
-    "..TFFwFwFK...",  # 5  eyebrow hairs up
-    "..TFwwwwwgK..",  # 6  the bushy white eyebrow, jutting
-    "..TFGEEEmFKK.",  # 7  the eye under it; the stop, the muzzle's top
-    "..TFFEceWggnN",  # 8  the clouded eye; the grey muzzle, the nose
-    "..TFFGEEFWNNN",  # 9  biscuit round the eye, the muzzle cream
-    ".TFFFWWgWWNNN",  # 10
-    ".TFWWgWWggGN.",  # 11 the moustache, the lip
-    ".TWWgWggmGGK.",  # 12 the mouth
-    ".TWgWgmggwgK.",  # 13 the beard
-    "TWgwgmgwgwgw.",  # 14
-    "TWgwmgwgwgK..",  # 15
-    "TgwgmgwgwK...",  # 16
-    ".KwmgwKgK....",  # 17
-    "..KgKw.K.....",  # 18
-    "...K.K.......",  # 19
+def crispy_leg(c, top, x_top, x_foot, foot, cols, thigh=0, behind=None):
+    """A side leg from row `top` (at x_top) to its paw on row `foot` (at
+    x_foot): three pixels wide (`cols` back, middle, front), the paw one
+    longer forward; `thigh` widens its first rows backwards.  Where it
+    passes over the pixels in `behind` (a far leg) it gets a 'K' edge.
+    Returns the pixels it drew."""
+    back, mid, front = cols
+    n = max(1, foot - top)
+    got = {}
+    for y in range(top, foot):
+        x = int(round(x_top + (x_foot - x_top) * (y - top) / n))
+        w0 = x - (thigh if y - top < 3 else 0)
+        for xx in range(w0, x + 3):
+            got[(xx, y)] = back if xx == w0 else (front if xx == x + 2 else mid)
+    for xx in range(x_foot, x_foot + 4):
+        got[(xx, foot)] = back if xx == x_foot else mid
+    if behind:
+        for (x, y) in got:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1)):
+                p = (x + dx, y + dy)
+                if p not in got and p in behind and c.get(*p) == behind[p]:
+                    c.put(p[0], p[1], 'K')
+    for (x, y), ch in got.items():
+        c.put(x, y, ch)
+    return got
+
+
+def crispy_part(c, near, far, top):
+    """Where a near leg passes two pixels from a far leg the outline would run
+    double (a dark patch under the belly): the outline pixel next to the far
+    leg joins the far leg instead, so one 'K' parts the two legs.  The same
+    between a far leg and the chest flap, where the flap takes the pixel."""
+    for y in range(top, c.height):
+        for x in range(1, c.width - 2):
+            a, k1, k2, z = (c.get(x + i, y) for i in range(-1, 3))
+            if k1 != 'K' or k2 != 'K' or a in (' ', 'K') or z in (' ', 'K'):
+                continue
+            if far.get((x + 2, y)) == z and near.get((x - 1, y)) == a:
+                c.put(x + 1, y, CRISPY_FAR[0])
+                c.put(x + 2, y, CRISPY_FAR[1])
+            elif far.get((x - 1, y)) == a and near.get((x + 2, y)) == z:
+                c.put(x, y, CRISPY_FAR[0])
+                c.put(x - 1, y, CRISPY_FAR[1])
+            elif far.get((x - 1, y)) == a and z in 'rR' and ' ' not in (
+                    c.get(x + 1, y - 1), c.get(x + 1, y + 1)):
+                c.put(x + 1, y, 'r')  # the chest flap, likewise
+
+
+CRISPY_X0 = 5  # CRISPY_SIDE_BODY's column 0 on the 48-wide canvas
+CRISPY_SIDE_BODY = [
+    "...........................................",  # 0
+    ".....................R.........R...........",  # 1
+    "....................hR.........Rh..........",  # 2
+    "...................hRr.........rRh.........",  # 3
+    "..................hRr.RhhhhhhRR.rRh........",  # 4
+    "..................hRRqRhhhhRRRqrRRh........",  # 5
+    "..................hRRrqRrKKKKKKrRRh........",  # 6
+    "....F.............rRRRRKFFWWWFFFKRr........",  # 7
+    "...FF.............rRRRKFFWWWWFFWFFr........",  # 8
+    "..FF..............rRRKfFFWWWWFFWWFr........",  # 9
+    ".FF..............rRRKfdFFfffFFFFfFw........",  # 10
+    ".FF..............rRRKFfFFEEeFFFfEeF........",  # 11
+    ".Ff....f........rrRRKFfFFEEEFWFFEEFWw......",  # 12
+    ".FfF..fFFFRhhhhhRRrRKfFFFEEEFWWWWWFW.......",  # 13
+    ".fFFFFFFFKRhhhRRRRrRKdFdFFFFWWWNnnNW.......",  # 14
+    "..fFFFFFFKRRRRRRRRrRKdfFFFFWWWWNNNNWw......",  # 15
+    "..fFWFFFFKRRRRRrRRRrRKFFfWWWWdWWNNWW.......",  # 16
+    "..fFWFFFFRRRRRrRRRRrrKKFfWWWWfWWdWW........",  # 17
+    ".ffFFFFfFRRRRRrRRRRrrrKFfWWWWdKKKdWw.......",  # 18
+    "..fFFFFfFRRRRRrRRRRRrrrKfWWwWWWWWwW........",  # 19
+    "..fFFFfFFRRRRRrRRRRRRrrKwWKKWwWWWWw........",  # 20
+    "..fFFFfFFRRRRRRrRRRRRrKWwWKKWwRRR..........",  # 21
+    "..fWFFFFFRRRRRRrRRRRrrKWFKWwKWRhR..........",  # 22
+    "..fWFFFFFRrRRRRrRRRrrrKWWKWFKWRhR..........",  # 23
+    ".ffFFFFFFKrrRRRrRRrrrKWWFKWFKWRhR..........",  # 24
+    "..fFFfFFFKrrrRRrRrrrKFWWFKWFWWrRR..........",  # 25
+    "..fFFFFFFFKrrrrrrrrKFFWWFKFFWWrRR..........",  # 26
+    "..fFFFFFFFFKKKKKKKKFFFWWFKFFFWrRR..........",  # 27
+    "...fFFFF..f.........FFWWFFFFFFrRR..........",  # 28
+    "..............................rRR..........",  # 29
+    "...............................rR..........",  # 30
+    "...............................rR..........",  # 31
+    "................................R..........",  # 32
 ]
-CRISPY_SIDE_TALK = [  # the jaw dropped: rows 11..14 replaced
-    ".TFWWgWWggGN.",  # 11
-    ".TWWgWggGMMK.",  # 12
-    ".TWgWgmgGPMK.",  # 13
-    "TWgwgmgwgGGw.",  # 14
-]
-# The ear: a tan flap folded down out of the hood, behind the cheek.
-CRISPY_SIDE_EAR = [
-    ".KK..",   # y 9, from x 34
-    "KfFK.",
-    "KffFK",
-    "KfffK",
-    ".KffK",
-    "..KfK",
-    "...K.",
-]
+CRISPY_NEAR = ('f', 'F', 'W')
+CRISPY_FAR = ('d', 'f', 'f')
+CRISPY_SIDE_TALK = ["dMMMd", ".MPM."]  # the jaw dropped a little, from (29, 18)
 
 
 def crispy_side(step=0, talking=False):
-    """Facing right: 48 x 40, feet on the bottom row. `step` 0..3 walks."""
+    """Facing right (three-quarter, as in the model): 48 x 40, feet on row 38."""
     c = Canvas(48, 40)
-    b = 1 if step in (1, 3) else 0  # (a bob as the legs pass)
-    swing = (0, 3, 0, -3)[step]
-
-    def leg(top, hip, foot, colour, paw):
-        c.polygon([(hip - 1, top), (hip + 3, top), (foot + 2, 37), (foot - 1, 37)], colour)
-        c.line([(foot - 1, 37), (foot + 3, 37)], paw)
-        c.line([(foot - 1, 38), (foot + 3, 38)], paw)
-    # The far legs, shaded, swinging opposite the near ones.
-    leg(27 + b, 10, 10 - swing, 'f', 'f')
-    leg(27 + b, 27, 27 + swing, 'f', 'f')
-    # The tail, wiry and up.
-    c.line([(11, 24 + b), (8, 18 + b), (7, 13 + b), (9, 10 + b)], 'F', 3)
-    # The body, its pale belly; the chest.
-    c.ellipse(8, 19 + b, 34, 31 + b, 'F')
-    c.ellipse(11, 26 + b, 31, 32 + b, 'W')
-    c.ellipse(27, 15 + b, 38, 30 + b, 'W')
-    # The near legs.
-    leg(27 + b, 13, 13 + swing, 'F', 'W')
-    leg(27 + b, 30, 30 - swing, 'W', 'W')
-    # The head under the hood (its face is drawn after the outline).
-    c.ellipse(29, 3 + b, 40, 18 + b, 'F')
-    # The capelet over the shoulders and back, its hem trimmed in black.
-    c.polygon([(35, 15 + b), (25, 16 + b), (14, 19 + b), (10, 23 + b), (14, 25 + b), (24, 24 + b), (32, 24 + b), (37, 21 + b)], 'R')
-    c.shade('R', 'r', 22 + b)
-    c.line([(10, 23 + b), (14, 25 + b), (24, 24 + b), (32, 24 + b), (37, 21 + b)], 'T')
-    # The hood over the head's top and back, down to the brow.
-    c.polygon([(26, 11 + b), (28, 5 + b), (32, 2 + b), (37, 1 + b), (40, 2 + b), (39, 4 + b),
-               (38, 7 + b), (37, 11 + b), (36, 15 + b), (35, 18 + b), (35, 21 + b), (30, 21 + b), (26, 16 + b)], 'R')
-    c.line([(31, 4 + b), (36, 3 + b)], 'h')
-    # The horns, the far one shaded.
-    c.polygon([(29, 6 + b), (32, 4 + b), (30, 0 + b), (28, 0 + b)], 'r')
-    c.polygon([(35, 3 + b), (39, 3 + b), (40, 0 + b), (38, 0 + b), (36, 1 + b)], 'R')
-    c.put(38, 1 + b, 'h'); c.put(37, 2 + b, 'h')
-    # The ties.
-    c.line([(37, 21 + b), (36, 29 + b)], 'T')
-    c.line([(38, 21 + b), (39, 28 + b)], 'T')
-    c.outline()
-    # The face: brow, clouded eye, nose, moustache, beard; the ear.
-    crispy_stamp(c, 35, 3 + b, CRISPY_SIDE_FACE)
+    b = 1 if step in (1, 3) else 0
+    sw = (0, 2, 0, -2)[step]
+    far = crispy_leg(c, 27 + b, CRISPY_X0 + 10, CRISPY_X0 + 11 - sw, 36, CRISPY_FAR)
+    far.update(crispy_leg(c, 28 + b, CRISPY_X0 + 27, CRISPY_X0 + 27 + sw, 36, CRISPY_FAR))
+    crispy_table(c, CRISPY_X0, b, CRISPY_SIDE_BODY)
+    near = crispy_leg(c, 27 + b, CRISPY_X0 + 4, CRISPY_X0 + 4 + sw, 37, CRISPY_NEAR, thigh=1, behind=far)
+    near.update(crispy_leg(c, 27 + b, CRISPY_X0 + 20, CRISPY_X0 + 20 - sw, 37, CRISPY_NEAR, behind=far))
     if talking:
-        crispy_stamp(c, 35, 11 + b, CRISPY_SIDE_TALK)
-    crispy_stamp(c, 34, 9 + b, CRISPY_SIDE_EAR)
+        crispy_table(c, CRISPY_X0 + 29, 18 + b, CRISPY_SIDE_TALK)
+    crispy_ring(c)
+    crispy_part(c, near, far, 29 + b)
     return c
 
 
 # --------------------------------------------------------------- front ----
 
-# The face from the front: x 5..29 (centre column x 17), from y 7.
-CRISPY_FRONT_FACE_HALF = [
-    # x 5..17 (the centre last)
-    ".......FFFFFF",  # 8  the crown, biscuit
-    ".....FFFFFFFF",  # 9
-    "....FFFFFFFFF",  # 10
-    "....wFwFFFFFF",  # 11 eyebrow hairs up
-    "...FFwwwwgFFF",  # 12 the eyebrows
-    "...FFGEEGFFWW",  # 13 the eyes, dark-rimmed
-    "...FFEceEFWWW",  # 14 (clouded)
-    "...WWEeEEWWWg",  # 15
-    "...WWGEEGWWWg",  # 16
+CRISPY_FRONT_BODY = [
+    "..................................",  # 0
+    ".........R..............R.........",  # 1
+    "........hR..............Rh........",  # 2
+    ".......hRr..............rRh.......",  # 3
+    "......hRr.RhhhhhhhhhhhhR.rRh......",  # 4
+    "......hRRqRRRhhhhhhhhRRRqRRh......",  # 5
+    ".....rhRRrqRRRRRRRRRRRRqrRRhr.....",  # 6
+    "....rRRRRRRKKKKKKKKKKKKRRRRRRr....",  # 7
+    "....rRRRRKKFFFFFWWFFFFFKKRRRRr....",  # 8
+    "....rRRRKFFFFFFWWWWFFFFFFKRRRr....",  # 9
+    "....rRRKfFFFFFFFWWFFFFFFFfKRRr....",  # 10
+    "....rRRKFfFEEeFFWWFFEEeFfFKRRr....",  # 11
+    "....rRRKFfFEEEFFWWFFEEEFfFKRRr....",  # 12
+    "....rRRKfFFEEEFWWWWFEEEFFfKRRr....",  # 13
+    "....rRRKdFFFFFWNnnNWFFFFFdKRRr....",  # 14
+    "....rRRKFFFFWWWNNNNWWWFFFFKRRr....",  # 15
+    "....rRRKFFWWfWWWNNWWWfWWFFKRRr....",  # 16
+    "....rRRRKFWWWWWWddWWWWWWFKRRRr....",  # 17
+    "....rRRRKFWWWWWdKKdWWWWWFKRRRr....",  # 18
+    ".....rRRRKWWWwWWWWWWwWWWKRRRr.....",  # 19
+    "......rRRRKWwWWwWWwWWwWKRRRr......",  # 20
+    ".....rRRRRRKwWfwKKwfWwKRRRRRr.....",  # 21
+    "....rRRRRRRKFwFKwWKFKhRRRRRRRr....",  # 22
+    "...rRRRRRRRKFWFKWWKWKhRRRRRRRRr...",  # 23
+    "...rRRRRRRrKFWWKWWWWKhRrRRRRRRr...",  # 24
+    "..rrRRRRRRrKFWWKWWWWKRRrRRRRRRrr..",  # 25
+    "..rrRRRRRrrKFWWWWWWFKRrrrRRRRRrr..",  # 26
+    "..rrrRRRRrrKFFWWWWWWKRrrrRRRRrrr..",  # 27
+    "..rrrrrrrrrKFFWWWWWWKRrrrrrrrrrr..",  # 28
+    "...........fFFFWWWWFFRr...........",  # 29
+    ".....................r............",  # 30
 ]
-CRISPY_FRONT_FACE_LOW = [
-    # x 5..29: 5   10   15   20   25
-    "...WWWggWWWWWWWWWggWWW...",  # 17 grey under the eyes
-    "...WWWWWWWWNNNWWWWWWWW...",  # 18 the nose
-    "...WWgWWWWNNNNNWWWWgWW...",  # 19
-    "...WgmgWWWNNNNNWWggmgW...",  # 20 the moustache
-    "...WgmggWWWNNNWWWggmgW...",  # 21
-    "..gWWgmggWWWGWWWggmgWWg..",  # 22 (cheek hair over the rim)
-    "..wWWgmggWGGGGGWggmgWWw..",  # 23 the lips
-    "...WWwgmgmwmmmwmgmgwWW...",  # 24 the chin
-    "....WgwWgwWgmgWwgWwgW....",  # 25 the beard
-    "....WgwWgWwgmgwWgWwgW....",  # 26
-    ".....gwWgwWgmgWwgWwg.....",  # 27
-    ".....KwWgwWmgmWgwWwK.....",  # 28
-    "......KgwKWgmgWKgwK......",  # 29
-    ".......KK.KwgwK.KK.......",  # 30
-    "...........KwK...........",  # 31
-]
-CRISPY_FRONT_FACE = crispy_mirror_rows(CRISPY_FRONT_FACE_HALF) + CRISPY_FRONT_FACE_LOW
-CRISPY_FRONT_TALK = [  # the mouth open in the beard, rows 23..25, x 14..20
-    "GGMMMGG",
-    "gGMPMGg",
-    "wgGMGgw",
-]
-# The ears: tan flaps folded down out of the hood at the cheeks.
-CRISPY_FRONT_EAR = [
-    "..KK.",   # y 14, from x 4 (mirrored for the right)
-    ".KFfK",
-    "KfFff",
-    "KfffK",
-    "KfffK",
-    ".KffK",
-    "..KK.",
-]
-
-
-def _crispy_front_face(c, talking):
-    crispy_stamp(c, 5, 8, CRISPY_FRONT_FACE)
-    # (Not quite symmetrical: one glint of light on the nose.)
-    c.put(16, 19, 'n'); c.put(18, 19, 'N')
-    if talking:
-        crispy_stamp(c, 14, 23, CRISPY_FRONT_TALK)
-    crispy_stamp(c, 4, 14, CRISPY_FRONT_EAR)
-    crispy_stamp(c, 26, 14, [r[::-1] for r in CRISPY_FRONT_EAR])
+CRISPY_FRONT_TALK = ["dMMMMd", ".dMPd."]  # the mouth open, from (14, 18)
 
 
 def crispy_front(step=0, talking=False):
-    """Facing the viewer: 34 x 40, feet on the bottom row."""
+    """Facing the viewer: 34 x 40, feet on row 38."""
     c = Canvas(34, 40)
-    lift = (0, 1, 0, -1)[step]
-    # Front legs and paws (one lifted a little in step).
-    for x0, dy in ((11, max(0, lift)), (19, max(0, -lift))):
-        c.polygon([(x0, 31), (x0 + 4, 31), (x0 + 4, 38 - dy), (x0, 38 - dy)], 'W')
-        c.line([(x0 - 1, 38 - dy), (x0 + 4, 38 - dy)], 'W')
-    # The cape over the shoulders, its black trim and ties.
-    c.polygon([(6, 22), (28, 22), (32, 31), (30, 34), (4, 34), (2, 31)], 'R')
-    c.shade('R', 'r', 30)
-    c.line([(2, 31), (4, 34), (30, 34), (32, 31)], 'T')
-    # The chest between the cape's fronts.
-    c.polygon([(12, 22), (22, 22), (21, 33), (13, 33)], 'W')
-    # The hood: two horns, the rim black round the face.
-    c.polygon([(9, 8), (12, 5), (8, 0), (6, 1)], 'R')
-    c.polygon([(25, 8), (22, 5), (26, 0), (28, 1)], 'R')
-    c.put(8, 2, 'h'); c.put(9, 3, 'h'); c.put(25, 2, 'h'); c.put(24, 3, 'h')
-    c.ellipse(4, 3, 30, 27, 'R')
-    c.line([(9, 5), (17, 4), (25, 5)], 'h')
-    c.ellipse(7, 7, 27, 31, 'T')
-    # The face's silhouette (its features come after the outline).
-    c.ellipse(8, 8, 26, 31, 'W')
-    # The ties.
-    c.line([(15, 31), (14, 37)], 'T')
-    c.line([(19, 31), (20, 37)], 'T')
-    c.outline()
-    _crispy_front_face(c, talking)
+    b = 1 if step in (1, 3) else 0
+    lift_l = 2 if step == 1 else 0
+    lift_r = 2 if step == 3 else 0
+    # the hind legs, behind
+    crispy_column(c, 6, 30 + b, 36 - lift_r // 2, ".dff", "dfff")
+    crispy_column(c, 24, 30 + b, 36 - lift_l // 2, "ffd", "fffd")
+    crispy_table(c, 0, b, CRISPY_FRONT_BODY)
+    crispy_column(c, 10, 30 + b, 37 - lift_l, ".fFWW", "fFWWW")
+    crispy_column(c, 19, 30 + b, 37 - lift_r, "WWFf", "WWWFf")
+    if talking:
+        crispy_table(c, 14, 18 + b, CRISPY_FRONT_TALK)
+    crispy_ring(c)
     return c
 
 
+# ---------------------------------------------------------------- back ----
+
+CRISPY_BACK_BODY = [
+    "..................................",  # 0
+    ".........R..............R.........",  # 1
+    "........hR..............Rh........",  # 2
+    ".......hRr..............rRh.......",  # 3
+    "......hRr.RhhhhhhhhhhhhR.rRh......",  # 4
+    "......hRRqRRhhhhhRRRRRRRqRRR......",  # 5
+    ".....rhRRrqRRRRRRRRRRRRqrRRRr.....",  # 6
+    "....rRRRRRRRRRRRRRRRRRRRRrrrrr....",  # 7
+    "....rRhhRRRRRRRRRRRRRRRRRrrrrr....",  # 8
+    "....rRhRRRRRRKKRRRRRRRRRRrrrrr....",  # 9
+    "....rRRRRRRRKWFKRRRRRRRRRrrrrr....",  # 10
+    "....rRRRRRRRKFWFKRRRRRRRRrrrrr....",  # 11
+    ".....rRRRRRRRKFFFKRRRRRRRrrrr.....",  # 12
+    "......rrRRRRRRKWFfKRRRRRRrrr......",  # 13
+    "....RRqqrrrrrrKWFfKrrrrrrrqqRR....",  # 14
+    "...rRhRRqqqqqqKWFfKqqqqqqqrrrrr...",  # 15
+    "...rRhRRRRRRRRKWFFfKRRRRRRrrrrr...",  # 16
+    "...rRhRRRRRRRKFWFFfKKRRRRRrrrrr...",  # 17
+    "...rRRRRrRRKKfFWFFfFFKKRRrrrrrr...",  # 18
+    "...rRRRRrRKFFFFWFFfFFFFKRrrrrrr...",  # 19
+    "...rRRRRrKFFFFFFFFFFFFFfKrrrrrr...",  # 20
+    "...rRRRrRKFFFFFFFFFFFFFfKRrrrrr...",  # 21
+    "...KrRRrKfFFFFFFFFFFFFFffKrrrrK...",  # 22
+    "...FKKrrKfFFFFFFFFFFFFFffKrrKKF...",  # 23
+    "...fFFKKKfFFFFFFFFFFFFFffKKKfff...",  # 24
+    "...fFFFFffFFFFFFFFFFFFFffffffff...",  # 25
+    "...fFFFFfFFFFFFFFFFFFFFffffffff...",  # 26
+    "...fFFFFfFFFFFFFFFFFFFFffffffff...",  # 27
+    "...fFFFFFfFFFFFFFFFFFFFffffffff...",  # 28
+    "..FfFFFFFfFFFFFFFFFFFFFffffffffF..",  # 29
+    "....fFFFFFfFFFFFffFFFFFfffffff....",  # 30
+    "......fFFFFfFf......fFffffff......",  # 31
+    ".......fFFFF..........FFFFf.......",  # 32
+]
+
+
 def crispy_back(step=0):
-    """Facing away: 34 x 40, feet on the bottom row."""
+    """Facing away: 34 x 40, feet on row 38."""
     c = Canvas(34, 40)
-    lift = (0, 1, 0, -1)[step]
-    # The hind legs and the rear, the tail up from it.
-    for x0, dy in ((10, max(0, lift)), (20, max(0, -lift))):
-        c.polygon([(x0, 30), (x0 + 4, 30), (x0 + 4, 38 - dy), (x0, 38 - dy)], 'F')
-        c.line([(x0 - 1, 38 - dy), (x0 + 4, 38 - dy)], 'F')
-    c.ellipse(8, 20, 26, 34, 'F')
-    # The capelet over the shoulders, trimmed in black.
-    c.polygon([(7, 15), (27, 15), (30, 24), (25, 27), (17, 28), (9, 27), (4, 24)], 'R')
-    c.shade('R', 'r', 23)
-    c.line([(4, 24), (9, 27), (17, 28), (25, 27), (30, 24)], 'T')
-    c.line([(17, 34), (17, 30), (18, 28)], 'F', 3)
-    # The hood's back (as big as the front's), shaded below, its seam;
-    # both horns.
-    c.polygon([(9, 8), (12, 5), (8, 0), (6, 1)], 'R')
-    c.polygon([(25, 8), (22, 5), (26, 0), (28, 1)], 'R')
-    c.put(8, 2, 'h'); c.put(9, 3, 'h'); c.put(25, 2, 'h'); c.put(24, 3, 'h')
-    c.ellipse(5, 3, 29, 22, 'r')
-    c.ellipse(6, 3, 28, 19, 'R')
-    c.line([(9, 5), (17, 4), (25, 5)], 'h')
-    c.line([(8, 7), (7, 12)], 'h')
-    c.line([(17, 6), (17, 20)], 'r')
-    c.outline()
-    # The ears folded down below the hood's sides; wisps of whisker.
-    crispy_stamp(c, 3, 16, ["..KK", ".KfK", "KffK", "KffK", ".KK."])
-    crispy_stamp(c, 27, 16, ["KK..", "KfK.", "KffK", "KffK", ".KK."])
-    for x, y, ch in ((3, 21, 'w'), (30, 21, 'w')):
-        c.put(x, y, ch)
+    b = 1 if step in (1, 3) else 0
+    lift_l = 2 if step == 1 else 0
+    lift_r = 2 if step == 3 else 0
+    # the front legs, further off
+    crispy_column(c, 5, 30 + b, 36 - lift_r // 2, "df", "ddf")
+    crispy_column(c, 27, 30 + b, 36 - lift_l // 2, "fd", "fdd")
+    crispy_table(c, 0, b, CRISPY_BACK_BODY)
+    crispy_column(c, 8, 31 + b, 37 - lift_l, "fFWF", "fFWFF")
+    crispy_column(c, 22, 31 + b, 37 - lift_r, "FFFf", "FFFFf")
+    crispy_ring(c)
     return c
 
 
