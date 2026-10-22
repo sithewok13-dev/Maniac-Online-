@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0176 (something lit: review fixes, new engine).
+Active milestone: Phase 1; latest patch 0177 (Crispy 2, a SCUMM v8-style custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4572,4 +4572,24 @@ ways, lit talking as lit standing, and the bridge busy while lighting up and
 not after; passes. The cast check passes with a stand-in lighter (not
 committed: 1 lit) and with the real cast (0 lit, 0 failed); startup test
 passes. Tested on the desktop build only. Not tested on an iPhone.
+
+## Patch 0177 — Crispy 2, drawn at Curse of Monkey Island's detail (new engine)
+
+User (2026-10-22), with the picture of Crispy in his devil costume: "make a
+Crispy, Crispy 2 or 3, whatever we're up to and use the newest generation of
+SCUMM, SCUMM version 8 (v8). Make him look as close to the attached image as
+possible". Drawn by an artist panel (four artists, three judges, the winner
+refined, a skeptical check; then a second refinement for the check's
+findings: see-through cracks, a weak back view, a plain front body, a stiff
+walk; checked again: 0 holes, cleaner, likeness 7.5 of 10, v8 quality 7):
+104 x 96 from the side, 72 x 96 from the front and back, 240 colours, the
+side sampled from the picture, the front's face from it, the back painted
+to match. The picture is not kept or read: every frame is baked into
+tools/custom_characters.py as palette indices (zlib + base64), the section's
+names prefixed crispy2_ (its frames checked equal to the panel's, pixel for
+pixel). Costume 6, 0.3 of a person tall (as Crispy), talk colour 8 (orange);
+the other five characters' data unchanged. On the desktop the cast check
+plays all six where the player is, as tall as drawn, 0 failed; a shot shows
+him on Monkey Island's dock beside Guybrush. Tested on the desktop build
+only. Not tested on an iPhone.
 
