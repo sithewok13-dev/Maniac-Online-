@@ -952,6 +952,10 @@ one palette) apply.
   thing is in, lets the usual answer use nothing up, and passes a usual
   one that says and changes nothing on (to the plain rules). enter() lets
   go of a half made sentence. Marker maniac-v29.
+  From 0173, holding Give with a thing carried, someone tapped (personAt:
+  the front-most drawn under the tap) is given it: giveTo walks up beside
+  them (Pair::person), act() on arrival with target -1, pairUp has them
+  answer "No, thanks." (sayAs): no game's records say what people take.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

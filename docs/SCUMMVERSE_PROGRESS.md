@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0172 (review fixes for 0170-0171, new engine).
+Active milestone: Phase 1; latest patch 0173 (Give to someone, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4486,3 +4486,16 @@ finding checked by another; read only). Fixed:
   reading those three fail, checked); a half made sentence let go on
   entering a place; the mansion exports once more (maniac-v29). 0 failed.
 - Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0172 (after a fix to its own script: 0172's
+  message line had an unescaped apostrophe, a syntax error; fixed and
+  pushed as a tools-only commit).
+
+## Patch 0173 — Give to someone (new engine)
+
+0170's "Give the key to" could only be completed on a thing: tapping a
+person let go. Now someone tapped is given it: the one played walks up
+beside them and they answer ("No, thanks.", in their own voice: no game's
+records say what people take). Checked in the verbs check (Give, the thing
+carried, someone on screen: walked up to, their answer, the sentence let
+go), where a place has someone on screen. Tested on the desktop build
+only. Not tested on an iPhone.

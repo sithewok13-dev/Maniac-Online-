@@ -1,0 +1,140 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index af2d28df..801fc6e8 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -699,7 +699,12 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	// (A panel's verb is used once; a pointer stays the verb it is.)
+ 	if (!PanelBridge::over()) PanelBridge::select(-1);
+-	// (Holding the first of two: the thing tapped is the second; else let go.)
++	// (Holding the first of two: someone tapped is given it; the thing
++	// tapped is the second; else let go.)
++	if (_holding.kind == kWorldVerbGive && _holding.item >= 0) {
++		const int person = personAt(screenX, screenY);
++		if (person >= 0) { giveTo(person); return; }
++	}
+ 	if (_holding.kind) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+@@ -960,13 +965,48 @@ void SandboxEngine::pairWith(int item, int thing) {
+ }
+ 
+ // What two things do together: as their game's script, where it is known
+-// (the mansion's, from 0171); else the plain rules: it doesn't work.
++// (the mansion's, from 0171); else the plain rules: it doesn't work. Given
++// to someone (from 0173): they answer, as nobody's game says what they take.
+ void SandboxEngine::pairUp(const Pair &p) {
+ 	sentence("");
+-	if (!pairOwn(p)) say(p.kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
++	if (p.person >= 0 && p.person < (int)_onStage.size()) {
++		if (_player >= 0) { double x, y; StageBridge::position(p.person, x, y); StageBridge::face(_player, x, y); }
++		sayAs(p.person, "No, thanks.");
++	} else if (!pairOwn(p)) say(p.kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
+ 	if (!_testing) saveState();
+ }
+ 
++int SandboxEngine::personAt(int screenX, int screenY) const {
++	int found = -1, front = -1;
++	for (int n = 0; n < (int)_onStage.size(); ++n) {
++		int x0, y0, x1, y1;
++		if (n == _player || !StageBridge::drawnRect(n, x0, y0, x1, y1)) continue;
++		if (screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1 && y1 > front) { front = y1; found = n; }
++	}
++	return found;
++}
++
++void SandboxEngine::giveTo(int person) {
++	const Pair p = _holding;
++	_holding = Pair();
++	PanelBridge::select(-1);
++	const WorldGuest *who = person < (int)_onStage.size() ? worldAppearance(_onStage[person]) : nullptr;
++	Common::String text = pairText(p, -1, -1);
++	if (who) text += Common::String(" ") + who->name;
++	sentence(text);
++	// (Walked up beside them, on the side nearer.)
++	double px, py, x, y;
++	StageBridge::position(person, px, py);
++	StageBridge::position(_player, x, y);
++	const double beside = 24 * screenWidthOf(_game) / 320.0;
++	double tx = px + (x < px ? -beside : beside), ty = py;
++	StageBridge::walkable(tx, ty);
++	_pairing = p;
++	_pairing.person = person;
++	_action = p.kind; _target = -1;
++	StageBridge::walkTo(_player, tx, ty);
++}
++
+ // The mansion's (its things file, "SVO4"): the script that answers is the
+ // one here's, the other its second (Use's: what it is used on, as the
+ // mansion's own sentences run; else the first's); Unlock's and Fix's, the
+@@ -1563,7 +1603,7 @@ void SandboxEngine::act() {
+ 	if (_pairing.kind) {
+ 		const Pair p = _pairing;
+ 		_pairing = Pair();
+-		if (p.kind == kind && (p.thing == target || p.withThing == target)) { pairUp(p); return; }
++		if (p.kind == kind && (p.person >= 0 ? target < 0 : p.thing == target || p.withThing == target)) { pairUp(p); return; }
+ 	}
+ 	sentence("");
+ 	int id, ox, oy, w, h, wx, wy, state;
+@@ -2983,7 +3023,7 @@ Common::Error SandboxEngine::run() {
+ // a door is refused, and out of reach nothing is done; all kept through the
+ // state file. A picture of each panel in use.
+ Common::Error SandboxEngine::verbsTest() {
+-	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0;
++	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0, given = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
+ 	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+@@ -3583,6 +3623,22 @@ Common::Error SandboxEngine::verbsTest() {
+ 					}
+ 					if (!ok) fail("Use with a thing carried not as two things", g); else ++paired;
+ 				}
++				// (From 0173: Give, the thing carried, then someone here on screen:
++				// walked up to, they answer.)
++				const int giving = verbOf(kWorldVerbGive);
++				int person = -1, px = 0, py = 0;
++				for (int n = 0; n < (int)_onStage.size() && person < 0; ++n) {
++					int x0, y0, x1, y1;
++					if (n != _player && StageBridge::drawnRect(n, x0, y0, x1, y1) && (x0 + x1) / 2 >= 0 && (x0 + x1) / 2 < _width && (y0 + y1) / 2 >= 0 && (y0 + y1) / 2 < PanelBridge::top() &&
++						personAt((x0 + x1) / 2, (y0 + y1) / 2) == n) { person = n; px = (x0 + x1) / 2; py = (y0 + y1) / 2; }
++				}
++				if (giving >= 0 && person >= 0 && twoThings(kWorldVerbGive, true) && PanelBridge::itemCount() > 0 && PanelBridge::slotRect(PanelBridge::itemCount() - 1 - PanelBridge::firstItem(), x, y, w, h) && pick(giving)) {
++					tapRect(x, y, w, h);
++					bool ok = _holding.kind == kWorldVerbGive;
++					if (ok) { _speech.clear(); tap(px, py); settle(); }
++					ok = ok && !_holding.kind && _speaker == person && _speech == "No, thanks.";
++					if (!ok) fail("Give to someone not as two things", g); else ++given;
++				}
+ 				break;
+ 			}
+ 			// One its game's script does not take (a pirate at a table): refused.
+@@ -4044,7 +4100,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found)", paired, pairsSeen, pairsAway, pairsFound);
++	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone", paired, pairsSeen, pairsAway, pairsFound, given);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, failed);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 707a424d..8fca7c85 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -96,13 +96,15 @@ private:
+ 	// the key with", "Give ... to", "Unlock the door with"): the first
+ 	// chosen waits for the second; then walked to the one here, if one is,
+ 	// and pairUp. Their prepositions as the oldest games' engine has them.
+-	struct Pair { int kind = 0, verb = -1, item = -1, thing = -1, withItem = -1, withThing = -1; };
++	struct Pair { int kind = 0, verb = -1, item = -1, thing = -1, withItem = -1, withThing = -1, person = -1; };
+ 	Pair _holding;                     // the first chosen (kind 0: none)
+ 	Pair _pairing;                     // both, done on arrival
+ 	bool twoThings(int kind, bool carried) const;
+ 	void hold(int kind, int verb, int item, int thing);
+ 	void letGo();
+ 	void pairWith(int item, int thing); // the second chosen
++	int personAt(int screenX, int screenY) const; // someone here under a tap (a stage actor; -1: none)
++	void giveTo(int person);           // "Give the key to" someone: walked to, they answer
+ 	void pairUp(const Pair &p);
+ 	bool pairOwn(const Pair &p);       // the mansion's own answer, where known
+ 	Common::String pairText(const Pair &p, int item, int thing) const;
