@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0177 (Crispy 2, a SCUMM v8-style custom character, new engine).
+Active milestone: Phase 1; latest patch 0178 (Extra 2, a SCUMM v8-style custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4592,4 +4592,37 @@ the other five characters' data unchanged. On the desktop the cast check
 plays all six where the player is, as tall as drawn, 0 failed; a shot shows
 him on Monkey Island's dock beside Guybrush. Tested on the desktop build
 only. Not tested on an iPhone.
+
+## Patch 0178 — Extra 2, drawn at Curse of Monkey Island's detail (new engine)
+
+User (2026-10-22), with the picture of Extra: "make a new Extra, Extra 2, and
+use the newest generation of SCUMM, SCUMM version 8 (v8). Make him look as
+close to the attached image as possible", then with a sheet of his side and
+back: "Add these side and back views to Extra 2" (the panel was restarted
+with it; the artists kept their front work). Drawn by an artist panel (four
+artists, three judges, the winner refined, checked: likeness 8 of 10, v8
+quality 7): 104 x 96 from the side, 72 x 96 from the front and back, 236
+colours; the side and back from the user's sheet, the front's face from the
+first picture. A second refinement for the check's findings (a stiff front
+body, a pale talking tongue, a short muzzle, speckle, step 2 of the front and
+back walks the same as standing) came out worse (the front a narrow
+"penguin", the muzzle a beak: likeness 6) and was set aside; a merge of the
+two was stopped when the user, shown the first ("Extra is almost perfect!
+But he has too much white"), circled the white on his neck and asked: "take
+away the white on the neck between the chin and the chest ... The chin looks
+perfect. Also make the white on the chest less. He's only a tiny bit white
+there." So the first version, with its front frames (all eight: standing,
+walking, talking) edited: the neck's white patch and its warm brown edge
+taken away, filled from the coat round it (each pixel the mean of its coat
+neighbours, from the edge in, snapped to the coat's own blue-blacks); the
+chest's white cut to a tiny patch (about ten pixels round its brightest
+point) with a soft edge; the chin kept. The side view keeps the white blaze
+from the user's side sheet. The pictures are not kept or read: every frame
+is baked into tools/custom_characters.py (the section's names prefixed
+extra2_, its frames checked equal to the edited module's). Costume 7, 0.3 of
+a person tall (as Extra), talk colour 3 (cyan); the other six characters'
+data unchanged. On the desktop the cast check plays all seven where the
+player is, as tall as drawn, 0 failed; a shot shows him on Monkey Island's
+dock. Known: the front and back walks' step 2 is the standing pose (three
+poses in turn). Tested on the desktop build only. Not tested on an iPhone.
 
