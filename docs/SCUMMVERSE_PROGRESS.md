@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0181 (story play: the original games opened from Maniac).
+Active milestone: Phase 1; latest patch 0182 (Sith Ewok 2 polished; 0181 story play: the original games opened from Maniac).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4780,3 +4780,30 @@ step.
   apart from the hub; saving all the games together as one snapshot; the
   app starting in the game last played; the Talk, AI and camera buttons
   hidden in a game (they do nothing there).
+
+## Patch 0182 — Sith Ewok 2 polished (new engine)
+
+A second pass on the 0180 drawing, of my own initiative (the user had said
+most things looked OK), each change checked against the user's sheets by a
+separate checker as better with nothing worse:
+- From behind, lit: his feet as tall as when the saber is off (they were
+  flat slivers), the lit walk with a real stride (the raised foot's sole as
+  sheet 3 shows it, the hem swinging); a stray outline under a raised foot
+  gone (lit and off).
+- Lit, standing: the robe's folds crisp down to the hem (a blurred band
+  there before).
+- Lighting up: the first frame takes the hilt from his belt with both paws
+  (front, side and back), the next raises it; the belt shows no hilt after;
+  his stance widens from standing into the sheet's over the first frames;
+  stray orange specks on the robe from behind gone; the sleeve across his
+  belly shaded with folds.
+- The blade crackles more: a ragged red edge with flickering points, more
+  sparks near the cross-guard; its two crackles still differ only in sparks
+  and haze.
+- The saber-off walk is as before (a proposed change to its third step made
+  it limp, so it was left out).
+- tools/custom_characters.py: his section's frames only (the colours, glow,
+  shine and every other frame byte for byte the same; the frames equal the
+  checked drawing's); engine/common/scummverse_custom_cast.inc regenerated.
+- Tested on the desktop build only (the cast check: he lights, walks lit,
+  puts it out). Not tested on an iPhone.
