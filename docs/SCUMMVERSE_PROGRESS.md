@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0164 (the Sith Ewok, a fourth custom character, new engine).
+Active milestone: Phase 1; latest patch 0165 (Extra redrawn from the user's model, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4298,6 +4298,32 @@ character" (ultracode on). The sheet was read only, never copied.
 - In the catalog as costume 4 (its description and lines for the chat, the
   talk colour light magenta); in tools/custom_characters.py with every name
   prefixed (the panel's frames pixel for pixel, checked).
+- On the desktop: the cast check plays all four custom characters, 0
+  failed; looked at in the engine beside Guybrush. Tested on the desktop
+  build only. Not tested on an iPhone.
+
+## Patch 0165 — Extra redrawn from the user's model (new engine)
+
+User (2026-10-22): a pixel-art picture of Extra, "Redesign Extra using this
+art as closely as possible". The picture was read only, never copied.
+- An artists' panel: four artists (sampled from the picture with the head
+  turned to the viewer as in it; sampled with the head in profile; sampled at
+  twice the size and reduced by hand; readability first), three judges
+  (likeness; reading at game size; as his owner). Two chose the sampled
+  three-quarter one (A), one the reduced one (C); A refined with all the
+  notes, then a skeptical check: likeness 8 of 10, reads in the game,
+  consistent, clean, better than the drawing before; the picture not read
+  at run time.
+- Now as the picture: a glossy black Chihuahua with blue-grey sheen and
+  maroon shading, his head turned to the viewer, very big ears with salmon
+  insides, big brown eyes with glints, a white chin and a white blaze down
+  his chest, a slim deep chest and tucked belly, long thin legs with white
+  toe tips, the tail raised and hooking forward. Drawn 38 rows tall in his
+  40, kept 0.3 of a person in the game. Left as the check found it: from
+  behind his haunches are wider than the picture's slim dog and the tail
+  reads faintly; from the front only the front legs show.
+- In tools/custom_characters.py (his section replaced; every name prefixed;
+  the panel's frames pixel for pixel, checked).
 - On the desktop: the cast check plays all four custom characters, 0
   failed; looked at in the engine beside Guybrush. Tested on the desktop
   build only. Not tested on an iPhone.
