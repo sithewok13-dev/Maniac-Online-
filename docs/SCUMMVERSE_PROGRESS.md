@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0178 (Extra 2, a SCUMM v8-style custom character, new engine).
+Active milestone: Phase 1; latest patch 0179 (Suzy 3, a SCUMM v8-style custom character, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4625,4 +4625,37 @@ data unchanged. On the desktop the cast check plays all seven where the
 player is, as tall as drawn, 0 failed; a shot shows him on Monkey Island's
 dock. Known: the front and back walks' step 2 is the standing pose (three
 poses in turn). Tested on the desktop build only. Not tested on an iPhone.
+
+## Patch 0179 — Suzy 3, drawn at Curse of Monkey Island's detail (new engine)
+
+User (2026-10-22), with a picture of Suzy with a black sling bag: "make a
+Suzy 3, and use the newest generation of SCUMM, SCUMM version 8 (v8). Make
+her look as close to the attached image as possible. You can't tell from the
+pic but she has wider hips and a bigger butt than that. She's about 5'3" in
+height." Drawn by an artist panel (four artists, three judges, the winner
+refined, checked: likeness 8, v8 quality 6, the hips as asked): 104 x 200 in
+every facing, 236 colours; the front sampled from the picture (the hips,
+thighs and seat about a quarter wider), the side and back painted. The check
+found the side's arms flat sticks, its face generic, the side and back flatter
+than the front, the side seat a bubble pinched behind the knee, thin back
+legs; a second refinement (the front's tones on the side and back, shaped
+arms, fuller legs) was stopped when the user, shown the first sheet, said:
+"Suzy 3's butt sags too much. It's perkier than that. For her eyes, keep in
+mind she's Asian." A third pass from the second's work: the seat full and
+round but lifted, fullest just under the waistband, tucking into the thigh at
+a short fold (the back's two cheeks high and round with the pockets on them);
+in profile a narrow almond eye in a smiling squint, a soft low nose bridge, a
+round cheek, her tan; a clearer front walk. Checked: likeness 8, v8 quality
+7.5, the seat perky, the side's eyes as asked; it noted a dark strip between
+her legs on one front walk frame, which, opened to a gap, looked worse (a
+ragged slit) and was kept as a shadow. The front's face is the picture's (its
+eyes unchanged). The picture is not kept or read: every frame is baked into
+tools/custom_characters.py (the section's names prefixed suzy3_, its frames
+checked equal to the panel's). Costume 8, 5'3" (0.9 of a person), talk colour
+5 (green); the other seven characters' data unchanged. The generated file
+grows to 1.2 MB (her painted textures compress less). On the desktop the cast
+check plays all eight where the player is, as tall as drawn, 0 failed; a shot
+shows her on Monkey Island's dock between two Guybrushes, about nine tenths
+of his height. Known: from the back her hips read wider than from the front.
+Tested on the desktop build only. Not tested on an iPhone.
 
