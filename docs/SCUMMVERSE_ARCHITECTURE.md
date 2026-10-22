@@ -675,6 +675,19 @@ one palette) apply.
   lights the part under the pointer (EVENT_MOUSEMOVE) and does its verb when
   let go (EVENT_LBUTTONUP); a press let go before the coin opens is a tap
   where it began.
+  The Curse of Monkey Island's coin (0183, its entry in kWorldCoins, v8):
+  hand, skull and parrot (verbs 7, 6, 8); its start (`start`, the plain
+  game's object on the first menu) tapped once the pointer shows, from
+  variables as a fresh start has them (the places' export leaves them as
+  its main menu's), until the player has the pointer in another room; its
+  films skipped while exporting (smush_player.cpp). Its costumes keep the
+  room's colours (no remapping); its lettering is FONT0..4.NUT's plain
+  letters (CharsetRendererNut). The name goes on the line the game keeps
+  for it (the sentence fields, centred at `nameAtX`, `nameAtY`), not under
+  the coin. Its chest (`boxBlast`, the blast object the game draws it as)
+  is opened with a right click and drawn alone, its things left out; its
+  cells a grid (`rows` of `columns`, `stepY` apart) and no arrows (zero
+  rectangles; Panel::arrows() false, the sandbox's check skipped).
 - Loom's distaff (0115, step 2f; `WorldDistaff`, "SVI4"): a panel under
   the scene whose verbs are notes (kWorldVerbNote, their ids 0 c to 7 high
   C). ScummEngine::scummverseExportDistaff runs Loom's start, taps its

@@ -142,7 +142,9 @@ static std::vector<uint8_t> overBytes(const OverSpec &o = OverSpec()) {
 // 100..102, a hole at 4..7 x 6..8 and its corner clear), two verbs on it:
 // look at 2,1 6x4 lit in 200 (its first pixel clear), the hand at 1,0
 // 10x8 lit in 201 (around look); the name centred at 6,7 in colour 33.
-struct CoinSpec { bool trailing = false; int lookX = 2, handWidth = 10, handHeight = 8, coinWidth = 12, lookKind = kLook; };
+// (As The Curse's: the name on a line of its own, centred at 16,18; a box
+// with no arrows.)
+struct CoinSpec { bool trailing = false; int lookX = 2, handWidth = 10, handHeight = 8, coinWidth = 12, lookKind = kLook; bool line = false, arrows = true; };
 static std::vector<uint8_t> coinBytes(const CoinSpec &o = CoinSpec()) {
 	const int W = 32, rows = 20;
 	std::vector<uint8_t> d = {'S', 'V', 'I', '3'};
@@ -155,10 +157,10 @@ static std::vector<uint8_t> coinBytes(const CoinSpec &o = CoinSpec()) {
 	for (int i = 0; i < 24; ++i) d.push_back(200);
 	put(d, {kHand}); put16(d, 9); for (int f : {1, 0, o.handWidth, o.handHeight}) put16(d, f); d.push_back(0);
 	for (int i = 0; i < o.handWidth * o.handHeight; ++i) d.push_back(201);
-	put16(d, 0); put16(d, 0); put(d, {0, 0});
+	put16(d, o.line ? 16 : 0); put16(d, o.line ? 18 : 0); put(d, {o.line ? 1 : 0, o.line ? 33 : 0});
 	put(d, {2, 0, 0, 2});
 	for (int f : {8, 10, 6, 4, 14, 10, 6, 4}) put16(d, f);
-	for (int f : {5, 4, 3, 2, 20, 4, 3, 2}) put16(d, f);
+	for (int f : {5, 4, 3, 2, 20, 4, 3, 2}) put16(d, o.arrows ? f : 0);
 	d.push_back(11);
 	for (int font = 0; font < 2; ++font) {
 		put(d, {5, 77, 255, 1});
@@ -178,7 +180,7 @@ static std::vector<uint8_t> coinBytes(const CoinSpec &o = CoinSpec()) {
 	put16(d, 6); put16(d, 7); d.push_back(33);
 	for (int i = 0; i < 24; ++i) d.push_back(i ? 1 : 0);
 	for (int i = 0; i < o.handWidth * o.handHeight; ++i) d.push_back(1);
-	for (int k = 0; k < 2; ++k) { for (int i = 0; i < 6; ++i) d.push_back((uint8_t)(150 + k)); for (int i = 0; i < 6; ++i) d.push_back(1); }
+	for (int k = 0; k < 2 && o.arrows; ++k) { for (int i = 0; i < 6; ++i) d.push_back((uint8_t)(150 + k)); for (int i = 0; i < 6; ++i) d.push_back(1); }
 	if (o.trailing) d.push_back(0);
 	return d;
 }
@@ -962,8 +964,35 @@ int main() {
 		assert(!PanelBridge::coinOpen() && PanelBridge::coinLit() == -1);
 		PanelBridge::open(true);
 		assert(PanelBridge::hit(12, 9, index) == 4 && index == -1 && PanelBridge::hit(42, 9, index) == 4 && index == 1 && PanelBridge::hit(0, 0, index) == 6);
+		assert(PanelBridge::arrows());
 		PanelBridge::clear();
 		assert(!PanelBridge::coin());
+		// The Curse's: the name on its own line at the bottom, wherever the
+		// coin is (not on the coin); a box with no arrows to show or tap.
+		CoinSpec curse; curse.line = true; curse.arrows = false;
+		const std::vector<uint8_t> chest = coinBytes(curse);
+		Panel::Panel k;
+		assert(k.load(chest.data(), chest.size(), error) && k.coin() && !k.arrows());
+		k.layout(64, 40, 0, 2.0, 2.0);
+		k.openCoin(32, 20, "A");
+		std::fill(screen.begin(), screen.end(), 7);
+		k.renderCoin(screen.data(), 64, 64, 40);
+		// ('A' 4 wide, 3 rows at twice the size: centred on 32, from row 36.)
+		assert(screen[36 * 64 + 28] == rgb(33) && screen[24 * 64 + 28] != rgb(33));
+		k.openCoin(10, 8, "A");
+		std::fill(screen.begin(), screen.end(), 7);
+		k.renderCoin(screen.data(), 64, 64, 40);
+		assert(screen[36 * 64 + 28] == rgb(33));
+		k.open(true);
+		assert(k.hit(12, 9).arrow == 0 && k.hit(42, 9).arrow == 0);
+		std::vector<Item> many(5);
+		for (Item &i : many) { i.name = "rat"; i.width = 2; i.height = 2; i.picture.assign(4, 0xFF00FF00u); }
+		k.setItems(many);
+		std::fill(screen.begin(), screen.end(), 7);
+		k.render(screen.data(), 64, 40);
+		for (uint32_t v : screen) assert(v != rgb(150) && v != rgb(151));
+		assert(PanelBridge::load(chest.data(), chest.size(), problem, sizeof(problem)) && !PanelBridge::arrows());
+		PanelBridge::clear();
 	}
 	{
 		// Full Throttle's hand: what can be taken is, what is shut opens, what
@@ -981,7 +1010,7 @@ int main() {
 		o = decide(kHand, wall, "wall");
 		assert(o.result == kSay && o.say == "That doesn't seem to work.");
 	}
-	std::puts("PASS: Full Throttle's coin (read whole; held over a thing where it is, kept on screen; the part under a point, the smaller in another; drawn with the scene through, a part lit, the name; its box's arrows a thing at a time, shown where there is more; its pointer; the hand)");
+	std::puts("PASS: Full Throttle's coin (read whole; held over a thing where it is, kept on screen; the part under a point, the smaller in another; drawn with the scene through, a part lit, the name; its box's arrows a thing at a time, shown where there is more; its pointer; the hand; The Curse's name on its own line, its box without arrows)");
 	{
 		// Loom's distaff ("SVI4"): the file whole or not at all.
 		const std::vector<uint8_t> data = distaffBytes();

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0182 (Sith Ewok 2 polished; 0181 story play: the original games opened from Maniac).
+Active milestone: Phase 1; latest patch 0183 (The Curse's verb coin in the new engine; 0182 Sith Ewok 2 polished; 0181 story play: the original games opened from Maniac).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4807,3 +4807,29 @@ separate checker as better with nothing worse:
   checked drawing's); engine/common/scummverse_custom_cast.inc regenerated.
 - Tested on the desktop build only (the cast check: he lights, walks lit,
   puts it out). Not tested on an iPhone.
+
+## Patch 0183 — The Curse of Monkey Island's verb coin (new engine)
+
+The user sent FONT0.NUT to FONT4.NUT (kept in the ignored game-data folder,
+never committed); with them The Curse starts and its controls can be taken
+from the user's own copy, as Full Throttle's were (0114):
+- Its coin: hand, skull and parrot over a thing, opened by a held press;
+  the part under the finger lit, its verb done when let go. The thing's name
+  goes on the line at the bottom of the screen, centred, as the game shows
+  it (without the verb before it).
+- Its chest: a right click (the two-finger tap) opens it as the game draws
+  it; the things carried in a grid of cells (6 across, 4 down, laid out from
+  the one thing seen at its start). No arrows: it has none.
+- The export taps the plain game on its first menu, skips its films, and
+  waits until the player has the pointer. Its lettering is the fonts' plain
+  letters. Full Throttle's export is byte for byte the same as before.
+- The new engine's panel: a coin's name on a fixed line, and a box with no
+  arrows (the verb test no longer asks a coin game for arrows it has none
+  of).
+- The Curse's places are re-exported once at the next launch (comi-v23).
+  On the phone it needs its RESOURCE folder (with FONT0..4.NUT) in
+  Documents/comi.
+- Tested on the desktop build only: the panel unit test (ASan/UBSan) with a
+  new case for the Curse's layout; the sandbox suite; the export from the
+  user's copy, its verb test (12 panels, 2 coins) and screenshots of the
+  coin and the chest. Not tested on an iPhone.
