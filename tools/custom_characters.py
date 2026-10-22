@@ -34,6 +34,7 @@ the outline, with a blue-grey sheen, so he reads in a dark room. No collar
 (that photo was his costume).
 """
 import argparse
+import gzip
 import math
 import struct
 from pathlib import Path
@@ -2173,7 +2174,9 @@ def write_inc(path):
              '']
     table = []
     for costume, name, art, colours, height in CUSTOM:
-        data = svc(art(), colours, costume)
+        # (Gzip-compressed from 0174, as the export's files; the engine reads
+        # it whole. mtime 0: the same bytes each time.)
+        data = gzip.compress(svc(art(), colours, costume), compresslevel=9, mtime=0)
         tallest = max(f[3].height for f in art())
         ident = 'kWorldCustom' + name.replace(' ', '')
         lines.append(f'static const unsigned char {ident}[] = {{')

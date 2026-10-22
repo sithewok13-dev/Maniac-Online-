@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0173 (Give to someone, new engine).
+Active milestone: Phase 1; latest patch 0174 (custom characters kept compressed, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4499,3 +4499,15 @@ records say what people take). Checked in the verbs check (Give, the thing
 carried, someone on screen: walked up to, their answer, the sentence let
 go), where a place has someone on screen. Tested on the desktop build
 only. Not tested on an iPhone.
+- The full suite passed with 0173.
+
+## Patch 0174 — custom characters kept compressed (new engine)
+
+Ahead of Crispy 2 (drawn at Curse of Monkey Island's detail, 96 rows and up
+to 250 colours, several times the data of the 40-row characters): each
+custom character in engine/common/scummverse_custom_cast.inc is now its
+character file gzip-compressed (mtime 0, the same bytes each time), read
+whole by the new engine (as the export's own files are). The generated
+file goes from 1.4 MB to 68 KB. On the desktop the cast check plays all
+five custom characters as before, as tall, 0 failed. Tested on the desktop
+build only. Not tested on an iPhone.
