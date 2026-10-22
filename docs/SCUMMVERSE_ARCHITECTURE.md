@@ -922,6 +922,13 @@ one palette) apply.
   the wanderers' arrivals. The things pass marks away a V1-2 thing whose
   state has the untouchable bit (as findObject). The mansion's old things
   file is emptied before its marker. Marker maniac-v27.
+- Two things (0170): with a panel under the scene (twoThings: not over the
+  scene, a coin or the distaff), Give and Use on a thing carried, and
+  Unlock and Fix on one here, hold the first (_holding, its verb kept lit,
+  the sentence "<verb> <it> with/to"); the second, carried or here,
+  completes it (pairWith: walked to the one here, if any, then act ->
+  pairUp; _pairing carries the other to the arrival). Another verb or a
+  tap on the floor lets go. pairUp answers by the plain rules for now.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens

@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0169 (review fixes for 0168: drawn in the original's order, doors behind things, letters not yet in the mailbox; new engine).
+Active milestone: Phase 1; latest patch 0170 (two things: Use with, Give to, Unlock with, new engine).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4415,4 +4415,26 @@ another; read only). Fixed:
   the mailbox's letters; drawn in 0168's order four checks fail (checked).
   The verbs check: 848 as the scripts answer (74 away: the letters and
   others not yet there), 0 failed.
+- Tested on the desktop build only. Not tested on an iPhone.
+- The full suite passed with 0169.
+
+## Patch 0170 — two things: Use with, Give to, Unlock with (new engine)
+
+Step 5 goes on. The new engine had no sentence of two things: Use, Give,
+Unlock and Fix worked on one thing only.
+- With a game's verb panel under the scene (the mansion, Zak, both Monkey
+  Islands, both Indys, Day of the Tentacle): Use or Give and a thing
+  carried reads "Use the key with" / "Give the key to", the verb staying
+  lit; then a thing here (walked to) or another carried completes it:
+  "Use the key with the door". Unlock and Fix start from the thing here
+  ("Unlock the door with"), then the thing carried. Another verb or a tap
+  on the floor lets go. (Sam & Max, The Dig, Full Throttle and Loom keep
+  their own controls as before.)
+- What two things do: the plain answer for now ("That doesn't seem to
+  work."; given: "I don't think they want it."). The mansion's own answers
+  come next, recorded from its scripts as the others.
+- Checked: in each of seven games the verbs check takes a thing, chooses
+  Use, taps it (the sentence ends "with", the verb lit), taps another
+  thing here (walked to, the plain answer, the sentence cleared), then
+  again and the floor (let go, walking). 0 failed.
 - Tested on the desktop build only. Not tested on an iPhone.

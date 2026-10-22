@@ -328,6 +328,12 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: the mansion\'s lights\n' + output[-2000:])
         if lights and int(lights.group(1)):
             print(f'PASS: the mansion\'s lights: {lights.group(1)} turned off (the place dark, everyone in grey; again so on coming back, only there; kept) and on again; the flashlight lighting a window where the tap was; the water valve draining and filling the pool, its ladder down only when drained; the gargoyle opening the hall\'s secret door (no handle; shut, going nowhere, nor with a tour paused; shut behind on the stairs down); the mailbox and the desk opened and closed; the shower curtain drawn aside and back as one (pushed, it won\'t budge), the sink and the tap as the game; the garden gate moving as one')
+        # (From 0170: Use, a thing carried, a thing here: two things, in each
+        # game with the panel under the scene.)
+        pairs = re.search(r'selftest pairs: (\d+) games used a thing carried with a thing here', output)
+        if not pairs or int(pairs.group(1)) < 5:
+            raise SystemExit('FAIL: two things (Use, a thing carried, a thing here)\n' + output[-2000:])
+        print(f'PASS: two things: in {pairs.group(1)} games Use, a thing carried ("Use it with", the verb still lit), then a thing here (walked to, the plain answer); a tap on the floor lets go')
         # (From 0155: the mansion's things as their own scripts answer, from
         # its things file: every use replayed as a player does it; from 0161
         # read, picked up and fixed too, some taken.)
