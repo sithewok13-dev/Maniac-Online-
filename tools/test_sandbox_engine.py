@@ -313,8 +313,10 @@ if __name__ == '__main__':
         # called, not gone through: the rides check.)
         output = sandbox(exe, worlds, 'doors', shots, tmp)
         d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short.*?(\d+) with no spot a tap finds them, (\d+) from as near', output)
-        # (Some doors only from as near as the walk allows, not most.)
-        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99 or not 0 < int(d.group(6)) * 10 < int(d.group(1)):
+        # (Some doors only from as near as the walk allows, not most; from 0194
+        # every door a tap finds walked to: one in a hundred short at most.)
+        if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99 or not 0 < int(d.group(6)) * 10 < int(d.group(1)) \
+                or int(d.group(4)) * 100 > int(d.group(1)):
             raise SystemExit('FAIL: doors\n' + output[-2000:])
         # (The mansion's doors open as one goes through, where its game opens
         # them; the door back stands open.)

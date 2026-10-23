@@ -856,7 +856,11 @@ one palette) apply.
   half a second, and spins Opening as kWorldVerbOpen on the thing chosen
   (backwards kWorldVerbClose) through the plain rules; a thing tapped
   (not a door) is chosen, its picture from its place's file, and tapped
-  again is looked at.
+  again is looked at. Since 0194 a door a tap finds only without the
+  things over it, with no other door here a tap finds leading where it
+  does (`beforeThings`: the dragon's lair's one way out, under the dragon,
+  its gold and straw), is taken before them where the tap is under it and
+  it is the door the tap takes there (`tapsDoorFirst`).
 - Chat in the sandbox (0116, step 4): SandboxEngine::talkScene tells the
   iPhone's chat (common/scummverse_ai.h, the same calls Maniac makes) who
   is here every step: the one played as talk ID 1 with its appearance key

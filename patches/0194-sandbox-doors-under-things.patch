@@ -1,0 +1,202 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 2412e244..b6ec3996 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -700,7 +700,16 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i) && !isDoor(i)) things.push_back(i);
+ 		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+-		if (thing >= 0) { chooseThing(thing); return; }
++		// (Not under the door a tap takes there, when only things cover it and
++		// it is the one way where it leads.)
++		if (thing >= 0) {
++			Common::Array<int> doors;
++			for (int i = 0; i < StageBridge::objectCount(); ++i) {
++				int id, ox, oy, w, h, wx, wy, state;
++				if ((isDoor(i) && !insideShut(i)) || (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id))) doors.push_back(i);
++			}
++			if (!tapsDoorFirst(StageBridge::objectAt(x, y, doors.data(), doors.size(), 4), x, y)) { chooseThing(thing); return; }
++		}
+ 	}
+ 	// With a verb other than walking: the thing it is used on (named and
+ 	// shown here), walked to first; else walking.
+@@ -868,6 +877,53 @@ bool SandboxEngine::isThing(int object) const {
+ 	return !PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway);
+ }
+ 
++// Where a tap takes things before doors (Loom's distaff), a door wholly
++// under things (the dragon's lair's way out, under the dragon, its gold and
++// straw) is taken before them where it lies, when no other door here leads
++// where it does that a tap finds; one that has one (Loom's crystal, a second
++// way to the bell's place) leaves the things to be chosen.
++bool SandboxEngine::tapFinds(int door, bool things) const {
++	Common::Array<int> over, doors;
++	for (int i = 0; i < StageBridge::objectCount(); ++i) {
++		int id, x_, y_, w_, h_, wx, wy, state;
++		if (things && isThing(i) && !isDoor(i)) over.push_back(i);
++		if ((isDoor(i) && !insideShut(i)) || (StageBridge::object(i, id, x_, y_, w_, h_, wx, wy, state) && worldRideAt(_game, _room, id))) doors.push_back(i);
++	}
++	int id, ox, oy, w, h, wx, wy, state;
++	if (!StageBridge::object(door, id, ox, oy, w, h, wx, wy, state)) return false;
++	const int x0 = MAX(0, ox), y0 = MAX(0, oy), x1 = MIN(StageBridge::sceneWidth(), ox + w), y1 = MIN(StageBridge::sceneHeight(), oy + h);
++	for (int a = 0; a <= 8 && x0 < x1 && y0 < y1; ++a)
++		for (int b = 0; b <= 8; ++b) {
++			const double x = x0 + (x1 - x0 - 1) * a / 8.0, y = y0 + (y1 - y0 - 1) * b / 8.0;
++			if (StageBridge::objectAt(x, y, doors.data(), doors.size(), 4) == door && StageBridge::objectAt(x, y, over.data(), over.size(), 2) < 0) return true;
++		}
++	return false;
++}
++
++bool SandboxEngine::otherWay(int door) const {
++	int id, ox, oy, w, h, wx, wy, state;
++	if (!StageBridge::object(door, id, ox, oy, w, h, wx, wy, state)) return false;
++	const WorldLink *link = worldLinkFrom(_game, _room, id);
++	for (int o = 0; link && o < StageBridge::objectCount(); ++o) {
++		int oid;
++		if (o == door || !isDoor(o) || insideShut(o) || !StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state)) continue;
++		const WorldLink *other = worldLinkFrom(_game, _room, oid);
++		if (other && other->target == link->target && tapFinds(o, true)) return true;
++	}
++	return false;
++}
++
++bool SandboxEngine::beforeThings(int door) const {
++	if (_game < 0 || !PanelBridge::distaff() || !isDoor(door) || insideShut(door)) return false;
++	// (Under things, not under other doors: found without them, not with.)
++	return tapFinds(door, false) && !tapFinds(door, true) && !otherWay(door);
++}
++
++bool SandboxEngine::tapsDoorFirst(int door, double x, double y) const {
++	int id, ox, oy, w, h, wx, wy, state;
++	return door >= 0 && StageBridge::object(door, id, ox, oy, w, h, wx, wy, state) && x >= ox && x < ox + w && y >= oy && y < oy + h && beforeThings(door);
++}
++
+ // A thing inside another (its game's parent: the fridge's food, the key
+ // under the mat; from 0168) is drawn and touched only while that one, and
+ // each it is in, shows the picture it is in.
+@@ -2197,7 +2253,10 @@ void SandboxEngine::tourLeave() {
+ void SandboxEngine::tourStep(int ticks) {
+ 	if (!_touring.on || _touring.paused || _player < 0) return;
+ 	_touring.clock += ticks; _touring.shown += ticks;
+-	const bool walking = StageBridge::moving(_player) && _touring.clock < (_touring.phase == kTourToDoor ? kTourDoorWalk : kTourWalk);
++	// (A walk to a door has longer in a place several screens wide: Fate of
++	// Atlantis's labyrinth chamber, nearly three, is crossed end to end.)
++	const double screens = MAX(1.0, (double)StageBridge::sceneWidth() / MAX(1, screenWidthOf(_game)));
++	const bool walking = StageBridge::moving(_player) && _touring.clock < (_touring.phase == kTourToDoor ? kTourDoorWalk * screens : kTourWalk);
+ 	const int next = _touring.stop + 1;
+ 	const Common::Array<int> *legs = next < (int)_touring.stops.size() ? &_touring.stops[next].legs : nullptr;
+ 	double dx, dy;
+@@ -5596,7 +5655,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// camera on it), walked to, gone through, time passing as in play.
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+-		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0;
++		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0, insideOpened = 0, sameWay = 0;
+ 		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0;
+ 		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+@@ -5628,24 +5687,50 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				for (const WorldTramLine &line : kWorldTramLines)
+ 					for (const WorldTramStop &stop : line.ends) car = car || (line.game == g && stop.room == link.room && stop.car == link.object);
+ 				if (car) { ++cars; continue; }
+-				++tried;
+-				// (Tapped where a player's tap finds it: of the part the scene
+-				// shows, its middle, else the nearest spot that no other door takes,
+-				// nor, where a walking tap takes things first (Loom's distaff, a
+-				// pointer over the scene), a thing over it.)
++				// (Wholly off the picture, as the Monkey Island forest's second
++				// way out beside the first: not shown here.)
+ 				const int vx0 = MAX(0, ox), vy0 = MAX(0, oy), vx1 = MIN(StageBridge::sceneWidth(), ox + w), vy1 = MIN(StageBridge::sceneHeight(), oy + h);
++				if (vx0 >= vx1 || vy0 >= vy1) { ++absent; continue; }
++				// (Inside something shut, as the grating behind the mansion's
++				// bushes: that opened first, as a player opens it.)
++				// (Put back after the door, so nothing opened here stays open for
++				// later doors; the mansion's start afresh for each anyway.)
++				const Common::HashMap<int, int> keptPictures = _pictures;
++				bool opened = false;
++				{
++					int id = link.object, parent, picture;
++					for (int depth = 0; depth < 8 && PanelBridge::thingParent(g, link.room, id, parent, picture); ++depth, id = parent)
++						if (pictureOf(link.room, parent) != picture) { setPicture(link.room, parent, picture); opened = true; }
++				}
++				if (opened && insideShut(object)) { ++absent; _pictures = keptPictures; continue; } // (a picture it cannot show)
++				insideOpened += opened;
++				// (Tapped where a player's tap finds it: of the part the scene
++				// shows, its middle, else the nearest spot that no other door takes
++				// (as a tap takes doors: the one under it, else the nearest within
++				// four), nor, where a walking tap takes things first (Loom's
++				// distaff, a pointer over the scene), a thing over it.)
+ 				double cx = (vx0 + vx1) / 2.0, cy = (vy0 + vy1) / 2.0;
+ 				{
+-					Common::Array<int> all, over;
++					Common::Array<int> doors, over;
+ 					for (int o = 0; o < StageBridge::objectCount(); ++o) {
+ 						int id, x_, y_, w_, h_, wx, wy, state;
+ 						const bool ride = StageBridge::object(o, id, x_, y_, w_, h_, wx, wy, state) && worldRideAt(g, link.room, id);
+ 						const bool first = isThing(o) && (PanelBridge::distaff() || PanelBridge::over());
+-						if (isDoor(o) || ride || first) all.push_back(o);
++						if ((isDoor(o) && !insideShut(o)) || ride) doors.push_back(o);
+ 						if (o != object && first && !isDoor(o)) over.push_back(o);
+ 					}
++					// (Where the tap lands once on the screen and back: a pixel's
++					// rounding can bring a thing within reach.)
++					// (A tap under it takes it before things over it: tap's own rule,
++					// tapsDoorFirst.)
++					const bool first = beforeThings(object);
+ 					auto found = [&](double x, double y) {
+-						return StageBridge::objectAt(x, y, all.data(), all.size(), 2) == object && StageBridge::objectAt(x, y, over.data(), over.size(), 2) < 0;
++						int sx_, sy_;
++						StageBridge::lookAt(x);
++						StageBridge::toScreen(x, y, sx_, sy_);
++						StageBridge::toScene(CLIP(sx_, 0, _width - 1), CLIP(sy_, 0, _height - 1), x, y);
++						return StageBridge::objectAt(x, y, doors.data(), doors.size(), 4) == object &&
++							(StageBridge::objectAt(x, y, over.data(), over.size(), 2) < 0 || (first && x >= ox && x < ox + w && y >= oy && y < oy + h));
+ 					};
+ 					double best = -1, bx = cx, by = cy;
+ 					for (int across = 0; across <= 8 && vx0 < vx1 && vy0 < vy1; ++across)
+@@ -5654,9 +5739,13 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 							const double d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+ 							if ((best < 0 || d < best) && found(x, y)) { best = d; bx = x; by = y; }
+ 						}
++					// (Wholly under things a tap takes first, with another door here
++					// the way it leads: that one is the way, these are the things.)
++					if (best < 0 && PanelBridge::distaff() && otherWay(object)) { ++sameWay; _pictures = keptPictures; continue; }
+ 					if (best < 0) ++covered;
+ 					cx = bx; cy = by;
+ 				}
++				++tried;
+ 				StageBridge::lookAt(cx);
+ 				int sx, sy;
+ 				StageBridge::toScreen(cx, cy, sx, sy);
+@@ -5723,10 +5812,11 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 					farthest = MAX(farthest, d);
+ 					debug(1, "SCUMMVERSE sandbox door %s-%d object %d: stopped %.1f from it", kWorldGames[g].gameid, (int)link.room, (int)link.object, d);
+ 				}
++				if (opened) _pictures = keptPictures;
+ 			}
+ 		}
+-		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d from as near as the walk boxes allow, %d failed",
+-			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed);
++		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d from as near as the walk boxes allow, %d failed, %d inside something opened first, %d under things with another door the same way",
++			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed, insideOpened, sameWay);
+ 		warning("SCUMMVERSE sandbox selftest doors opening: %d of %d seen opening, %d of %d left open behind, %d of %d doors back open on arrival, %d of %d the game does not open left as they were",
+ 			seenOpening, opensCount, openBehind, opensCount, openBack, backCount, stays, staysCount);
+ 		const bool doorsOpen = seenOpening == opensCount && openBehind == opensCount && openBack == backCount && stays == staysCount;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 84110da7..84902b3d 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -85,6 +85,13 @@ private:
+ 	// another picture (kept between visits).
+ 	bool isThing(int object) const; // named, and not taken from here
+ 	bool insideShut(int object) const; // inside another (its game's parent) not showing it
++	// A door a tap never finds for the things over it (Loom's distaff takes
++	// things first), though it would without them, that is the only way from
++	// here to where it leads; and whether a tap at (x, y) under it takes it so.
++	bool beforeThings(int door) const;
++	bool tapsDoorFirst(int door, double x, double y) const;
++	bool tapFinds(int door, bool things) const; // some spot of it a tap takes (with the things a tap takes first, or without)
++	bool otherWay(int door) const;              // another door here a tap finds, leading where it does
+ 	void layInside();                  // what is inside another drawn over it, or under it
+ 	bool isCarried(int game, int room, int id) const;
+ 	void sentence(const Common::String &text);

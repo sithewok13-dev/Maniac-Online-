@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0193 (every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0194 (the new engine's last doors: Loom's dragon's lair left by its door, the tour through every door; 0193 every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5193,4 +5193,43 @@ the walks (private, not committed) found three causes:
   there: wander, tour, camera, lights and doors, world setup, sandbox engine;
   startup, bootstrap, package_ipa.
   Tested on the desktop build only; not on an iPhone.
+
+## Patch 0194 — the new engine's last doors: out of Loom's dragon's lair
+
+After 0193 the new engine's own walk through every door had 18 doors
+"short" (the walker stopped and did not go through). Traced one by one,
+none was a walk that failed:
+- Loom's dragon's lair (28): its one way out lies wholly under the dragon,
+  the gold and the straw, and Loom's distaff takes things before doors, so
+  no tap found it: in the new engine the lair could only be left by the
+  menu. Now a door wholly under things, with no other door here a tap
+  finds leading where it does, is taken before them where it lies (the
+  dragon is still chosen above the doorway). Loom's crystal room (18) has
+  such a door too, but the bell's doorway leads the same way, so its
+  crystal is still the thing chosen there.
+- The test now taps as a player does: the engine's own reach for doors
+  (four pixels, the test had two), the spot checked where the tap lands
+  after the screen and back (a pixel's rounding brought one of Loom's
+  things within reach); a door wholly off the picture (the second way out
+  of 13 of Monkey Island's forest rooms, beside the first) counted as not
+  shown; one inside something shut (the grating behind the mansion's
+  bushes, two others) opened first, as a player opens it; one under things
+  with another door the same way counted apart.
+- An independent review (read only) found three things that today's
+  files do not trigger but could: a tap now skips a thing only for the
+  door the tap itself takes there, and only one that a tap would find
+  without the things (not one under another door, nor inside something
+  shut); the test counts a door apart as having another door the same way
+  only when such a door is found, and checks a spot under a door by the
+  tap's own rule; containers the test opens are shut again after each
+  door, and one that cannot be shown open counts the door as not shown.
+- Door test: 1,915 tried, 1,914 through, 1 elsewhere, 0 short (18 before);
+  more than one in a hundred short is now a failure (test_sandbox_engine).
+- The tour: its two doors not reached were in Fate of Atlantis's labyrinth
+  chamber (43), nearly three screens wide, whose doors at either end were
+  forty seconds' walk apart, the tour's limit for a walk to a door: that
+  limit now grows with how many screens wide the place is (0 not reached,
+  769 stops).
+- Tests: test_sandbox_engine.py (all of it). Tested on the desktop build
+  only; not on an iPhone.
 
