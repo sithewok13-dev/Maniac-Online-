@@ -86,6 +86,31 @@ def template_doors(game, rooms, travel):
     return out, replaced
 
 
+def fixed_doors(game, travel):
+    """Doors the game decides only at run time (a random jungle, a corridor of
+    pseudo rooms, a shuffled ring), fixed for exploration: the checked tables
+    in build/foreign/dynamic/<game>-final.json (each door's target and arrival
+    from the game's own scripts in one of its states, or chosen to pair exits
+    by side where the original rolls a room; see the progress notes, 0190).
+    They replace the analysis's links for those objects; listed removals
+    drop links that are not doors. A door into a room with no exported scene
+    yet (build/worlds) is left out."""
+    path = ROOT/'build/foreign/dynamic'/f'{game}-final.json'
+    if not path.exists():
+        return travel
+    table = json.loads(path.read_text())
+    worlds = ROOT/'build/worlds'
+    shown = lambda room: not worlds.exists() or (worlds/f'{game}-{room}.svw').exists()
+    drop = {(d['room'], d['object']) for d in table['doors']} | {(r['room'], r['object']) for r in table.get('remove', [])}
+    # (A template room exported as one of its instances has that instance's
+    # doors only.)
+    replaced = set(table.get('replaceRooms', []))
+    fixed = [{'room': d['room'], 'object': d['object'], 'target': d['target'], 'arrivalObject': d['arrival'],
+              'needsObjectState': bool(d.get('switched')), 'kind': 'door'}
+             for d in table['doors'] if shown(d['target']) and shown(d['room'])]
+    return fixed + [l for l in travel if (int(l['room']), int(l['object'])) not in drop and int(l['room']) not in replaced]
+
+
 def load_home(game):
     """The mansion's rooms (the tour's stops) and doors (its passages, but the
     rides out of it), as the original engine has them."""
@@ -230,6 +255,7 @@ def load(game):
         travel.append(dict(l, room=physical.get(int(l['room']), int(l['room'])), target=physical.get(int(l['target']), int(l['target']))))
     resolved, replaced = template_doors(game, rooms, travel)
     travel = resolved + [l for l in travel if (int(l['room']), int(l['object'])) not in replaced]
+    travel = fixed_doors(game, travel)
     # Every scene or map joined to another by such travel, whichever
     # island or period it belongs to, plus everything reachable from the start.
     joined = set(physical.get(int(r), int(r)) for r in data.get('reachable', []))

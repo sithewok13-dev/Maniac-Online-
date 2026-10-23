@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0189 (Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0190 (Monkey Island 2's jungle and tunnels walkable; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5017,3 +5017,45 @@ dark rooms 26, 28, 31, 50", reported unfixed since 0089):
   pattern had not matched since 0183).
 - Tested on the desktop build only: the Loom export and the comparison, the
   world setup test with Loom. Not tested on an iPhone.
+
+## Patch 0190 — Monkey Island 2: Dinky Island's jungle and the tunnels under it
+
+From the older exploration list ("run-time doors in Monkey Island 2 and
+Fate of Atlantis"). Those doors lead where the game decides as it runs, so
+the door map (which lists a door's room only when the analysis can read it)
+had dropped them: the jungle's exits all led to the beach, and the tunnels
+under Big Whoop were cut off. Five areas of the two games were decoded from
+the games' own scripts by one agent each and checked by another (private
+analysis, never committed: build/foreign/dynamic/); this patch takes Monkey
+Island 2's two:
+- The jungle (rooms 96-98, which the game shows as 13 places): every one of
+  its 18 exits now leads somewhere fixed. Where the original's own table
+  says (the parrot's route: east, north, east, from the beach to the X
+  clearing) it is followed; where the original rolls a random place, one of
+  its possible outcomes is chosen so that exits pair by side (out on the
+  left, back in on the right).
+- Under the X: the tunnel junction (93, which the game shows as eight
+  places) is exported as its elevator hall with the ceiling hole above and
+  the back door beside the elevator; its left, right and back doors lead to
+  the storage, first-aid and maintenance rooms and the elevator to the car
+  (88), now exported with its gates open on the tunnel wall (it was a black
+  void); the lever takes the car up to the street (89). The hole leads back
+  up to the X, and the X down (the original's dynamite, left out). The two
+  ends of Phatt Island's tunnel lead to each other.
+- How: tools/world_maps.py takes fixed doors from the checked private
+  tables (they replace the analysis's links for those doors; doors into a
+  room with no exported scene are left out); the exporter can give a room
+  one of its run-time looks (catalog: kWorldPresetStates, the objects'
+  pictures, and kWorldPresetPlaces, where its scripts draw one elsewhere),
+  writing those states in the scene. Monkey Island 2's export is one
+  version ahead, so it exports again on the phone. The jungle and storage
+  room menu entrances are no longer needed.
+- tools/test_ai_encounters.py's stand-in for the phone's runtime (shared by
+  the engine probes: the door walk among them) lacked two functions added
+  in 0184 and 0186 (Story mode's), so those probes no longer linked; added.
+- Tested on the desktop build only: the new export of both rooms compared
+  by eye with the old; the walk through every door of every world (passes:
+  1,589 doors, 69 failing within its allowance, two of them new ones: the
+  car's door and the elevator's, which the same walk over just these rooms
+  takes correctly, each door to its room; in the long walk the tunnels'
+  rooms share the visit slots with the others). Not tested on an iPhone.

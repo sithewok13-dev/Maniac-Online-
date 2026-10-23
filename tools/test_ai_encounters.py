@@ -29,6 +29,10 @@ void scummverseRosterShow(int,unsigned) {}
 void scummverseAirportOffer(int) { ++FakeAI::airportOffers; }
 void scummverseWorldRequest(int destination) { FakeAI::worldRequest=destination; }
 int scummverseWorldPoll() { int request=FakeAI::worldRequest; FakeAI::worldRequest=0; return request; }
+int scummverseWorldPeek() { return FakeAI::worldRequest; }
+static int fakeStoryPlaying = -1;
+void scummverseStoryPlaying(int game) { fakeStoryPlaying = game; }
+int scummverseStoryPlaying() { return fakeStoryPlaying; }
 void scummverseWorldReport(const char *) {}
 void scummverseTravelScene(int, int, unsigned, int, unsigned) {}
 namespace FakeAI { int appearance[25] = {}; }

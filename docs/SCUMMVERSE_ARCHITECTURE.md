@@ -553,6 +553,16 @@ left to the player). (As compiled, its check stops at the doll's first item
 when that item is not asked for, so only the page whose answer includes it,
 page 4, ever refuses a bare press; the test holds the dolls to that page.)
 
+Doors decided at run time (0190): tools/world_maps.py's fixed_doors() reads
+build/foreign/dynamic/<game>-final.json (private: merged from per-area
+tables, each decoded from the game's scripts and independently checked) and
+puts its doors in place of the analysis's links for those (room, object)
+pairs; "remove" drops links that are not doors and "replaceRooms" all of a
+room's (a template room exported as one instance). The exporter's
+kWorldPresetStates/kWorldPresetPlaces give a room one of its run-time looks
+(object pictures; drawObject positions in 8-pixel units, moving the hotspot
+and walk point as the opcode does) and write the objects' real states.
+
 Sam & Max saves made before the game first sets its cursor (just after its
 intro, as a story's first save can be) reload with its after-load script
 setting the cursor from object 0 in room 92, which would stop the game;
