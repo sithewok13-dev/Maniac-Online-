@@ -563,6 +563,16 @@ kWorldPresetStates/kWorldPresetPlaces give a room one of its run-time looks
 (object pictures; drawObject positions in 8-pixel units, moving the hotspot
 and walk point as the opcode does) and write the objects' real states.
 
+From 0191 the exporter also furnishes a v5 template room as one of its
+instances (kWorldPresetInstances: VAR_ROOM and _currentRoom the instance,
+_resourceMapper[instance] the room, the instance's variables and classes
+set first, the room's own entry script run, the game's state put back after
+by StateKeep, as for the oldest games), switches walk boxes for a look
+(kWorldPresetBoxes, then createBoxMatrix), clears a class for one
+(kWorldPresetRoomClassesOff) and cuts a room to a height
+(kWorldPresetHeights). tools/world_maps.py's MAP_ROOMS makes overhead plans
+whose walk paths are thin lines into map rooms (a tap travels).
+
 Sam & Max saves made before the game first sets its cursor (just after its
 intro, as a story's first save can be) reload with its after-load script
 setting the cursor from object 0 in room 92, which would stop the game;

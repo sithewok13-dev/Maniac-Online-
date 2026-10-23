@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0190 (Monkey Island 2's jungle and tunnels walkable; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0191 (Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5059,3 +5059,51 @@ Island 2's two:
   car's door and the elevator's, which the same walk over just these rooms
   takes correctly, each door to its room; in the long walk the tunnels'
   rooms share the visit slots with the others). Not tested on an iPhone.
+
+## Patch 0191 — Fate of Atlantis: the labyrinth, the rings and the travel screens
+
+The rest of the older list's "run-time doors in Fate of Atlantis", from the
+same checked private tables as 0190:
+- Knossos's labyrinth and catacombs: the two template rooms (50, 51; the
+  game shows them as 38 cells) are exported each as one cell, furnished by
+  the game's own entry script for that cell (cell 161, five doorways; cell
+  169, its gate's walk box on with a head on the shelf), with that cell's
+  doors only: out to the Crete hillside, the elevator, the catacombs, the
+  map room, the hideout, the gold-box rooms.
+- Atlantis's rings: the overhead plans' doorways (85-88) lead where one
+  game's shuffle of the outer ring puts them (the state the analysis found
+  in about one game in five: the machine room, the statue room, the lava
+  room in their usual places); the outer ring's chamber (92) shows its
+  three doors, one leading on into the middle ring (94, its four doorways
+  shown, cut to its 144 rows as the game shows it), the inner ring's
+  doorway (93) too; the pit room (14) has its pit open, as after the
+  digger.
+- The travel screens: the Sahara (20) is exported for the first time, as
+  the screen with the dig site, on camels (the desert's camel doors stay
+  off until the exporter draws the camels, which are actors: the balloon is
+  the way in); the sea (95) shows its islands, the way on
+  from the dig site's inflated balloon; the chamber of doors (44) its open
+  doorways; the dig site (67) its rope ladder; the world map (75) its dig
+  site.
+- The exporter can now export a v5 template room as one of its instances
+  (catalog kWorldPresetInstances: VAR_ROOM the instance, its variables and
+  classes set first, the game's state put back after), switch walk boxes
+  for a look (kWorldPresetBoxes, the box matrix rebuilt), clear a class for
+  one, and cut a room to a height. Fate of Atlantis's export is one
+  version ahead. Five menu entrances are no longer needed (the desert, the
+  sea, Atlantis, the pool, the labyrinth elevator): doors reach them.
+- The ring's four overhead plans (85-88) are maps here (a tap on a doorway
+  goes there): their walk paths are thin lines a visitor could not follow,
+  so their hallways failed the door walk before too.
+- Left out after testing: a second way from the middle ring into the pit
+  room, which lay over the doorway to room 16 (the pit room is reached by
+  the ring's left edge, its pit and the digger), and the desert's right
+  edge (invented; the walker could not reach it).
+- Tested on the desktop build only: the new export of every changed room
+  compared by eye with the old (the Sahara new); the walk through every
+  door of every world (passes: 1,634 doors, 47 failing, against 69 before
+  0190; none of 0190's or 0191's new doors among them: the rest are older
+  doors in rooms where the walker cannot get about, Atlantis's hillside,
+  chamber and dock among them); the same walk over just the changed
+  rooms, each door to its room; the bootstrap, startup and world setup
+  tests. Not tested on an iPhone.

@@ -29,6 +29,10 @@ KINDS = {'scene': 0, 'map': 1, 'floor plan': 2}
 # Floor plans: overhead maps a small figure walks around (unlike map rooms,
 # whose hotspots travel at once). The exporter reveals all of their sections.
 FLOOR_PLANS = {('indy3', 20), ('indy3', 28), ('indy3', 32)}  # Castle Brunwald's three floors
+# Overhead plans whose walk paths are thin lines (Fate of Atlantis's four
+# ring plans, 85-88, a tiny figure walked between their doorways): maps here,
+# their doorways travelled to at a tap.
+MAP_ROOMS = {('atlantis', 85), ('atlantis', 86), ('atlantis', 87), ('atlantis', 88)}
 # Doors of v3 template rooms (instanced as pseudo rooms 128+) call
 # loadRoomWithEgo(arrival object, room) with variables each instance's entry
 # script sets. Per game and template resource: door object -> (arrival,
@@ -245,6 +249,8 @@ def load(game):
         room, kind = physical[int(k)], (v or {}).get('kind', 'scene')
         if (game, room) in FLOOR_PLANS:
             kind = 'floor plan'
+        if (game, room) in MAP_ROOMS:
+            kind = 'map'
         if kinds.get(room) not in KINDS:
             kinds[room] = kind
     travel = []
