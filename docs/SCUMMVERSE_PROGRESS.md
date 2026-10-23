@@ -5728,3 +5728,34 @@ From the second bug hunt (the games' own controls in the new engine).
 - Tests: test_panel (a thing whose pictures are the same drawn whole), the
   verbs check (a coin let go unmoved, nothing done; a part lit only once
   moved; a draft after a stray note spun; someone in front looked at).
+
+## Patch 0208 — the mansion's engine: playing someone in another world, followers left there, rides
+
+From the second bug hunt (travel in Maniac's own engine, the classic one).
+- Someone standing in another game's place (followers brought to Monkey
+  Island, say) can be played from the character screen: the place is
+  mounted first and gone to as the Worlds menu goes (it did nothing).
+- Followers of someone nobody plays any more, left in another game's
+  place, go home with them (to the airport, 53) instead of staying there for
+  good and keeping a world slot taken.
+- No switching while flying the Shuttle Bug (nobody would land it): the
+  character screen says "Let's finish this van ride first.", as for the bus.
+- "Return to Maniac Mansion" leaves a room whose light was turned off dark
+  (it lit it); Zak's places are lit as before.
+- The Shuttle Bug launched at Mars no longer takes people aboard the Mars
+  tram (its station is the van's landing site).
+- Nobody roams, and the tour does not climb, down the pool's ladder while
+  the pool is full (the game keeps it untouchable till drained); the tour
+  goes to the pit's stop directly then.
+- The Dig's tram: the player's followers still on their way to the ledge
+  when the doors close ride along, hidden, instead of standing at the far
+  station before the car comes.
+- Tapping the Mars tram while it runs says where it is going.
+- Arrive from a flight takes only those still aboard, not a WiFi friend's
+  character or someone who left the cabin.
+- Tests: the data suite's roaming, airport, flights, flight join,
+  companions, companion presence, seating, Zak cast, portraits, Mars, Dig
+  tram, van, appearance, expansion, tram, world visit, tour, lights and
+  doors, pool valve (19 of 19), test_startup. No test switches to someone in
+  another world yet (that path read and compiled, not run). Not tested on
+  an iPhone.
