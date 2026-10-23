@@ -5594,3 +5594,26 @@ Fixed:
   place gone, kept when paused; the tour's save and Story mode; the pee cut
   short by a place change; heckles waiting for his own line). The chat's
   two fixes are iPhone code, not compiled here. Not tested on an iPhone.
+
+## Patch 0203 — things carried kept when their place is gone; the garage's things taken
+
+Two more from the first bug hunt's list.
+- A thing carried whose own place is no longer installed (a game taken
+  away or exported again) was let go on reading the save. It is kept
+  (_carriedAway: saved again with the rest, not shown) for when the place
+  is back.
+- The mansion's garage (room 16): the tools in the trunk and the water
+  faucet handle, which its own script gives to the kid, were refused
+  ("I can't pick that up.") because their exported pictures are the same
+  with and without them (the garage's export has no picture of its own for
+  any of its things). They are taken as the game gives them; the place
+  looks as it did. (0162 refused such things so a taken thing would not
+  stay drawn; for these two, needed for the mansion's puzzles, taking them
+  matters more.)
+- The wall safe (room 9), probed in the original: Open or Use takes the
+  kid to a keypad (room 43, twelve keys); the combination is a clue found
+  elsewhere. Not modelled yet.
+- Tests: test_sandbox_engine.py's verbs check (a thing carried from a
+  place gone kept through a save and a load; the mansion's things as their
+  scripts answer, the garage's two taken: 849 records, 0 failed), the cast
+  check, test_startup, bootstrap. Not tested on an iPhone.
