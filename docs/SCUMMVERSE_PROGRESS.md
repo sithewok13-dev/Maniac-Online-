@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0188 (0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0189 (Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4993,3 +4993,27 @@ An independent review of 0187 found two real problems, both fixed:
   among them, through its dolls to Sam's office; Full Throttle refused
   here, its ROADRASH.RIP missing) passed. Apple CI built the IPAs of 0187
   and 0188. Not tested on an iPhone.
+
+## Patch 0189 — Loom's dark rooms: their holes filled
+
+The last of the older exploration list's picture items ("holes in Loom's
+dark rooms 26, 28, 31, 50", reported unfixed since 0089):
+- Found by logging the exporter's hole test in those rooms: there a hole is
+  covered by several tiles a frame (the dragon's hoard, the cave pool, the
+  tower's doorway), the other frames being objects the same size in the
+  same places. Each tile alone failed the test, the picture around it being
+  dark (a night or cave room) or other tiles. Now a black tile with such
+  twins counts as a hole too (not the close-up corner at the top left), and
+  is filled, as before, only by a frame that lights at least half of it.
+- Changed: the dragon's lair (28: the dragon on its gold), the cave pool
+  (31: the water), the Elsewhere path (50: the top of its middle), the
+  tower (35: its lit doorway) and Bobbin's tent (6: the hanging cloths and
+  the floor); room 26 was already right. Each compared with the previous
+  export by eye; the other Loom rooms are unchanged. A little of the lair
+  (left of the hoard) and of the Elsewhere path's middle stays dark: every
+  frame there is dark too.
+- Loom's export is one version ahead (its scenes export once more on the
+  phone); tools/test_world_setup.py reads the per-game versions again (its
+  pattern had not matched since 0183).
+- Tested on the desktop build only: the Loom export and the comparison, the
+  world setup test with Loom. Not tested on an iPhone.

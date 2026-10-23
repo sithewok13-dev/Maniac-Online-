@@ -22,12 +22,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = (ROOT/'engine/common/scummverse_world_catalog.h').read_text()
 VERSION = int(re.search(r'kWorldExportVersion = (\d+);', CATALOG).group(1))
-MANSION_AHEAD = int(re.search(r'!\*mansion && !\*gameid \? (\d+) : 0', CATALOG).group(1))
+# worldExportVersion's games ahead of the rest: ("maniac",) -> 7, ...
+AHEAD = [(re.findall(r'same\(gameid, "(\w+)"\)', games), int(n)) for games, n in
+         re.findall(r'((?:same\(gameid, "\w+"\)(?: \|\| )?)+) \? (\d+)',
+                    re.search(r'return kWorldExportVersion \+ \((.*?)\);', CATALOG).group(1))]
 
 
 def version(game):
-    """A game's export marker version (worldExportVersion: the mansion's ahead)."""
-    return VERSION + (MANSION_AHEAD if game == 'maniac' else 0)
+    """A game's export marker version (worldExportVersion: some games ahead)."""
+    return VERSION + next((n for games, n in AHEAD if game in games), 0)
 
 
 def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
