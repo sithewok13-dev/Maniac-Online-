@@ -39,10 +39,16 @@
 	if (scummverseSwitchActor(24)) error("Switched to a character another player controls");
 	_scummVars[794]=0; scummverseCompanionCommand(64+24); pump(4);
 	if (_scummVars[794]) error("Remote player became a companion");
-	// Invalid rooms and the local player's own character are ignored.
+	// (From 0196) A room this device can't show: the character away from
+	// every place here, still its player's. The local player's own
+	// character is ignored.
 	const Common::Point mine=me->getRealPos();
 	device.setLocal(avatar(24,200,10,60)); pump(20);
-	if (zak->_room!=53) error("Invalid room accepted");
+	if (zak->_room!=0 || !scummverseRemoteActor(24) || scummverseSwitchActor(24)) error("A room not shown here: room %d remote %d",zak->_room,scummverseRemoteActor(24));
+	device.setLocal(avatar(24,::Scummverse::NetBridge::worldPlace(0,1000),10,60)); pump(20);
+	if (zak->_room!=0 || !scummverseRemoteActor(24)) error("A place not installed here: room %d remote %d",zak->_room,scummverseRemoteActor(24));
+	device.setLocal(avatar(24,53,10,60)); for(int n=0;n<100 && zak->_room!=53;++n) pump(1);
+	if (zak->_room!=53) error("Back from a place not shown here failed: %d",zak->_room);
 	device.setLocal(avatar(3,1,10,60)); pump(20);
 	if (me->_room!=53 || me->getRealPos()!=mine) error("Remote took the local player's character");
 	// Speech both ways.
@@ -57,9 +63,48 @@
 	// Another room: the remote character moves there without loading it here.
 	device.setLocal(avatar(24,57,30,60)); for(int n=0;n<100 && zak->_room!=57;++n) pump(1);
 	if (zak->_room!=57 || _currentRoom!=53) error("Remote room change failed: %d",zak->_room);
-	// Leaving gives the character back to this world.
+	// (From 0196) A place in another world: the remote character in this
+	// device's own slot for it; the local player there sent as the place,
+	// not as this device's slot room; a place not installed here: away.
+	if (scummverseWorldSceneInstalled(0,33)) {
+		namespace B = ::Scummverse::NetBridge;
+		device.setLocal(avatar(24,B::worldPlace(0,33),20,60));
+		int src=0; auto inPlace=[&]() { return scummverseWorldGameOf(zak->_room,src)==0 && src==33; };
+		for(int n=0;n<100 && !inPlace();++n) pump(1);
+		if (!inPlace() || _currentRoom!=53) error("Remote not in the other world's place here: room %d",zak->_room);
+		const int slot=zak->_room;
+		seen.clear();
+		if (!scummverseTravelPlace(0,33) || _currentRoom!=slot) error("Local player not taken to the remote's place: %d",_currentRoom);
+		bool sent=false;
+		for(int n=0;n<200 && !sent;++n) { pump(1); for(const auto &e:seen) sent=sent || (e.kind==N::Event::Moved && e.avatar.actor==3 && e.avatar.room==B::worldPlace(0,33)); }
+		if (!sent) error("The local player in another world not sent as the place");
+		if (!zak->isInCurrentRoom()) error("The remote not here with the local player");
+		device.setLocal(avatar(24,B::worldPlace(0,1000),20,60)); pump(20);
+		if (zak->_room!=0 || !scummverseRemoteActor(24)) error("A place not installed here: room %d",zak->_room);
+		device.setLocal(avatar(24,57,30,60)); for(int n=0;n<100 && zak->_room!=57;++n) pump(1);
+		if (zak->_room!=57 || !scummverseTravel(3) || _currentRoom!=53) error("Back from the other world failed");
+		warning("SCUMMVERSE net: Monkey Island 33 shared (slot %d)",slot);
+	} else warning("SCUMMVERSE net: no other world installed; places not checked");
+	// Leaving gives the character back to this world; from another world's
+	// place, home (no slot kept by a character nobody plays).
+	int fromSlot=0;
+	if (scummverseWorldSceneInstalled(0,33)) {
+		device.setLocal(avatar(24,::Scummverse::NetBridge::worldPlace(0,33),20,60));
+		int src=0; for(int n=0;n<100 && !(scummverseWorldGameOf(zak->_room,src)==0 && src==33);++n) pump(1);
+		if (scummverseWorldGameOf(zak->_room,src)!=0 || src!=33) error("Remote not back in the other world's place: %d",zak->_room);
+		fromSlot=zak->_room;
+	}
 	device.close(); for(int n=0;n<200 && scummverseRemoteActor(24);++n) pump(1);
 	if (scummverseRemoteActor(24) || N::players()!=0) error("Departed player not released");
+	if (fromSlot && zak->_room!=53) error("Released character left in another world's slot: room %d",zak->_room);
+	// A character nobody plays, left in another world's place out of sight,
+	// goes home after a while.
+	if (fromSlot) {
+		zak->putActor(20,60,fromSlot); _scummverseRoamers[24]=Roamer();
+		for(int n=0;n<200 && zak->_room!=53;++n) scummverseUpdateRoaming(4);
+		if (zak->_room!=53) error("A character left in another world's slot not home: room %d",zak->_room);
+		warning("SCUMMVERSE net: released from Monkey Island 33 and home; a stranded one home too");
+	}
 	if (!scummverseSwitchActor(24) || VAR(VAR_EGO)!=24 || !scummverseSwitchActor(3)) error("Released character not playable");
 	request.kind=N::Request::Leave; N::postRequest(request); pump(1);
 	if (_scummverseNetOn || ::Scummverse::NetBridge::active() || N::online()) error("Leave did not stop hosting");

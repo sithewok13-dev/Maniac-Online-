@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0195 (the mansion's main power in the new engine: the circuit breakers off, the house dark as its own scripts leave it; 0194 the new engine's last doors: Loom's dragon's lair left by its door, the tour through every door; 0193 every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0196 (local WiFi play in the other worlds; 0195 the mansion's main power in the new engine: the circuit breakers off, the house dark as its own scripts leave it; 0194 the new engine's last doors: Loom's dragon's lair left by its door, the tour through every door; 0193 every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5269,4 +5269,45 @@ From 0141's "not yet": the original's fuse box and breakers.
   on again, all lit; the mansion left as found). Re-exported: of the
   mansion's files only the things file differs, by its new end. Tested on
   the desktop build only; not on an iPhone.
+
+## Patch 0196 — local WiFi play in the other worlds
+
+From the PR's known remaining list: "players are not relayed in other
+worlds". Each device keeps the other worlds' places in slot rooms of its
+own (192..199, filled as places are visited), so a slot number meant
+nothing on another device and those rooms were not sent at all: a friend
+in Monkey Island vanished from the mansion and was never seen there.
+- Now the place is sent (its game and that game's room), and the device
+  receiving it puts the character in its own slot for that place (the one
+  it is already in, else a free slot), only where that place's scene is
+  installed. Both see each other there, walking and talking as in the
+  mansion.
+- Somewhere a device can't show (a place not installed there): the
+  character is away from every place on that device (not seen) and still
+  its player's, so nobody there can play it, take it along or chat with
+  it. A place found missing is not looked up again until the player moves.
+- A friend leaving (or the WiFi dropping) while in another world's place:
+  their character goes home to the mansion. Another world's slot is never
+  kept by a character nobody plays (before, enough of them used up all
+  eight and no new place could open). Characters left by this device's
+  own player in another world's place go home too, a while after the
+  player has gone (a save loaded with one there as well).
+- Devices of different builds do not join (the build identity is 79 now).
+- Not yet: someone playing a look from the character screen is seen as the
+  cast member they control; riding the tram, van or plane together on two
+  devices.
+- An independent review found the two problems above in the first
+  version (a character not kept for its player in a place not installed;
+  released characters stuck in slots); both fixed before commit.
+- Positions in another world assume both devices exported the same
+  edition of that game (as the build identity assumes the same build).
+- Tests: test_net.cpp (a place round trips; rooms between the mansion's
+  and those refused when sent and when received; ASan/UBSan, TSan);
+  test_net_engine.py (over loopback: a room and a place not shown here,
+  away and still the player's; the remote in this device's own slot for
+  Monkey Island's dock, the local player gone there sent as the place,
+  back to the mansion; released from the dock, home; one left there, home
+  after a while). One process on one machine: not two devices, not an
+  iPhone network test. The full data suite passed at 0195 (44/44, Story
+  mode too).
 

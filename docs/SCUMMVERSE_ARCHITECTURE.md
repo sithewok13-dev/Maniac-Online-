@@ -200,7 +200,8 @@ each is). Only 1..24 can follow.
 `common/scummverse_net.{h,cpp}`: portable codec, non-blocking POSIX TCP
 `Session` (host relays; clients talk only to the host) and a mutex-protected
 request/status channel for the UI thread. Frames are length-prefixed and
-strictly validated (actor 1..24, room 1..255, printable ASCII speech ≤160);
+strictly validated (actor 1..24, room 1..255 or another world's place
+4096 + game × 1024 + room, printable ASCII speech ≤160);
 malformed input drops only that connection. `common/scummverse_net_engine.h`
 is a std-free bridge so engine code never includes standard headers after
 ScummVM's forbidden-symbol macros. `engines/scumm/scummverse_net.inc` maps
@@ -208,6 +209,16 @@ peers to cast members and validates rooms against this build
 (`kScummverseNetContent` = room count and patch level). AI proposes;
 deterministic systems validate: remote input never reaches the conversation
 model and never controls the local player's character.
+Since 0196 a room is also a place in another world, sent as the place
+(`NetBridge::worldPlace`: 4096 + game * 1024 + that game's room), since
+each device keeps such places in slot rooms 192..199 of its own: the
+receiver puts the character in its own slot for the place (where it
+already is, else `scummverseWorldRoomFor`), only when that scene is
+installed there. Elsewhere (a room or place it can't show) the character
+is still claimed for its player but put in room 0 (seen nowhere); a
+released character in room 0 or a world slot goes home to room 53, and
+roaming sends any unplayed cast member out of sight in a world slot home
+too, so slots are only kept by people.
 
 ## Other worlds (patches 0057..0069)
 

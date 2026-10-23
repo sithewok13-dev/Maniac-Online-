@@ -1,0 +1,162 @@
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index f6402949..758dafa6 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -45,7 +45,7 @@ bool validSay(const std::string &text) {
+ 
+ static bool validActor(int actor) { return actor >= 1 && actor <= 24; }
+ static bool validAvatar(const Avatar &a) {
+-	return validActor(a.actor) && a.room >= 1 && a.room <= 255 && a.x >= -1024 && a.x <= 1024 && a.y >= -256 && a.y <= 256;
++	return validActor(a.actor) && ((a.room >= 1 && a.room <= 255) || NetBridge::isWorldPlace(a.room)) && a.x >= -1024 && a.x <= 1024 && a.y >= -256 && a.y <= 256;
+ }
+ 
+ bool encode(const Frame &f, std::string &out) {
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index e9750d6d..7661befb 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -27,6 +27,8 @@ const size_t kMaxSay = 160;       // Printable ASCII characters per line.
+ enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6 };
+ enum class RejectReason : uint8_t { Version = 1, Full = 2, ActorTaken = 3 };
+ 
++// (room: the mansion's own 1..255, or a place in another world,
++// NetBridge::worldPlace.)
+ struct Avatar {
+ 	int actor = 0, room = 0, x = 0, y = 0;
+ 	bool operator==(const Avatar &o) const { return actor == o.actor && room == o.room && x == o.x && y == o.y; }
+diff --git a/common/scummverse_net_engine.h b/common/scummverse_net_engine.h
+index 7d0395f2..31e5685e 100644
+--- a/common/scummverse_net_engine.h
++++ b/common/scummverse_net_engine.h
+@@ -9,6 +9,14 @@ namespace Scummverse {
+ namespace NetBridge {
+ 
+ enum { kMaxPeers = 4, kMaxSay = 160, kDefaultPort = 47913 };
++// A player's room is the mansion's own (1..255) or, from 0196, a place in
++// another world: kWorldPlace + game * 1024 + that game's room (each device
++// keeps such a place in a slot room of its own, so the place is sent).
++enum { kWorldPlace = 4096 };
++inline int worldPlace(int game, int room) { return kWorldPlace + game * 1024 + room; }
++inline bool isWorldPlace(int room) { return room >= kWorldPlace && room < 65536; }
++inline int worldPlaceGame(int room) { return (room - kWorldPlace) / 1024; }
++inline int worldPlaceRoom(int room) { return (room - kWorldPlace) % 1024; }
+ enum RequestKind { RequestNone = 0, RequestHost, RequestJoin, RequestLeave, RequestSay };
+ enum EventKind { EventMoved = 0, EventSaid, EventLeft, EventFailed };
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index f93cd35f..26fe574a 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1895,6 +1895,7 @@ protected:
+ 	bool _scummverseNetOn = false;
+ 	unsigned _scummverseRemoteMask = 0;
+ 	int _scummversePeerActor[5] = {};
++	int _scummverseRemoteUnshown[25] = {}; // (the place last sent that this device can't show)
+ 	int _scummverseNetClock = 0;
+ 	void scummverseUpdateNet(int delta);
+ 	void scummverseReleaseRemote(int peer);
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index e0d9d004..7b2240ee 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 78; // 78: Curse scenes widened, walk boxes kept on the picture
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 79; // 79: places in other worlds sent as places
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+@@ -27,9 +27,15 @@ void ScummEngine::scummverseReleaseRemote(int peer) {
+ 	_scummversePeerActor[peer] = 0;
+ 	if (!scummverseRemoteActor(id)) return;
+ 	_scummverseRemoteMask &= ~(1u << id);
+-	// The character stays where its player left it and resumes local life.
++	_scummverseRemoteUnshown[id] = 0;
++	// The character stays where its player left it and resumes local life;
++	// from another world's place (or one this device can't show) it goes home,
++	// where it can (another world's slot is never kept by a character
++	// nobody plays).
+ 	Actor *a = derefActor(id, "released remote");
+ 	a->stopActorMoving(); _scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++	int source;
++	if (!a->_room || scummverseWorldGameOf(a->_room, source) >= 0) a->putActor(30 + id % 5, 60, 53);
+ }
+ 
+ void ScummEngine::scummverseNetSay(const char *line) {
+@@ -67,7 +73,11 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 	if (_scummverseNetClock <= 0 && ego > 0 && ego < 25 && !scummverseRemoteActor(ego)) {
+ 		_scummverseNetClock = 6;
+ 		Actor *me = derefActor(ego, "network avatar");
+-		if (scummverseNetRoom(me->_room)) NetBridge::setLocal(ego, me->_room, me->getRealPos().x, me->getRealPos().y);
++		// (In another world: the place, not this device's slot room for it.)
++		int source;
++		const int game = scummverseWorldGameOf(me->_room, source);
++		if (game >= 0) NetBridge::setLocal(ego, NetBridge::worldPlace(game, source), me->getRealPos().x, me->getRealPos().y);
++		else if (scummverseNetRoom(me->_room)) NetBridge::setLocal(ego, me->_room, me->getRealPos().x, me->getRealPos().y);
+ 	}
+ 
+ 	NetBridge::Event events[16];
+@@ -80,9 +90,10 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 			bool cast = false; for (int id : mansionCast) if (id == event.actor) cast = true;
+ 			// Deterministic validation: a cast member this build has, not the
+ 			// local player's, in a room this build can show.
+-			if (!cast || event.actor == ego || !scummverseNetRoom(event.room)) break;
++			if (!cast || event.actor == ego) break;
+ 			if ((event.actor == 24 && !_scummVars[760]) || (scummverseZakGuest(event.actor) && !_scummVars[763])) break;
+-			if (event.room >= 56 && !scummverseMountExtra(event.room)) break;
++			// The character is the player's wherever the player is, shown
++			// here or not.
+ 			if (_scummversePeerActor[event.peer] != event.actor) {
+ 				scummverseReleaseRemote(event.peer);
+ 				for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) if (_scummversePeerActor[peer] == event.actor) scummverseReleaseRemote(peer);
+@@ -93,11 +104,29 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 				_scummverseNpcDestination[event.actor] = 0; _scummverseNpcBoarding[event.actor] = 0;
+ 			}
+ 			Actor *a = derefActor(event.actor, "remote player");
++			// (A place already found not shown here is not looked up again.)
++			if (event.room == _scummverseRemoteUnshown[event.actor] && !a->_room) break;
++			// A place in another world: where it already is, else this
++			// device's own slot for it, where its scene is installed here.
++			int room = event.room;
++			if (NetBridge::isWorldPlace(room)) {
++				const int game = NetBridge::worldPlaceGame(room), source = NetBridge::worldPlaceRoom(room);
++				int held;
++				room = scummverseWorldGameOf(a->_room, held) == game && held == source ? a->_room :
++					scummverseWorldSceneInstalled(game, source) ? scummverseWorldRoomFor(game, source) : 0;
++			} else if (!scummverseNetRoom(room) || (room >= 56 && !scummverseMountExtra(room))) room = 0;
++			// Somewhere this device can't show: away from every place here.
++			if (!room) {
++				_scummverseRemoteUnshown[event.actor] = event.room;
++				if (a->_room) { a->stopActorMoving(); a->putActor(0, 0, 0); }
++				break;
++			}
++			_scummverseRemoteUnshown[event.actor] = 0;
+ 			if (!scummverseSeated(event.actor)) a->setElevation(0);
+-			if (a->_room != event.room || event.room != _currentRoom) {
+-				const bool arriving = a->_room != event.room;
+-				a->stopActorMoving(); a->putActor(event.x, event.y, event.room);
+-				if (arriving && event.room == _currentRoom) a->startAnimActor(a->_standFrame);
++			if (a->_room != room || room != _currentRoom) {
++				const bool arriving = a->_room != room;
++				a->stopActorMoving(); a->putActor(event.x, event.y, room);
++				if (arriving && room == _currentRoom) a->startAnimActor(a->_standFrame);
+ 			} else {
+ 				const Common::Point now = a->getRealPos();
+ 				if (ABS(now.x - event.x) > 1 || ABS(now.y - event.y) > 1) {
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 0e67192f..4b3849af 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -483,6 +483,10 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				scummverseTramRequest(id,true); r.wait=600+_rnd.getRandomNumber(900); continue;
+ 			}
+ 			if(r.wait<=0) {
++				// Left in another world's place, out of sight: home again, where
++				// it can be played (no slot is kept by a character nobody plays).
++				int source;
++				if(a->_room!=_currentRoom && scummverseWorldGameOf(a->_room,source)>=0) { a->stopActorMoving(); a->putActor(30+id%5,60,53); r=Roamer(); continue; }
+ 				int exits[12], count=0;
+ 				// The van's cockpit is only open where the van stands (at Mars).
+ 				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12 && !((zakLinks[k].room==kVanCockpit || zakLinks[k].destination==kVanCockpit) && scummverseVanSite()!=0)) exits[count++]=k;

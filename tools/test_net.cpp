@@ -3,6 +3,7 @@
 // c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_net.cpp engine/common/scummverse_net.cpp
 #include "common/scummverse_net.h"
+#include "common/scummverse_net_engine.h"
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
@@ -59,6 +60,22 @@ static void codec() {
 	const char huge[] = {(char)0xFF, (char)0xFF, 1, 0}; assert(decode(huge, sizeof(huge), g) == -1);
 	const char unknown[] = {2, 0, 99, 0}; assert(decode(unknown, sizeof(unknown), g) == -1);
 	assert(validSay("Hi!") && !validSay("") && !validSay("tab\there"));
+	// (From 0196: a place in another world, as a room, round trips; rooms
+	// between the mansion's and those, and none, never.)
+	Frame w = f; w.avatar = at(20, Scummverse::NetBridge::worldPlace(0, 33), 40, 60);
+	std::string world; assert(encode(w, world) && decode(world.data(), world.size(), g) > 0 && g.avatar == w.avatar);
+	assert(Scummverse::NetBridge::worldPlaceGame(g.avatar.room) == 0 && Scummverse::NetBridge::worldPlaceRoom(g.avatar.room) == 33);
+	assert(Scummverse::NetBridge::worldPlace(11, 1023) < 65536 && Scummverse::NetBridge::worldPlaceGame(Scummverse::NetBridge::worldPlace(11, 1023)) == 11);
+	for (int room : {0, 256, 4095, 65536}) { bad = f; bad.avatar.room = room; assert(!encode(bad, none)); }
+	// Decoding checks the room too (its bytes set by hand: 4129 is 0x1021).
+	Frame w2 = w; w2.avatar.room += 1; std::string next; assert(encode(w2, next) && next.size() == world.size());
+	size_t low = 0; while (world[low] == next[low]) ++low;
+	const size_t high = world[low + 1] == 0x10 ? low + 1 : low - 1;
+	assert(world[high] == 0x10 && world[low] == 0x21);
+	for (int room : {256, 4095, 4130}) {
+		std::string hand = world; hand[high] = (char)(room >> 8); hand[low] = (char)(room & 0xFF);
+		assert((decode(hand.data(), hand.size(), g) > 0) == (room == 4130));
+	}
 	std::printf("PASS: codec bounds and validation\n");
 }
 
