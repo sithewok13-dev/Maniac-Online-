@@ -1047,6 +1047,31 @@ one palette) apply.
   and each withdrawal (scummversePlacesGeneration): a Present for an
   earlier one does nothing, and one withdrawn while being presented is
   dismissed by its presentation's completion.
+  From 0198 a ride's inside is seen on the way where it is exported
+  (catalog kWorldRideScenes {game, room, kind}: Zak's plane cabin 11 and
+  the Shuttle Bug's cockpit 30, exported with Zak's places, Zak's export
+  one version ahead): `scan` keeps them in `_insides`, not `_rooms`, so
+  they are no place (menus, tour, door checks, resume all leave them out);
+  `enter` refuses one unless rideInside asks (`_enteringInside`), which
+  keeps the Riding across it; `_aboard` (cleared by `enter`) stops
+  followStep and stroll. The plane: seatAboard puts the one played and
+  those following in the cabin's seats (kCabinSeats, 8-pixel columns;
+  painted passengers' seats first get the empty seat's back and cushion
+  over them, ordered at row 0, behind everyone) with Scene::seat (exactly
+  there, not moved into the boxes), facing right, posed kGuestSeated
+  (Scene::pose takes it from 0198; pick falls back to standing), their
+  head at kCabinHead, measured with the camera on the seat, Scene::resize
+  making anyone too tall smaller (only an 800 x 128 cabin is used;
+  `_seatedActors` are posed so again after a selfie and skipped by
+  selfiePose); each seat's front is a Scene::addPiece (a rectangle
+  of the scene's own picture as a prop at the scene's scale, ordered among
+  the people by `over`, here the scene's height, so it covers whoever sits
+  behind it; its row under the cushion from a painted seat, dark). The
+  van: everyone aboard hidden in the cockpit. keptPlace (aboard: the stop
+  it was boarded at) is what saveState writes, the tour's home, and where
+  castChoose and the Worlds menu fall back to; chatCommand and vanBoard do
+  nothing aboard. Pieces take the scene's colours as they are when cut
+  (they do not cycle).
 - Doors in the sandbox (0131): walkToDoor keeps where the walk toward a
   door ends (Scene heading: as near as the walk boxes allow); reachDoor
   goes through when the player stands by the door's point, the tap, or

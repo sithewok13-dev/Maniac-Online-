@@ -716,6 +716,54 @@ int main() {
 		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && !place.flashlight(bx, by, bw, bh));
 	}
 	std::puts("PASS: a prop among the people (its colours, size, depth, order, rectangle, where it is hit; gone with the place)");
+	// (From 0198) A piece of the place's own picture as a prop (a plane
+	// seat's front over the one sitting in it): the pixels where it was cut,
+	// drawn pixel for pixel where asked; in front of those whose feet are
+	// above its bottom row (or the row asked), behind those below it;
+	// refused outside the place. Someone seated stays exactly where asked,
+	// not moved into the walk boxes as someone placed is.
+	{
+		std::vector<uint8_t> picture(320 * 200, 9);
+		for (int y = 120; y < 160; ++y) for (int x = 40; x < 80; ++x) picture[y * 320 + x] = (uint8_t)(20 + (x - 40) / 10); // (a striped seat front)
+		const std::vector<uint8_t> d = sceneBytes(320, 200, picture, {box(0, 160, 320, 190)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto at = [&](int x, int y) { place.render(shown.data(), 320); return shown[(size_t)y * 320 + x]; };
+		assert(place.addPiece(-1, 0, 10, 10, 0, 0) < 0 && place.addPiece(315, 0, 10, 10, 0, 0) < 0 && place.addPiece(0, 0, 10, 10, 0, 195) < 0 &&
+			place.addPiece(0, 0, 0, 10, 0, 0) < 0 && place.addPiece(0, 0, 10, 10, -1, 0) < 0 && place.propCount() == 0);
+		const int front = place.addPiece(40, 120, 40, 40, 200, 120);
+		assert(front == 0 && place.propRect(front, x0, y0, x1, y1) && x0 == 200 && x1 == 240 && y0 == 120 && y1 == 160);
+		assert(at(205, 130) == sceneColor(20) && at(235, 150) == sceneColor(23) && at(199, 130) == sceneColor(9) && at(45, 130) == sceneColor(20));
+		const std::vector<uint8_t> sitter = spriteBytes({{2, 0, 0, -10, -60, 20, 60, 30}});
+		const int n = place.addActor(sitter.data(), sitter.size(), 1, 1.0, error);
+		place.place(n, {220, 150});
+		assert(place.actor(n).at.y == 160);
+		place.seat(n, {220, 150});
+		assert(place.actor(n).at.x == 220 && place.actor(n).at.y == 150 && !place.actor(n).moving);
+		// (Behind it: their top over the picture above it, the rest behind.)
+		assert(at(220, 100) == spriteColor(30) && at(220, 130) == sceneColor(22) && at(220, 149) == sceneColor(22));
+		// (Below its row: in front of it.)
+		place.seat(n, {220, 170});
+		assert(at(220, 130) == spriteColor(30));
+		// A piece drawn among the people by another row: behind one whose
+		// feet are below that row though above its bottom.
+		const int low = place.addPiece(40, 120, 40, 40, 100, 120, 140);
+		assert(low == 1 && at(105, 130) == sceneColor(20));
+		place.seat(n, {120, 150});
+		assert(at(120, 130) == spriteColor(30));
+		place.seat(n, {120, 130});
+		assert(at(120, 125) == sceneColor(22));
+		// Made smaller (too big for a seat): drawn half as tall, as wide.
+		place.seat(n, {220, 150});
+		int h0, h1, w0, w1;
+		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 60 && w1 - w0 == 20);
+		place.resize(n, 0.5);
+		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 30 && w1 - w0 == 10 && h1 == 150);
+		place.resize(n, 0);
+		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 30);
+	}
+	std::puts("PASS: a piece of the place's picture among the people (where it is cut and drawn, in front of those behind it, by the row asked; refused outside); someone seated exactly where asked, made smaller");
 	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place); a flashlight in the dark (its rectangle, rounded, kept inside, off, gone with the place)");
 	// Something lit (Sith Ewok 2's saber): lighting it up, its ignite frames
 	// in turn while standing (8 ticks each), then its lit poses (standing,

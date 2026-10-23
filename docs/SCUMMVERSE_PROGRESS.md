@@ -5350,3 +5350,53 @@ member they control.
   loading puts the friend's look back; on leaving, the Meteor Police
   again). One process on one machine: not two devices, not an iPhone
   network test. Not tested: a device without Zak's files.
+
+## Patch 0198 — the new engine: flights seen from the cabin, the van from its cockpit
+
+Step 5 of the new engine (rides), from its "not yet" list: followers did
+not sit in the plane's seats or appear in the van's cockpit as Maniac's
+own engine shows them; the one played simply vanished for the trip.
+- Zak's plane cabin and the Shuttle Bug's cockpit are now exported with
+  Zak's places (his export is redone once). They are not places: not in
+  the menus, the tour or the checks of every place, never where the game
+  resumes (a flight closed midway resumes at the stop it left from).
+- A flight: once boarded, the cabin. The one played sits in the seat Zak
+  takes in the game, those following in the empty seat behind, then in
+  the painted passengers' seats (each given the empty seat's back over its
+  passenger); more than six aboard, the rest unseen. Everyone is seen from
+  the side, sitting (their seated pose where they have one, as Fate of
+  Atlantis' camel does, else as they stand), heads where the painted
+  passengers' are; anyone too big for that (the camel) is made smaller
+  till they fit. Each seat's front is drawn over them, with the dark under
+  the cushion as under a painted passenger (as in Maniac's own engine).
+  Nobody gets up, nor for a selfie; ten seconds later, the gate where it
+  lands.
+- The van: once it lifts off, its cockpit, everyone at the controls unseen,
+  then the site where it lands.
+- While aboard: a tour begun goes home to the stop the ride left from; a
+  character chosen goes where they live (the ride is given up); the chat
+  asks no one along nor to stay; the Worlds menu's Board the Shuttle Bug
+  does nothing; a custom character can't be chosen (they are played where
+  the player is, and the cabin is no place).
+- An independent review found, in the first version: the seated poses never
+  shown (the stage took only standing, walking and talking poses), short
+  people in the painted passengers' seats hidden behind the seat's back,
+  heads not lined up for seats off screen, a tour begun aboard (or a
+  failed choice of character) going back into the cabin, a selfie undoing
+  the seating. All fixed before commit; the check now covers them.
+- Still: a big one's legs can show beside the seat's front (the front is
+  only as wide as a seat); a seated pose's part over the seat's front (a
+  leg over the armrest, in Maniac's own engine) is not drawn.
+- Tests: test_stage.cpp (a piece of the place's picture drawn over whoever
+  sits behind it, by the row asked; someone seated exactly where asked;
+  made smaller; ASan/UBSan); test_sandbox_engine.py (all 9 flights seen
+  from the cabin; on the first five following, the camel among them in its
+  seated pose, everyone in a seat of their own with their head in line and
+  seen (drawn, not covered), a selfie aboard keeping them seated, nobody
+  getting up; a tour begun aboard home at the stop; the 3 van flights from
+  the cockpit; the tour 769 stops without the two insides; the whole
+  sandbox check passed). Pictures looked at on the desktop (cabin.png,
+  cockpit.png). Not tested on an iPhone. Seated poses exist only for the
+  characters that had them for Maniac's own engine; the others sit as
+  they stand, partly hidden by the seat's front.
+

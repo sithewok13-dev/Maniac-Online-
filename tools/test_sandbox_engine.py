@@ -440,7 +440,10 @@ if __name__ == '__main__':
         if not m:
             raise SystemExit('FAIL: tour\n' + output[-2000:])
         stops, foot, warped, refused = (int(m.group(i)) for i in range(1, 5))
-        svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name)])  # (not The Dig's subway cars)
+        # (Not The Dig's subway cars, nor the insides of rides, from 0198:
+        # kWorldRideScenes, Zak's plane cabin and van cockpit.)
+        insides = {'zak-11.svw', 'zak-30.svw'}
+        svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
         unreached = int(re.search(r'(\d+) doors not reached', output).group(1))
@@ -481,6 +484,20 @@ if __name__ == '__main__':
                 if not f or f.group(1) != '1':
                     raise SystemExit('FAIL: someone following not along on the bus\n' + output[-2000:])
                 print('PASS: someone following rides the bus along and gets off beside the one played')
+                # (From 0198) Each flight seen from Zak's plane cabin where it is
+                # exported: the one played seated, on the first those following
+                # (up to five) seated too, each seen with their head where the
+                # painted passengers' are, Fate of Atlantis' camel (where
+                # exported) in its seated pose, a selfie aboard keeping them
+                # seated, nobody getting up; a tour begun aboard going home to
+                # the stop.
+                c = re.search(r'(\d+) flights seen from the cabin \((\d+) following seated, (\d+) in their seated pose\), (\d+) tours begun aboard home at the stop', output)
+                if (worlds/'zak-11.svw').exists():
+                    camel = (worlds/'atlantis-c93.svc').exists()
+                    if not c or c.group(1) != z.group(2) or int(c.group(2)) < 2 or (camel and c.group(3) != '1') or c.group(4) != '1':
+                        raise SystemExit('FAIL: flights seen from the cabin\n' + output[-2000:])
+                    print(f'PASS: {c.group(1)} flights seen from the cabin, the one played seated; {c.group(2)} following seated on the first, seen, heads in line'
+                          + (', the camel in its seated pose' if camel else '') + '; a selfie aboard; a tour begun aboard home at the stop')
             # The Shuttle Bug: Mars to Melee Island and back, and there again
             # (when both are there); drawn there and boarded by a tap on it
             # when Maniac has taken its picture (zak-van.svv).
@@ -491,6 +508,11 @@ if __name__ == '__main__':
                     raise SystemExit('FAIL: the Shuttle Bug\n' + output[-2000:])
                 print('PASS: the Shuttle Bug: from its door on Mars to Melee Island, ' + ('drawn there beside the one played, boarded by a tap on it' if drawn else 'from the menu there (no picture of it taken yet)')
                       + ', back to Mars (not drawn over its own picture), to Melee again (drawn where it landed); not where it is not')
+                k = re.search(r'(\d+) van flights from the cockpit', output)
+                if (worlds/'zak-30.svw').exists():
+                    if not k or k.group(1) != '3':
+                        raise SystemExit('FAIL: van flights from the cockpit\n' + output[-2000:])
+                    print('PASS: every van flight seen from its cockpit, the one played at the controls unseen')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
