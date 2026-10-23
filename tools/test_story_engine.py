@@ -30,9 +30,11 @@ handling of them is what runs.
 Maniac Mansion's own story (its data, with none of the mansion's additions)
 is the first game unless --no-maniac. Every story starts with none of them.
 Films are cut short; a start that asks something is clicked through.
-Monkey Island 2's and Sam & Max's openings are their copy protection (a
-recipe from the code wheel; dressing Sam and Max), which wait for the
-player's answer: they are not in the default list (name them to try).
+Monkey Island 2's opening is its copy protection (a recipe from the code
+wheel): story play answers it for the player (scummverseStoryPassGuard), so
+it is in the default list. Sam & Max's (dressing Sam and Max as the manual
+shows) checks a real answer and waits for the player: not in the default
+list (name it to try).
 Game data and saves stay in a temporary folder under build/.
 
 Usage: tools/test_story_engine.py game-data/mm-dos monkey=game-data/monkey1-vga ...
@@ -48,7 +50,7 @@ from test_exploration import ROOT, command_for
 
 # The catalog's games in its order (common/scummverse_world_catalog.h).
 CATALOG = ['monkey', 'monkey2', 'loom', 'indy3', 'atlantis', 'tentacle', 'samnmax', 'ft', 'dig', 'comi', 'maniac', 'zak']
-DEFAULT = {'monkey': 'monkey1-vga', 'loom': 'loom-ega', 'indy3': 'indy3-vga', 'atlantis': 'atlantis-mac',
+DEFAULT = {'monkey': 'monkey1-vga', 'monkey2': 'monkey2-vga', 'loom': 'loom-ega', 'indy3': 'indy3-vga', 'atlantis': 'atlantis-mac',
            'tentacle': 'tentacle-floppy', 'ft': 'ft', 'dig': 'dig', 'comi': 'comi', 'zak': 'zak-dos'}
 
 # Test-only, at file scope: the request the story code polls (the phone's
@@ -56,6 +58,7 @@ DEFAULT = {'monkey': 'monkey1-vga', 'loom': 'loom-ega', 'indy3': 'indy3-vga', 'a
 GLOBALS = r'''
 static int g_probeRequest = 0, g_probeEngines = 0, g_probeFrames = 0;
 static int probePoll() { const int request = g_probeRequest; g_probeRequest = 0; return request; }
+static int probePeek() { return g_probeRequest; }
 static Common::HashMap<Common::String, Common::Array<int32> > g_probeVars;
 '''
 # Test-only, where the story save is written: what it held.
@@ -68,7 +71,7 @@ PROBE = r'''
 		if (ConfMan.hasKey("scummverse_story_probe")) {
 			using namespace ::Scummverse::WorldCatalog;
 			static int probeSeen = 0, probePass = 0, probeAt = 0, probeLast = -1, probeFirstRoom = 0;
-			static bool probeAsked = false, probeSavedNow = false, probeAutosaving = false;
+			static bool probeAsked = false, probeSavedNow = false, probeAutosaving = false, probeEntered = false;
 			static Common::Array<bool> probeRefused;
 			Common::Array<int> games;
 			for (const Common::String &g : Common::StringTokenizer(ConfMan.get("scummverse_story_probe_games"), ",").split()) games.push_back(atoi(g.c_str()));
@@ -80,6 +83,8 @@ PROBE = r'''
 			const bool fresh = probeSeen != g_probeEngines;
 			// (The app started again in a story: only Back, then done.)
 			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_resume")) probePass = 5;
+			// (Story mode: its list's choices, the configuration's in turn.)
+			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_mode")) probePass = 6;
 			if (fresh) { probeSeen = g_probeEngines; g_probeFrames = 0; probeAsked = false; probeFirstRoom = 0; }
 			if (!probeFirstRoom) probeFirstRoom = _currentRoom;
 			++g_probeFrames;
@@ -88,7 +93,12 @@ PROBE = r'''
 					warning("SCUMMVERSE_STORY_HOME room=%d ego=%d", _currentRoom, ego);
 				// (Each time it has run a while with nothing on its way: after a
 				// game refused for its files, the next a while later.)
-				if (g_probeFrames % frames == 0 && ChainedGamesMan.empty()) {
+				if (probePass == 6 && g_probeFrames % frames == 0 && ChainedGamesMan.empty()) {
+					// (The mansion's Worlds menu: Story mode; the second time, done.)
+					// (Through the menu's request, as the phone sends it.)
+					if (!probeEntered) { probeEntered = true; warning("SCUMMVERSE_STORY_ENTER room=%d ego=%d", _currentRoom, ego); g_probeRequest = kWorldStoryModeRequest; }
+					else { warning("SCUMMVERSE_STORY_DONE"); quitGame(); }
+				} else if (g_probeFrames % frames == 0 && ChainedGamesMan.empty()) {
 					if (probePass == 0 && probeAt == count) { probePass = 1; probeAt = nextOk(0); if (probeAt >= count) probePass = 4; }
 					const int game = probePass == 2 ? probeLast : probePass < 2 && probeAt < count ? games[probeAt] : -1;
 					if (probePass == 4 || game < 0) { warning("SCUMMVERSE_STORY_DONE"); quitGame(); }
@@ -212,6 +222,13 @@ PROBE = r'''
 					// more saved or written.)
 					_system->quit();
 				}
+				// (Story mode: its Story list; Maniac's own story, Explore mode.)
+				if (probePass == 6 && !probeAsked && g_probeFrames >= frames / 4 && can) {
+					probeAsked = true;
+					const bool mansion = _targetName == Common::String(kWorldStoryPrefix) + "maniac";
+					warning("SCUMMVERSE_STORY_MODE_LEAVE %s %s room=%d ego=%d", _targetName.c_str(), mansion ? "explore" : "list", _currentRoom, ego);
+					g_probeRequest = mansion ? kWorldStoryExploreRequest : kWorldStoryHomeRequest;
+				}
 				if (probePass == 3 && !probeAsked && g_probeFrames >= frames / 4 && can) {
 					probeAsked = true;
 					probePass = 4;
@@ -224,6 +241,7 @@ PROBE = r'''
 '''
 LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the next loop iteration should start\n'
 INCLUDE = '#include "scumm/scummverse_story.inc"\n'
+ROAMING = '#include "scumm/scummverse_roaming.inc"\n'
 AFTER_INCLUDES = '#include "common/scummverse_story.h"\n'
 SAVE_DONE = '\t_scummverseStorySaved = true;\n\treturn true;\n'
 MADE = '\t_scummverseStory = ConfMan.hasKey("scummverse_story")'
@@ -240,13 +258,17 @@ def once(code, mark, where):
 def scumm_probe():
     code = (ROOT/'engine/engines/scumm/scumm.cpp').read_text()
     story = (ROOT/'engine/engines/scumm/scummverse_story.inc').read_text()
-    for mark in (LOOP, INCLUDE, AFTER_INCLUDES, MADE):
+    for mark in (LOOP, INCLUDE, AFTER_INCLUDES, MADE, ROAMING):
         once(code, mark, 'scumm.cpp')
+    roaming = (ROOT/'engine/engines/scumm/scummverse_roaming.inc').read_text()
+    once(roaming, 'scummverseWorldPeek()', 'scummverse_roaming.inc')
     once(story, SAVE_DONE, 'scummverse_story.inc')
     if 'scummverseWorldPoll()' not in story or code.count('scummverseWorldPoll()') != 1:
         raise RuntimeError('the story code no longer polls the Worlds menu where expected')
     story = story.replace('scummverseWorldPoll()', 'probePoll()').replace(SAVE_DONE, SAVED + SAVE_DONE)
     code = code.replace(INCLUDE, story)
+    # (The mansion's Story mode request, through the probe's in place of the phone's.)
+    code = code.replace(ROAMING, roaming.replace('scummverseWorldPeek()', 'probePeek()').replace('scummverseWorldPoll()', 'probePoll()'))
     code = code.replace('scummverseWorldPoll()', 'probePoll()')  # (the constructor's drop of a request left over)
     code = code.replace(MADE, '\t++g_probeEngines;\n' + MADE)
     code = code.replace(AFTER_INCLUDES, AFTER_INCLUDES + '#include "common/tokenizer.h"\n' + GLOBALS)
@@ -397,6 +419,11 @@ def main():
                     fail.append(f'{k}: {where.group(4)} of {where.group(3)} variables not as saved ({b})')
             if not (saves/f'{target}.s99').exists():
                 fail.append(f'{k}: no {target}.s99')
+            # (A copy-protection screen answered by story play, and left.)
+            guard = {'monkey2': '108'}.get(k)
+            if guard and (not any(f'{target} copy protection answered' in l for l in lines) or
+                          re.search(r'room=(-?[0-9]+)', kept[0]).group(1) == guard):
+                fail.append(f'{k}: its copy protection not answered and left')
             report.append(f'{k} (room {re.search(r"room=(-?[0-9]+)", kept[0]).group(1)})')
         if ok:
             if len(went) != len(ok) - 1 or len(quits) != 1 or not quits[0].startswith(f'scummverse-story-{last} '):
@@ -425,9 +452,11 @@ def main():
             target = f'scummverse-story-{last}'
 
             def start(mode, inject):
-                text = config.read_text()
-                text = re.sub(r'scummverse_story_probe_resume=\d+\n', '', text)
-                head = f'[scummvm]\nscummverse_story_probe_resume={mode}\n' + (f'scummverse_story_playing={target}\n' if inject else '')
+                # (Going on at the next start is Story mode's. The engine's own
+                # mark kept when nothing is put in.)
+                keys = 'scummverse_story_probe_resume|scummverse_mode|scummverse_story_choices' + ('|scummverse_story_playing' if inject else '')
+                text = re.sub(r'^(' + keys + r')=.*\n', '', config.read_text(), flags=re.M)
+                head = f'[scummvm]\nscummverse_mode=story\nscummverse_story_probe_resume={mode}\n' + (f'scummverse_story_playing={target}\n' if inject else '')
                 config.write_text(text.replace('[scummvm]\n', head, 1))
                 run = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
                                      cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1800)
@@ -473,6 +502,51 @@ def main():
                 else:
                     report.append(f'the app stopped in {last} went on there from its story save, Save now, marked on disk, autosaved and '
                                   f'stopped; started again from that newer autosave, Save now, saved again leaving by ScummVM\'s menu, then the mansion')
+                lines += relines
+                output += more
+            # (A game of the list's other than the mansion's own story.)
+            chosen = next((k for k in reversed(ok) if k != 'maniac'), None)
+            if not fail and not chosen:
+                report.append('Story mode not walked (no game but the mansion\'s own story)')
+            if not fail and chosen:
+                target = f'scummverse-story-{chosen}'
+                # Story mode: its list at the start (the last game, then
+                # Maniac's own story), Story list from the one, Explore mode
+                # from the other (the mansion where it was), Story mode again
+                # from the mansion's menu, its list, Explore.
+                text = re.sub(r'^(scummverse_story_probe_resume|scummverse_mode|scummverse_story_choices|scummverse_story_playing)=.*\n', '',
+                              config.read_text(), flags=re.M)
+                config.write_text(text.replace('[scummvm]\n', f'[scummvm]\nscummverse_story_probe_mode=1\nscummverse_mode=story\n'
+                                               f'scummverse_story_choices={chosen},maniac,explore\n', 1))
+                third = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
+                                       cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1800)
+                more = third.stdout + third.stderr
+                (ROOT/'build/story-engine-mode.log').write_text(more)
+                relines = [l for l in more.splitlines() if 'SCUMMVERSE_STORY_' in l or 'SCUMMVERSE story' in l or 'Story mode' in l or 'Explore mode' in l or 'could not start' in l]
+                order = ['SCUMMVERSE: Story mode: ' + target, 'SCUMMVERSE_STORY_START ' + target, 'SCUMMVERSE_STORY_MODE_LEAVE ' + target + ' list',
+                         'SCUMMVERSE: Story mode: scummverse-story-maniac', 'SCUMMVERSE_STORY_START scummverse-story-maniac',
+                         'SCUMMVERSE_STORY_MODE_LEAVE scummverse-story-maniac explore', 'SCUMMVERSE_STORY_HOME', 'SCUMMVERSE_STORY_ENTER',
+                         'SCUMMVERSE story: Story mode', 'SCUMMVERSE: Explore mode', 'SCUMMVERSE_STORY_HOME', 'SCUMMVERSE_STORY_DONE']
+                at, absent = 0, None
+                for want in order:
+                    while at < len(relines) and want not in relines[at]:
+                        at += 1
+                    if at == len(relines):
+                        absent = want
+                        break
+                    at += 1
+                if third.returncode or absent:
+                    fail.append(f'Story mode: {absent or "exit " + str(third.returncode)} not as expected')
+                elif sum('SCUMMVERSE: Explore mode' in l for l in relines) != 1 or sum('SCUMMVERSE: Story mode: ' in l for l in relines) != 2:
+                    # (Explore from the mansion's own story's menu, not by the list: chosen there once only.)
+                    fail.append('Story mode: the list chose Explore or a story more often than asked')
+                elif 'scummverse_mode=explore' not in config.read_text():
+                    fail.append('Story mode: Explore mode not kept')
+                elif any('additions=' in l and ' additions=0 ' not in l for l in relines):
+                    fail.append('Story mode: a story with the mansion\'s additions')
+                else:
+                    report.append(f'Story mode: its list ({chosen}), Story list, Maniac\'s own story, Explore mode (the mansion where it was), '
+                                  'Story mode from the mansion\'s menu, its list, Explore')
                 lines += relines
                 output += more
         if fail:

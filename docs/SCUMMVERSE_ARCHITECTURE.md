@@ -508,6 +508,39 @@ slot 100, saved when the sandbox was opened. The sandbox's `story` selftest
 and `test_sandbox_engine.py`'s third switch walk Maniac -> sandbox ->
 Maniac's own story -> Maniac.
 
+Story mode and Explore mode (0186), kept apart: `scummverse_mode` in the
+application domain ("story" or "explore"; Explore when unset;
+`common/scummverse_story.h` storyMode/setStoryMode). Explore mode is the
+mansion, the other worlds and the new engine; their Worlds menus offer
+"Story mode" (`kWorldStoryModeRequest`): the mansion saves its slot 100 (the
+request taken whatever it is doing, `scummverseWorldPeek`, even on its kids'
+screen), the new engine saves its place and drops its way back; each sets
+Story mode and returns to the launcher with nothing queued. Story mode's home
+is its list (base/main.cpp `scummverseStoryList`): each story found, Continue
+(a story save or autosave) or Start, "(needs FILE)" when kWorldStoryNeeds
+are missing (not taken), "(no films, voices and music)" from
+kWorldStoryWants; and "Explore mode". On the phone it is the native list
+(`scummversePlaces*`, its Cancel showing it again) over no game
+(`scummverseStoryPlaying(kWorldStoryListShowing)` hides the game's buttons
+and Worlds); the desktop builds take `scummverse_story_choices` in turn
+(tests), else Explore. It comes up at launch in Story mode with nothing to
+go on in (after the backend, or once any exports are done: they then chain
+nothing after them), and whenever a run ends with nothing queued in Story
+mode (a story's Story list, `kWorldStoryHomeRequest`; its own Quit; a story
+that cannot start). A story's "Explore mode" (`kWorldStoryExploreRequest`)
+saves it, sets Explore and goes home: the mansion at its slot 100. Going on
+at the next start is Story mode's only. Stories default to text on
+(`subtitles`, unless set).
+
+Copy protection in story play (0186): `scummverseStoryPassGuard` answers
+Monkey Island 2's recipe screen, which ScummVM leaves to the player with
+copy_protection off (room 108; any number is taken, ScummVM reading the
+answer for the number asked: "1", then Return, every 1.5 s of game time, at
+most 20 tries; then the player's). Sam & Max's floppy dolls screen (room 71)
+checks a real answer (array 304 and var 153 at its button, object 771; a
+wrong one makes the game quit): presses alone pass only sometimes, so it is
+left to the player for now.
+
 Zak imported from the Files app (0185, iOS): the importer keeps its copy in
 Application Support (`ConnectedWorlds/zak-<uuid>`, outside the Documents
 chroot). The backend adds a `connectedworlds:` virtual drive for that folder

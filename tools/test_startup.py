@@ -104,9 +104,10 @@ class StartupTests(unittest.TestCase):
                      "scummverse_exploration_doors=false", "scummverse_exploration_safety=false", f"path={data}"):
             self.assertIn(line + "\n", story + "\n", story)
 
-    def test_story_playing_goes_on_then_the_mansion(self):
-        # Stopped in a story: the next start goes on in it (here it cannot
-        # start: no data), then the mansion; the story to go on in is taken.
+    def test_story_playing_goes_on_then_the_list(self):
+        # Stopped in a story in Story mode: the next start goes on in it (here
+        # it cannot start: no data), then Story mode's list (here nothing is
+        # chosen: Explore mode, the mansion); the story to go on in is taken.
         (self.root / "monkey").mkdir()
         # (Already set up for the worlds: no export first, so the story is the
         # first run itself.)
@@ -114,15 +115,51 @@ class StartupTests(unittest.TestCase):
         catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
         version = re.search(r"kWorldExportVersion = (\d+);", catalog).group(1)
         (self.root / "worlds" / f"monkey-v{version}.svx").write_bytes(b"")
-        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n\n"
+        self.config.write_text("[scummvm]\nscummverse_mode=story\nscummverse_story_playing=scummverse-story-monkey\n\n"
                                "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\ndescription=The Secret of Monkey Island\n"
                                f"path={self.root / 'monkey'}\nscummverse_story=true\n")
         result = self.run_game()
         self.assertIn("SCUMMVERSE: going on with scummverse-story-monkey", result.stdout)
         self.assertNotIn("world export", result.stdout)
         self.assertIn("SCUMMVERSE: could not start The Secret of Monkey Island", result.stdout)
+        self.assertIn("SCUMMVERSE: Explore mode", result.stdout)
+        self.assert_data_failure(result)
+        config = self.config.read_text()
+        self.assertNotIn("scummverse_story_playing", config)
+        self.assertIn("scummverse_mode=explore", config)
+
+    def test_story_playing_is_ignored_in_explore_mode(self):
+        # (Explore mode is the mansion: a story left marked is not gone on with.)
+        (self.root / "monkey").mkdir()
+        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n\n"
+                               "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\n"
+                               f"path={self.root / 'monkey'}\nscummverse_story=true\n")
+        result = self.run_game()
+        self.assertNotIn("going on with", result.stdout)
         self.assert_data_failure(result)
         self.assertNotIn("scummverse_story_playing", self.config.read_text())
+
+    def test_story_mode_list(self):
+        # Story mode with nothing to go on in: its list first. A story chosen
+        # (here it cannot start: no data), the list again; a game whose story
+        # needs files it lacks is not taken; then Explore mode, the mansion.
+        (self.root / "monkey").mkdir()
+        (self.root / "ft").mkdir()
+        # (Both already set up for the worlds: the list is the first thing.)
+        catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
+        version = int(re.search(r"kWorldExportVersion = (\d+);", catalog).group(1))
+        (self.root / "worlds").mkdir()
+        for name in ("monkey", "ft"):
+            (self.root / "worlds" / f"{name}-v{version}.svx").write_bytes(b"")
+        self.config.write_text("[scummvm]\nscummverse_mode=story\nscummverse_story_choices=monkey,ft\n")
+        result = self.run_game()
+        self.assertNotIn("world export", result.stdout)
+        self.assertIn("SCUMMVERSE: Story mode: scummverse-story-monkey", result.stdout)
+        self.assertIn("SCUMMVERSE: could not start The Secret of Monkey Island", result.stdout)
+        self.assertNotIn("Story mode: scummverse-story-ft", result.stdout)
+        self.assertIn("SCUMMVERSE: Explore mode", result.stdout)
+        self.assert_data_failure(result)
+        self.assertIn("scummverse_mode=explore", self.config.read_text())
 
     def test_story_playing_is_taken_at_any_start(self):
         # (The sandbox started instead: the mark is taken all the same, so a
@@ -133,7 +170,7 @@ class StartupTests(unittest.TestCase):
         self.assertNotIn("scummverse_story_playing", self.config.read_text())
 
     def test_story_playing_without_its_folder_is_dropped(self):
-        self.config.write_text("[scummvm]\nscummverse_story_playing=scummverse-story-monkey\n\n"
+        self.config.write_text("[scummvm]\nscummverse_mode=story\nscummverse_story_playing=scummverse-story-monkey\n\n"
                                "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\npath=gone\nscummverse_story=true\n")
         result = self.run_game()
         self.assertNotIn("going on with", result.stdout)

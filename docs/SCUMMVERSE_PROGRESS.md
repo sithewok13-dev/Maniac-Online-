@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0185 (story play from the new engine, imported Zak; 0184 Maniac's own story, going on at the next start, Save now; 0183 The Curse's verb coin in the new engine; 0181 story play: the original games opened from Maniac).
+Active milestone: Phase 1; latest patch 0186 (Story mode and Explore mode kept apart; Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4899,3 +4899,48 @@ Story play's next steps (the user's "all 12 games playable start to finish",
   startup tests (20). The imported-Zak path is iPhone-only: syntax-checked
   here with the iPhone setting on; compiled for iOS only by Apple CI; not
   tested on an iPhone.
+
+## Patch 0186 — Story mode and Explore mode kept apart; copy protection answered
+
+The user agreed story play should be separate from exploration ("Story mode
+should be separate from exploration/open world mode") and asked to fix the
+open issues:
+- Two modes. Explore mode is the mansion, the other worlds and the new
+  engine; Story mode is the original games, each as it was made. The Worlds
+  menu switches: "Story mode (the original games)" from the mansion or the
+  new engine (the mansion saves where it is, even on its kids' screen; the
+  new engine its place), "Explore mode" from inside a game (saved; the
+  mansion comes back where it was). The app reopens in the mode it was left
+  in, and in Story mode in the game it was left in.
+- Story mode's home is its list: each game found, "Continue" or "Start",
+  Maniac Mansion's own story among them, and "Explore mode". Leaving a game
+  ("Story list" in its Worlds menu, or its own Quit) goes back to the list,
+  never to the mansion. A game whose copy lacks a file it cannot start
+  without says so ("Full Throttle (needs ROADRASH.RIP)") and is not opened;
+  one that plays on without its films, voices or music says that too
+  ("(no films, voices and music)"). Story games show text by default.
+- Monkey Island 2's recipe screen (its copy protection, which ScummVM leaves
+  to the player and which takes any number) is answered by story play, so it
+  starts like the others. Sam & Max's dress-up screen checks a real answer (a
+  wrong one makes the game quit; pressing its button passed only sometimes in
+  testing), so it is still the player's; decoding it is the next step.
+- Found while testing: a Sam & Max story save made the moment Sam reaches his
+  office (right after its intro is skipped) loads into a script error (room
+  92, object 0) that stops the game; under investigation.
+- Fixed after an independent review: a game left for the list stayed marked
+  to reopen at the next start; Sam & Max's press could stay held; Story mode
+  could be taken while the mansion booted or exported; folders added while
+  the app runs were missing from the list; a list withdrawn could still
+  appear later; and five tests that could pass with the feature broken.
+- Tested on the desktop build only: the startup tests (22: Story mode's list
+  first, a story chosen, one needing files not taken, Explore; going on only
+  in Story mode), the story probe over 10 games (Maniac's own story, Monkey
+  Island 1 and 2, Loom, Indiana Jones and the Last Crusade, Fate of
+  Atlantis, Day of the Tentacle, The Dig, The Curse, Zak; Full Throttle
+  refused, its DATA missing here; Monkey Island 2's recipe answered), the app
+  stopped and gone on (from a newer autosave), Save now, and a Story mode run
+  (the list, Story list, Maniac's own story, Explore mode, Story mode from
+  the mansion through its menu's request, the list, Explore), and the new
+  engine's suite (with Maniac -> new engine -> Story mode -> Explore). The
+  iPhone list, menus and hidden buttons are compiled for iOS only by Apple
+  CI; not tested on an iPhone.
