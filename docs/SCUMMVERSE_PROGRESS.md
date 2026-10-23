@@ -5809,3 +5809,36 @@ From the second bug hunt (the new engine's stage).
 - Tests: test_stage (the front one found under a point, none on the bars
   beside a narrower place, the point box dropped; a lit one busy), the
   moves and talk checks, the full sandbox suite.
+
+## Patch 0211 — Story mode: progress kept when the phone puts the app away
+
+From the second bug hunt (Story mode).
+- Put away (the home screen, a call), a story's autosave was only asked
+  for: written on the next frame, which never came while the app was
+  suspended, so a story stopped by iOS in the background went on from an
+  older save. An autosave asked for while the game is held still (no save
+  or load pending, no script running, saving allowed) is now written at
+  once (ScummEngine::scummverseSaveNow), as the main loop writes one.
+- The story's own save runs a v6 game's scripts before and after it, as
+  every other save does (Sam & Max keeps its cursor so; the cause of
+  0186's "room 92, object 0" error, which 0187 only silenced; that guard
+  stays for older saves). The Curse's save gets its own picture and its
+  "game loaded" cleared, as its own saves do.
+- The game's own menu (F5 in Maniac, Zak, Indy 3 and Loom; F1 or F5 in
+  The Curse), where it cannot be saved and where its own Quit is: the story
+  is saved quietly as the key opens it, so quitting there goes on from
+  there. A menu reached another way is not saved first (nothing is
+  overwritten on quitting there).
+- Which save a story goes on from (its story save or its autosave): each
+  is numbered as it is written (scummverse_story_order0/99 in its target),
+  so a load from the game's own menu, or the clock changing, no longer
+  makes the older one win; saves from before go by the old rule.
+- Left as it is: The Day of the Tentacle's computer still cannot start
+  Maniac's own story (doing it safely needs Tentacle's place kept partway
+  through its computer script; planned, not done).
+- Tests: test_story_engine.py (every game folder: opened, saved, back,
+  reopened exactly as saved, quit-saved, the app stopped and gone on; its
+  resume run now asks for the autosave with the game held still and fails
+  if a frame was needed to write it, the autosave winning by its number),
+  test_startup. The save as the game's menu opens is compiled and read, not
+  run by a test. Not tested on an iPhone (the suspend itself is iOS's).

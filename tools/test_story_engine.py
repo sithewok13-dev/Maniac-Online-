@@ -23,8 +23,10 @@ handling of them is what runs.
   story (the mansion clears the mark, so it is put in): it goes on in that
   game from its newest save, where it was; Save now saves it and it goes on;
   once it has played a few seconds the engine marks it on disk; ScummVM's
-  autosave; the app is stopped at once (as the phone stops it). Started
-  again with nothing put in: it goes on from that newer autosave, Save now,
+  autosave, asked for while the game is held still (as the phone puts the
+  app away: written at once, no frame after it); the app is stopped at once
+  (as the phone stops it). Started again with nothing put in: it goes on
+  from that newer autosave (numbered after the story save), Save now,
   then ScummVM's menu (Return to Launcher) saves it again on the way out,
   and the mansion comes back where it was.
 Maniac Mansion's own story (its data, with none of the mansion's additions)
@@ -62,10 +64,13 @@ static int probePoll() { const int request = g_probeRequest; g_probeRequest = 0;
 static int probePeek() { return g_probeRequest; }
 static Common::HashMap<Common::String, Common::Array<int32> > g_probeVars;
 '''
-# Test-only, where the story save is written: what it held.
+# Test-only, where the story save is written (between a v6 game's own
+# scripts before and after a save): what it held.
 SAVED = r'''
-	warning("SCUMMVERSE_STORY_SAVED %s room=%d ego=%d frames=%d", _targetName.c_str(), _currentRoom, VAR_EGO != 0xFF ? VAR(VAR_EGO) : -1, g_probeFrames);
-	g_probeVars[_targetName] = Common::Array<int32>(_scummVars, _numVariables);
+	if (saved && slot == kWorldStorySlot) {
+		warning("SCUMMVERSE_STORY_SAVED %s room=%d ego=%d frames=%d", _targetName.c_str(), _currentRoom, VAR_EGO != 0xFF ? VAR(VAR_EGO) : -1, g_probeFrames);
+		g_probeVars[_targetName] = Common::Array<int32>(_scummVars, _numVariables);
+	}
 '''
 # Test-only: at the top of the main loop (Maniac and each game's story).
 PROBE = r'''
@@ -205,9 +210,11 @@ PROBE = r'''
 				}
 				// (Gone on with at the start: the menu's Save now first, the
 				// game going on. The first time, once it is marked to go on in
-				// at the next start, ScummVM's autosave, then the app stopped
-				// at once, as the phone stops it; the second time, ScummVM's
-				// own menu, Return to Launcher, which must save it again.)
+				// at the next start, ScummVM's autosave while the game is held
+				// still (as the phone puts the app away: written at once), then
+				// the app stopped at once, as the phone stops it; the second
+				// time, ScummVM's own menu, Return to Launcher, which must save
+				// it again.)
 				if (probePass == 5 && !probeSavedNow && g_probeFrames >= frames / 8 && can) {
 					probeSavedNow = true;
 					warning("SCUMMVERSE_STORY_SAVE_NOW %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
@@ -217,7 +224,9 @@ PROBE = r'''
 					if (ConfMan.getInt("scummverse_story_probe_resume") == 1) {
 						if (_scummverseStoryPlayed < 0) {
 							probeAsked = probeAutosaving = true;
+							PauseToken held = pauseEngine();
 							saveGameState(getAutosaveSlot(), "Autosave", true);
+							if (_saveLoadFlag) warning("SCUMMVERSE_STORY_AUTOSAVE_WAITS %s", _targetName.c_str());
 						}
 					} else {
 						probeAsked = true;
@@ -255,7 +264,7 @@ LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the 
 INCLUDE = '#include "scumm/scummverse_story.inc"\n'
 ROAMING = '#include "scumm/scummverse_roaming.inc"\n'
 AFTER_INCLUDES = '#include "common/scummverse_story.h"\n'
-SAVE_DONE = '\t_scummverseStorySaved = true;\n\treturn true;\n'
+SAVE_DONE = '\tconst bool saved = saveState(slot, false, file);\n'
 MADE = '\t_scummverseStory = ConfMan.hasKey("scummverse_story")'
 # Test-only: films end at once.
 FILM = '\t\tif (_vm->shouldQuit() || _vm->_saveLoadFlag || _vm->_smushVideoShouldFinish) {\n'
@@ -277,7 +286,7 @@ def scumm_probe():
     once(story, SAVE_DONE, 'scummverse_story.inc')
     if 'scummverseWorldPoll()' not in story or code.count('scummverseWorldPoll()') != 1:
         raise RuntimeError('the story code no longer polls the Worlds menu where expected')
-    story = story.replace('scummverseWorldPoll()', 'probePoll()').replace(SAVE_DONE, SAVED + SAVE_DONE)
+    story = story.replace('scummverseWorldPoll()', 'probePoll()').replace(SAVE_DONE, SAVE_DONE + SAVED)
     code = code.replace(INCLUDE, story)
     # (The mansion's Story mode request, through the probe's in place of the phone's.)
     code = code.replace(ROAMING, roaming.replace('scummverseWorldPeek()', 'probePeek()').replace('scummverseWorldPoll()', 'probePoll()'))
@@ -458,9 +467,11 @@ def main():
         # The app started again, stopped in the last game's story: it goes on
         # there from its newest save (the one made as it went back, where it
         # was); Save now saves it there and it goes on; once it has played a
-        # few seconds it is marked (on disk) to go on in; ScummVM's autosave;
-        # then the app stopped at once, as the phone stops it. Started again:
-        # it goes on from that autosave (newer, in the same minute or later),
+        # few seconds it is marked (on disk) to go on in; ScummVM's autosave,
+        # asked for while held still and written at once (as the phone puts the
+        # app away); then the app stopped at once, as the phone stops it.
+        # Started again: it goes on from that autosave (numbered after the
+        # story save),
         # Save now, then ScummVM's menu (Return to Launcher) saves it again on
         # the way out, and the mansion comes back after it, where it was.
         marked = [l for l in lines if 'goes on at the next start' in l]
@@ -495,6 +506,8 @@ def main():
             autosaved = [l.split('SCUMMVERSE_STORY_AUTOSAVED ', 1)[1] for l in relines if 'SCUMMVERSE_STORY_AUTOSAVED ' in l]
             if first.returncode or not autosaved:
                 fail.append(f'started again: not autosaved and stopped (exit {first.returncode})')
+            elif any('SCUMMVERSE_STORY_AUTOSAVE_WAITS' in l for l in relines):
+                fail.append(f'{last}: the autosave asked for while held still waited for a frame')
             elif len(restart) != 1 or not restart[0].startswith(target + ' ') or not re.search(r' from=(99|0) slot=-1', restart[0]):
                 fail.append(f'started again: did not go on in {last} from its save: {restart}')
             elif where(restart[0]) != where(last_saved) and ' from=99 ' in restart[0]:
