@@ -32,13 +32,18 @@ static void put(std::vector<uint8_t> &v, std::initializer_list<int> bytes) { for
 // colour 9, slots 4 of 8x4 at x 40..56 in two rows (names in colour 7, or
 // pictures), arrows (up 34,6 4x4, down 34,11 4x4), talk colour 11; two fonts
 // of 5 rows: 'A' 3 wide (advance 4: ink, one pixel colour 50), 'B' 2 wide.
-struct Spec { int slotKind = 1; bool trailing = false; int verbX = 2; int slotW = 8, slotH = 4; bool twiceA = false; bool emptySlot = false; };
+// (plainArrows: the arrows' rectangles one colour, 4, as the games' panels
+// are exported with nothing carried.)
+struct Spec { int slotKind = 1; bool trailing = false; int verbX = 2; int slotW = 8, slotH = 4; bool twiceA = false; bool emptySlot = false; bool plainArrows = false; };
 static std::vector<uint8_t> panelBytes(const Spec &s = Spec()) {
 	const int W = 64, rows = 16;
 	std::vector<uint8_t> d = {'S', 'V', 'I', '1'};
 	for (int f : {W, 200, 184, rows}) put16(d, f);
 	for (int c = 0; c < 256; ++c) put(d, {c, (2 * c) & 255, 255 - c});
-	for (int i = 0; i < W * rows; ++i) d.push_back((uint8_t)(i % 5 + 1));
+	for (int i = 0; i < W * rows; ++i) {
+		const int x = i % W, y = i / W;
+		d.push_back((uint8_t)(s.plainArrows && x >= 34 && x < 38 && ((y >= 6 && y < 10) || (y >= 11 && y < 15)) ? 4 : i % 5 + 1));
+	}
 	d.push_back(2);
 	put(d, {kOpen}); put16(d, 1); for (int f : {s.verbX, 2, 12, 5}) put16(d, f);
 	d.push_back(4); d.insert(d.end(), {'O', 'p', 'e', 'n'});
@@ -390,7 +395,32 @@ int main() {
 		p.setItems(std::vector<Item>(2)); p.compose(canvas);
 		assert(arrow(p.source().up) == 0 && arrow(p.source().down) == 0);
 	}
-	std::puts("PASS: more than the slots: a row at a time, the arrows only when there is more");
+	// (Pictures carried, the arrows' places plain as exported (Monkey Island
+	// 2's, Day of the Tentacle's): an arrow drawn there, in the sentence's
+	// colour, where there is more; none where the art has its own.)
+	{
+		Spec pictures; pictures.slotKind = 2; pictures.plainArrows = true;
+		const std::vector<uint8_t> data = panelBytes(pictures);
+		Panel::Panel p;
+		assert(p.load(data.data(), data.size(), error));
+		std::vector<Item> items(7);
+		for (Item &i : items) { i.width = 2; i.height = 2; i.picture.assign(4, 0xFF00FF00u); }
+		p.setItems(items);
+		std::vector<uint32_t> canvas;
+		p.compose(canvas);
+		const uint32_t ink = rgb(9);
+		auto arrow = [&](const Rect &a) { int n = 0; for (int y = 0; y < a.height; ++y) for (int x = 0; x < a.width; ++x) n += canvas[(a.y + y) * 64 + a.x + x] == ink; return n; };
+		assert(arrow(p.source().up) == 0 && arrow(p.source().down) > 0);
+		p.scroll(5); p.compose(canvas);
+		assert(arrow(p.source().up) > 0 && arrow(p.source().down) == 0);
+		Spec drawn; drawn.slotKind = 2;
+		const std::vector<uint8_t> art = panelBytes(drawn);
+		Panel::Panel q;
+		assert(q.load(art.data(), art.size(), error));
+		q.setItems(items); q.compose(canvas);
+		assert(arrow(q.source().down) == 0);
+	}
+	std::puts("PASS: more than the slots: a row at a time, the arrows only when there is more (drawn where the panel's places for them are plain)");
 
 	// On screen: each row and column from the panel's own, black either side.
 	{
@@ -842,6 +872,30 @@ int main() {
 		PanelBridge::nextVerb();
 		assert(PanelBridge::pointerVerb() == 1);
 		PanelBridge::clear();
+		// More carried than the box's cells (Sam & Max's, The Dig's): the last
+		// cell turns the page (an arrow drawn there), the others show the
+		// things on it; past the last page, the first again; as many as the
+		// cells, none to turn.
+		{
+			Panel::Panel m;
+			assert(m.load(data.data(), data.size(), error));
+			m.layout(64, 40, 0, 2.0, 2.0);
+			m.open(true);
+			std::vector<Item> three(3, items[0]);
+			m.setItems(three);
+			assert(m.hit(14, 22).item == 0 && m.hit(30, 22).item == -1 && m.hit(30, 22).arrow == 1);
+			std::vector<uint32_t> shown(64 * 40, 7);
+			m.render(shown.data(), 64, 40);
+			int white = 0;
+			for (int y = 20; y < 28; ++y) for (int x = 28; x < 40; ++x) white += shown[y * 64 + x] == 0xFFFFFFFFu;
+			assert(white > 0 && shown[22 * 64 + 16] == 0xFF00FF00u);
+			m.scroll(1); assert(m.firstItem() == 1 && m.hit(14, 22).item == 1);
+			m.scroll(1); assert(m.firstItem() == 2 && m.hit(14, 22).item == 2);
+			m.scroll(1); assert(m.firstItem() == 0);
+			m.scroll(-1); assert(m.firstItem() == 2);
+			m.setItems(std::vector<Item>(2, items[0]));
+			assert(m.firstItem() == 0 && m.hit(30, 22).item == 1 && m.hit(30, 22).arrow == 0);
+		}
 		// Shaded (The Dig's grid): the scene there darkened by the shade, a
 		// thing carried in a cell drawn over it; a tap there is the box's.
 		OverSpec shadedSpec; shadedSpec.shaded = true;

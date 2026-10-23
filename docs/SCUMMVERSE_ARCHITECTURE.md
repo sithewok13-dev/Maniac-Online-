@@ -1121,7 +1121,10 @@ one palette) apply.
   the mailbox and desk hotspots, the gate's other views, the gargoyle 10/351
   opening the secret door 10/69) and kManiacOpenedBy (a door only another
   thing opens: its own line to Open/Close, never opened by doorOpens), from
-  tools/test_mansion_links.py's probe over every thing and verb.
+  tools/test_mansion_links.py's probe over every thing and verb. From 0202,
+  kManiacPadlocks (a door its padlocks keep locked: room 4's 160 with 161
+  and 162; once both show unlocked, Open and Close open and shut it), from
+  tools/test_mansion_locks.py's probe.
   From 0153, kManiacTogether (rows: one thing and a verb mask that sets
   each of its parts, anywhere, to picture 0 or 1; itself among them, act()
   returns whatever the panel's rules would say: the shower curtain 24/115..117
@@ -1301,7 +1304,11 @@ one palette) apply.
   where the player was (`scummverse-sandbox.state` in the saves, written at
   each room, every half minute, on leaving and after each verb; "SVS2" adds
   the objects shown in another picture and the things carried, "SVS3"
-  (0200) the stains on the floor, "SVS1" and "SVS2" are still read; `scummverse_place` wins),
+  (0200) the stains on the floor, "SVS1" and "SVS2" are still read; `scummverse_place` wins;
+  from 0202 also when iOS pauses it (backgrounded) and while touring (the
+  tour's start as the place); a file whose place or character has gone is
+  read all the same, what was carried, changed and stained kept, the start
+  place used instead),
   else in `scummverse_place` or the first named
   place installed, playing that game's lead (kWorldLeads) in every game. A
   tap walks there (with the game's panel: a verb chosen first is used on the
@@ -1347,3 +1354,34 @@ and characters under the game's id with the edition's own pixel shape,
 lead height, cast and door map, and the player picks which edition of a game
 the sandbox uses. Maniac Mansion and Zak would then be exported like the other
 ten games, everyone equal.
+- 0202 (a bug hunt): Scene::spots(n, group) takes only points where the
+  picture is (not beside, below or within a 25th of its height from the
+  top) on boxes with room to stand, in the group asked, falling back to
+  line boxes (Loom's walks), then any group, then anything; enter() puts
+  everyone but the one played in their group, arrivals and strolls walk to
+  spots in their own; an arrival door's point off every box goes to the
+  nearest group with more than one box or a door, not a lone box.
+  Scene::objectAt picks, of two of one size under a tap, the one whose
+  walk-to point is nearer. A place with no way on (no door to an installed
+  place, ride, tram or van: its game leaves it by a script) gets a way back
+  (_wayBack, `scummverse_sandbox_way_back`, let go once elsewhere, not
+  written while touring): backSign() draws an arrow at the place's left,
+  mid-height (a white triangle on the place darkened), and a tap on it goes
+  back through the door they came by. spreadOthers() puts everyone but the
+  one played in their group; keepOthersNear() (from placePlayer and the
+  same-place switches) does so again when the one played is moved to
+  another group after entering. The other games'
+  switched doors open both sides as they are gone through; a switched door
+  whose game answers Walk to but not Open or Close is a door always.
+  placePlayer() puts the one played somewhere after entering and those
+  following beside them; hideFollowers() takes them out of sight with the
+  one played on a ride seen from outside. vanHome() brings the Shuttle Bug
+  back to its own site from a place no longer installed; it is not boarded
+  on the way on another ride. Panel::paging(): a box over the scene with
+  more carried than its cells and no arrows of its own (Sam & Max, The Dig,
+  the Curse's chest) turns its last cell into a page-turn (hit arrow 1,
+  scroll a page at a time, round); picture panels under the scene draw
+  their arrows where their places are plain (Panel::plain), as names lists
+  do. The chat's chips compare a hash of the names here (_chipNames); its
+  field ending editing gives a hardware keyboard back to the game
+  (textFieldDidEndEditing, showKeyboard).

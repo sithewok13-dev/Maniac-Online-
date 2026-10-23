@@ -329,6 +329,18 @@ if __name__ == '__main__':
                   f'{o.group(5)} doors back open on arrival, {o.group(7)} the game does not open left as they were')
         print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
               f'{d.group(3)} elsewhere, {d.group(4)} short ({d.group(6)} from as near as the walk boxes allow); {d.group(5)} with no spot of their own')
+        # (From 0202) A place with no way on (its game leaves it by a script):
+        # a tap at its edge back the way they came, every time.
+        b = re.search(r'doors with no way on: (\d+) arrived at, (\d+) back by a tap on the arrow at the left', output)
+        if not b or b.group(1) != b.group(2):
+            raise SystemExit('FAIL: no way back from a place with no way on\n' + output[-2000:])
+        print(f'PASS: {b.group(1)} arrivals at places with no way on, each back the way they came by a tap on the arrow drawn at the left (a tap at the other edge walks)')
+        # (From 0202) The other games' switched doors (Monkey Island's, Indy 3's):
+        # gone through open, the door back open too.
+        sw = re.search(r'doors switched: (\d+) gone through open, (\d+) with the door back open', output)
+        if not sw or sw.group(1) != sw.group(2) or ((worlds/'monkey-25.svw').exists() and sw.group(1) == '0'):
+            raise SystemExit('FAIL: switched doors back\n' + output[-2000:])
+        print(f'PASS: {sw.group(1)} switched doors gone through open, the door back open too')
         sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # Each game's own verb panel (exported from its start): every verb
@@ -339,6 +351,16 @@ if __name__ == '__main__':
         if panels != exported:
             raise SystemExit(f'FAIL: {panels} verb panels shown of {exported} exported')
         print(f'PASS: {panels} games\' own verb panels: each verb chosen; look, open, close, push, pick up; kept')
+        # (From 0202) The mansion's: a verb chosen on the way to a door, the walk goes on through it.
+        w = re.search(r'(\d+) doors gone through with a verb chosen on the way', output)
+        if (worlds/'maniac-ui.svi').exists() and (not w or w.group(1) != '1'):
+            raise SystemExit('FAIL: a verb chosen on the way to a door\n' + output[-2000:])
+        # (From 0203) The mansion's padlocked door: both padlocks unlocked with
+        # the key from the pit, opened, gone through (tools/test_mansion_locks.py
+        # checks the original does so).
+        pl = re.search(r'(\d+) padlocked doors opened', output)
+        if (worlds/'maniac-4.svw').exists() and (worlds/'maniac-31.svw').exists() and (not pl or pl.group(1) != '1'):
+            raise SystemExit('FAIL: the padlocked door\n' + output[-2000:])
         # (Full Throttle's coin: each a file of its own kind, each held, lit and let go.)
         coins = len([f for f in worlds.glob('*-ui.svi') if f.stat().st_size and gzip.decompress(f.read_bytes())[:4] == b'SVI3'])
         held = int(re.search(r'(\d+) coins', output).group(1))
@@ -427,6 +449,13 @@ if __name__ == '__main__':
         if not c or int(c.group(1)) < 1 or not 0.2 <= float(c.group(2)) <= 0.45 or c.group(3) != '1' or int(c.group(4)) < 1:
             raise SystemExit('FAIL: custom characters\n' + output[-2000:])
         print(f'PASS: custom characters: {c.group(1)} in their own box (Crispy first), played where the player is, {c.group(2)} of a person tall; among the wanderers, the one before left beside them; {c.group(4)} lit what they carry at L (the others nothing)')
+        # (From 0202) Among the wanderers: one left here who does not roam
+        # stays through the next switch here; someone of the game's own who
+        # lives here played, the one before stays where they stood.
+        h = re.search(r'(\d+) left here kept\), (\d+) of the game\'s own here played', output)
+        if not h or h.group(1) != '1' or h.group(2) != '1':
+            raise SystemExit('FAIL: those left here at a switch\n' + output[-2000:])
+        print('PASS: switching here: a custom one left who does not roam stays; someone of the game\'s own played, the one before stays where they stood')
         # Sith Ewok 3's moves (0200): L once a force grab (after the wait for
         # a second), L twice a swing, F force lightning, L once put away (a
         # walk stopped first); heckled and answered (written lines, a stand-in
@@ -438,7 +467,7 @@ if __name__ == '__main__':
         output = sandbox(exe, worlds, 'moves', shots, tmp)
         m = re.search(r"selftest moves: (\d+) keys, (\d+) walks stopped, (\d+) heckled in written lines \((\d+) answered, (\d+) in Ewokese\), "
                       r"(\d+) with the model's lines, (\d+) written when it is slow, 1 waiting for others, (\d+) shows \((\d+) saber, (\d+) lightning\), (\d+) held far away or walking; "
-                      r"Crispy 2: (\d+) pees .*?, (\d+) stains kept .*?, (\d+) on his own, 4 cut short.*?, 0 failed", output)
+                      r"Crispy 2: (\d+) pees .*?, (\d+) stains kept .*?, (\d+) on his own, 6 cut short.*?, 0 failed", output)
         if not m or int(m.group(1)) != 6 or int(m.group(3)) < 1 or int(m.group(4)) < 1 or int(m.group(6)) < 1 or int(m.group(7)) < 1 or int(m.group(9)) < 1 or int(m.group(10)) < 1 \
                 or int(m.group(12)) != 2 or int(m.group(13)) != 3 or int(m.group(14)) != 1:
             raise SystemExit('FAIL: moves\n' + output[-2000:])
@@ -487,6 +516,11 @@ if __name__ == '__main__':
                 if int(m.group(1)) != cars or int(m.group(2)) * 2 != cars or int(m.group(3)) * 2 != cars:
                     raise SystemExit('FAIL: The Dig\'s tram\n' + output[-2000:])
                 print(f'PASS: The Dig\'s tram: {m.group(1)} stations, called from the ledge, ridden {m.group(2)} times, waiting {m.group(3)} times')
+                # (Someone following rides along, out of sight with the one played.)
+                t = re.search(r'(\d+) trams with someone following', output)
+                if not t or t.group(1) != m.group(2):
+                    raise SystemExit('FAIL: someone following not along on The Dig\'s tram\n' + output[-2000:])
+                print('PASS: someone following rides The Dig\'s tram along, out of sight with the one played')
             # Zak's rides: the bus and the Mars tram both ways, a plane to every
             # airport, one missed by walking off (a tap away), a door over the
             # bus's stop tapped (the door), a plane's list closed, left
@@ -502,7 +536,7 @@ if __name__ == '__main__':
                 f = re.search(r'(\d+) ridden with someone following', output)
                 if not f or f.group(1) != '1':
                     raise SystemExit('FAIL: someone following not along on the bus\n' + output[-2000:])
-                print('PASS: someone following rides the bus along and gets off beside the one played')
+                print('PASS: someone following rides the bus along (out of sight with the one played, not walking about the stop) and gets off beside the one played')
                 # (From 0198) Each flight seen from Zak's plane cabin where it is
                 # exported: the one played seated, on the first those following
                 # (up to five) seated too, each seen with their head where the
@@ -532,6 +566,12 @@ if __name__ == '__main__':
                     if not k or k.group(1) != '3':
                         raise SystemExit('FAIL: van flights from the cockpit\n' + output[-2000:])
                     print('PASS: every van flight seen from its cockpit, the one played at the controls unseen')
+                # (Asked for on the way on the Mars tram: not now; parked where
+                # is no longer installed: back at its own site.)
+                r = re.search(r'(\d+) van checks', output)
+                if not r or r.group(1) != '2':
+                    raise SystemExit('FAIL: the Shuttle Bug asked for on the way, or parked where is not installed\n' + output[-2000:])
+                print('PASS: the Shuttle Bug not boarded on the way on the Mars tram; called home from a place no longer installed')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:

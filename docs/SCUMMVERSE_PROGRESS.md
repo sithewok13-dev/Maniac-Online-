@@ -5506,3 +5506,91 @@ newest suzy to roam. Also Extra".
   made-up place now shows the four roamers too); test_custom_characters.py;
   bootstrap, package_ipa. The new stream looked at on the desktop. Not
   tested on an iPhone.
+
+## Patch 0202 — Gameplay fixes from a bug hunt across the new engine
+
+User (2026-10-23): "Can you add more agents to this to get more done and
+faster". Eight hunters read the new engine area by area (doors and travel,
+verbs, chat and followers, rides, the custom characters, wanderers, the
+mansion's moments, keeping progress and the camera); each finding was
+checked by a test that fails without its fix where one could be written.
+Fixed:
+- Doors and travel. A place its game leaves only by a script (71 door
+  arrivals over 17 places: Monkey Island, Monkey Island 2, Indy 3's floor
+  plans, Atlantis' map room, Full Throttle, The Dig, Curse) has a way back:
+  an arrow drawn at the place's left (a white triangle on a darkened
+  square, mid-height), a tap on it back the way they came, told so on
+  arrival, kept between launches (let go once elsewhere); other taps, at
+  the edges too, walk as before. Monkey Island's and Indy 3's switched
+  doors (shown open or shut): gone through open, the door back open too
+  (24 pairs); two Indy 3 doors its game only walks through are doors
+  always. Two ways out drawn as one (Loom room 22): the one whose walk-to
+  point is nearer the tap. An arrival door's point off every box no longer
+  lands on a lone box cut off from the floor.
+- People. Everyone is placed, and walks about, where the picture is (not
+  beside, below or at the very top of it) and in the one played's part of
+  the place (116 scenes put someone off the picture before; now 0 of the
+  298 people placed over all 779 places; the one played put in another
+  part afterwards, as a launch, a tour's end or a switch does, the others
+  go with them). Curse of Monkey Island's people
+  are no longer drawn too small against the 320-wide games' (the height
+  limit 4 -> 8). The Purple Meteor counts as small. Playing someone of the
+  game's own who is here keeps the one played before where they stood; a
+  custom character left beside who does not roam stays through the next
+  switch here.
+- Rides. Those following ride out of sight with the one played on Zak's
+  bus, the Mars tram and The Dig's tram (not left at the stop walking
+  about, not shown at the far station before the car). The Shuttle Bug is
+  not boarded on the way on another ride (the player was left invisible);
+  parked where is no longer installed, it is back at its own landing site.
+  After a failed ride, a tour stopped or a choice refused, those following
+  are put beside the one played again.
+- Verbs. A verb chosen on the way to a door or a thing no longer drops
+  the walk's goal (the kid stopped at the door); the flashlight left on
+  stays on after a launch. More carried than a box's cells (Sam & Max's,
+  The Dig's, the Curse's chest): its last cell turns the page (a white
+  arrow; past the last page, the first again). Monkey Island 2's and Day of
+  the Tentacle's panels draw their arrows (in the sentence's colour) where
+  there is more.
+- Chat (iPhone only). The name chips are rebuilt when who is here changes,
+  not only how many (a door to as many others showed the last place's);
+  with a hardware keyboard, the game's keys come back once the message
+  field lets go (L, F and P did nothing until a pinch).
+- Keeping progress. A save whose place or character has gone (exported
+  again) keeps what was carried, changed and stained (it was wiped); kept
+  while touring (where the tour began, with a stain or a thing taken while
+  paused); Story mode chosen during a tour saves where it began; kept when
+  iOS puts the app in the background.
+- Custom characters. A pee cut short by the place changing leaves a puddle
+  as big as it got (none before the leg is up); a heckle or Sith Ewok 3's
+  answer waits for the line being said, his own too.
+- The mansion's padlocked door (room 4): probed in the original (new
+  tools/test_mansion_locks.py, in the data suite), the door stays locked
+  until both its padlocks are unlocked with the key from the pit, the
+  second unlocking it; then Open opens it. The things file has each
+  padlock alone, so the door never opened; kManiacPadlocks now opens and
+  shuts it once both show unlocked, and its doorway leads to room 31.
+- Not fixed yet (found, real): the mansion's wall safe (room 9) cannot be
+  opened by a player (its combination is not modelled); two garage things
+  (room 16) cannot be picked up
+  (their exported pictures are identical); a thing carried whose own place
+  is no longer installed is let go on reading the save.
+- An independent review of the first draft found the edge taking every
+  tap near it (now the arrow), the others left behind when the one played
+  is moved after entering, followers left hidden after a failed tram
+  arrival, the way back kept after leaving and written during tours, a
+  Loom note shown as the sentence, the rescue from a lone box skipped
+  (it counted the door come in by), and a walk-only door back given its
+  second picture: all fixed.
+- Tests: test_stage.cpp (spots in the picture, with room, in a group;
+  doors drawn as one); test_panel.cpp (a box's pages; picture panels'
+  arrows); test_sandbox_engine.py (every place's people in the
+  picture beside the one played, and with them when they are moved; every
+  door, the arrow back from each place with no way on (drawn, a tap at the
+  other edge a walk), the switched doors back open; a verb chosen on the way to
+  a door; the padlocked door opened as a player does it; the flashlight
+  kept on; the rides with someone following, the
+  van not boarded on the way, called home; switching here; a save with its
+  place gone, kept when paused; the tour's save and Story mode; the pee cut
+  short by a place change; heckles waiting for his own line). The chat's
+  two fixes are iPhone code, not compiled here. Not tested on an iPhone.

@@ -396,7 +396,16 @@ int main() {
 	assert(porch.load(nearData.data(), nearData.size(), 1.2, 320, 1280, 720, error));
 	assert(porch.objectAt({51, 21}, {0, 1, 2}) == 0 && porch.objectAt({52.5, 21}, {0, 1}) == 1);
 	assert(porch.objectAt({30, 30}, {0, 3}) == 0 && porch.objectAt({30, 30}, {3, 0}) == 3); // (as big: the first)
-	std::puts("PASS: doors (under before near, the smallest, only those asked)");
+	// (Two ways out drawn as one, each with its walk-to point: the one whose
+	// point is nearer the tap, whichever comes first.)
+	World::SourceObject westWay = twin, eastWay = twin;
+	westWay.id = 205; westWay.walkX = 12; westWay.walkY = 48;
+	eastWay.id = 206; eastWay.walkX = 48; eastWay.walkY = 48;
+	const std::vector<uint8_t> twinData = sceneBytes(w, h, pixels, floor, {westWay, eastWay});
+	Scene ways;
+	assert(ways.load(twinData.data(), twinData.size(), 1.2, 320, 1280, 720, error));
+	assert(ways.objectAt({45, 30}, {0, 1}) == 1 && ways.objectAt({45, 30}, {1, 0}) == 1 && ways.objectAt({15, 30}, {0, 1}) == 0 && ways.objectAt({15, 30}, {1, 0}) == 0);
+	std::puts("PASS: doors (under before near, the smallest, only those asked; two drawn as one, by their walk-to points)");
 
 	// The game's own connections ("SVW5") join boxes apart, walked across;
 	// touching boxes still meet; a switched-off box stays out (in the middle
@@ -554,7 +563,37 @@ int main() {
 			for (int j = i + 1; j < n; ++j) assert(std::hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y) > 30);
 	}
 	assert(scene.spots(0).empty());
-	std::puts("PASS: spots (in the boxes, spread out)");
+	// Only where the picture is (not beside it, below it or at its very
+	// top), on boxes with room to stand (not a line or a point), where
+	// there are such; in a group asked, its boxes only; a group's boxes
+	// counted, its nearest point.
+	{
+		std::vector<World::SourceBox> edges = {box(10, 100, 160, 140), box(300, 100, 400, 140), box(200, 0, 260, 4), box(60, 60, 60, 60),
+			box(200, 140, 260, 180), box(260, 20, 300, 40)};
+		const std::vector<uint8_t> edgeData = sceneBytes(w, h, pixels, edges);
+		Scene edge;
+		assert(edge.load(edgeData.data(), edgeData.size(), 1.2, 320, 1280, 720, error) && edge.boxes().size() == 6);
+		for (int n : {1, 6, 24}) {
+			const std::vector<Point> spots = edge.spots(n);
+			assert((int)spots.size() == n);
+			for (const Point &p : spots) {
+				assert(inSomeBox(edge.boxes(), p) && p.x >= 0 && p.x < w && p.y >= h / 25.0 && p.y <= h);
+				assert(!(near(p.x, 60) && near(p.y, 60)));
+			}
+		}
+		const int lone = edge.groupAt({280, 30}), floorGroup = edge.groupAt({50, 120});
+		assert(lone >= 0 && floorGroup >= 0 && lone != floorGroup && edge.groupSize(lone) == 1 && edge.groupSize(-5) == 0);
+		for (const Point &p : edge.spots(6, floorGroup)) assert(edge.groupAt(p) == floorGroup);
+		for (const Point &p : edge.spots(6, lone)) assert(edge.groupAt(p) == lone);
+		Point c;
+		assert(edge.closestIn(floorGroup, {200, 120}, c) && near(c.x, 160) && near(c.y, 120) && !edge.closestIn(99, {0, 0}, c));
+		// (Nothing in the picture: as found.)
+		std::vector<World::SourceBox> outside = {box(330, 100, 400, 140)};
+		const std::vector<uint8_t> outsideData = sceneBytes(w, h, pixels, outside);
+		Scene off;
+		assert(off.load(outsideData.data(), outsideData.size(), 1.2, 320, 1280, 720, error) && off.spots(3).size() == 3 && inSomeBox(off.boxes(), off.spots(1)[0]));
+	}
+	std::puts("PASS: spots (in the boxes, spread out; in the picture, room to stand, in a group asked)");
 
 	// A second picture of the place (The Dig's tram car parked): only where
 	// it differs, shown, slid out of view, half slid, dissolved; the scene's
