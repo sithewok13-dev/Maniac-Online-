@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0187 (Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0188 (0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4969,3 +4969,24 @@ Following the user's "Let's fix all these issues":
   made just after the intro, reopened three times exactly as saved), the
   startup tests (22), the bootstrap test and the IPA stamp. Not tested on an
   iPhone.
+
+## Patch 0188 — Sam & Max's dolls: the review's fixes
+
+An independent review of 0187 found two real problems, both fixed:
+- The press was sent as mouse events, which ScummVM halves in some render
+  modes (Sam & Max offers EGA): there it would land on the clothes, not the
+  button. It now sets the game's own mouse position and a click for the
+  next frame, in the game's screen coordinates, as a tap ends up.
+- The test could pass with the press broken: its own clicker (used for
+  other games' openings) could press the button itself. It no longer clicks
+  on Sam & Max's dolls, records when they were left, and is held to a doll
+  as well as a page (Max by default; 0187's run had Sam).
+- Also from the review: after a wrong answer (a second would end the game),
+  or if the page's clothes are not all found, the screen is left to the
+  player.
+- Tested on the desktop build only: the Sam & Max story test (page 4,
+  Max's doll: dressed and right the first time, with nothing else clicking;
+  then its saves as before) and the bootstrap test; and a control run with
+  the dressing switched off, which the test failed as it should (the game's
+  one more chance taken, then the screen left to the player and the game
+  still running). Apple CI built 0187's IPA. Not tested on an iPhone.

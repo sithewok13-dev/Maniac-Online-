@@ -34,7 +34,8 @@ Monkey Island 2's and Sam & Max's openings are their copy protection (a
 recipe from the code wheel; a doll dressed as a page of the manual shows):
 story play answers them for the player (scummverseStoryPassGuard), so they
 are in the default list. Sam & Max is held to the page a press alone gets
-wrong (--dolls-page), and must leave with no wrong answer.
+wrong (--dolls-page) and to a doll (--dolls-doll), is never clicked by the
+probe there, and must leave with no wrong answer.
 Game data and saves stay in a temporary folder under build/.
 
 Usage: tools/test_story_engine.py game-data/mm-dos monkey=game-data/monkey1-vga ...
@@ -117,14 +118,15 @@ PROBE = r'''
 					}
 				}
 			} else {
-				// (Sam & Max's dolls: held to the page given, and on leaving
-				// them, how many wrong answers they had.)
+				// (Sam & Max's dolls: held to the page and doll given, and on
+				// leaving them, how many wrong answers they had, and when.)
 				static int probeDollsRoom = 0;
 				if (_game.id == GID_SAMNMAX && ConfMan.hasKey("scummverse_story_probe_page")) {
-					const int page = ConfMan.getInt("scummverse_story_probe_page");
+					const int page = ConfMan.getInt("scummverse_story_probe_page"), doll = ConfMan.getInt("scummverse_story_probe_doll");
 					if (_currentRoom == 71 && readVar(152) >= 1 && readVar(152) != page) writeVar(152, page);
+					if (_currentRoom == 71 && readVar(152) >= 1 && readVar(153) != doll) writeVar(153, doll);
 					if (probeDollsRoom == 71 && _currentRoom != 71)
-						warning("SCUMMVERSE_STORY_DOLLS %s page=%d doll=%d wrong=%d", _targetName.c_str(), readVar(152), readVar(153), readVar(154));
+						warning("SCUMMVERSE_STORY_DOLLS %s page=%d doll=%d wrong=%d frames=%d", _targetName.c_str(), readVar(152), readVar(153), readVar(154), g_probeFrames);
 					probeDollsRoom = _currentRoom;
 				}
 				if (fresh) {
@@ -165,7 +167,7 @@ PROBE = r'''
 						_talkDelay = 0;
 						// (Each of its verbs and things on the screen in turn, then
 						// the middle: wherever the question's answers are.)
-						if ((g_probeFrames - frames) % 120 == 60) {
+						if ((g_probeFrames - frames) % 120 == 60 && !(_game.id == GID_SAMNMAX && _currentRoom == 71)) {
 							Common::Array<Common::Point> spots;
 							for (int i = 1; i < _numVerbs; ++i)
 								if (_verbs[i].verbid && _verbs[i].curmode == 1 && !_verbs[i].curRect.isEmpty())
@@ -328,6 +330,7 @@ def main():
     p.add_argument('--worlds', type=Path, default=ROOT/'build/worlds')
     p.add_argument('--no-maniac', action='store_true', help="leave out Maniac Mansion's own story")
     p.add_argument('--dolls-page', type=int, default=4, help="Sam & Max's copy protection held to this page of the manual (4: the one where a press alone is wrong)")
+    p.add_argument('--dolls-doll', type=int, default=1, choices=(0, 1), help="and to this doll (0 Sam, 1 Max)")
     a = p.parse_args()
     pairs = [g.split('=', 1) for g in a.games] if a.games else [(k, str(ROOT/'game-data'/v)) for k, v in DEFAULT.items() if (ROOT/'game-data'/v).is_dir()]
     games = [(k, Path(v).resolve()) for k, v in pairs]
@@ -358,7 +361,7 @@ def main():
         config = work/'story.ini'
         config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
                           f'scummverse_story_probe={a.frames}\nscummverse_story_probe_games={",".join(map(str, order))}\n'
-                          f'scummverse_worlds_path={a.worlds.resolve()}\nscummverse_story_probe_page={a.dolls_page}\n')
+                          f'scummverse_worlds_path={a.worlds.resolve()}\nscummverse_story_probe_page={a.dolls_page}\nscummverse_story_probe_doll={a.dolls_doll}\n')
         result = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
                                 cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5400)
         output = result.stdout + result.stderr
@@ -440,8 +443,8 @@ def main():
                 dolls = [l for l in lines if f'SCUMMVERSE_STORY_DOLLS {target} ' in l]
                 if not any(f'{target} copy protection answered (the dolls dressed)' in l for l in lines):
                     fail.append(f'{k}: its dolls not dressed')
-                if len(dolls) != 1 or f'page={a.dolls_page} ' not in dolls[0] or not dolls[0].rstrip('!').endswith(' wrong=0'):
-                    fail.append(f'{k}: its dolls left {dolls}, expected once, page {a.dolls_page}, no wrong answer')
+                if len(dolls) != 1 or f'page={a.dolls_page} doll={a.dolls_doll} wrong=0 ' not in dolls[0]:
+                    fail.append(f'{k}: its dolls left {dolls}, expected once, page {a.dolls_page}, doll {a.dolls_doll}, no wrong answer')
             report.append(f'{k} (room {re.search(r"room=(-?[0-9]+)", kept[0]).group(1)})')
         if ok:
             if len(went) != len(ok) - 1 or len(quits) != 1 or not quits[0].startswith(f'scummverse-story-{last} '):

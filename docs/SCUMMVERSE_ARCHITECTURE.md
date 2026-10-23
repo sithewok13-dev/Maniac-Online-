@@ -545,8 +545,11 @@ three letters a doll in its own table (array 304, read at run time through
 `scummverseArrayAt`, never copied: object = first + letter - 'A'), by their
 state; a wrong answer has one more chance (var 154), then the game quits.
 Story play puts on (state 1) any of the three that is off, then presses the
-button at its centre (mouse events through the event manager), every 1.5 s,
-at most 20 presses. (As compiled, its check stops at the doll's first item
+button at its centre, every 1.5 s, at most 20 presses (0188: through the
+game's own mouse state, `_mouse` in its screen coordinates and a click flag
+for the next frame's input, so no render mode's scaling moves it; and after
+a wrong answer, or if the page's clothes are not all found, the screen is
+left to the player). (As compiled, its check stops at the doll's first item
 when that item is not asked for, so only the page whose answer includes it,
 page 4, ever refuses a bare press; the test holds the dolls to that page.)
 
