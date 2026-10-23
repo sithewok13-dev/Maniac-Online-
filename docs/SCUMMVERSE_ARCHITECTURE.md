@@ -232,6 +232,16 @@ landmarks (`scummverse_world_catalog.h`, newly authored names and lines), a
 landmark's neighbours by walking off a side, and doors. A door is a room
 object the player taps; when the player arrives at it, `scummverseWorldDoors`
 follows the game's own link to the target room (map rooms travel at once).
+Walking there uses the V1 walker on the scene's boxes converted to V2
+shapes in V1 units; routeBoxes joins boxes that touch (within one unit, or
+overlapping, crossing edges included) and, since 0193, those the source
+game's own box table (SVW5) connects directly while still within three
+units (a diagonal step apart after conversion; never a box that is a single
+point, as a game's dummy box in a corner). The V1 room's next-box table keeps a
+one-byte start per row; past 16 boxes rows wrap, so getNextBox finds a
+converted scene's rows past 255 bytes by number (the original rooms read as
+before). The door walker's loop guard stops a walk at its second return
+running to a spot already passed (one is a corner; new spots forgive it).
 
 Two committed tables are generated from private analysis of the player's
 games (the generators read `build/foreign/`, which is never committed):

@@ -193,7 +193,7 @@
 	}
 	// Doors: in every game with a door map, tap each door from its room and
 	// stand at it; the player goes through to the room the door leads to.
-	int doors=0, doorFailures=0, doorSkipped=0, doorHidden=0;
+	int doors=0, doorFailures=0, doorSkipped=0, doorHidden=0, doorCovered=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {
 		const ::Scummverse::WorldCatalog::WorldMap *map=::Scummverse::WorldCatalog::worldMap(g);
 		if (!map || ::Scummverse::WorldCatalog::worldHome(g)) continue; // (The mansion is played here itself.)
@@ -211,15 +211,51 @@
 			if (found<0) { ++doorSkipped; continue; }
 			// A door this instance of a script-built room does not show.
 			if (link.switched && !::Scummverse::WorldBridge::objectState(found)) { ++doorHidden; continue; }
-			// Start beside the door, tap it, and walk there like a player. A Dig
-			// tram car is reached from its platform (where riders step off); it
-			// comes to the ledge and leaves after its boarding wait.
+			// Start beside the door, tap it, and walk there like a player: on
+			// the part of it no other door covers, nearest its middle (a door
+			// wholly under others is tapped in its middle; one that then leads
+			// elsewhere, one doorway the game shows in two states, is counted
+			// apart). A Dig tram car is reached from its platform (where riders
+			// step off); it comes to the ledge and leaves after its boarding
+			// wait.
 			int tapX=(x+w/2)/8, tapY=(y+h/2)/2;
+			// (Where those over a door's middle lead, when it is wholly under
+			// them; at most eight.)
+			bool covered=false; int coverTargets[8], coverCount=0;
+			{
+				auto coveringAt=[&](int px, int py, int *targets, int &count) {
+					count=0;
+					for (int k=0;k<::Scummverse::WorldBridge::objectCount();++k) {
+						int id, ox, oy, ow, oh, owx, owy; ::Scummverse::WorldBridge::object(k,id,ox,oy,ow,oh,owx,owy);
+						const ::Scummverse::WorldCatalog::WorldLink *other=::Scummverse::WorldCatalog::worldLinkFrom(g,link.room,id);
+						if (k!=found && other && !(other->switched && !::Scummverse::WorldBridge::objectState(k)) && px>=ox && px<ox+ow && py>=oy && py<oy+oh) {
+							if (targets && count<8) targets[count]=other->target;
+							++count;
+						}
+					}
+					return count>0;
+				};
+				long best=-1; int bx=tapX, by=tapY, inside=0;
+				for (int ty=y/2;ty<(y+h+1)/2;++ty) for (int tx=x/8;tx<=(x+w-1)/8;++tx) {
+					const int px=tx*8+4, py=ty*2;
+					if (px<x || px>=x+w || py<y || py>=y+h) continue;
+					++inside;
+					int n;
+					const long d=(long)(px-(x+w/2))*(px-(x+w/2))+(long)(py-(y+h/2))*(py-(y+h/2));
+					if (!coveringAt(px,py,nullptr,n) && (best<0 || d<best)) { best=d; bx=tx; by=ty; }
+				}
+				// (A door too narrow for any tap inside it is tapped beside it, by
+				// its middle, as before: a tap near a door finds it.)
+				covered=inside && best<0;
+				if (covered) coveringAt(tapX*8+4,tapY*2,coverTargets,coverCount);
+				else { tapX=bx; tapY=by; }
+			}
 			for (const auto &line : ::Scummverse::WorldCatalog::kWorldTramLines)
 				for (const auto &stop : line.ends)
 					if (line.game==g && stop.room==link.room && stop.car==link.object) {
 						scummverseWorldUnits(g,link.room,stop.exitX,stop.exitY,wx,wy);
 						scummverseWorldUnits(g,link.room,stop.ledgeX,stop.ledgeY,tapX,tapY);
+						covered=false; // (Its ledge is tapped, not the car.)
 					}
 			AdjustBoxResult near=me->adjustXYToBeInBox(wx,wy);
 			me->putActor(near.x,near.y,_currentRoom);
@@ -228,13 +264,17 @@
 			for (int n=0;n<900 && _currentRoom==startRoom;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
 			int source; const int game=scummverseWorldGameOf(_currentRoom,source);
 			if (game==g && source==link.target) ++doors;
+			// (Wholly under others: through one of them instead, if not this one.)
+			else if (covered && game==g && Common::find(coverTargets,coverTargets+MIN(coverCount,8),source)!=coverTargets+MIN(coverCount,8)) {
+				++doorCovered; warning("WORLD door %d:%d obj %d -> %d covered by another door (to %d:%d)",g,link.room,link.object,link.target,game,source);
+			}
 			else { ++doorFailures; warning("WORLD door %d:%d obj %d -> %d failed (now %d:%d)",g,link.room,link.object,link.target,game,source); }
 		}
 	}
-	warning("WORLD doors %d failed %d skipped %d hidden %d",doors,doorFailures,doorSkipped,doorHidden);
-	// A few doors sit where the sandbox's walk boxes cannot reach (see the
-	// progress notes); more than one in twenty failing is a regression.
-	if (doors<500 || doorFailures*20>doors+doorFailures) error("%d of %d doors did not lead where their map says",doorFailures,doors+doorFailures);
+	warning("WORLD doors %d failed %d skipped %d hidden %d covered %d",doors,doorFailures,doorSkipped,doorHidden,doorCovered);
+	// Every door led where its map says with 0193 (the walker's routes
+	// mended); more than one in a hundred failing is a regression.
+	if (doors<500 || doorFailures*100>doors+doorFailures) error("%d of %d doors did not lead where their map says",doorFailures,doors+doorFailures);
 	// Story areas: each menu entrance mounts its room.
 	int areas=0;
 	for (int g=0;g<::Scummverse::WorldCatalog::worldGameCount();++g) {

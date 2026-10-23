@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0192 (the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0193 (every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5151,4 +5151,46 @@ pool too"):
   Nurse Edna and Lou drawn visiting Monkey Island; the visiting Purple Meteor
   stepping aside while Dave plays it and back after; Edna stepping aside for
   her own actor). Tested on the desktop build only; not on an iPhone.
+
+## Patch 0193 — every other-world door walkable in Maniac's own engine
+
+The walk through every door of every world (test_world_visit) had 47 doors
+failing in Maniac's own engine (Monkey Island 2, Fate of Atlantis, Loom,
+Indy 3, Full Throttle, the Dig, Curse and Monkey Island). A probe tracing
+the walks (private, not committed) found three causes:
+- The routes: a V1 room keeps a one-byte start for each row of its
+  next-box table, so in a scene with more than 16 walk boxes (other games'
+  rooms, converted, often have 20 to 60) the later rows wrapped round to
+  another row's numbers, and the walker went the wrong way round the room
+  and gave up (Monkey Island's room 65: round six boxes and back). The
+  engine now finds a converted scene's rows by number past that point
+  (getNextBox; Maniac's and Zak's own rooms read as before).
+- Boxes the conversion leaves a diagonal step apart (Loom's room 10) were
+  not joined: the scene file already holds the game's own box connections
+  (as the new engine uses), and boxes it connects directly are now joined
+  too while they are still close (never to a game's dummy box, a point in a
+  corner that many connect to).
+- The loop guard stopped a walk the first time it came back to a spot it
+  had passed, which a path round the end of one box into the next does
+  once (Loom's room 32): now the second time.
+- The test taps each door where no other door covers it (as a player taps
+  what is shown), nearest its middle; a door wholly under others is tapped
+  in its middle as before and, if it then leads elsewhere, counted apart.
+- Walk test: 1,680 doors through, 0 failing (47 before); one covered
+  (Loom's room 22 shows one doorway in two states, to rooms 17 and 18; 18
+  is reached from 16 and 20). More than one in a hundred failing is now a
+  regression (was one in twenty).
+- An independent review (read only) found no engine defect; from it:
+  boxes that cross like a plus sign (no corner inside the other) now count
+  as touching; a box that is a single point is never joined through the
+  game's table; the loop guard's one step back is forgiven again once the
+  walk reaches new spots (two corners in one walk); and the test counts a
+  door as covered only when a tap can land on it at all and it then leads
+  through one of the doors over it (a tram stop never), else as failed.
+- Tests: test_world.cpp (rooms joined by their game's table only when
+  close, never a point; crossing boxes; ASan/UBSan), test_world_visit.py,
+  and the engine tests that walk
+  there: wander, tour, camera, lights and doors, world setup, sandbox engine;
+  startup, bootstrap, package_ipa.
+  Tested on the desktop build only; not on an iPhone.
 

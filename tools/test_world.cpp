@@ -460,6 +460,21 @@ int main() {
 	// Routing: 0-1-2 chain; the isolated box (index 3) is unreachable.
 	auto hop = [&](int a, int b) { return fit.next[a * fit.boxes.size() + b]; };
 	assert(hop(0, 2) == 1 && hop(2, 0) == 1 && hop(1, 2) == 2 && hop(0, 0) == 0 && hop(0, 3) == -1 && hop(3, 0) == -1);
+	{
+		// Boxes a diagonal step apart join only when their game connects them,
+		// and a point box in a corner (a game's dummy one) never by that alone.
+		std::vector<V2Box> boxes = {{10, 20, 10, 12, 10, 12, 0, 0}, {21, 30, 13, 15, 13, 15, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}};
+		std::vector<uint8_t> next(16, 255);
+		for (int i = 0; i < 4; ++i) next[i * 4 + i] = i;
+		next[1 * 4 + 2] = 2; next[2 * 4 + 1] = 1; next[1 * 4 + 0] = 0; next[2 * 4 + 0] = 0; // (source boxes 1, 2 and the dummy 0)
+		const std::vector<int> sources = {1, 2, 0};
+		const auto plain = routeBoxes(boxes), joined = routeBoxes(boxes, sources, next, 4), odd = routeBoxes(boxes, sources, std::vector<uint8_t>(3), 4);
+		assert(plain[0 * 3 + 1] == -1 && joined[0 * 3 + 1] == 1 && joined[1 * 3 + 0] == 0);
+		assert(joined[0 * 3 + 2] == -1 && joined[2 * 3 + 0] == -1 && odd[0 * 3 + 1] == -1); // (a table of the wrong size: geometry only)
+		// Boxes crossing like a plus sign overlap with no corner inside either.
+		const std::vector<V2Box> plus = {{10, 12, 0, 20, 0, 20, 0, 0}, {0, 30, 9, 11, 9, 11, 0, 0}};
+		assert(routeBoxes(plus)[0 * 2 + 1] == 1 && routeBoxes(plus)[1 * 2 + 0] == 0);
+	}
 	assert(fit.spawnX >= 0 && fit.spawnY > 0);
 	assert(fit.leftX == 0 && fit.rightX >= fit.width / 8 - 2);
 
