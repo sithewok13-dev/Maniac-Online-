@@ -26,10 +26,16 @@
 	N::Request request; request.kind=N::Request::Host; N::postRequest(request); pump(1);
 	if (!_scummverseNetOn || !::Scummverse::NetBridge::active() || N::online()==false) error("Engine did not host: %s",N::status().c_str());
 	std::string problem;
+	// (From 0197) Zak plays the Meteor Police before his player comes: kept
+	// for him while they play him, his again when they leave.
+	namespace C = ::Scummverse::WorldCatalog;
+	const int zakHome=derefActor(24,"zak's own")->_costume, police=C::worldAppearanceKey(C::kWorldManiacLooks,15);
+	if (!scummverseSetAppearance(24,police)) error("Zak's own look refused");
 	if (!device.join("127.0.0.1",scummverseNetContent(),24,problem)) error("Join failed: %s",problem.c_str());
 	device.setLocal(avatar(24,53,20,60));
 	Actor *zak=derefActor(24,"remote zak"), *me=derefActor(3,"local player");
-	for(int n=0;n<200 && !(scummverseRemoteActor(24) && zak->_room==53 && heard(N::Event::Moved,3,nullptr));++n) pump(1);
+	for(int n=0;n<200 && !(scummverseRemoteActor(24) && zak->_room==53 && heard(N::Event::Moved,3,nullptr) && !scummverseAppearance(24));++n) pump(1);
+	if (scummverseAppearance(24) || zak->_costume!=zakHome || _scummverseRemoteLookBefore[24]!=police+1) error("Zak's player's own look (none) not shown, his kept: %d %d",scummverseAppearance(24),_scummverseRemoteLookBefore[24]);
 	if (!scummverseRemoteActor(24) || zak->_room!=53 || !heard(N::Event::Moved,3,nullptr) || N::players()!=1)
 		error("Remote player not shown: remote %d room %d heard %d players %d",scummverseRemoteActor(24),zak->_room,heard(N::Event::Moved,3,nullptr),N::players());
 	// The remote character walks where its player walks; locals cannot take it.
@@ -60,6 +66,59 @@
 	request.kind=N::Request::Say; request.text="Hi Zak, welcome!"; N::postRequest(request); pump(1); stopTalk(); VAR(VAR_HAVE_MSG)=0;
 	for(int n=0;n<200 && !heard(N::Event::Said,3,"Hi Zak, welcome!");++n) pump(1);
 	if (!heard(N::Event::Said,3,"Hi Zak, welcome!")) error("Local speech not sent");
+	// (From 0197) The look a player plays: theirs shown here, where this
+	// device has it, without the local player's notice; one it hasn't (a
+	// custom character, the new engine's own): the character itself. Saves
+	// keep the character's own look; the local player's look is sent.
+	{
+		const int ted=C::worldAppearanceKey(C::kWorldManiacLooks,12), crispy=C::worldAppearanceKey(C::kWorldCustomLooks,1);
+		auto looked=[&](int look) { N::Avatar a=avatar(24,53,24,60); a.look=look; return a; };
+		_scummverseWorldNotice.clear();
+		device.setLocal(looked(ted)); for(int n=0;n<100 && scummverseAppearance(24)!=ted;++n) pump(1);
+		if (scummverseAppearance(24)!=ted || zak->_costume!=12 || !_scummverseWorldNotice.empty()) error("Remote look not shown quietly: %d '%s'",scummverseAppearance(24),_scummverseWorldNotice.c_str());
+		scummverseRemoteLooksSaved(true);
+		if (scummverseAppearance(24)!=police || _scummVars[kScummverseAppearanceVar+24]!=police || zak->_costume!=15) error("A save would keep the remote player's look");
+		scummverseRemoteLooksSaved(false);
+		if (scummverseAppearance(24)!=ted || zak->_costume!=12) error("Remote look not back after saving");
+		// A real save and load (this probe's own save folder): the save holds
+		// Zak's own look; loaded, the player's look goes back on.
+		// (The cursor as the game's start sets it: this probe stops the
+		// game's scripts before they do, and a load restores it.)
+		// Saved while Zak walks (his player's last frame on its way): he
+		// goes on there, though his costume changed twice for the save.
+		Common::String file; setBuiltinCursor(0);
+		const int start=zak->getRealPos().x, goal=start>40 ? start-24 : start+24;
+		N::Avatar walking=looked(ted); walking.x=goal; device.setLocal(walking);
+		for(int n=0;n<100 && !zak->_moving;++n) { device.poll(seen); scummverseUpdateRoaming(4); g_system->delayMillis(2); }
+		if (!zak->_moving) error("Remote walk for the save not begun");
+		if (!saveState(98,false,file) || scummverseAppearance(24)!=ted) error("Saving lost the remote look: %d",scummverseAppearance(24));
+		const int reach=zak->adjustXYToBeInBox(goal,60).x; // (where the walk can end)
+		for(int n=0;n<300 && (zak->_moving || zak->getRealPos().x!=reach);++n) pump(1);
+		if (zak->getRealPos().x!=reach || reach==start) error("A save stopped the remote walk: at %d, sent to %d",zak->getRealPos().x,reach);
+		if (!loadState(98,false) || scummverseAppearance(24)!=ted || zak->_costume!=12 || _scummverseRemoteLookBefore[24]!=police+1 || !scummverseRemoteActor(24))
+			error("After loading: look %d, kept %d",scummverseAppearance(24),_scummverseRemoteLookBefore[24]);
+		// One of Monkey Island's people, where that game's characters are
+		// exported here (drawn from their own frames).
+		bool islander=false;
+		for (int costume=1; costume<200 && !islander; ++costume) {
+			const int key=C::worldAppearanceKey(0,costume);
+			if (!C::worldAppearance(key) || C::worldNativeLook(key) || !scummverseCharacterInstalled(0,costume)) continue;
+			device.setLocal(looked(key)); for(int n=0;n<100 && scummverseAppearance(24)!=key;++n) pump(1);
+			if (scummverseAppearance(24)!=key || !_scummverseWorldNotice.empty()) error("Remote Monkey Island look not shown: %d",scummverseAppearance(24));
+			islander=true;
+		}
+		if (!islander) warning("SCUMMVERSE net: no Monkey Island characters exported; that look not checked");
+		device.setLocal(looked(crispy)); pump(20);
+		if (scummverseAppearance(24) || _scummverseRemoteLook[24]!=crispy) error("A look not here not shown as the character itself: %d",scummverseAppearance(24));
+		device.setLocal(looked(0)); pump(20);
+		if (scummverseAppearance(24) || zak->_costume!=zakHome) error("Zak himself again not shown: %d",scummverseAppearance(24));
+		seen.clear();
+		if (!scummverseSetAppearance(3,police)) error("Local look refused");
+		bool sentLook=false; for(int n=0;n<200 && !sentLook;++n) { pump(1); for(const auto &e:seen) sentLook=sentLook || (e.kind==N::Event::Moved && e.avatar.actor==3 && e.avatar.look==police); }
+		if (!sentLook || !scummverseSetAppearance(3,0)) error("The local player's look not sent");
+		_scummverseWorldNotice.clear();
+		warning("SCUMMVERSE net: looks relayed (Ted%s shown, Crispy as Zak, the local player's sent; saved and loaded)",islander?" and a Monkey Island look":"");
+	}
 	// Another room: the remote character moves there without loading it here.
 	device.setLocal(avatar(24,57,30,60)); for(int n=0;n<100 && zak->_room!=57;++n) pump(1);
 	if (zak->_room!=57 || _currentRoom!=53) error("Remote room change failed: %d",zak->_room);
@@ -97,6 +156,7 @@
 	device.close(); for(int n=0;n<200 && scummverseRemoteActor(24);++n) pump(1);
 	if (scummverseRemoteActor(24) || N::players()!=0) error("Departed player not released");
 	if (fromSlot && zak->_room!=53) error("Released character left in another world's slot: room %d",zak->_room);
+	if (scummverseAppearance(24)!=police || zak->_costume!=15 || !scummverseSetAppearance(24,0) || zak->_costume!=zakHome) error("Released character's own look not back: %d",scummverseAppearance(24));
 	// A character nobody plays, left in another world's place out of sight,
 	// goes home after a while.
 	if (fromSlot) {

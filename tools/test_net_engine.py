@@ -3,7 +3,8 @@
 
 The engine hosts; a second session joins as another device controlling Zak.
 Checks remote avatars, walking, room changes, speech both ways, validation and
-release on departure. One process on one machine: not a two-device or iPhone
+release on departure; places in other worlds (0196) and the looks played,
+through a save and a load (0197). One process on one machine: not a two-device or iPhone
 network test.
 """
 import argparse

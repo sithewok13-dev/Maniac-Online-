@@ -5311,3 +5311,42 @@ in Monkey Island vanished from the mansion and was never seen there.
   iPhone network test. The full data suite passed at 0195 (44/44, Story
   mode too).
 
+
+## Patch 0197 — WiFi play: friends see the look you play
+
+0196 left this open: someone playing a look from the character screen
+(Guybrush, Dead Cousin Ted...) was seen on the other devices as the cast
+member they control.
+- Each player's avatar now carries the look played. Each device shows it
+  where it has it (its own catalog, and that game's characters exported
+  there); one it hasn't (a custom character, played only in the new
+  engine; a game not set up there; one of Zak's people where Zak's files
+  aren't there) shows the cast member itself. Shown quietly: no "You are
+  playing..." notice, nor a Zak files notice, on someone else's device.
+  A burst of look changes is tried once (at most every quarter second).
+- Saves keep the characters' own looks, never a friend's: the look is
+  taken off for the save and put back after it (a friend's character
+  walking then goes on walking: a costume change stops a walk). A save
+  loaded during a WiFi game: the friend's look goes back on; loaded as
+  the character a friend plays, it is the local player's again (the
+  friend's frames ignored, as before). When the friend leaves, the
+  character gets back the look it had before they came. (Still as before:
+  after a load, friends' characters stand where the save has them until
+  their players move.)
+- WiFi events not yet handled when a game ends (or another starts) are
+  dropped, so none reaches the next game.
+- Devices of different builds do not join: protocol 2 (the avatar frame
+  is two words longer), build identity 80.
+- An independent review found the save, load and Zak files problems
+  above in the first version; fixed before commit.
+- Tests: test_net.cpp (the look round trips in 32 bits; none above the
+  limit sent or received; relayed from one client through the host to
+  another; ASan/UBSan, TSan); test_net_engine.py over loopback (Zak
+  playing the Meteor Police before his player comes, kept for him; a
+  Maniac look, Dead Cousin Ted, shown without a notice, and a Monkey
+  Island look where exported (it was here); Crispy, not here, as Zak
+  himself; Zak himself again; costumes checked; the local player's look
+  sent; a real save while Zak walks: it holds his own look, he walks on;
+  loading puts the friend's look back; on leaving, the Meteor Police
+  again). One process on one machine: not two devices, not an iPhone
+  network test. Not tested: a device without Zak's files.

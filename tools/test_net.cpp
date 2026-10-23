@@ -76,6 +76,13 @@ static void codec() {
 		std::string hand = world; hand[high] = (char)(room >> 8); hand[low] = (char)(room & 0xFF);
 		assert((decode(hand.data(), hand.size(), g) > 0) == (room == 4130));
 	}
+	// (From 0197: the look played, in 32 bits; none above kMaxLook. It is
+	// the last field: a top byte set by hand is refused on receipt.)
+	Frame l = f; l.avatar.look = 1000 * 1024 + 3 + 1;
+	std::string looked; assert(encode(l, looked) && decode(looked.data(), looked.size(), g) > 0 && g.avatar == l.avatar && g.avatar.look == 1024004);
+	for (int look : {-1, kMaxLook + 1}) { bad = f; bad.avatar.look = look; assert(!encode(bad, none)); }
+	bad = f; bad.avatar.look = kMaxLook; assert(encode(bad, none) && decode(none.data(), none.size(), g) > 0 && g.avatar.look == kMaxLook);
+	std::string top = looked; top[top.size() - 1] = 1; assert(decode(top.data(), top.size(), g) == -1);
 	std::printf("PASS: codec bounds and validation\n");
 }
 
@@ -94,6 +101,11 @@ static void play() {
 	zak.session.setLocal(at(24, 55, 92, 59));
 	assert(pumpUntil({&host, &annie, &zak}, [&] { return zak.has(Event::Moved, 3) && zak.has(Event::Moved, 20) && annie.has(Event::Moved, 24) && host.has(Event::Moved, 24); }));
 	assert(host.session.remoteCount() == 2);
+	// (From 0197) The look played is relayed with the avatar.
+	Avatar costumed = at(24, 55, 92, 59); costumed.look = 1000 * 1024 + 3 + 1;
+	zak.session.setLocal(costumed);
+	auto saw = [&](const Node &n) { for (const auto &e : n.events) if (e.kind == Event::Moved && e.avatar == costumed) return true; return false; };
+	assert(pumpUntil({&host, &annie, &zak}, [&] { return saw(annie) && saw(host); }));
 	// Speech is relayed with the speaker's own character.
 	assert(annie.session.say("Over here!"));
 	assert(pumpUntil({&host, &annie, &zak}, [&] { return host.has(Event::Said, 20, "Over here!") && zak.has(Event::Said, 20, "Over here!"); }));

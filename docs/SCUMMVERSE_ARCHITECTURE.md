@@ -219,6 +219,18 @@ is still claimed for its player but put in room 0 (seen nowhere); a
 released character in room 0 or a world slot goes home to room 53, and
 roaming sends any unplayed cast member out of sight in a world slot home
 too, so slots are only kept by people.
+Since 0197 (protocol 2) an avatar also carries the look played (u32
+catalog appearance key, at most `kMaxLook`). The receiver tries it (at
+most every 15 ticks per character) with `scummverseQuietAppearance` (the
+catalog and export checks of `scummverseSetAppearance`, without the local
+notice; Zak's looks only when Zak is mounted already, never mounting it),
+else the character itself; it keeps the character's earlier look for its
+release, takes the friend's look off around `saveState`
+(`scummverseRemoteLooksSaved`, restarting a walk the costume change
+stopped, to `_scummverseRemoteGoal`) and puts it back after a load
+(`scummverseRemoteLooksLoaded`; a character loaded as the local player's
+is released). `NetBridge::poll`'s pending events are dropped by host, join
+and close.
 
 ## Other worlds (patches 0057..0069)
 
