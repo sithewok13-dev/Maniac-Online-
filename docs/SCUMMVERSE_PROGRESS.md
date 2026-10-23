@@ -5617,3 +5617,39 @@ Two more from the first bug hunt's list.
   place gone kept through a save and a load; the mansion's things as their
   scripts answer, the garage's two taken: 849 records, 0 failed), the cast
   check, test_startup, bootstrap. Not tested on an iPhone.
+
+## Patch 0204 — ways back from dead ends of any depth; small state fixes in the new engine
+
+From the second bug hunt (a second pass over the new engine).
+- The arrow back (0202) was drawn only in a place with no door at all. A
+  place whose doors lead only further in, never back to where the player
+  came from, left them stuck there. Now the arrow is drawn wherever the
+  game's doors (installed ones, those it keeps shut too) cannot lead back
+  to the place come from, nor to a ride, a tram stop or the parked van:
+  reaches(), a search over the game's door map. Deeper in, the arrow still
+  goes back through the door first come through. Leaving the region (a
+  ride, another game) lets it go. The message is now "No way back from
+  here".
+- A tour begun in such a place keeps its way back: the tour's own moves
+  no longer drop it or its saved copy, and the tour's end home brings the
+  arrow back. If the way back cannot be shown (its place gone), the arrow
+  goes and the player stays where they stood, told so.
+- A long press while a door walk was starting cleared the door but not
+  the walk's goal or a door seen opening.
+- Play on a paused tour lets go of a sentence half made while paused.
+- The insides of rides are not places among the wanderers (place() is 0
+  there): nobody is sent to a plane's cabin to stay.
+- Leaving mid-pee (Back, Story mode, the app closing) saves the puddle as
+  big as it got, not full-size.
+- A message told at the place before is gone on entering the next.
+- "Fly the Shuttle Bug" during a tour ends the tour only where the van is;
+  elsewhere the tour goes on with the van's whereabouts told.
+- The tour's speed is remembered (scummverse_tour_speed, as the mansion's
+  tour).
+- Tests: the doors check (every dead-end arrival back by the arrow, every
+  other one from a place further in first; a tap at the other edge may go
+  through a door there, a walk); the tour check (a tour begun past a door
+  with no way back, the arrow back after; a half sentence let go on Play;
+  the van asked for elsewhere, the tour on); the suite's floors raised
+  nearer what the data gives (the mansion's things, pairs, the main power,
+  the chat in every game, no door leading elsewhere).

@@ -1362,10 +1362,12 @@ ten games, everyone equal.
   spots in their own; an arrival door's point off every box goes to the
   nearest group with more than one box or a door, not a lone box.
   Scene::objectAt picks, of two of one size under a tap, the one whose
-  walk-to point is nearer. A place with no way on (no door to an installed
-  place, ride, tram or van: its game leaves it by a script) gets a way back
-  (_wayBack, `scummverse_sandbox_way_back`, let go once elsewhere, not
-  written while touring): backSign() draws an arrow at the place's left,
+  walk-to point is nearer. A place with no way back (from 0204:
+  reaches(), a search of the game's door map from it, finds neither the
+  place come from nor a ride, tram stop or the parked van; its game leaves
+  it by a script) gets a way back (_wayBack, `scummverse_sandbox_way_back`,
+  kept while further in, let go once out; a tour keeps it in
+  _touring.homeWay and does not write it): backSign() draws an arrow at the place's left,
   mid-height (a white triangle on the place darkened), and a tap on it goes
   back through the door they came by. spreadOthers() puts everyone but the
   one played in their group; keepOthersNear() (from placePlayer and the

@@ -315,8 +315,9 @@ if __name__ == '__main__':
         d = re.search(r'selftest doors: (\d+) tried, (\d+) through .*?(\d+) elsewhere, (\d+) short.*?(\d+) with no spot a tap finds them, (\d+) from as near', output)
         # (Some doors only from as near as the walk allows, not most; from 0194
         # every door a tap finds walked to: one in a hundred short at most.)
+        # (From 0204 none elsewhere: each door to its own place.)
         if not d or (int(d.group(2)) + int(d.group(3))) * 100 < int(d.group(1)) * 99 or not 0 < int(d.group(6)) * 10 < int(d.group(1)) \
-                or int(d.group(4)) * 100 > int(d.group(1)):
+                or int(d.group(4)) * 100 > int(d.group(1)) or d.group(3) != '0':
             raise SystemExit('FAIL: doors\n' + output[-2000:])
         # (The mansion's doors open as one goes through, where its game opens
         # them; the door back stands open.)
@@ -330,11 +331,13 @@ if __name__ == '__main__':
         print(f'PASS: through the doors of every place (tapped where a tap finds them, walked to, gone through): {d.group(2)} of {d.group(1)} through, '
               f'{d.group(3)} elsewhere, {d.group(4)} short ({d.group(6)} from as near as the walk boxes allow); {d.group(5)} with no spot of their own')
         # (From 0202) A place with no way on (its game leaves it by a script):
-        # a tap at its edge back the way they came, every time.
-        b = re.search(r'doors with no way on: (\d+) arrived at, (\d+) back by a tap on the arrow at the left', output)
-        if not b or b.group(1) != b.group(2):
+        # a tap at its edge back the way they came, every time. (From 0204 any
+        # place with no way back to where they came from, however far in: from
+        # a place further in too, back to the door first come through.)
+        b = re.search(r'doors with no way on: (\d+) arrived at, (\d+) back by a tap on the arrow at the left \((\d+) of (\d+) from a place further in\)', output)
+        if not b or b.group(1) != b.group(2) or b.group(3) != b.group(4) or (int(b.group(1)) > 8 and b.group(4) == '0'):
             raise SystemExit('FAIL: no way back from a place with no way on\n' + output[-2000:])
-        print(f'PASS: {b.group(1)} arrivals at places with no way on, each back the way they came by a tap on the arrow drawn at the left (a tap at the other edge walks)')
+        print(f'PASS: {b.group(1)} arrivals at places with no way back, each back the way they came by a tap on the arrow drawn at the left (a tap at the other edge walks); {b.group(3)} of them from a place further in')
         # (From 0202) The other games' switched doors (Monkey Island's, Indy 3's):
         # gone through open, the door back open too.
         sw = re.search(r'doors switched: (\d+) gone through open, (\d+) with the door back open', output)
@@ -382,7 +385,7 @@ if __name__ == '__main__':
         # (From 0195: the circuit breakers off, where the mansion's own room
         # scripts leave it dark then, dark; on again, lit.)
         power = re.search(r'the main power off in (\d+) places and on again', output)
-        if (worlds/'maniac-1.svw').exists() and (not power or int(power.group(1)) < 5):
+        if (worlds/'maniac-1.svw').exists() and (not power or int(power.group(1)) < 25):
             raise SystemExit('FAIL: the mansion\'s main power\n' + output[-2000:])
         if power and int(power.group(1)):
             print(f'PASS: the mansion\'s main power: the fuse box opened, the circuit breakers off, {power.group(1)} places dark as its own scripts leave them (a lamp turned on there dark still), the rest lit; on again, all lit')
@@ -391,7 +394,7 @@ if __name__ == '__main__':
         # (From 0170: Use, a thing carried, a thing here: two things, in each
         # game with the panel under the scene.)
         pairs = re.search(r'selftest pairs: (\d+) games used a thing carried with a thing here; (\d+) of the mansion\'s own as its scripts answer \((\d+) not tried; (\d+) as found\); (\d+) gave one to someone', output)
-        if not pairs or int(pairs.group(1)) < 5 or ((worlds/'maniac-1.svw').exists() and (int(pairs.group(2)) < 80 or pairs.group(4) != '3')) or int(pairs.group(5)) < 1:
+        if not pairs or int(pairs.group(1)) < 5 or ((worlds/'maniac-1.svw').exists() and (int(pairs.group(2)) < 95 or pairs.group(4) != '3')) or int(pairs.group(5)) < 1:
             raise SystemExit('FAIL: two things (Use, a thing carried, a thing here; the mansion\'s own)\n' + output[-2000:])
         print(f'PASS: two things: in {pairs.group(1)} games Use, a thing carried ("Use it with", the verb still lit), then a thing here (walked to, the plain answer); a tap on the floor lets go; {pairs.group(2)} of the mansion\'s own answers (Use, Unlock, Fix with a thing carried) as its scripts give them ({pairs.group(3)} not tried); as found, from the picture the place shows: the paint remover on the blotch, the trunk\'s key, the coin box\'s key ({pairs.group(4)}); given to someone here, walked up to, they answer ({pairs.group(5)} games)')
         # (From 0155: the mansion's things as their own scripts answer, from
@@ -400,7 +403,10 @@ if __name__ == '__main__':
         effects = re.search(r"selftest effects: (\d+) as the mansion's own scripts answer \((\d+) away, (\d+) taken, (\d+) read carried, (\d+) left to the plain rules; (\d+) inside others; (\d+) taken whose pictures are the same\)", output)
         # (From 0203 the garage's two (room 16, their export's pictures the
         # same) are taken as their game gives them.)
-        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 600 or int(effects.group(3)) < 10 or int(effects.group(4)) < 3 or effects.group(6) != '4'
+        # (From 0204 nearer what the mansion gives: 849 answered, 74 away, 63
+        # to the plain rules when pinned.)
+        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 840 or int(effects.group(2)) > 80 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
+                                                 or int(effects.group(5)) > 70 or effects.group(6) != '4'
                                                  or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '2')):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if effects:
@@ -409,8 +415,9 @@ if __name__ == '__main__':
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)
         places = int(re.search(r'selftest talk: (\d+) places', output).group(1))
-        if places < 2:
-            raise SystemExit(f'FAIL: chat tried in {places} places')
+        games = {f.name.split('-')[0] for f in worlds.glob('*.svw')}
+        if places < 2 or places < len(games):
+            raise SystemExit(f'FAIL: chat tried in {places} places ({len(games)} games)')
         # (The mansion's rooms go to the chat by their own numbers.)
         if any(worlds.glob('maniac-*.svw')) and "Maniac's rooms seen" not in output:
             raise SystemExit('FAIL: chat not tried in the mansion')
@@ -503,6 +510,14 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: tour: {unreached} doors not reached, {across} from as near as the walk allows, for {foot} on foot')
         print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached, '
               f'{across} through from as near as the walk boxes allow); its controls; back where it began')
+        # (From 0204) Begun past a door with no way back: the arrow back again
+        # once it ends; a sentence half made while paused let go on Play; the
+        # van asked for where it isn't, the tour on.
+        wk = re.search(r'tour way back: (\d+) kept through a tour \((\d+) a half sentence let go on Play, (\d+) the van asked for elsewhere and the tour on\)', output)
+        if not wk or (int(b.group(1)) and wk.group(1) != '1') or (wk.group(1) == '1' and (wk.group(2) != '1' or wk.group(3) != '1')):
+            raise SystemExit('FAIL: tour: the way back, Play, the van\n' + output[-2000:])
+        if wk.group(1) == '1':
+            print('PASS: tour begun past a door with no way back: the arrow back there again once it ends; a half sentence let go on Play; the van asked for where it isn\'t, the tour going on')
         # The rides: The Dig's tram, every line both ways (when The Dig is
         # there); Zak's (when Zak is), each part on its own.
         cars = len(list(worlds.glob('dig-*-car.svw')))
