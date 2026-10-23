@@ -1244,14 +1244,61 @@ one palette) apply.
   stage's light(actor, on, played) shows the lighting-up frames while it
   stands, then the lit poses; the sandbox's L key (lightKey) toggles it for
   the one played, kept through places by _litKey while the same one plays.
+  Moves (0200, Sith Ewok 3, costume 11): poses 8..12 drawn from the side
+  only (grab: taken from the belt to the paws by the Force; stow: put away
+  by hand; swing; zap and lit zap: force lightning from both paws, or the
+  free one). Stage: light() plays grab then the ignite frames from their
+  second (put away: back to their second, then stow), act(actor, kind,
+  ticks) a move standing for at least `ticks` (a walk ends it; it ends a
+  walk), acting, canAct. Sandbox (canMove: lights something and has swing
+  and zap frames): pressKey L once (no second within kTapWindow, 20 ticks)
+  takes it up or puts it away, L twice swings (not lit: takes it up), F
+  lightning (kZapTicks, 90); move() stops a walk first (the one played's
+  goal let go) and refuses seated, posed, hidden, touring, at a door. Not
+  played (left among the wanderers by another custom one played): a show
+  now and then (showOffStep: every kShowOffEvery, 10800 ticks, plus up to
+  a third; only standing within half a screen of the one played, not
+  following or talking; the saber taken up, swung once or twice, put away,
+  or lightning). After a move (put away and a show's single moves aside)
+  heckleStep, half the time: the nearest within half a screen heckles and
+  he answers back as the heckle has been shown. Each line is asked of the
+  chat's model by Phone::remark (scummverseAIRemark: the runtime's remark
+  job, the event in the game's words, the speaker's personality, polled
+  as a greeting by Phone::remarkPoll; refused during a conversation or
+  while another is out), given kHeckleWait (240 ticks), else a written
+  line (kHeckle*, kRetort, kEwokese, newly written). Text only: nobody
+  else moves for it.
+  Crispy 2's pee (0200): pose 13 (kGuestPee, side frames: his far hind leg
+  lifted, then a stream in a loop), played by act like a move; P for the
+  one played (pee: a walk stopped first, the same refusals as a move); not
+  played, peeStep every kPeeEvery (7200 ticks) plus up to as much again,
+  walking first to the nearest door's or thing's spot within a third of a
+  screen. The puddle lands where kWorldCustomArt's markX/markWidth say
+  (art pixels from the feet facing right; CUSTOM_MARKS in the generator),
+  placed by the stage's artPoint (mirrored facing left, as big as the art
+  is drawn there). Stage marks (Scene::addMark; StageBridge::addMark):
+  drawn after the place and before everyone and the props (so pieces of
+  the place in front still cover them), not in the dark; spreading for its
+  `grow` ticks, a puddle kPuddleTicks (1200) more while drying smaller,
+  then a stain (the floor tinted); at most kMarks (12), the oldest let go;
+  cleared with the place; busy() while one spreads or dries; endMark stops
+  one spreading (a pee cut short: as big as it got; before the leg is up,
+  gone). The sandbox keeps every place's stains (_stains; StageBridge::kMarks
+  a place; those made this run with when, by _clock, so a place entered
+  again shows them drying on) and shows them on entering (showStains);
+  saved at once and in "SVS3" after the things carried. Scene::face leaves
+  anyone in a move or lighting up as they are (a talker faced mid-move does
+  not turn them), and placeOf draws side-only frames from the side last
+  faced when posed facing the viewer. The waits for a show or a pee on his
+  own begin again while no one who could is here (played, or gone).
 - `engines/scummverse/sandbox.cpp`: the screen is the device's own pixels
   held sideways (at most 1440 rows; 1280x720 where the backend reports fewer
   than 720; `scummverse_screen` overrides), in the stage's own 32-bit format
   or the richest the backend offers (converted with crossBlit). It starts
   where the player was (`scummverse-sandbox.state` in the saves, written at
   each room, every half minute, on leaving and after each verb; "SVS2" adds
-  the objects shown in another picture and the things carried, "SVS1" is
-  still read; `scummverse_place` wins),
+  the objects shown in another picture and the things carried, "SVS3"
+  (0200) the stains on the floor, "SVS1" and "SVS2" are still read; `scummverse_place` wins),
   else in `scummverse_place` or the first named
   place installed, playing that game's lead (kWorldLeads) in every game. A
   tap walks there (with the game's panel: a verb chosen first is used on the

@@ -837,6 +837,129 @@ int main() {
 		assert(at(cx, y - 38) == 0xFF000000u + (50u << 16) + (50u << 8) + 205u && at(cx, y - 33) == spriteColor(50) && at(cx, y - 10) == Scene::kDarkColor);
 		place.setDark(false);
 	}
+	// (From 0200) Taken up first and put away after (Sith Ewok 3: a force
+	// grab, then the ignite frames from their second; the ignite frames back
+	// to their second, then stowed), seen from the side; not turned back
+	// halfway. Moves (a swing lit, force lightning): their frames in turn
+	// standing, the lightning's last ones but the first again till its
+	// time; walking ends them; a walk ends for one; seen from the side when
+	// facing the viewer; none for those without frames for them. Posed lit
+	// and seated: seated (no move or grab frame).
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto at = [&](int x, int y) { place.render(shown.data(), 320); return shown[(size_t)y * 320 + x]; };
+		auto colour = [&](int n) { return at(x0n(place, n), (int)place.actor(n).at.y - 10); };
+		std::vector<Frame> frames = {{1, World::kGuestStand, 0, -10, -40, 20, 40, 30}, {2, World::kGuestStand, 0, -10, -40, 20, 40, 29},
+			{1, World::kGuestWalk, 0, -10, -40, 20, 40, 31}, {1, World::kGuestLitStand, 0, -10, -40, 20, 40, 50}, {1, World::kGuestLitWalk, 0, -10, -40, 20, 40, 51}};
+		for (int i = 0; i < 3; ++i) frames.push_back({1, World::kGuestIgnite, i, -10, -40, 20, 40, (uint8_t)(40 + i)});
+		for (int i = 0; i < 2; ++i) frames.push_back({1, World::kGuestGrab, i, -10, -40, 20, 40, (uint8_t)(60 + i)});
+		for (int i = 0; i < 2; ++i) frames.push_back({1, World::kGuestStow, i, -10, -40, 20, 40, (uint8_t)(70 + i)});
+		for (int i = 0; i < 3; ++i) frames.push_back({1, World::kGuestSwing, i, -10, -40, 20, 40, (uint8_t)(80 + i)});
+		for (int i = 0; i < 3; ++i) frames.push_back({1, World::kGuestZap, i, -10, -40, 20, 40, (uint8_t)(90 + i)});
+		for (int i = 0; i < 2; ++i) frames.push_back({1, World::kGuestLitZap, i, -10, -40, 20, 40, (uint8_t)(95 + i)});
+		const std::vector<uint8_t> bytes = spriteBytes(frames), plainOne = spriteBytes({{2, 0, 0, -10, -40, 20, 40, 33}});
+		const int n = place.addActor(bytes.data(), bytes.size(), 1, 1.0, error), other = place.addActor(plainOne.data(), plainOne.size(), 1, 1.0, error);
+		place.place(n, {160, 180}); place.place(other, {40, 180});
+		assert(place.actor(n).dir == World::kGuestFront && colour(n) == spriteColor(29));
+		// Taken up: from the front, seen from the side; grabbed, then lit from
+		// the ignite frames' second.
+		assert(place.light(n, true) && place.actor(n).dir == World::kGuestRight && place.shownKind(n) == World::kGuestGrab && colour(n) == spriteColor(60));
+		assert(!place.light(n, false) && place.actor(n).lit); // (not turned back halfway)
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(61));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestIgnite && colour(n) == spriteColor(41));
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(42));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestLitStand && colour(n) == spriteColor(50) && place.actor(n).switching == 0);
+		// A swing: its frames in turn, then lit standing again.
+		assert(place.canAct(n, World::kGuestSwing) && !place.canAct(other, World::kGuestSwing) && !place.canAct(n, World::kGuestIgnite) && !place.canAct(9, World::kGuestSwing));
+		assert(!place.act(other, World::kGuestZap) && !place.acting(other));
+		assert(place.act(n, World::kGuestSwing) && place.acting(n) && place.shownKind(n) == World::kGuestSwing && colour(n) == spriteColor(80));
+		place.update(kActTicks); assert(colour(n) == spriteColor(81));
+		place.update(kActTicks); assert(colour(n) == spriteColor(82));
+		place.update(kActTicks); assert(!place.acting(n) && place.shownKind(n) == World::kGuestLitStand);
+		// Lightning lit: its two frames, the last again till its time.
+		assert(place.act(n, World::kGuestLitZap, 4 * kActTicks) && colour(n) == spriteColor(95));
+		place.update(kActTicks); assert(colour(n) == spriteColor(96));
+		place.update(kActTicks); assert(colour(n) == spriteColor(96));
+		place.update(2 * kActTicks); assert(!place.acting(n) && place.shownKind(n) == World::kGuestLitStand);
+		// Put away: the ignite frames back to their second, then stowed.
+		assert(place.light(n, false) && colour(n) == spriteColor(42));
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(41));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestStow && colour(n) == spriteColor(70));
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(71));
+		place.update(kIgniteTicks); assert(place.shownKind(n) == World::kGuestStand && colour(n) == spriteColor(30) && !place.actor(n).lit);
+		// Lightning without it: the wind-up, then the rest in a loop.
+		assert(place.act(n, World::kGuestZap, 6 * kActTicks) && colour(n) == spriteColor(90));
+		place.update(kActTicks); assert(colour(n) == spriteColor(91));
+		place.update(kActTicks); assert(colour(n) == spriteColor(92));
+		place.update(kActTicks); assert(colour(n) == spriteColor(91));
+		place.update(kActTicks); assert(colour(n) == spriteColor(92));
+		place.update(2 * kActTicks); assert(!place.acting(n) && place.shownKind(n) == World::kGuestStand);
+		// Walking ends a move; a move ends a walk.
+		assert(place.act(n, World::kGuestZap, 100));
+		place.walkTo(n, {60, 180}); place.update(1);
+		assert(!place.acting(n) && place.actor(n).moving && place.shownKind(n) != World::kGuestZap);
+		assert(place.act(n, World::kGuestZap, 100) && !place.actor(n).moving && place.acting(n));
+		place.update(200); assert(!place.acting(n));
+		// (A move facing the viewer: from the side, the last one faced.)
+		place.face(n, {160, 250});
+		assert(place.actor(n).dir == World::kGuestFront && place.act(n, World::kGuestZap) && place.actor(n).dir == World::kGuestLeft);
+		place.update(100);
+		// (Lit at once, not played: not turned to a side.)
+		place.face(n, {160, 250});
+		assert(place.light(n, true, false) && place.actor(n).dir == World::kGuestFront && place.light(n, false, false));
+		// (Posed lit and seated: seated, else standing; never a grab.)
+		assert(place.light(n, true, false));
+		place.pose(n, World::kGuestRight, World::kGuestSeated, 0);
+		assert(place.shownKind(n) != World::kGuestGrab && place.shownKind(n) != World::kGuestStow);
+		place.unpose(n);
+	}
+	// (Not turned during a move, a grab or a stow (a talker faced); posed
+	// facing the viewer in its own pose meanwhile (a photo): still seen from
+	// the side last faced, not the other side's frames nor the front's
+	// ignite frames.)
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto colour = [&](int n) { place.render(shown.data(), 320); return shown[(size_t)((int)place.actor(n).at.y - 10) * 320 + x0n(place, n)]; };
+		std::vector<Frame> frames;
+		for (int dir = 0; dir < 3; ++dir) {
+			frames.push_back({dir, World::kGuestStand, 0, -10, -40, 20, 40, (uint8_t)(10 + dir)});
+			frames.push_back({dir, World::kGuestLitStand, 0, -10, -40, 20, 40, (uint8_t)(20 + dir)});
+			for (int i = 0; i < 2; ++i) frames.push_back({dir, World::kGuestIgnite, i, -10, -40, 20, 40, (uint8_t)(30 + dir * 2 + i)});
+		}
+		for (int dir = 0; dir < 2; ++dir) {
+			frames.push_back({dir, World::kGuestZap, 0, -10, -40, 20, 40, (uint8_t)(50 + dir)});
+			frames.push_back({dir, World::kGuestGrab, 0, -10, -40, 20, 40, (uint8_t)(60 + dir)});
+		}
+		const std::vector<uint8_t> bytes = spriteBytes(frames);
+		const int n = place.addActor(bytes.data(), bytes.size(), 1, 1.0, error);
+		place.place(n, {160, 180});
+		place.face(n, {0, 180});
+		assert(place.act(n, World::kGuestZap, 50) && colour(n) == spriteColor(50));
+		place.face(n, {300, 180}); place.face(n, {160, 260});
+		assert(place.actor(n).dir == World::kGuestLeft && colour(n) == spriteColor(50));
+		place.pose(n, World::kGuestFront, -1, 0);
+		assert(colour(n) == spriteColor(50));
+		place.unpose(n);
+		place.update(60);
+		place.face(n, {0, 180}); place.update(1);
+		assert(place.light(n, true) && colour(n) == spriteColor(60));
+		place.face(n, {160, 260}); place.face(n, {300, 180});
+		assert(colour(n) == spriteColor(60) && place.actor(n).dir == World::kGuestLeft);
+		place.pose(n, World::kGuestFront, -1, 0);
+		assert(colour(n) == spriteColor(60));
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(31)); // (the left's second ignite frame, not the front's)
+		place.unpose(n);
+		place.update(kIgniteTicks); assert(colour(n) == spriteColor(20)); // (then lit, still facing left)
+	}
+	std::puts("PASS: taken up first and put away after (a grab, then lit from the ignite frames' second; back to their second, then stowed; from the side; not turned back halfway; not turned at once); moves (a swing, lightning lit and not, its loop, walking ends them, a move ends a walk, from the side, kept to the side last faced when turned to the viewer); posed lit and seated, seated");
 	// (The bridge: busy while lighting up, so the frames are drawn.)
 	{
 		const std::vector<uint8_t> plain(320 * 200, 9);
@@ -854,5 +977,76 @@ int main() {
 		assert(StageBridge::light(n, false, true) && StageBridge::busy() && !StageBridge::lit(n));
 	}
 	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, turned back halfway, walking ends them; lit talking as lit standing; none without ignite frames; busy while lighting); a glow's light added, a lit blade in the dark");
+	// (From 0200) A leg lifted (Crispy 2's pee), from the side. Art points:
+	// art pixels from the feet in the place, mirrored facing left, as big as
+	// drawn there. Marks on the floor: a puddle spreading (yellow over the
+	// floor), drying to a stain (the floor tinted), under everyone, not in
+	// the dark, the oldest let go past kMarks, gone with the place; the
+	// bridge busy while one spreads or dries.
+	{
+		const std::vector<uint8_t> plain(320 * 200, 9);
+		const std::vector<uint8_t> d = sceneBytes(320, 200, plain, {box(0, 100, 320, 190)});
+		Scene place;
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> shown(320 * 200);
+		auto at = [&](int x, int y) { place.render(shown.data(), 320); return shown[(size_t)y * 320 + x]; };
+		auto red = [](uint32_t c) { return (int)((c >> 16) & 255); };
+		std::vector<Frame> frames = {{1, World::kGuestStand, 0, -10, -40, 20, 40, 30}, {0, World::kGuestStand, 0, -10, -40, 20, 40, 31}};
+		for (int i = 0; i < 3; ++i) frames.push_back({1, World::kGuestPee, i, -10, -40, 20, 40, (uint8_t)(100 + i)});
+		const std::vector<uint8_t> bytes = spriteBytes(frames);
+		const int n = place.addActor(bytes.data(), bytes.size(), 1, 1.0, error);
+		place.place(n, {160, 180});
+		const auto colour = [&]() { return at(x0n(place, n), (int)place.actor(n).at.y - 10); };
+		assert(place.canAct(n, World::kGuestPee) && place.act(n, World::kGuestPee, 6 * kActTicks) && place.shownKind(n) == World::kGuestPee && colour() == spriteColor(100));
+		place.update(kActTicks); assert(colour() == spriteColor(101));
+		place.update(kActTicks); assert(colour() == spriteColor(102));
+		place.update(kActTicks); assert(colour() == spriteColor(101));
+		place.update(3 * kActTicks); assert(!place.acting(n) && place.shownKind(n) == World::kGuestStand);
+		Point p;
+		double per;
+		place.face(n, {300, 180});
+		assert(place.artPoint(n, -8, -2, p, per) && near(per, 1) && near(p.x, 152) && near(p.y, 178));
+		place.face(n, {0, 180});
+		assert(place.artPoint(n, -8, 0, p, per) && near(p.x, 168) && !place.artPoint(5, 0, 0, p, per));
+		// A puddle: small at first, spreading, yellow over the floor.
+		const uint32_t floor = sceneColor(9);
+		place.addMark({100, 150}, 20, 0, 60);
+		assert(place.drying() && at(100, 150) != floor && red(at(100, 150)) > 120 && at(106, 150) == floor);
+		place.update(30);
+		assert(red(at(106, 150)) > 120 && at(100, 140) == floor);
+		// Dried: a stain, smaller, the floor tinted.
+		place.update(30 + kPuddleTicks);
+		assert(!place.drying() && at(100, 150) != floor && red(at(100, 150)) > 30 && red(at(100, 150)) < 70 && at(109, 150) == floor);
+		// Not yet there while its age is below 0.
+		place.addMark({200, 150}, 20, -5, 10);
+		assert(at(200, 150) == floor);
+		place.update(5); assert(at(200, 150) != floor);
+		// Cut short: as big as it got, drying from then; not yet there, gone;
+		// none there, -1.
+		place.addMark({260, 150}, 20, 0, 100);
+		place.update(10);
+		const double cut = place.endMark({260, 150});
+		assert(near(cut, 20 * (0.3 + 0.7 * 0.2)) && place.mark(place.markCount() - 1).grow == 10 && place.drying());
+		place.addMark({280, 150}, 20, -5, 100);
+		const int before = place.markCount();
+		assert(place.endMark({280, 150}) == 0 && place.markCount() == before - 1 && place.endMark({1, 1}) == -1);
+		// Under everyone; not in the dark.
+		place.place(n, {100, 152});
+		assert(at(100, 150) == spriteColor(31));
+		place.setDark(true); assert(at(200, 150) == 0xFF000000u); place.setDark(false);
+		// The oldest let go past kMarks; gone with the place.
+		for (int i = 0; i < kMarks; ++i) place.addMark({20.0 + i * 20, 120}, 10, 1 << 20, 0);
+		assert(place.markCount() == kMarks && place.mark(0).at.y == 120);
+		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.markCount() == 0);
+		// (The bridge: busy while one spreads or dries; its marks read back.)
+		char problem[128];
+		assert(StageBridge::load(d.data(), d.size(), 1.0, 320, 320, 200, problem, sizeof(problem)) && !StageBridge::busy() && StageBridge::markCount() == 0);
+		StageBridge::addMark(50, 150, 12, -3, 20);
+		double mx, my, mw;
+		int age, grow;
+		assert(StageBridge::busy() && StageBridge::mark(0, mx, my, mw, age, grow) && mx == 50 && my == 150 && mw == 12 && age == -3 && grow == 20 && !StageBridge::mark(1, mx, my, mw, age, grow));
+		StageBridge::update(23 + kPuddleTicks); assert(!StageBridge::busy());
+	}
+	std::puts("PASS: a leg lifted (from the side, its frames in turn); art points in the place (mirrored facing left); marks on the floor (a puddle spreading, drying to a stain, under everyone, not in the dark, the oldest let go, gone with the place; busy while drying)");
 	return 0;
 }

@@ -427,6 +427,25 @@ if __name__ == '__main__':
         if not c or int(c.group(1)) < 1 or not 0.2 <= float(c.group(2)) <= 0.45 or c.group(3) != '1' or int(c.group(4)) < 1:
             raise SystemExit('FAIL: custom characters\n' + output[-2000:])
         print(f'PASS: custom characters: {c.group(1)} in their own box (Crispy first), played where the player is, {c.group(2)} of a person tall; among the wanderers, the one before left beside them; {c.group(4)} lit what they carry at L (the others nothing)')
+        # Sith Ewok 3's moves (0200): L once a force grab (after the wait for
+        # a second), L twice a swing, F force lightning, L once put away (a
+        # walk stopped first); heckled and answered (written lines, a stand-in
+        # model's, written when it is slow); not played, a show near the one
+        # played now and then, none far away or walking. Crispy 2's pee: P
+        # (a walk stopped), a puddle behind him either way he faces, dried to
+        # a stain, kept (back again, saved and read back, 12 a place at most);
+        # not played, on his own.
+        output = sandbox(exe, worlds, 'moves', shots, tmp)
+        m = re.search(r"selftest moves: (\d+) keys, (\d+) walks stopped, (\d+) heckled in written lines \((\d+) answered, (\d+) in Ewokese\), "
+                      r"(\d+) with the model's lines, (\d+) written when it is slow, 1 waiting for others, (\d+) shows \((\d+) saber, (\d+) lightning\), (\d+) held far away or walking; "
+                      r"Crispy 2: (\d+) pees .*?, (\d+) stains kept .*?, (\d+) on his own, 4 cut short.*?, 0 failed", output)
+        if not m or int(m.group(1)) != 6 or int(m.group(3)) < 1 or int(m.group(4)) < 1 or int(m.group(6)) < 1 or int(m.group(7)) < 1 or int(m.group(9)) < 1 or int(m.group(10)) < 1 \
+                or int(m.group(12)) != 2 or int(m.group(13)) != 3 or int(m.group(14)) != 1:
+            raise SystemExit('FAIL: moves\n' + output[-2000:])
+        print(f'PASS: Sith Ewok 3: {m.group(1)} keys (force grab, swing, lightning lit and not, put away by hand; {m.group(2)} walks stopped first); '
+              f'heckled and answered (written, the model\'s, written when it is slow); {m.group(8)} shows not played ({m.group(9)} saber, {m.group(10)} lightning), held far away or walking; '
+              f'Crispy 2: P (a walk stopped, a puddle behind him either way, dried to a stain), stains kept (back again, saved and read back, 12 at most), on his own; '
+              f'cut short (as big as it got; none before his leg was up), drying on when entered again, his while begun again when played')
         # The camera (a stand-in for the iPhone's Photos): photos of the scene
         # and of the screen, a selfie of three, held still while asked.
         output = sandbox(exe, worlds, 'camera', shots, tmp)

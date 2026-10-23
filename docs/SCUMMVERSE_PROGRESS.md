@@ -5419,3 +5419,65 @@ till they fit: "The camel is supposed to look too big for the seat."
   whole sandbox check passed). A picture of the cabin with the camel was
   looked at on the desktop. Not tested on an iPhone.
 
+
+## Patch 0200 — Sith Ewok 3, Crispy 2 pees, Suzy 4
+
+User (2026-10-23): a new Sith Ewok whose lightsaber comes to his paw by the
+Force (as in the video they sent), who swings it and shoots force lightning,
+and who answers anyone who mocks him; Crispy 2 lifting his leg to pee at P,
+the puddle drying to a stain; a Suzy 4 looking straight ahead.
+- Sith Ewok 3 (a new custom character; Sith Ewok 2 unchanged): Sith Ewok 2
+  with moves drawn from the side by an artist panel. Played: L once (after a
+  third of a second without a second L) a force grab (his paw out, the hilt
+  flying off his belt into it, both paws, the blade out), or with it lit,
+  put away by hand; L twice a swing right then left with glowing trails
+  (not lit: just taken up); F blue-white force lightning for a second and a
+  half, from both paws, or the free one with it lit. Walking, a key stops
+  him first (at the first L). Not played (left in a place by playing
+  another custom character), now and then (every three to four minutes,
+  only standing near the one played, not following or talking) a show: the
+  saber taken up, swung once or twice, put away; or lightning into the air.
+  After a move, half the time, whoever is nearest heckles him and he
+  answers back (now and then in angry Ewokese); text only, no one else
+  moves. With the iPhone's model in use the lines are its own, in each
+  one's personality (his the user's approved one); without it, while a
+  chat is open, or when it is slow (four seconds), written lines. A heckle
+  waits for anyone else's line to end, and is let go if they talk on.
+- Crispy 2: P lifts his far hind leg (mirrored facing left, so always the
+  far one) for three seconds, from the side; walking, he stops first. A
+  small puddle where the stream lands, spreading while he pees, drying over
+  twenty seconds to a stain; each place keeps its stains (twelve at most,
+  the oldest let go), saved with the sandbox's state (SVS3) and so kept
+  after quitting. Not played, now and then (every two to four minutes) he
+  walks to a door or thing nearby and does the same.
+- Suzy 4 (a new custom character; Suzy 3 unchanged): Suzy 3 facing the
+  viewer squarely and looking straight ahead, her smile as the user called
+  perfect, the chin and neck as the user corrected them, by an artist panel
+  from Suzy 3 and her photo (not kept).
+- Custom characters left in a place (another custom one played) stay only
+  until the place changes; they do not roam as the wanderers do.
+- Two independent reviews found, in the first versions: a move or a pee
+  turned to the other side by a talker faced mid-move (the puddle left
+  under his head), a lit Sith Ewok 3 arriving in a new place turned to the
+  right, the first L not stopping a walk at once (a door gone through
+  meanwhile), heckles said over others' lines, a walk's sentence left
+  shown, a pee cut short still spreading a full puddle, the waits for a
+  show or a pee on his own running down while he was played (then at once
+  once left), a stain not saved at once, a dog peeing mid-conversation
+  after his walk, a fresh puddle shown dry on coming back, and the
+  generator not making the include it claims to. All fixed before commit,
+  each with a check.
+- Tests: test_stage.cpp (the moves and the leg lifted from the side, kept
+  to the side last faced, not turned mid-move; art points; marks spreading,
+  drying, cut short, under everyone, not in the dark, the oldest let go;
+  ASan/UBSan); test_talk_runtime.py (the model's remark job, refused during
+  a conversation and while one is out; ASan, TSan); test_sandbox_engine.py
+  (a new moves check: the keys, walks stopped, heckles written, the
+  stand-in model's and slow, waiting for others, shows near and not far or
+  walking; Crispy 2's pee both ways, stains back again, saved and read
+  back, at most twelve, on his own, cut short, entered again; 11 custom
+  characters on the character screen; the whole sandbox check passed);
+  test_custom_characters.py (new: the include is what the generator
+  writes); startup, bootstrap, package_ipa. Pictures of each looked at on
+  the desktop. The model's own heckles were tested only with a stand-in on
+  the desktop (no model weights here). Not tested on an iPhone.

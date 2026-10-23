@@ -21,7 +21,8 @@ template <class Abort> bool scummverseTestLoad(const std::string &path, Abort ab
 	return path == "fake" && waitOrAbort(loadDelayMs, aborted);
 }
 template <class Lines, class Abort>
-std::string scummverseTestGenerate(int actor, const std::string &question, const Lines &prior, Abort aborted) {
+std::string scummverseTestGenerate(int actor, const std::string &question, const Lines &prior, const std::string &event, Abort aborted) {
+	if (!event.empty()) return "Remark" + std::to_string(actor) + ": " + event; // A line about what just happened.
 	if (question.empty()) { // Ambient encounter line.
 		if (ambientBlocks) { while (!aborted()) std::this_thread::sleep_for(std::chrono::milliseconds(1)); ++ambientAborts; return ""; }
 		return "Ambient hello.";
@@ -141,5 +142,18 @@ int main() {
 	assert(r.sendTalk("Again"));
 	assert(waitFor([&] { return !r.waitingForTalk(); }));
 	assert(dump(r).find("27:Reply27 to Ahoy.|0:Again|27:Reply27 to Again.|") != std::string::npos);
-	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation\n";
+
+	// 10. A remark (0200: heckled, answered back): the line about what just
+	// happened, by the one asked, polled as a greeting; none during a
+	// conversation, without words, or while one is out.
+	assert(!r.remark(9, 7, 3, "He swung it.")); // (still talking with 27)
+	r.endTalk();
+	assert(!r.remark(9, 7, 3, ""));
+	assert(r.remark(9, 7, 3, "Sith Ewok 3 just swung his lightsaber around."));
+	assert(!r.remark(10, 7, 3, "Another."));
+	assert(waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }));
+	assert(actor == 9 && room == 7 && std::string(text) == "Remark9: Sith Ewok 3 just swung his lightsaber around.");
+	assert(r.remark(10, 7, 3, "Another."));
+	assert(waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }) && actor == 10);
+	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks\n";
 }
