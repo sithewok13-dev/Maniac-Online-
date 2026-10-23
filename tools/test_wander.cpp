@@ -1,6 +1,7 @@
 // Wanderers (common/scummverse_wander.cpp): places and doors, everyone out
 // (mostly in their own game), moving along doors, jumps, gathering, toward
-// the player, the crowd and small ones, weights, saving, the game's side.
+// the player, the crowd and small ones, away ones (never in their own
+// game), weights, saving, the game's side.
 // c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_wander.cpp engine/common/scummverse_wander.cpp
 #include "common/scummverse_wander.h"
@@ -166,6 +167,44 @@ int main() {
 	}
 	puts("PASS: toward the player; the crowd; small ones always fit");
 
+	// Away ones (the mansion's and Zak's people): never in their own game's
+	// places, set out, through doors, joining, jumping or toward the player
+	// there; with nowhere else, nowhere (at home).
+	{
+		Random r(13); int seen[64] = {};
+		assert(map.sums.size() > 5 && map.sums[5] == 12 && map.sums[0] == 12 && map.sums[1] == 12);
+		for (int n = 0; n < 3000; ++n) {
+			const int p = map.find(map.pickOutside(0, r)); assert(p >= 0 && map.groups[p] != 0); ++seen[map.groups[p]];
+		}
+		assert(seen[5] > 1300 && seen[1] > 1300 && map.pickOutside(42, r) != 0);
+		Cast homes = cast;
+		for (int i = 0; i < 30; ++i) homes.add(6000 + i, placeCode(kManiac, 0, 1), 0, 1, i < 2, true);
+		for (int i = 0; i < 10; ++i) homes.add(7000 + i, placeCode(kZak, 0, 55), 1, 1, false, true);
+		assert(homes.size() == 120 && homes.away.size() == 120 && !homes.away[79] && homes.away[80] && homes.away[119]);
+		auto inside = [&](const Wanderers &w) {
+			int n = 0;
+			for (int i = 80; i < 120; ++i) { const int p = map.find(w.where(i)); assert(p >= 0); n += map.groups[p] == homes.games[i]; }
+			return n;
+		};
+		Wanderers w; Rules lean; lean.lean = 100;
+		w.start(homes, map, lean, r);
+		assert(inside(w) == 0);
+		const int player = placeCode(kManiac, 0, 2);
+		for (int pass = 0; pass < 4; ++pass) {
+			Rules mix; mix.jump = pass == 0 ? 1000 : 0; mix.join = pass == 1 ? 1000 : 0; mix.toward = pass == 2 ? 1000 : 0;
+			for (int t = 0; t < 80; ++t) { w.advance(60 * 60, player, homes, map, mix, r); assert(inside(w) == 0); }
+		}
+		int out = 0; for (int i = 0; i < 80; ++i) out += map.groups[map.find(w.where(i))] == 0;
+		assert(out > 0); // (the others still come by)
+		Map mansion; for (int k = 1; k <= 3; ++k) mansion.add(placeCode(kManiac, 0, k), 1, 0);
+		mansion.link(placeCode(kManiac, 0, 1), placeCode(kManiac, 0, 2));
+		Wanderers alone; alone.start(homes, mansion, rules, r);
+		assert(alone.where(80) == 0 && alone.where(0) != 0 && mansion.pickOutside(0, r) == 0);
+		alone.advance(60 * 600, 0, homes, mansion, rules, r);
+		assert(alone.where(80) == 0 && alone.where(119) != 0); // (Zak's people may go to the mansion)
+	}
+	puts("PASS: away ones never in their own game");
+
 	// The same seed moves them the same way; an empty map moves nobody.
 	{
 		Wanderers one, two; Random r1(9), r2(9);
@@ -189,6 +228,15 @@ int main() {
 		for (size_t p = 0; p < map.places.size(); ++p) for (int d : map.doors[p]) B::addDoor(map.places[p], map.places[d]);
 		for (size_t c = 0; c < cast.size(); ++c) B::addCast(cast.who[c], cast.homes[c], cast.games[c], cast.weights[c], cast.small[c]);
 		assert(B::places() == 17 && B::cast() == 80 && B::signature() == cast.signature() && B::packedCount() == 40);
+		{
+			// (An away one through the game's side: never in the mansion.)
+			B::addCast(9000, 0, 0, 1, false, true); B::start();
+			for (int t = 0; t < 50; ++t) { B::advance(60 * 60, placeCode(kManiac, 0, 1)); assert(placeKind(B::where(9000)) != kManiac); }
+			B::reset(5);
+			for (size_t p = 0; p < map.places.size(); ++p) B::addPlace(map.places[p], map.weights[p], map.groups[p]);
+			for (size_t p = 0; p < map.places.size(); ++p) for (int d : map.doors[p]) B::addDoor(map.places[p], map.places[d]);
+			for (size_t c = 0; c < cast.size(); ++c) B::addCast(cast.who[c], cast.homes[c], cast.games[c], cast.weights[c], cast.small[c]);
+		}
 		assert(!B::started() && B::where(1000) == 0 && !B::advance(60, 0) && !B::send(1000, map.places[0]));
 		B::start(); assert(B::started() && B::where(1000) && B::small(1000) && !B::small(1004) && !B::small(7));
 		bool moved = false;

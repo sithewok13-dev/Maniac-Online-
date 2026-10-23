@@ -1,5 +1,5 @@
-	// Wanderers: every other game's character out, mostly in its own game,
-	// shown where it is.
+	// Wanderers: every other game's character out, anywhere, shown where it
+	// is; the mansion's and Zak's people out of their own game's places.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_WANDER_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -31,26 +31,42 @@
 	if (!scummverseTravel(2)) error("Cannot return to the mansion");
 	settle(4);
 	// Everyone out: every installed character somewhere, anywhere at all
-	// (every game an equal share), all over the place.
+	// (every game an equal share), all over the place; the mansion's and
+	// Zak's people too, but never in their own game's places (their own
+	// actors are there); the mansion's kids (the party) never.
+	int mm=-1, zk=-1;
+	for (int g=0;g<worldGameCount();++g) { if (sameId(kWorldGames[g].gameid,"maniac")) mm=g; if (sameId(kWorldGames[g].gameid,"zak")) zk=g; }
 	Common::Array<int> keys;
+	int homeFolk=0;
 	for (const auto &c : kWorldCast) {
 		const int key=worldAppearanceKey(c.game,c.guest.costume);
-		// (The mansion's own people are its own actors here, not wanderers.)
-		if (!worldHome(c.game) && scummverseCharacterInstalled(c.game,c.guest.costume) && Common::find(keys.begin(),keys.end(),key)==keys.end()) keys.push_back(key);
+		if (worldManiacKid(c.game,c.guest.costume)) { if (WB::where(key)) error("%s, a kid, is out",name(key)); continue; }
+		if (scummverseCharacterInstalled(c.game,c.guest.costume) && Common::find(keys.begin(),keys.end(),key)==keys.end()) { keys.push_back(key); homeFolk+=worldHome(c.game); }
 	}
 	if (WB::places()<60 || WB::cast()!=(int)keys.size() || keys.size()<100) error("Wanderers' world: %d places, %d characters of %d",WB::places(),WB::cast(),(int)keys.size());
+	if (homeFolk<20) error("Only %d of the mansion's and Zak's people out",homeFolk);
+	auto ownPlace=[&](int key, int at) {
+		const int g=worldAppearanceGame(key);
+		return g==mm ? W::placeKind(at)==W::kManiac : g==zk ? W::placeKind(at)==W::kZak : W::placeKind(at)==W::kWorld && W::placeGame(at)==g;
+	};
+	auto noneHome=[&](const char *when) {
+		for (int key : keys) if (worldHome(worldAppearanceGame(key)) && ownPlace(key,WB::where(key))) error("%s in their own game's places (%s)",name(key),when);
+	};
 	{
-		int own=0, maniac=0, zak=0; bool game[16]={};
+		int own=0, maniac=0, zak=0, visiting=0; bool game[16]={};
 		for (int key : keys) {
 			const int at=WB::where(key);
 			if (!at || !scummverseWandering(key)) error("%s is not out",name(key));
-			own+=W::placeKind(at)==W::kWorld && W::placeGame(at)==worldAppearanceGame(key);
+			own+=ownPlace(key,at);
 			maniac+=W::placeKind(at)==W::kManiac; zak+=W::placeKind(at)==W::kZak;
+			visiting+=worldHome(worldAppearanceGame(key)) && W::placeKind(at)==W::kWorld;
 			game[W::placeKind(at)==W::kWorld ? 2+W::placeGame(at) : W::placeKind(at)]=true;
 		}
 		int games=0; for (bool g : game) games+=g;
-		warning("WANDER %d places, %d out: %d in their own game, %d in the mansion, %d in Zak's places, in %d games",WB::places(),(int)keys.size(),own,maniac,zak,games);
-		if (own*3>(int)keys.size() || games<11) error("Not all over the place: %d of %d in their own game, %d games",own,(int)keys.size(),games);
+		warning("WANDER %d places, %d out (%d the mansion's and Zak's, %d of them in the other games): %d in their own game, %d in the mansion, %d in Zak's places, in %d games",
+			WB::places(),(int)keys.size(),homeFolk,visiting,own,maniac,zak,games);
+		if (own*3>(int)keys.size() || games<11 || !visiting) error("Not all over the place: %d of %d in their own game, %d games",own,(int)keys.size(),games);
+		noneHome("setting out");
 	}
 	// Saved in the game's variables: the cast's signature and everyone's place.
 	if ((uint32)_scummVars[kScummverseWanderVar]!=WB::signature() || !_scummVars[257]) error("Wanderers not saved in the variables");
@@ -63,10 +79,50 @@
 	for (int k=0;k<kScummverseGuestSlots;++k)
 		if (derefActor(kScummverseGuestActor+k,"wander home")->_room==_currentRoom) error("A resident at home in Monkey Island 33 while everyone is out");
 	shot("wander-home.ppm");
+	// Nurse Edna and Lou visit Monkey Island, drawn from their own frames; one
+	// steps aside while someone here plays them (the Purple Meteor's look),
+	// or while their own actor is here (Edna's).
+	{
+		const int place=W::placeCode(W::kWorld,0,33), edna=worldAppearanceKey(mm,10), lou=worldAppearanceKey(zk,16), meteor=worldAppearanceKey(mm,16);
+		for (int key : {edna,lou,meteor}) if (Common::find(keys.begin(),keys.end(),key)==keys.end()) error("%s not among the wanderers",name(key));
+		int there[64]; const int n=MIN(64,WB::at(place,there,64));
+		for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(worldAppearanceGame(there[i])==mm ? W::kZak : W::kManiac,0,worldAppearanceGame(there[i])==mm ? 55 : 1));
+		WB::send(edna,place); WB::send(lou,place);
+		settle(8);
+		Actor *dave=derefActor(3,"wander visit");
+		for (int key : {edna,lou}) {
+			const int s=visitor(key);
+			if (s<0) error("%s not visiting Monkey Island",name(key));
+			Actor *a=_scummverseVisitors[s].actor;
+			const AdjustBoxResult p=a->adjustXYToBeInBox(dave->getRealPos().x+(key==edna?-5:5),dave->getRealPos().y);
+			a->stopActorMoving(); a->putActor(p.x,p.y,_currentRoom);
+		}
+		settle(3);
+		for (int key : {edna,lou}) {
+			const ScummverseVisitor &v=_scummverseVisitors[visitor(key)];
+			if (!v.sprite || v.drawn.isEmpty() || pixelsOf(v)<60) error("%s not drawn in Monkey Island (%d pixels)",name(key),pixelsOf(v));
+		}
+		shot("wander-home-folk.ppm");
+		if (!scummverseSetAppearance(3,worldAppearanceKey(kWorldManiacLooks,16))) error("Cannot play the Purple Meteor: %s",_scummverseWorldNotice.c_str());
+		WB::send(meteor,place); settle(4);
+		if (visitor(meteor)<0 || _scummverseVisitors[visitor(meteor)].sprite) error("The visiting Purple Meteor does not step aside for the one played");
+		scummverseSetAppearance(3,0); settle(4);
+		if (visitor(meteor)<0 || !_scummverseVisitors[visitor(meteor)].sprite) error("The visiting Purple Meteor not back once nobody plays it");
+		int ednaActor=0;
+		for (int id=1;id<kScummverseManiacActors && !ednaActor;++id) if (id!=3 && _actors[id]->_costume==10) ednaActor=id;
+		if (ednaActor) {
+			Actor *e=_actors[ednaActor]; const int room=e->_room; const Common::Point at=e->getRealPos();
+			e->putActor(dave->getRealPos().x+12,dave->getRealPos().y,_currentRoom); settle(4);
+			if (_scummverseVisitors[visitor(edna)].sprite) error("The visiting Edna does not step aside for her own actor");
+			e->putActor(at.x,at.y,room); settle(4);
+			if (!_scummverseVisitors[visitor(edna)].sprite) error("The visiting Edna not back once her actor left");
+		}
+		warning("WANDER Monkey Island: Nurse Edna and Lou visiting; the Purple Meteor stepped aside%s",ednaActor?", Edna for her actor":"");
+	}
 	// Guybrush and two more in the living room (nobody else there).
 	int four[4]={guybrush,0,0,0};
 	for (int i=1, k=0; i<4 && k<(int)keys.size(); ++k)
-		if (keys[k]!=guybrush && !WB::small(keys[k]) && worldAppearanceGame(keys[k])!=worldAppearanceGame(four[i-1])) four[i++]=keys[k];
+		if (keys[k]!=guybrush && !WB::small(keys[k]) && worldAppearanceGame(keys[k])!=worldAppearanceGame(four[i-1]) && worldAppearanceGame(keys[k])!=mm) four[i++]=keys[k];
 	{
 		int there[64]; const int n=MIN(64,WB::at(living,there,64));
 		for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(W::kManiac,0,1));
@@ -122,6 +178,7 @@
 			moved+=before[i]!=WB::where(keys[i]);
 		}
 		if (moved<(int)keys.size()/2 || most>4) error("%d of %d moved; %d in the living room at most",moved,(int)keys.size(),most);
+		noneHome("half an hour");
 		if (shownHere()<4) error("Visitors went away while watched");
 		warning("WANDER half an hour: %d moved, the living room at most %d",moved,most);
 	}
@@ -222,6 +279,7 @@
 			inside+=k; most=MAX(most,big);
 		}
 		warning("WANDER ten minutes by the kitchen: %d visits, at most %d at once",inside,most);
+		noneHome("by the kitchen");
 		if (!inside || most>4+1) error("Kitchen: %d visits, %d at once",inside,most);
 	}
 	warning("SCUMMVERSE_WANDER_PASS enabled=1");

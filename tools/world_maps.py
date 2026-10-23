@@ -104,7 +104,10 @@ def fixed_doors(game, travel):
         return travel
     table = json.loads(path.read_text())
     worlds = ROOT/'build/worlds'
-    shown = lambda room: not worlds.exists() or (worlds/f'{game}-{room}.svw').exists()
+    # (An emptied scene, a room whose export failed, is not one.)
+    def shown(room):
+        scene = worlds/f'{game}-{room}.svw'
+        return not worlds.exists() or (scene.exists() and scene.stat().st_size > 0)
     drop = {(d['room'], d['object']) for d in table['doors']} | {(r['room'], r['object']) for r in table.get('remove', [])}
     # (A template room exported as one of its instances has that instance's
     # doors only.)

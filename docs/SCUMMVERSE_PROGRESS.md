@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0191 (Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0192 (the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5107,3 +5107,48 @@ same checked private tables as 0190:
   chamber and dock among them); the same walk over just the changed
   rooms, each door to its room; the bootstrap, startup and world setup
   tests. Not tested on an iPhone.
+
+## Patch 0192 — the mansion's and Zak's own people among the wanderers
+
+Asked for in 0102 ("the mansion's and Zak's own characters in the wanderer
+pool too"):
+- The original engine's wanderers now take the mansion's and Zak's people
+  too (26 with both games' frames exported: Nurse Edna, Weird Ed, Dr Fred,
+  Sandy, Dead Cousin Ted, both tentacles, the plant, the Purple Meteor, the
+  Meteor Police; Zak, Annie, Melissa, Leslie, Lou, the King, the Caponian,
+  the guards, the Guru and the rest), drawn from their exported frames like
+  everyone else's, each game's people one game's share as before.
+- Never in their own game's places: this engine plays the mansion and Zak's
+  world with their own actors, so the mansion's people roam Zak's places and
+  the other games, Zak's people the mansion and the other games (never two
+  of anyone in view). Wander::Cast marks them away; setting out, doors,
+  joining and the pull toward the player all keep them out of their own
+  game (with nowhere else to go they stay home).
+- The mansion's seven kids are not among them: they are the party played
+  there, taken along to other worlds.
+- A visiting one steps aside (not drawn) while their own actor is in the
+  room (Nurse Edna when her actor is there) or someone there plays their
+  look from the character screen (the Purple Meteor, the Meteor Police, the
+  plant, Ted; Zak's people by name).
+- Saved games: the cast is new, so everyone sets out afresh once (as when
+  games are added).
+- Hardening from the review of 0189-0191 (no defects found): a staged room
+  puts the game's state back after its export too, like an instance. That
+  showed one thing that had leaned on the leak: Fate of Atlantis's pit room
+  (14) script reads its pit, and its things (the pit and what is by it)
+  were touchable in the things file only because the room's scene, staged
+  with the pit open, had left that state behind. A staged room's pictures
+  are now set before its scripts run as well as after, so the same file
+  comes from its own room whatever ran before. Re-exported: all 217 of
+  Fate of Atlantis's and Monkey Island 2's files the same as before, byte
+  for byte. The fixed door tables count an emptied scene file (a room
+  whose export failed) as not exported (the door map the same).
+- Tests: test_wander.cpp (away ones never in their own game: setting out,
+  doors, joins, jumps, toward the player; nowhere when there is nowhere else;
+  through the game's side; ASan/UBSan, TSan); test_wander_engine.py (287
+  out, 26 the mansion's and Zak's, none in their own game's places at the
+  start, after half an hour or ten minutes by the kitchen; the kids not out;
+  Nurse Edna and Lou drawn visiting Monkey Island; the visiting Purple Meteor
+  stepping aside while Dave plays it and back after; Edna stepping aside for
+  her own actor). Tested on the desktop build only; not on an iPhone.
+

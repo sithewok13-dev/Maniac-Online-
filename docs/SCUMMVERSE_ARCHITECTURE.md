@@ -572,6 +572,11 @@ by StateKeep, as for the oldest games), switches walk boxes for a look
 (kWorldPresetRoomClassesOff) and cuts a room to a height
 (kWorldPresetHeights). tools/world_maps.py's MAP_ROOMS makes overhead plans
 whose walk paths are thin lines into map rooms (a tap travels).
+From 0192 a staged room's kWorldPresetStates are also written before its
+entry script runs (its scripts read them: Atlantis's pit room), and
+StateKeep puts the game's state back after every staged room, instance or
+not, so neither scenes nor the things pass depend on what was exported
+before.
 
 Sam & Max saves made before the game first sets its cursor (just after its
 intro, as a story's first save can be) reload with its after-load script
@@ -615,6 +620,15 @@ own colour, stand where their key and the floor put them (the same after a
 load), and walk in from a side when they arrive while the player watches.
 Engine tests run with `scummverse_wanderers=false` (residents at home) unless
 they ask for them.
+Since 0192 the mansion's and Zak's own people are in the cast too, marked
+away (Cast::away): never in their own game's places (group 0 the mansion,
+1 Zak's), which this engine plays with their own actors; Map::pickOutside
+picks by weight outside a game, and a move that would land in their own
+game is drawn again from there (nowhere when there is no other place).
+The mansion's kids (worldManiacKid, costumes 1..7: the party) stay out of
+the cast. A visiting home person steps aside (sprite 0) while their own
+actor (same Maniac costume, no look) or their native look (by name) is in
+the room.
 
 ## Sandbox engine (0104, preview)
 
@@ -711,7 +725,8 @@ one palette) apply.
   tables (tools/world_maps.py reads scummverse_tour.inc's rooms and
   scummverse_roaming.inc's passages, the rides left out) and its cast is
   newly written in tools/world_cast.py (HOME). The original engine's menus,
-  visits, tour, wanderers, character screen and status skip home games; the
+  visits, tour, character screen and status skip home games (the wanderers
+  take their people, away from their own places, since 0192); the
   new engine's game menu lists the mansion with the rest. Zak McKracken
   (0110, index 11) follows the same way from its own folder: its map is
   the original engine's Zak tables turned back into Zak's own numbers
