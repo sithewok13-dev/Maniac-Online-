@@ -4989,4 +4989,7 @@ An independent review of 0187 found two real problems, both fixed:
   then its saves as before) and the bootstrap test; and a control run with
   the dressing switched off, which the test failed as it should (the game's
   one more chance taken, then the screen left to the player and the game
-  still running). Apple CI built 0187's IPA. Not tested on an iPhone.
+  still running). Then the whole story test over 11 games (Sam & Max
+  among them, through its dolls to Sam's office; Full Throttle refused
+  here, its ROADRASH.RIP missing) passed. Apple CI built the IPAs of 0187
+  and 0188. Not tested on an iPhone.
