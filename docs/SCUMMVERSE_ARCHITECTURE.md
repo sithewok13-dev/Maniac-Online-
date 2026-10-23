@@ -1060,8 +1060,10 @@ one palette) apply.
   over them, ordered at row 0, behind everyone) with Scene::seat (exactly
   there, not moved into the boxes), facing right, posed kGuestSeated
   (Scene::pose takes it from 0198; pick falls back to standing), their
-  head at kCabinHead, measured with the camera on the seat, Scene::resize
-  making anyone too tall smaller (only an 800 x 128 cabin is used;
+  sized and placed from 0199 as Maniac's own engine seats them (its
+  kWorldSeat* values as kCabinCushion and kSeat*; kWorldSeatFits crammed
+  by Scene::resize(factor, widthFactor), which also scales pixelAspect),
+  measured as drawn with the camera on the seat (only an 800 x 128 cabin is used;
   `_seatedActors` are posed so again after a selfie and skipped by
   selfiePose); each seat's front is a Scene::addPiece (a rectangle
   of the scene's own picture as a prop at the scene's scale, ordered among

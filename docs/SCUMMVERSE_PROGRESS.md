@@ -5400,3 +5400,22 @@ own engine shows them; the one played simply vanished for the trip.
   characters that had them for Maniac's own engine; the others sit as
   they stand, partly hidden by the seat's front.
 
+## Patch 0199 — the new engine's plane: the big ones too big for their seats again
+
+User (2026-10-23), on 0198's cabin, where anyone too tall was made smaller
+till they fit: "The camel is supposed to look too big for the seat."
+- Everyone aboard now sits as Maniac's own engine seats them (the same
+  cabin, the same rows and numbers): the big ones it lists (Fate of
+  Atlantis' camel, The Dig's Creator and nest monster, Sam & Max's dragon,
+  Monkey Island's three-headed monkey) crammed in from the overhead bins
+  down, part of them below the seat's front, at least as wide as the seat,
+  hilariously oversized as the user asked for Maniac's own; anyone else no
+  taller than a seated teenager nor wider than the seat, sunk to the
+  cushion (the small ones) or to their waist.
+- The stage can now make someone taller and wider by different amounts.
+- Tests: test_stage.cpp (fitted taller and wider; ASan/UBSan);
+  test_sandbox_engine.py (the camel crammed from the bins' row, as tall as
+  Maniac's own engine makes it; the others sitting in their seats; the
+  whole sandbox check passed). A picture of the cabin with the camel was
+  looked at on the desktop. Not tested on an iPhone.
+

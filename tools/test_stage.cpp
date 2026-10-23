@@ -762,8 +762,11 @@ int main() {
 		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 30 && w1 - w0 == 10 && h1 == 150);
 		place.resize(n, 0);
 		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 30);
+		// (Fitted to a seat: twice as tall, four times as wide.)
+		place.resize(n, 2, 4);
+		assert(place.drawnRect(n, w0, h0, w1, h1) && h1 - h0 == 60 && w1 - w0 == 40 && h1 == 150);
 	}
-	std::puts("PASS: a piece of the place's picture among the people (where it is cut and drawn, in front of those behind it, by the row asked; refused outside); someone seated exactly where asked, made smaller");
+	std::puts("PASS: a piece of the place's picture among the people (where it is cut and drawn, in front of those behind it, by the row asked; refused outside); someone seated exactly where asked, made smaller, fitted (taller, wider)");
 	std::puts("PASS: the lights off (the place and props black, everyone in one colour; on again; lit in a new place); a flashlight in the dark (its rectangle, rounded, kept inside, off, gone with the place)");
 	// Something lit (Sith Ewok 2's saber): lighting it up, its ignite frames
 	// in turn while standing (8 ticks each), then its lit poses (standing,

@@ -491,13 +491,13 @@ if __name__ == '__main__':
                 # exported) in its seated pose, a selfie aboard keeping them
                 # seated, nobody getting up; a tour begun aboard going home to
                 # the stop.
-                c = re.search(r'(\d+) flights seen from the cabin \((\d+) following seated, (\d+) in their seated pose\), (\d+) tours begun aboard home at the stop', output)
+                c = re.search(r'(\d+) flights seen from the cabin \((\d+) following seated, (\d+) in their seated pose, (\d+) crammed in\), (\d+) tours begun aboard home at the stop', output)
                 if (worlds/'zak-11.svw').exists():
                     camel = (worlds/'atlantis-c93.svc').exists()
-                    if not c or c.group(1) != z.group(2) or int(c.group(2)) < 2 or (camel and c.group(3) != '1') or c.group(4) != '1':
+                    if not c or c.group(1) != z.group(2) or int(c.group(2)) < 2 or (camel and (c.group(3) != '1' or c.group(4) != '1')) or c.group(5) != '1':
                         raise SystemExit('FAIL: flights seen from the cabin\n' + output[-2000:])
-                    print(f'PASS: {c.group(1)} flights seen from the cabin, the one played seated; {c.group(2)} following seated on the first, seen, heads in line'
-                          + (', the camel in its seated pose' if camel else '') + '; a selfie aboard; a tour begun aboard home at the stop')
+                    print(f'PASS: {c.group(1)} flights seen from the cabin, the one played seated; {c.group(2)} following seated on the first as Maniac\'s own engine seats them, seen'
+                          + (', the camel in its seated pose, crammed in too big for the seat' if camel else '') + '; a selfie aboard; a tour begun aboard home at the stop')
             # The Shuttle Bug: Mars to Melee Island and back, and there again
             # (when both are there); drawn there and boarded by a tap on it
             # when Maniac has taken its picture (zak-van.svv).
