@@ -784,7 +784,27 @@ int main() {
 			assert(screen[y * 64 + x] == block || screen[y * 64 + x] == rgb(pictureData[12 + 768 + y * 64 + x]));
 		PanelBridge::clear();
 	}
-	std::puts("PASS: things carried from a scene (only the thing itself), kept panel to panel and without one, cleared");
+	{
+		// (Its two pictures the same, as the mansion's garage's two: drawn
+		// whole, not nothing.)
+		std::vector<uint8_t> same = sceneBytes(1);
+		for (size_t i = same.size() - 48; i < same.size(); ++i) same[i] = 3;
+		PanelBridge::clear();
+		assert(PanelBridge::addItem(same.data(), same.size(), 50, "box"));
+		Spec pictureSlots; pictureSlots.slotKind = 2;
+		const std::vector<uint8_t> pictureData = panelBytes(pictureSlots);
+		char problem[64];
+		assert(PanelBridge::load(pictureData.data(), pictureData.size(), problem, sizeof(problem)));
+		PanelBridge::layout(64, 16, 0, 1.0, 1.0);
+		std::vector<uint32_t> screen(64 * 16, 0);
+		PanelBridge::render(screen.data(), 64, 16);
+		const uint32_t plain = 0xFF000000u | 3u << 16 | 252u << 8 | 1u;
+		int drawn = 0;
+		for (int y = 6; y < 10; ++y) for (int x = 40; x < 48; ++x) drawn += screen[y * 64 + x] == plain && rgb(pictureData[12 + 768 + y * 64 + x]) != plain;
+		assert(drawn > 0);
+		PanelBridge::clear();
+	}
+	std::puts("PASS: things carried from a scene (only the thing itself; whole where its pictures are the same), kept panel to panel and without one, cleared");
 	{
 		// Controls over the scene (Sam & Max): the file whole or not at all.
 		const std::vector<uint8_t> data = overBytes();

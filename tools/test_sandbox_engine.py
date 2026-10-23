@@ -396,6 +396,14 @@ if __name__ == '__main__':
         pairs = re.search(r'selftest pairs: (\d+) games used a thing carried with a thing here; (\d+) of the mansion\'s own as its scripts answer \((\d+) not tried; (\d+) as found\); (\d+) gave one to someone', output)
         if not pairs or int(pairs.group(1)) < 5 or ((worlds/'maniac-1.svw').exists() and (int(pairs.group(2)) < 95 or pairs.group(4) != '3')) or int(pairs.group(5)) < 1:
             raise SystemExit('FAIL: two things (Use, a thing carried, a thing here; the mansion\'s own)\n' + output[-2000:])
+        # (From 0207) Someone in front of what is behind them: looked at, them;
+        # a coin let go where it opened, unmoved, nothing done; Loom's draft
+        # after a stray note spun still.
+        lp = re.search(r'gave one to someone \((\d+) looked at them, not what is behind\)', output)
+        ui = re.search(r'selftest interface: (\d+) coins let go unmoved where they opened, nothing done; (\d+) drafts spun after a stray note', output)
+        if not lp or lp.group(1) != pairs.group(5) or not ui or ui.group(1) != str(coins) or ui.group(2) != str(distaffs):
+            raise SystemExit('FAIL: someone in front, a coin let go unmoved, a draft after a stray note\n' + output[-2000:])
+        print(f'PASS: someone in front looked at, them ({lp.group(1)}); {ui.group(1)} coins let go unmoved where they opened, nothing done (a part lit only once the finger moves); {ui.group(2)} Loom drafts spun after a stray note')
         print(f'PASS: two things: in {pairs.group(1)} games Use, a thing carried ("Use it with", the verb still lit), then a thing here (walked to, the plain answer); a tap on the floor lets go; {pairs.group(2)} of the mansion\'s own answers (Use, Unlock, Fix with a thing carried) as its scripts give them ({pairs.group(3)} not tried); as found, from the picture the place shows: the paint remover on the blotch, the trunk\'s key, the coin box\'s key ({pairs.group(4)}); given to someone here, walked up to, they answer ({pairs.group(5)} games)')
         # (From 0155: the mansion's things as their own scripts answer, from
         # its things file: every use replayed as a player does it; from 0161

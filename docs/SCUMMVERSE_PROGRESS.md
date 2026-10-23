@@ -5703,3 +5703,28 @@ From the second bug hunt (conversations).
   through test_talk_runtime.py; each fix undone one at a time is caught. The
   real model's replies are not run here; the iPhone's chat bar is not built
   here (CI builds it).
+
+## Patch 0207 — the new engine's controls: Loom's notes, people in front, coins, What is
+
+From the second bug hunt (the games' own controls in the new engine).
+- Loom: a note played long after the last (2.5 seconds) begins a draft
+  again, and a tap on the scene lets the notes go. One stray note no longer
+  leaves every later draft a note out until the next place.
+- Someone standing in front of a thing or a door: a verb on them is on
+  them, not on what is behind. Looking names them; talking (The Dig's tap
+  too) walks up beside them, who answer; the rest does nothing. Taps find
+  them by a pixel of theirs, not their rectangle (giving too). A walk's tap
+  goes where it went before.
+- Full Throttle's and the Curse's coins: a press on someone names the coin
+  for them. Pushed down to stay on screen, a coin may open with a part under
+  the finger: nothing is lit or done until the finger moves.
+- The mansion's two garage things (0203), carried into another game, were
+  drawn as nothing (their two pictures are the same): drawn whole.
+- When a walk ends (a pair done, a door not reached, a walk halted), the
+  sentence line shows the verb chosen on the way, as it is still lit, not
+  "Walk to".
+- What is (the mansion, Zak, Indy 3): names a thing where it is, without
+  walking there.
+- Tests: test_panel (a thing whose pictures are the same drawn whole), the
+  verbs check (a coin let go unmoved, nothing done; a part lit only once
+  moved; a draft after a stray note spun; someone in front looked at).
