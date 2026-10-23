@@ -836,7 +836,9 @@ one palette) apply.
   shade the coin (its anchor the hot spot), the name's centre and colour,
   each verb's lit mask and the arrows' pictures. In
   common/scummverse_panel `Source::coin`: Panel::openCoin places the coin's
-  anchor at the press, the coin kept on screen; coinVerb picks the
+  anchor at the press, the coin kept on screen (from 0207 the sandbox's
+  coinPart leaves out the part it opened under, Press::under, until the
+  pointer has moved past a few pixels); coinVerb picks the
   smallest part under a point (the eyes lie in the skull); renderCoin
   draws it, the part lit and the name in fonts[0]; the open box's hit gives
   its arrows (code 4) and scroll goes a thing at a time; kHand is
@@ -876,7 +878,8 @@ one palette) apply.
   more backwards); `choose` keeps the thing chosen, drawn fitted in the
   box (Panel::fit, the slots' too); the sentence line is not drawn. The
   sandbox (chooseVerb, spin, chooseThing) plays a tapped note, unlit after
-  half a second, and spins Opening as kWorldVerbOpen on the thing chosen
+  half a second (from 0207 a note kNoteGap, 2.5 s, after the last clears
+  the notes first, as does a tap on the scene), and spins Opening as kWorldVerbOpen on the thing chosen
   (backwards kWorldVerbClose) through the plain rules; a thing tapped
   (not a door) is chosen, its picture from its place's file, and tapped
   again is looked at. Since 0194 a door a tap finds only without the
@@ -1217,6 +1220,13 @@ one palette) apply.
   the front-most drawn under the tap) is given it: giveTo walks up beside
   them (Pair::person), act() on arrival with target -1, pairUp has them
   answer "No, thanks." (sayAs): no game's records say what people take.
+  From 0207 personAt hits a drawn pixel (Scene::drawnAt, opaque mask 1 or
+  3), and any verb but walking on someone in front of a thing is
+  useOnPerson: looking names them, talking (The Dig's tap too) is walkBeside
+  (giveTo's walk) and they answer "Hello.", the rest does nothing. A press in
+  a coin game keeps Press::person; the coin is named for them.
+  waitingLine() is the sentence line once a walk ends (the first of two held,
+  else a panel verb chosen on the way); What is acts at once, unwalked.
 - Followers (0147): the chat sends its place's token and 64 or 96 plus
   the talk ID (kTalkVisitor + slot: 94..119 along, 126..151 stay), taken
   first by `request` (before the character screen's range, which tokens
