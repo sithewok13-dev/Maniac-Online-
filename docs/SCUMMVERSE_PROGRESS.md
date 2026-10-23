@@ -5842,3 +5842,27 @@ From the second bug hunt (Story mode).
   if a frame was needed to write it, the autosave winning by its number),
   test_startup. The save as the game's menu opens is compiled and read, not
   run by a test. Not tested on an iPhone (the suspend itself is iOS's).
+
+## Patch 0212 — the new engine's rides: the van off the doors, everyone seen in the cabin
+
+From the second bug hunt (rides and seats in the new engine).
+- The Shuttle Bug parked beside where the player landed could stand over
+  a door (at 10 of its 46 sites a door was all but covered: the Ball of
+  Twine's museum door, the Carnival's, Puerto Pollo's, Mount Rushmore's...),
+  and a tap there walked to the van. It now stands at the nearest spot
+  along the place covering the least of any door or ride's boarding place.
+- In the plane's cabin the camera was on the one played's seat, and the
+  4th and 5th followers sat off screen all flight. It is on everyone
+  seated; when they are more than the screen shows, it pans across them,
+  there and back in a flight's ten seconds.
+- Asked along or told to stay in the chat while riding out of sight (The
+  Dig's tram arriving, its doors not yet open), someone stayed hidden at the
+  far station; the chat's Follow and Stay now wait until the ride is over,
+  as they already did aboard.
+  (Where no spot along the place leaves every door's middle clear, as in
+  the 320-wide places the van nearly fills, it is drawn smaller, down to
+  half.)
+- Tests: the rides check (each of 41 van sites installed: no door's or
+  boarding place's middle under the van; a flight with five following:
+  everyone seated seen whole during it), the full sandbox suite. Not tested
+  on an iPhone.
