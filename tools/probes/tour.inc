@@ -35,6 +35,10 @@
 	const int total=scummverseTourCount();
 	if (total<100) error("Only %d stops",total);
 	const int homeRoom=_currentRoom, homeX=dave->getRealPos().x, homeY=dave->getRealPos().y;
+	// The way back to the mansion as the tour began (kept: the tour's own
+	// departures from the mansion are not the player's).
+	const int wayKey=700+3*3; // (Dave's: travellerReturnKey, declared after this)
+	const int wayBack[3]={_scummVars[wayKey],_scummVars[wayKey+1],_scummVars[wayKey+2]};
 	ConfMan.removeKey("scummverse_tour_stop",ConfMan.getActiveDomainName());
 	ConfMan.removeKey("scummverse_tour_speed",ConfMan.getActiveDomainName());
 	Common::String label;
@@ -46,6 +50,8 @@
 	if (!status(label) || number(label)!=1 || !label.contains("Maniac ")) error("Stop 1 not begun: '%s'",label.c_str());
 	const ScummverseTourStop first=_scummverseTourStops[0];
 	if (_currentRoom!=first.room || dave->_room!=first.room) error("Stop 1 is room %d, the guide in %d (view %d)",first.room,dave->_room,_currentRoom);
+	// No saving while touring (it would go on from a stop, the tour gone).
+	{ Common::U32String why; if (canSaveGameStateCurrently(&why) || why.empty()) error("Saving not refused during the tour"); }
 	shot("tour-1.ppm");
 	int left=10000, right=-1, steps=0;
 	while (number(label)==1 && steps<3000) {
@@ -230,6 +236,23 @@
 	warning("TOUR route: %d doors taken, %d failed, %d warps, at most %d doors to a stop%s",doors,doorFailures,warps,longest,doorList.c_str());
 	request(T::kStop,0,3);
 	if (status(label)) error("Still touring at the end");
+	for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=wayBack[i]) error("The way back to the mansion changed by the tour: %d,%d,%d (was %d,%d,%d)",_scummVars[wayKey],_scummVars[wayKey+1],_scummVars[wayKey+2],wayBack[0],wayBack[1],wayBack[2]);
+	// After the last stop: home (where it began, from here), the next tour
+	// from the first.
+	{
+		const int fromRoom=_currentRoom, fromX=dave->getRealPos().x, fromY=dave->getRealPos().y;
+		request(T::kGoTo,total,2);
+		int ended=0;
+		while (status(label) && ++ended<3000) settle(1);
+		bool running=false; char text[200]; int resume=0, stops=0;
+		T::status(running,text,sizeof(text),resume,stops);
+		if (running) error("The tour did not end after its last stop: '%s'",text);
+		if (_currentRoom!=fromRoom || dave->_room!=fromRoom || ABS(dave->getRealPos().x-fromX)>2 || ABS(dave->getRealPos().y-fromY)>4)
+			error("Not home after the last stop: room %d at %d,%d (began in %d at %d,%d)",_currentRoom,dave->getRealPos().x,dave->getRealPos().y,fromRoom,fromX,fromY);
+		if (resume!=1 || ConfMan.getInt("scummverse_tour_stop")!=1) error("After the last stop the tour resumes at %d (saved %d), not 1",resume,ConfMan.getInt("scummverse_tour_stop"));
+		for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=wayBack[i]) error("The way back to the mansion changed by the tour's end");
+		warning("TOUR after the last stop (%d steps): home in room %d, the next tour from stop 1",ended,_currentRoom);
+	}
 	warning("SCUMMVERSE_TOUR_PASS enabled=1");
 	quitGame();
 	return;

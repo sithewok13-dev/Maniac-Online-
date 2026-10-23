@@ -1,0 +1,201 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 534c72bc..3c7a8487 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -154,6 +154,17 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ 	if (!_setupIsComplete)
+ 		return false;
+ 
++	// SCUMMVERSE: not during the tour. Its guide stands in a stop (another
++	// game's room, the plane, the van in flight), and a save there would go
++	// on from that stop, the tour and where it began gone. Where it began
++	// stays as last saved (ScummVM's autosave tries again later; none is
++	// made as the phone puts the app away).
++	if (_scummverseTouring) {
++		if (msg)
++			*msg = Common::U32String("Not during the tour. Stop the tour to save.");
++		return false;
++	}
++
+ 	// Disallow saving in v0-v3 games when a 'prequel' to a cutscene is shown.
+ 	// This is a blank screen with text, and while this is shown, saving should
+ 	// be disabled, as no room is set.
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 2ddde440..14441e56 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1830,6 +1830,7 @@ protected:
+ 	int _scummverseTourDwell = 0; // ticks in this stop
+ 	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
+ 	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
++	int _scummverseTourWayBack[4] = {}; // the player's way back to the mansion as it began: who, room, x, y
+ 	void scummverseUpdateTour(int delta);
+ 	bool scummverseTourAdvance(Actor *a, int delta, int total);
+ 	void scummverseTourWalkTo(Actor *a, int x, int y);
+@@ -1849,7 +1850,7 @@ protected:
+ 	Common::String scummverseTourName(int index) const;
+ 	bool scummverseTourAvailable(int index);
+ 	bool scummverseTourPlace(int room, int x, int y);
+-	bool scummverseTourZakRoom(int room);
++	bool scummverseTourZakRoom(int room, int x = -1, int y = -1);
+ 	void scummverseHomePlacesOffer(bool zak);
+ 	bool scummverseTravelHome(bool zak, int room);
+ 	bool scummverseTourEnter(int index);
+diff --git a/engines/scumm/scummverse_camera.inc b/engines/scumm/scummverse_camera.inc
+index 8ff28ac4..d99a0eb3 100644
+--- a/engines/scumm/scummverse_camera.inc
++++ b/engines/scumm/scummverse_camera.inc
+@@ -166,7 +166,8 @@ bool ScummEngine::scummverseSelfieBegin(int shots) {
+ 
+ // Everyone faces the camera and strikes a pose from their own animations:
+ // standing, mid-step or talking (now and then one hasn't noticed, or they
+-// all stare at the player). Frames from other games pose likewise.
++// all stare at the player). Frames from other games pose likewise. Those
++// seated on the plane stay seated as they are.
+ void ScummEngine::scummverseSelfiePose() {
+ 	ScummverseSelfie &s = *_scummverseSelfie;
+ 	Common::Array<int> xs;
+@@ -184,10 +185,11 @@ void ScummEngine::scummverseSelfiePose() {
+ 		const int id = s.kept[i].id;
+ 		Actor *a = _actors[id];
+ 		const ScummverseCam::Choice &c = choices[i];
++		if (id < (int)ARRAYSIZE(s.spriteKind)) s.spriteKind[id] = -1;
++		if (a->_room == 56 && scummverseSeated(id)) continue;
+ 		if (c.facing != ScummverseCam::kFaceAsIs)
+ 			a->setDirection(c.facing == ScummverseCam::kFaceLeft ? 270 : c.facing == ScummverseCam::kFaceRight ? 90 : 180);
+ 		const bool sprite = scummverseGuestSlot(a) >= 0 || (id < kScummverseManiacActors && _scummverseAvatarSprite[id]);
+-		if (id < (int)ARRAYSIZE(s.spriteKind)) s.spriteKind[id] = -1;
+ 		if (c.pose == ScummverseCam::kAsIs) continue;
+ 		if (sprite) {
+ 			if (id < (int)ARRAYSIZE(s.spriteKind)) {
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 3bad8597..625bfa56 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -11,7 +11,8 @@
+ // game names each stop: its number, its code (Maniac 12, Zak 84, loom 21),
+ // its name where known, and whether it warped there. Stopping brings the
+ // character back to where the tour began; the next stop is remembered to
+-// resume (scummverse_tour_stop). The interface asks through
++// resume (scummverse_tour_stop). After the last stop it goes back there too,
++// the next tour from the first. The interface asks through
+ // common/scummverse_tour.h.
+ 
+ namespace ScummverseTour = ::Scummverse::Tour;
+@@ -189,11 +190,10 @@ bool ScummEngine::scummverseTourPlace(int room, int x, int y) {
+ static const short kTourZakSpots[][3] = {{79, 85, 52}};
+ 
+ // A Zak room by the sandbox's own travel (the apartment, the airport and the
+-// street have their own destinations).
+-bool ScummEngine::scummverseTourZakRoom(int room) {
++// street have their own destinations), at a spot if given (else its own).
++bool ScummEngine::scummverseTourZakRoom(int room, int x, int y) {
+ 	const int destination = room == 54 ? 1 : room == 53 ? 3 : room == 55 ? 5 : room - 50;
+-	int x = -1, y = -1;
+-	for (const auto &spot : kTourZakSpots) if (spot[0] == room) { x = spot[1]; y = spot[2]; }
++	for (const auto &spot : kTourZakSpots) if (spot[0] == room && x < 0) { x = spot[1]; y = spot[2]; }
+ 	return scummverseTravel(destination, 0, x, y) && _currentRoom == room;
+ }
+ 
+@@ -360,6 +360,11 @@ void ScummEngine::scummverseTourStart(int index) {
+ 		const int game = scummverseWorldGameOf(_currentRoom, source);
+ 		_scummverseTourHome[0] = _currentRoom; _scummverseTourHome[1] = a->getRealPos().x; _scummverseTourHome[2] = a->getRealPos().y;
+ 		_scummverseTourHome[3] = game; _scummverseTourHome[4] = source;
++		// The player's way back to the mansion, kept: the tour's own
++		// departures from it (its last stop on to Zak's) are not theirs.
++		const int ego = VAR(VAR_EGO);
++		_scummverseTourWayBack[0] = ego >= 1 && ego <= 24 ? ego : 0;
++		for (int i = 0; i < 3 && _scummverseTourWayBack[0]; ++i) _scummverseTourWayBack[1 + i] = _scummVars[travellerReturnKey(ego) + i];
+ 		_scummverseTourPaused = false;
+ 		ScummverseTour::publishPaused(false);
+ 	}
+@@ -372,7 +377,7 @@ void ScummEngine::scummverseTourStart(int index) {
+ 	_scummverseTourPhase = kTourEnter;
+ }
+ 
+-// Ends the tour; home: back to where it began.
++// Ends the tour; home: back to where it began, where the player stood.
+ void ScummEngine::scummverseTourEnd(bool home) {
+ 	if (!_scummverseTouring) return;
+ 	_scummverseTouring = false;
+@@ -381,13 +386,19 @@ void ScummEngine::scummverseTourEnd(bool home) {
+ 	_scummverseTransitArmed = false; // (home may be at a road's edge)
+ 	derefActor(VAR(VAR_EGO), "tour guide")->stopActorMoving();
+ 	if (home) {
+-		const int room = _scummverseTourHome[0];
++		const int room = _scummverseTourHome[0], x = _scummverseTourHome[1], y = _scummverseTourHome[2];
+ 		_scummverseLanding = true;
+-		if (_scummverseTourHome[3] >= 0) scummverseTravelPlace(_scummverseTourHome[3], _scummverseTourHome[4]);
+-		else if (room >= 53) scummverseTourZakRoom(room);
+-		else if (room >= 1) scummverseTourPlace(room, _scummverseTourHome[1], _scummverseTourHome[2]);
++		if (_scummverseTourHome[3] >= 0) {
++			const int world = scummverseWorldRoomFor(_scummverseTourHome[3], _scummverseTourHome[4]);
++			if (world) scummverseTravelWorld(world, x, y);
++		} else if (room >= 53) scummverseTourZakRoom(room, x, y);
++		else if (room >= 1) scummverseTourPlace(room, x, y);
+ 		_scummverseLanding = false;
+ 	}
++	// (The way back to the mansion as it began, once home: going home may
++	// leave from one of the mansion's stops.)
++	if (const int who = _scummverseTourWayBack[0])
++		for (int i = 0; i < 3; ++i) _scummVars[travellerReturnKey(who) + i] = _scummverseTourWayBack[1 + i];
+ 	scummverseTourPublish("");
+ }
+ 
+@@ -517,10 +528,13 @@ bool ScummEngine::scummverseTourAdvance(Actor *a, int delta, int total) {
+ 		while (_scummverseTourStop >= 0 && _scummverseTourStop < total && !scummverseTourAvailable(_scummverseTourStop))
+ 			_scummverseTourStop += _scummverseTourStep;
+ 		if (_scummverseTourStop < 0 || _scummverseTourStop >= total) {
+-			_scummverseTourStop = _scummverseTourShown = _scummverseTourStop < 0 ? 0 : total - 1;
+-			_scummverseTouring = false;
+-			scummverseTourPublish("");
+-			scummverseSay(VAR(VAR_EGO), _scummverseTourStep > 0 ? "That was the last stop of the tour." : "That was the first stop of the tour.");
++			// Past the last stop: home, the next tour from the first (before
++			// the first: where it is).
++			const bool last = _scummverseTourStop >= total;
++			_scummverseTourStop = _scummverseTourShown = 0;
++			if (last) scummverseTourSave();
++			scummverseTourEnd(last);
++			scummverseSay(VAR(VAR_EGO), last ? "That was the last stop of the tour." : "That was the first stop of the tour.");
+ 			return false;
+ 		}
+ 		_scummverseTourStep = 1;
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 9e638c4f..69e7b7fa 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -33,11 +33,13 @@ static const int kVisitorSpacing = 40;
+ 
+ // Zak's rooms a character can stand in (the tour's list): his airport,
+ // apartment and street, the imported places but the plane's cabin and the
+-// van's cockpit, and the logical scenes.
++// van's cockpit, and the logical scenes but the van in flight (221, on the
++// cockpit's slot: everyone aboard unseen). (One left there by an older save
++// is never shown there and moves on at its next turn.)
+ static bool wanderZakRoom(int room) {
+ 	if (room >= 53 && room < ScummverseContent::kRoomCount)
+ 		return room != 56 && room != 81 && !zakRetiredRoomReplacement(room); // (81: the van's cockpit)
+-	for (const auto &scene : zakLogicalScenes) if (scene.room == room) return true;
++	for (const auto &scene : zakLogicalScenes) if (scene.room == room) return scene.physical != 81;
+ 	return false;
+ }
+ 
+@@ -74,7 +76,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 		auto zak = [](int room) { return Wander::placeCode(Wander::kZak, 0, room); };
+ 		places.clear(); group = 1;
+ 		for (int room = 53; room < ScummverseContent::kRoomCount; ++room) if (wanderZakRoom(room)) places.push_back(zak(room));
+-		for (const auto &scene : zakLogicalScenes) if (scene.room >= ScummverseContent::kRoomCount) places.push_back(zak(scene.room));
++		for (const auto &scene : zakLogicalScenes) if (scene.room >= ScummverseContent::kRoomCount && wanderZakRoom(scene.room)) places.push_back(zak(scene.room));
+ 		addGame(places);
+ 		for (const ZakLink &link : zakLinks) WanderBridge::addDoor(zak(link.room), zak(link.destination));
+ 	}
+@@ -119,7 +121,8 @@ void ScummEngine::scummverseWanderBuild() {
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 
+-// The place a room shows (0: none: the plane, the van's cockpit, a map).
++// The place a room shows (0: none: the plane, the van's cockpit or the van
++// in flight, a map).
+ int ScummEngine::scummverseWanderPlace(int room) const {
+ 	int source;
+ 	const int game = scummverseWorldGameOf(room, source);

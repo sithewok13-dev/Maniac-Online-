@@ -5866,3 +5866,30 @@ From the second bug hunt (rides and seats in the new engine).
   boarding place's middle under the van; a flight with five following:
   everyone seated seen whole during it), the full sandbox suite. Not tested
   on an iPhone.
+
+## Patch 0213 — the mansion's engine: the tour's saves, its way back and its end; wanderers out of the flying van
+
+From the second bug hunt (the classic engine's wanderers, tour and camera).
+- Wanderers from other games could be shown inside the flying Shuttle Bug
+  (the van in flight, 221, where everyone aboard is hidden): it is no place
+  of theirs (wanderZakRoom refuses a place that is the cockpit, 81). One
+  there from an older save moves on at its next turn.
+- No saving during the mansion's tour ("Not during the tour. Stop the tour
+  to save."): a save mid-tour kept the room the tour was at and lost where
+  it began. ScummVM's autosave tries again later. On the iPhone the
+  background autosave is skipped mid-tour too, so an app iOS stops mid-tour
+  starts the mansion afresh, as after a force-quit.
+- The tour keeps the kid's way back to the mansion (it passed through the
+  gate approach, 52, and left that as the way back); it is put back when
+  the tour ends.
+- At the tour's natural end the guide goes home (where it began, at the
+  spot they stood, in another world or Zak's too), and the next tour
+  starts at stop 1 (it stayed at the last stop, and "Start at stop N" ended
+  at once).
+- A selfie aboard the plane leaves those seated in their seats as they
+  sit.
+- Tests: the data suite's tour (saving refused while touring, the way back
+  unchanged after Stop, a tour run to its end home and resuming at stop 1),
+  wanderers (221 no place), camera, seating, van, flights, roaming, lights
+  and doors, world visit and Story mode probes. The selfie aboard the plane
+  is read and compiled, not run by a test. Not tested on an iPhone.

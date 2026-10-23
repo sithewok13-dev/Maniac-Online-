@@ -259,8 +259,8 @@
 		for (uint i=0;i<keys.size();++i) if (WB::where(keys[i])!=kept[i]) error("%s moved by save and load",name(keys[i]));
 		if (shownHere()<4) error("%d visitors after loading",shownHere());
 	}
-	// No visitors on the plane or in the van's cockpit.
-	if (scummverseWanderPlace(56) || scummverseWanderPlace(81)) error("Visitors on the plane or in the cockpit");
+	// No visitors on the plane, in the van's cockpit or in the van in flight.
+	if (scummverseWanderPlace(56) || scummverseWanderPlace(81) || scummverseWanderPlace(221)) error("Visitors on the plane, in the cockpit or in the van in flight");
 	// Small ones (an animal, a critter) are known and never part of a crowd.
 	{
 		const int parrot=worldAppearanceKey(4,72);
