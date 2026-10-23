@@ -4,8 +4,11 @@
 The engine hosts; a second session joins as another device controlling Zak.
 Checks remote avatars, walking, room changes, speech both ways, validation and
 release on departure; places in other worlds (0196) and the looks played,
-through a save and a load (0197). One process on one machine: not a two-device or iPhone
-network test.
+through a save and a load (0197); from 0209, a character refused here gives
+back the one played, taking the local player's is refused and closed, lines
+wait their turn (five seconds at most), and after a load friends stand where
+they are, no one's companions. One process on one machine: not a two-device
+or iPhone network test.
 """
 import argparse
 from pathlib import Path

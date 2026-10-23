@@ -55,8 +55,20 @@
 	if (zak->_room!=0 || !scummverseRemoteActor(24)) error("A place not installed here: room %d remote %d",zak->_room,scummverseRemoteActor(24));
 	device.setLocal(avatar(24,53,10,60)); for(int n=0;n<100 && zak->_room!=53;++n) pump(1);
 	if (zak->_room!=53) error("Back from a place not shown here failed: %d",zak->_room);
+	// (From 0209) A player taking a character this device refuses (not one
+	// of the cast here) gives back the one they played at once.
+	device.setLocal(avatar(12,53,10,60)); pump(20);
+	if (scummverseRemoteActor(24) || scummverseRemoteActor(12)) error("A refused character kept another claimed: Zak %d, 12 %d",scummverseRemoteActor(24),scummverseRemoteActor(12));
+	device.setLocal(avatar(24,53,10,60)); for(int n=0;n<100 && !(scummverseRemoteActor(24) && zak->_room==53);++n) pump(1);
+	if (!scummverseRemoteActor(24)) error("Zak not taken again");
+	// (From 0209) Taking the local player's own character: refused and
+	// closed by this host; Zak is everyone's again, until they join again.
 	device.setLocal(avatar(3,1,10,60)); pump(20);
 	if (me->_room!=53 || me->getRealPos()!=mine) error("Remote took the local player's character");
+	if (device.active() || scummverseRemoteActor(24)) error("Taking the local player's character not refused: active %d remote %d",device.active(),scummverseRemoteActor(24));
+	if (!device.join("127.0.0.1",scummverseNetContent(),24,problem)) error("Join again failed: %s",problem.c_str());
+	device.setLocal(avatar(24,53,24,60)); for(int n=0;n<200 && !(scummverseRemoteActor(24) && zak->_room==53);++n) pump(1);
+	if (!scummverseRemoteActor(24) || zak->_room!=53 || scummverseAppearance(24) || _scummverseRemoteLookBefore[24]!=police+1) error("Joined again: remote %d room %d look %d",scummverseRemoteActor(24),zak->_room,scummverseAppearance(24));
 	// Speech both ways.
 	device.setLocal(avatar(24,53,24,60)); pump(20);
 	device.say("Hello from my phone");
@@ -66,6 +78,31 @@
 	request.kind=N::Request::Say; request.text="Hi Zak, welcome!"; N::postRequest(request); pump(1); stopTalk(); VAR(VAR_HAVE_MSG)=0;
 	for(int n=0;n<200 && !heard(N::Event::Said,3,"Hi Zak, welcome!");++n) pump(1);
 	if (!heard(N::Event::Said,3,"Hi Zak, welcome!")) error("Local speech not sent");
+	// (From 0209) Lines wait their turn: a friend's while another shows and
+	// while the local player has no control (a cutscene); the local
+	// player's while another shows. Then each is shown (and sent).
+	{
+		auto ticks=[&](int n,bool quiet) { for(int i=0;i<n;++i) { if(quiet && getTalkingActor()!=24 && getTalkingActor()!=3) { stopTalk(); VAR(VAR_HAVE_MSG)=0; } device.poll(seen); scummverseUpdateRoaming(4); g_system->delayMillis(2); } };
+		stopTalk(); VAR(VAR_HAVE_MSG)=0;
+		scummverseSay(3,"One moment, please."); device.say("Wait for me"); ticks(20,false);
+		if (getTalkingActor()!=3) error("A friend's line cut into another: %d",getTalkingActor());
+		_userPut=0; stopTalk(); VAR(VAR_HAVE_MSG)=0; ticks(20,true);
+		if (getTalkingActor()==24) error("A friend's line shown without control");
+		_userPut=1; ticks(1,true);
+		if (getTalkingActor()!=24 || !VAR(VAR_HAVE_MSG)) error("A friend's waiting line not shown: %d",getTalkingActor());
+		seen.clear(); request.kind=N::Request::Say; request.text="After you"; N::postRequest(request); ticks(20,false);
+		if (getTalkingActor()!=24 || heard(N::Event::Said,3,"After you")) error("The local player's line cut into another: %d",getTalkingActor());
+		stopTalk(); VAR(VAR_HAVE_MSG)=0; ticks(1,true);
+		if (getTalkingActor()!=3) error("The local player's waiting line not said: %d",getTalkingActor());
+		for(int n=0;n<100 && !heard(N::Event::Said,3,"After you");++n) ticks(1,true);
+		if (!heard(N::Event::Said,3,"After you")) error("The local player's waiting line not sent");
+		stopTalk(); VAR(VAR_HAVE_MSG)=0;
+		// (Five seconds, then dropped.)
+		scummverseSay(3,"A long story."); device.say("Too late"); ticks(90,false);
+		stopTalk(); VAR(VAR_HAVE_MSG)=0; ticks(2,true);
+		if (getTalkingActor()==24) error("A friend's line shown after waiting too long");
+		warning("SCUMMVERSE net: lines wait their turn (a friend's over another and a cutscene, the local player's), and no longer than five seconds");
+	}
 	// (From 0197) The look a player plays: theirs shown here, where this
 	// device has it, without the local player's notice; one it hasn't (a
 	// custom character, the new engine's own): the character itself. Saves
@@ -91,12 +128,23 @@
 		N::Avatar walking=looked(ted); walking.x=goal; device.setLocal(walking);
 		for(int n=0;n<100 && !zak->_moving;++n) { device.poll(seen); scummverseUpdateRoaming(4); g_system->delayMillis(2); }
 		if (!zak->_moving) error("Remote walk for the save not begun");
-		if (!saveState(98,false,file) || scummverseAppearance(24)!=ted) error("Saving lost the remote look: %d",scummverseAppearance(24));
+		// (From 0209: the save also has him as the local player's companion.)
+		_scummVars[794]=VAR(VAR_EGO);
+		const bool saved=saveState(98,false,file);
+		_scummVars[794]=0;
+		if (!saved || scummverseAppearance(24)!=ted) error("Saving lost the remote look: %d",scummverseAppearance(24));
 		const int reach=zak->adjustXYToBeInBox(goal,60).x; // (where the walk can end)
 		for(int n=0;n<300 && (zak->_moving || zak->getRealPos().x!=reach);++n) pump(1);
 		if (zak->getRealPos().x!=reach || reach==start) error("A save stopped the remote walk: at %d, sent to %d",zak->getRealPos().x,reach);
+		// (From 0209) His player walks on to another room before the load:
+		// loaded, he is there, not where the save had him, and no one's
+		// companion.
+		N::Avatar on=looked(ted); on.room=57; on.x=30; device.setLocal(on);
+		for(int n=0;n<100 && zak->_room!=57;++n) pump(1);
+		if (zak->_room!=57) error("Remote room change before the load failed: %d",zak->_room);
 		if (!loadState(98,false) || scummverseAppearance(24)!=ted || zak->_costume!=12 || _scummverseRemoteLookBefore[24]!=police+1 || !scummverseRemoteActor(24))
 			error("After loading: look %d, kept %d",scummverseAppearance(24),_scummverseRemoteLookBefore[24]);
+		if (_currentRoom!=53 || zak->_room!=57 || zak->getRealPos().x!=30 || _scummVars[794]) error("After loading: room %d at %d, companion of %d",zak->_room,zak->getRealPos().x,_scummVars[794]);
 		// One of Monkey Island's people, where that game's characters are
 		// exported here (drawn from their own frames).
 		bool islander=false;

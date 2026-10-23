@@ -5759,3 +5759,30 @@ From the second bug hunt (travel in Maniac's own engine, the classic one).
   doors, pool valve (19 of 19), test_startup. No test switches to someone in
   another world yet (that path read and compiled, not run). Not tested on
   an iPhone.
+
+## Patch 0209 — WiFi play: lost links noticed, a taken character refused, places after a load
+
+From the second bug hunt (local WiFi play).
+- A quiet link sends a ping every 3 seconds; one silent for 15 seconds is
+  gone (the host tells the others; a client says "The host stopped
+  answering."). The protocol is 3: devices of the build before and after
+  refuse each other with "The host runs a different game version."
+  A device that stops for 15 seconds (the ScummVM menu or the app in the
+  background) is dropped and must join again.
+- A device asking for a character someone else controls is refused and
+  closed; the character it had is let go for everyone.
+- After a load each friend stands where they really are (put there, not
+  walked), not following or riding as the save had them.
+- Lines wait their turn (the latest one each, up to 5 seconds) instead of
+  being dropped while another shows.
+- A broken listener is opened again on the same port, else hosting stops
+  with the reason told.
+- A join while every place is still held (a leaver removed later in the
+  same moment) is refused as full; closing the game always says WiFi play
+  is off.
+- Tests: test_net (ASan/UBSan, TSan: ping codec, an old protocol refused,
+  a taken character refused and closed, a join while full, a broken
+  listener reopened, liveness on a moved clock), the WiFi engine probe
+  (tools/probes/net.inc: a taken character refused, lines queued, places
+  and companions after a load), flights, companions, seating, startup.
+  Not run on two devices or an iPhone.
