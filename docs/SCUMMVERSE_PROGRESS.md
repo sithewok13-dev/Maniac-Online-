@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0194 (the new engine's last doors: Loom's dragon's lair left by its door, the tour through every door; 0193 every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0195 (the mansion's main power in the new engine: the circuit breakers off, the house dark as its own scripts leave it; 0194 the new engine's last doors: Loom's dragon's lair left by its door, the tour through every door; 0193 every other-world door walkable in Maniac's engine; 0192 the mansion's and Zak's own people among the wanderers; 0191 Fate of Atlantis's labyrinth, rings and travel screens walkable; 0190 Monkey Island 2's jungle and tunnels; 0189 Loom's dark rooms' holes filled; 0187 and 0188: Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -5232,4 +5232,41 @@ none was a walk that failed:
   769 stops).
 - Tests: test_sandbox_engine.py (all of it). Tested on the desktop build
   only; not on an iPhone.
+
+## Patch 0195 — the mansion's main power (new engine; step 5)
+
+From 0141's "not yet": the original's fuse box and breakers.
+- In the new engine, the circuit breakers in the basement (in the fuse
+  box, opened first) turned off make the house dark where the mansion's
+  own room scripts leave it dark with the main power off: 27 of its places
+  (the basement, the halls, the kitchen, the bedrooms and the rest
+  indoors; outside, the garage, the lab's rooms and others stay lit). A
+  lamp turned on there stays dark without the power; the flashlight still
+  lights its window. Turned on again, every place is lit as before (those
+  whose own lights were turned off stay dark). Kept with the rest of the
+  mansion's state.
+- Which places, from the game itself: the export runs the breakers' own
+  turn-off script from the game's start, then arrives in each place as a
+  kid does (its entry scripts run) with the power on and with it off, and
+  lists those lit with it on and dark with it off (a probe of every room
+  1..52 agreed). The mansion's things file is "SVO5": "SVO4" with the main
+  power (room, object, its picture off) and those places after. The
+  mansion is exported once more (maniac-v30); the other games are not.
+- An independent review (read only) found nothing wrong with this data;
+  from it: the export writes the main power only when the breakers' own
+  script turned them off and some place is dark then, and only where the
+  lights are a variable it keeps (not the C64's), all of the game's state
+  kept for the arrivals with it off; a file whose main power is none of
+  its things, or starts in its picture off, is read with no main power (the
+  house is never dark from the start); the check turns a lamp off and on
+  (on is then the lamp's own answer) and expects the basement as the list
+  has it.
+- Tests: test_panel.cpp ("SVO5" read whole or not at all, by game and
+  place, a nonsense power dropped; its documented -Wshadow build works again: 0171's own block had
+  names shadowing others); test_sandbox_engine.py (the verbs check opens
+  the fuse box, turns the breakers off as a player does: every place of
+  the list dark on going there, the others lit, a lamp there dark still;
+  on again, all lit; the mansion left as found). Re-exported: of the
+  mansion's files only the things file differs, by its new end. Tested on
+  the desktop build only; not on an iPhone.
 

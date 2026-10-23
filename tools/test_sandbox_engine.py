@@ -357,6 +357,13 @@ if __name__ == '__main__':
         lights = re.search(r'(\d+) lights off and (\d+) on again \((\d+) flashlight, (\d+) pool, (\d+) links\)', output)
         if (worlds/'maniac-1.svw').exists() and (not lights or int(lights.group(1)) < 5 or lights.group(1) != lights.group(2) or lights.group(3) != '1' or lights.group(4) != '1' or lights.group(5) != '4'):
             raise SystemExit('FAIL: the mansion\'s lights\n' + output[-2000:])
+        # (From 0195: the circuit breakers off, where the mansion's own room
+        # scripts leave it dark then, dark; on again, lit.)
+        power = re.search(r'the main power off in (\d+) places and on again', output)
+        if (worlds/'maniac-1.svw').exists() and (not power or int(power.group(1)) < 5):
+            raise SystemExit('FAIL: the mansion\'s main power\n' + output[-2000:])
+        if power and int(power.group(1)):
+            print(f'PASS: the mansion\'s main power: the fuse box opened, the circuit breakers off, {power.group(1)} places dark as its own scripts leave them (a lamp turned on there dark still), the rest lit; on again, all lit')
         if lights and int(lights.group(1)):
             print(f'PASS: the mansion\'s lights: {lights.group(1)} turned off (the place dark, everyone in grey; again so on coming back, only there; kept) and on again; the flashlight lighting a window where the tap was; the water valve draining and filling the pool, its ladder down only when drained; the gargoyle opening the hall\'s secret door (no handle; shut, going nowhere, nor with a tour paused; shut behind on the stairs down); the mailbox and the desk opened and closed; the shower curtain drawn aside and back as one (pushed, it won\'t budge), the sink and the tap as the game; the garden gate moving as one')
         # (From 0170: Use, a thing carried, a thing here: two things, in each

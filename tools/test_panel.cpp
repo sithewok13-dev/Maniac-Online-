@@ -615,11 +615,11 @@ int main() {
 			std::vector<uint8_t> four = {'S', 'V', 'O', '4'};
 			put16(four, 1); put16(four, 1); put16(four, 1); put16(four, 50); four.push_back(0); put16(four, 0);
 			put16(four, 3);
-			auto effect = [&](int id, int kind, int with, int after, int otherPicture, const std::string &said) {
-				put16(four, 1); put16(four, id); four.push_back((uint8_t)kind); four.push_back(0); put16(four, with); four.push_back((uint8_t)after);
+			auto effect = [&](int thing, int verb, int with, int bits, int otherPicture, const std::string &spoken) {
+				put16(four, 1); put16(four, thing); four.push_back((uint8_t)verb); four.push_back(0); put16(four, with); four.push_back((uint8_t)bits);
 				four.push_back(otherPicture >= 0 ? 1 : 0);
 				if (otherPicture >= 0) { put16(four, 7); put16(four, 90); four.push_back((uint8_t)otherPicture); }
-				four.push_back((uint8_t)said.size()); four.insert(four.end(), said.begin(), said.end());
+				four.push_back((uint8_t)spoken.size()); four.insert(four.end(), spoken.begin(), spoken.end());
 			};
 			effect(55, kUse, 50, 1 | 8, 2, "Click.");
 			effect(55, kUse, 0xFFFF, 0, -1, "It doesn't work.");
@@ -629,20 +629,55 @@ int main() {
 			const ThingEffect *own = things.effect(1, 55, kUse, 0, 50), *usual = things.effect(1, 55, kUse, 0, kAnyOther);
 			assert(own && own->with == 50 && own->after == 1 && own->secondGone && !own->firstGone && !own->taken && own->others[0].picture == 2 && own->line == "Click.");
 			assert(usual && usual->line == "It doesn't work." && things.effect(1, 55, kOpen, 0) && !things.effect(1, 55, kUse, 0));
-			int after, others[3], count, flags;
-			char said[32];
+			int flags;
+			char reply[32];
 			assert(PanelBridge::loadThings(5, four.data(), four.size(), problem, sizeof(problem)));
-			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 50, after, others, count, 1, said, sizeof(said), flags) && flags == (4 | 8) && count == 1 && others[2] == 2 && std::string(said) == "Click.");
-			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 61, after, others, count, 1, said, sizeof(said), flags) && flags == 0 && count == 0 && std::string(said) == "It doesn't work.");
-			assert(!PanelBridge::pairEffect(5, 1, 55, kUnlock, 0, 50, after, others, count, 1, said, sizeof(said), flags));
-			int room, id, kind, from, with = -1;
+			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 50, after, others, count, 1, reply, sizeof(reply), flags) && flags == (4 | 8) && count == 1 && others[2] == 2 && std::string(reply) == "Click.");
+			assert(PanelBridge::pairEffect(5, 1, 55, kUse, 0, 61, after, others, count, 1, reply, sizeof(reply), flags) && flags == 0 && count == 0 && std::string(reply) == "It doesn't work.");
+			assert(!PanelBridge::pairEffect(5, 1, 55, kUnlock, 0, 50, after, others, count, 1, reply, sizeof(reply), flags));
+			int with = -1;
 			assert(PanelBridge::effectAt(5, 0, room, id, kind, from, &with) && kind == kOpen && with == 0);
-			std::vector<uint8_t> bad = four;
-			bad[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1 + 2] = 16; // (an after past its bits)
-			assert(!parseThings(bad.data(), bad.size(), things, error) && error == "bad effect");
-			std::vector<uint8_t> three = four;
-			three[3] = '3'; // (read as "SVO3": the seconds misread, refused whole)
-			assert(!parseThings(three.data(), three.size(), things, error));
+			std::vector<uint8_t> badAfter = four;
+			badAfter[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2 + 1 + 1 + 2] = 16; // (an after past its bits)
+			assert(!parseThings(badAfter.data(), badAfter.size(), things, error) && error == "bad effect");
+			std::vector<uint8_t> asThree = four;
+			asThree[3] = '3'; // (read as "SVO3": the seconds misread, refused whole)
+			assert(!parseThings(asThree.data(), asThree.size(), things, error));
+		}
+		// ("SVO5", from 0195: then the main power, its picture off and the
+		// places dark while it is off; found by game and place.)
+		{
+			// (Rooms 1 and 8, the power one of 8's things, in its picture 0.)
+			std::vector<uint8_t> five = {'S', 'V', 'O', '5'};
+			put16(five, 2); put16(five, 1); put16(five, 1); put16(five, 50); five.push_back(0); put16(five, 0);
+			put16(five, 8); put16(five, 1); put16(five, 157); five.push_back(0); put16(five, 0);
+			put16(five, 0); // (no effects)
+			put16(five, 0); // (no parents)
+			put16(five, 8); put16(five, 157); five.push_back(1);
+			put16(five, 3); put16(five, 9); put16(five, 3); put16(five, 22);
+			assert(parseThings(five.data(), five.size(), things, error) && things.powerRoom == 8 && things.powerId == 157 && things.powerOff == 1);
+			assert(things.unpowered.size() == 3 && things.unpowered[0] == 3 && things.unpowered[2] == 22);
+			assert(PanelBridge::loadThings(6, five.data(), five.size(), problem, sizeof(problem)));
+			int off = 0;
+			room = id = 0;
+			assert(PanelBridge::mainPower(6, room, id, off) && room == 8 && id == 157 && off == 1);
+			assert(PanelBridge::unpowered(6, 9) && PanelBridge::unpowered(6, 3) && !PanelBridge::unpowered(6, 1) && !PanelBridge::unpowered(7, 9) && !PanelBridge::mainPower(5, room, id, off));
+			std::vector<uint8_t> cut(five.begin(), five.end() - 2); // (one place short)
+			assert(!parseThings(cut.data(), cut.size(), things, error));
+			std::vector<uint8_t> odd = five;
+			odd[odd.size() - 9] = 2; // (an off picture past 1)
+			assert(!parseThings(odd.data(), odd.size(), things, error) && error == "bad main power");
+			std::vector<uint8_t> none = {'S', 'V', 'O', '5'};
+			put16(none, 0); put16(none, 0); put16(none, 0); put16(none, 0); put16(none, 0); none.push_back(0); put16(none, 0);
+			assert(parseThings(none.data(), none.size(), things, error) && !things.powerId && things.unpowered.empty());
+			// (One that is none of its things, or starts in its picture off: read,
+			// the power dropped, so nothing is dark from the start.)
+			std::vector<uint8_t> stranger = five;
+			stranger[stranger.size() - 11] = 158 & 0xFF; // (power object 158)
+			assert(parseThings(stranger.data(), stranger.size(), things, error) && !things.powerId && things.unpowered.empty());
+			std::vector<uint8_t> startsOff = five;
+			startsOff[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2] = 1; // (157 drawn in its picture 1 at the start)
+			assert(parseThings(startsOff.data(), startsOff.size(), things, error) && !things.powerId && things.unpowered.empty());
 		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);

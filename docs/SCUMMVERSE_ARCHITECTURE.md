@@ -861,6 +861,12 @@ one palette) apply.
   does (`beforeThings`: the dragon's lair's one way out, under the dragon,
   its gold and straw), is taken before them where the tap is under it and
   it is the door the tap takes there (`tapsDoorFirst`).
+- The mansion's main power (0195; `kWorldMainPowers`, "SVO5"): the export
+  turns the circuit breakers off by their own script and lists the places
+  lit on arrival with the power on and dark with it off;
+  `SandboxEngine::placeDark` is a place's own lights off, or the power off
+  (the breakers in their off picture) and the place listed. Checked after
+  every step, so the breakers' own effect darkens the basement at once.
 - Chat in the sandbox (0116, step 4): SandboxEngine::talkScene tells the
   iPhone's chat (common/scummverse_ai.h, the same calls Maniac makes) who
   is here every step: the one played as talk ID 1 with its appearance key
