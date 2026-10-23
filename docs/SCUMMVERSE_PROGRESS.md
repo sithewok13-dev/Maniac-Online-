@@ -5653,3 +5653,28 @@ From the second bug hunt (a second pass over the new engine).
   the van asked for elsewhere, the tour on); the suite's floors raised
   nearer what the data gives (the mansion's things, pairs, the main power,
   the chat in every game, no door leading elsewhere).
+
+## Patch 0205 — iPhone: the keyboard, the tour's label, the screen kept awake
+
+From the second bug hunt (the iPhone's own controls). Not built here: the
+iPhone build (CI) compiles it; not tested on an iPhone yet.
+- The chat hidden (turned to landscape with a message half typed and the
+  chat not opened) lets the keyboard go; it no longer stays over the game
+  with no field to see.
+- The tour's label and bar stay in the game's half of the screen, as the
+  picture is laid out with the chat open or not, on either side: never over
+  the chat or the toolbar.
+- The tour no longer puts its label and bar on top five times a second
+  (each reorder laid the view out again); only when something else is.
+- After a tour the screen stays awake while a game runs, as it does
+  without a tour (it was let sleep).
+- The on-phone model is loaded again only on coming back from the
+  background, which unloaded it; Control Center, a banner or the Photos
+  prompt no longer reload it and end the conversation.
+- The Worlds menu reads Story mode or Explore mode from a flag the game's
+  thread sets, not from the settings file the game may be writing.
+- With a hardware keyboard, the game takes its keys back only when no other
+  field (the tour's "Go to stop", the WiFi address) is typing and nothing is
+  shown over the game.
+- One finding left: a menu step said to run only after a dismissal; not
+  shown wrong by the code, so left as it is.
