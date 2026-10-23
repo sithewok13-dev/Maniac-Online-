@@ -5481,3 +5481,28 @@ the puddle drying to a stain; a Suzy 4 looking straight ahead.
   writes); startup, bootstrap, package_ipa. Pictures of each looked at on
   the desktop. The model's own heckles were tested only with a stand-in on
   the desktop (no model weights here). Not tested on an iPhone.
+
+## Patch 0201 — Crispy 2's stream where the user showed it; Crispy 2, Sith Ewok 3 and Suzy 4 roam
+
+User (2026-10-23), with a picture of the first round's frame: "The pee
+should come out like this from that direction/location"; and "Make them
+roam the worlds like the other characters. Suzy too", then "I want the
+newest suzy to roam. Also Extra".
+- Crispy 2's stream now comes from under his belly and slants down to the
+  floor between his legs, as in the picture, in the shipped frames' gold
+  with a dark edge where it meets nothing (seen on any floor); his raised
+  leg as shipped. The puddle lands there (the generator's mark: 15 art
+  pixels behind his feet).
+- Crispy 2, Sith Ewok 3, Suzy 4 (the newest Suzy) and Extra 2 (the newest
+  Extra) roam the new engine's places with everyone else
+  (kWorldCustomRoamers; the two dogs small, never part of a crowd): met
+  anywhere, coming in through doors, asked along, talked with; Sith Ewok 3
+  shows off and Crispy 2 pees on his own near the one played, as before.
+  Not in Maniac's own engine (it cannot draw them). The other custom
+  characters still appear only where the player is.
+- Tests: test_sandbox_engine.py (the character screen's check: the four
+  roaming, one sent here shown once, Crispy not roaming; the moves check
+  with the new stream; the whole sandbox check passed); test_startup.py (a
+  made-up place now shows the four roamers too); test_custom_characters.py;
+  bootstrap, package_ipa. The new stream looked at on the desktop. Not
+  tested on an iPhone.

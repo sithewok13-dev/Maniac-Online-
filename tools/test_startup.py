@@ -205,7 +205,9 @@ class StartupTests(unittest.TestCase):
         self.config.write_text("[scummvm]\nscummverse_selftest=walk\nscummverse_screen=1280x720\n")
         result = self.run_game("scummverse:sandbox")
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn("1 shown, 1 people, 1 walked across, 0 as near as they go, 0 skipped, 0 failed", result.stdout)
+        # (The lead and, from 0201, the four custom characters who roam: in a
+        # world of one place, all of them there.)
+        self.assertIn("1 shown, 5 people, 1 walked across, 0 as near as they go, 0 skipped, 0 failed", result.stdout)
         self.assertIn("screen 1280x720", result.stdout)
         self.assertIn("SCUMMVERSE sandbox selftest PASS", result.stdout)
 

@@ -1237,7 +1237,10 @@ one palette) apply.
   lead (personPerRow) in square pixels (from 0142). castOffer adds a last
   box, slot 2 + worldGameCount(), "Custom characters", its face the first's;
   castHome is the player's place and castChoose plays them there, where the
-  one before stood. They are not wanderers and not in Maniac's own engine.
+  one before stood. Not in Maniac's own engine; from 0201 those in
+  kWorldCustomRoamers (Crispy 2, Sith Ewok 3, Suzy 4, Extra 2) are wanderers
+  of the new engine (buildWanderers: no home, no game of their own, the dogs
+  small), the rest only where the player is.
   One may carry something lit (0175): poses 4..7 (World::GuestKind: lighting
   up, played backwards to put it out; standing, walking, talking lit) and
   mask 2 (light added to what is behind) and 3 (drawn in the dark). The
