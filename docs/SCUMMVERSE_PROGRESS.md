@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-Active milestone: Phase 1; latest patch 0186 (Story mode and Explore mode kept apart; Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
+Active milestone: Phase 1; latest patch 0187 (Sam & Max's copy protection answered, its early saves reloading; 0186 Story mode and Explore mode kept apart, Monkey Island 2's copy protection answered; 0185 imported Zak's story; 0184 Maniac's own story, going on at the next start, Save now).
 Working branch: claude/gameplay-fixes (from codex/scummverse-c64-baseline fde0674);
 PRs target codex/scummverse-c64-baseline. Do not modify main or the Codex branch.
 claude/scummverse-dev holds the same commits and is superseded.
@@ -4944,3 +4944,28 @@ open issues:
   engine's suite (with Maniac -> new engine -> Story mode -> Explore). The
   iPhone list, menus and hidden buttons are compiled for iOS only by Apple
   CI; not tested on an iPhone.
+
+## Patch 0187 — Sam & Max's copy protection answered; its early saves reload
+
+Following the user's "Let's fix all these issues":
+- Sam & Max's dress-up screen (its floppy copies' copy protection) is now
+  answered by story play, as Monkey Island 2's is: a press wakes the
+  wardrobes; the game names a page of its manual and a doll; the clothes
+  that page asks for are read from the game's own table at run time (never
+  copied into the project), put on, and its button pressed. Read from its
+  scripts: a wrong answer gets one more chance, then the game quits; and its
+  check, as compiled, only ever looks at the doll's first item, so a bare
+  press is wrong on one page of ten (page 4) and right on the rest. That is
+  why pressing alone passed "only sometimes" before.
+- The Sam & Max save that would not reload (a script error naming room 92,
+  object 0): its after-load script sets the cursor from a variable the game
+  has not set yet just after its intro. ScummVM already skips that for room
+  93 (its bug 14467); it is now skipped for any room.
+- The story test has Sam & Max in its default list again, held to page 4
+  (the page a press alone gets wrong); it requires the dolls dressed and
+  left with no wrong answer.
+- Tested on the desktop build only: the story test with Sam & Max (held to
+  page 4, Sam's doll: dressed and right the first time; its office save,
+  made just after the intro, reopened three times exactly as saved), the
+  startup tests (22), the bootstrap test and the IPA stamp. Not tested on an
+  iPhone.

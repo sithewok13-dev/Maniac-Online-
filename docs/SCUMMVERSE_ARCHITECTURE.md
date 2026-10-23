@@ -536,10 +536,25 @@ Copy protection in story play (0186): `scummverseStoryPassGuard` answers
 Monkey Island 2's recipe screen, which ScummVM leaves to the player with
 copy_protection off (room 108; any number is taken, ScummVM reading the
 answer for the number asked: "1", then Return, every 1.5 s of game time, at
-most 20 tries; then the player's). Sam & Max's floppy dolls screen (room 71)
-checks a real answer (array 304 and var 153 at its button, object 771; a
-wrong one makes the game quit): presses alone pass only sometimes, so it is
-left to the player for now.
+most 20 tries; then the player's). Sam & Max's floppy dolls screen (room 71;
+0187, `scummverseStoryDressDolls`): any press wakes the wardrobes (var 151);
+the game then picks a page of its manual (var 152, 1-10) and a doll (var
+153: 0 Sam, clothes objects 715-744; 1 Max, 745-770), and lights its button
+(object 771, state 1). Its button checks the clothes the page asks for,
+three letters a doll in its own table (array 304, read at run time through
+`scummverseArrayAt`, never copied: object = first + letter - 'A'), by their
+state; a wrong answer has one more chance (var 154), then the game quits.
+Story play puts on (state 1) any of the three that is off, then presses the
+button at its centre (mouse events through the event manager), every 1.5 s,
+at most 20 presses. (As compiled, its check stops at the doll's first item
+when that item is not asked for, so only the page whose answer includes it,
+page 4, ever refuses a bare press; the test holds the dolls to that page.)
+
+Sam & Max saves made before the game first sets its cursor (just after its
+intro, as a story's first save can be) reload with its after-load script
+setting the cursor from object 0 in room 92, which would stop the game;
+upstream's fix for bug 14467 skipped only room 93, and 0187 skips object 0 in
+any room (`script_v6.cpp`, SO_CURSOR_IMAGE).
 
 Zak imported from the Files app (0185, iOS): the importer keeps its copy in
 Application Support (`ConnectedWorlds/zak-<uuid>`, outside the Documents

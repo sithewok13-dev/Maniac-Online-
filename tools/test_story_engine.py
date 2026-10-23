@@ -30,11 +30,11 @@ handling of them is what runs.
 Maniac Mansion's own story (its data, with none of the mansion's additions)
 is the first game unless --no-maniac. Every story starts with none of them.
 Films are cut short; a start that asks something is clicked through.
-Monkey Island 2's opening is its copy protection (a recipe from the code
-wheel): story play answers it for the player (scummverseStoryPassGuard), so
-it is in the default list. Sam & Max's (dressing Sam and Max as the manual
-shows) checks a real answer and waits for the player: not in the default
-list (name it to try).
+Monkey Island 2's and Sam & Max's openings are their copy protection (a
+recipe from the code wheel; a doll dressed as a page of the manual shows):
+story play answers them for the player (scummverseStoryPassGuard), so they
+are in the default list. Sam & Max is held to the page a press alone gets
+wrong (--dolls-page), and must leave with no wrong answer.
 Game data and saves stay in a temporary folder under build/.
 
 Usage: tools/test_story_engine.py game-data/mm-dos monkey=game-data/monkey1-vga ...
@@ -51,7 +51,7 @@ from test_exploration import ROOT, command_for
 # The catalog's games in its order (common/scummverse_world_catalog.h).
 CATALOG = ['monkey', 'monkey2', 'loom', 'indy3', 'atlantis', 'tentacle', 'samnmax', 'ft', 'dig', 'comi', 'maniac', 'zak']
 DEFAULT = {'monkey': 'monkey1-vga', 'monkey2': 'monkey2-vga', 'loom': 'loom-ega', 'indy3': 'indy3-vga', 'atlantis': 'atlantis-mac',
-           'tentacle': 'tentacle-floppy', 'ft': 'ft', 'dig': 'dig', 'comi': 'comi', 'zak': 'zak-dos'}
+           'tentacle': 'tentacle-floppy', 'samnmax': 'samnmax-floppy', 'ft': 'ft', 'dig': 'dig', 'comi': 'comi', 'zak': 'zak-dos'}
 
 # Test-only, at file scope: the request the story code polls (the phone's
 # Worlds menu on the device), engines made, and what each story save held.
@@ -117,6 +117,16 @@ PROBE = r'''
 					}
 				}
 			} else {
+				// (Sam & Max's dolls: held to the page given, and on leaving
+				// them, how many wrong answers they had.)
+				static int probeDollsRoom = 0;
+				if (_game.id == GID_SAMNMAX && ConfMan.hasKey("scummverse_story_probe_page")) {
+					const int page = ConfMan.getInt("scummverse_story_probe_page");
+					if (_currentRoom == 71 && readVar(152) >= 1 && readVar(152) != page) writeVar(152, page);
+					if (probeDollsRoom == 71 && _currentRoom != 71)
+						warning("SCUMMVERSE_STORY_DOLLS %s page=%d doll=%d wrong=%d", _targetName.c_str(), readVar(152), readVar(153), readVar(154));
+					probeDollsRoom = _currentRoom;
+				}
 				if (fresh) {
 					const int slot = ConfMan.hasKey("save_slot") ? ConfMan.getInt("save_slot") : -1;
 					// (None of the mansion's additions in any story.)
@@ -317,6 +327,7 @@ def main():
     p.add_argument('--frames', type=int, default=240, help='frames before each leaves (and Maniac before it opens one)')
     p.add_argument('--worlds', type=Path, default=ROOT/'build/worlds')
     p.add_argument('--no-maniac', action='store_true', help="leave out Maniac Mansion's own story")
+    p.add_argument('--dolls-page', type=int, default=4, help="Sam & Max's copy protection held to this page of the manual (4: the one where a press alone is wrong)")
     a = p.parse_args()
     pairs = [g.split('=', 1) for g in a.games] if a.games else [(k, str(ROOT/'game-data'/v)) for k, v in DEFAULT.items() if (ROOT/'game-data'/v).is_dir()]
     games = [(k, Path(v).resolve()) for k, v in pairs]
@@ -347,7 +358,7 @@ def main():
         config = work/'story.ini'
         config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
                           f'scummverse_story_probe={a.frames}\nscummverse_story_probe_games={",".join(map(str, order))}\n'
-                          f'scummverse_worlds_path={a.worlds.resolve()}\n')
+                          f'scummverse_worlds_path={a.worlds.resolve()}\nscummverse_story_probe_page={a.dolls_page}\n')
         result = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
                                 cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5400)
         output = result.stdout + result.stderr
@@ -420,10 +431,17 @@ def main():
             if not (saves/f'{target}.s99').exists():
                 fail.append(f'{k}: no {target}.s99')
             # (A copy-protection screen answered by story play, and left.)
-            guard = {'monkey2': '108'}.get(k)
+            guard = {'monkey2': '108', 'samnmax': '71'}.get(k)
             if guard and (not any(f'{target} copy protection answered' in l for l in lines) or
                           re.search(r'room=(-?[0-9]+)', kept[0]).group(1) == guard):
                 fail.append(f'{k}: its copy protection not answered and left')
+            # (The dolls dressed as the page asks, right the first time.)
+            if k == 'samnmax':
+                dolls = [l for l in lines if f'SCUMMVERSE_STORY_DOLLS {target} ' in l]
+                if not any(f'{target} copy protection answered (the dolls dressed)' in l for l in lines):
+                    fail.append(f'{k}: its dolls not dressed')
+                if len(dolls) != 1 or f'page={a.dolls_page} ' not in dolls[0] or not dolls[0].rstrip('!').endswith(' wrong=0'):
+                    fail.append(f'{k}: its dolls left {dolls}, expected once, page {a.dolls_page}, no wrong answer')
             report.append(f'{k} (room {re.search(r"room=(-?[0-9]+)", kept[0]).group(1)})')
         if ok:
             if len(went) != len(ok) - 1 or len(quits) != 1 or not quits[0].startswith(f'scummverse-story-{last} '):
