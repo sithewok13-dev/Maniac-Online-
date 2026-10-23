@@ -1,0 +1,169 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 17410c75..71d89d56 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -214,7 +214,11 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ 		// The games' placeholder box, far off at -32000 (nowhere to walk).
+ 		bool nowhere = false;
+ 		for (int i = 0; i < 4; ++i) nowhere = nowhere || std::abs(s.x[i]) > 8192 || std::abs(s.y[i]) > 8192;
+-		if (nowhere) continue;
++		// (Nor a point off the picture, which a game's table may still link:
++		// Atlantis 75's at -1,-1.)
++		bool point = true;
++		for (int i = 1; i < 4; ++i) point = point && s.x[i] == s.x[0] && s.y[i] == s.y[0];
++		if (nowhere || (point && (s.x[0] < 0 || s.y[0] < 0 || s.x[0] >= scene.width || s.y[0] >= scene.height))) continue;
+ 		Box b;
+ 		for (int i = 0; i < 4; ++i) { b.corner[i].x = s.x[i]; b.corner[i].y = s.y[i]; }
+ 		b.scaleTop = s.scaleTop; b.scaleBottom = s.scaleBottom;
+@@ -543,11 +547,13 @@ static Placement placeOf(const World::SourceFrame &frame, Point at, double rows,
+ }
+ 
+ // The screen rectangle a placement covers (false when off screen).
++// (Within the place: not over the bars beside or above a narrower or
++// shorter one.)
+ static bool rectOf(const Placement &p, const View &v, int &x0, int &y0, int &x1, int &y1) {
+ 	if (!p.frame) return false;
+-	x0 = std::max(0, (int)std::floor(p.x0)); y0 = std::max(0, (int)std::floor(p.y0));
+-	x1 = std::min(v.screenWidth, (int)std::ceil(p.x0 + p.frame->width * p.across));
+-	y1 = std::min(v.screenHeight, (int)std::ceil(p.y0 + p.frame->height * p.down));
++	x0 = std::max(std::max(0, v.left), (int)std::floor(p.x0)); y0 = std::max(std::max(0, v.top), (int)std::floor(p.y0));
++	x1 = std::min(std::min(v.screenWidth, v.left + v.width - v.camera), (int)std::ceil(p.x0 + p.frame->width * p.across));
++	y1 = std::min(std::min(v.screenHeight, v.top + v.height), (int)std::ceil(p.y0 + p.frame->height * p.down));
+ 	return x0 < x1 && y0 < y1;
+ }
+ 
+@@ -566,7 +572,27 @@ bool Scene::drawnAt(int n, int screenX, int screenY) const {
+ 	const int col = std::min(p.frame->width - 1, (int)((screenX - p.x0) / p.across));
+ 	if (row < 0 || col < 0 || p.frame->mask.size() < (size_t)p.frame->width * p.frame->height) return false;
+ 	const uint8_t m = p.frame->mask[(size_t)row * p.frame->width + col];
+-	return m == 1 || m == 3;
++	return m && m != 2;
++}
++
++std::vector<int> Scene::drawOrder() const {
++	// (By the row they stand on; on the same row, a prop behind the people.)
++	const int people = (int)_actors.size();
++	std::vector<int> order(people + _props.size());
++	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
++	auto rowOf = [&](int n) { return n < people ? _actors[n].at.y : _props[n - people].order >= 0 ? _props[n - people].order : _props[n - people].at.y; };
++	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rowOf(a) < rowOf(b) || (rowOf(a) == rowOf(b) && a >= people && b < people); });
++	return order;
++}
++
++int Scene::actorAt(int screenX, int screenY, int skip) const {
++	const int people = (int)_actors.size();
++	const std::vector<int> order = drawOrder();
++	for (auto it = order.rbegin(); it != order.rend(); ++it) {
++		if (*it < people) { if (*it != skip && drawnAt(*it, screenX, screenY)) return *it; }
++		else if (!_dark && propHit(*it - people, screenX, screenY)) return -1;
++	}
++	return -1;
+ }
+ 
+ int Scene::shownKind(int n) const {
+@@ -651,14 +677,9 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	}
+ 	// (Marks on the floor, under everyone.)
+ 	if (!_dark) for (const Mark &m : _marks) drawMark(m, pixels, pitch);
+-	// Far ones first: the props (numbered after the people), then everyone,
+-	// by the row they stand on; on the same row, a prop behind the people.
++	// Far ones first: the props (numbered after the people), then everyone.
+ 	const int people = (int)_actors.size();
+-	std::vector<int> order(people + _props.size());
+-	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+-	auto rowOf = [&](int n) { return n < people ? _actors[n].at.y : _props[n - people].order >= 0 ? _props[n - people].order : _props[n - people].at.y; };
+-	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rowOf(a) < rowOf(b) || (rowOf(a) == rowOf(b) && a >= people && b < people); });
+-	for (int n : order) {
++	for (int n : drawOrder()) {
+ 		const Prop *prop = n < people ? nullptr : &_props[n - people];
+ 		if (prop && _dark) continue;
+ 		const Placement p = prop ? placeOf(prop->frame, prop->at, prop->rows, prop->pixelAspect, v, _boxes) : placeOf(_actors[n], v, _boxes);
+@@ -1037,7 +1058,8 @@ bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
+ bool busy() {
+ 	for (int n = 0; n < stage().actorCount(); ++n) {
+ 		const Stage::Actor &a = stage().actor(n);
+-		if (a.moving || a.talking || a.switching || a.actKind >= 0) return true;
++		// (Lit, standing: its lit frames in turn, Sith Ewok's crackle.)
++		if (a.moving || a.talking || a.switching || a.actKind >= 0 || (a.lit && !a.hidden)) return true;
+ 	}
+ 	return stage().drying();
+ }
+@@ -1162,6 +1184,7 @@ int objectAt(double x, double y, const int *candidates, int count, double slack)
+ }
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().drawnRect(actor, x0, y0, x1, y1); }
+ bool drawnAt(int actor, int screenX, int screenY) { return stage().drawnAt(actor, screenX, screenY); }
++int actorAt(int screenX, int screenY, int skip) { return stage().actorAt(screenX, screenY, skip); }
+ int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect) {
+ 	return stage().addProp(pixels, width, height, none, palette, Stage::Point(x, y), rows, pixelAspect);
+ }
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index d0640a48..c97c7c5f 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -225,6 +225,9 @@ public:
+ 	// The screen rectangle an actor covers (false when off screen).
+ 	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
+ 	bool drawnAt(int actor, int screenX, int screenY) const; // a pixel of theirs drawn there
++	// The one drawn front-most at a point, as render draws them, but `skip`
++	// (-1: nobody, or a prop is in front there).
++	int actorAt(int screenX, int screenY, int skip = -1) const;
+ 	// An object shown in one of its pictures (0: without it; "SVW5").
+ 	bool showObject(int object, int picture);
+ 	int showing(int object) const; // the picture an object is in now
+@@ -308,6 +311,7 @@ private:
+ 	std::vector<Actor> _actors;
+ 	struct Prop { World::SourceFrame frame; uint32_t colors[256] = {}; Point at; double rows = 1, pixelAspect = 1, order = -1; };
+ 	std::vector<Prop> _props;
++	std::vector<int> drawOrder() const; // people and props (numbered after them), far ones first
+ 	std::vector<Mark> _marks;
+ 	void drawMark(const Mark &m, uint32_t *pixels, int pitch) const;
+ 	int _follow = -1;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 3ad7fe78..0d8e6792 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -96,6 +96,7 @@ int camera();                                  // the scaled scene's left edge o
+ void lookAt(double x);                         // the camera centred there (source pixels)
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
+ bool drawnAt(int actor, int screenX, int screenY);
++int actorAt(int screenX, int screenY, int skip = -1); // front-most drawn there, but skip (-1: none, or a prop in front)
+ // A still picture among the people (the Shuttle Bug parked): width x height
+ // palette indices (`none`: not drawn) in its own colours (palette: 768
+ // bytes), its bottom centre at x, y (source pixels), `rows` scene rows tall
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 89f73424..fc60ed1a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1177,13 +1177,8 @@ void SandboxEngine::pairUp(const Pair &p) {
+ }
+ 
+ int SandboxEngine::personAt(int screenX, int screenY) const {
+-	int found = -1, front = -1;
+-	for (int n = 0; n < (int)_onStage.size(); ++n) {
+-		int x0, y0, x1, y1;
+-		if (n == _player || !StageBridge::drawnRect(n, x0, y0, x1, y1) || !StageBridge::drawnAt(n, screenX, screenY)) continue;
+-		if (y1 > front) { front = y1; found = n; }
+-	}
+-	return found;
++	const int n = StageBridge::actorAt(screenX, screenY, _player);
++	return n >= 0 && n < (int)_onStage.size() ? n : -1;
+ }
+ 
+ void SandboxEngine::giveTo(int person) {
+@@ -1859,13 +1854,9 @@ bool SandboxEngine::castChoose(int key) {
+ 
+ // The one in front under the tap (the lowest feet).
+ int SandboxEngine::talkIdAt(int screenX, int screenY) const {
+-	int found = 0, front = -1;
+-	for (int n = 0; n < (int)_onStage.size(); ++n) {
+-		int x0, y0, x1, y1;
+-		if (n == _player || actorSlot(n, _player) >= kTalkSlots || !StageBridge::drawnRect(n, x0, y0, x1, y1)) continue;
+-		if (screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1 && y1 > front) { front = y1; found = kTalkVisitor + actorSlot(n, _player); }
+-	}
+-	return found;
++	// (The one drawn in front there, as a tap on someone finds them.)
++	const int n = personAt(screenX, screenY);
++	return n >= 0 && actorSlot(n, _player) < kTalkSlots ? kTalkVisitor + actorSlot(n, _player) : 0;
+ }
+ 
+ void SandboxEngine::showPicture(int object, int id, int picture) {

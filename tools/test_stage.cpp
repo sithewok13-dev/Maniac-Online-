@@ -218,7 +218,39 @@ int main() {
 	scene.place(other, {200, 110}); // further back, behind the hero
 	scene.render(screen.data(), pitch);
 	assert(scene.drawnRect(other, hx0, hy0, hx1, hy1) && screen[(size_t)((hy0 + hy1) / 2) * pitch + (hx0 + hx1) / 2] == spriteColor(30));
-	std::puts("PASS: characters (height, scale by place, colours, mask, nearer in front)");
+	// (From 0210) A point on both: the one drawn in front there (by the row
+	// they stand on), else the one behind when the front one is skipped.
+	scene.place(other, {200, 122}); // (just in front, over the hero)
+	assert(scene.drawnRect(other, hx0, hy0, hx1, hy1));
+	{
+		int px = -1, py = -1;
+		for (int y = hy0; y < hy1 && px < 0; ++y) for (int x = hx0; x < hx1 && px < 0; ++x) if (scene.drawnAt(hero, x, y) && scene.drawnAt(other, x, y)) { px = x; py = y; }
+		assert(px >= 0);
+		assert(scene.actorAt(px, py) == other && scene.actorAt(px, py, other) == hero && scene.actorAt(0, 0) == -1);
+		scene.place(other, {200, 118}); // (just behind)
+		assert(scene.drawnAt(hero, px, py) && scene.actorAt(px, py) == hero);
+	}
+	// (From 0210) A place narrower than the screen: nobody drawn on the bar
+	// beside it, nor found there; a point box off the picture is no box.
+	{
+		const int nw = 100, nh = 50;
+		std::vector<uint8_t> narrowPixels((size_t)nw * nh, 7);
+		World::SourceBox floor; floor.x[0] = 0; floor.y[0] = 0; floor.x[1] = nw - 1; floor.y[1] = 0; floor.x[2] = nw - 1; floor.y[2] = nh - 1; floor.x[3] = 0; floor.y[3] = nh - 1;
+		World::SourceBox dot; for (int c = 0; c < 4; ++c) { dot.x[c] = -1; dot.y[c] = -1; }
+		const std::vector<uint8_t> narrowData = sceneBytes(nw, nh, narrowPixels, {floor, dot});
+		Scene narrow;
+		assert(narrow.load(narrowData.data(), narrowData.size(), 1.0, nw, 400, 100, error) && narrow.boxes().size() == 1 && narrow.view().left > 0);
+		std::vector<uint32_t> bare((size_t)400 * 100, 0), out((size_t)400 * 100, 0);
+		narrow.render(bare.data(), 400);
+		const int edge = narrow.addActor(spriteData.data(), spriteData.size(), 1, 1.2, error);
+		narrow.place(edge, {1, 40});
+		narrow.render(out.data(), 400);
+		int ex0, ey0, ex1, ey1;
+		assert(narrow.drawnRect(edge, ex0, ey0, ex1, ey1) && ex0 >= narrow.view().left && out != bare);
+		for (int y = 0; y < 100; ++y) for (int x = 0; x < narrow.view().left; ++x) assert(out[(size_t)y * 400 + x] == bare[(size_t)y * 400 + x]);
+		assert(narrow.actorAt(narrow.view().left - 2, (ey0 + ey1) / 2) == -1);
+	}
+	std::puts("PASS: characters (height, scale by place, colours, mask, nearer in front; the front one found under a point; none on the bars beside a narrower place)");
 
 	// Walking as the games do: a step every six ticks, at most 8 across and 2
 	// up or down the scene at full scale (smaller where smaller), the legs in
@@ -1012,7 +1044,8 @@ int main() {
 		assert(n == 0 && StageBridge::canLight(n) && !StageBridge::busy());
 		assert(StageBridge::light(n, true, true) && StageBridge::lit(n) && StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseIgnite);
 		StageBridge::update(3 * kIgniteTicks - 1); assert(StageBridge::busy());
-		StageBridge::update(1); assert(!StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseLitStand);
+		// (Lit, standing: busy still, its crackle drawn in turn; from 0210.)
+		StageBridge::update(1); assert(StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseLitStand);
 		assert(StageBridge::light(n, false, true) && StageBridge::busy() && !StageBridge::lit(n));
 	}
 	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, turned back halfway, walking ends them; lit talking as lit standing; none without ignite frames; busy while lighting); a glow's light added, a lit blade in the dark");

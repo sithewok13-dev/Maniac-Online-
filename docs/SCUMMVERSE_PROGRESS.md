@@ -5786,3 +5786,26 @@ From the second bug hunt (local WiFi play).
   (tools/probes/net.inc: a taken character refused, lines queued, places
   and companions after a load), flights, companions, seating, startup.
   Not run on two devices or an iPhone.
+
+## Patch 0210 — the stage: the person in front, no one on the side bars, a lit saber's crackle
+
+From the second bug hunt (the new engine's stage).
+- A tap on people finds the one drawn in front there, in the order they
+  are drawn (Scene::actorAt; a prop in front, the van, takes the tap); the
+  chat's pick does the same, by a pixel of theirs, not their rectangle.
+  0207's pixel test counted only some of the masks that are drawn solid;
+  it now counts them all, as drawing does.
+- People and props are drawn only within the place: none on the bars
+  beside or above a narrower or shorter place (a kid at a left exit was
+  drawn half on the bar); taps find them only there too.
+- A lit saber standing still crackles (its two lit frames in turn): the
+  stage counts as busy while someone is lit, so the screen is drawn again.
+- A walk box that is a single point off the picture (Atlantis 75's at
+  -1,-1, linked by the game's table) is no box: a tap no longer walks the
+  player off the picture's corner.
+- Left for later (a fix agent is on it): walks that take a long way round
+  or start backwards (the box search ignores distance), and boxes the game
+  joins only by its table crossed through what is not floor.
+- Tests: test_stage (the front one found under a point, none on the bars
+  beside a narrower place, the point box dropped; a lit one busy), the
+  moves and talk checks, the full sandbox suite.
