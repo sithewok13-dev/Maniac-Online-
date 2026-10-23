@@ -1,6 +1,6 @@
 // Real runtime worker thread and scheduling with a scripted reply provider:
-// model-load survival, queued sends, fallback, departures, ambient preemption
-// and cancellation. No weights needed. Build (also with -fsanitize=thread):
+// model-load survival, queued sends, fallback, departures, ambient preemption,
+// cancellation and remembered lines. No weights needed. Build (also with -fsanitize=thread):
 // c++ -std=c++17 -fsanitize=address,undefined -Iengine -Ibuild/llama-src/include
 //   -Ibuild/llama-src/ggml/include tools/test_talk_provider.cpp <llama/ggml libs>
 #define SCUMMVERSE_LOCAL_AI 1
@@ -10,8 +10,11 @@
 #include <string>
 #include <thread>
 
-static std::atomic<int> loadDelayMs{0}, replyDelayMs{0}, ambientAborts{0}, generated{0};
+static std::atomic<int> loadDelayMs{0}, replyDelayMs{0}, ambientAborts{0}, generated{0}, ambientLines{0};
 static std::atomic<bool> emptyReplies{false}, ambientBlocks{false};
+// The speaker's previous line as the last ambient prompt was given it (the
+// worker writes it before its result is published; read after a poll).
+static std::string lastPrevious;
 
 template <class Abort> static bool waitOrAbort(int ms, Abort aborted) {
 	for (int n = 0; n < ms; ++n) { if (aborted()) return false; std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
@@ -21,11 +24,12 @@ template <class Abort> bool scummverseTestLoad(const std::string &path, Abort ab
 	return path == "fake" && waitOrAbort(loadDelayMs, aborted);
 }
 template <class Lines, class Abort>
-std::string scummverseTestGenerate(int actor, const std::string &question, const Lines &prior, const std::string &event, Abort aborted) {
+std::string scummverseTestGenerate(int actor, const std::string &question, const Lines &prior, const std::string &event, const std::string &previous, Abort aborted) {
 	if (!event.empty()) return "Remark" + std::to_string(actor) + ": " + event; // A line about what just happened.
 	if (question.empty()) { // Ambient encounter line.
 		if (ambientBlocks) { while (!aborted()) std::this_thread::sleep_for(std::chrono::milliseconds(1)); ++ambientAborts; return ""; }
-		return "Ambient hello.";
+		lastPrevious = previous;
+		return "Ambient hello " + std::to_string(++ambientLines) + ".";
 	}
 	if (!waitOrAbort(replyDelayMs, aborted) || emptyReplies) return "";
 	++generated;
@@ -155,5 +159,32 @@ int main() {
 	assert(actor == 9 && room == 7 && std::string(text) == "Remark9: Sith Ewok 3 just swung his lightsaber around.");
 	assert(r.remark(10, 7, 3, "Another."));
 	assert(waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }) && actor == 10);
-	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks\n";
+
+	// 11. A line is remembered (not to be repeated) only for the one who said
+	// it: a wanderer's slot (talk ID) taken by someone else starts afresh.
+	using Scummverse::WorldCatalog::worldAppearanceKey;
+	scummverseTalkVisitor(0, worldAppearanceKey(0, 1));
+	assert(r.request(kWanderer, 7, 3) && waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }));
+	const std::string first = text;
+	assert(r.request(kWanderer, 7, 3) && waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }));
+	assert(lastPrevious == first && first != text);
+	scummverseTalkVisitor(0, worldAppearanceKey(3, 2)); // Another takes the slot.
+	assert(r.request(kWanderer, 7, 3) && waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }));
+	assert(lastPrevious.empty());
+	scummverseTalkVisitor(0, 0);
+
+	// 12. Taking the one replying out of a chosen group: the next one answers
+	// at once, with no game frame (scene) in between.
+	r.scene(7, 3, edna | fred, true, speaker, text, sizeof(text));
+	assert(r.toggleTalk(9) && r.toggleTalk(10) && r.talkingTo() == -2);
+	replyDelayMs = 300;
+	assert(r.sendTalk("Who first?"));
+	{
+		uint32_t revision = 0; std::vector<Scummverse::ConversationLine> lines; std::vector<std::string> queued; int replying = 0;
+		r.talkSnapshot(revision, lines, queued, replying); assert(replying == 9);
+	}
+	assert(r.toggleTalk(9) && r.talkingTo() == 10);
+	assert(waitFor([&] { return !r.waitingForTalk(); }, 2000));
+	assert(dump(r) == "0:Who first?|10:Reply10 to Who first?.|");
+	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks, remembered lines\n";
 }

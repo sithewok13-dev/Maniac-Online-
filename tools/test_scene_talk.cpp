@@ -11,6 +11,7 @@ int main() {
  // to be asked along. The chat's token from the place told.
  scummverseTravelScene(5,3,1u<<7,0,0);
  assert(follows(7) && !follows(8) && canFollow(7) && !canFollow(kWanderer) && sceneToken()==((5*32+3)<<8));
+ assert(!canFollow(kZakResidentActor)); // (The game never lets the resident actor follow.)
  scummverseSandboxActive(true);
  scummverseTravelScene(10033,1,1u<<2,0,0);
  assert(follows(kWanderer+2) && !follows(kWanderer+3) && !follows(2) && canFollow(kWanderer) && canFollow(kTalkActors-1) && !canFollow(kTalkActors) && !canFollow(kGuestActor));
@@ -49,6 +50,27 @@ int main() {
  for(const auto &line:lines) assert(line.text.find('<')==std::string::npos && line.text.find('\n')==std::string::npos);
  assert(speechText("I\xe2\x80\x99m caf\xc3\xa9 \xf0\x9f\x91\xbd!")=="I'm caf? ?!"); // Smart quote, accent, emoji.
  assert(speechText("a@b^c{d}")=="a b c d ");
+ assert(speechText("2+2=4 a_b ~ok~")=="2+2=4 a_b ~ok~"); // The transcript keeps them; only bubbles say them otherwise.
+ // A sentence ends at its end: not after a title or an initial, inside a
+ // number or at an ellipsis before more of it. A reply still arriving
+ // (complete false) has a sentence only once what follows shows it ended.
+ assert(cleanLine("Go and ask Dr. Smith about it. Then leave.")=="Go and ask Dr. Smith about it.");
+ assert(cleanLine("It runs on 3.5 volts, Mr. Jones! Really.")=="It runs on 3.5 volts, Mr. Jones!");
+ assert(cleanLine("The U.S. Navy called again today.")=="The U.S. Navy called again today.");
+ assert(cleanLine("I wonder... maybe it hears us. No.")=="I wonder... maybe it hears us.");
+ assert(cleanLine("So do I. Let us go now.")=="So do I." && cleanLine("That is Ed's. Put it back.")=="That is Ed's.");
+ assert(cleanLine("Really?! Wow, okay.")=="Really?!" && cleanLine("We need plan B.")=="We need plan B.");
+ assert(cleanLine("Go and ask Dr.",false).empty() && cleanLine("Go and ask Dr. Smith",false).empty());
+ assert(cleanLine("It runs on 3.",false).empty() && cleanLine("Hello there, friend!",false).empty());
+ assert(cleanLine("Hello there, friend! ",false)=="Hello there, friend!");
+ assert(cleanLine("Go and ask Dr. Smith about it. T",false)=="Go and ask Dr. Smith about it.");
+ assert(cleanReply("Edna: It is 3.5 meters tall, Mr. Jones. Indeed.",10,false)=="It is 3.5 meters tall, Mr. Jones.");
+ // As generate() reads a reply arriving: it stops at the first sentence known to have ended.
+ for(const char *reply:{"Go and ask Dr. Smith about it. Then leave.","It is 3.5 meters tall.","I wonder... maybe it hears us.","The U.S. Navy called again today."}) {
+  std::string arrived; const std::string full=reply;
+  for(char c:full) { arrived+=c; if(!cleanReply(arrived,10,false).empty()) break; }
+  assert(cleanReply(arrived,10)==cleanLine(full) && full.compare(0,cleanLine(full).size(),cleanLine(full))==0);
+ }
  for(int n=0;n<4;++n) assert(r.sendTalk("queue")); // Classic replies drain instantly; never stuck.
  assert(!r.waitingForTalk());
  r.scene(56,3,1u<<10,true,speaker,text,sizeof(text)); assert(r.talkingWith()==1u<<10);
@@ -72,7 +94,22 @@ int main() {
  assert(r.sendNearby("Hi all")==1 && r.talkingTo()==-1 && r.talkingWith()==((1u<<9)|(1u<<10)));
  r.scene(60,3,(1u<<9)|(1u<<10)|(1u<<11),true,speaker,text,sizeof(text));
  assert(r.talkingWith()==((1u<<9)|(1u<<10)|(1u<<11))); // Nearby group follows arrivals.
- assert(r.sendNearby("")==-1 && r.sendNearby(std::string(513,'x'))==-1);
+ assert(r.sendNearby(std::string(513,'x'))==-1);
+ // Nothing a bubble can show: a distinct result (not "three waiting"), with no side effects.
+ assert(r.sendNearby("")==-2 && r.sendNearby("<@^>")==-2 && !r.sendTalk("{ }"));
+ assert(r.talkingWith()==((1u<<9)|(1u<<10)|(1u<<11)));
+ // In "Everyone" no one's chip is shown chosen: a name talks with them
+ // alone. A group down to one is a talk with that one (their chip ends it).
+ assert(r.toggleTalk(10) && r.talkingTo()==10 && r.talkingWith()==1u<<10);
+ r.endTalk(); assert(r.sendNearby("Hi all")==1 && r.talkingTo()==-1);
+ r.scene(60,3,1u<<10,true,speaker,text,sizeof(text)); // Fred and Ed walk off.
+ assert(r.talkingTo()==10 && r.talkingWith()==1u<<10);
+ r.scene(60,3,(1u<<9)|(1u<<10),true,speaker,text,sizeof(text));
+ assert(r.talkingTo()==10 && r.talkingWith()==1u<<10 && r.toggleTalk(10) && !r.talkingWith());
+ assert(r.toggleTalk(9) && r.toggleTalk(10) && r.talkingTo()==-2);
+ r.scene(60,3,1u<<9,true,speaker,text,sizeof(text)); assert(r.talkingTo()==9 && r.talkingWith()==1u<<9);
+ r.endTalk(); r.scene(60,3,(1u<<9)|(1u<<10)|(1u<<11),true,speaker,text,sizeof(text));
+ assert(r.sendNearby("<>")==-2 && !r.talkingWith()); // (none started)
  r.endTalk(); r.scene(61,3,1u<<11,true,speaker,text,sizeof(text));
  assert(r.sendNearby("Hello")==1 && r.talkingTo()==11 && r.talkingWith()==1u<<11); // One person directly.
  r.endTalk(); r.scene(62,3,0,true,speaker,text,sizeof(text));
@@ -100,8 +137,9 @@ int main() {
  const int indy=worldAppearanceKey(3,2);
  scummverseTalkAppearance(3,indy);
  assert(std::string(actorName(3))=="Indiana Jones" && std::string(personality(3))==worldAppearance(indy)->personality);
+ assert(worldAppearance(indy)->lines[0] && classicReply(3,0)==worldAppearance(indy)->lines[0] && classicReply(3,4)==worldAppearance(indy)->lines[1]);
  scummverseTalkAppearance(3,worldAppearanceKey(3,999)); assert(std::string(actorName(3))=="Dave"); // Unknown: himself.
- scummverseTalkAppearance(3,0); assert(std::string(actorName(3))=="Dave");
+ scummverseTalkAppearance(3,0); assert(std::string(actorName(3))=="Dave" && classicReply(3,0)!=worldAppearance(indy)->lines[0]);
  scummverseTalkAppearance(30,indy); scummverseTalkAppearance(-1,indy); // Out of range: ignored.
  // Wanderers visiting are talk IDs 30..55 (past 32 bits): named and played
  // as themselves, picked, joined and left like anyone.

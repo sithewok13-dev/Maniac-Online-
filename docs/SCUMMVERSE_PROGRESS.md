@@ -5678,3 +5678,28 @@ iPhone build (CI) compiles it; not tested on an iPhone yet.
   shown over the game.
 - One finding left: a menu step said to run only after a dismissal; not
   shown wrong by the code, so left as it is.
+
+## Patch 0206 — the chat: whom a chip talks to, where a sentence ends, what bubbles can show
+
+From the second bug hunt (conversations).
+- In Everyone mode a person's chip starts a talk with them alone (it
+  added or dropped them from a group of everyone). A group down to one is a
+  talk with that one: their chip shown chosen, Follow offered.
+- A reply is cut at the end of its first sentence, not at "Dr.", "3.5",
+  "...", "U.S." or "Wait... what"; while a reply is still arriving, a
+  sentence counts only once what follows shows it ended.
+- Maniac's and Zak's speech font draws some characters as other signs
+  (=, \, _, |, ~, `, %): those are put as what they mean before a line is
+  drawn; the transcript keeps them as typed.
+- A character's last line, which a reply avoids repeating, is kept with
+  who said it: another place's guests, renumbered wanderers and new parts
+  that take the same number no longer get it.
+- Someone played as another game's character speaks that character's
+  classic lines.
+- With the one replying taken out of a group, the next answers at once.
+- Zak's residents' shared part is not offered Follow (the game refuses it).
+- A message with nothing a bubble can show says so and starts nothing.
+- Tests: test_text, test_scene_talk, test_talk_provider (ASan/UBSan, TSan)
+  through test_talk_runtime.py; each fix undone one at a time is caught. The
+  real model's replies are not run here; the iPhone's chat bar is not built
+  here (CI builds it).

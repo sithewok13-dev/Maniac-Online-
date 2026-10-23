@@ -1,5 +1,5 @@
 // Portable speech wrapping: word boundaries, long words, explicit breaks,
-// non-ASCII and bounds. c++ -std=c++11 -Wall -Wextra -Werror
+// non-ASCII, font stand-ins and bounds. c++ -std=c++11 -Wall -Wextra -Werror
 // -fsanitize=address,undefined -Iengine tools/test_text.cpp
 #include "common/scummverse_text.h"
 #include <cassert>
@@ -35,9 +35,16 @@ int main() {
 	assert(wrap("one\ntwo   three", 28, &lines) == "one\rtwo three" && lines == 2);
 	assert(wrap("caf\xc3\xa9 ok", 28) == "caf ok");
 	assert(wrap("", 28, &lines).empty() && lines == 1);
+	// Bytes the V1/V2 font draws as other glyphs (a copyright sign, arrows,
+	// a pound sign...) are said in plain text, and lines count what is said.
+	assert(wrap("2+2=4 ~ok~ a_b | c\\d `x`", 28) == "2+2-4 ok a-b c d 'x'");
+	assert(wrap("It is 100% certain now", 12, &lines) == "It is 100\rpercent\rcertain now" && lines == 3);
+	assert(wrap("%", 28) == "percent" && wrap("===", 28) == "---");
 	// Output is bounded and terminated.
 	char small[6]; wrapSpeech("abcdefghij", small, sizeof(small), 28);
 	assert(std::strlen(small) == 5);
+	wrapSpeech("%%%%", small, sizeof(small), 28);
+	assert(std::string(small) == "perce");
 	assert(wrapSpeech("x", small, 0, 28) == 0 && wrapSpeech(nullptr, small, 6, 28) == 0 && small[0] == 0);
-	std::printf("PASS: speech wrapping (word boundaries, long words, breaks, ASCII, bounds)\n");
+	std::printf("PASS: speech wrapping (word boundaries, long words, breaks, ASCII, font stand-ins, bounds)\n");
 }
