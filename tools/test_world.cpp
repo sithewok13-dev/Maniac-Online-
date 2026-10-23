@@ -100,7 +100,7 @@ static void testSprites() {
 	assert(fit.frame(kGuestFront, kGuestTalk, 0)->dir == kGuestLeft);            // talking only drawn facing left
 	assert(fit.frame(kGuestFront, kGuestWalk, 0)->dir == kGuestLeft);
 	assert(fit.frame(kGuestBack, kGuestStand, 0)->dir == kGuestFront);
-	assert(!fit.frame(7, kGuestStand, 0) && !fit.frame(kGuestFront, 9, 0));
+	assert(!fit.frame(7, kGuestStand, 0) && !fit.frame(kGuestFront, kGuestKinds + 1, 0)); // (no such facing, no such pose)
 	// Seated: not drawn, standing; drawn (facing right only), from any facing;
 	// a kind beyond seated is refused.
 	assert(fit.frame(kGuestFront, kGuestSeated, 0)->kind == kGuestStand && !fit.frame(kGuestFront, kGuestKinds, 0));
