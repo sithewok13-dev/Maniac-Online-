@@ -1,0 +1,211 @@
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 4b3849af..5175b1ac 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -91,6 +91,9 @@ static const MansionPassage mansionPassages[] = {
+ 	// Up the street corner to 14th Avenue (original object 141).
+ 	{55, 722, 99, 739, false, 92, 30, 5, 58, true},
+ };
++// The pool's ladder down to the pit (6/172): the original keeps it
++// untouchable until the pool is drained (the water valve).
++static const int kPoolLadder = 172;
+ 
+ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y) {
+ 	const MansionPassage &p = mansionPassages[index];
+@@ -484,9 +487,19 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			}
+ 			if(r.wait<=0) {
+ 				// Left in another world's place, out of sight: home again, where
+-				// it can be played (no slot is kept by a character nobody plays).
++				// it can be played (no slot is kept by a character nobody plays);
++				// whoever still follows it there comes too (followers never leave
++				// on their own).
+ 				int source;
+-				if(a->_room!=_currentRoom && scummverseWorldGameOf(a->_room,source)>=0) { a->stopActorMoving(); a->putActor(30+id%5,60,53); r=Roamer(); continue; }
++				if(a->_room!=_currentRoom && scummverseWorldGameOf(a->_room,source)>=0) {
++					for(int f : mansionCast) {
++						if(f==VAR(VAR_EGO) || scummverseRemoteActor(f) || _scummVars[770+f]!=id) continue;
++						Actor *follower=derefActor(f,"follower home");
++						if(follower->_room!=a->_room) continue;
++						follower->stopActorMoving(); follower->putActor(30+f%5,60,53); _scummverseRoamers[f]=Roamer();
++					}
++					a->stopActorMoving(); a->putActor(30+id%5,60,53); r=Roamer(); continue;
++				}
+ 				int exits[12], count=0;
+ 				// The van's cockpit is only open where the van stands (at Mars).
+ 				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12 && !((zakLinks[k].room==kVanCockpit || zakLinks[k].destination==kVanCockpit) && scummverseVanSite()!=0)) exits[count++]=k;
+@@ -514,13 +527,14 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		}
+ 		if (r.wait > 0) { r.wait -= delta; continue; }
+ 		if (r.exit < 0) {
++			const bool ladderShut = (getState(kPoolLadder) & kObjectStateUntouchable) != 0; // (The pool is full.)
+ 			int candidates[ARRAYSIZE(mansionPassages)], count = 0;
+ 			for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n)
+-				if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted))) && (a->_room == 53 || mansionPassages[n].destination != r.previousRoom))
++				if (mansionPassages[n].room == a->_room && !(ladderShut && mansionPassages[n].object == kPoolLadder) && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted))) && (a->_room == 53 || mansionPassages[n].destination != r.previousRoom))
+ 					candidates[count++] = n;
+ 			if (!count)
+ 				for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n)
+-					if (mansionPassages[n].room == a->_room && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted)))) candidates[count++] = n;
++					if (mansionPassages[n].room == a->_room && !(ladderShut && mansionPassages[n].object == kPoolLadder) && (!mansionPassages[n].transit || (_scummverseAirportMounted && ((mansionPassages[n].room != 55 && mansionPassages[n].destination != 55) || _scummverseStreetMounted)))) candidates[count++] = n;
+ 			if (!count) continue;
+ 			r.exit = candidates[_rnd.getRandomNumber(count - 1)];
+ 			r.elapsed = 0; r.walking = false;
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index ae3307d2..3bad8597 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -303,7 +303,10 @@ bool ScummEngine::scummverseTourThrough(int index, int leg) {
+ 	_scummverseLanding = true;
+ 	bool through = false;
+ 	if (stop.kind == kTourManiac) {
+-		through = scummversePassage(mansionPassages[door - 1].object, 13);
++		// (Not down the pool's ladder while the pool is full: the stop is
++		// warped to, as for a door that will not take the guide.)
++		const int object = mansionPassages[door - 1].object;
++		through = !(object == kPoolLadder && (getState(kPoolLadder) & kObjectStateUntouchable)) && scummversePassage(object, 13);
+ 	} else if (stop.kind == kTourZak) {
+ 		const ZakLink &link = zakLinks[door - 1];
+ 		through = scummverseTravel(link.destination == 55 ? 5 : link.destination == 54 ? 1 : link.destination - 50,
+diff --git a/engines/scumm/scummverse_van.inc b/engines/scumm/scummverse_van.inc
+index cd83c79d..0db7ce25 100644
+--- a/engines/scumm/scummverse_van.inc
++++ b/engines/scumm/scummverse_van.inc
+@@ -285,14 +285,16 @@ void ScummEngine::scummverseVanRequest(int site) {
+ 	_scummVars[kVanDestinationVar] = site + 1;
+ 	// Everyone in the cockpit flies along, and whoever stands where the van
+ 	// is parked jumps in too (the user: "None of the other npcs jump in with
+-	// me"), unless already on another ride (the bus, a flight, the tram).
++	// me"), unless already on another ride (the bus, a flight, The Dig's tram,
++	// the Mars tram: it boards at the van's own landing site).
+ 	const int parked = scummverseVanRoom();
+ 	unsigned riders = 0;
+ 	for (int id : mansionCast) {
+ 		if (scummverseRemoteActor(id)) continue;
+ 		const unsigned bit = 1u << id;
+ 		const int room = derefActor(id, "van rider")->_room;
+-		const bool riding = (_scummVars[766] & bit) || (_scummVars[724] && (_scummVars[725] & bit)) || (_scummVars[610] & bit);
++		const bool riding = (_scummVars[766] & bit) || (_scummVars[724] && (_scummVars[725] & bit)) || (_scummVars[610] & bit) ||
++			(_scummVars[797] && (_scummVars[798] & bit));
+ 		if (room == kVanCockpit || (parked && room == parked && !riding)) riders |= bit;
+ 	}
+ 	_scummVars[kVanRidersVar] = riders; _scummVars[kVanPhaseVar] = 1;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index c062d5ff..1222751d 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -232,7 +232,9 @@ bool ScummEngine::scummverseTravelPlace(int game, int source) {
+ 
+ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	if (!_scummverseRoamingReady || !_userPut || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+-	if (_currentRoom == 56 && _scummVars[724]) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
++	// (Switching to someone in a place, or the tour, leaves the cabin as
++	// though landed, as scummverseTravel lets it; the flight lands on its own.)
++	if (_currentRoom == 56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
+ 	if (!_scummverseLanding && (scummverseOnBus() || scummverseOnTram() || scummverseOnDigTram() || scummverseInVan())) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
+ 	if (!scummverseMountWorld(room)) { scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world visitor");
+@@ -1341,8 +1343,15 @@ void ScummEngine::scummverseServiceDigTram(int delta) {
+ 			if (previous < kDigTramClose - 90 && phase >= kDigTramClose - 90 && _currentRoom == origin) scummverseAnnounce("Doors closing!");
+ 		}
+ 		if (previous <= kDigTramClose && phase > kDigTramClose) {
++			// Aboard: whoever stands on the ledge, and the player's companions in
++			// the station still on their way to it (else they would be carried
++			// to the other end with the player, there before the car).
+ 			unsigned riders = 0;
+-			for (int id : mansionCast) if (!scummverseRemoteActor(id) && onLedge(derefActor(id, "tram rider"))) riders |= 1u << id;
++			for (int id : mansionCast) {
++				if (scummverseRemoteActor(id)) continue;
++				Actor *a = derefActor(id, "tram rider");
++				if (onLedge(a) || (id != VAR(VAR_EGO) && _scummVars[770 + id] == VAR(VAR_EGO) && a->_room == origin)) riders |= 1u << id;
++			}
+ 			if (!(riders & (1u << VAR(VAR_EGO)))) {
+ 				// Not without the player: it waits here, open.
+ 				_scummVars[612] = (_scummVars[612] & ~(3 << (tripLine * 2))) | ((1 + from) << (tripLine * 2));
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 52fa9b8a..e5765d3f 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -486,7 +486,9 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 		if(view->cameraMin) { VAR(VAR_CAMERA_MIN_X)=view->cameraMin; VAR(VAR_CAMERA_MAX_X)=view->cameraMax; }
+ 	}
+     if(const auto *scene=zakSceneSetup(room)) for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];
+-	VAR(VAR_CURRENT_LIGHTS)=LIGHTMODE_room_lights_on|LIGHTMODE_actor_use_colors;
++	// Zak's places are lit; a mansion room keeps the light its entry script
++	// gave it (script 55: a light switched off stays off).
++	if(room>=53) VAR(VAR_CURRENT_LIGHTS)=LIGHTMODE_room_lights_on|LIGHTMODE_actor_use_colors;
+ 	// Apply scene navigation policy before projecting exits or spawning actors.
+ 	bool originalBoxes=zakSceneSetup(room)!=nullptr;
+ 	for (int auditedRoom : zakOriginalWalkboxRooms) if (room==auditedRoom) originalBoxes=true;
+@@ -778,8 +780,10 @@ bool ScummEngine::scummverseLandUnattendedFlight(bool npcOnly) {
+ 
+ void ScummEngine::scummverseArrive() {
+ 	if (_currentRoom!=56 || _scummVars[724]<1 || _scummVars[724]>48) return;
+-	unsigned passengers=_scummVars[725];
+-	for(int id : mansionCast) if(id!=VAR(VAR_EGO) && derefActor(id,"flight roster")->_room==56) passengers |= 1u<<id;
++	// Everyone still aboard, as scummverseLandUnattendedFlight lands them (not
++	// a rider gone elsewhere since, nor a WiFi player's character).
++	unsigned passengers=0;
++	for(int id : mansionCast) if(id!=VAR(VAR_EGO) && !scummverseRemoteActor(id) && derefActor(id,"flight roster")->_room==56) passengers |= 1u<<id;
+  passengers &= ~(1u<<VAR(VAR_EGO)); // Arrival party history contains other travellers.
+ 
+ 	_scummverseLanding=true; bool arrived=scummverseTravel(_scummVars[724]); _scummverseLanding=false;
+@@ -988,6 +992,7 @@ void ScummEngine::scummverseActorFace(Actor *a, byte *rgba) {
+ void ScummEngine::scummverseRosterOffer() {
+ 	if(!_scummverseRoamingReady || !_userPut) return;
+ 	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"Let's finish this bus ride first."); return; }
++	if(scummverseInVan()) { scummverseSay(VAR(VAR_EGO),"Let's finish this van ride first."); return; }
+ 	if(scummverseMountZak()) scummverseInitVisitors();
+ 	unsigned mask=0;
+ 	for(int id : mansionCast) {
+@@ -1019,6 +1024,7 @@ void ScummEngine::scummverseCastOffer() {
+ 	namespace WorldBridge = ::Scummverse::WorldBridge;
+ 	if(!_scummverseRoamingReady || !_userPut) return;
+ 	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"Let's finish this bus ride first."); return; }
++	if(scummverseInVan()) { scummverseSay(VAR(VAR_EGO),"Let's finish this van ride first."); return; }
+ 	const bool zak=scummverseMountZak();
+ 	if(zak) scummverseInitVisitors();
+ 	// Maniac Mansion (Dr Fred first) and Zak (Zak first): the characters
+@@ -1091,18 +1097,22 @@ void ScummEngine::scummverseCastChoose(int request) {
+ 
+ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	bool allowed=false; for(int actor : mansionCast) if(id==actor) allowed=true;
+-	if(!allowed || scummverseRemoteActor(id) || !_userPut || scummverseOnBus() || (id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) return false;
++	// (Not from the van: nobody would land it.)
++	if(!allowed || scummverseRemoteActor(id) || !_userPut || scummverseOnBus() || scummverseInVan() || (id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) return false;
+ 	Actor *a=derefActor(id,"new player"); if(!a->_room || !a->_costume) return false;
+ 	int room=a->_room, x=a->getRealPos().x, y=a->getRealPos().y;
+-	// Validate before changing the active actor or leaving the current scene.
+-	if(room>=56 && !scummverseMountExtra(room)) return false;
++	// Validate before changing the active actor or leaving the current scene
++	// (another game's place is a world slot, mounted as the Worlds menu does).
++	int source; const bool world=scummverseWorldGameOf(room,source)>=0;
++	if(world ? !scummverseMountWorld(room) : room>=56 && !scummverseMountExtra(room)) return false;
+ 	derefActor(VAR(VAR_EGO),"old player")->stopActorMoving();
+ 	stopTalk(); scummverseAICancel(); _scummverseAIActor=0;
+ 	VAR(VAR_EGO)=id;
+ 	if(_scummVars[766] & (1u<<id)) _scummVars[767]=id;
+ 	_scummVars[770+id]=0; _scummverseCompanionEgo=0;
+ 	_scummverseLastEgo=id; _scummverseRoamers[id]=Roamer(); a->stopActorMoving();
+-	if(room>=53) { _scummverseLanding=true; scummverseTravel(room==53?3:room==54?1:room==55?5:room-50); _scummverseLanding=false; }
++	if(world) { _scummverseLanding=true; scummverseTravelWorld(room,x,y); _scummverseLanding=false; }
++	else if(room>=53) { _scummverseLanding=true; scummverseTravel(room==53?3:room==54?1:room==55?5:room-50); _scummverseLanding=false; }
+ 	else { startScene(room,a,0); }
+ 	AdjustBoxResult point=a->adjustXYToBeInBox(x,y); a->putActor(point.x,point.y,room); a->startAnimActor(a->_standFrame);
+ 	setCameraAt(a->getPos().x,a->getPos().y); setCameraFollows(a); resetSentence(); _fullRedraw=true;
+@@ -1323,9 +1333,14 @@ void ScummEngine::scummverseApplyTramState() {
+ void ScummEngine::scummverseTramRequest(int actor, bool board) {
+ 	Actor *a = derefActor(actor, "tram request");
+ 	const int station = zakTramStation(a->_room);
+-	if (station < 0 || _scummVars[797] > kTramBoarding) return;
++	if (station < 0) return;
+ 	const bool here = (_scummVars[799] & 1) == station;
+ 	const bool player = actor == VAR(VAR_EGO);
++	if (_scummVars[797] > kTramBoarding) {
++		// Riding: away from here, or coming here.
++		if (player) scummverseSay(actor, here ? "The tram is on its way to the other station." : "The tram is on its way.");
++		return;
++	}
+ 	if (!here) {
+ 		if (_scummVars[797]) { if (player) scummverseSay(actor, "The tram is boarding at the other station."); return; }
+ 		// Called: it runs over empty and opens for boarding on arrival.

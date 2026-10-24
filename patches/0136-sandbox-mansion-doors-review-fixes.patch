@@ -1,0 +1,215 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index c52875a2..5fd321b3 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -311,7 +311,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		else if (PanelBridge::gameThing(game, room, id, picture, answers) && picture != StageBridge::objectShown(i) && picture < StageBridge::objectPictures(i))
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+-	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _onStage.clear();
++	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear();
+ 	// The games' own walk: 8 across and 2 up or down a step (Curse of
+ 	// Monkey Island's pixels are half the size).
+ 	const double unit = screenWidthOf(game) / 320.0;
+@@ -392,7 +392,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	case 2: chooseVerb(on); return;
+ 	case 3: useItem(on); return;
+ 	case 4: PanelBridge::scroll(on); return;
+-	case 5: _action = 0; _target = -1; _door = -1; PanelBridge::open(true); _dirty = true; return;
++	case 5: _action = 0; _target = -1; _door = -1; _opening = 0; PanelBridge::open(true); _dirty = true; return;
+ 	case 6: PanelBridge::open(false); _dirty = true; return;
+ 	// (Its own box icon: shut, and walking again, for a phone without two
+ 	// fingers' right click.)
+@@ -405,6 +405,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
++	const int wasOpening = _opening, wasDoor = _door;
+ 	_door = -1; _action = 0; _target = -1; _opening = 0;
+ 	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
+ 	if (PanelBridge::distaff()) {
+@@ -453,6 +454,8 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		const WorldMap *map = worldMap(_game);
+ 		const WorldLink *link = worldLinkFrom(_game, _room, id);
+ 		const int index = link - map->links;
++		// (Tapped again as it opens: it goes on opening, then through.)
++		if (wasOpening > 0 && index == wasDoor) { _door = index; _opening = wasOpening; return; }
+ 		// (The Dig's tram car: walked to the ledge, where it is called and
+ 		// boarded, not gone through.)
+ 		int line, end;
+@@ -931,9 +934,19 @@ bool SandboxEngine::travel(int index) {
+ 	if (!arrival) if (const WorldLink *back = worldLinkTo(_game, link.target, _room)) arrival = back->object;
+ 	const int game = _game, from = _room;
+ 	Common::String problem;
+-	openDoor(link.object); // (the tour's way through too)
++	// (Gone through shut, it is left open; the door back, the one they came
++	// in by, stands open. Not on the tour's way: it leaves the mansion as it
++	// finds it.)
++	int opened = -1;
++	for (int o = 0; o < StageBridge::objectCount() && !_touring.on; ++o) {
++		int id, ox, oy, w, h, wx, wy, state, picture;
++		if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == link.object && doorOpens(o, picture, false)) opened = picture;
++	}
+ 	if (enter(game, link.target, arrival, problem)) {
+-		if (arrival) openDoor(arrival);
++		if (opened >= 0) _pictures[thingKey(game, from, link.object)] = opened;
++		const WorldLink *back = arrival ? worldLinkFrom(game, link.target, arrival) : nullptr;
++		const bool openedBack = !_touring.on && back && back->target == from && openDoor(arrival);
++		if ((opened >= 0 || openedBack) && !_testing && !_touring.on) saveState();
+ 		return true;
+ 	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[game].gameid, (int)link.target, problem.c_str());
+@@ -965,8 +978,9 @@ void SandboxEngine::reachDoor() {
+ 	const bool there = walked || across;
+ 	if (there && !walked) ++_doorsAcross;
+ 	if (!found || !there) { _door = -1; sentence(""); return; }
+-	// (Shut: seen opening a moment first, as the game shows it open.)
+-	if (openDoor(link.object)) { _opening = kDoorOpening; return; }
++	// (Shut: seen opening a moment first, as the game shows it open; not a
++	// door to somewhere not installed.)
++	if (installed(_game, link.target) && openDoor(link.object)) { _opening = kDoorOpening; return; }
+ 	travel(_door);
+ }
+ 
+@@ -976,19 +990,24 @@ void SandboxEngine::reachDoor() {
+ // picture differs; kept open (as opened by hand). (Zak's are left as drawn,
+ // as Maniac's engine leaves most of them: some open pictures have someone
+ // painted in the doorway.)
++bool SandboxEngine::doorOpens(int index, int &picture, bool shut) const {
++	int id, ox, oy, w, h, wx, wy, state;
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(index, id, ox, oy, w, h, wx, wy, state)) return false;
++	const int pictures = StageBridge::objectPictures(index), shown = shut ? 0 : StageBridge::objectShown(index);
++	const bool differs = pictures > 1 && StageBridge::picturesDiffer(index, 0, 1);
++	int gamePicture, answers = -1;
++	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
++	char line[160];
++	return differs && PanelBridge::decide(kWorldVerbOpen, true, pictures, shown, differs, w, h, answers, "", picture, line, sizeof(line), worldHome(_game)) == 2;
++}
++
+ bool SandboxEngine::openDoor(int id) {
+-	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+ 	for (int i = 0; i < StageBridge::objectCount(); ++i) {
+-		int oid, ox, oy, w, h, wx, wy, state;
++		int oid, ox, oy, w, h, wx, wy, state, picture;
+ 		if (!StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) || oid != id) continue;
+-		const int pictures = StageBridge::objectPictures(i), shown = StageBridge::objectShown(i);
+-		const bool differs = pictures > 1 && StageBridge::picturesDiffer(i, 0, 1);
+-		int picture = -1, gamePicture, answers = -1;
+-		if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+-		char line[160];
+-		if (!differs || PanelBridge::decide(kWorldVerbOpen, true, pictures, shown, differs, w, h, answers, "", picture, line, sizeof(line), true) != 2) return false;
++		if (!doorOpens(i, picture, false)) return false;
+ 		showPicture(i, id, picture);
+-		return true;
++		return StageBridge::objectShown(i) == picture;
+ 	}
+ 	return false;
+ }
+@@ -3491,6 +3510,7 @@ Common::Error SandboxEngine::tourTest() {
+ 	Tour::request(Tour::kRestart);
+ 	pump();
+ 	const int unreachedBefore = _touring.unreached, acrossBefore = _touring.across;
++	const Common::HashMap<int, int> picturesBefore = _pictures; // (the tour leaves every place as it finds it)
+ 	int visited = 0, onFoot = 0, warped = 0, refused = 0, last = -1, ticks = 0;
+ 	while (_touring.on && ticks < 4000000) {
+ 		if (_touring.stop != last) {
+@@ -3511,6 +3531,10 @@ Common::Error SandboxEngine::tourTest() {
+ 	if (_game != homeGame || _room != homeRoom || fabs(x - homeX) > 1 || fabs(y - homeY) > 1) fail("not back where it began at the end");
+ 	if (_touring.resume != 0) fail("not starting over after the end");
+ 	if (onFoot * 2 < total) fail("most stops not reached on foot");
++	bool changed = _pictures.size() != picturesBefore.size();
++	for (Common::HashMap<int, int>::const_iterator it = _pictures.begin(); it != _pictures.end() && !changed; ++it)
++		changed = !picturesBefore.contains(it->_key) || picturesBefore[it->_key] != it->_value;
++	if (changed) fail("a place left changed by the tour (a door opened)");
+ 	g_system->updateScreen();
+ 	warning("SCUMMVERSE sandbox selftest tour: %d stops (%d on foot, %d warped, %d not shown), %d doors not reached, %d gone through from as near as the walk boxes allow, in %d ticks, commands as asked%s, back where it began, %d failed",
+ 		total, onFoot, warped, refused, _touring.unreached - unreachedBefore, _touring.across - acrossBefore, ticks, passedThrough ? " (paused on the way through)" : "", failed);
+@@ -3914,7 +3938,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+ 		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0;
+-		int seenOpening = 0, openBehind = 0, openBack = 0;
++		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0;
+ 		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+@@ -3922,6 +3946,9 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			for (int i = 0; map && i < map->linkCount; ++i) {
+ 				const WorldLink &link = map->links[i];
+ 				if (!installed(g, link.room) || !installed(g, link.target)) continue;
++				// (The mansion's doors each from as the game leaves them.)
++				const bool mansion = !strcmp(kWorldGames[g].gameid, "maniac");
++				if (mansion) _pictures.clear();
+ 				if (!_playerKey || !enter(g, link.room, 0, problem)) {
+ 					// (Played by the game's own lead where the first one is missing.)
+ 					for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
+@@ -3976,6 +4003,8 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				const int startRoom = _room;
+ 				double px = 0, py = 0;
+ 				bool opening = false;
++				int openPicture = -1;
++				const bool opens = mansion && doorOpens(object, openPicture, false);
+ 				for (int t = 0; t < 30000 && _room == startRoom && (_door >= 0 || StageBridge::moving(_player)); ++t) {
+ 					StageBridge::position(_player, px, py);
+ 					// (Seen opening: shown open, there, before going through.)
+@@ -3986,18 +4015,22 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 					}
+ 					step(1);
+ 				}
+-				seenOpening += opening;
+-				// (The mansion's: the door gone through left open, and the door
+-				// back open, where the game opens them.)
+-				if (!strcmp(kWorldGames[g].gameid, "maniac") && _room == link.target) {
++				// (The mansion's, gone through: a door the game opens seen opening
++				// and left open, one it does not left as it was; the door back
++				// open where the game opens it.)
++				if (mansion && _room == link.target) {
+ 					const Common::HashMap<int, int>::const_iterator behind = _pictures.find(thingKey(g, link.room, link.object));
+-					openBehind += behind != _pictures.end() && behind->_value != 0;
+-					if (link.arrival || worldLinkTo(g, link.target, link.room)) {
+-						const int back = link.arrival ? link.arrival : worldLinkTo(g, link.target, link.room)->object;
+-						for (int o = 0; o < StageBridge::objectCount(); ++o) {
+-							int id, x_, y_, w_, h_, wx, wy, state;
+-							if (StageBridge::object(o, id, x_, y_, w_, h_, wx, wy, state) && id == back) openBack += StageBridge::objectShown(o) != 0;
+-						}
++					const bool left = behind != _pictures.end() && behind->_value == openPicture;
++					if (opens) { ++opensCount; seenOpening += opening; openBehind += left; }
++					else { ++staysCount; stays += behind == _pictures.end() && !opening; }
++					int arrival = link.arrival;
++					if (!arrival) if (const WorldLink *back = worldLinkTo(g, link.target, link.room)) arrival = back->object;
++					const WorldLink *back = arrival ? worldLinkFrom(g, link.target, arrival) : nullptr;
++					for (int o = 0; back && back->target == link.room && o < StageBridge::objectCount(); ++o) {
++						int id, x_, y_, w_, h_, wx, wy, state, backPicture;
++						if (!StageBridge::object(o, id, x_, y_, w_, h_, wx, wy, state) || id != arrival || !doorOpens(o, backPicture, true)) continue;
++						++backCount;
++						openBack += StageBridge::objectShown(o) == backPicture;
+ 					}
+ 				}
+ 				if (_room == link.target) {
+@@ -4032,8 +4065,10 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		}
+ 		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d from as near as the walk boxes allow, %d failed",
+ 			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed);
+-		warning("SCUMMVERSE sandbox selftest doors opening: %d seen opening, %d left open behind, %d open on arrival", seenOpening, openBehind, openBack);
+-		if (!tried || failed || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		warning("SCUMMVERSE sandbox selftest doors opening: %d of %d seen opening, %d of %d left open behind, %d of %d doors back open on arrival, %d of %d the game does not open left as they were",
++			seenOpening, opensCount, openBehind, opensCount, openBack, backCount, stays, staysCount);
++		const bool doorsOpen = seenOpening == opensCount && openBehind == opensCount && openBack == backCount && stays == staysCount;
++		if (!tried || failed || !doorsOpen || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+ 	}
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a20b10a9..b4ad8fc5 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -281,7 +281,8 @@ private:
+ 	double _doorTapX = 0, _doorTapY = 0;    // where it was tapped
+ 	double _doorGoalX = 0, _doorGoalY = 0;  // where the walk to it ends (as near as the walk boxes allow)
+ 	int _opening = 0;                       // ticks left of a door seen opening before it is gone through
+-	bool openDoor(int id);                  // the mansion's: shown open as one goes through (true: it was shut)
++	bool openDoor(int id);                  // the mansion's: shown open as one goes through (true: it was shut, and is open)
++	bool doorOpens(int index, int &picture, bool shut) const; // (whether it would, and to which picture; `shut`: as if it were)
+ 	int _doorGoalLink = -1;                 // the door (map link) that end is for; -1: none
+ 	int _doorsAcross = 0;                   // doors gone through from that end only (the "doors" check)
+ 	void walkToDoor(int link, double x, double y); // (and that end kept)

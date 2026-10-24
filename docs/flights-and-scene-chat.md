@@ -13,8 +13,12 @@ tap the recipient to write again. Portrait keeps the lower-half chat and compose
 groups share history; unrelated bystanders do not automatically join. **History**
 expands recent messages. **Follow / Unfollow** stays in the conversation.
 **Close** ends it. A room change, player change, or app backgrounding ends the
-session. Failed sends keep the draft and show an error. A downloaded, ready model
-is required to generate replies. At most two NPCs reply to each message.
+session. At most two NPCs reply to each message, with rotating leads.
+Sending never requires a model: without one (Classic, the default) or when a
+reply fails or times out, the character answers with an authored line marked
+**(classic)**. You can keep typing while replies are pending; up to three
+messages wait in order and enter the transcript only after earlier replies, so
+answers always follow the message they answer. A rejected send keeps the draft.
 
 ## Destinations and flights
 

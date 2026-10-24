@@ -23,7 +23,7 @@
  // Three distinct original exterior entrances, not one generic edge.
  for(int i=0;i<3;++i) {
   scummverseTravel(37);runObjectScript(i==0?733:i==1?735:736,13,false,false,nullptr);
-  if(_currentRoom!=(i==0?88:98+i)) error("Exterior temple entrance");
+  if(_currentRoom!=(i==0?88:156+i)) error("Exterior temple entrance");
   Actor *a=derefActor(VAR(VAR_EGO),"temple entrant");
   if(a->getRealPos().x<110) error("Temple entrant did not use original arrival doorway");
  }
@@ -32,11 +32,11 @@
  _scummVars[778]=0;
  auto &roamer=_scummverseRoamers[8];roamer.room=88;roamer.wait=0;roamer.walking=true;
  for(uint i=0;i<sizeof(ProbeCatalog::zakLinks)/sizeof(ProbeCatalog::zakLinks[0]);++i)
-  if(ProbeCatalog::zakLinks[i].room==88 && ProbeCatalog::zakLinks[i].destination==99) roamer.exit=i;
+  if(ProbeCatalog::zakLinks[i].room==88 && ProbeCatalog::zakLinks[i].destination==157) roamer.exit=i;
  scummverseUpdateRoaming(4);
- if(_currentRoom!=89 || visitor->_room!=99 || visitor->getRealPos().x!=109 || visitor->getRealPos().y!=44)
+ if(_currentRoom!=89 || visitor->_room!=157 || visitor->getRealPos().x!=109 || visitor->getRealPos().y!=44)
   error("Offscreen temple arrival lost logical doorway: room=%d actorroom=%d pos=%d,%d wait=%d exit=%d",_currentRoom,visitor->_room,visitor->getRealPos().x,visitor->getRealPos().y,roamer.wait,roamer.exit);
- if(!scummverseSwitchActor(8) || _currentRoom!=99 || visitor->getRealPos().x<100) error("Temple visitor switching failed");
+ if(!scummverseSwitchActor(8) || _currentRoom!=157 || visitor->getRealPos().x<100) error("Temple visitor switching failed");
  if(!scummverseSwitchActor(3) || _currentRoom!=89) error("Temple actors lost distinct rooms");
  if(scummverseTravel(ScummverseContent::kRoomCount-50)) error("Unregistered room accepted");
  warning("SCUMMVERSE_TEMPLE_PASS enabled=1");quitGame();

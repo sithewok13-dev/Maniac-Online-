@@ -13,6 +13,7 @@
 	if (scummverseTravel(3) || _currentRoom!=originalRoom || player->getRealPos()!=original || _scummVars[761])
 		error("Invalid airport changed game state");
 	ConfMan.removeKey("scummverse_zak_path",ConfMan.getActiveDomainName());
+	ConfMan.removeKey("scummverse_zak_path",Common::ConfigManager::kApplicationDomain);
 	if (!scummverseTravel(3) || _currentRoom!=53 || _virtscr[0].h!=128 || _numObjectsInRoom!=29 || _ENCD_offs || _EXCD_offs)
 		error("Airport resource import failed");
 	for (int i=1;i<_numLocalObjects;++i) if (_objs[i].obj_nr && (_objs[i].obj_nr<683 || _objs[i].obj_nr>711)) error("Airport object collision");
@@ -54,9 +55,11 @@
 	scummverseWorldRequest(((53*32+3)<<8)|1); scummverseUpdateRoaming(4);
 	if (_currentRoom!=54) error("Free apartment selection failed");
 	runObjectScript(655,13,false,false,nullptr);
-	if (_currentRoom!=55) error("Apartment door did not reach the bus street");
+	if (_currentRoom!=102) error("Apartment door did not reach the living room");
+	runObjectScript(735,13,false,false,nullptr);
+	if (_currentRoom!=55) error("Living room door did not reach the bus street");
 	player->putActor(92,59,55); _scummverseBusClock=156;
-	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<40;++tick) scummverseServiceBus(4);
+	runObjectScript(724,13,false,false,nullptr); for(int tick=0;tick<120;++tick) scummverseServiceBus(4);
 	if (_currentRoom!=53) error("Free bus did not reach airport");
 	scummverseWorldRequest(((53*32+5)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=53) error("Stale passenger selection moved another kid");
@@ -64,7 +67,7 @@
 	scummverseWorldRequest(((53*32+3)<<8)|4); scummverseUpdateRoaming(4);
 	if (_currentRoom!=1 || player->getRealPos().x<4 || memcmp(owners,_objectOwnerTable,sizeof(owners))) error("Free mansion return changed inventory or landed on an exit");
 	// Visible NPCs walk to each connection; they never move the player's camera.
-	const int routes[][3]={{73,1,53},{74,44,53},{77,54,55},{78,55,53},{79,55,54}};
+	const int routes[][3]={{73,1,53},{74,44,53},{77,54,102},{78,55,53},{79,55,102},{84,55,99}};
 	for(const auto &route : routes) for(int actorId : {1,2,4,5,6,7,9,10,11,13,14,23,24,20,21,22}) {
 		player->putActor(20,60,route[1]); startScene(route[1],player,0); freezeOthers();
 		Actor *zak=derefActor(actorId,"travelling NPC"); zak->putActor(20,60,route[1]);
@@ -80,12 +83,18 @@
 	// Random airport planning may choose any connected destination, even the
 	// place an NPC just left. Offscreen travel must not load a scene or walkbox.
 	player->putActor(30,56,7); startScene(7,player,0); freezeOthers();
-	Actor *zak=derefActor(24,"random passenger"); unsigned visited=0;
+	Actor *zak=derefActor(24,"random passenger"); unsigned visited=0; int flights=0;
 	_rnd.setSeed(12345);
 	for(int round=0;round<400;++round) {
 		zak->putActor(20,60,53); Roamer &r=_scummverseRoamers[24]; r=Roamer(); r.room=53; r.previousRoom=1;
 		Common::Point cameraPos=camera._cur, playerPos=player->getRealPos();
 		_scummverseNpcDestination[24]=0; scummverseUpdateRoaming(4); _scummverseNpcBoarding[24]=0; scummverseUpdateRoaming(4);
+		// NPCs fly in the shared cabin; an unattended flight lands on its clock.
+		if (zak->_room==56) {
+			if (!(_scummVars[725] & (1u<<24)) || !_scummVars[796] || !scummverseSeated(24)) error("NPC boarded without a seated flight");
+			_scummVars[795]=30000; scummverseUpdateTransit(4); ++flights; // past any flight time
+			if (zak->_room==56 || _scummVars[724]) error("Unattended NPC flight did not land");
+		}
 		if (_currentRoom!=7 || camera._cur!=cameraPos || player->getRealPos()!=playerPos) error("Offscreen flight stole scene");
 		const int airports[]={1,53,57,60,61,66,70,77,85,94};
 		bool connected=zak->_room==55;
@@ -93,6 +102,20 @@
 		if(!connected) error("Random flight did not reach a connected destination");
 	}
 	if (visited!=1023) error("Random airport routing omitted a destination");
+	if (flights<100) error("NPCs did not take real flights (%d)",flights);
+	// An NPC flight on another route never blocks the player: it lands first.
+	// While the player flies, NPCs on other routes wait at their gate and the
+	// player's flight never lands without Arrive.
+	{
+		if(!scummverseTravel(3) || !scummverseNpcBoard(24,53,10) || zak->_room!=56 || !_scummVars[796]) error("NPC could not start a flight");
+		const int ego=VAR(VAR_EGO); _scummVars[ego<=7 ? 730+ego : 400+(ego-8)*6+3]=7; scummverseBoard(); // booking key
+		if(_currentRoom!=56 || _scummVars[724]!=7 || _scummVars[796] || zak->_room!=60) error("NPC flight blocked the player: room %d route %d zak %d",_currentRoom,_scummVars[724],zak->_room);
+		Actor *waiting=derefActor(10,"waiting npc"); waiting->putActor(20,60,53);
+		if(scummverseNpcBoard(10,53,11) || waiting->_room!=53) error("NPC hijacked the player's flight");
+		scummverseUpdateTransit(30000);
+		if(_currentRoom!=56 || _scummVars[724]!=7) error("Player flight landed without Arrive");
+		scummverseArrive(); if(_currentRoom!=57 || _scummVars[724]) error("Player flight did not arrive");
+	}
 	// A group conversation prevents departures, including the new actor.
 	scummverseTravel(3); zak->putActor(15,60,53); Actor *edna=derefActor(10,"airport group"); edna->putActor(18,60,53);
 	for(int id : {10,24}) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=53; r.elapsed=10000; }

@@ -1,0 +1,295 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index a43f031f..0847de76 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -247,14 +247,24 @@ inline bool worldBreathes(int game, int costume) {
+ 	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
+ 	return true;
+ }
+-// Characters who float instead of walking (Murray, the talking skull; the
+-// Purple Meteor; Loom's Chaos).
++// Characters who float instead of walking (the Purple Meteor; Loom's Chaos).
+ struct WorldHoverer { short game, costume; };
+-static const WorldHoverer kWorldHoverers[] = {{9, 49}, {9, 949}, {kWorldManiacLooks, 16}, {2, 130}};
++static const WorldHoverer kWorldHoverers[] = {{kWorldManiacLooks, 16}, {2, 130}};
+ inline bool worldHovers(int game, int costume) {
+ 	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
+ 	return false;
+ }
++// Characters who bounce like a ball to move around and rest on the ground
++// (Curse's Murray, the talking skull, both of him). jaw: where their mouth
++// is, in hundredths of their standing frame's height from the top; talking,
++// the head above it lifts off the jaw every other step (their own talking
++// frames barely move at this size).
++struct WorldBouncer { short game, costume, jaw; };
++static const WorldBouncer kWorldBouncers[] = {{9, 49, 54}, {9, 949, 54}};
++inline const WorldBouncer *worldBouncer(int game, int costume) {
++	for (const auto &b : kWorldBouncers) if (b.game == game && b.costume == costume) return &b;
++	return nullptr;
++}
+ // Characters who wear a glass dome everywhere (the Meteor Police officer, as
+ // in the user's reference picture), on Mars too: it is his helmet.
+ struct WorldDomed { short game, costume; };
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 678028f8..a1ca1a86 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1654,6 +1654,7 @@ protected:
+ 	int _scummverseGuestsRoom = 0;
+ 	int _scummverseGuestSprite[kScummverseGuestSlots] = {-1, -1, -1, -1, -1};
+ 	int _scummverseGuestTick[kScummverseGuestSlots] = {}, _scummverseGuestShown[kScummverseGuestSlots] = {}, _scummverseGuestIdle[kScummverseGuestSlots] = {};
++	int _scummverseGuestHop[kScummverseGuestSlots] = {}; // A bouncer's place in its hop (0: on the ground).
+ 	bool _scummverseGuestGreeted[kScummverseGuestSlots] = {};
+ 	Common::Array<byte> _scummverseGuestData[kScummverseGuestSlots]; // The scene's characters (.svc bytes).
+ 	// Sandbox characters playing someone from another game: the appearance key
+@@ -1671,13 +1672,20 @@ protected:
+ 	// and characters playing someone else) whenever that set changes.
+ 	void scummverseMountCharacters();
+ 	Common::Array<byte> scummverseCharacterFrames(int game, int costume) const;
+-	// glide: keep the standing pose while moving; dressUp: Ted's contest
+-	// dress-up; oneWay: every frame looks right (mirrored facing left).
+-	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover,
+-		bool glide = false, bool dressUp = false, bool oneWay = false);
++	// How a sprite is drawn: hover (float with a bob); glide (the standing
++	// pose while moving); dressUp (Ted's contest dress-up); oneWay (every
++	// frame looks right: mirrored facing left); hop (a bouncer's place in its
++	// hop, -1: no bouncer); jaw (where the mouth is, hundredths of the height:
++	// talking, the head lifts off it every other step; 0: their own frames).
++	struct ScummverseSpriteStyle {
++		bool hover = false, glide = false, dressUp = false, oneWay = false;
++		int hop = -1, jaw = 0;
++	};
++	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, const ScummverseSpriteStyle &style);
+ 	Common::String _scummverseCharactersKey;
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
++	int _scummverseAvatarHop[kScummverseManiacActors] = {};
+ 	// CAMERA (scummverse_camera.inc): photos of the screen and selfies, taken
+ 	// between game steps. scummverseCameraStep is true while the game holds
+ 	// still (a selfie, or iOS asking for access to Photos).
+diff --git a/engines/scumm/scummverse_camera.inc b/engines/scumm/scummverse_camera.inc
+index 85bc6119..9f459432 100644
+--- a/engines/scumm/scummverse_camera.inc
++++ b/engines/scumm/scummverse_camera.inc
+@@ -8,8 +8,9 @@
+ namespace ScummverseCam = ::Scummverse::Camera;
+ 
+ // What a selfie keeps to put back exactly (everyone's pose, the screen
+-// strips they were drawn in, the other worlds' animation clocks), and how
+-// far it has got. Each shot is posed afresh from how everyone was.
++// strips they were drawn in, every actor's redraw flags (a full redraw sets
++// them on actors in other rooms too), the other worlds' animation clocks),
++// and how far it has got. Each shot is posed afresh from how everyone was.
+ struct ScummEngine::ScummverseSelfie {
+ 	struct Kept {
+ 		int id;
+@@ -17,6 +18,7 @@ struct ScummEngine::ScummverseSelfie {
+ 	};
+ 	Common::Array<Kept> kept;
+ 	Common::Array<uint32> usage;
++	Common::Array<byte> redraw; // per actor: 1 needs redrawing, 2 its background reset
+ 	int guestTick[kScummverseGuestSlots], guestShown[kScummverseGuestSlots];
+ 	int avatarTick[kScummverseManiacActors], avatarShown[kScummverseManiacActors];
+ 	// A character drawn from exported frames: its pose this shot (-1: its own).
+@@ -145,6 +147,7 @@ bool ScummEngine::scummverseSelfieBegin(int shots) {
+ 		kept.id = id; kept.pose = a->getPoseState();
+ 		s->kept.push_back(kept);
+ 	}
++	for (int id = 0; id < _numActors; ++id) s->redraw.push_back((_actors[id]->_needRedraw ? 1 : 0) | (_actors[id]->_needBgReset ? 2 : 0));
+ 	s->usage.resize(ARRAYSIZE(gfxUsageBits));
+ 	memcpy(s->usage.data(), gfxUsageBits, sizeof(gfxUsageBits));
+ 	memcpy(s->guestTick, _scummverseGuestTick, sizeof(s->guestTick)); memcpy(s->guestShown, _scummverseGuestShown, sizeof(s->guestShown));
+@@ -271,6 +274,10 @@ void ScummEngine::scummverseSelfieEnd() {
+ 	ScummverseSelfie *s = _scummverseSelfie;
+ 	if (!s || s->restored) return;
+ 	for (const ScummverseSelfie::Kept &k : s->kept) _actors[k.id]->setPoseState(k.pose);
++	for (int id = 0; id < (int)s->redraw.size() && id < _numActors; ++id) {
++		_actors[id]->_needRedraw = (s->redraw[id] & 1) != 0;
++		_actors[id]->_needBgReset = (s->redraw[id] & 2) != 0;
++	}
+ 	memcpy(gfxUsageBits, s->usage.data(), sizeof(gfxUsageBits));
+ 	memcpy(_scummverseGuestTick, s->guestTick, sizeof(s->guestTick)); memcpy(_scummverseGuestShown, s->guestShown, sizeof(s->guestShown));
+ 	memcpy(_scummverseAvatarTick, s->avatarTick, sizeof(s->avatarTick)); memcpy(_scummverseAvatarShown, s->avatarShown, sizeof(s->avatarShown));
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index e8e2c715..5a63c28d 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -415,11 +415,15 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 	// scale; other worlds add their depth).
+ 	const int id = a->_number;
+ 	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom) {
+-		const int look = scummverseAppearance(id);
+-		const WorldGlider *glider = worldGlider(worldAppearanceGame(look), worldAppearanceCostume(look));
++		const int look = scummverseAppearance(id), game = worldAppearanceGame(look), costume = worldAppearanceCostume(look);
++		const WorldGlider *glider = worldGlider(game, costume);
++		const WorldBouncer *bouncer = worldBouncer(game, costume);
++		ScummverseSpriteStyle style;
++		style.hover = worldHovers(game, costume);
++		style.glide = glider != nullptr; style.dressUp = glider && glider->dressUp; style.oneWay = glider && glider->oneWay;
++		style.hop = bouncer ? _scummverseAvatarHop[id] : -1; style.jaw = bouncer ? bouncer->jaw : 0;
+ 		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id],
+-			inWorld ? scummverseWorldDepth(a) : 1.0, worldHovers(worldAppearanceGame(look), worldAppearanceCostume(look)),
+-			glider != nullptr, glider && glider->dressUp, glider && glider->oneWay);
++			inWorld ? scummverseWorldDepth(a) : 1.0, style);
+ 	}
+ 	if (!inWorld || a->_room != _currentRoom) return false;
+ 	const double depth = scummverseWorldDepth(a);
+@@ -433,14 +437,20 @@ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+ 	const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+-	const WorldGlider *glider = guest ? worldGlider(gameIndex, guest->costume) : nullptr;
+-	return scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale,
+-		guest && worldHovers(gameIndex, guest->costume), glider != nullptr, false, glider && glider->oneWay);
++	ScummverseSpriteStyle style;
++	if (guest) {
++		const WorldGlider *glider = worldGlider(gameIndex, guest->costume);
++		const WorldBouncer *bouncer = worldBouncer(gameIndex, guest->costume);
++		style.hover = worldHovers(gameIndex, guest->costume);
++		style.glide = glider != nullptr; style.oneWay = glider && glider->oneWay;
++		style.hop = bouncer ? _scummverseGuestHop[k] : -1; style.jaw = bouncer ? bouncer->jaw : 0;
++	}
++	return scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale, style);
+ }
+ 
+-// Floating characters (Murray) hover a quarter of their height above their
+-// feet (a tall one, Chaos, no more than a small one's), bobbing gently, and
+-// keep their standing pose while they move. The Purple Meteor's own costume
++// Floating characters (Chaos) hover a quarter of their height above their
++// feet (a tall one no more than a small one's), bobbing gently, and keep
++// their standing pose while they move. The Purple Meteor's own costume
+ // already floats; it bobs as one this tall.
+ static const int kWorldNativeHover = 16;
+ // Roller skates lift a Maniac character this much (Maniac's rows are two
+@@ -449,42 +459,81 @@ static const int kWorldSkateLift = 2;
+ static int worldHoverLift(int tick, int height) {
+ 	return (int)(MIN(height / 4, 12) + 2 * sin(tick * 0.08) + 0.5);
+ }
++// Bouncers (Murray) hop along like a ball while they move, half their
++// height high (at most 16 pixels), a hop every kWorldHopTicks, and rest on
++// the ground; a hop under way when they stop is finished first. worldHop
++// moves a bouncer's place in its hop on: true while it is off the ground
++// (or has just landed).
++static const int kWorldHopTicks = 24;
++static bool worldHop(int &hop, bool moving, int delta) {
++	if (!moving && !hop) return false;
++	hop += delta;
++	if (hop >= kWorldHopTicks) hop = moving ? hop % kWorldHopTicks : 0;
++	return true;
++}
++static int worldBounceLift(int hop, int height) {
++	return (int)(MIN(height / 2, 16) * sin(M_PI * hop / kWorldHopTicks) + 0.5);
++}
+ 
+-bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover, bool glide, bool dressUp, bool oneWay) {
++bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, const ScummverseSpriteStyle &style) {
+ 	if (!a->_needRedraw) return true;
+ 	a->_needRedraw = false;
+ 	int index;
+ 	int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
+-	scummverseSelfieSpritePose(a, kind, index);
+-	if ((hover || glide) && kind == 1) { kind = 0; index = 0; }
++	const bool posing = scummverseSelfieSpritePose(a, kind, index);
++	if ((style.hover || style.glide || style.hop >= 0) && kind == 1) { kind = 0; index = 0; }
+ 	const int dir = worldGuestDirection(a->getFacing());
+-	shown = hover ? -1 : (dir * 3 + kind) * 64 + index % 64; // Hovering is never still.
++	shown = style.hover ? -1 : (dir * 3 + kind) * 64 + index % 64; // Hovering is never still.
++	// A jaw that opens: talking is the standing frame, the mouth open every
++	// other step.
++	const bool open = style.jaw > 0 && kind == 2 && index % 2 == 0;
++	if (style.jaw > 0 && kind == 2) { kind = 0; index = 0; }
+ 	int dx, dy, width, height;
+ 	const byte *frame = WorldBridge::guestFrame(sprite, dir, kind, index, dx, dy, width, height);
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+-	// Scaled around the feet, nearest pixel so outlines stay crisp.
+-	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation() - (hover ? worldHoverLift(tick, (int)(height * scale)) : 0);
++	// Scaled around the feet, nearest pixel so outlines stay crisp; lifted
++	// while floating or in a hop (posing for a selfie, on the ground).
++	const int lift = style.hover ? worldHoverLift(tick, (int)(height * scale)) :
++		style.hop > 0 && !posing ? worldBounceLift(style.hop, (int)(height * scale)) : 0;
++	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation() - lift;
+ 	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
+ 	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
+ 	// Facing left, a one-way character is mirrored around its feet.
+-	const bool mirror = oneWay && dir == 0;
++	const bool mirror = style.oneWay && dir == 0;
+ 	const int bx = mirror ? 2 * ax - x0 - w + 1 : x0;
++	// The open mouth: the rows above the jaw lift `gap` rows off it, and the
++	// gap between head and jaw is the frame's darkest color.
++	const int jawRow = MAX(1, MIN(height - 1, height * style.jaw / 100));
++	const int gap = open ? MAX(1, (int)(2 * scale + 0.5)) : 0;
++	const int jawY = open ? y0 + (int)floor(jawRow * scale) : y0;
++	byte mouth = 0;
++	if (open) {
++		int darkest = 1 << 30;
++		for (int i = 0; i < width * height; ++i) {
++			const byte *rgb = _currentPalette + 3 * frame[i];
++			const int light = rgb[0] * 3 + rgb[1] * 6 + rgb[2];
++			if (frame[i] && light < darkest) { darkest = light; mouth = frame[i]; }
++		}
++	}
+ 	const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + w);
+-	const int top = MAX(0, y0), bottom = MIN<int>(vs.h, y0 + h);
++	const int top = MAX(0, y0 - gap), bottom = MIN<int>(vs.h, y0 + h);
+ 	if (left >= right || top >= bottom) return true;
+ 	for (int y = top; y < bottom; ++y) {
+-		const byte *src = frame + MIN(height - 1, (int)((y - y0) / scale)) * width;
++		const bool between = y >= jawY - gap && y < jawY;
++		const int row = MIN(height - 1, between ? jawRow : (int)((y < jawY ? y + gap - y0 : y - y0) / scale));
++		const byte *src = frame + row * width;
+ 		byte *dst = (byte *)vs.getPixels(left, y);
+ 		for (int x = left; x < right; ++x, ++dst) {
+-			const byte c = src[MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale))];
+-			if (c) *dst = c;
++			const int col = MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale));
++			if (between) { if (src[col] && src[col - width]) *dst = mouth; continue; }
++			if (src[col]) *dst = src[col];
+ 		}
+ 	}
+ 	a->_top = top; a->_bottom = bottom;
+ 	markRectAsDirty(kMainVirtScreen, left, right, top, bottom, a->_number);
+-	if (dressUp) scummverseDrawDressUp(a, frame, width, height, x0, y0, scale, mirror, ax);
++	if (style.dressUp) scummverseDrawDressUp(a, frame, width, height, x0, y0, scale, mirror, ax);
+ 	return true;
+ }
+ 
+@@ -749,7 +798,7 @@ void ScummEngine::scummversePlaceGuest(int k, int place) {
+ 	AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, left, right), WorldBridge::spawnY() + k % 3);
+ 	a->putActor(point.x, point.y, _currentRoom);
+ 	a->setDirection(180); a->startAnimActor(a->_standFrame); a->showActor();
+-	_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false;
++	_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false; _scummverseGuestHop[k] = 0;
+ 	_scummverseGuestIdle[k] = 120 + 90 * k;
+ }
+ 
+@@ -781,6 +830,9 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		if (!_scummverseAvatarSprite[id]) continue;
+ 		Actor *a = _actors[id];
+ 		_scummverseAvatarTick[id] += delta;
++		const int look = scummverseAppearance(id);
++		if (worldBouncer(worldAppearanceGame(look), worldAppearanceCostume(look)) && worldHop(_scummverseAvatarHop[id], a->_moving, delta))
++			a->_needRedraw = true;
+ 		int index;
+ 		const int kind = worldGuestPose(a, getTalkingActor() == id, _scummverseAvatarTick[id], index);
+ 		if ((worldGuestDirection(a->getFacing()) * 3 + kind) * 64 + index % 64 != _scummverseAvatarShown[id]) a->_needRedraw = true;
+@@ -812,6 +864,8 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		if (scummverseGuestSlot(a) < 0) continue;
+ 		const WorldGuest *guest = worldGuestAt(place, k);
+ 		_scummverseGuestTick[k] += delta;
++		const bool bouncer = worldBouncer(gameIndex, guest->costume) != nullptr;
++		if (bouncer && worldHop(_scummverseGuestHop[k], a->_moving, delta)) a->_needRedraw = true;
+ 		int index;
+ 		const int kind = worldGuestPose(a, getTalkingActor() == a->_number, _scummverseGuestTick[k], index);
+ 		if ((worldGuestDirection(a->getFacing()) * 3 + kind) * 64 + index % 64 != _scummverseGuestShown[k]) a->_needRedraw = true;
+@@ -833,7 +887,8 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		// A short stroll inside the scene's walk boxes, for characters whose
+ 		// game drew them walking (others would slide).
+ 		// (Facing 1 = right, 0 = left; kind 1 = walking.)
+-		if (WorldBridge::guestFrames(_scummverseGuestSprite[k], 1, 1) < 2 &&
++		// (Bouncers hop about whatever their frames.)
++		if (!bouncer && WorldBridge::guestFrames(_scummverseGuestSprite[k], 1, 1) < 2 &&
+ 			WorldBridge::guestFrames(_scummverseGuestSprite[k], 0, 1) < 2) { _scummverseGuestIdle[k] = 600; continue; }
+ 		_scummverseGuestIdle[k] = 300 + _rnd.getRandomNumber(600);
+ 		const int x = CLIP<int>(a->getRealPos().x + (int)_rnd.getRandomNumber(16) - 8, 1, WorldBridge::width() / 8 - 2);

@@ -8,7 +8,9 @@ conversation preview on phones with sufficient memory.
 - **Larger:** Qwen2.5-1.5B-Instruct Q4_K_M, 1,117,320,736 download bytes.
 - **Qwen3 4B:** Q4_K_M, 2,497,280,256 download bytes (2,497 MB). Thinking is disabled.
 - First download requires Wi-Fi. Keep the app in the foreground until it finishes;
-  backgrounding cancels the download, and retry starts over. Tap AI to see progress.
+  backgrounding cancels the download, and retry starts over (there is no resume;
+  a download may take up to six hours). A download that had already finished and
+  passes its check is kept: choose the model again to use it. Tap AI to see progress.
 - Downloads are optional and are not included in each IPA. After downloading,
   dialogue runs offline. No API key, external inference service or chat upload.
 - Classic/cancel stops generation/downloads. Delete downloaded models also frees
@@ -60,17 +62,24 @@ size/hash mismatches. A download still requires Wi-Fi and restarts after cancell
 
 The app's iOS 13 arm64 baseline remains. Model availability is checked against
 actual physical/free memory and temperature, not an assumed phone model name.
-Small initially requires 3 GiB physical memory and 800 MiB available; Larger
-requires 6 GiB physical and 1,600 MiB available. Qwen3 4B requires at least
-10 GiB physical memory and 3,500 MiB available. This targets high-memory phones
+Physical memory is taken as the size the phone is sold with (rounded up to whole
+GiB: iOS reports a little less, some 5.5 GiB on a 6 GB phone). Small initially
+requires a 3 GB phone and 800 MiB available; Larger requires 6 GB and 1,600 MiB
+available. Qwen3 4B requires at least 10 GB and 3,500 MiB available. A tier the
+phone can never meet says "Needs a phone with more memory". This targets high-memory phones
 such as the 17 Pro; actual on-device compatibility remains unverified. These conservative gates are not
 claims of tested device compatibility or protection against every OS memory kill.
 
-Lower-memory phones use CPU inference with two threads. Phones reporting at least
-6 GiB physical memory use Metal. The app does not use Apple Intelligence or require
+Lower-memory phones use CPU inference with two threads. Phones of 6 GB and more
+use Metal. The app does not use Apple Intelligence or require
 a Neural Engine API. All phones can keep using Classic without loading weights.
-Memory warnings, serious/critical thermal conditions, or entering the background
-cancel inference and unload the model asynchronously. Returning to the foreground
+Any loss of focus (Control Center, a banner, a call, the Photos prompt) stops what
+the model is writing, waiting up to 300 ms for the worker to be out of llama (iOS
+refuses GPU work from the background), and starts nothing until the app is active
+again: a reply cut off is then written again; a greeting is left to the game's own
+line; the conversation and the model stay. Memory warnings, serious/critical
+thermal conditions, or entering the background (after up to a further second for a
+decode still running) cancel inference and unload the model asynchronously. Returning to the foreground
 attempts to reload the selected downloaded model; after a pressure warning, select
 a model again to retry while remaining in the foreground.
 
@@ -78,7 +87,10 @@ A shared worker accepts one request at a time. It uses a 1,024-token context, 64
 prompt batches, at most 80 output tokens, and a five-second ambient inference deadline.
 An explicit chat reply gets up to 30 seconds; short ASCII sentences are still required.
 CPU decoding checks cancellation internally; GPU work is checked between decode
-batches, so a running Metal command cannot be interrupted instantaneously.
+batches, so a running Metal command cannot be interrupted instantaneously. The
+worker counts as out of llama only once the GPU has finished what it was sent.
+On iOS's will-terminate (and before the desktop probes return) the worker is
+stopped and the model unloaded while llama's own statics still exist.
 The greeting NPC pauses briefly while it waits; other actors and player controls
 continue. The encounter falls back after six seconds of game time.
 Responses for departed characters, another room, or a different selected player
@@ -141,3 +153,13 @@ modified runtime. Model weights and inference settings are unchanged.
 with mocked Metal-object releases and real malloc/mmap storage under AddressSanitizer.
 It checks 100 borrowed/owned cleanup cycles and destructor dispatch. It does not
 exercise a physical GPU; on-device Qwen3 activation/unloading still needs retesting.
+
+## Metal background-failure repair
+
+iOS refuses GPU work from an app in the background; the pinned runtime aborted the
+app (`GGML_ABORT` in `ggml_backend_metal_synchronize`) when a tensor copy's command
+buffer failed. `tools/runtime-patches/0002-metal-failed-copy-no-abort.patch` logs
+the failure, releases the buffer and makes the next graph compute report
+`GGML_STATUS_FAILED` (a failed decode) instead. The dialogue runtime's focus wait
+is meant to keep the worker from reaching this; the patch covers a decode that
+outlasts the wait. Compiled only by the iOS build; not exercised on a GPU here.

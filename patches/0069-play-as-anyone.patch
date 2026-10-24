@@ -1,0 +1,705 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index b8e2f37e..1a778302 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -530,6 +530,9 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit other worlds" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseOtherWorldsFrom:controller]; }];
+ 	}]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone from another world" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAsFrom:controller]; }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
+ 	}]];
+@@ -569,6 +572,50 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
+ 	[controller presentViewController:menu animated:YES completion:nil];
+ }
++// Playing someone from another game: the character you control takes on a
++// cast member's look, name and voice in chat (engine scummverseSetAppearance).
++- (void)showScummversePlayAsFrom:(UIViewController *)controller {
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone from your other games: their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Be yourself again" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(0));
++	}]];
++	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		const BOOL installed = scummverseWorldInstalled(game);
++		NSString *title = installed ? [NSString stringWithUTF8String:game.title] : [NSString stringWithFormat:@"%s (add Documents/%s)", game.title, game.folder];
++		const Scummverse::WorldCatalog::WorldGame *chosen = &game;
++		UIAlertAction *action = [UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAs:chosen from:controller]; }];
++		}];
++		action.enabled = installed;
++		[menu addAction:action];
++	}
++	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
++- (void)showScummversePlayAs:(const Scummverse::WorldCatalog::WorldGame *)game from:(UIViewController *)controller {
++	const int gameIndex = (int)(game - Scummverse::WorldCatalog::kWorldGames);
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose who to play." preferredStyle:UIAlertControllerStyleAlert];
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm = [NSFileManager defaultManager];
++	// Everyone exported from this game, once each (some stand in several rooms), by name.
++	NSMutableDictionary<NSString *, NSNumber *> *people = [NSMutableDictionary dictionary];
++	for (const auto &cast : Scummverse::WorldCatalog::kWorldCast) {
++		if (cast.game != gameIndex) continue;
++		NSString *frames = [NSString stringWithFormat:@"%@/worlds/%s-c%d.svc", documents, game->gameid, cast.guest.costume];
++		NSString *name = [NSString stringWithUTF8String:cast.guest.name];
++		if (people[name] || ![fm fileExistsAtPath:frames]) continue;
++		people[name] = @(Scummverse::WorldCatalog::worldAppearanceKey(gameIndex, cast.guest.costume));
++	}
++	for (NSString *name in [people.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
++		const int key = people[name].intValue;
++		[menu addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(key));
++		}]];
++	}
++	if (!people.count) menu.message = @"No characters are set up for this game yet. Restart the app to set it up.";
++	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
+ - (void)showScummverseScenes:(const Scummverse::WorldCatalog::WorldGame *)game base:(int)base from:(UIViewController *)controller {
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose a place, then walk through doors and off the sides to explore the rest. \"More\" places are parts the game reaches by story. Characters from the game greet you and can chat." preferredStyle:UIAlertControllerStyleAlert];
+ 	const int gameIndex = (int)(game - Scummverse::WorldCatalog::kWorldGames);
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index e287d61a..535462ee 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -40,13 +40,20 @@ static std::atomic<int> guestRoom{0};
+ static const Scummverse::WorldCatalog::WorldGuest *sceneGuest(int id) {
+ 	return id >= kGuestActor && id < kTalkActors ? Scummverse::WorldCatalog::worldGuestAt(guestRoom.load(), id - kGuestActor) : nullptr;
+ }
++// Sandbox characters playing someone from another game (appearance keys).
++static std::atomic<int> appearances[kGuestActor];
++static const Scummverse::WorldCatalog::WorldGuest *sceneAppearance(int id) {
++	return id > 0 && id < kGuestActor ? Scummverse::WorldCatalog::worldAppearance(appearances[id].load()) : nullptr;
++}
+ static const char *actorName(int id) {
++	if (const auto *who = sceneAppearance(id)) return who->name;
+ 	if (const ZakResident *resident = sceneResident(id)) return resident->name;
+ 	if (const auto *guest = sceneGuest(id)) return guest->name;
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+ 	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
++	if (const auto *who = sceneAppearance(id)) return who->personality;
+ 	if (const ZakResident *resident = sceneResident(id)) return resident->personality;
+ 	if (const auto *guest = sceneGuest(id)) return guest->personality;
+ 	switch (id) {
+@@ -605,6 +612,9 @@ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpe
+ 
+ void scummverseWorldRequest(int destination) { ScummverseLocalAI::worldRequest.store(destination); }
+ int scummverseWorldPoll() { return ScummverseLocalAI::worldRequest.exchange(0); }
++void scummverseTalkAppearance(int actor, int key) {
++	if (actor > 0 && actor < ScummverseLocalAI::kGuestActor) ScummverseLocalAI::appearances[actor].store(key);
++}
+ void scummverseWorldReport(const char *notice) { std::lock_guard<std::mutex> guard(ScummverseLocalAI::worldMutex); ScummverseLocalAI::worldNotice = notice; }
+ 
+ void scummverseTravelScene(int room, int ego, unsigned companions, int from, unsigned arrivals) {
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 2160730c..4b5e2386 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -19,6 +19,9 @@ int scummverseGameAspect();
+ int scummverseWorldPoll();
+ void scummverseWorldReport(const char *notice);
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity);
++// A sandbox character (1..24) playing a cast member from another game
++// (catalog appearance key; 0: themselves): chat names and plays them so.
++void scummverseTalkAppearance(int actor, int key);
+ #else
+ inline bool scummverseTalkPicking() { return false; }
+ inline bool scummverseTalkPick(int) { return false; }
+@@ -36,5 +39,6 @@ inline int scummverseGameAspect() { return 0; }
+ inline int scummverseWorldPoll() { return 0; }
+ inline void scummverseWorldReport(const char *) {}
+ inline unsigned scummverseTalkScene(int, int, unsigned, bool, int &speaker, char *, int) { speaker = 0; return 0; }
++inline void scummverseTalkAppearance(int, int) {}
+ #endif
+ #endif
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 43e55dfc..2e2df9e6 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -274,8 +274,13 @@ bool parseSprite(const uint8_t *data, size_t size, SourceSprite &sprite, std::st
+ }
+ 
+ bool fitSprites(const std::vector<SourceSprite> &sources, double scale, int firstSlot, int slotCount, std::vector<SandboxSprite> &out, std::string &error) {
++	return fitSprites(sources, std::vector<double>(sources.size(), scale), firstSlot, slotCount, out, error);
++}
++
++bool fitSprites(const std::vector<SourceSprite> &sources, const std::vector<double> &scales, int firstSlot, int slotCount, std::vector<SandboxSprite> &out, std::string &error) {
+ 	out.clear();
+-	if (sources.empty() || scale <= 0.05 || scale > 4 || firstSlot < 1 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
++	if (sources.empty() || scales.size() != sources.size() || firstSlot < 1 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
++	for (double scale : scales) if (!(scale > 0.05 && scale <= 4)) { error = "bad target"; return false; }
+ 	// Colors are shared by RGB value across all characters; the most used ones
+ 	// keep their exact values and the rest snap to the nearest of them.
+ 	std::unordered_map<int, long> frequency;
+@@ -309,7 +314,9 @@ bool fitSprites(const std::vector<SourceSprite> &sources, double scale, int firs
+ 	for (int i = 0; i < (int)used.size(); ++i) {
+ 		palette[i * 3] = (uint8_t)((used[i].first >> 16) & 255); palette[i * 3 + 1] = (uint8_t)((used[i].first >> 8) & 255); palette[i * 3 + 2] = (uint8_t)(used[i].first & 255);
+ 	}
+-	for (const SourceSprite &src : sources) {
++	for (size_t n = 0; n < sources.size(); ++n) {
++		const SourceSprite &src = sources[n];
++		const double scale = scales[n];
+ 		SandboxSprite sprite;
+ 		sprite.firstSlot = firstSlot; sprite.slotCount = (int)used.size(); sprite.palette = palette;
+ 		int slotOfIndex[256];
+@@ -415,9 +422,11 @@ namespace WorldBridge {
+ 
+ struct Mounted {
+ 	bool ok = false; World::SandboxScene scene; std::vector<uint8_t> room;
+-	std::vector<World::SandboxSprite> guests;
+ };
+ static Mounted &current() { static Mounted m; return m; }
++// Characters on screen (a scene's guests, players' chosen characters); they
++// outlive scene mounts so they can be shown in any room.
++static std::vector<World::SandboxSprite> &characters() { static std::vector<World::SandboxSprite> c; return c; }
+ 
+ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity) {
+ 	World::SourceScene source; World::SandboxScene scene; std::string problem;
+@@ -429,33 +438,40 @@ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSl
+ 	}
+ 	Mounted &m = current();
+ 	m.scene = scene; m.room = World::buildV1Room(m.scene); m.ok = true;
+-	m.guests.clear();
++	characters().clear(); // The engine mounts the new scene's characters next.
+ 	return true;
+ }
+ bool mounted() { return current().ok; }
+-bool mountGuests(const unsigned char *const *data, const size_t *sizes, int count, int firstSlot, int slotCount, char *error, int capacity) {
+-	Mounted &m = current();
++bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity) {
+ 	std::vector<World::SourceSprite> sources;
+-	std::string problem = m.ok ? "" : "no scene mounted";
++	std::string problem = count > 0 ? "" : "no characters";
+ 	for (int i = 0; i < count && problem.empty(); ++i) {
+ 		World::SourceSprite source;
+ 		if (World::parseSprite(data[i], sizes[i], source, problem)) sources.push_back(source);
+ 	}
+ 	std::vector<World::SandboxSprite> fitted;
+-	if (!problem.empty() || !World::fitSprites(sources, m.scene.scale, firstSlot, slotCount, fitted, problem)) {
++	if (!problem.empty() || !World::fitSprites(sources, std::vector<double>(scales, scales + count), firstSlot, slotCount, fitted, problem)) {
+ 		if (error && capacity > 0) { std::strncpy(error, problem.c_str(), capacity - 1); error[capacity - 1] = 0; }
+ 		return false;
+ 	}
+-	m.guests = fitted;
++	characters() = fitted;
+ 	return true;
+ }
+-void unmountGuests() { current().guests.clear(); }
+-int guestCount() { return current().ok ? (int)current().guests.size() : 0; }
+-int guestSlotCount() { return guestCount() ? current().guests[0].slotCount : 0; }
+-const unsigned char *guestPalette() { return guestCount() ? current().guests[0].palette.data() : nullptr; }
+-int guestFrames(int guest, int dir, int kind) { return guest >= 0 && guest < guestCount() ? current().guests[guest].frameCount(dir, kind) : 0; }
++bool mountGuests(const unsigned char *const *data, const size_t *sizes, int count, int firstSlot, int slotCount, char *error, int capacity) {
++	if (!current().ok) {
++		if (error && capacity > 0) { std::strncpy(error, "no scene mounted", capacity - 1); error[capacity - 1] = 0; }
++		return false;
++	}
++	const std::vector<double> scales(count > 0 ? count : 0, current().scene.scale);
++	return mountCharacters(data, sizes, scales.data(), count, firstSlot, slotCount, error, capacity);
++}
++void unmountGuests() { characters().clear(); }
++int guestCount() { return (int)characters().size(); }
++int guestSlotCount() { return guestCount() ? characters()[0].slotCount : 0; }
++const unsigned char *guestPalette() { return guestCount() ? characters()[0].palette.data() : nullptr; }
++int guestFrames(int guest, int dir, int kind) { return guest >= 0 && guest < guestCount() ? characters()[guest].frameCount(dir, kind) : 0; }
+ const unsigned char *guestFrame(int guest, int dir, int kind, int index, int &dx, int &dy, int &width, int &height) {
+-	const World::SpriteFrame *f = guest >= 0 && guest < guestCount() ? current().guests[guest].frame(dir, kind, index) : nullptr;
++	const World::SpriteFrame *f = guest >= 0 && guest < guestCount() ? characters()[guest].frame(dir, kind, index) : nullptr;
+ 	if (!f) return nullptr;
+ 	dx = f->dx; dy = f->dy; width = f->width; height = f->height;
+ 	return f->pixels.data();
+@@ -487,6 +503,30 @@ int objectState(int index) {
+ 	return index >= 0 && index < (int)objects.size() ? objects[index].state : 1;
+ }
+ int boxScale(int box, int y) { return current().scene.boxScale(box, y); }
++bool spritePortrait(const unsigned char *data, size_t size, int side, unsigned char *rgba) {
++	World::SourceSprite sprite; std::string problem;
++	if (side < 8 || !rgba || !World::parseSprite(data, size, sprite, problem) || sprite.frames.empty()) return false;
++	const World::SourceFrame *pick = &sprite.frames[0];
++	for (const World::SourceFrame &f : sprite.frames)
++		if (f.dir == 2 && f.kind == 0) { pick = &f; break; }
++	if (pick->dir != 2 || pick->kind != 0)
++		for (const World::SourceFrame &f : sprite.frames)
++			if (f.kind == 0) { pick = &f; break; }
++	const World::SourceFrame &f = *pick;
++	std::memset(rgba, 0, (size_t)side * side * 4);
++	const int room = side - 4;
++	const double scale = std::min((double)room / f.width, (double)room / f.height);
++	const int w = std::max(1, (int)(f.width * scale)), h = std::max(1, (int)(f.height * scale));
++	const int left = (side - w) / 2, top = side - 2 - h;
++	for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
++		const int sx = std::min(f.width - 1, (int)(x / scale)), sy = std::min(f.height - 1, (int)(y / scale));
++		const size_t i = (size_t)sy * f.width + sx;
++		if (!f.mask[i]) continue;
++		unsigned char *o = rgba + ((size_t)(top + y) * side + left + x) * 4;
++		std::memcpy(o, sprite.palette + 3 * f.pixels[i], 3); o[3] = 255;
++	}
++	return true;
++}
+ const unsigned char *blankRoom(int &size) {
+ 	static std::vector<uint8_t> room;
+ 	if (room.empty()) { World::SandboxScene empty; empty.width = 320; empty.height = 128; room = World::buildV1Room(empty); }
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index 62466170..721ec181 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -103,6 +103,10 @@ bool parseSprite(const uint8_t *data, size_t size, SourceSprite &sprite, std::st
+ // (the most used RGB values kept, the rest snapped); they share one palette.
+ bool fitSprites(const std::vector<SourceSprite> &sources, double scale, int firstSlot, int slotCount,
+ 	std::vector<SandboxSprite> &out, std::string &error);
++// The same with one scale per character (e.g. a player's chosen character
++// from another game beside a scene's own people).
++bool fitSprites(const std::vector<SourceSprite> &sources, const std::vector<double> &scales, int firstSlot, int slotCount,
++	std::vector<SandboxSprite> &out, std::string &error);
+ // One character on its own.
+ bool fitSprite(const SourceSprite &source, double scale, int firstSlot, int slotCount,
+ 	SandboxSprite &out, std::string &error);
+diff --git a/common/scummverse_world_cast.inc b/common/scummverse_world_cast.inc
+index 3f03ad45..41ec4607 100644
+--- a/common/scummverse_world_cast.inc
++++ b/common/scummverse_world_cast.inc
+@@ -314,6 +314,9 @@ static const WorldCastGuest kWorldCast[] = {
+ 	{3, 22, 0, {8, "Castle Brunwald butler",
+ 		"the butler who guards the front door of an Austrian castle and takes visitor lists very seriously; stiff, formal, and suspicious of tall tales", 9,
+ 		{"Whom shall I say is calling?", "The household does not receive visitors unannounced.", "Wipe your boots, if you please."}}},
++	{3, 25, 0, {7, "Henry Jones",
++		"Henry Jones, a medieval scholar who has spent a lifetime chasing one legend and writes everything in a battered diary; absent-minded, prim, and quietly brave", 10,
++		{"Patience. The past is never in a hurry.", "Now where did I put my spectacles?", "Do mind the furniture, it's older than both of us."}}},
+ 	{3, 35, 0, {73, "Man with a newspaper",
+ 		"an elderly traveller waiting at the airport behind his newspaper; grumpy with strangers but delighted to talk about his many grandchildren", 12,
+ 		{"I'm busy reading, as you can see.", "My flight is late. Everything is late.", "Grandchildren? Oh, now you've done it."}}},
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 1af85507..f0a4f9e7 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 6;
++static const int kWorldExportVersion = 7;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -137,6 +137,24 @@ inline const WorldGuest *worldGuestAt(int key, int slot) {
+ 		if (cast.game == game && cast.room == room && cast.slot == slot) return &cast.guest;
+ 	return nullptr;
+ }
++// Playing as someone from another game: a sandbox character's appearance is
++// a cast member by key game * 1024 + costume + 1 (0: themselves). Keys are
++// saved, and stay valid when the cast is regenerated.
++inline int worldAppearanceKey(int game, int costume) { return game * 1024 + costume + 1; }
++inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1; }
++inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
++inline const WorldGuest *worldAppearance(int key) {
++	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
++	if (game < 0 || game >= worldGameCount()) return nullptr;
++	for (const auto &cast : kWorldCast)
++		if (cast.game == game && cast.guest.costume == costume) return &cast.guest;
++	return nullptr;
++}
++// A menu request to play the current character as a cast member:
++// kWorldAppearanceRequest + key (key 0: be themselves again). Above place
++// requests.
++static const int kWorldAppearanceRequest = 1 << 25;
++inline int worldAppearanceRequest(int key) { return kWorldAppearanceRequest + key; }
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+ struct WorldLegacyPlace { int game, room; };
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index 449c5375..b6297abd 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -38,8 +38,13 @@ int objectCount();
+ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &walkX, int &walkY);
+ // 0 when a script-built room left that object switched off (1 otherwise).
+ int objectState(int index);
+-// The characters of the mounted scene (bytes of their .svc files), scaled
+-// like the scene and sharing slots firstSlot..; 0 is transparent. All or none.
++// Characters to show (bytes of their .svc files), each scaled by its own
++// factor and sharing slots firstSlot..; 0 is transparent. All or none. They
++// stay mounted across scenes until replaced, so they can be shown anywhere
++// (a scene's guests and players' chosen characters); index = order given.
++bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity);
++// The characters of the mounted scene, scaled like the scene (a scene must
++// be mounted). Replaces any characters mounted before.
+ bool mountGuests(const unsigned char *const *data, const size_t *sizes, int count, int firstSlot, int slotCount, char *error, int capacity);
+ void unmountGuests();
+ int guestCount();
+@@ -48,6 +53,10 @@ const unsigned char *guestPalette();      // guestSlotCount*3 RGB
+ // dir: 0 left, 1 right, 2 front, 3 back; kind: 0 stand, 1 walk, 2 talk.
+ int guestFrames(int guest, int dir, int kind);
+ const unsigned char *guestFrame(int guest, int dir, int kind, int index, int &dx, int &dy, int &width, int &height);
++// A portrait of a character (.svc bytes): its front standing frame (else the
++// nearest pose), in its own colors, fitted into side x side RGBA with a
++// margin and standing on the bottom edge. False if unreadable.
++bool spritePortrait(const unsigned char *data, size_t size, int side, unsigned char *rgba);
+ // A valid empty 320x128 V1 room (no boxes), for when no scene is available.
+ const unsigned char *blankRoom(int &size);
+ 
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index be9ebff8..93dcf45a 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -3795,6 +3795,8 @@ const byte *Actor::getActorName() {
+ 				ptr = (const byte *)v0ActorNames_English[_number - 1];
+ 			}
+ 		}
++	} else if (const byte *someoneElse = _vm->scummverseAppearanceName(_number)) {
++		ptr = someoneElse; // Playing someone from another game.
+ 	} else {
+ 		ptr = _vm->getResourceAddress(rtActorName, _number);
+ 	}
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index cad4b24a..9f44363b 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1364,6 +1364,8 @@ public:
+ 	// that spot of the scene; guests from their exported frames
+ 	// (scummverse_world_play.inc). False: draw the actor as usual.
+ 	bool scummverseDrawWorldActor(Actor *a);
++	// The name of a sandbox character playing someone from another game, or null.
++	const byte *scummverseAppearanceName(int id) const;
+ 	// The scene's own scale where the actor stands (1 = full size).
+ 	double scummverseWorldDepth(Actor *a);
+ 	bool scummverseDrawGuest(Actor *a, double scale);
+@@ -1623,11 +1625,29 @@ protected:
+ 	static const int kScummverseManiacActors = 25, kScummverseGuestActor = 25, kScummverseGuestSlots = 5;
+ 	int scummverseGuestSlot(const Actor *a) const;
+ 	void scummverseUpdateGuests(int delta, unsigned chatting);
++	void scummversePlaceGuest(int k, int place);
+ 	unsigned scummverseGuestMask() const;
+ 	int _scummverseGuestsRoom = 0;
+ 	int _scummverseGuestSprite[kScummverseGuestSlots] = {-1, -1, -1, -1, -1};
+ 	int _scummverseGuestTick[kScummverseGuestSlots] = {}, _scummverseGuestShown[kScummverseGuestSlots] = {}, _scummverseGuestIdle[kScummverseGuestSlots] = {};
+ 	bool _scummverseGuestGreeted[kScummverseGuestSlots] = {};
++	Common::Array<byte> _scummverseGuestData[kScummverseGuestSlots]; // The scene's characters (.svc bytes).
++	// Sandbox characters playing someone from another game: the appearance key
++	// (catalog worldAppearanceKey) is saved per character in variable
++	// kScummverseAppearanceVar + id; they are drawn from that game's exported
++	// frames in any room, named after them and chat as them.
++	static const int kScummverseAppearanceVar = 640;
++	int scummverseAppearance(int id) const;
++	bool scummverseSetAppearance(int id, int key);
++	bool scummverseAppearancePortrait(int id, byte *rgba);
++	// Mounts the frames everyone in the viewed room needs (the scene's guests
++	// and characters playing someone else) whenever that set changes.
++	void scummverseMountCharacters();
++	Common::Array<byte> scummverseCharacterFrames(int game, int costume) const;
++	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale);
++	Common::String _scummverseCharactersKey;
++	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
++	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
+ 	int scummverseWorldGameOf(int room, int &source) const;
+ 	int scummverseWorldRoomFor(int game, int source);
+ 	bool scummverseTravelLandmark(int index);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index e196c006..6ed6ab16 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -264,7 +264,10 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		_currentScript != 0xFF || _currentRoom == 0 || _currentRoom == 45) return;
+ 	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseRosterOffer(); }
+ 	int destination = scummverseWorldPoll();
+-	if (destination >= kWorldPlaceRequest) {
++	if (destination >= kWorldAppearanceRequest) {
++		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
++		scummverseWorldReport(_scummverseWorldNotice.c_str());
++	} else if (destination >= kWorldPlaceRequest) {
+ 		destination -= kWorldPlaceRequest;
+ 		scummverseTravelPlace(destination / 1024, destination % 1024);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 05698161..61bd5704 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -102,23 +102,16 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 		return false;
+ 	}
+ 	_scummverseWorldRoom = room;
+-	// The place's characters are optional: any whose frames are missing stay away.
+-	const byte *sprites[kWorldMaxGuests]; size_t sizes[kWorldMaxGuests]; int count = 0;
+-	Common::Array<byte> frames[kWorldMaxGuests];
++	// The place's characters are optional: any whose frames are missing stay
++	// away. They are mounted with anyone playing someone else (in
++	// scummverseMountCharacters, before they are placed).
+ 	for (int k = 0; k < kWorldMaxGuests; ++k) {
+ 		_scummverseGuestSprite[k] = -1;
+ 		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+-		if (!guest) continue;
+-		const Common::FSNode spriteNode(scummverseWorldCache().appendComponent(Common::String::format("%s-c%d.svc", game->gameid, guest->costume)));
+-		Common::ScopedPtr<Common::SeekableReadStream> sprite(spriteNode.exists() ? spriteNode.createReadStream() : nullptr);
+-		if (sprite) { frames[k].resize(sprite->size()); if (sprite->read(frames[k].data(), frames[k].size()) != frames[k].size()) frames[k].clear(); }
+-		if (frames[k].empty()) { warning("SCUMMVERSE world: %s is not shown (export the game again)", guest->name); continue; }
+-		_scummverseGuestSprite[k] = count; sprites[count] = frames[k].data(); sizes[count] = frames[k].size(); ++count;
+-	}
+-	if (count && !WorldBridge::mountGuests(sprites, sizes, count, kWorldGuestColor, kWorldGuestColors, problem, sizeof(problem))) {
+-		warning("SCUMMVERSE world: characters not shown (%s)", problem);
+-		for (int &k : _scummverseGuestSprite) k = -1;
++		_scummverseGuestData[k] = guest ? scummverseCharacterFrames(gameIndex, guest->costume) : Common::Array<byte>();
++		if (guest && _scummverseGuestData[k].empty()) warning("SCUMMVERSE world: %s is not shown (export the game again)", guest->name);
+ 	}
++	_scummverseCharactersKey.clear();
+ 	_scummverseGuestsRoom = 0; // Placed again by scummverseUpdateGuests.
+ 	_resourceMapper[room & 0x7F] = ScummverseContent::kForeignRoom;
+ 	_res->nukeResource(rtRoom, ScummverseContent::kForeignRoom);
+@@ -126,6 +119,16 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	return true;
+ }
+ 
++// A character's exported frames (.svc bytes), or empty.
++Common::Array<byte> ScummEngine::scummverseCharacterFrames(int game, int costume) const {
++	Common::Array<byte> data;
++	if (game < 0 || game >= worldGameCount()) return data;
++	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-c%d.svc", kWorldGames[game].gameid, costume)));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
++	if (in) { data.resize(in->size()); if (in->read(data.data(), data.size()) != data.size()) data.clear(); }
++	return data;
++}
++
+ // The scene's own colors live in palette slots the V1 art never uses.
+ void ScummEngine::scummverseApplyWorldPalette() {
+ 	int source;
+@@ -323,6 +326,8 @@ void ScummEngine::scummverseMigrateLegacyWorlds() {
+ void ScummEngine::scummverseRestoreWorld() {
+ 	if (!_scummverseRoaming) return;
+ 	if (!_scummVars[kWorldLayoutVar]) scummverseMigrateWorldRooms();
++	_scummverseCharactersKey.clear(); // Characters playing someone else are mounted again.
++	for (int id = 1; id < kScummverseManiacActors; ++id) _scummverseAvatarSprite[id] = 0;
+ 	int source;
+ 	if (scummverseWorldGameOf(_currentRoom, source) < 0) return;
+ 	_scummverseWorldRoom = 0;
+@@ -389,7 +394,13 @@ double ScummEngine::scummverseWorldDepth(Actor *a) {
+ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+-	if (gameIndex < 0 || !WorldBridge::mounted() || a->_room != _currentRoom) return false;
++	const bool inWorld = gameIndex >= 0 && WorldBridge::mounted();
++	// Someone from another game, in any room (frames mounted at this room's
++	// scale; other worlds add their depth).
++	const int id = a->_number;
++	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom)
++		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id], inWorld ? scummverseWorldDepth(a) : 1.0);
++	if (!inWorld || a->_room != _currentRoom) return false;
+ 	const double depth = scummverseWorldDepth(a);
+ 	if (scummverseGuestSlot(a) >= 0) return scummverseDrawGuest(a, depth);
+ 	return scummverseDrawScaledActor(a, kWorldGames[gameIndex].heroHeight * WorldBridge::sceneScale() * depth / kWorldManiacHeight);
+@@ -397,15 +408,18 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 
+ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	const int k = scummverseGuestSlot(a);
+-	if (k < 0) return false;
++	return k >= 0 && scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale);
++}
++
++bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale) {
+ 	if (!a->_needRedraw) return true;
+ 	a->_needRedraw = false;
+ 	int index;
+-	const int kind = worldGuestPose(a, getTalkingActor() == a->_number, _scummverseGuestTick[k], index);
++	const int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
+ 	const int dir = worldGuestDirection(a->getFacing());
+-	_scummverseGuestShown[k] = (dir * 3 + kind) * 64 + index % 64;
++	shown = (dir * 3 + kind) * 64 + index % 64;
+ 	int dx, dy, width, height;
+-	const byte *frame = WorldBridge::guestFrame(_scummverseGuestSprite[k], dir, kind, index, dx, dy, width, height);
++	const byte *frame = WorldBridge::guestFrame(sprite, dir, kind, index, dx, dy, width, height);
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+@@ -476,10 +490,132 @@ bool ScummEngine::scummverseDrawScaledActor(Actor *a, double scale) {
+ 	return true;
+ }
+ 
++// ---- Playing someone from another game ------------------------------------
++
++int ScummEngine::scummverseAppearance(int id) const {
++	if (!_scummverseRoaming || !_scummVars || id <= 0 || id >= kScummverseManiacActors) return 0;
++	const int key = _scummVars[kScummverseAppearanceVar + id];
++	return worldAppearance(key) ? key : 0;
++}
++
++const byte *ScummEngine::scummverseAppearanceName(int id) const {
++	const WorldGuest *who = worldAppearance(scummverseAppearance(id));
++	return who ? (const byte *)who->name : nullptr;
++}
++
++// Key 0 makes them themselves again. Refused (with a notice) when that
++// game's characters are not exported here.
++bool ScummEngine::scummverseSetAppearance(int id, int key) {
++	if (!_scummverseRoaming || id <= 0 || id >= kScummverseManiacActors) return false;
++	Actor *a = derefActor(id, "appearance");
++	const WorldGuest *who = worldAppearance(key);
++	if (key && !who) { _scummverseWorldNotice = "That character is not in the catalog."; return false; }
++	if (who && scummverseCharacterFrames(worldAppearanceGame(key), who->costume).empty()) {
++		_scummverseWorldNotice = Common::String::format("%s's game is not set up here. Add it to Documents/%s and restart.", who->name, kWorldGames[worldAppearanceGame(key)].folder);
++		return false;
++	}
++	_scummVars[kScummverseAppearanceVar + id] = who ? key : 0;
++	::scummverseTalkAppearance(id, who ? key : 0);
++	_scummverseCharactersKey.clear();
++	a->_needRedraw = true; _fullRedraw = true;
++	_scummverseWorldNotice = who ? Common::String::format("You are playing %s.", who->name)
++		: Common::String::format("%s again.", (const char *)a->getActorName());
++	return true;
++}
++
++bool ScummEngine::scummverseAppearancePortrait(int id, byte *rgba) {
++	const int key = scummverseAppearance(id);
++	if (!key) return false;
++	const Common::Array<byte> data = scummverseCharacterFrames(worldAppearanceGame(key), worldAppearanceCostume(key));
++	return !data.empty() && WorldBridge::spritePortrait(data.data(), data.size(), 64, rgba);
++}
++
++void ScummEngine::scummverseMountCharacters() {
++	int source;
++	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
++	const bool inWorld = _scummverseRoaming && _scummverseWorldRoom == _currentRoom && gameIndex >= 0 && WorldBridge::mounted();
++	Common::String key = Common::String::format("%d:%d", _currentRoom, inWorld ? 1 : 0);
++	for (int id = 1; id < kScummverseManiacActors; ++id) {
++		const int look = scummverseAppearance(id);
++		if (look && _actors[id]->_room == _currentRoom) key += Common::String::format(" %d=%d", id, look);
++	}
++	if (key == _scummverseCharactersKey) return;
++	_scummverseCharactersKey = key;
++	for (int id = 1; id < kScummverseManiacActors; ++id) ::scummverseTalkAppearance(id, scummverseAppearance(id));
++	const int most = kScummverseGuestSlots + kScummverseManiacActors;
++	const byte *data[most]; size_t sizes[most]; double scales[most]; int count = 0;
++	Common::Array<byte> looks[kScummverseManiacActors];
++	for (int k = 0; k < kScummverseGuestSlots; ++k) {
++		_scummverseGuestSprite[k] = -1;
++		if (!inWorld || _scummverseGuestData[k].empty()) continue;
++		// Someone here already plays this character: it steps aside.
++		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		if (guest && key.contains(Common::String::format("=%d", worldAppearanceKey(gameIndex, guest->costume)))) continue;
++		_scummverseGuestSprite[k] = count;
++		data[count] = _scummverseGuestData[k].data(); sizes[count] = _scummverseGuestData[k].size(); scales[count] = WorldBridge::sceneScale(); ++count;
++	}
++	// As tall as a person standing here: this scene game's lead (fitted like
++	// the scene), or a Maniac teenager in the mansion and Zak's places.
++	const double person = inWorld ? kWorldGames[gameIndex].heroHeight * WorldBridge::sceneScale() : kWorldManiacHeight;
++	for (int id = 1; id < kScummverseManiacActors; ++id) {
++		_scummverseAvatarSprite[id] = 0;
++		const int look = scummverseAppearance(id);
++		if (!look || _actors[id]->_room != _currentRoom) continue;
++		looks[id] = scummverseCharacterFrames(worldAppearanceGame(look), worldAppearanceCostume(look));
++		if (looks[id].empty()) continue;
++		_scummverseAvatarSprite[id] = count + 1;
++		data[count] = looks[id].data(); sizes[count] = looks[id].size();
++		scales[count] = CLIP(person / kWorldGames[worldAppearanceGame(look)].heroHeight, 0.06, 4.0); ++count;
++		_actors[id]->_needRedraw = true;
++	}
++	char problem[128];
++	if (!count) { WorldBridge::unmountGuests(); return; }
++	if (!WorldBridge::mountCharacters(data, sizes, scales, count, kWorldGuestColor, kWorldGuestColors, problem, sizeof(problem))) {
++		warning("SCUMMVERSE world: characters not shown (%s)", problem);
++		for (int &k : _scummverseGuestSprite) k = -1;
++		for (int &k : _scummverseAvatarSprite) k = 0;
++		WorldBridge::unmountGuests();
++		return;
++	}
++	const byte *rgb = WorldBridge::guestPalette();
++	for (int i = 0; i < WorldBridge::guestSlotCount(); ++i)
++		setPalColor(kWorldGuestColor + i, rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
++}
++
+ // Places the viewed scene's characters, or sends them away outside other
+ // worlds; then animation, one greeting at a time, short strolls, and
+ // standing still while chatting.
++// Places guest slot k of the viewed place near the arrival point.
++void ScummEngine::scummversePlaceGuest(int k, int place) {
++	const WorldGuest *guest = worldGuestAt(place, k);
++	if (!guest || _scummverseGuestSprite[k] < 0) return;
++	Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
++	// Any V1 costume keeps the actor in the draw list; the frames replace it.
++	if (!a->_costume) a->setActorCostume(derefActor(VAR(VAR_EGO), "guest stand-in")->_costume);
++	a->_talkColor = guest->talkColor;
++	const size_t length = strlen(guest->name) + 1;
++	memcpy(_res->createResource(rtActorName, a->_number, length), guest->name, length);
++	// Spread out on both sides of the arrival point.
++	const int offset = (k / 2 + 1) * 5 * (k % 2 ? -1 : 1);
++	a->putActor(WorldBridge::spawnX(), WorldBridge::spawnY(), _currentRoom);
++	AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, 1, WorldBridge::width() / 8 - 2), WorldBridge::spawnY() + k % 3);
++	a->putActor(point.x, point.y, _currentRoom);
++	a->setDirection(180); a->startAnimActor(a->_standFrame); a->showActor();
++	_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false;
++	_scummverseGuestIdle[k] = 120 + 90 * k;
++}
++
+ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
++	scummverseMountCharacters();
++	// Characters playing someone else animate like guests.
++	for (int id = 1; id < kScummverseManiacActors; ++id) {
++		if (!_scummverseAvatarSprite[id]) continue;
++		Actor *a = _actors[id];
++		_scummverseAvatarTick[id] += delta;
++		int index;
++		const int kind = worldGuestPose(a, getTalkingActor() == id, _scummverseAvatarTick[id], index);
++		if ((worldGuestDirection(a->getFacing()) * 3 + kind) * 64 + index % 64 != _scummverseAvatarShown[id]) a->_needRedraw = true;
++	}
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+ 	const bool inWorld = _scummverseRoaming && _scummverseWorldRoom == _currentRoom && gameIndex >= 0;
+@@ -491,26 +627,16 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		}
+ 		_scummverseGuestsRoom = 0;
+ 		if (!inWorld) return;
+-		for (int k = 0; k < kScummverseGuestSlots; ++k) {
+-			const WorldGuest *guest = worldGuestAt(place, k);
+-			if (!guest || _scummverseGuestSprite[k] < 0) continue;
+-			Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
+-			// Any V1 costume keeps the actor in the draw list; the frames replace it.
+-			if (!a->_costume) a->setActorCostume(derefActor(VAR(VAR_EGO), "guest stand-in")->_costume);
+-			a->_talkColor = guest->talkColor;
+-			const size_t length = strlen(guest->name) + 1;
+-			memcpy(_res->createResource(rtActorName, a->_number, length), guest->name, length);
+-			// Spread out on both sides of the arrival point.
+-			const int offset = (k / 2 + 1) * 5 * (k % 2 ? -1 : 1);
+-			a->putActor(WorldBridge::spawnX(), WorldBridge::spawnY(), _currentRoom);
+-			AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, 1, WorldBridge::width() / 8 - 2), WorldBridge::spawnY() + k % 3);
+-			a->putActor(point.x, point.y, _currentRoom);
+-			a->setDirection(180); a->startAnimActor(a->_standFrame); a->showActor();
+-			_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false;
+-			_scummverseGuestIdle[k] = 120 + 90 * k;
+-		}
++		for (int k = 0; k < kScummverseGuestSlots; ++k) scummversePlaceGuest(k, place);
+ 		_scummverseGuestsRoom = _currentRoom;
+ 	}
++	// A guest steps aside while someone here plays them, and comes back after.
++	for (int k = 0; k < kScummverseGuestSlots; ++k) {
++		Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
++		const bool wanted = worldGuestAt(place, k) && _scummverseGuestSprite[k] >= 0;
++		if (!wanted && a->_room == _currentRoom) { a->stopActorMoving(); a->putActor(0, 0, 0); a->hideActor(); }
++		else if (wanted && a->_room != _currentRoom) scummversePlaceGuest(k, place);
++	}
+ 	Actor *player = derefActor(VAR(VAR_EGO), "guest visitor");
+ 	for (int k = 0; k < kScummverseGuestSlots; ++k) {
+ 		Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 1ef25c00..fee30b2a 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -863,6 +863,7 @@ void ScummEngine::scummverseRosterOffer() {
+ 		Actor *a=derefActor(id,"character portrait"); if(!a->_costume || !a->_room) continue;
+ 		mask |= 1u<<id;
+ #ifdef SCUMMVERSE_LOCAL_AI
++		{ byte face[64*64*4]; if(scummverseAppearancePortrait(id,face)) { ::scummverseRosterFace(id,face); continue; } }
+ 		VirtScreen canvas = {}; canvas.create(320,128,Graphics::PixelFormat::createFormatCLUT8());
+ 		memset(canvas.getPixels(0,0),255,canvas.pitch*canvas.h);
+ 		auto cost=a->_cost; int facing=a->getFacing();
+@@ -895,7 +896,7 @@ void ScummEngine::scummverseRosterOffer() {
+ 	::scummverseRosterShow((_currentRoom*32+VAR(VAR_EGO))<<8,mask);
+ #else
+ 	GUI::ChooserDialog dialog(Common::U32String("Choose your character")); Common::U32StringArray names; Common::Array<int> ids;
+-	for(int id : mansionCast) if(mask&(1u<<id)) { ids.push_back(id); names.push_back(Common::U32String((const char *)getResourceAddress(rtActorName,id))); }
++	for(int id : mansionCast) if(mask&(1u<<id)) { ids.push_back(id); names.push_back(Common::U32String((const char *)derefActor(id,"roster name")->getActorName())); }
+ 	dialog.setList(names); int choice=runDialog(dialog); if(choice>=0 && choice<(int)ids.size()) scummverseSwitchActor(ids[choice]);
+ #endif
+ 	_fullRedraw=true;

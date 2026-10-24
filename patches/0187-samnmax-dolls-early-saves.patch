@@ -1,0 +1,125 @@
+diff --git a/engines/scumm/script_v6.cpp b/engines/scumm/script_v6.cpp
+index 819f4950..03eb7322 100644
+--- a/engines/scumm/script_v6.cpp
++++ b/engines/scumm/script_v6.cpp
+@@ -391,6 +391,15 @@ ScummEngine_v6::ArrayHeader *ScummEngine_v6::getArray(int array) {
+ 	return ah;
+ }
+ 
++// SCUMMVERSE: an array's value, for the story's copy-protection answers
++// (-1 if it has none there; never an error).
++int ScummEngine_v6::scummverseArrayAt(int array, int offset) {
++	const ArrayHeader *ah = getArray(array);
++	if (!ah || offset < 0 || offset >= FROM_LE_16(ah->dim1) * FROM_LE_16(ah->dim2)) return -1;
++	if (FROM_LE_16(ah->type) != kIntArray) return ah->data[offset];
++	return _game.version == 8 ? (int32)READ_LE_UINT32(ah->data + offset * 4) : (int16)READ_LE_UINT16(ah->data + offset * 2);
++}
++
+ int ScummEngine_v6::readArray(int array, int idx, int base) {
+ 	ArrayHeader *ah = getArray(array);
+ 
+@@ -1333,7 +1342,11 @@ void ScummEngine_v6::o6_cursorCommand() {
+ 			}
+ 
+ 			// Post-load fix for broken SAMNMAX savegames (see bug no. 14467)
+-			if (_game.id == GID_SAMNMAX && obj == 0 && room == 93)
++			// SCUMMVERSE: any cursor room, not only 93. A save made just
++			// after the opening, before the game first sets its cursor,
++			// reloads with no cursor object (room 92 there), and object 0
++			// is in no room, so it would stop the game.
++			if (_game.id == GID_SAMNMAX && obj == 0)
+ 				break;
+ 
+ 			setCursorFromImg(obj, room, 1);
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 3d0b1cd9..11123d25 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1693,6 +1693,9 @@ protected:
+ 	int _scummverseStoryPlayed = 0; // (Its time played, in 1/60 s, until it is marked to go on in at the next start.)
+ 	int _scummverseStoryGuardWait = 0, _scummverseStoryGuardTries = 0, _scummverseStoryGuardStep = 0; // (Its copy-protection screen, answered for the player.)
+ 	void scummverseStoryPassGuard(int delta);
++	void scummverseStoryDressDolls();
++	// (v6 on: an array's value, -1 if it has none there.)
++	virtual int scummverseArrayAt(int array, int offset) { return -1; }
+ 	int scummverseStorySlotOf(const Common::String &target);
+ 	void scummverseOpenStory(int game);
+ 	void scummverseEnterStoryMode();
+diff --git a/engines/scumm/scumm_v6.h b/engines/scumm/scumm_v6.h
+index 48935da8..fbb03f4b 100644
+--- a/engines/scumm/scumm_v6.h
++++ b/engines/scumm/scumm_v6.h
+@@ -311,6 +311,7 @@ protected:
+ 	void drawBlastObject(BlastObject *eo);
+ 	bool scummverseBlast(int obj, Common::Rect &rect) override;
+ 	void scummverseDrawBlast(int obj) override;
++	int scummverseArrayAt(int array, int offset) override;
+ 
+ 	void restoreBlastObjectRect(Common::Rect r);
+ 
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index ea40cf47..d3022297 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -164,15 +164,18 @@ void ScummEngine::scummverseLeaveStory(int game) {
+ // A copy-protection screen ScummVM itself does not skip (copy_protection
+ // off, as by default), answered for the player: Monkey Island 2's recipe
+ // number (any number is taken, ScummVM reading the answer for the number
+-// asked: typed, then Return). A few tries, a moment apart; then it is the
+-// player's. (Sam & Max's dolls check a real answer: left to the player.)
++// asked: typed, then Return), and Sam & Max's dolls (below). A few tries, a
++// moment apart; then it is the player's.
+ void ScummEngine::scummverseStoryPassGuard(int delta) {
+ 	if (_copyProtection || _scummverseStoryGuardTries >= 20) return;
+ 	const bool recipe = _game.id == GID_MONKEY2 && _currentRoom == 108 && !(_game.features & GF_ULTIMATE_TALKIE) &&
+ 		!(_game.platform == Common::kPlatformMacintosh && _bootParam == -7873);
+-	if (!recipe) { _scummverseStoryGuardWait = _scummverseStoryGuardStep = 0; return; }
++	const bool dolls = _game.id == GID_SAMNMAX && _currentRoom == 71 && _game.variant && !strcmp(_game.variant, "Floppy") &&
++		getObjectIndex(771) != -1;
++	if (!recipe && !dolls) { _scummverseStoryGuardWait = _scummverseStoryGuardStep = 0; return; }
+ 	if ((_scummverseStoryGuardWait += MAX(delta, 1)) < 90) return;
+ 	_scummverseStoryGuardWait = 0;
++	if (dolls) { scummverseStoryDressDolls(); return; }
+ 	// (A digit, then Return a moment later.)
+ 	Common::Event event;
+ 	event.type = Common::EVENT_KEYDOWN;
+@@ -185,6 +188,39 @@ void ScummEngine::scummverseStoryPassGuard(int delta) {
+ 	warning("SCUMMVERSE story: %s copy protection answered (%s)", _targetName.c_str(), _scummverseStoryGuardStep ? "a number" : "Return");
+ }
+ 
++// Sam & Max's dolls (its floppy copies, room 71): a press wakes the
++// wardrobes; then the game names a page of its colouring book and a doll
++// (vars 152 and 153) and lights its button (object 771). The clothes that
++// page asks for are read from the game's own table (array 304: three
++// letters a doll, six a page; Sam's clothes from object 715, Max's from 745)
++// and put on, as the player would, and the button is pressed. (A wrong
++// answer has one more chance, then the game quits.)
++void ScummEngine::scummverseStoryDressDolls() {
++	const int page = readVar(152), doll = readVar(153);
++	const bool asked = readVar(151) == 0 && getState(771) == 1 && page >= 1 && page <= 10 && (doll == 0 || doll == 1);
++	if (asked) {
++		const int first = doll ? 745 : 715, last = doll ? 770 : 744;
++		for (int k = 0; k < 3; ++k) {
++			const int item = first + scummverseArrayAt(304, (page - 1) * 6 + doll * 3 + k) - 'A';
++			if (item >= first && item <= last && getObjectIndex(item) != -1 && !getState(item)) {
++				putState(item, 1);
++				markObjectRectAsDirty(item);
++			}
++		}
++	}
++	// (Its button, where it is: a press there.)
++	const ObjectData &button = _objs[getObjectIndex(771)];
++	const VirtScreen &vs = _virtscr[kMainVirtScreen];
++	Common::Event event;
++	event.mouse = Common::Point(button.x_pos + button.width / 2 - vs.xstart, button.y_pos + button.height / 2 + vs.topline);
++	event.type = Common::EVENT_LBUTTONDOWN;
++	_system->getEventManager()->pushEvent(event);
++	event.type = Common::EVENT_LBUTTONUP;
++	_system->getEventManager()->pushEvent(event);
++	++_scummverseStoryGuardTries;
++	warning("SCUMMVERSE story: %s copy protection answered (%s)", _targetName.c_str(), asked ? "the dolls dressed" : "a press");
++}
++
+ void ScummEngine::scummverseUpdateStory(int delta) {
+ 	if (!_scummverseStory) return;
+ 	scummverseStoryPassGuard(delta);

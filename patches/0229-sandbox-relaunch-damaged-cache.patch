@@ -1,0 +1,253 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index c3510e31..118e817c 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -304,6 +304,32 @@ bool SandboxEngine::someoneToPlay(int game) {
+ 	return _playerKey != 0;
+ }
+ 
++// (A file an export stopped partway through leaves damaged would otherwise
++// keep the new engine from opening at every launch.) That place first, as
++// someone else (the one played not shown there), then the others; a key
++// that could not be shown is passed over (enter marks it), a place that
++// could not be shown for one who can, the next place.
++bool SandboxEngine::startElsewhere(int game, int room, Common::String &problem) {
++	const int kept = _playerKey;
++	for (int i = -2; i < worldGameCount(); ++i) {
++		if (i == -1 ? !startPlace(game, room) : i >= 0 && !firstPlace(game = i, room)) continue;
++		Common::Array<int> keys;
++		if (kept) keys.push_back(kept);
++		for (const WorldLead &l : kWorldLeads) if (l.game == game) keys.push_back(worldAppearanceKey(l.game, l.costume));
++		for (const WorldLead &l : kWorldLeads) keys.push_back(worldAppearanceKey(l.game, l.costume));
++		for (int key : keys) {
++			Common::Array<byte> data;
++			if (!hasCharacter(key) || _broken.contains(key)) continue;
++			if (!readCharacter(key, data)) { _broken[key] = true; continue; }
++			_playerKey = key;
++			if (enter(game, room, 0, problem)) return true;
++			if (!_broken.contains(key)) break;
++		}
++	}
++	_playerKey = kept;
++	return false;
++}
++
+ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &problem) {
+ 	const WorldGame &g = kWorldGames[game];
+ 	// (A ride's inside only on the way, by rideInside.)
+@@ -4035,7 +4061,8 @@ Common::Error SandboxEngine::run() {
+ 		if (sscanf(ConfMan.get(kWayBackKey).c_str(), "%d %d %d %d %d", &w.game, &w.room, &w.door, &w.atGame, &w.atRoom) == 5) _wayBack = w;
+ 	}
+ 
+-	if (ConfMan.hasKey("scummverse_selftest")) {
++	// (The "resume" check starts as a launch starts, below.)
++	if (ConfMan.hasKey("scummverse_selftest") && ConfMan.get("scummverse_selftest") != "resume") {
+ 		_testing = true;
+ 		return selfTest(ConfMan.get("scummverse_selftest"));
+ 	}
+@@ -4046,7 +4073,7 @@ Common::Error SandboxEngine::run() {
+ 	Common::String problem;
+ 	// (scummverse_place, when set, wins.)
+ 	bool kept = false;
+-	const bool resumed = !ConfMan.hasKey("scummverse_place") && loadState(game, room, x, y, &kept);
++	bool resumed = !ConfMan.hasKey("scummverse_place") && loadState(game, room, x, y, &kept);
+ 	if (!resumed) {
+ 		// (Kept, but its place or the one played gone: what was carried,
+ 		// changed and left stays; the start place, as the one played still.)
+@@ -4054,10 +4081,21 @@ Common::Error SandboxEngine::run() {
+ 		if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "no places are installed yet (add your games to Documents)");
+ 		if (!keptKey && !someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "no characters are installed yet");
+ 		if (_wanderers && !kept) buildWanderers();
++		// (Not where it was kept: no way back from there, here.)
++		_wayBack = WayBack();
++		wayBackKeep();
++	}
++	// (Not shown there (its scene or the one played's file damaged):
++	// elsewhere, what was carried, changed and left kept.)
++	if (!enter(game, room, 0, problem)) {
++		warning("SCUMMVERSE sandbox: %s-%d not shown (%s): starting elsewhere", kWorldGames[game].gameid, room, problem.c_str());
++		if (!startElsewhere(game, room, problem)) return Common::Error(Common::kReadingFailed, problem);
++		// (Elsewhere: no way back from where it was kept.)
++		if (_game != game || _room != room) { resumed = false; _wayBack = WayBack(); wayBackKeep(); }
+ 	}
+-	if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
+ 	if (resumed) { placePlayer(x, y); saveState(); }
+ 	tourReady();
++	if (ConfMan.hasKey("scummverse_selftest")) return resumeTest(resumed);
+ 	uint32 last = g_system->getMillis();
+ 	int carry = 0, palette = StageBridge::paletteVersion();
+ 	bool changed = true;
+@@ -8017,6 +8055,135 @@ Common::Error SandboxEngine::movesTest() {
+ 	return Common::kNoError;
+ }
+ 
++// "keep", a launch kept as in play (the settings and the state file written
++// as the player's are): through a door with no way back (its arrow kept),
++// someone asked along by the chat's Follow, a thing shown changed, the tour
++// begun from there and paused at its fourth stop; then put away as iOS puts
++// the app away (paused: kept at once) and left without the run's own save
++// at its end, as iOS stops the app. What "resume" should find at the next
++// launch is kept apart from the settings (kExpectFile, with the files of
++// that place and the one played on its second line), so nothing of theirs
++// is flushed by it.
++static const char *const kExpectFile = "scummverse-selftest.expect";
++static const int kKeptThing = 4095; // (an object number no place has)
++
++Common::Error SandboxEngine::keepTest() {
++	Common::String problem;
++	int game = -1, link = -1, follower = 0;
++	// (A place with someone besides the one played, else anyone's.)
++	for (int pass = 0; pass < 2 && link < 0; ++pass)
++		for (int g = 0; g < worldGameCount() && link < 0; ++g) {
++			const WorldMap *map = worldMap(g);
++			if (!map || !someoneToPlay(g)) continue;
++			for (int i = 0; i < map->linkCount && link < 0; ++i) {
++				const WorldLink &l = map->links[i];
++				if (l.room == l.target || !installed(g, l.room) || !installed(g, l.target) || !walkable(g, l.room) || !walkable(g, l.target) ||
++					reaches(g, l.target, l.room) || !enter(g, l.room, 0, problem) || !doorAllowed(l.room, l.object) || (!pass && _onStage.size() < 2)) continue;
++				game = g; link = i;
++			}
++		}
++	if (link < 0) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: no door with no way back");
++	const WorldLink &door = worldMap(game)->links[link];
++	_testing = false; // (as in play from here: everything kept)
++	if (_onStage.size() >= 2) {
++		const int n = _player == 0 ? 1 : 0;
++		follower = _onStage[n];
++		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (64 + kTalkVisitor + actorSlot(n, _player)));
++	}
++	const bool through = travel(link) && _game == game && _room == door.target && _wayBack.game >= 0;
++	_pictures[thingKey(_game, _room, kKeptThing)] = 1;
++	double x = 0, y = 0;
++	StageBridge::position(_player, x, y);
++	const int key = _playerKey;
++	const WayBack way = _wayBack;
++	tourStart(3);
++	for (int t = 0; t < 120; ++t) step(1);
++	tourCommand(Tour::kPause, 0);
++	const bool touring = _touring.on && _touring.paused && _touring.resume == 3;
++	{ PauseToken pause = pauseEngine(); }
++	_testing = true;
++	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kExpectFile, false));
++	if (out) {
++		out->writeString(Common::String::format("%d %d %d %d %d %d %d %d %d %d %d %d\n", game, (int)door.target, key, (int)(x * 16), (int)(y * 16), following(follower) ? follower : 0,
++			way.game, way.room, way.door, way.atGame, way.atRoom, _touring.resumePlace));
++		// (And the files of that place and the one played, for a check that
++		// damages them.)
++		out->writeString(Common::String::format("%s-%d.svw %s-c%d.svc\n", kWorldGames[game].gameid, (int)door.target,
++			customArt(key) ? "-" : kWorldGames[worldAppearanceGame(key)].gameid, worldAppearanceCostume(key)));
++		out->finalize();
++	}
++	warning("SCUMMVERSE sandbox selftest keep: %s-%d to %d through door %d with no way back%s, %s asked along, the tour paused at stop %d, put away%s",
++		kWorldGames[game].gameid, (int)door.room, (int)door.target, (int)door.object, through ? "" : " NOT GONE THROUGH", following(follower) ? "someone" : "no one",
++		_touring.resume + 1, out ? "" : ", NOTHING KEPT TO CHECK");
++	if (!through || !touring || !out || (follower && !following(follower))) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
++// "resume", started as a launch starts (run(): the settings and the state
++// file as "keep" left them): where the tour was begun, at that spot, the
++// same one played, those asked along beside them (once each), the way back
++// and its arrow, the thing shown changed, the tour resuming at the stop it
++// was paused at. With scummverse_selftest_cache "gone" (that place's scene
++// taken from the cache, as an export that finds no place there leaves it):
++// at the start place as the same one played; "damaged" (its scene and the
++// one played's file damaged, as an export stopped partway leaves them):
++// started elsewhere as someone else; "look" (the one played's file alone):
++// there, at that spot, as someone else, its way back kept. Elsewhere, no
++// way back from where it was not come by. Each time the thing changed still
++// kept, and where it starts kept for the next launch.
++Common::Error SandboxEngine::resumeTest(bool resumed) {
++	_testing = true;
++	int failed = 0;
++	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox resume: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "-", _room, what); };
++	int game = -1, room = 0, key = 0, x16 = 0, y16 = 0, follower = 0, resumePlace = -1;
++	WayBack way;
++	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kExpectFile));
++	const Common::String kept = in ? in->readLine() : Common::String();
++	if (sscanf(kept.c_str(), "%d %d %d %d %d %d %d %d %d %d %d %d", &game, &room, &key, &x16, &y16, &follower, &way.game, &way.room, &way.door, &way.atGame, &way.atRoom, &resumePlace) != 12)
++		return Common::Error(Common::kUnknownError, "sandbox selftest: nothing kept by \"keep\"");
++	const Common::String cache = ConfMan.hasKey("scummverse_selftest_cache") ? ConfMan.get("scummverse_selftest_cache") : Common::String();
++	const bool damaged = cache == "damaged", gone = cache == "gone", look = cache == "look";
++	// (Where it was kept, at that spot; else elsewhere. The one played, but
++	// where their file is damaged.)
++	const bool there = !damaged && !gone, same = !damaged && !look;
++	double px = 0, py = 0;
++	if (_player >= 0) StageBridge::position(_player, px, py);
++	if (_player < 0) fail("no one played");
++	if (there && (!resumed || _game != game || _room != room || fabs(px - x16 / 16.0) > 1 || fabs(py - y16 / 16.0) > 1)) fail("not where the tour was begun");
++	if (!there && (resumed || (_game == game && _room == room))) fail("started where it cannot be shown");
++	if (same ? _playerKey != key : _playerKey == key) fail(same ? "not the one played" : "played by one who cannot be shown");
++	// (The way back and its arrow there; elsewhere none from there.)
++	int bx0, by0, bx1, by1;
++	if (there && (_wayBack.game != way.game || _wayBack.room != way.room || _wayBack.door != way.door || !backSign(bx0, by0, bx1, by1))) fail("the way back and its arrow not kept");
++	if (!there && (_wayBack.game >= 0 || backSign(bx0, by0, bx1, by1))) fail("a way back kept from where it was not started");
++	// (Those asked along beside the one played, once each; someone else
++	// played, following no one.)
++	int found = 0;
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if (!follower || (int)n == _player || _onStage[n] != follower) continue;
++		++found;
++		double fx, fy;
++		StageBridge::position(n, fx, fy);
++		if (same && (!following(follower) || sqrt((fx - px) * (fx - px) + (fy - py) * (fy - py)) > fabs(followOffset(follower)) + 24.0 * screenWidthOf(_game) / 320)) fail("the one asked along not beside the one played");
++	}
++	if (follower && same && found != 1) fail(found ? "the one asked along here more than once" : "the one asked along not here");
++	if (follower && !same && (following(follower) || !_followers.empty())) fail("the one asked along following someone else played");
++	// (What was changed, the tour's stop, and where it is now for the next launch.)
++	if (!_pictures.contains(thingKey(game, room, kKeptThing))) fail("the thing changed there not kept");
++	const bool atStop = _touring.resume >= 0 && _touring.resume < (int)_touring.stops.size() && _touring.stops[_touring.resume].game * 1024 + _touring.stops[_touring.resume].room == resumePlace;
++	if (_touring.on || !atStop || _touring.resume != 3) fail("the tour not resuming at the stop it was paused at");
++	int kg, kr;
++	double kx, ky;
++	if (!loadState(kg, kr, kx, ky) || kg != _game || kr != _room || _playerKey != (same ? key : _playerKey)) fail("where it started not kept for the next launch");
++	warning("SCUMMVERSE sandbox selftest resume%s: %s %s-%d as %d (kept %s-%d as %d), %d asked along here, way back %s, the tour resuming at stop %d",
++		damaged ? " (its place and the one played damaged)" : gone ? " (its place gone)" : look ? " (the one played damaged)" : "", resumed ? "resumed at" : "started at", _game >= 0 ? kWorldGames[_game].gameid : "-", _room, _playerKey,
++		game >= 0 && game < worldGameCount() ? kWorldGames[game].gameid : "-", room, key, found, _wayBack.game >= 0 ? "kept" : "none", _touring.resume + 1);
++	if (failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
+ 	if (mode == "camera") return cameraTest();
+@@ -8026,6 +8193,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "follow") return followTest();
+ 	if (mode == "cast") return castTest();
+ 	if (mode == "moves") return movesTest();
++	if (mode == "keep") return keepTest();
+ 	int game, room;
+ 	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
+ 	if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nobody to play");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index afc38fe8..0d7b9892 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -71,6 +71,11 @@ private:
+ 	bool doorPoint(int object, double &x, double &y) const;
+ 	bool isDoor(int object) const; // a door of this room, shown here
+ 	bool someoneToPlay(int game); // the game's lead, else anyone installed
++	// At a launch, where it was kept (game, room) cannot be shown (a scene or
++	// the one played's file damaged): there as someone else, else the start
++	// place, else each game's first, as the one played still, else as a lead
++	// who can be shown (false: none).
++	bool startElsewhere(int game, int room, Common::String &problem);
+ 	// Puts a game's room on stage: the one played (at object `arrival`'s
+ 	// walk-to point, else the roomiest spot) and everyone there.
+ 	bool enter(int game, int room, int arrival, Common::String &problem);
+@@ -367,8 +372,12 @@ private:
+ 	// "verbs" every verb of every game's panel used on the things there,
+ 	// "talk" chat with a stand-in for the iPhone's, "cast" its character
+ 	// screen with one, "camera" photos and selfies, "tour" every stop,
+-	// "rides" every ride both ways.
++	// "rides" every ride both ways; "keep" then "resume", two launches: the
++	// first kept as in play and put away as iOS puts the app away, the
++	// second started as a launch starts (run()) and checked against it.
+ 	Common::Error selfTest(const Common::String &mode);
++	Common::Error keepTest();
++	Common::Error resumeTest(bool resumed);
+ 	Common::Error verbsTest();
+ 	Common::Error talkTest();
+ 	Common::Error followTest();

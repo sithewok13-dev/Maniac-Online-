@@ -1,0 +1,367 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index e655bf1e..ec46d3bc 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -184,7 +184,8 @@ const ThingParent *GameThings::parent(int room, int id) const {
+ 
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	const bool pairs = data && size >= 4 && !std::memcmp(data, "SVO4", 4);
++	const bool power = data && size >= 4 && !std::memcmp(data, "SVO5", 4);
++	const bool pairs = power || (data && size >= 4 && !std::memcmp(data, "SVO4", 4));
+ 	const bool withParents = pairs || (data && size >= 4 && !std::memcmp(data, "SVO3", 4));
+ 	const bool effects = withParents || (data && size >= 4 && !std::memcmp(data, "SVO2", 4));
+ 	if (!data || size < 6 || (!effects && std::memcmp(data, "SVO1", 4))) { error = "not a things file"; return false; }
+@@ -232,6 +233,13 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		if (p.parent == p.id) { out = GameThings(); error = "bad parent"; return false; }
+ 		out.parents.push_back(p);
+ 	}
++	if (power && r.ok) {
++		out.powerRoom = r.u16(); out.powerId = r.u16(); out.powerOff = r.u8();
++		const int dark = r.u16();
++		if (dark > kMostThingRooms || out.powerOff > 1 || (!out.powerId && dark)) { out = GameThings(); error = "bad main power"; return false; }
++		for (int i = 0; i < dark && r.ok; ++i) out.unpowered.push_back(r.u16());
++		std::sort(out.unpowered.begin(), out.unpowered.end());
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
+ 	std::stable_sort(out.parents.begin(), out.parents.end(), [](const ThingParent &a, const ThingParent &b) { return std::make_pair(a.room, a.id) < std::make_pair(b.room, b.id); });
+ 	for (size_t i = 1; i < out.parents.size(); ++i)
+@@ -242,6 +250,12 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 	std::stable_sort(out.rooms.begin(), out.rooms.end(), [](const std::pair<int, std::vector<GameThing> > &a, const std::pair<int, std::vector<GameThing> > &b) { return a.first < b.first; });
+ 	for (size_t i = 1; i < out.rooms.size(); ++i)
+ 		if (out.rooms[i].first == out.rooms[i - 1].first) { out = GameThings(); error = "a room twice"; return false; }
++	// (A main power that is not one of its things, or whose picture off is
++	// the one it starts in, is none: the house is not dark from the start.)
++	if (out.powerId) {
++		const GameThing *t = out.find(out.powerRoom, out.powerId);
++		if (!t || (t->picture & 1) == out.powerOff) { out.powerRoom = out.powerId = out.powerOff = 0; out.unpowered.clear(); }
++	}
+ 	return true;
+ }
+ 
+@@ -983,6 +997,19 @@ bool thingParent(int game, int room, int id, int &parent, int &picture) {
+ 	}
+ 	return false;
+ }
++bool mainPower(int game, int &room, int &id, int &offPicture) {
++	for (const auto &g : gameThings()) {
++		if (g.first != game || !g.second.powerId) continue;
++		room = g.second.powerRoom; id = g.second.powerId; offPicture = g.second.powerOff;
++		return true;
++	}
++	return false;
++}
++bool unpowered(int game, int room) {
++	for (const auto &g : gameThings())
++		if (g.first == game) return std::binary_search(g.second.unpowered.begin(), g.second.unpowered.end(), room);
++	return false;
++}
+ int effectCount(int game) {
+ 	for (const auto &g : gameThings()) if (g.first == game) return (int)g.second.effects.size();
+ 	return 0;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index f3143644..4f1af2a4 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -155,10 +155,15 @@ struct ThingPart { int room = 0, id = 0, picture = 0; };
+ struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0, with = 0; bool taken = false, firstGone = false, secondGone = false; std::vector<ThingPart> others; std::string line; };
+ static const int kAnyOther = 0xFFFF;
+ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
++// "SVO5" (from 0195) goes on after the parents: the main power (u16 room, u16
++// object, u8 its picture when off; 0 0: none) and the places dark while it
++// is off (u16 count, u16 each).
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
+ 	std::vector<ThingEffect> effects;                            // by room, id, kind, from
+ 	std::vector<ThingParent> parents;                            // by room, id
++	int powerRoom = 0, powerId = 0, powerOff = 0;                // the main power (0 0: none)
++	std::vector<int> unpowered;                                  // places dark while it is off, in order
+ 	const GameThing *find(int room, int id) const;
+ 	const ThingEffect *effect(int room, int id, int kind, int from, int with = 0) const;
+ 	const ThingParent *parent(int room, int id) const;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index c3ce9ab7..fa832469 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -146,6 +146,11 @@ bool pairEffect(int game, int room, int id, int kind, int from, int with, int &a
+ // drawn and touched only then; "SVO3", the mansion's from 0168). False: in
+ // none, or not known.
+ bool thingParent(int game, int room, int id, int &parent, int &picture);
++// A game's main power (the mansion's circuit breakers, "SVO5"): its room,
++// object and the picture it shows when off; and whether a place is dark
++// while it is off (as that game's own room scripts leave it).
++bool mainPower(int game, int &room, int &id, int &offPicture);
++bool unpowered(int game, int room);
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index a8172a96..9fae4353 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -37,10 +37,12 @@ static const int kWorldExportVersion = 22;
+ // Curse of Monkey Island's is one ahead too (its coin, from its fonts), and
+ // from 0189 Loom's (its dark rooms' animation holes filled), from 0190
+ // Monkey Island 2's (its tunnels' rooms in their run-time looks), from 0191
+-// Fate of Atlantis's (its labyrinth, rings and travel screens likewise).
++// Fate of Atlantis's (its labyrinth, rings and travel screens likewise);
++// from 0195 the mansion's again (its main power: where it leaves the house
++// dark).
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 8 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -633,6 +635,13 @@ inline int worldLookTint(int game, int costume) {
+ 	return -1;
+ }
+ inline bool worldNativeLook(int key) { return key > 0 && ((key - 1) / 1024 == kWorldManiacLooks || (key - 1) / 1024 == kWorldZakLooks); }
++// A game's main power: the mansion's circuit breakers (in its basement).
++// Turned off by their own script, the house's own room scripts leave much
++// of it dark; the export measures which places (lit with it on, dark with
++// it off: scummverseExportThings, "SVO5") and the new engine darkens those
++// while it is off.
++struct WorldMainPower { const char *gameid; short room, object; };
++static const WorldMainPower kWorldMainPowers[] = {{"maniac", 8, 157}};
+ // Cast members who need no air on Mars (no fishbowl and tank there):
+ // tentacles, ghosts and skeletons, robots, aliens and spirits. Everyone else
+ // wears them, the talking skull, the monkeys and Dead Cousin Ted included.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index e23d4a0d..18966074 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1566,6 +1566,10 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // "SVO4": each effect also says the second thing (u16 after its from: 0
+ // none, 0xFFFF any other) and, in its picture after's bits 2 and 3, the
+ // first or second used up; an other's picture 2 is a thing the kid has then.
++// From 0195 "SVO5": then the main power (kWorldMainPowers: u16 room, u16
++// object, u8 its picture when off) and the places dark while it is off (u16
++// count, u16 each): lit on arriving with it on, dark with it turned off by
++// its own script.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1603,6 +1607,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (found.empty()) { problem = "no room set up"; return false; }
+ 	struct Effect { int room, id, kind, from, after, with = 0; bool taken, firstGone = false, secondGone = false; Common::Array<int> others; Common::String line; };
+ 	Common::Array<Effect> effects;
++	int powerRoom = 0, powerId = 0, powerOff = 0;
++	Common::Array<int> unpowered;
+ 	if (_game.id == GID_MANIAC && _game.version <= 1) {
+ 		// (Where each thing is: the first place it was found in.)
+ 		Common::HashMap<int, int> placeOf;
+@@ -1830,6 +1836,56 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 			}
+ 		}
++		// (From 0195, "SVO5": the main power turned off by its own script, and
++		// the places whose own scripts leave them dark then, lit with it on.)
++		// (Only where the lights are a variable putBack keeps: not the C64's.)
++		for (const WorldMainPower &m : kWorldMainPowers) {
++			if (!sameId(kWorldGames[gameIndex].gameid, m.gameid) || shouldQuit() || VAR_CURRENT_LIGHTS == 0xFF || powerId) continue;
++			int verb = 0;
++			for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kWorldVerbTurnOff) verb = v.verb;
++			putBack();
++			_rnd.setSeed(0x5C0BE + m.room);
++			if (!verb || !arrive(m.room) || !getVerbEntrypoint(m.object, verb)) continue;
++			putState(m.object, getState(m.object) & ~kObjectStateIntrinsic);
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = m.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			runObjectScript(m.object, verb, false, false, nullptr);
++			for (int frame = 0; frame < 120; ++frame) {
++				bool running = false;
++				for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) {
++					if (vm.slot[k].status == ssPaused) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; }
++					running = running || vm.slot[k].status == ssRunning;
++				}
++				if (!running && frame > 1) break;
++				VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++			}
++			quiet();
++			powerOff = getState(m.object) & kObjectStateIntrinsic ? 1 : 0;
++			// (All of the game's state then, as putBack keeps it.)
++			const Common::Array<int32> offVars(_scummVars, _numVariables), offRoomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
++			const Common::Array<byte> offBits(_bitVars, _numBitVariables >> 3), offStates(_objectStateTable, _numGlobalObjects), offOwners(_objectOwnerTable, _numGlobalObjects);
++			const Common::Array<uint32> offClasses(_classData, _numGlobalObjects);
++			const Common::Array<uint16> offInventory(_inventory, _numInventory);
++			for (const Room &r : found) {
++				if (shouldQuit()) break;
++				putBack();
++				_rnd.setSeed(0x5C0BE + r.room);
++				if (!arrive(r.room) || !isLightOn()) continue;
++				putBack();
++				memcpy(_scummVars, offVars.data(), offVars.size() * sizeof(int32));
++				if (_roomVars) memcpy(_roomVars, offRoomVars.data(), offRoomVars.size() * sizeof(int32));
++				memcpy(_bitVars, offBits.data(), offBits.size());
++				memcpy(_objectStateTable, offStates.data(), offStates.size());
++				memcpy(_objectOwnerTable, offOwners.data(), offOwners.size());
++				memcpy(_classData, offClasses.data(), offClasses.size() * sizeof(uint32));
++				memcpy(_inventory, offInventory.data(), offInventory.size() * sizeof(uint16));
++				_rnd.setSeed(0x5C0BE + r.room);
++				if (arrive(r.room) && !isLightOn()) unpowered.push_back(r.room);
++			}
++			// (Not turned off by it, or nowhere dark then: none.)
++			if (!powerOff || unpowered.empty()) { powerOff = 0; unpowered.clear(); continue; }
++			powerRoom = m.room; powerId = m.object;
++			debug(1, "SCUMMVERSE world things: %s main power off (room %d object %d): %d places dark", kWorldGames[gameIndex].gameid, m.room, m.object, (int)unpowered.size());
++		}
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+ 	}
+@@ -1837,7 +1893,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO1" : "SVO4", 4);
++	out.write(effects.empty() ? "SVO1" : "SVO5", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -1866,6 +1922,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		for (uint k = 0; k + 3 < parents.size() && k / 4 < 4096; k += 4) {
+ 			scummverseWrite16(out, parents[k]); scummverseWrite16(out, parents[k + 1]); scummverseWrite16(out, parents[k + 2]); out.writeByte(CLIP(parents[k + 3], 0, 255));
+ 		}
++		// (From 0195, "SVO5": the main power (room, object, its picture off;
++		// 0 0: none) and the places dark while it is off.)
++		scummverseWrite16(out, powerRoom); scummverseWrite16(out, powerId); out.writeByte(powerOff);
++		scummverseWrite16(out, MIN<uint>(unpowered.size(), 1024));
++		for (uint k = 0; k < unpowered.size() && k < 1024; ++k) scummverseWrite16(out, unpowered[k]);
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index b6ec3996..d7598c3a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -411,7 +411,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	bringFollowers();
+ 	tramShow();
+ 	vanShow();
+-	StageBridge::setDark(_dark.contains(game * 1024 + room));
++	StageBridge::setDark(placeDark(game, room));
+ 	_beamSet = false;
+ 	_strollClock = 120 + _random.getRandomNumber(240);
+ 	if (!_testing) saveState();
+@@ -613,11 +613,19 @@ void SandboxEngine::lights(bool on) {
+ 	const int key = _game * 1024 + _room;
+ 	const bool changed = _dark.contains(key) == on;
+ 	if (on) _dark.erase(key); else _dark[key] = true;
+-	StageBridge::setDark(!on);
++	// (Turned on with the main power off: dark still, as its game leaves it.)
++	StageBridge::setDark(placeDark(_game, _room));
+ 	_dirty = true;
+ 	if (changed && !_testing) lightsSave(true);
+ }
+ 
++bool SandboxEngine::placeDark(int game, int room) const {
++	if (game < 0) return false;
++	if (_dark.contains(game * 1024 + room)) return true;
++	int powerRoom, powerId, off;
++	return PanelBridge::mainPower(game, powerRoom, powerId, off) && PanelBridge::unpowered(game, room) && game == _game && pictureOf(powerRoom, powerId) == off;
++}
++
+ // The mansion's flashlight, carried and turned on: in a dark place its
+ // beam where the pointer last was (as the original's follows the cursor),
+ // else round the one played.
+@@ -1889,6 +1897,9 @@ void SandboxEngine::step(int ticks) {
+ 	followStep(ticks);
+ 	if (_touring.on) tourStep(ticks);
+ 	talkScene();
++	// (The main power turned off or on here, by its own script's answer: the
++	// place as its game leaves it then.)
++	if (_game >= 0 && placeDark(_game, _room) != StageBridge::dark()) { StageBridge::setDark(!StageBridge::dark()); _dirty = true; }
+ }
+ 
+ void SandboxEngine::back() {
+@@ -3765,7 +3776,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -3873,6 +3884,56 @@ Common::Error SandboxEngine::verbsTest() {
+ 			}
+ 			if (lamp >= 0 && StageBridge::dark()) use(kWorldVerbTurnOn, lamp);
+ 		}
++		// The main power, as a player does (the fuse box opened, the circuit
++		// breakers turned off: their own script's answer): every place its
++		// game's own scripts leave dark then is dark, here and on going there,
++		// a lamp turned on there too; the others lit; on again, all lit.
++		int powerRoom = 0, powerId = 0, powerOff = 0;
++		if (maniac >= 0 && PanelBridge::mainPower(maniac, powerRoom, powerId, powerOff) && installed(maniac, powerRoom)) {
++			// (The mansion left as it was found after: the fuse box shut again.)
++			const Common::HashMap<int, int> keptPictures = _pictures;
++			const Common::HashMap<int, bool> keptDark = _dark;
++			auto objectWith = [&](int id) {
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int oid, ox, oy, w, h, wx, wy, state;
++					if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++				}
++				return -1;
++			};
++			int breakers = -1;
++			if (enter(maniac, powerRoom, 0, problem)) {
++				int id = powerId, parent, picture;
++				for (int depth = 0; depth < 8 && PanelBridge::thingParent(maniac, powerRoom, id, parent, picture); ++depth, id = parent)
++					if (pictureOf(powerRoom, parent) != picture) use(kWorldVerbOpen, objectWith(parent));
++				breakers = objectWith(powerId);
++			}
++			int lit, grey, darkPlaces = 0, litPlaces = 0, lampLit = -1;
++			if (breakers < 0 || insideShut(breakers) || !use(kWorldVerbTurnOff, breakers) || pictureOf(powerRoom, powerId) != powerOff) fail("the main power not turned off", maniac);
++			else if ((seen(lit, grey), StageBridge::dark() != PanelBridge::unpowered(maniac, powerRoom) || (StageBridge::dark() && lit))) fail("the place not as its game leaves it with the main power off", maniac);
++			else {
++				for (int room = 1; room < 1024; ++room) {
++					if (!installed(maniac, room) || !walkable(maniac, room) || !enter(maniac, room, 0, problem)) continue;
++					const bool dark = PanelBridge::unpowered(maniac, room);
++					if (StageBridge::dark() != dark) { fail(Common::String::format("room %d %s with the main power off", room, dark ? "lit" : "dark").c_str(), maniac); continue; }
++					darkPlaces += dark; litPlaces += !dark;
++					// (A lamp there turned on: dark still, without the power.)
++					// (Off first, so that on is the light's own answer, not a refusal.)
++					const int lamp = dark && lampLit < 0 ? findThing(true) : -1;
++					if (lamp >= 0 && use(kWorldVerbTurnOff, lamp) && _dark.contains(maniac * 1024 + room) && use(kWorldVerbTurnOn, lamp) && !_dark.contains(maniac * 1024 + room)) {
++						if (!StageBridge::dark()) fail(Common::String::format("room %d lit by a lamp with the main power off", room).c_str(), maniac);
++						lampLit = room; // (left on: lit again with the power)
++					}
++				}
++				if (!enter(maniac, powerRoom, 0, problem) || (breakers = objectWith(powerId)) < 0 || !use(kWorldVerbTurnOn, breakers) || StageBridge::dark()) fail("the main power not on again", maniac);
++				for (int room = 1; room < 1024; ++room)
++					if (installed(maniac, room) && walkable(maniac, room) && PanelBridge::unpowered(maniac, room) && enter(maniac, room, 0, problem) && StageBridge::dark())
++						fail(Common::String::format("room %d dark with the main power on again", room).c_str(), maniac);
++				if (darkPlaces < 5 || litPlaces < 5) fail("the main power darkened too few or too many places", maniac);
++				else if (lampLit < 0) fail("no lamp turned on with the main power off", maniac);
++				else powered = darkPlaces;
++			}
++			_pictures = keptPictures; _dark = keptDark;
++		}
+ 		// The basement's water valve, as a player does: opened, the pool on the
+ 		// deck drained and its ladder down to the pit; closed, the pool full
+ 		// again and its ladder going nowhere.
+@@ -4206,8 +4267,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+ 	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone", paired, pairsSeen, pairsAway, pairsFound, given);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 84902b3d..52a8b0bb 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -158,6 +158,9 @@ private:
+ 	bool doorAllowed(int room, int door) const;
+ 	bool meetDoorNeed(int room, int door);  // (the checks': as the game would)
+ 	void lights(bool on);                   // here lit, or dark (kept)
++	// Dark: its lights turned off, or its game's main power off (the
++	// mansion's circuit breakers) where its own scripts leave it dark then.
++	bool placeDark(int game, int room) const;
+ 	void lightsSave(bool flush) const;      // (into the settings)
+ 	bool flashlightLit() const;             // the mansion's flashlight carried, on, in the dark
+ 	// Followers (the chat's Follow): those asked along walk after the one

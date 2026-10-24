@@ -1,0 +1,50 @@
+diff --git a/base/main.cpp b/base/main.cpp
+index 430ebef6..66f7c433 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -1244,6 +1244,9 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ #endif
+ 	EngineManager::destroy();
+ 	Graphics::YUVToRGBManager::destroy();
++	// (Let go while the system is here: a desktop's main destroys it before
++	// static objects go, and a path's string would ask it for its mutex.)
++	scummverseManiacPath.clear();
+ 
+ 	return standaloneExitCode;
+ }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e3c58909..7266c1d3 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -8341,15 +8341,26 @@ Common::Error SandboxEngine::resumeTest(bool resumed) {
+ 	return Common::kNoError;
+ }
+ 
++// The checks' stand-ins let go of their strings as a check ends: a desktop's
++// main destroys the system before static objects go, and a string going
++// then would ask it for its mutex (sanitizers stop there, leaks unchecked).
++static Common::Error letStandInsGo(const Common::Error &result) {
++	FakeTalk::next.clear();
++	FakeCast::boxes.clear(); FakeCast::members.clear();
++	FakePlaces::title.clear(); FakePlaces::items.clear();
++	FakeRemark::event.clear(); FakeRemark::reply.clear();
++	return result;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
+ 	if (mode == "camera") return cameraTest();
+ 	if (mode == "tour") return tourTest();
+-	if (mode == "rides") return ridesTest();
+-	if (mode == "talk") return talkTest();
+-	if (mode == "follow") return followTest();
+-	if (mode == "cast") return castTest();
+-	if (mode == "moves") return movesTest();
++	if (mode == "rides") return letStandInsGo(ridesTest());
++	if (mode == "talk") return letStandInsGo(talkTest());
++	if (mode == "follow") return letStandInsGo(followTest());
++	if (mode == "cast") return letStandInsGo(castTest());
++	if (mode == "moves") return letStandInsGo(movesTest());
+ 	if (mode == "keep") return keepTest();
+ 	int game, room;
+ 	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");

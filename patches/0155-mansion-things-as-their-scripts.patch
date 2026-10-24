@@ -1,0 +1,575 @@
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index dc3c61c0..cccb4362 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -252,7 +252,7 @@ static ScummverseWorldSetup scummverseWorldSetup(const Scummverse::WorldCatalog:
+ 	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+ 	NSFileManager *fm = [NSFileManager defaultManager];
+ 	if (!scummverseWorldFolderFound(game.folder)) return kWorldNoFolder;
+-	NSString *marker = [NSString stringWithFormat:@"%@/worlds/%s-v%d", documents, game.gameid, Scummverse::WorldCatalog::kWorldExportVersion];
++	NSString *marker = [NSString stringWithFormat:@"%@/worlds/%s-v%d", documents, game.gameid, Scummverse::WorldCatalog::worldExportVersion(game.gameid)];
+ 	if ([fm fileExistsAtPath:[marker stringByAppendingString:@".svx"]]) return kWorldReady;
+ 	NSData *attempts = [NSData dataWithContentsOfFile:[marker stringByAppendingString:@".try"]];
+ 	if (attempts.length >= 5 && ((const uint8_t *)attempts.bytes)[4] >= Scummverse::WorldCatalog::kWorldExportAttempts) return kWorldSetupStopped;
+diff --git a/base/main.cpp b/base/main.cpp
+index 3385797e..1fc83802 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -148,15 +148,15 @@ static int scummverseQueueWorldExports(const Common::String &maniacTarget, const
+ 		const Common::FSNode folder = own ? Common::FSNode(maniacPath) : scummverseWorldFolder(game.folder);
+ 		if (!folder.exists() || !folder.isDirectory()) continue;
+ 		// The marker is written once a game's scenes and characters are exported.
+-		if (cache.getChild(Common::String::format("%s-v%d.svx", game.gameid, Scummverse::WorldCatalog::kWorldExportVersion)).exists()) continue;
++		if (cache.getChild(Common::String::format("%s-v%d.svx", game.gameid, Scummverse::WorldCatalog::worldExportVersion(game.gameid))).exists()) continue;
+ 		// Exports that started but never finished (the app stopped during
+ 		// them) are retried once, not at every launch; removing the .try file
+ 		// retries again.
+-		const Common::FSNode attempt = cache.getChild(Common::String::format("%s-v%d.try", game.gameid, Scummverse::WorldCatalog::kWorldExportVersion));
++		const Common::FSNode attempt = cache.getChild(Common::String::format("%s-v%d.try", game.gameid, Scummverse::WorldCatalog::worldExportVersion(game.gameid)));
+ 		if (attempt.exists()) {
+ 			Common::ScopedPtr<Common::SeekableReadStream> in(attempt.createReadStream());
+ 			if (in && in->size() >= 5 && in->seek(4) && in->readByte() >= Scummverse::WorldCatalog::kWorldExportAttempts) {
+-				warning("SCUMMVERSE: setting up %s stopped twice; remove worlds/%s-v%d.try to try again", game.gameid, game.gameid, Scummverse::WorldCatalog::kWorldExportVersion);
++				warning("SCUMMVERSE: setting up %s stopped twice; remove worlds/%s-v%d.try to try again", game.gameid, game.gameid, Scummverse::WorldCatalog::worldExportVersion(game.gameid));
+ 				continue;
+ 			}
+ 		}
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index e9a7b7dd..fee77e6a 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -8,6 +8,7 @@
+ #include <cctype>
+ #include <cmath>
+ #include <cstring>
++#include <tuple>
+ 
+ namespace Scummverse {
+ namespace Panel {
+@@ -169,9 +170,17 @@ const GameThing *GameThings::find(int room, int id) const {
+ 	return t != r->second.end() && t->id == id ? &*t : nullptr;
+ }
+ 
++const ThingEffect *GameThings::effect(int room, int id, int kind, int from) const {
++	auto key = [](const ThingEffect &e) { return std::make_tuple(e.room, e.id, e.kind, e.from); };
++	const auto wanted = std::make_tuple(room, id, kind, from);
++	const auto e = std::lower_bound(effects.begin(), effects.end(), wanted, [&](const ThingEffect &a, const std::tuple<int, int, int, int> &b) { return key(a) < b; });
++	return e != effects.end() && key(*e) == wanted ? &*e : nullptr;
++}
++
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	if (!data || size < 6 || std::memcmp(data, "SVO1", 4)) { error = "not a things file"; return false; }
++	const bool effects = data && size >= 4 && !std::memcmp(data, "SVO2", 4);
++	if (!data || size < 6 || (!effects && std::memcmp(data, "SVO1", 4))) { error = "not a things file"; return false; }
+ 	Reader r(data + 4, data + size);
+ 	const int rooms = r.u16();
+ 	if (rooms > kMostThingRooms) { error = "too many rooms"; return false; }
+@@ -187,7 +196,27 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		std::stable_sort(things.begin(), things.end(), [](const GameThing &a, const GameThing &b) { return a.id < b.id; });
+ 		out.rooms.push_back(std::make_pair(room, std::move(things)));
+ 	}
++	const int effectCount = effects ? r.u16() : 0;
++	if (effectCount > kMostEffects) { out = GameThings(); error = "too many effects"; return false; }
++	for (int i = 0; i < effectCount && r.ok; ++i) {
++		ThingEffect e;
++		e.room = r.u16(); e.id = r.u16(); e.kind = r.u8(); e.from = r.u8(); e.after = r.u8();
++		const int others = r.u8();
++		if (others > kMostEffectParts) { out = GameThings(); error = "too many others"; return false; }
++		for (int k = 0; k < others && r.ok; ++k) {
++			ThingPart part;
++			part.room = r.u16(); part.id = r.u16(); part.picture = r.u8();
++			e.others.push_back(part);
++		}
++		std::vector<uint8_t> line;
++		if (r.bytes(r.u8(), line)) e.line.assign(line.begin(), line.end());
++		if (e.from > 1 || e.after > 1) { out = GameThings(); error = "bad effect"; return false; }
++		out.effects.push_back(e);
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
++	std::stable_sort(out.effects.begin(), out.effects.end(), [](const ThingEffect &a, const ThingEffect &b) {
++		return std::make_tuple(a.room, a.id, a.kind, a.from) < std::make_tuple(b.room, b.id, b.kind, b.from);
++	});
+ 	std::stable_sort(out.rooms.begin(), out.rooms.end(), [](const std::pair<int, std::vector<GameThing> > &a, const std::pair<int, std::vector<GameThing> > &b) { return a.first < b.first; });
+ 	for (size_t i = 1; i < out.rooms.size(); ++i)
+ 		if (out.rooms[i].first == out.rooms[i - 1].first) { out = GameThings(); error = "a room twice"; return false; }
+@@ -875,6 +904,37 @@ bool gameThing(int game, int room, int id, int &picture, int &answers) {
+ 	return false;
+ }
+ 
++bool thingEffect(int game, int room, int id, int kind, int from, int &after, int *others, int &count, int capacity, char *line, int lineCapacity) {
++	count = 0;
++	for (const auto &g : gameThings()) {
++		if (g.first != game) continue;
++		const Panel::ThingEffect *e = g.second.effect(room, id, kind, from);
++		if (!e) return false;
++		after = e->after;
++		for (const Panel::ThingPart &part : e->others) {
++			if (count >= capacity) break;
++			others[count * 3] = part.room; others[count * 3 + 1] = part.id; others[count * 3 + 2] = part.picture;
++			++count;
++		}
++		copy(e->line, line, lineCapacity);
++		return true;
++	}
++	return false;
++}
++int effectCount(int game) {
++	for (const auto &g : gameThings()) if (g.first == game) return (int)g.second.effects.size();
++	return 0;
++}
++bool effectAt(int game, int index, int &room, int &id, int &kind, int &from) {
++	for (const auto &g : gameThings()) {
++		if (g.first != game || index < 0 || index >= (int)g.second.effects.size()) continue;
++		const Panel::ThingEffect &e = g.second.effects[index];
++		room = e.room; id = e.id; kind = e.kind; from = e.from;
++		return true;
++	}
++	return false;
++}
++
+ int decide(int kind, bool door, int pictures, int shown, bool differs, int width, int height, int answers, const char *name, int &picture, char *say, int capacity, bool takenShown) {
+ 	Panel::Thing t;
+ 	t.door = door; t.pictures = pictures; t.shown = shown; t.differs = differs; t.width = width; t.height = height; t.answers = answers;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 30a2b0c2..0f526adc 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -138,12 +138,21 @@ static const int kVerbReach = 6;
+ // SCUMM engine from the game's own start and each room's entry script): per
+ // room, each object's picture and the verbs its own script answers.
+ struct GameThing { int id = 0, picture = 0, answers = 0; };
++// "SVO2" (from 0155, the oldest games' mansion) goes on: u16 count, then
++// per thing's verb from a picture what its own script does (u16 room, u16
++// object, u8 verb kind, u8 the picture it was in, u8 the picture after, u8
++// count of others changed then each u16 room, u16 object, u8 picture, u8
++// length and the line said).
++struct ThingPart { int room = 0, id = 0, picture = 0; };
++struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0; std::vector<ThingPart> others; std::string line; };
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
++	std::vector<ThingEffect> effects;                            // by room, id, kind, from
+ 	const GameThing *find(int room, int id) const;
++	const ThingEffect *effect(int room, int id, int kind, int from) const;
+ };
+-// (At most this many rooms, and objects in one.)
+-static const int kMostThingRooms = 1024, kMostThings = 4096;
++// (At most this many rooms, objects in one, effects and others in one.)
++static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 32768, kMostEffectParts = 64;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index ec33c037..b7d06da2 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -127,6 +127,13 @@ bool loadThings(int game, const unsigned char *data, size_t size, char *error, i
+ void clearThings();
+ bool thingsLoaded(int game);
+ bool gameThing(int game, int room, int id, int &picture, int &answers);
++// What a thing's own script does to a verb from a picture (0 or 1; the
++// oldest games' mansion, "SVO2"): its picture after, up to `capacity`
++// others as (room, object, picture) in `others`, and its line ("" none).
++// False: not known (the new engine's own rules then).
++bool thingEffect(int game, int room, int id, int kind, int from, int &after, int *others, int &count, int capacity, char *line, int lineCapacity);
++int effectCount(int game);
++bool effectAt(int game, int index, int &room, int &id, int &kind, int &from); // (the checks')
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 8582351e..96d04a06 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -28,6 +28,14 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+ static const int kWorldExportVersion = 22;
++// From 0155 the mansion's own export is one ahead of the others' (its
++// things file also says what each thing's verbs do): "maniac-v23", the rest
++// as kWorldExportVersion, so only it is exported again.
++inline int worldExportVersion(const char *gameid) {
++	const char *mansion = "maniac";
++	while (*mansion && *gameid == *mansion) { ++mansion; ++gameid; }
++	return kWorldExportVersion + (!*mansion && !*gameid ? 1 : 0);
++}
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index 3ae33c92..4ae77b3a 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -322,6 +322,8 @@ void ScummEngine::putState(int obj, int state) {
+ 	assertRange(0, obj, _numGlobalObjects - 1, "object");
+ 	assertRange(0, state, 0xFF, "state");
+ 	_objectStateTable[obj] = state;
++	// SCUMMVERSE: the things a script sets, while the mansion's export asks.
++	if (_scummverseStatesSet) _scummverseStatesSet->push_back(obj);
+ }
+ 
+ int ScummEngine::getObjectRoom(int obj) const {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 30916906..07e067d5 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1668,6 +1668,7 @@ protected:
+ 	bool _scummverseAuditedManiac = false; // (Maniac Mansion DOS V1 English, its tables checked against)
+ 	bool _scummverseAuditedZak = false; // (Zak McKracken DOS V1 English, likewise)
+ 	bool _scummverseNoEntryScript = false; // (Exporting a room without its entry script.)
++	Common::Array<int> *_scummverseStatesSet = nullptr; // (Exporting: the objects whose state a script sets.)
+ 	void scummverseScriptError(const char *format, int a, int b = 0);
+ 	void scummverseFreshSlot(int slot);
+ 	void scummverseSkipCutscene();
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 02776d63..f2f4f92e 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -31,7 +31,7 @@
+ // per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk, seated),
+ // u8 index, u8 reserved, int16 dx, dy (top left relative to the feet),
+ // u16 width, height, pixels[width*height], opaque mask[width*height].
+-// "<gameid>-v<kWorldExportVersion>.svx" marks a finished export of that game;
++// "<gameid>-v<worldExportVersion>.svx" marks a finished export of that game;
+ // ".try" counts the exports that started (alone, they stopped before finishing).
+ 
+ static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
+@@ -1356,7 +1356,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		warning("SCUMMVERSE world export: %s (version %d) is not a supported edition", _game.gameid, _game.version);
+ 		// (Not tried again at each launch: as if it had stopped twice.)
+ 		Common::DumpFile stop;
+-		if (game && stop.open(dir.appendComponent(Common::String::format("%s-v%d.try", game->gameid, kWorldExportVersion)), true)) {
++		if (game && stop.open(dir.appendComponent(Common::String::format("%s-v%d.try", game->gameid, worldExportVersion(game->gameid))), true)) {
+ 			stop.write("SVT1", 4); stop.writeByte(kWorldExportAttempts); stop.finalize();
+ 		}
+ 		return 0;
+@@ -1366,7 +1366,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	const int gameIndex = (int)(game - kWorldGames);
+ 	// Started: if the app keeps stopping before the finished marker, later
+ 	// launches stop trying (see base/main.cpp).
+-	const Common::Path tryPath = dir.appendComponent(Common::String::format("%s-v%d.try", game->gameid, kWorldExportVersion));
++	const Common::Path tryPath = dir.appendComponent(Common::String::format("%s-v%d.try", game->gameid, worldExportVersion(game->gameid)));
+ 	int attempts = 0;
+ 	{
+ 		Common::ScopedPtr<Common::SeekableReadStream> previous(Common::FSNode(tryPath).createReadStream());
+@@ -1426,7 +1426,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		}
+ 	}
+ 	Common::DumpFile marker;
+-	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, kWorldExportVersion)), true)) { marker.write("SVX1", 4); marker.finalize(); }
++	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, worldExportVersion(game->gameid))), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	// The verb panel last (its game's start changes the game), after the
+ 	// marker: a start that fails costs the panel, never the places.
+ 	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex) || worldCoin(gameIndex) || worldDistaff(gameIndex))) {
+@@ -1465,7 +1465,14 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // the picture it is in (its state as drawn). A room whose script leaves it
+ // is not listed. Per object also u16 the verbs its own script answers (bit
+ // k: WorldVerbKind k; bit 14: it has a catch-all entry, bit 15: untouchable
+-// there, or carried).
++// there, or carried). From 0155, the mansion's is "SVO2": then what each
++// thing's own script does to the verbs that change a picture (open, close,
++// turn on and off, push, pull) from each of its two pictures (see
++// Scummverse::Panel::ThingEffect): each from the game's own start again,
++// its room set up as on arriving, the thing in that picture, its script
++// run until it ends; the line it says first, its picture after, and the
++// pictures after of the things of the places exported it set (even as they
++// were). Not doors: the new engine opens those as it goes.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1501,11 +1508,83 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	_currentScript = 0xFF;
+ 	if (shouldQuit()) { problem = "stopped"; return false; }
+ 	if (found.empty()) { problem = "no room set up"; return false; }
++	struct Effect { int room, id, kind, from, after; Common::Array<int> others; Common::String line; };
++	Common::Array<Effect> effects;
++	if (_game.id == GID_MANIAC && _game.version <= 1) {
++		// (Where each thing is: the first place it was found in.)
++		Common::HashMap<int, int> placeOf;
++		for (const Room &r : found)
++			for (uint i = 0; i + 2 < r.things.size(); i += 3) if (!placeOf.contains(r.things[i])) placeOf[r.things[i]] = r.room;
++		auto quiet = [&]() {
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) { vm.slot[s].status = ssDead; vm.slot[s].freezeCount = 0; vm.slot[s].cutsceneOverride = 0; }
++			_currentScript = 0xFF; vm.numNestedScripts = 0; vm.cutSceneStackPointer = 0; _sentenceNum = 0;
++			stopTalk(); _sound->stopAllSounds();
++		};
++		// (Arriving as a kid does: the room's own scripts, then nothing
++		// running; the kids away but one, there.)
++		auto arrive = [&](int room) {
++			quiet(); VAR(VAR_EGO) = 3; startScene(room, nullptr, 0); quiet();
++			for (int a = 1; a <= 7 && a < _numActors; ++a) _actors[a]->putActor(0, 0, 0);
++			_actors[3]->setActorCostume(3); _actors[3]->putActor(160, 120, room);
++			VAR(VAR_ACTOR_RANGE_MIN) = 1; VAR(VAR_ACTOR_RANGE_MAX) = 7; VAR(VAR_HAVE_MSG) = 0; _userPut = 1;
++			return _currentRoom == room;
++		};
++		static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull};
++		for (const Room &r : found) {
++			for (uint i = 0; i + 2 < r.things.size() && !shouldQuit(); i += 3) {
++				const int obj = r.things[i];
++				if (worldLinkFrom(gameIndex, r.room, obj)) continue;
++				for (int kind : kinds) {
++					int verb = 0;
++					for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kind) verb = v.verb;
++					for (int from = 0; verb && from < 2; ++from) {
++						putBack();
++						_rnd.setSeed(0x5C0BE + r.room);
++						if (!arrive(r.room) || !getVerbEntrypoint(obj, verb)) break;
++						const int state = getState(obj);
++						putState(obj, from ? state | kObjectStateIntrinsic : state & ~kObjectStateIntrinsic);
++						Common::Array<int> set;
++						_scummverseStatesSet = &set;
++						VAR(VAR_ACTIVE_OBJECT1) = obj;
++						_charsetBuffer[0] = 0;
++						runObjectScript(obj, verb, false, false, nullptr);
++						Effect e;
++						e.room = r.room; e.id = obj; e.kind = kind; e.from = from;
++						// (Until it ends: what it starts, waiting or talking, goes on.)
++						for (int frame = 0; frame < 120; ++frame) {
++							bool running = false;
++							for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
++								if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++								running = running || vm.slot[s].status == ssRunning;
++							}
++							if (frame == 1)
++								for (const byte *c = _charsetBuffer; *c && e.line.size() < 255; ++c) if (*c >= 32 && *c < 127) e.line += (char)*c;
++							if (!running && frame > 1) break;
++							VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++						}
++						_scummverseStatesSet = nullptr;
++						e.after = getState(obj) & kObjectStateIntrinsic ? 1 : 0;
++						// (Each thing it set, even as it was: a pool it fills is
++						// full after, however it was found.)
++						Common::HashMap<int, bool> listed;
++						for (int other : set) {
++							if (other == obj || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64) continue;
++							listed[other] = true;
++							e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(_objectStateTable[other] & kObjectStateIntrinsic ? 1 : 0);
++						}
++						effects.push_back(e);
++					}
++				}
++			}
++		}
++		putBack(); quiet();
++		if (shouldQuit()) { problem = "stopped"; return false; }
++	}
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write("SVO1", 4);
++	out.write(effects.empty() ? "SVO1" : "SVO2", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -1514,6 +1593,16 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			scummverseWrite16(out, r.things[i]); out.writeByte(CLIP(r.things[i + 1], 0, 255)); scummverseWrite16(out, r.things[i + 2]);
+ 		}
+ 	}
++	if (!effects.empty()) {
++		scummverseWrite16(out, MIN<uint>(effects.size(), 32768));
++		for (uint k = 0; k < effects.size() && k < 32768; ++k) {
++			const Effect &e = effects[k];
++			scummverseWrite16(out, e.room); scummverseWrite16(out, e.id);
++			out.writeByte(e.kind); out.writeByte(e.from); out.writeByte(e.after); out.writeByte(e.others.size() / 3);
++			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2]); }
++			out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
++		}
++	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+ 	return true;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 1ed416cd..fa241a7a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -454,12 +454,6 @@ static bool maniacTogether(int room, int id) {
+ 	for (const ManiacTogether &t : kManiacTogether) if (t.room == room && t.object == id) return true;
+ 	return false;
+ }
+-// What one says to a verb (nothing: "", it does nothing), as its game's
+-// script: the shower's tap turned on (its handle is in the garage).
+-struct ManiacLine { short room, object, kind; const char *line; };
+-static const ManiacLine kManiacLines[] = {
+-	{24, 118, kWorldVerbTurnOn, "The handle's missing."}, {24, 118, kWorldVerbTurnOff, ""},
+-};
+ // The doors its game shuts behind the one going through (the hall's secret
+ // door: on the stairs down, it closes).
+ struct ManiacShuts { short room, door; };
+@@ -495,6 +489,24 @@ void SandboxEngine::thingFollows(int id, int picture) {
+ 	for (const ManiacFollows &f : kManiacFollows) if (f.room == _room && f.object == id) setPicture(f.otherRoom, f.other, picture);
+ }
+ 
++bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	int after, others[3 * 64], count;
++	char said[256];
++	if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said))) return false;
++	if (*said) say(said);
++	if (StageBridge::objectPictures(target) > 1 && StageBridge::objectShown(target) != after) showPicture(target, id, after);
++	for (int k = 0; k < count; ++k) setPicture(others[3 * k], others[3 * k + 1], others[3 * k + 2]);
++	return true;
++}
++
++bool SandboxEngine::effectRefuses(int id, int kind, int from) const {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	int after, others[3 * 64], count;
++	char said[256];
++	return PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said)) && *said && after == from && !count;
++}
++
+ int SandboxEngine::thingSets(int id, int kind) {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return 0;
+ 	int set = 0;
+@@ -536,7 +548,10 @@ bool SandboxEngine::isLight(int object) const {
+ 	StageBridge::objectName(object, name, sizeof(name));
+ 	Common::String lower(name);
+ 	lower.toLowercase();
+-	return (lower.contains("lamp") || lower.contains("light")) && !lower.contains("flash");
++	// (Not one its own script only refuses: out of reach.)
++	const int from = StageBridge::objectPictures(object) > 1 ? (StageBridge::objectShown(object) ? 1 : 0) : picture & 1;
++	return (lower.contains("lamp") || lower.contains("light")) && !lower.contains("flash") &&
++		!(effectRefuses(id, kWorldVerbTurnOff, from) && effectRefuses(id, kWorldVerbTurnOn, from));
+ }
+ 
+ void SandboxEngine::lights(bool on) {
+@@ -1307,15 +1322,12 @@ void SandboxEngine::act() {
+ 	// (The Dig's tap needs a hand only for what it takes or opens: looking does not.)
+ 	const bool acting = kind == kWorldVerbAct;
+ 	if (!looking && !near && !acting) { say("I can't reach that."); return; }
+-	int picture = -1, gamePicture, answers = -1;
++	int picture = -1, gamePicture = 0, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+ 	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
+ 	if (acting && !near && result != 1) { say("I can't reach that."); return; }
+ 	// (A door its game opens only from something else: its own line.)
+ 	if ((kind == kWorldVerbOpen || kind == kWorldVerbClose || kind == kWorldVerbUnlock) && openedOnlyBy(_room, id)) { say(openedOnlyBy(_room, id)); return; }
+-	// (Its game's own line to this verb, else nothing done.)
+-	for (const ManiacLine &l : kManiacLines)
+-		if (_game >= 0 && !strcmp(kWorldGames[_game].gameid, "maniac") && l.room == _room && l.object == id && l.kind == kind) { if (*l.line) say(l.line); return; }
+ 	// (Moved with others as one, as its game's script: pushed or pulled
+ 	// where that script answers only the other, it won't budge.)
+ 	if ((kind == kWorldVerbPush || kind == kWorldVerbPull) && answers >= 0 && !(answers & 1 << kind) && _game >= 0 &&
+@@ -1324,13 +1336,20 @@ void SandboxEngine::act() {
+ 	// answer then only if it has one; all of it, when it moves with them.)
+ 	const int sets = thingSets(id, kind);
+ 	if (sets && (result != 2 || sets == 2)) { if (!_testing) saveState(); return; }
+-	// (A light of the mansion's: the place dark or lit, its picture as the game's.)
+-	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && isLight(target)) {
++	// (From 0155, a thing of the mansion's as its own script answers (its
++	// things file): from the picture it is in, the line said, its picture
++	// after and the others it sets. Not a door: the new engine opens those
++	// as it goes.)
++	const int from = pictures > 1 ? (shown ? 1 : 0) : gamePicture & 1;
++	// (A light of the mansion's: the place dark or lit, its picture as the
++	// game's; not one its script refuses: a line, nothing changed.)
++	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && isLight(target) && !effectRefuses(id, kind, from)) {
+ 		lights(kind == kWorldVerbTurnOn);
+-		if (result == 2) showPicture(target, id, picture);
++		if (!effectOf(id, kind, from, target) && result == 2) showPicture(target, id, picture);
+ 		if (!_testing) saveState();
+ 		return;
+ 	}
++	if (!door && effectOf(id, kind, from, target)) { if (!_testing) saveState(); return; }
+ 	switch (result) {
+ 	case 1: say(line); break;
+ 	case 2: showPicture(target, id, picture); thingFollows(id, picture); break;
+@@ -3012,6 +3031,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 			const int own = answers & ~(PanelBridge::kThingAnswersAny | PanelBridge::kThingAway);
+ 			return (!own && (answers & PanelBridge::kThingAnswersAny)) || (own & (1 << a | 1 << b)) != 0;
+ 		};
++		// (Where its own script's answer is known, the mansion's: its picture
++		// after a verb from one; -1 not known.)
++		auto effectAfter = [&](int o, int kind, int from) {
++			int id, ox, oy, w, h, wx, wy, state, after, others[3 * 64], count;
++			char said[256];
++			StageBridge::object(o, id, ox, oy, w, h, wx, wy, state);
++			return PanelBridge::thingEffect(g, _room, id, kind, from, after, others, count, 64, said, sizeof(said)) ? after : -1;
++		};
+ 		// Looking (the first thing a tap finds): it is named; the line goes,
+ 		// and the screen is drawn again then.
+ 		// (The Dig's tap: what fits is done, a line said, a picture shown or a
+@@ -3070,7 +3097,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		for (int o : things) {
+ 			int id, pictures, shown; bool door, small;
+ 			facts(o, id, pictures, shown, door, small);
+-			if (pictures < 2 || shown != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !answer(o, kWorldVerbOpen, kWorldVerbClose) || !use(kWorldVerbOpen, o)) continue;
++			if (pictures < 2 || shown != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !answer(o, kWorldVerbOpen, kWorldVerbClose) ||
++				effectAfter(o, kWorldVerbOpen, 0) == 0 || effectAfter(o, kWorldVerbClose, 1) == 1 || !use(kWorldVerbOpen, o)) continue;
+ 			if (StageBridge::objectShown(o) != 1) { fail("not opened", g); break; }
+ 			++opened;
+ 			if (!use(kWorldVerbClose, o)) { fail("not closed", g); break; }
+@@ -3191,8 +3219,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (pushed > pushedBefore) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+-				if (pictures < 2 || !answer(o, kWorldVerbPush, kWorldVerbPull) || !use(kWorldVerbPush, o)) continue;
+-				const int next = pictures == 2 || shown == 0 ? (shown ? 0 : 1) : shown % (pictures - 1) + 1;
++				const int known = pictures < 2 ? -1 : effectAfter(o, kWorldVerbPush, shown ? 1 : 0);
++				if (pictures < 2 || !answer(o, kWorldVerbPush, kWorldVerbPull) || known == shown || !use(kWorldVerbPush, o)) continue;
++				const int next = known >= 0 ? known : pictures == 2 || shown == 0 ? (shown ? 0 : 1) : shown % (pictures - 1) + 1;
+ 				if (StageBridge::objectShown(o) != next) fail("not pushed", g); else ++pushed;
+ 				break;
+ 			}
+@@ -3250,7 +3279,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, effectsSeen = 0, effectsAway = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -3458,6 +3487,31 @@ Common::Error SandboxEngine::verbsTest() {
+ 			ok = ok && doAt(kWorldVerbClose, thingIn(143)) && StageBridge::objectShown(thingIn(143)) == 0 && pictureOf(6, 138) == 0;
+ 			if (!ok) fail("the gate not moving as one", maniac); else ++links;
+ 		}
++		// Every thing of the mansion's as its own script answers (its things
++		// file, from 0155): from each picture, each verb that changes one, its
++		// line, its picture after and the others it changes; as a player uses
++		// it there (not one that is away, or a picture its game never has it in).
++		const int effectsAll = maniac >= 0 ? PanelBridge::effectCount(maniac) : 0;
++		for (int k = 0; k < effectsAll; ++k) {
++			int room, id, kind, from, after, others[3 * 64], count, picture, answers;
++			char said[256];
++			if (!PanelBridge::effectAt(maniac, k, room, id, kind, from) || !installed(maniac, room)) continue;
++			if ((_game != maniac || _room != room) && !enter(maniac, room, 0, problem)) { fail("a place of the mansion's not shown", maniac); continue; }
++			const int o = thingIn(id);
++			if (o < 0 || !isThing(o)) { ++effectsAway; continue; }
++			const int pictures = StageBridge::objectPictures(o);
++			if (pictures > 1) showPicture(o, id, from);
++			else if (!PanelBridge::gameThing(maniac, room, id, picture, answers) || (picture & 1) != from) { ++effectsAway; continue; }
++			PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said));
++			doAt(kind, o);
++			bool same = (!*said || _speech == said) && (pictures < 2 || StageBridge::objectShown(o) == after);
++			for (int i = 0; i < count; ++i) same = same && pictureOf(others[3 * i], others[3 * i + 1]) == others[3 * i + 2];
++			if (same) ++effectsSeen;
++			else {
++				warning("SCUMMVERSE sandbox: %d in room %d, verb %d from %d: said '%s', shown %d (its script: '%s', %d)", id, room, kind, from, _speech.c_str(), StageBridge::objectShown(o), said, after);
++				fail("a thing not as its own script answers", maniac);
++			}
++		}
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -3484,6 +3538,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
++	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away)", effectsSeen, effectsAway);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 59043395..859401d5 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -123,6 +123,8 @@ private:
+ 	void setPicture(int room, int id, int picture);
+ 	void thingFollows(int id, int picture);
+ 	int thingSets(int id, int kind);        // another shown so by this one on this verb (1; 2: itself too, done)
++	bool effectOf(int id, int kind, int from, int target); // as its own script answers this verb from this picture (done)
++	bool effectRefuses(int id, int kind, int from) const; // its script only says a line to it
+ 	const char *openedOnlyBy(int room, int id) const; // a door opened only from elsewhere: its line
+ 	bool doorAllowed(int room, int door) const;
+ 	bool meetDoorNeed(int room, int door);  // (the checks': as the game would)

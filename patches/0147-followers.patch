@@ -1,0 +1,416 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 51af064c..44f9f01a 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -27,7 +27,6 @@ static int travelRoom = 0, travelEgo = 0, travelFrom = 0;
+ static unsigned travelParty = 0, arrivalParty = 0;
+ static int sceneToken() { std::lock_guard<std::mutex> guard(worldMutex); return (travelRoom * 32 + travelEgo) << 8; }
+ static int currentRoom() { std::lock_guard<std::mutex> guard(worldMutex); return travelRoom; }
+-static bool follows(int id) { std::lock_guard<std::mutex> guard(worldMutex); return id > 0 && id < 32 && (travelParty & (1u << id)) != 0; }
+ static std::string worldNotice = "Walk beyond the mansion grounds to reach the airport. Travel is free. Zak files belong in Documents/zak.";
+ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex); return worldNotice; }
+ 
+@@ -37,6 +36,16 @@ static const ZakResident *sceneResident(int id) { return id == kZakResidentActor
+ // Other-world scenes show their characters as guest actors 25..29; wanderers
+ // from the other games visiting are talk IDs 30..55 (kWanderer + their slot).
+ static const int kGuestActor = 25, kWanderer = 30, kWanderers = 26, kTalkActors = kWanderer + kWanderers;
++// Who follows the one played: Maniac's and Zak's people by their numbers; in
++// the new engine, its visitors (kWanderer + their slot) by their slots.
++static bool follows(int id) {
++	std::lock_guard<std::mutex> guard(worldMutex);
++	if (::scummverseSandboxActive()) return id >= kWanderer && id < kTalkActors && (travelParty & (1u << (id - kWanderer))) != 0;
++	return id > 0 && id < 32 && (travelParty & (1u << id)) != 0;
++}
++// Who can be asked along: Maniac's and Zak's people; in the new engine, any
++// of its visitors.
++static bool canFollow(int id) { return id > 0 && (id < kGuestActor || (::scummverseSandboxActive() && id >= kWanderer && id < kTalkActors)); }
+ static uint64_t talkBit(int id) { return id > 0 && id < 64 ? (uint64_t)1 << id : 0; }
+ static std::atomic<int> guestRoom{0};
+ static const Scummverse::WorldCatalog::WorldGuest *sceneGuest(int id) {
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 0c5ab3a2..2343832d 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -194,9 +194,9 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	_status.text=_error ? _error : r.waitingForTalk() ? @"Replying… you can keep typing." :
+ 		mask && !r.modelReady() ? @"Classic replies. Choose a model in AI for generated dialogue." :
+ 		!mask && here ? @"Tap a name to talk privately, or just type." : @"";
+-	// (Only the mansion's and Zak's people follow.)
+-	int actor=r.talkingTo(); _follow.hidden=actor<=0 || actor>=ScummverseLocalAI::kGuestActor;
+-	if(actor>0 && actor<ScummverseLocalAI::kGuestActor) [_follow setTitle:ScummverseLocalAI::follows(actor)?@"Unfollow":@"Follow" forState:UIControlStateNormal];
++	// (The mansion's and Zak's people follow; in the new engine, anyone there.)
++	int actor=r.talkingTo(); _follow.hidden=!ScummverseLocalAI::canFollow(actor);
++	if(ScummverseLocalAI::canFollow(actor)) [_follow setTitle:ScummverseLocalAI::follows(actor)?@"Unfollow":@"Follow" forState:UIControlStateNormal];
+ 	std::vector<Scummverse::ConversationLine> lines; std::vector<std::string> queued; int replying=0;
+ 	if(r.talkSnapshot(_revision,lines,queued,replying)) [self renderLines:lines queued:queued replying:replying];
+ 	[self layoutBar];
+@@ -218,9 +218,10 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	}
+ 	const auto layout=Scummverse::splitLayout(_host.bounds.size.width,_host.bounds.size.height,inset/1000.0,
+ 		scummverseGameAspect()/1000.0,split,!_chatRight);
+-	// Talking with one of the mansion's or Zak's people (who can follow).
++	// Talking with one who can follow (the mansion's or Zak's people; in the
++	// new engine, anyone there).
+ 	const int one=ScummverseLocalAI::runtime().talkingTo();
+-	const BOOL single=one>0 && one<ScummverseLocalAI::kGuestActor;
++	const BOOL single=ScummverseLocalAI::canFollow(one);
+ 	_chips.hidden=_status.hidden=NO; _swap.hidden=portrait; _historyButton.hidden=YES;
+ 	if(portrait) [(iPhoneView *)_host layoutScummverseToolbar:layout.toolbar.y height:layout.toolbar.h];
+ 	else [(iPhoneView *)_host layoutScummverseLandscapeButtons:split ? layout.gameArea.x+layout.gameArea.w : _host.bounds.size.width];
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index d935de62..6db2c622 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -87,6 +87,7 @@ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
+ static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
+ static const char *const kDarkKey = "scummverse_sandbox_dark"; // (the mansion's places with their lights off)
+ static const char *const kFlashlightKey = "scummverse_sandbox_flashlight"; // (the mansion's flashlight on)
++static const char *const kFollowersKey = "scummverse_sandbox_followers"; // (the one followed, then those following)
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -396,6 +397,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	for (uint n = 1, i = 0; n < _onStage.size() && (int)i < spots; ++i)
+ 		if ((int)i != skip) StageBridge::place(n++, xs[i], ys[i]);
+ 	StageBridge::follow(_player);
++	bringFollowers();
+ 	tramShow();
+ 	vanShow();
+ 	StageBridge::setDark(_dark.contains(game * 1024 + room));
+@@ -863,11 +865,12 @@ void SandboxEngine::talkScene() {
+ 		_phone.visitor(s, on ? _onStage[n] : 0);
+ 		if (on) here |= 1ULL << (kTalkVisitor + s);
+ 	}
+-	// (Maniac's rooms by their own numbers, as Maniac tells the chat; the
+-	// other games' as places.)
+-	const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
+-	// (As Maniac's each step: the chat's window starts afresh in a new place.)
+-	_phone.travel(room, kTalkPlayer, 0, 0, 0);
++	const int room = talkRoom();
++	// (As Maniac's each step: the chat's window starts afresh in a new place;
++	// those following by their slots.)
++	unsigned party = 0;
++	for (int s = 0; s < kTalkSlots; ++s) if (slotActor(s, _player) < (int)_onStage.size() && following(_onStage[slotActor(s, _player)])) party |= 1u << s;
++	_phone.travel(room, kTalkPlayer, party, 0, 0);
+ 	char line[600];
+ 	int speaker = 0;
+ 	const unsigned long long chatting = _phone.scene(room, kTalkPlayer, here, _speech.empty(), speaker, line, sizeof(line));
+@@ -893,6 +896,107 @@ void SandboxEngine::talkScene() {
+ 	if (n != _player) { StageBridge::position(n, x, y); StageBridge::face(_player, x, y); }
+ }
+ 
++// Maniac's rooms by their own numbers, as Maniac tells the chat; the other
++// games' as places.
++int SandboxEngine::talkRoom() const {
++	return _game < 0 ? 0 : !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++}
++
++void SandboxEngine::chatCommand(int command) {
++	const bool along = command >= 64 + kTalkVisitor && command < 64 + kTalkVisitor + kTalkSlots;
++	const bool stay = command >= 96 + kTalkVisitor && command < 96 + kTalkVisitor + kTalkSlots;
++	if (!along && !stay) return;
++	const int n = slotActor(command - (along ? 64 : 96) - kTalkVisitor, _player);
++	if (n >= (int)_onStage.size() || n == _player || _player < 0) return;
++	follow(_onStage[n], along);
++	if (along) StageBridge::stop(n);
++	sayAs(n, along ? "I'll come with you." : "See you around!");
++}
++
++bool SandboxEngine::following(int key) const {
++	if (_leader != _playerKey || key == _playerKey) return false;
++	for (int k : _followers) if (k == key) return true;
++	return false;
++}
++
++void SandboxEngine::follow(int key, bool on) {
++	if (_leader != _playerKey) { _followers.clear(); _leader = _playerKey; }
++	for (uint i = 0; i < _followers.size(); ++i) if (_followers[i] == key) { _followers.remove_at(i); break; }
++	if (on) _followers.push_back(key);
++	followersKeep();
++}
++
++// Who is far from the one played walks to beside them (now and then, not
++// while talking); one walking on is let be.
++void SandboxEngine::followStep(int ticks) {
++	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty()) return;
++	_followClock = 20;
++	double px, py, x, y;
++	StageBridge::position(_player, px, py);
++	const double reach = 24.0 * screenWidthOf(_game) / 320;
++	int side = 0;
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player || !following(_onStage[n])) continue;
++		++side;
++		if (StageBridge::moving(n) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) continue;
++		StageBridge::position(n, x, y);
++		if ((x - px) * (x - px) + (y - py) * (y - py) > reach * reach) StageBridge::walkTo(n, px + (side % 2 ? -1 : 1) * reach * (0.5 + side / 2), py);
++	}
++}
++
++// Those following come along to wherever the one played arrives (shown
++// there among the wanderers too), beside them; someone else played, they
++// follow no one.
++void SandboxEngine::bringFollowers() {
++	if (_leader != _playerKey && !_followers.empty()) { _followers.clear(); followersKeep(); }
++	if (_followers.empty() || _player < 0) return;
++	double px, py;
++	StageBridge::position(_player, px, py);
++	const int here = place(_game, _room);
++	const double reach = 24.0 * screenWidthOf(_game) / 320;
++	int side = 0;
++	for (int key : _followers) {
++		if (key == _playerKey) continue;
++		if (_wanderers && here) WanderBridge::send(key, here);
++		int n = -1;
++		for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == key) n = i;
++		if (n < 0 && (n = addPerson(key)) >= 0) _onStage.push_back(key);
++		++side;
++		if (n >= 0) StageBridge::place(n, px + (side % 2 ? -1 : 1) * reach * (0.5 + side / 2), py);
++	}
++	_people = _onStage.size();
++}
++
++// (Kept as the one followed, a colon, then those following between commas.)
++Common::String SandboxEngine::followersKept() const {
++	if (_followers.empty()) return "";
++	Common::String kept = Common::String::format("%d:", _leader);
++	for (uint i = 0; i < _followers.size(); ++i) kept += Common::String::format(i ? ",%d" : "%d", _followers[i]);
++	return kept;
++}
++
++void SandboxEngine::followersRead(const Common::String &kept) {
++	_followers.clear(); _leader = 0;
++	const char *p = kept.c_str();
++	char *end;
++	const long leader = strtol(p, &end, 10);
++	if (end == p || *end != ':') return;
++	_leader = (int)leader;
++	p = end + 1;
++	while (*p) {
++		const long key = strtol(p, &end, 10);
++		if (end == p) break;
++		if (key > 0 && key != leader && hasCharacter((int)key)) _followers.push_back((int)key);
++		p = *end == ',' ? end + 1 : end;
++	}
++}
++
++void SandboxEngine::followersKeep() const {
++	if (_testing) return;
++	ConfMan.set(kFollowersKey, followersKept());
++	ConfMan.flushToDisk();
++}
++
+ void SandboxEngine::talkEnd() {
+ 	int speaker = 0;
+ 	char line[2];
+@@ -1216,7 +1320,7 @@ void SandboxEngine::stroll(int ticks) {
+ 	if ((_strollClock -= ticks) > 0 || _onStage.size() < 2) return;
+ 	_strollClock = 180 + _random.getRandomNumber(420);
+ 	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
+-	if (n == _player || StageBridge::moving(n) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
++	if (n == _player || StageBridge::moving(n) || following(_onStage[n]) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
+ 	double xs[12], ys[12];
+ 	const int spots = StageBridge::spots(12, xs, ys);
+ 	if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
+@@ -1235,6 +1339,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
++	followStep(ticks);
+ 	if (_touring.on) tourStep(ticks);
+ 	talkScene();
+ }
+@@ -1247,6 +1352,9 @@ void SandboxEngine::back() {
+ }
+ 
+ void SandboxEngine::request(int code) {
++	// The chat's (its place's token, then a command): someone asked along or
++	// to stay. (Before the screen's choices: a token may fall in their range.)
++	if (_game >= 0 && code > 0 && (code >> 8) == talkRoom() * 32 + kTalkPlayer) { chatCommand(code & 255); return; }
+ 	// (Somewhere else chosen: the tour ends there.)
+ 	// (Back to Maniac: home first, so where it began is what is saved.)
+ 	if (_touring.on && (code == kBackRequest || code >= kGameRequest)) tourEnd(code == kBackRequest);
+@@ -2337,6 +2445,7 @@ Common::Error SandboxEngine::run() {
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
+ 	if (ConfMan.hasKey(kDarkKey)) lightsRead(ConfMan.get(kDarkKey));
+ 	if (ConfMan.hasKey(kFlashlightKey)) _flashlight = ConfMan.getBool(kFlashlightKey);
++	if (ConfMan.hasKey(kFollowersKey)) followersRead(ConfMan.get(kFollowersKey));
+ 	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+ 	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
+ 
+@@ -3129,6 +3238,7 @@ Common::Error SandboxEngine::verbsTest() {
+ namespace FakeTalk {
+ static int player = -1, visitors[SandboxEngine::kTalkSlots];
+ static int room = -1, visitor = -1, picked = -1, speaker = 0, travelRoom = -1, travelEgo = -1;
++static unsigned party = 0;
+ static unsigned long long actors = 0, chatting = 0;
+ static bool canSpeak = false, picking = false;
+ static Common::String next;
+@@ -3144,7 +3254,7 @@ static unsigned long long scene(int r, int v, unsigned long long a, bool can, in
+ 	return chatting;
+ }
+ static bool isPicking() { return picking; }
+-static void travel(int r, int ego, unsigned, int, unsigned) { travelRoom = r; travelEgo = ego; }
++static void travel(int r, int ego, unsigned companions, int, unsigned) { travelRoom = r; travelEgo = ego; party = companions; }
+ static bool pick(int actor) {
+ 	if (!picking) return false;
+ 	picked = actor;
+@@ -3153,6 +3263,109 @@ static bool pick(int actor) {
+ }
+ } // End of namespace FakeTalk
+ 
++// Followers, as the chat asks (its place's token, then a command; the
++// stand-in's): someone here asked along says so and walks after the one
++// played; comes along through a door, beside them there, the chat told by
++// their slot; kept as written and read back from the settings; asked to
++// stay, says so and does not come after; asked along again, let go when
++// someone else is played. With the wanderers off, then on.
++Common::Error SandboxEngine::followTest() {
++	_phone.appearance = FakeTalk::appearance; _phone.visitor = FakeTalk::visitorOf; _phone.scene = FakeTalk::scene;
++	_phone.picking = FakeTalk::isPicking; _phone.pick = FakeTalk::pick; _phone.travel = FakeTalk::travel;
++	int failed = 0, asked = 0, walked = 0, through = 0, told = 0, kept = 0, stayed = 0, letGo = 0;
++	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox follow: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "-", _room, what); };
++	auto apart = [](double ax, double ay, double bx, double by) { return sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by)); };
++	// (The one played to the spot farthest from someone.)
++	auto awayFrom = [&](int n) {
++		double xs[12], ys[12], x, y, most = 0;
++		const int spots = StageBridge::spots(12, xs, ys);
++		int far = -1;
++		StageBridge::position(n, x, y);
++		for (int s = 0; s < spots; ++s) if (apart(xs[s], ys[s], x, y) > most) { most = apart(xs[s], ys[s], x, y); far = s; }
++		if (far >= 0) { StageBridge::stop(_player); StageBridge::place(_player, xs[far], ys[far]); }
++		return most;
++	};
++	Common::String problem;
++	for (int pass = 0; pass < 2; ++pass) {
++		_wanderers = pass == 1;
++		if (_wanderers) buildWanderers();
++		_followers.clear(); _leader = 0;
++		// A place with someone besides the one played, and a door from it to
++		// another place.
++		int link = -1;
++		for (int g = 0; g < worldGameCount() && link < 0; ++g) {
++			const WorldMap *map = worldMap(g);
++			if (!map || !someoneToPlay(g)) continue;
++			for (int i = 0; i < map->linkCount && link < 0; ++i) {
++				const WorldLink &l = map->links[i];
++				if (l.room == l.target || !installed(g, l.room) || !walkable(g, l.room) || !installed(g, l.target) || !walkable(g, l.target) || !enter(g, l.room, 0, problem)) continue;
++				if (_onStage.size() >= 2) link = i;
++			}
++		}
++		if (link < 0) { fail("no place with someone and a door"); continue; }
++		step(1);
++		const double reach = 24.0 * screenWidthOf(_game) / 320;
++		int n = _player == 0 ? 1 : 0;
++		const int key = _onStage[n];
++		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (64 + kTalkVisitor + actorSlot(n, _player)));
++		if (!following(key) || _speech != "I'll come with you." || _speaker != n) { fail("not asked along"); continue; }
++		++asked;
++		// Walking after the one played (to beside them).
++		double px, py, x, y;
++		if (awayFrom(n) > 3 * reach) {
++			for (int t = 0; t < 60 * 30; ++t) step(1);
++			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
++			if (apart(px, py, x, y) > 2 * reach) fail("not walked after the one played"); else ++walked;
++		}
++		// Through the door: there once, beside the one played; the chat told.
++		const int fromRoom = _room;
++		if (!travel(link) || _room == fromRoom) { fail("not through the door"); continue; }
++		int times = 0;
++		n = -1;
++		for (uint i = 0; i < _onStage.size(); ++i) if (_onStage[i] == key) { ++times; n = i; }
++		StageBridge::position(_player, px, py);
++		if (n >= 0) StageBridge::position(n, x, y);
++		if (times != 1 || n == _player || apart(px, py, x, y) > 2 * reach || (_wanderers && WanderBridge::where(key) != place(_game, _room))) { fail("not come along through the door, beside the one played"); continue; }
++		++through;
++		step(1);
++		if (!(FakeTalk::party & (1u << actorSlot(n, _player))) || FakeTalk::party != (1u << actorSlot(n, _player))) fail("the chat not told who follows"); else ++told;
++		// Kept: written to the settings and read back from them.
++		const Common::String written = followersKept();
++		ConfMan.set(kFollowersKey, written);
++		_followers.clear(); _leader = 0;
++		followersRead(ConfMan.get(kFollowersKey));
++		ConfMan.removeKey(kFollowersKey, ConfMan.getActiveDomainName());
++		if (written.empty() || followersKept() != written || !following(key)) fail("not kept as written"); else ++kept;
++		// Asked to stay: says so, and does not come after.
++		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (96 + kTalkVisitor + actorSlot(n, _player)));
++		if (following(key) || _speech != "See you around!" || _speaker != n) { fail("not let stay"); continue; }
++		if (awayFrom(n) > 3 * reach) {
++			for (int t = 0; t < 60 * 30; ++t) step(1);
++			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
++			if (apart(px, py, x, y) <= 2 * reach) { fail("came after though asked to stay"); continue; }
++		}
++		++stayed;
++		// Asked along again, then someone else played: following no one.
++		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (64 + kTalkVisitor + actorSlot(n, _player)));
++		int other = -1;
++		for (const WorldCastGuest &c : kWorldCast) {
++			const int k = worldAppearanceKey(c.game, c.guest.costume);
++			int home;
++			if (other < 0 && k != key && k != _playerKey && castHome(k, home)) other = k;
++		}
++		if (!following(key) || other < 0 || !castChoose(other)) { fail("not asked along again, or no one else to play"); continue; }
++		step(1);
++		if (!_followers.empty() || following(key) || FakeTalk::party) fail("still following someone else played"); else ++letGo;
++	}
++	_wanderers = false;
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest follow: %d asked along, %d walked after, %d through a door, %d told the chat, %d kept, %d stayed, %d let go, %d failed",
++		asked, walked, through, told, kept, stayed, letGo, failed);
++	if (failed || asked != 2 || through != 2 || told != 2 || kept != 2 || stayed != 2 || letGo != 2 || !walked) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ // Chat with the stand-in, in a place of each game with someone there
+ // besides the one played (its lead; wanderers off): the chat told who is
+ // here (the one played as themselves, everyone else by slot, the place:
+@@ -4371,6 +4584,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "tour") return tourTest();
+ 	if (mode == "rides") return ridesTest();
+ 	if (mode == "talk") return talkTest();
++	if (mode == "follow") return followTest();
+ 	if (mode == "cast") return castTest();
+ 	int game, room;
+ 	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 785aab5c..a53e3fd6 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -119,6 +119,18 @@ private:
+ 	void lights(bool on);                   // here lit, or dark (kept)
+ 	void lightsSave(bool flush) const;      // (into the settings)
+ 	bool flashlightLit() const;             // the mansion's flashlight carried, on, in the dark
++	// Followers (the chat's Follow): those asked along walk after the one
++	// played and come wherever they go (doors, rides, places chosen), until
++	// asked to stay or someone else is played; kept.
++	void chatCommand(int command);          // (the chat's: 64 or 96 plus the one asked)
++	bool following(int key) const;
++	void follow(int key, bool on);
++	void followStep(int ticks);
++	void bringFollowers();                  // (enter's: beside the one played)
++	void followersKeep() const;
++	Common::String followersKept() const;
++	void followersRead(const Common::String &kept);
++	int talkRoom() const;                   // the place as the chat is told it
+ 	void aimFlashlight();                   // its beam where the pointer last was (else round the one played)
+ 	Common::String lightsKept() const;
+ 	void lightsRead(const Common::String &kept);
+@@ -266,6 +278,7 @@ private:
+ 	Common::Error selfTest(const Common::String &mode);
+ 	Common::Error verbsTest();
+ 	Common::Error talkTest();
++	Common::Error followTest();
+ 	Common::Error castTest();
+ 	Common::Error cameraTest();
+ 	Common::Error tourTest();
+@@ -324,6 +337,9 @@ private:
+ 	Phone _phone;
+ 	Common::HashMap<int, bool> _dark;       // places with their lights off (game * 1024 + room)
+ 	bool _flashlight = false;               // the mansion's flashlight on (kept)
++	Common::Array<int> _followers;          // their keys (kept)
++	int _leader = 0;                        // the one played they follow
++	int _followClock = 0;
+ 	double _beamX = -1, _beamY = -1;        // where its beam points (source pixels; -1: round the one played)
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)

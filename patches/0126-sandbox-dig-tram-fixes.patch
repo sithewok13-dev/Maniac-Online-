@@ -1,0 +1,206 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 2a8ecdd0..e61d7087 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -455,11 +455,28 @@ bool Scene::showObject(int object, int picture) {
+ 	if (picture < 0 || picture >= (int)o.pictures.size() || o.pictures[picture].size() != (size_t)o.pictureWidth * o.pictureHeight) return false;
+ 	for (int y = 0; y < o.pictureHeight; ++y)
+ 		std::memcpy(&_source.pixels[(size_t)(o.pictureY + y) * _source.width + o.pictureX], &o.pictures[picture][(size_t)y * o.pictureWidth], o.pictureWidth);
+-	rescale(o.pictureX, o.pictureY, o.pictureWidth, o.pictureHeight);
+ 	if (object < (int)_showing.size()) _showing[object] = picture;
++	// (Under the second picture: the place without it is the new one, and
++	// the picture stays as shown over it.)
++	if (_picture.on) {
++		Picture &p = _picture;
++		for (int y = std::max(p.y, o.pictureY); y < std::min(p.y + p.h, o.pictureY + o.pictureHeight); ++y)
++			for (int x = std::max(p.x, o.pictureX); x < std::min(p.x + p.w, o.pictureX + o.pictureWidth); ++x)
++				p.clean[(size_t)(y - p.y) * p.w + x - p.x] = _source.pixels[(size_t)y * _source.width + x];
++	}
++	rescale(o.pictureX, o.pictureY, o.pictureWidth, o.pictureHeight);
++	if (_picture.on && _picture.applied) showPicture(_picture.dx, _picture.amount);
+ 	return true;
+ }
+ 
++// A fixed scatter (a dissolve's): whether a scene pixel is among `amount`
++// of 256.
++static bool scattered(int x, int y, int amount) {
++	uint32_t h = (uint32_t)x * 2654435761u ^ (uint32_t)y * 2246822519u;
++	h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
++	return (int)(h >> 24) < amount;
++}
++
+ // The scaled rows and columns drawn from a rectangle of the scene.
+ void Scene::rescale(int sx, int sy, int sw, int sh) {
+ 	const int x0 = (int)(std::lower_bound(_columns.begin(), _columns.end(), sx) - _columns.begin());
+@@ -515,13 +532,14 @@ bool Scene::mountPicture(const uint8_t *data, size_t size, std::string &error) {
+ 
+ void Scene::showPicture(int dx, int amount) {
+ 	if (!_picture.on) return;
+-	const Picture &p = _picture;
++	Picture &p = _picture;
++	p.applied = true; p.dx = dx; p.amount = amount;
+ 	for (int y = 0; y < p.h; ++y) {
+ 		uint8_t *row = &_source.pixels[(size_t)(p.y + y) * _source.width + p.x];
+ 		for (int x = 0; x < p.w; ++x) {
+ 			const int sx = x - dx;
+ 			bool shown = sx >= 0 && sx < p.w && p.mask[(size_t)y * p.w + sx];
+-			if (shown && amount < 256) shown = (int)(((unsigned)(p.x + x) * 2654435761u ^ (unsigned)(p.y + y) * 40503u) >> 24) < amount;
++			if (shown && amount < 256) shown = scattered(p.x + x, p.y + y, amount);
+ 			row[x] = shown ? p.pixels[(size_t)y * p.w + sx] : p.clean[(size_t)y * p.w + x];
+ 		}
+ 	}
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index f8e4e111..1780cc33 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -194,7 +194,11 @@ private:
+ 	std::vector<Cycle> _cycles;
+ 	int _paletteVersion = 0;
+ 	std::vector<int> _showing; // each object's picture now
+-	struct Picture { bool on = false; int x = 0, y = 0, w = 0, h = 0; std::vector<uint8_t> pixels, mask, clean; };
++	struct Picture {
++		bool on = false, applied = false;
++		int x = 0, y = 0, w = 0, h = 0, dx = 0, amount = 256; // (as last shown)
++		std::vector<uint8_t> pixels, mask, clean;
++	};
+ 	Picture _picture;
+ 	void rescale(int x, int y, int w, int h); // a rectangle of the scene into the scaled copy
+ 	std::vector<Actor> _actors;
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 4506f561..c7e2a791 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -626,7 +626,12 @@ void showPicture(int dx, int amount) {
+ 			const int sx = x - dx;
+ 			bool shown = sx >= 0 && sx < p.width && p.mask[(size_t)y * p.width + sx];
+ 			// A dissolve shows a fixed scatter of the pixels.
+-			if (shown && amount < 256) shown = (int)(((unsigned)(p.x + x) * 2654435761u ^ (unsigned)(p.y + y) * 40503u) >> 24) < amount;
++			// (Mixed both ways: y alone never reached the top bits, a wipe in stripes.)
++			if (shown && amount < 256) {
++				uint32_t h = (uint32_t)(p.x + x) * 2654435761u ^ (uint32_t)(p.y + y) * 2246822519u;
++				h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
++				shown = (int)(h >> 24) < amount;
++			}
+ 			row[x] = shown ? p.pixels[(size_t)y * p.width + sx] : m.clean[(size_t)y * p.width + x];
+ 		}
+ 	}
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 51e5b5d6..e1022c9c 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -444,6 +444,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		int line, end;
+ 		if (tramStop(line, end) && id == kWorldTramLines[line].ends[end].car) {
+ 			double lx = kWorldTramLines[line].ends[end].ledgeX, ly = kWorldTramLines[line].ends[end].ledgeY;
++			_tram.armed = true; // (asked for: called there, even from on it)
+ 			StageBridge::walkable(lx, ly);
+ 			StageBridge::walkTo(_player, lx, ly);
+ 			return;
+@@ -1436,6 +1437,7 @@ void SandboxEngine::rideStep(int ticks) {
+ 			return;
+ 		}
+ 		if (phase > kRideBoarded) {
++			_door = -1; _action = 0; _target = -1;
+ 			StageBridge::stop(_player);
+ 			StageBridge::hide(_player, true);
+ 			_dirty = true;
+@@ -1475,9 +1477,10 @@ void SandboxEngine::announce(const char *text) {
+ bool SandboxEngine::tramStop(int &line, int &end) const { return _game >= 0 && worldTramStop(_game, _room, line, end); }
+ 
+ // The station's car ("<game>-<room>-car.svw"), hidden till shown; a new
+-// station: its ledge calls again.
++// station: its ledge calls once the one played has been off it (put on it,
++// as a tour ends or a launch resumes there, is no call).
+ void SandboxEngine::tramMount(int game, int room) {
+-	_tram.armed = true; _tram.busySaid = false;
++	_tram.armed = false; _tram.busySaid = false;
+ 	_tram.shownDx = 1 << 20; _tram.shownAmount = 256;
+ 	int line, end;
+ 	if (!worldTramStop(game, room, line, end)) return;
+@@ -1497,6 +1500,8 @@ void SandboxEngine::tramCall(int line, int end) {
+ 		return;
+ 	}
+ 	_tram.armed = false; _tram.busySaid = false;
++	const WorldTramLine &tl = kWorldTramLines[line];
++	if (!installed(tl.game, tl.ends[1 - end].room)) { announce("This tram's other end isn't installed yet."); return; }
+ 	_tram.trip = trip;
+ 	const unsigned parked = (_tram.parked >> (line * 2)) & 3;
+ 	if (parked == (unsigned)(1 + end)) { _tram.phase = kTramOpen; announce("The tram is here. All aboard!"); return; }
+@@ -1507,6 +1512,9 @@ void SandboxEngine::tramCall(int line, int end) {
+ 
+ void SandboxEngine::tramStep(int ticks) {
+ 	if (_player < 0) return;
++	// (Put somewhere else meanwhile, seen: a menu, the tour, someone else
++	// played. The ride is not theirs any more.)
++	if (_tram.riding && !StageBridge::hidden(_player)) _tram.riding = false;
+ 	const double unit = _game >= 0 ? screenWidthOf(_game) / 320.0 : 1;
+ 	int line, end;
+ 	// Each walk onto the ledge calls the car once (not stepping off it; not
+@@ -1528,7 +1536,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 		const WorldTramStop &here = tl.ends[from], &there = tl.ends[1 - from];
+ 		const bool atOrigin = _game == tl.game && _room == here.room;
+ 		auto onLedge = [&]() {
+-			if (!atOrigin) return false;
++			if (!atOrigin || _touring.on) return false;
+ 			double lx = here.ledgeX, ly = here.ledgeY, px, py;
+ 			StageBridge::walkable(lx, ly);
+ 			StageBridge::position(_player, px, py);
+@@ -1545,6 +1553,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 				return;
+ 			}
+ 			_tram.riding = true;
++			_door = -1; _action = 0; _target = -1; // (nothing of theirs goes on)
+ 			StageBridge::stop(_player);
+ 			StageBridge::hide(_player, true);
+ 			_dirty = true;
+@@ -3310,9 +3319,19 @@ Common::Error SandboxEngine::ridesTest() {
+ 				if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == here.car && isDoor(o)) car = o;
+ 			if (car < 0) { fail("no car door"); continue; }
+ 			StageBridge::object(car, id, ox, oy, w, h, wx, wy, state);
++			// (The place alone, everyone hidden, no line, the camera on the car.)
++			auto alone = [&]() {
++				for (int n = 0; n < StageBridge::actorCount(); ++n) StageBridge::hide(n, true);
++				const Common::String notice = _notice;
++				_notice.clear();
++				StageBridge::lookAt(ox + w / 2.0);
++				present();
++				_notice = notice;
++				for (int n = 0; n < StageBridge::actorCount(); ++n) StageBridge::hide(n, false);
++				return _frame;
++			};
+ 			StageBridge::lookAt(ox + w / 2.0);
+ 			present();
+-			const Common::Array<uint32> before = _frame;
+ 			// A tap on its door: walked to the ledge, where it is called.
+ 			StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
+ 			tap(sx, sy);
+@@ -3323,10 +3342,17 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (!_tram.phase) { fail("not called from the ledge"); continue; }
+ 			if (parkedHere != (_tram.phase >= kTramOpen)) fail(parkedHere ? "parked here, not waiting open" : "open before it came");
+ 			for (int t = 0; t < 600 && _tram.phase && _tram.phase < kTramOpen; ++t) step(1);
+-			present();
++			// (Drawn: the place as it is against the same moment without the car;
++			// the colours cycle, so nothing earlier will do.)
++			const Common::Array<uint32> open = alone();
++			StageBridge::showPicture(1 << 20, 256);
++			const Common::Array<uint32> without = alone();
++			StageBridge::showPicture(_tram.shownDx, _tram.shownAmount);
+ 			int differ = 0;
+-			for (uint i = 0; i < _frame.size(); ++i) differ += _frame[i] != before[i];
++			for (uint i = 0; i < open.size(); ++i) differ += open[i] != without[i];
+ 			if (differ < 100) fail("the car not drawn");
++			StageBridge::lookAt(ox + w / 2.0);
++			present();
+ 			if (!pictured && ConfMan.hasKey("scummverse_shots")) pictured = shot("tram.png");
+ 			if (!e) {
+ 				// On the ledge as the doors close: away, unseen, and off at the other end.
+@@ -3339,6 +3365,9 @@ Common::Error SandboxEngine::ridesTest() {
+ 				if (_tram.phase || _game != tl.game || _room != there.room || StageBridge::hidden(_player)) fail("not off at the other end");
+ 				else if (((_tram.parked >> (l * 2)) & 3) != (unsigned)(2 - e)) fail("not staying at the other end");
+ 				else ++rides;
++				// (Gone from where it left: that station without its car.)
++				if (enter(tl.game, here.room, 0, problem) && _tram.shownDx != 1 << 20) fail("the car still where it left");
++				if (enter(tl.game, there.room, 0, problem) && _tram.shownDx == 1 << 20) fail("the car not where it stays");
+ 			} else {
+ 				// Walked off the ledge: it stays, open, without the one played.
+ 				double xs[12], ys[12], lx = here.ledgeX, ly = here.ledgeY, far = -1;

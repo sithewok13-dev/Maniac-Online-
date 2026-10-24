@@ -1,0 +1,463 @@
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 14c86635..456518b5 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -172,13 +172,12 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 			return;
+ 		}
+ 		if (_currentRoom == 55 && (entry == 13 || entry == 11 || entry == 1)) {
+-			if (object == 712) { scummverseTravel(1); return; }
+ 			if (object >= 723 && object <= 728) { scummverseWaitBus(); return; }
+ 		}
+ 		if (_currentRoom == 53 && (object == 683 || object == 688) && (entry == 13 || entry == 11 || entry == 1)) {
+ 			if (object == 688) scummverseAirportOffer(); else scummverseBoard(); return;
+ 		}
+-		if (entry == 13 && ((_currentRoom == 53 && object == 685) || (_currentRoom == 54 && object == 655))) {
++		if (entry == 13 && _currentRoom == 53 && object == 685) {
+ 			scummverseTravel(5); return;
+ 		}
+ 		// Foreign puzzle scripts reference Zak's private VM. Only the explicit
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index a3cad0e3..ff4d79b4 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 68; // 68: Sphinx maze scenes
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 73; // 73: San Francisco rooms, temple scenes
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 06aa2afc..4722edd6 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -44,17 +44,19 @@ static const ZakPlace zakPlaces[] = {
+ 	{42, "009b72599e665c04a1092078ad332bf7", "Peru carving"},
+ 	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving left eye"},
+ 	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving right eye"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 2"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 3"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 4"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 5"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 6"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 7"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 8"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 9"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 10"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 11"},
+-	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 12"},
++	// San Francisco (original rooms 5, 7, 6 and 2, all physical). Slots 99..102
++	// held temple passages 157..160 until patch 0073; 103..109 are retired.
++	{5, "15c73faf8f65cfe19211235f6edd7dfc", "14th Avenue"},
++	{7, "44add553cba9f1fee9f4f84b40e69198", "Lou's Loans"},
++	{6, "1a79751f305b2fe6f8ee774de7108304", "Society for Ancient Wisdom"},
++	{2, "8ec9706886108cdacfbc9055b68db805", "Zak's living room"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
++	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages (retired)"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars antechamber 1"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars antechamber 2"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars antechamber 3"},
+@@ -99,6 +101,20 @@ static const ZakLogicalScene zakLogicalScenes[] = {
+ 	{212, 74, "Sphinx maze"}, {213, 74, "Sphinx maze"}, {214, 74, "Sphinx maze"}, {215, 74, "Sphinx maze"},
+ 	{216, 74, "Sphinx maze"}, {217, 74, "Sphinx maze"}, {218, 74, "Sphinx maze"}, {219, 74, "Sphinx maze"},
+ 	{220, 74, "Sphinx maze dead end"},
++	// Mexico temple passages (original pseudo rooms 157..167 on resource 53,
++	// like 156 = physical 88). Patch 0038 gave each its own slot; patch 0073
++	// folded them back to free slots for San Francisco.
++	{157, 88, "Mexico temple passages 2"},
++	{158, 88, "Mexico temple passages 3"},
++	{159, 88, "Mexico temple passages 4"},
++	{160, 88, "Mexico temple passages 5"},
++	{161, 88, "Mexico temple passages 6"},
++	{162, 88, "Mexico temple passages 7"},
++	{163, 88, "Mexico temple passages 8"},
++	{164, 88, "Mexico temple passages 9"},
++	{165, 88, "Mexico temple passages 10"},
++	{166, 88, "Mexico temple passages 11"},
++	{167, 88, "Mexico temple passages 12"},
+ };
+ // Imported physical room backing a scene (itself for rooms 56..126), or 0.
+ static bool zakPhysicalRoom(int room) { return room >= 56 && room < 56 + (int)(sizeof(zakPlaces) / sizeof(zakPlaces[0])); }
+@@ -252,16 +268,16 @@ static const ZakLink zakLinks[] = {
+ 	{181, 732, 79, 449},
+ 	{80, 748, 181, 464},
+ 	{181, 734, 80, 472},
+-	{81, 739, 79, 0},
++	{81, 739, 79, 452},
+ 	{85, 734, 86, 0},
+ 	{86, 734, 85, 0},
+ 	{86, 735, 87, 0},
+ 	{86, 736, 87, 0},
+ 	{87, 732, 86, 0},
+ 	{87, 733, 88, 745},
+-	{87, 735, 99, 745},
+-	{87, 736, 100, 745},
+-	{89, 732, 108, 741},
++	{87, 735, 157, 745},
++	{87, 736, 158, 745},
++	{89, 732, 166, 741},
+ 	{90, 734, 65, 155},
+ 	{90, 735, 91, 0},
+ 	{90, 750, 54, 0, 35, 56},
+@@ -269,62 +285,77 @@ static const ZakLink zakLinks[] = {
+ 	{65, 741, 90, 329},
+ 	{91, 743, 90, 0},
+ 	{55, 713, 65, 151},
++	// San Francisco on foot (original exits): Zak's bedroom door and the
++	// street stairs open into his living room; the street corner object 141
++	// "14th Avenue" leads up the hill to Lou's Loans and, through the open
++	// Society door, the stairs to the Society office where Annie works.
++	{54, 655, 102, 111},
++	{102, 734, 54, 0, 35, 56},
++	{102, 735, 55, 0, 41, 53},
++	{55, 712, 102, 112},
++	{55, 722, 99, 160, 5, 58},
++	{99, 739, 55, 0, 93, 46},
++	{99, 738, 55, 0, 93, 52},
++	{99, 740, 100, 180},
++	{100, 741, 99, 161},
++	{99, 741, 101, 172},
++	{101, 735, 99, 168, 46, 36},
+ 	{94, 733, 95, 0},
+ 	{95, 734, 94, 0},
+ 	{95, 735, 96, 0},
+ 	{96, 732, 95, 0},
+-	{88, 734, 100, 741},
+-	{88, 735, 104, 742},
+-	{88, 736, 100, 743},
+-	{88, 737, 101, 744},
+-	{88, 738, 99, 747},
++	{88, 734, 158, 741},
++	{88, 735, 162, 742},
++	{88, 736, 158, 743},
++	{88, 737, 159, 744},
++	{88, 738, 157, 747},
+ 	{88, 739, 87, 594},
+-	{99, 734, 101, 743},
+-	{99, 735, 101, 742},
+-	{99, 736, 105, 741},
+-	{99, 737, 88, 744},
+-	{99, 738, 100, 747},
+-	{99, 739, 87, 596},
+-	{100, 734, 88, 741},
+-	{100, 735, 102, 742},
+-	{100, 736, 88, 743},
+-	{100, 737, 99, 744},
+-	{100, 738, 101, 747},
+-	{100, 739, 87, 597},
+-	{101, 734, 103, 741},
+-	{101, 735, 99, 742},
+-	{101, 736, 99, 741},
+-	{101, 737, 100, 744},
+-	{101, 738, 88, 747},
+-	{101, 739, 106, 741},
+-	{102, 734, 104, 741},
+-	{102, 735, 100, 742},
+-	{102, 737, 105, 744},
+-	{102, 738, 103, 747},
+-	{103, 734, 101, 741},
+-	{103, 735, 107, 741},
+-	{103, 737, 102, 744},
+-	{103, 738, 104, 747},
+-	{104, 734, 102, 741},
+-	{104, 735, 88, 742},
+-	{104, 737, 103, 744},
+-	{104, 738, 105, 747},
+-	{105, 734, 99, 743},
+-	{105, 735, 109, 741},
+-	{105, 737, 104, 744},
+-	{105, 738, 102, 747},
+-	{106, 734, 101, 745},
+-	{106, 737, 107, 745},
+-	{106, 739, 109, 747},
+-	{107, 734, 103, 742},
+-	{107, 737, 108, 745},
+-	{107, 739, 106, 747},
+-	{108, 734, 89, 297},
+-	{108, 737, 109, 745},
+-	{108, 739, 107, 747},
+-	{109, 734, 105, 742},
+-	{109, 737, 106, 745},
+-	{109, 739, 108, 747},
++	{157, 734, 159, 743},
++	{157, 735, 159, 742},
++	{157, 736, 163, 741},
++	{157, 737, 88, 744},
++	{157, 738, 158, 747},
++	{157, 739, 87, 596},
++	{158, 734, 88, 741},
++	{158, 735, 160, 742},
++	{158, 736, 88, 743},
++	{158, 737, 157, 744},
++	{158, 738, 159, 747},
++	{158, 739, 87, 597},
++	{159, 734, 161, 741},
++	{159, 735, 157, 742},
++	{159, 736, 157, 741},
++	{159, 737, 158, 744},
++	{159, 738, 88, 747},
++	{159, 739, 164, 741},
++	{160, 734, 162, 741},
++	{160, 735, 158, 742},
++	{160, 737, 163, 744},
++	{160, 738, 161, 747},
++	{161, 734, 159, 741},
++	{161, 735, 165, 741},
++	{161, 737, 160, 744},
++	{161, 738, 162, 747},
++	{162, 734, 160, 741},
++	{162, 735, 88, 742},
++	{162, 737, 161, 744},
++	{162, 738, 163, 747},
++	{163, 734, 157, 743},
++	{163, 735, 167, 741},
++	{163, 737, 162, 744},
++	{163, 738, 160, 747},
++	{164, 734, 159, 745},
++	{164, 737, 165, 745},
++	{164, 739, 167, 747},
++	{165, 734, 161, 742},
++	{165, 737, 166, 745},
++	{165, 739, 164, 747},
++	{166, 734, 89, 297},
++	{166, 737, 167, 745},
++	{166, 739, 165, 747},
++	{167, 734, 163, 742},
++	{167, 737, 164, 745},
++	{167, 739, 166, 747},
+ 	{83, 755, 79, 444, -1, -1},
+ 	{83, 754, 82, 507, 4, 52},
+ 	{82, 732, 83, 538, 24, 50},
+@@ -398,10 +429,10 @@ static bool zakPadObject(int room,int object) {
+ 	return ((room==89 || room==92 || room==125) && (object==734 || object==735)) ||
+ 		(room==98 && object==734) || (room==76 && object==747);
+ }
+-// Sandbox rooms with no original counterpart (scene audit, patch 0044).
+-// Their IDs stay allocated for save compatibility; nothing links to them and
+-// saved occupants move to the original scene they stood in for.
+-static int zakRetiredRoomReplacement(int) { return 0; }
++// Retired sandbox room IDs: nothing links to them, and saved occupants move
++// to the original scene the room stood in for. Patch 0073 folded temple
++// passages 157..167 back onto room 88's resource; 103..109 held 161..167.
++static int zakRetiredRoomReplacement(int room) { return room >= 103 && room <= 109 ? room + 58 : 0; }
+ // Patch 0044 retired 64/65/97/98; 0046 reuses 97/98 for the carving eyes.
+ // Saves older than scene schema 2 still hold the invented scenes there.
+ static int zakSchema2Replacement(int room) {
+@@ -453,15 +484,20 @@ static const ZakSceneObjectState zakSceneObjectStates[] = {
+ 	{89, 14, 294, 8, 2},
+ 	{89, 14, 305, 8, 2},
+ 	{89, 14, 56, 0, 10},
++	// 14th Avenue: the Society door (162) open, showing its stairs (168).
++	{99, 5, 162, 8, 4},
+ 
+ };
+ 
+ // Audited walking scenes retain original box flags. Source Peru flags 0xA0
+ // exempt original non-player actors (including the bird). All current sandbox
+ // cast members are walkers, so the aerial zones must also exclude NPC slots.
+-static const int zakOriginalWalkboxRooms[] = {58, 89, 96};
++static const int zakOriginalWalkboxRooms[] = {58, 89, 96, 99, 100, 102};
+ struct ZakWalkboxOverride { int room, box, flags; };
+ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
++	// The Society stairs, unlocked with the door open; nobody behind Lou's
++	// counter or inside Zak's television.
++	{99, 14, 0}, {100, 2, 0x80}, {102, 4, 0x80},
+ 	{89, 12, 0x80}, {89, 13, 0x80},
+ 	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
+ };
+@@ -494,7 +530,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {99,157,160,800,5,14,{0,1,2},{0,0,0,0,0},{
++ {157,157,160,800,5,14,{0,1,2},{0,0,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -510,7 +546,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {100,158,160,800,5,14,{0,1,2},{0,0,0,0,0},{
++ {158,158,160,800,5,14,{0,1,2},{0,0,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -526,7 +562,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {101,159,160,800,5,14,{0,1,2},{0,0,0,0,0},{
++ {159,159,160,800,5,14,{0,1,2},{0,0,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -542,7 +578,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {102,160,160,448,5,14,{0,1,2},{0,0,0,64,0},{
++ {160,160,160,448,5,14,{0,1,2},{0,0,0,64,0},{
+   {739,176,72,10},
+   {740,352,72,10},
+   {741,152,32,8},
+@@ -558,7 +594,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {103,161,160,448,5,14,{0,1,2},{0,0,0,64,0},{
++ {161,161,160,448,5,14,{0,1,2},{0,0,0,64,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,152,32,8},
+@@ -574,7 +610,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {104,162,160,448,5,14,{0,1,2},{0,0,0,64,0},{
++ {162,162,160,448,5,14,{0,1,2},{0,0,0,64,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,152,32,8},
+@@ -590,7 +626,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {105,163,160,448,5,14,{0,1,2},{0,0,0,64,0},{
++ {163,163,160,448,5,14,{0,1,2},{0,0,0,64,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,152,32,8},
+@@ -606,7 +642,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {106,164,160,184,5,14,{0,1,2},{0,128,0,0,0},{
++ {164,164,160,184,5,14,{0,1,2},{0,128,0,0,0},{
+   {739,176,72,10},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -622,7 +658,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {107,165,160,184,5,14,{0,1,2},{0,128,0,0,0},{
++ {165,165,160,184,5,14,{0,1,2},{0,128,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -638,7 +674,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {108,166,160,184,5,14,{0,1,2},{0,128,0,0,0},{
++ {166,166,160,184,5,14,{0,1,2},{0,128,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+@@ -654,7 +690,7 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {751,136,32,2},
+   {752,136,32,2},
+  }},
+- {109,167,160,184,5,14,{0,1,2},{0,128,0,0,0},{
++ {167,167,160,184,5,14,{0,1,2},{0,128,0,0,0},{
+   {739,216,72,2},
+   {740,216,72,2},
+   {741,240,32,8},
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 6ed6ab16..c9cb0a27 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -81,18 +81,20 @@ static const MansionPassage mansionPassages[] = {
+ 	{44, 0, 53, 0, false, 37, 64, 30, 60, true},
+ 	{53, 683, 1, 0, false, 1, 60, 8, 64, true},
+ 	{53, 685, 55, 724, false, 37, 60, 90, 59, true},
+-	{54, 655, 55, 712, false, 35, 56, 40, 59, true},
++	{54, 655, 102, 734, false, 35, 56, 3, 56, true},
+ 	{55, 724, 53, 685, false, 92, 59, 30, 60, true},
+-	{55, 712, 54, 655, false, 43, 36, 30, 56, true},
++	{55, 712, 102, 735, false, 43, 36, 75, 56, true},
+ 	{57,734,58,732,false,37,60,6,60,true},
+ 	{58,732,57,734,false,1,60,30,60,true},
+ 	{58,737,59,732,false,35,60,6,60,true},
+ 	{59,732,58,737,false,1,60,30,60,true},
++	// Up the street corner to 14th Avenue (original object 141).
++	{55, 722, 99, 739, false, 92, 30, 5, 58, true},
+ };
+ 
+ bool ScummEngine::scummverseRoutePoint(int index, bool arrival, int &x, int &y) {
+ 	const MansionPassage &p = mansionPassages[index];
+-	if (p.room>=56 || p.destination>=56) { if(!scummverseMountExtra(p.room) || !scummverseMountExtra(p.destination)) return false; }
++	if ((p.room>=56 && !scummverseMountExtra(p.room)) || (p.destination>=56 && !scummverseMountExtra(p.destination))) return false;
+ 	if (p.transit) { x = arrival ? p.arrivalX : p.x; y = arrival ? p.arrivalY : p.y; return _scummverseAirportMounted && ((p.room != 55 && p.destination != 55) || _scummverseStreetMounted); }
+ 	return scummverseDoorPoint(arrival ? p.destination : p.room, arrival ? p.arrival : p.object, x, y);
+ }
+@@ -212,6 +214,8 @@ void ScummEngine::scummverseStartRoaming() {
+ 	// A new game uses today's room layout: rooms 200+ are original Zak scenes
+ 	// (the Sphinx maze), never other-world places of patches 0057..0061.
+ 	_scummVars[kWorldLayoutVar] = 1;
++	// ...and today's Zak scene layout (temple marker and scene schema).
++	_scummVars[527] = 1; _scummVars[528] = 5;
+ 	_scummverseRosterPending=true;
+ 	_scummverseLastEgo = VAR(VAR_EGO);
+ 	_scummVars[175] = 0;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index fee30b2a..4707828c 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -243,7 +243,10 @@ void ScummEngine::scummverseInitVisitors() {
+ 			Actor *guest = derefActor(20 + i, "Zak guest");
+ 			guest->stopActorMoving(); guest->setActorCostume(35 + i);
+ 			guest->setPalette(1, colors[i]); guest->_talkColor = talkColors[i];
+-			guest->putActor(24 + i * 8, 56, 54); guest->startAnimActor(guest->_standFrame);
++			// Annie starts at the Society for Ancient Wisdom (original boot
++			// script), Melissa and Leslie at Zak's.
++			if (i == 0) guest->putActor(12, 56, 101); else guest->putActor(24 + i * 8, 56, 54);
++			guest->startAnimActor(guest->_standFrame);
+ 			memcpy(_res->createResource(rtActorName, 20+i, strlen(names[i])+1), names[i], strlen(names[i])+1);
+ 			_scummverseRoamers[20+i] = Roamer(); _scummVars[790+i] = 0;
+ 		}
+@@ -456,7 +459,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+ 	scummverseUpdateResident();
+-	_scummVars[527]=1; _scummVars[528]=4;
++	_scummVars[527]=1; _scummVars[528]=5;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+@@ -1135,6 +1138,26 @@ void ScummEngine::scummverseRestoreTemple() {
+   _scummverseBusClock=_scummVars[765];
+   _scummVars[528]=4;
+  }
++ // Scene schema 5 (patch 0073): temple passages 157..167 are logical scenes on
++ // room 88's resource, and rooms 99..102 hold San Francisco. Anyone saved in
++ // old rooms 99..109 stands at the same spot of the same passage.
++ if(_scummVars[528]<5) {
++  const int viewed=_currentRoom;
++  for(int id=1;id<_numActors;++id) {
++   Actor *a=derefActor(id,"temple fold migration");
++   if(a->_room<99 || a->_room>109) continue;
++   const Common::Point at=a->getRealPos(); a->stopActorMoving(); a->putActor(at.x,at.y,a->_room+58);
++  }
++  _scummVars[528]=5;
++  if(viewed>=99 && viewed<=109) {
++   Actor *player=derefActor(VAR(VAR_EGO),"temple fold player");
++   const Common::Point at=player->getRealPos();
++   if(scummverseTravel(viewed+58-50)) {
++    const AdjustBoxResult point=player->adjustXYToBeInBox(at.x,at.y);
++    player->putActor(point.x,point.y,_currentRoom); setCameraAt(player->getPos().x,player->getPos().y); setCameraFollows(player);
++   }
++  }
++ }
+  if(const auto *scene=zakSceneSetup(_currentRoom)) {
+   VAR(VAR_CAMERA_MIN_X)=scene->cameraMin;VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+   for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];

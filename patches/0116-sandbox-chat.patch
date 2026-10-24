@@ -1,0 +1,515 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index f89af6b3..9dd81cb0 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -537,7 +537,7 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	if (!controller || controller.presentedViewController) return;
+ 	// The sandbox engine (preview) running: another game's places, or back.
+ 	if (scummverseSandboxActive()) {
+-		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere. Chat and the rest come next." preferredStyle:UIAlertControllerStyleAlert];
++		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere: Talk chats with anyone here. The character screen, camera and tour come next." preferredStyle:UIAlertControllerStyleAlert];
+ 		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+ 			if (!scummverseSandboxGameInstalled(game)) continue;
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 9e7ed62e..199a6ba8 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -304,6 +304,21 @@ static void stepAlong(Actor &a, double across, double down) {
+ 	}
+ }
+ 
++void Scene::face(int n, Point toward) {
++	if (n < 0 || n >= (int)_actors.size() || _actors[n].moving) return;
++	Actor &a = _actors[n];
++	const double dx = toward.x - a.at.x, dy = toward.y - a.at.y;
++	if (std::fabs(dx) < 1e-9 && std::fabs(dy) < 1e-9) return;
++	a.dir = std::fabs(dx) >= std::fabs(dy) * 1.2 ? (dx < 0 ? 0 : 1) : (dy < 0 ? 3 : 2);
++}
++
++void Scene::talk(int n, bool on) { if (n >= 0 && n < (int)_actors.size()) _actors[n].talking = on; }
++
++void Scene::stop(int n) {
++	if (n < 0 || n >= (int)_actors.size()) return;
++	_actors[n].route.clear(); _actors[n].moving = false;
++}
++
+ void Scene::update(int ticks) {
+ 	// Colour cycles, as the games move them: a step each `delay` ticks (at
+ 	// most one an update, as theirs at most once a frame). Rotations turn
+@@ -349,7 +364,7 @@ static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int
+ 	int count = 0;
+ 	for (const World::SourceFrame &f : s.frames) count += f.dir == dir && f.kind == kind;
+ 	if (count) {
+-		const int index = kind == 1 ? step % count : 0;
++		const int index = kind ? step % count : 0;
+ 		int k = 0;
+ 		for (const World::SourceFrame &f : s.frames) if (f.dir == dir && f.kind == kind && k++ == index) return &f;
+ 	}
+@@ -363,7 +378,9 @@ static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int
+ struct Placement { const World::SourceFrame *frame = nullptr; double x0 = 0, y0 = 0, down = 0, across = 0; };
+ static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &boxes) {
+ 	Placement p;
+-	p.frame = pick(a.sprite, a.dir, a.moving ? 1 : 0, a.steps);
++	// (Walking, its steps; talking, a frame each kTalkTicks; else standing.)
++	const int kind = a.moving ? 1 : a.talking ? 2 : 0;
++	p.frame = pick(a.sprite, a.dir, kind, kind == 1 ? a.steps : a.tick / kTalkTicks);
+ 	if (!p.frame) return p;
+ 	p.down = v.rowScale * a.height * scaleAt(boxes, a.at) / 255.0;
+ 	p.across = p.down / a.pixelAspect;
+@@ -539,9 +556,13 @@ void place(int actor, double x, double y) { stage().place(actor, {x, y}); }
+ void walkTo(int actor, double x, double y) { stage().walkTo(actor, {x, y}); }
+ bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
+ bool busy() {
+-	for (int n = 0; n < stage().actorCount(); ++n) if (stage().actor(n).moving) return true;
++	for (int n = 0; n < stage().actorCount(); ++n) if (stage().actor(n).moving || stage().actor(n).talking) return true;
+ 	return false;
+ }
++void face(int actor, double x, double y) { stage().face(actor, {x, y}); }
++void talk(int actor, bool on) { stage().talk(actor, on); }
++void stop(int actor) { stage().stop(actor); }
++bool talking(int actor) { return valid(actor) && stage().actor(actor).talking; }
+ bool heading(int actor, double &x, double &y) {
+ 	if (!moving(actor) || stage().actor(actor).route.empty()) return false;
+ 	x = stage().actor(actor).route.back().x; y = stage().actor(actor).route.back().y;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 465de842..bcb3eea0 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -104,8 +104,11 @@ struct Actor {
+ 	int stepTicks = 6;      // ticks a step
+ 	int stepClock = 0;
+ 	int steps = 0;          // steps taken (the walk frame shown)
++	bool talking = false;   // standing, its talk frames in turn (kTalkTicks each)
+ 	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
+ };
++// Ticks a talk frame shows (the mouth moving about seven times a second).
++static const int kTalkTicks = 8;
+ 
+ // Far away, smaller, slower steps, but never below kSlowest of a full one.
+ static const double kSlowest = 0.25;
+@@ -119,6 +122,11 @@ public:
+ 	int addActor(const uint8_t *data, size_t size, double height, double pixelAspect, std::string &error); // its number, -1 on error
+ 	void place(int actor, Point at);
+ 	void walkTo(int actor, Point to);
++	// Standing, turned towards a point (left or right, else to the front or
++	// back, as walking there would); talking, its talk frames in turn.
++	void face(int actor, Point toward);
++	void talk(int actor, bool on);
++	void stop(int actor); // standing where they are now
+ 	void update(int ticks);              // walking and animation (60 ticks a second)
+ 	// The camera keeps this one in view: centred now, then scrolling only
+ 	// when they come near an edge (a quarter of the screen), as the games do.
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index b41d8417..59b6cb3d 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -23,7 +23,13 @@ int actorCount();
+ void place(int actor, double x, double y);     // feet, source pixels (moved into the walk boxes)
+ void walkTo(int actor, double x, double y);
+ bool moving(int actor);
+-bool busy();                                   // anyone walking
++bool busy();                                   // anyone walking (or talking)
++// Standing, turned towards a point (source pixels); talking, its talk
++// frames in turn (until let go).
++void face(int actor, double x, double y);
++void talk(int actor, bool on);
++bool talking(int actor);
++void stop(int actor);                          // standing where they are now
+ // Where a walking actor is going (the end of its way); false when standing.
+ bool heading(int actor, double &x, double &y);
+ void position(int actor, double &x, double &y);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index a1072a93..21c41b99 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -70,6 +70,7 @@ static bool walkable(int game, int room) {
+ }
+ 
+ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
++	_talk = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick};
+ }
+ 
+ SandboxEngine::~SandboxEngine() {
+@@ -257,7 +258,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_press = Press();
+ 	_chosen = -1; _noteClock = 0;
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
+-	_action = 0; _target = -1; _speech.clear(); _speechClock = 0;
++	_action = 0; _target = -1; _speech.clear(); _speaker = -1; _speechClock = 0; _chatting = 0;
+ 	PanelBridge::select(-1);
+ 	sentence("");
+ 	// Things where the game puts them (its own start and the room's entry
+@@ -361,6 +362,8 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	case 7: PanelBridge::open(false); PanelBridge::select(-1); _dirty = true; return;
+ 	default: break;
+ 	}
++	// (The chat choosing whom to talk to: someone tapped, picked.)
++	if (_talk.pick(talkIdAt(screenX, screenY))) return;
+ 	// (Over the scene, the pointer is where the last tap was.)
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+@@ -623,11 +626,81 @@ void SandboxEngine::useItem(int item, int kind) {
+ 		say(naming ? line : "That doesn't seem to work.");
+ }
+ 
+-void SandboxEngine::say(const Common::String &line) {
+-	_speech = line;
++void SandboxEngine::say(const Common::String &line) { sayAs(_player, line); }
++
++// Over their head, talking until it is gone.
++void SandboxEngine::sayAs(int actor, const Common::String &line) {
++	if (_speaker >= 0 && _speaker != actor) StageBridge::talk(_speaker, false);
++	_speech = line; _speaker = actor;
++	StageBridge::talk(actor, !line.empty());
+ 	_dirty = true;
+-	// (Longer lines stay longer, as the games' talk delay has it.)
+-	_speechClock = MIN<int>(60 + 4 * line.size(), 480);
++	// (Longer lines stay longer, as the games' talk delay has it; a chat's
++	// longest some fifteen seconds.)
++	_speechClock = MIN<int>(60 + 4 * line.size(), 900);
++}
++
++// The actor in a talk slot, and back: everyone here but the one played, in
++// turn.
++static int slotActor(int slot, int player) { return slot < player ? slot : slot + 1; }
++static int actorSlot(int actor, int player) { return actor < player ? actor : actor - 1; }
++
++void SandboxEngine::talkScene() {
++	if (_player < 0 || _game < 0) return;
++	// (A line put away elsewhere: its speaker quiet.)
++	if (_speech.empty() && _speaker >= 0) { StageBridge::talk(_speaker, false); _speaker = -1; }
++	_talk.appearance(kTalkPlayer, _playerKey);
++	unsigned long long here = 0;
++	for (int s = 0; s < kTalkSlots; ++s) {
++		const int n = slotActor(s, _player);
++		const bool on = n < (int)_onStage.size();
++		_talk.visitor(s, on ? _onStage[n] : 0);
++		if (on) here |= 1ULL << (kTalkVisitor + s);
++	}
++	// (Maniac's rooms by their own numbers, as Maniac tells the chat; the
++	// other games' as places.)
++	const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++	char line[600];
++	int speaker = 0;
++	const unsigned long long chatting = _talk.scene(room, kTalkPlayer, here, _speech.empty(), speaker, line, sizeof(line));
++	// Those in the conversation stand, facing the one played.
++	double px, py, x, y;
++	StageBridge::position(_player, px, py);
++	int first = -1;
++	for (int s = 0; s < kTalkSlots; ++s) {
++		const int n = slotActor(s, _player);
++		if (n >= (int)_onStage.size() || !(chatting & (1ULL << (kTalkVisitor + s)))) continue;
++		if (first < 0) first = n;
++		if (StageBridge::moving(n)) StageBridge::stop(n);
++		StageBridge::face(n, px, py);
++	}
++	// The one played turns to them as it begins, and to whoever speaks.
++	if (first >= 0 && !_chatting) { StageBridge::position(first, x, y); StageBridge::face(_player, x, y); }
++	_chatting = chatting;
++	if (!chatting || !speaker || !line[0]) return;
++	const int n = speaker == kTalkPlayer ? _player : speaker >= kTalkVisitor && speaker < kTalkVisitor + kTalkSlots ? slotActor(speaker - kTalkVisitor, _player) : -1;
++	if (n < 0 || n >= (int)_onStage.size()) return;
++	sayAs(n, line);
++	if (n != _player) { StageBridge::position(n, x, y); StageBridge::face(_player, x, y); }
++}
++
++void SandboxEngine::talkEnd() {
++	int speaker = 0;
++	char line[2];
++	_talk.scene(0, 0, 0, false, speaker, line, sizeof(line));
++	for (int s = 0; s < kTalkSlots; ++s) _talk.visitor(s, 0);
++	_talk.appearance(kTalkPlayer, 0);
++	_chatting = 0;
++}
++
++// The one in front under the tap (the lowest feet).
++int SandboxEngine::talkIdAt(int screenX, int screenY) const {
++	int found = 0, front = -1;
++	for (int n = 0; n < (int)_onStage.size(); ++n) {
++		int x0, y0, x1, y1;
++		if (n == _player || actorSlot(n, _player) >= kTalkSlots || !StageBridge::drawnRect(n, x0, y0, x1, y1)) continue;
++		if (screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1 && y1 > front) { front = y1; found = kTalkVisitor + actorSlot(n, _player); }
++	}
++	return found;
+ }
+ 
+ void SandboxEngine::showPicture(int object, int id, int picture) {
+@@ -771,7 +844,7 @@ void SandboxEngine::stroll(int ticks) {
+ 	if ((_strollClock -= ticks) > 0 || _onStage.size() < 2) return;
+ 	_strollClock = 180 + _random.getRandomNumber(420);
+ 	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
+-	if (n == _player || StageBridge::moving(n)) return;
++	if (n == _player || StageBridge::moving(n) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
+ 	double xs[12], ys[12];
+ 	const int spots = StageBridge::spots(12, xs, ys);
+ 	if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
+@@ -781,10 +854,11 @@ void SandboxEngine::step(int ticks) {
+ 	StageBridge::update(ticks);
+ 	if (_door >= 0 && !StageBridge::moving(_player)) reachDoor();
+ 	if (_action && !StageBridge::moving(_player)) act();
+-	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); _dirty = true; }
++	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); StageBridge::talk(_speaker, false); _speaker = -1; _dirty = true; }
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
++	talkScene();
+ }
+ 
+ void SandboxEngine::back() {
+@@ -816,13 +890,15 @@ void SandboxEngine::present() {
+ 		// (Full Throttle's coin over the scene, under the pointer.)
+ 		PanelBridge::renderCoin(_frame.data(), _width, _width, _height);
+ 		if (over && !PanelBridge::isOpen()) PanelBridge::renderControls(_frame.data(), _width, _width, _height, _pointerX, _pointerY, _pointerX >= 0);
+-		// Speech over the one played's head, at the scene's scale.
++		// Speech over the speaker's head, at the scene's scale.
+ 		int x0, y0, x1, y1;
+-		if (!_speech.empty() && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) {
++		if (!_speech.empty() && _speaker >= 0 && StageBridge::drawnRect(_speaker, x0, y0, x1, y1)) {
+ 			int left, top, width, height;
+ 			double rowScale, colScale;
+ 			StageBridge::view(left, top, width, height, rowScale, colScale);
+-			PanelBridge::say(_frame.data(), _width, _width, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2, y0 - (int)(4 * rowScale), rowScale, colScale);
++			// (Kept within the scene's picture, as the games keep it on their screen.)
++			const int from = CLIP(left, 0, _width), across = CLIP(width, 1, _width - from);
++			PanelBridge::say(_frame.data() + from, _width, across, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2 - from, y0 - (int)(4 * rowScale), rowScale, colScale);
+ 		}
+ 		if (!over) PanelBridge::render(_frame.data(), _width, _height);
+ 	}
+@@ -994,7 +1070,7 @@ Common::Error SandboxEngine::run() {
+ 		Common::Event event;
+ 		// (Full Throttle's: a press held opens the coin, let go uses it.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+-			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
++			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_talk.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+@@ -1024,6 +1100,7 @@ Common::Error SandboxEngine::run() {
+ 		g_system->delayMillis(10);
+ 	}
+ 	saveState();
++	talkEnd();
+ 	return Common::kNoError;
+ }
+ 
+@@ -1613,8 +1690,152 @@ Common::Error SandboxEngine::verbsTest() {
+ 	return Common::kNoError;
+ }
+ 
++// The "talk" check's stand-in for the iPhone's chat: what the sandbox tells
++// it, and the conversation it is told to have (a line said when it may).
++namespace FakeTalk {
++static int player = -1, visitors[SandboxEngine::kTalkSlots];
++static int room = -1, visitor = -1, picked = -1, speaker = 0;
++static unsigned long long actors = 0, chatting = 0;
++static bool canSpeak = false, picking = false;
++static Common::String next;
++static void appearance(int actor, int key) { if (actor == SandboxEngine::kTalkPlayer) player = key; }
++static void visitorOf(int slot, int key) { if (slot >= 0 && slot < SandboxEngine::kTalkSlots) visitors[slot] = key; }
++static unsigned long long scene(int r, int v, unsigned long long a, bool can, int &who, char *line, int capacity) {
++	if (r != room || v != visitor) chatting = 0; // (as the chat's: another place, another conversation)
++	room = r; visitor = v; actors = a; canSpeak = can;
++	chatting &= a;
++	who = 0;
++	if (capacity > 0) line[0] = 0;
++	if (chatting && can && !next.empty()) { who = speaker; Common::strlcpy(line, next.c_str(), capacity); next.clear(); }
++	return chatting;
++}
++static bool isPicking() { return picking; }
++static bool pick(int actor) {
++	if (!picking) return false;
++	picked = actor;
++	if (actor > 0 && actor < 64 && (actors & (1ULL << actor))) { chatting = 1ULL << actor; picking = false; }
++	return true;
++}
++} // End of namespace FakeTalk
++
++// Chat with the stand-in, in a place of each game with someone there
++// besides the one played (its lead; wanderers off): the chat told who is
++// here (the one played as themselves, everyone else by slot, the place:
++// Maniac's rooms by their own numbers); someone in the conversation stops
++// and stays (no strolling off); their line over their head while they talk,
++// the next only once it is gone, the one played's own; a tap picks someone
++// while the chat asks whom (and is not a walk), and walks again after; a new
++// place ends it; closing tells the chat no one is here. A picture of a line.
++Common::Error SandboxEngine::talkTest() {
++	_talk = {FakeTalk::appearance, FakeTalk::visitorOf, FakeTalk::scene, FakeTalk::isPicking, FakeTalk::pick};
++	_wanderers = false;
++	int places = 0, lines = 0, picks = 0, failed = 0;
++	bool maniac = false, shown = false;
++	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox talk: %s-%d: %s", kWorldGames[_game].gameid, _room, what); };
++	auto told = [&]() {
++		const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++		if (FakeTalk::player != _playerKey || FakeTalk::visitor != kTalkPlayer || FakeTalk::room != room) return false;
++		for (int s = 0; s < kTalkSlots; ++s) {
++			const int n = slotActor(s, _player);
++			const bool on = n < (int)_onStage.size();
++			if (FakeTalk::visitors[s] != (on ? _onStage[n] : 0) || ((FakeTalk::actors >> (kTalkVisitor + s)) & 1) != (on ? 1u : 0u)) return false;
++		}
++		return !(FakeTalk::actors & ((1ULL << kTalkVisitor) - 1));
++	};
++	// A point of someone's picture where the tap finds them (not on the panel).
++	auto pointOn = [&](int n, int &px, int &py) {
++		int x0, y0, x1, y1, on;
++		if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return false;
++		for (py = (y0 + y1) / 2; py < y1; ++py)
++			for (px = (x0 + x1) / 2; px < x1; ++px)
++				if (talkIdAt(px, py) == kTalkVisitor + actorSlot(n, _player) && (!PanelBridge::loaded() || !PanelBridge::hit(px, py, on))) return true;
++		return false;
++	};
++	Common::String problem;
++	for (int g = 0; g < worldGameCount(); ++g) {
++		if (!someoneToPlay(g)) continue;
++		bool entered = false;
++		for (int r = 1; r < 1024 && !entered; ++r) {
++			if (!installed(g, r) || !walkable(g, r)) continue;
++			bool others = false;
++			for (const WorldCastGuest &cast : kWorldCast)
++				others = others || (cast.game == g && cast.room == r && worldAppearanceKey(g, cast.guest.costume) != _playerKey && hasCharacter(worldAppearanceKey(g, cast.guest.costume)));
++			entered = others && enter(g, r, 0, problem) && _onStage.size() >= 2;
++		}
++		if (!entered) continue;
++		++places;
++		step(1);
++		if (!told()) fail("the chat not told who is here");
++		if (_chatting || _speaker >= 0) fail("a conversation from the last place");
++		maniac = maniac || !strcmp(kWorldGames[g].gameid, "maniac");
++		// Talking with the first of them, as they walk: they stop and stay.
++		const int a = slotActor(0, _player), bit = kTalkVisitor;
++		double xs[4], ys[4];
++		const int spots = StageBridge::spots(4, xs, ys);
++		if (spots) StageBridge::walkTo(a, xs[spots - 1], ys[spots - 1]);
++		FakeTalk::chatting = 1ULL << bit;
++		step(1);
++		if (StageBridge::moving(a) || _chatting != FakeTalk::chatting) fail("someone talked with not standing");
++		for (int t = 0; t < 900; ++t) { step(1); if (StageBridge::moving(a)) { fail("someone talked with walked off"); break; } }
++		// Their line over them; the next once it is gone; the one played's own.
++		const Common::String first = "Fancy meeting you here.", second = "Well, I never.", third = "Likewise, I'm sure.";
++		FakeTalk::next = first; FakeTalk::speaker = bit;
++		step(1);
++		if (_speech != first || _speaker != a || !StageBridge::talking(a)) fail("a line not said over its speaker"); else ++lines;
++		if (!shown && ConfMan.hasKey("scummverse_shots")) { present(); shown = shot("talk.png"); }
++		FakeTalk::next = second;
++		int waited = 1;
++		for (; waited < 2000 && _speech != second; ++waited) { step(1); if (waited == 1 && FakeTalk::canSpeak) fail("the chat may speak over a line"); }
++		if (_speech != second || waited < 60 + 4 * (int)first.size()) fail("the next line not after the first"); else ++lines;
++		FakeTalk::next = third; FakeTalk::speaker = kTalkPlayer;
++		for (int t = 0; t < 2000 && _speech != third; ++t) step(1);
++		if (_speech != third || _speaker != _player || !StageBridge::talking(_player) || StageBridge::talking(a)) fail("the one played's line not over them"); else ++lines;
++		for (int t = 0; t < 2000 && !_speech.empty(); ++t) step(1);
++		if (!_speech.empty() || StageBridge::talking(_player) || _speaker >= 0) fail("a line not gone");
++		// Ended; then the chat asks whom: a tap on someone picks them, a tap
++		// on no one does nothing, and after it a tap walks again.
++		FakeTalk::chatting = 0;
++		step(1);
++		if (_chatting) fail("a conversation not ended");
++		const int b = slotActor(_onStage.size() > 2 ? 1 : 0, _player);
++		int px, py;
++		double x0, y0, x1, y1;
++		StageBridge::position(_player, x0, y0);
++		// (Out of view, beside the one played.)
++		for (int side = 0; side < 4 && !pointOn(b, px, py); ++side) StageBridge::place(b, x0 + (side & 1 ? -1 : 1) * (side < 2 ? 40 : 20) * screenWidthOf(g) / 320.0, y0);
++		if (!pointOn(b, px, py)) { fail("no one to tap"); continue; }
++		FakeTalk::picking = true; FakeTalk::picked = -1;
++		tap(px, py);
++		step(1);
++		StageBridge::position(_player, x1, y1);
++		if (FakeTalk::picked != kTalkVisitor + actorSlot(b, _player) || !(_chatting & (1ULL << FakeTalk::picked)) || StageBridge::moving(_player) || x0 != x1 || y0 != y1) fail("a tap not picking someone"); else ++picks;
++		// (At the one played's feet, where no one else is.)
++		int ox, oy, on;
++		StageBridge::toScreen(x0, y0, ox, oy);
++		const bool noOne = !talkIdAt(ox, oy - 1) && (!PanelBridge::loaded() || !PanelBridge::hit(ox, oy - 1, on));
++		FakeTalk::picking = true; FakeTalk::picked = -1;
++		tap(ox, oy - 1);
++		if (noOne && (FakeTalk::picked != 0 || StageBridge::moving(_player) || !FakeTalk::picking)) fail("a tap on no one not kept for picking");
++		FakeTalk::picking = false;
++		tap(px, py);
++		if (!StageBridge::moving(_player) && _door < 0 && !_action) fail("a tap after picking not a walk");
++		StageBridge::stop(_player);
++	}
++	// Closing: no one here, no conversation.
++	talkEnd();
++	bool cleared = FakeTalk::player == 0 && !FakeTalk::actors && !FakeTalk::chatting;
++	for (int s = 0; s < kTalkSlots; ++s) cleared = cleared && !FakeTalk::visitors[s];
++	if (!cleared) { ++failed; warning("SCUMMVERSE sandbox talk: the chat not cleared on leaving"); }
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said, %d picked, Maniac's rooms %s, %d failed", places, lines, picks, maniac ? "seen" : "not here", failed);
++	if (!places || failed || lines != places * 3 || picks != places) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
++	if (mode == "talk") return talkTest();
+ 	int game, room;
+ 	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
+ 	if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nobody to play");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 7ccd3d53..f5d352c8 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -47,6 +47,9 @@ public:
+ 	Common::Error run() override;
+ 	bool hasFeature(EngineFeature f) const override;
+ 
++	// The chat's talk IDs here: the one played, everyone else by their slot.
++	static const int kTalkPlayer = 1, kTalkVisitor = 30, kTalkSlots = 26;
++
+ private:
+ 	// A file of the worlds cache (scenes are gzip-compressed; both read).
+ 	bool read(const Common::String &name, Common::Array<byte> &data) const;
+@@ -99,7 +102,16 @@ private:
+ 	void chooseThing(int thing);
+ 	void spin(int draft);
+ 	void act();
+-	void say(const Common::String &line);
++	void say(const Common::String &line); // (the one played)
++	void sayAs(int actor, const Common::String &line);
++	// The iPhone's chat (step 4; common/scummverse_ai.h): who is here, each
++	// step (the one played talk ID kTalkPlayer, the others kTalkVisitor + a
++	// slot, as Maniac's visitors); a line said over the speaker's head; those
++	// in the conversation stand facing the one played; while the chat asks
++	// whom to talk to, a tap on someone picks them.
++	void talkScene();
++	void talkEnd(); // (leaving: no one here, no conversation)
++	int talkIdAt(int screenX, int screenY) const; // someone here under a tap (0: no one)
+ 	void showPicture(int object, int id, int picture);
+ 	bool carry(int game, int room, int id, const Common::String &name, int picture); // (in that picture)
+ 	static int thingKey(int game, int room, int id) { return (game * 1024 + room) * 65536 + id; }
+@@ -116,9 +128,11 @@ private:
+ 	// the start place, "all" through every place installed, "back" walks
+ 	// then leaves as the menu's Back to Maniac Mansion does, "doors" through
+ 	// every door of every place, "wander" half an hour with everyone out,
+-	// "verbs" every verb of every game's panel used on the things there.
++	// "verbs" every verb of every game's panel used on the things there,
++	// "talk" chat with a stand-in for the iPhone's.
+ 	Common::Error selfTest(const Common::String &mode);
+ 	Common::Error verbsTest();
++	Common::Error talkTest();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;
+@@ -140,8 +154,20 @@ private:
+ 	int _saveClock = 0;
+ 	bool _verbs = true;                     // the panel shown (scummverse_verbs)
+ 	int _action = 0, _target = -1;          // a verb's kind, the object walked to with it
+-	Common::String _speech;                 // what the one played says
++	Common::String _speech;                 // what is said, over the speaker's head
++	int _speaker = -1;                      // (an actor; -1: no one)
+ 	int _speechClock = 0;
++	unsigned long long _chatting = 0;       // talk IDs in the conversation
++	// The chat's calls (common/scummverse_ai.h; none on the desktop), a
++	// stand-in's in the "talk" check.
++	struct Talk {
++		void (*appearance)(int actor, int key);
++		void (*visitor)(int slot, int key);
++		unsigned long long (*scene)(int room, int visitor, unsigned long long actors, bool canSpeak, int &speaker, char *line, int capacity);
++		bool (*picking)();
++		bool (*pick)(int actor);
++	};
++	Talk _talk;
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them

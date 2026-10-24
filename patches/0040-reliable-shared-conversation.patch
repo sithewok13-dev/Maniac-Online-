@@ -1,0 +1,610 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 04b3345d..eeccd3b1 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -3,6 +3,7 @@
+ #include "llama.h"
+ #include "ggml-backend.h"
+ #include "common/scummverse_ai.h"
++#include "common/scummverse_conversation.h"
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -59,6 +60,38 @@ static const char *personality(int id) {
+ 	default: return "an eccentric mansion resident";
+ 	}
+ }
++// Newly authored classic replies, used when no model is loaded or a reply
++// fails. Shown as "(classic)" in the transcript; never sent to a model.
++static std::string classicReply(int id, unsigned turn) {
++	static const char *generic[] = {"Interesting. Tell me more.", "Hmm. I'll have to think about that.", "You don't say!"};
++	const char *lines[3] = {nullptr, nullptr, nullptr};
++	switch (id) {
++	case 1: lines[0] = "That has a nice rhythm to it."; lines[1] = "I'd put that in a song."; lines[2] = "Shh. Did you hear that chord?"; break;
++	case 2: lines[0] = "Sure. Whatever you say, chief."; lines[1] = "That's almost punk enough."; lines[2] = "Talk louder. This place is too quiet."; break;
++	case 3: lines[0] = "Got it. Let's stick together."; lines[1] = "Good thinking. Keep your eyes open."; lines[2] = "We're getting Sandy out of here."; break;
++	case 4: lines[0] = "Hold that thought. Bad lighting."; lines[1] = "Say that again, I'll get a picture."; lines[2] = "Now that would make a great photo."; break;
++	case 5: lines[0] = "Technically, that's fascinating."; lines[1] = "I have a theory about that."; lines[2] = "Let's not touch anything sparking."; break;
++	case 6: lines[0] = "I'm writing that down."; lines[1] = "That's a great opening line."; lines[2] = "Every chapter needs a twist like that."; break;
++	case 7: lines[0] = "Whoa. Heavy, dude."; lines[1] = "Totally. Is there a beach nearby?"; lines[2] = "Let's just ride this wave."; break;
++	case 8: lines[0] = "The phone company has no comment."; lines[1] = "Please hold. Your call is important."; lines[2] = "That is not a suspicious question at all."; break;
++	case 9: lines[0] = "Fascinating! Don't interrupt my experiment."; lines[1] = "Science will explain everything, eventually."; lines[2] = "Have you seen a glowing meteor around here?"; break;
++	case 10: lines[0] = "Hmph. Wipe your feet first."; lines[1] = "Don't touch anything in my kitchen."; lines[2] = "Who let you in here?"; break;
++	case 11: lines[0] = "Sounds suspicious. I'm watching you."; lines[1] = "Keep your voice down near the hamster."; lines[2] = "Report anything unusual to me."; break;
++	case 13: lines[0] = "Silence! I'm on a break."; lines[1] = "Bow before me. Then go away."; lines[2] = "One day tentacles will rule the world."; break;
++	case 14: lines[0] = "Cool! Want to hear my new song?"; lines[1] = "That makes me hungry for snacks."; lines[2] = "You seem nice. Mostly."; break;
++	case 17: lines[0] = "Your human words amuse me."; lines[1] = "Our ships would answer that faster."; lines[2] = "Strange. Earthlings talk constantly."; break;
++	case 18: lines[0] = "The crystals would tell you more."; lines[1] = "Listen carefully. The jungle remembers."; lines[2] = "Patience. Answers come in time."; break;
++	case 19: lines[0] = "Welcome. Mind the jungle paths."; lines[1] = "Visitors always ask that."; lines[2] = "The shaman would know better."; break;
++	case 20: lines[0] = "That fits with my research."; lines[1] = "Let's look for evidence first."; lines[2] = "The ancient builders knew something."; break;
++	case 21: lines[0] = "Let's plan that properly."; lines[1] = "Leslie would love to hear that."; lines[2] = "I'll add it to our notes."; break;
++	case 22: lines[0] = "Ha! Let's go find out."; lines[1] = "Melissa will want details."; lines[2] = "Now this is an adventure."; break;
++	case 23: lines[0] = "Thanks for coming to find me."; lines[1] = "Let's get far away from the lab."; lines[2] = "I'm not going back in that room."; break;
++	case 24: lines[0] = "That would make a great headline."; lines[1] = "Off the record? Sure."; lines[2] = "My editor will never believe this."; break;
++	}
++	const char *line = lines[turn % 3] ? lines[turn % 3] : generic[turn % 3];
++	return line;
++}
++
+ static const char *roomName(int room) {
+ 	if(room>=56 && room<=98) return zakPlaces[room-56].name;
+ 	switch (room) {
+@@ -89,8 +122,8 @@ static const char *roomName(int room) {
+ }
+ // ASCII only: the V1 text renderer treats some control bytes as instructions.
+ // Reject tags, multiline roleplay, non-English output, and truncated sentences.
+-static std::string cleanLine(const std::string &raw) {
+-	// Normalize common English typography before enforcing the V1 byte format.
++// Normalize common English typography before enforcing the V1 byte format.
++static std::string normalizeTypography(const std::string &raw) {
+ 	std::string normalized = raw;
+ 	const char *from[] = {"\xe2\x80\x99", "\xe2\x80\x98", "\xe2\x80\x9c", "\xe2\x80\x9d", "\xe2\x80\x94", "\xe2\x80\x93", "\xe2\x80\xa6", "\xc2\xa0"};
+ 	const char *to[] = {"'", "'", "\"", "\"", "-", "-", "...", " "};
+@@ -100,6 +133,20 @@ static std::string cleanLine(const std::string &raw) {
+ 			normalized.replace(at, std::strlen(from[i]), to[i]); at += std::strlen(to[i]);
+ 		}
+ 	}
++	return normalized;
++}
++// Player text for V1 speech bubbles: printable ASCII, each other UTF-8
++// character becomes one '?', and renderer-sensitive bytes become spaces.
++static std::string speechText(const std::string &raw) {
++	std::string out;
++	for (unsigned char c : normalizeTypography(raw)) {
++		if (c >= 0x80) { if (c >= 0xC0) out += '?'; continue; }
++		out += (c < 32 || c == 127 || c == '<' || c == '>' || c == '{' || c == '}' || c == '@' || c == '^') ? ' ' : (char)c;
++	}
++	return out;
++}
++static std::string cleanLine(const std::string &raw) {
++	const std::string normalized = normalizeTypography(raw);
+ 	std::string out;
+ 	for (unsigned char c : normalized) {
+ 		if (c == '\r' || c == '\n') { if (!out.empty()) break; else continue; }
+@@ -202,37 +249,30 @@ public:
+ 		std::lock_guard<std::mutex> guard(mutex);
+ 		speaker = 0; if (capacity > 0) line[0] = 0;
+ 		if (talkActor && (room != sceneRoom || visitor != sceneVisitor)) {
+-			++epoch; pending = false; result.clear(); resetTalk();
++			abortGeneration(); result.clear(); resetTalk();
+ 		}
+ 		if (talkActor) {
+-			unsigned nextMask = talkActor == -1 ? actors : (participants & actors);
+-			if (!nextMask) { ++epoch; pending = false; result.clear(); resetTalk(); }
+-			else {
+-				participants = nextMask;
++			unsigned nextMask = talkActor == -1 ? actors : (conversation.participants() & actors);
++			if (!nextMask) { abortGeneration(); result.clear(); resetTalk(); }
++			else if (conversation.setParticipants(nextMask)) {
+ 				// Never deliver a late reply as a character who has left the room.
+-				auto absent = [&](const ChatLine &entry) { return entry.actor != visitor && !(participants & (1u << entry.actor)); };
+-				chatReplies.erase(std::remove_if(chatReplies.begin(), chatReplies.end(), absent), chatReplies.end());
+-				spoken.erase(std::remove_if(spoken.begin(), spoken.end(), absent), spoken.end());
+-				if (jobChat && (pending || busy) && !(participants & (1u << jobActor))) {
+-					++epoch; pending = false; nextSpeakers.clear(); chatWaiting = false;
+-					status = "A speaker left. You can continue with those still here.";
+-				}
++				abortGeneration(); chatTicket = 0;
++				status = "A speaker left. You can continue with those still here.";
+ 			}
+ 		}
+ 		sceneRoom = room; sceneVisitor = visitor; sceneMask = actors;
+-		if (participants && canSpeak && !spoken.empty() && capacity > 1) {
+-			speaker = spoken.front().actor;
+-			std::strncpy(line, spoken.front().text.c_str(), capacity - 1); line[capacity - 1] = 0; spoken.pop_front();
+-		}
+-		return participants;
++		pumpChat();
++		if (conversation.participants() && canSpeak && capacity > 1) nextBubble(visitor, speaker, line, capacity);
++		return conversation.participants();
+ 	}
+ 	unsigned actorsInRoom() { std::lock_guard<std::mutex> guard(mutex); return sceneMask; }
+-	unsigned talkingWith() { std::lock_guard<std::mutex> guard(mutex); return participants; }
++	unsigned talkingWith() { std::lock_guard<std::mutex> guard(mutex); return conversation.participants(); }
+ 	int talkingTo() { std::lock_guard<std::mutex> guard(mutex); return talkActor; }
+ 	void armPick(bool add) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (chatWaiting) return;
+-		pickMode = add && participants ? 2 : 1;
++		// Adding someone is allowed while replies are pending; they answer
++		// from the next message on.
++		pickMode = add && conversation.participants() ? 2 : 1;
+ 		pickRoom=sceneRoom; pickVisitor=sceneVisitor;
+ 	}
+ 	bool picking() { std::lock_guard<std::mutex> guard(mutex); return pickMode!=0; }
+@@ -242,53 +282,56 @@ public:
+ 		if(pickRoom!=sceneRoom || pickVisitor!=sceneVisitor) { pickMode=0; return true; }
+ 		if(actor<=0 || actor>=25 || !(sceneMask & (1u<<actor))) return true;
+ 		if(pickMode==1) {
+-			if(ready) ++epoch;
+-			pending=false; result.clear(); resetTalk(); talkActor=actor; participants=1u<<actor;
+-		} else { participants |= 1u<<actor; talkActor=-2; }
++			abortGeneration(); result.clear(); resetTalk(); talkActor=actor; conversation.reset(1u<<actor);
++		} else { conversation.setParticipants(conversation.participants() | 1u<<actor); talkActor=-2; }
+ 		pickMode=0; return true;
+ 	}
+ 	bool beginTalk(int actor) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+ 		if (actor <= 0 || actor >= 25 || !(sceneMask & (1u << actor))) return false;
+-		if (ready) ++epoch;
+-		pending = false; result.clear(); resetTalk(); talkActor = actor; participants = 1u << actor; return true;
++		abortGeneration(); result.clear(); resetTalk(); talkActor = actor; conversation.reset(1u << actor); return true;
+ 	}
+ 	bool beginGroup() {
+ 		std::lock_guard<std::mutex> guard(mutex);
+ 		if (!sceneMask || !(sceneMask & (sceneMask - 1))) return false;
+-		if (ready) ++epoch;
+-		pending = false; result.clear(); resetTalk(); talkActor = -1; participants = sceneMask; return true;
++		abortGeneration(); result.clear(); resetTalk(); talkActor = -1; conversation.reset(sceneMask); return true;
+ 	}
+ 	void endTalk() {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (talkActor && ready) ++epoch;
++		if (talkActor) abortGeneration();
+ 		pending = false; result.clear(); resetTalk();
+ 	}
++	// Accepted while replies are pending (bounded outbox). Rejected only when
++	// nobody is selected, the text is blank/oversized, or the outbox is full.
+ 	bool sendTalk(const std::string &text) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (!participants || !ready || busy || pending || chatWaiting || !chatReplies.empty() || text.empty() || text.size() > 512) return false;
+-		std::string message = text;
+-		for (char &c : message) if ((unsigned char)c < 32 || c == '<' || c == '>') c = ' ';
+-		if (message.find_first_not_of(' ') == std::string::npos) return false;
+-		remember(ChatLine(0, message));
+-		spoken.push_back(ChatLine(sceneVisitor, message));
+-		jobRoom = sceneRoom; jobVisitor = sceneVisitor; jobText = message; jobChat = true;
+-		// At most two replies per player message, rotating the leading speaker.
+-		std::vector<int> roster;
+-		for (int id = 1; id < 25; ++id) if (participants & (1u << id)) roster.push_back(id);
+-		size_t start = 0;
+-		while (start < roster.size() && roster[start] <= lastLead) ++start;
+-		if (start == roster.size()) start = 0;
+-		lastLead = roster[start]; nextSpeakers.clear();
+-		for (size_t n = 0; n < std::min<size_t>(2, roster.size()); ++n) nextSpeakers.push_back(roster[(start + n) % roster.size()]);
+-		queueNextSpeaker(); return true;
++		if (text.empty() || text.size() > Scummverse::Conversation::kMaxText) return false;
++		if (!conversation.submit(speechText(text))) return false;
++		pumpChat(); return true;
+ 	}
++	// Copies the transcript for UI when it changed since `revision`.
++	bool talkSnapshot(uint32_t &revision, std::vector<Scummverse::ConversationLine> &lines,
++		std::vector<std::string> &queued, int &replying) {
++		std::lock_guard<std::mutex> guard(mutex);
++		if (conversation.revision() == revision) return false;
++		revision = conversation.revision();
++		lines.assign(conversation.lines().begin(), conversation.lines().end());
++		queued.assign(conversation.outbox().begin(), conversation.outbox().end());
++		replying = conversation.replying() ? conversation.replyingSpeaker() : 0;
++		return true;
++	}
++	// Next NPC line after the previous read, in transcript order (tests/tools).
+ 	bool readTalk(int &actor, std::string &reply) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (chatReplies.empty()) return false;
+-		actor = chatReplies.front().actor; reply = chatReplies.front().text; chatReplies.pop_front(); return true;
++		for (const auto &line : conversation.lines()) {
++			if (line.id <= readCursor) continue;
++			readCursor = line.id;
++			if (line.speaker) { actor = line.speaker; reply = line.text; return true; }
++		}
++		return false;
+ 	}
+-	bool waitingForTalk() { std::lock_guard<std::mutex> guard(mutex); return chatWaiting; }
++	bool waitingForTalk() { std::lock_guard<std::mutex> guard(mutex); return conversation.busy(); }
++	bool modelReady() { std::lock_guard<std::mutex> guard(mutex); return ready; }
+ 
+ private:
+ 	std::mutex mutex;
+@@ -301,25 +344,46 @@ private:
+ 	std::string memories[25];
+ 	int sceneRoom = 0, sceneVisitor = 0, talkActor = 0;
+ 	int pickMode=0, pickRoom=0, pickVisitor=0;
+-	unsigned sceneMask = 0, participants = 0;
+-	int lastLead = 0;
+-	bool jobChat = false, chatWaiting = false, qwen3 = false;
+-	std::string jobText;
+-	std::vector<ChatLine> history;
+-	std::deque<ChatLine> chatReplies, spoken;
+-	std::deque<int> nextSpeakers;
+-	void remember(const ChatLine &line) {
+-		history.push_back(line);
+-		if (history.size() > 6) history.erase(history.begin());
+-	}
++	unsigned sceneMask = 0;
++	bool jobChat = false, ambientBusy = false, qwen3 = false;
++	// One shared conversation; the model is only one of its reply providers.
++	Scummverse::Conversation conversation;
++	uint32_t chatTicket = 0, jobTicket = 0, bubbleCursor = 0, readCursor = 0;
++	unsigned classicTurn = 0;
++	// Never invalidate a model load in progress: only generation is aborted.
++	void abortGeneration() { if (ready) ++epoch; pending = false; }
+ 	void resetTalk() {
+-		pickMode=0; talkActor = 0; participants = 0; lastLead = 0; chatWaiting = false;
+-		chatReplies.clear(); spoken.clear(); history.clear(); nextSpeakers.clear();
++		pickMode=0; talkActor = 0; conversation.reset(); chatTicket = 0;
++		if (jobChat) pending = false;
++	}
++	// Starts the next reply. Without a ready model, replies come from classic
++	// lines immediately, so sending never depends on a download.
++	void pumpChat() {
++		Scummverse::ReplyJob job;
++		while (!chatTicket && conversation.nextJob(job)) {
++			if (ready) {
++				chatTicket = job.ticket; jobTicket = job.ticket; jobActor = job.speaker;
++				jobRoom = sceneRoom; jobVisitor = sceneVisitor; jobChat = true;
++				if (ambientBusy) ++epoch; // A conversation outranks an ambient line.
++				pending = true; wake.notify_one(); return;
++			}
++			conversation.complete(job.ticket, "", classicReply(job.speaker, classicTurn++));
++		}
+ 	}
+-	void queueNextSpeaker() {
+-		while (!nextSpeakers.empty() && !(participants & (1u << nextSpeakers.front()))) nextSpeakers.pop_front();
+-		chatWaiting = !nextSpeakers.empty();
+-		if (chatWaiting) { jobActor = nextSpeakers.front(); nextSpeakers.pop_front(); pending = true; wake.notify_one(); }
++	// Next transcript line for an in-scene speech bubble; skips a long backlog.
++	void nextBubble(int visitor, int &speaker, char *line, int capacity) {
++		const auto &lines = conversation.lines();
++		size_t i = 0;
++		while (i < lines.size() && lines[i].id <= bubbleCursor) ++i;
++		if (lines.size() - i > 4) i = lines.size() - 4;
++		for (; i < lines.size(); ++i) {
++			bubbleCursor = lines[i].id;
++			const int who = lines[i].speaker ? lines[i].speaker : visitor;
++			if (lines[i].speaker && !(conversation.participants() & (1u << who))) continue;
++			speaker = who;
++			std::strncpy(line, lines[i].text.c_str(), capacity - 1); line[capacity - 1] = 0;
++			return;
++		}
+ 	}
+ 	int jobActor = 0, jobRoom = 0, jobVisitor = 0, resultActor = 0, resultRoom = 0;
+ 	llama_model *model = nullptr;
+@@ -329,6 +393,8 @@ private:
+ 	bool aborted() { return epoch.load() != activeEpoch || std::chrono::steady_clock::now() > deadline; }
+ 	static bool abortCallback(void *p) { return static_cast<Runtime *>(p)->aborted(); }
+ 	static bool progressCallback(float, void *p) { return !static_cast<Runtime *>(p)->aborted(); }
++#ifndef SCUMMVERSE_AI_TEST_PROVIDER
++	bool modelLoaded() const { return context != nullptr; }
+ 	void unload() {
+ 		if (context) llama_free(context);
+ 		if (model) llama_model_free(model);
+@@ -407,6 +473,17 @@ private:
+ 		if (!clean.empty()) memories[actor] = clean;
+ 		return clean;
+ 	}
++#else
++	// Test-only provider (never defined in shipped builds): drives the real
++	// worker thread, locking and scheduling without model weights.
++	bool fakeLoaded = false;
++	void unload() { fakeLoaded = false; }
++	bool load(const std::string &path, bool) { fakeLoaded = scummverseTestLoad(path, [this] { return aborted(); }); return fakeLoaded; }
++	bool modelLoaded() const { return fakeLoaded; }
++	std::string generate(int actor, int, int, const std::string &question, const std::vector<ChatLine> &prior, unsigned) {
++		return scummverseTestGenerate(actor, question, prior, [this] { return aborted(); });
++	}
++#endif
+ 	void work() {
+ 		// No game state, UIKit, network, or renderer calls on this thread.
+ 		bool initialized = false;
+@@ -431,23 +508,26 @@ private:
+ 				continue;
+ 			}
+ 			int actor = jobActor, room = jobRoom, visitor = jobVisitor;
+-			bool chat = jobChat; std::string question = chat ? jobText : "";
+-			auto prior = chat ? history : std::vector<ChatLine>();
+-			unsigned present = participants;
+-			pending = false; busy = true;
++			bool chat = jobChat; std::string question; uint32_t ticket = jobTicket;
++			std::vector<ChatLine> prior;
++			if (chat) for (const auto &entry : conversation.context(6)) {
++				prior.emplace_back(entry.speaker, entry.text);
++				if (!entry.speaker) question = entry.text;
++			}
++			if (chat && question.empty()) question = " "; // Selects the chat prompt.
++			unsigned present = conversation.participants();
++			pending = false; busy = true; ambientBusy = !chat;
+ 			deadline = std::chrono::steady_clock::now() + std::chrono::seconds(chat ? 30 : 5);
+ 			status = chat ? std::string(actorName(actor)) + " is replying (up to 30 seconds)." : "Writing a line on this device";
+-			lock.unlock(); std::string line = context ? generate(actor, room, visitor, question, prior, present) : ""; lock.lock();
+-			busy = false;
++			lock.unlock(); std::string line = modelLoaded() ? generate(actor, room, visitor, question, prior, present) : ""; lock.lock();
++			busy = false; ambientBusy = false;
+ 			if (activeEpoch == epoch.load()) {
+ 				if (chat) {
+-					chatReplies.emplace_back(actor, line.empty() ? "[No reply this time. Try a shorter message or a smaller model.]" : line);
+-					if (!line.empty()) {
+-						// The next NPC receives this exact attributed line as shared history.
+-						remember(ChatLine(actor, line)); spoken.emplace_back(actor, line);
+-						if (spoken.size() > 4) spoken.pop_front();
+-					}
+-					queueNextSpeaker();
++					// Timeouts and filtered output fall back to a labelled classic line.
++					// The next NPC receives model lines as shared, attributed history.
++					conversation.complete(ticket, line, line.empty() ? classicReply(actor, classicTurn++) : "");
++					if (chatTicket == ticket) chatTicket = 0;
++					pumpChat();
+ 				} else { result = line; resultActor = actor; resultRoom = room; }
+ 				status = line.empty() ? (chat ? "Ready - no reply this time" : "Ready - last response used classic fallback") : "Ready - dialogue stays on this device";
+ 			}
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index f2154aad..9491425b 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -13,8 +13,9 @@ static BOOL scummverseSystemMenu=NO;
+ 	CGRect _keyboardFrame;
+  CGFloat _keyboard;
+  int _publishedInset;
+-	BOOL _open, _showHistory, _collapsed;
++	BOOL _open, _showHistory, _collapsed, _hasTranscript;
+ 	unsigned _lastMask;
++	uint32_t _revision;
+ 	int _scene;
+ }
+ - (id)initWithHost:(UIView *)host;
+@@ -37,7 +38,9 @@ static BOOL scummverseSystemMenu=NO;
+ 		_historyButton=[self button:@"History" action:@selector(history)];
+ 		[self button:@"Close" action:@selector(close)].tag=19;
+ 		_status=[[[UILabel alloc] init] autorelease]; _status.textColor=UIColor.whiteColor; _status.font=[UIFont systemFontOfSize:12]; [self addSubview:_status];
+-		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.placeholder=@"Say something…"; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend; [self addSubview:_input];
++		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.placeholder=@"Say something…"; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend;
++		// Curly quotes and dashes are not V1 speech-bubble characters.
++		_input.smartQuotesType=UITextSmartQuotesTypeNo; _input.smartDashesType=UITextSmartDashesTypeNo; [self addSubview:_input];
+ 		_send=[self button:@"Send" action:@selector(send)];
+ 		_history=[[[UITextView alloc] init] autorelease]; _history.editable=NO; _history.backgroundColor=UIColor.clearColor; _history.textColor=UIColor.whiteColor; _history.font=[UIFont systemFontOfSize:14]; [self addSubview:_history];
+ 		_arrive=[UIButton buttonWithType:UIButtonTypeSystem]; [_arrive setTitle:@"Arrive" forState:UIControlStateNormal]; [_arrive setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; _arrive.backgroundColor=[UIColor colorWithWhite:0 alpha:0.8]; _arrive.layer.cornerRadius=6; [_arrive addTarget:self action:@selector(arrive) forControlEvents:UIControlEventTouchUpInside]; [host addSubview:_arrive];
+@@ -75,12 +78,50 @@ static BOOL scummverseSystemMenu=NO;
+ - (void)send {
+ 	NSString *text=[_input.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if(!text.length) return;
+ 	[_error release]; _error=nil;
+-	if(!ScummverseLocalAI::runtime().sendTalk(text.UTF8String)) {
+-		_error=[@"Not sent. Check AI settings or wait and retry; your message is kept." retain]; [self refresh]; return;
++	auto &r=ScummverseLocalAI::runtime();
++	// Messages are accepted while replies are pending; they wait in order.
++	if(!r.sendTalk(text.UTF8String)) {
++		_error=[(r.talkingWith() ? @"Not sent: three messages are already waiting. Your draft is kept." : @"Choose someone to talk to first. Your draft is kept.") retain];
++		[self refresh]; return;
+ 	}
+-	_history.text=[_history.text stringByAppendingFormat:@"\nYou: %@",text]; _input.text=@""; _collapsed=_host.bounds.size.width>=_host.bounds.size.height; _showHistory=!_collapsed;
++	_input.text=@""; _collapsed=_host.bounds.size.width>=_host.bounds.size.height; _showHistory=!_collapsed;
+ 	if(_host.bounds.size.width>=_host.bounds.size.height) [self endEditing:YES]; [self refresh];
+ }
++static UIColor *scummverseSpeakerColor(int speaker) {
++	if(!speaker) return [UIColor colorWithRed:1 green:0.86 blue:0.45 alpha:1];
++	return [UIColor colorWithHue:(speaker*37%100)/100.0 saturation:0.45 brightness:1 alpha:1];
++}
++// One ordered transcript: delivered lines, then waiting messages, then who is replying.
++- (void)renderLines:(const std::vector<Scummverse::ConversationLine> &)lines queued:(const std::vector<std::string> &)queued replying:(int)replying {
++	if(lines.empty() && queued.empty() && !replying && _hasTranscript) return; // Keep the last conversation readable.
++	UIFont *body=[UIFont systemFontOfSize:14], *bold=[UIFont boldSystemFontOfSize:14], *note=[UIFont italicSystemFontOfSize:12];
++	UIColor *dim=[UIColor colorWithWhite:0.72 alpha:1];
++	NSMutableAttributedString *out=[[[NSMutableAttributedString alloc] init] autorelease];
++	auto add=^(NSString *part, UIFont *font, UIColor *color) {
++		if(!part) return;
++		[out appendAttributedString:[[[NSAttributedString alloc] initWithString:part attributes:@{NSFontAttributeName:font, NSForegroundColorAttributeName:color}] autorelease]];
++	};
++	for(const auto &line : lines) {
++		if(out.length) add(@"\n", body, UIColor.whiteColor);
++		NSString *name=line.speaker ? [NSString stringWithUTF8String:ScummverseLocalAI::actorName(line.speaker)] : @"You";
++		add([name stringByAppendingString:@": "], bold, scummverseSpeakerColor(line.speaker));
++		add([NSString stringWithUTF8String:line.text.c_str()], body, UIColor.whiteColor);
++		if(line.kind==Scummverse::LineKind::Classic) add(@" (classic)", note, dim);
++	}
++	for(const auto &waiting : queued) {
++		if(out.length) add(@"\n", body, UIColor.whiteColor);
++		add(@"You (waiting): ", bold, dim);
++		add([NSString stringWithUTF8String:waiting.c_str()], body, dim);
++	}
++	if(replying) {
++		if(out.length) add(@"\n", body, UIColor.whiteColor);
++		add([NSString stringWithFormat:@"%s is thinking…", ScummverseLocalAI::actorName(replying)], note, dim);
++	}
++	// Follow new lines only when the reader is already at the end.
++	const BOOL atEnd=_history.contentOffset.y+_history.bounds.size.height>=_history.contentSize.height-24;
++	_history.attributedText=out; _hasTranscript=out.length>0;
++	if(atEnd && out.length) [_history scrollRangeToVisible:NSMakeRange(out.length-1,1)];
++}
+ - (void)refresh {
+ 	auto &r=ScummverseLocalAI::runtime();
+ 	_arrive.hidden=scummverseSystemMenu || ScummverseLocalAI::currentRoom()!=56;
+@@ -91,18 +132,12 @@ static BOOL scummverseSystemMenu=NO;
+ 	[_recipient setTitle:mask ? [names componentsJoinedByString:@", "] : @"Talk" forState:UIControlStateNormal];
+ 	_recipient.titleLabel.lineBreakMode=NSLineBreakByTruncatingTail;
+ 	BOOL waiting=r.waitingForTalk(), picking=r.picking();
+-	_status.text=_error ? _error : picking ? (mask ? @"Tap another character to add them." : @"Tap a character in the room. Close cancels.") : waiting ? @"Thinking…" : mask ? @"Tap the message field to keep talking." : @"Tap Talk to choose someone nearby.";
+-	_input.enabled=mask!=0; _send.enabled=mask && !waiting && !picking; _add.enabled=mask && !waiting;
++	_status.text=_error ? _error : picking ? (mask ? @"Tap another character to add them." : @"Tap a character in the room. Close cancels.") : waiting ? @"Replying… you can keep typing." : mask ? (r.modelReady() ? @"Tap the message field to keep talking." : @"Classic replies. Choose a model in AI for generated dialogue.") : @"Tap Talk to choose someone nearby.";
++	_input.enabled=mask!=0; _send.enabled=mask && !picking; _add.enabled=mask!=0;
+ 	int actor=r.talkingTo(); _follow.hidden=actor<=0;
+ 	if(actor>0) [_follow setTitle:ScummverseLocalAI::follows(actor)?@"Unfollow":@"Follow" forState:UIControlStateNormal];
+-	int speaker; std::string reply;
+-	while(r.readTalk(speaker,reply)) {
+-		_history.text=[_history.text stringByAppendingFormat:@"\n%s: %s",ScummverseLocalAI::actorName(speaker),reply.c_str()];
+-		if(!reply.empty() && reply[0]=='[') {
+-			[_error release]; _error=[@"No reply this time. Try again or choose a smaller model in AI." retain]; _status.text=_error;
+-		}
+-	}
+-	if(_history.text.length>8000) _history.text=[_history.text substringFromIndex:_history.text.length-6000];
++	std::vector<Scummverse::ConversationLine> lines; std::vector<std::string> queued; int replying=0;
++	if(r.talkSnapshot(_revision,lines,queued,replying)) [self renderLines:lines queued:queued replying:replying];
+ 	[self layoutBar];
+ 	if(_open && !_lastMask && mask && !picking) [_input becomeFirstResponder];
+ 	_lastMask=mask;
+@@ -134,6 +169,14 @@ static BOOL scummverseSystemMenu=NO;
+ 		_history.hidden=NO; _history.frame=CGRectMake(8,88,w-16,MAX(0,h-138));
+ 		_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-46,w-78,40); _send.frame=CGRectMake(w-66,h-46,60,40);
+ 		_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-78,MAX(0,layout.gameHeight-40),72,36);
++  if(_keyboard>0 && h>=160) {
++   // Typing: one header row, so the transcript keeps most of the space.
++   _follow.hidden=_historyButton.hidden=YES;
++   _recipient.frame=CGRectMake(8,0,w-128,30); _add.frame=CGRectMake(w-116,0,40,30);
++   [self viewWithTag:19].frame=CGRectMake(w-70,0,62,30);
++   _status.frame=CGRectMake(8,30,w-16,18);
++   _history.frame=CGRectMake(8,48,w-16,MAX(0,h-98));
++  }
+   if(h<160) {
+    // Very small/occluded hosts prioritize sending and dismissing the keyboard.
+    _recipient.hidden=_add.hidden=_follow.hidden=_historyButton.hidden=_status.hidden=_history.hidden=YES;
+diff --git a/common/scummverse_conversation.h b/common/scummverse_conversation.h
+new file mode 100644
+index 00000000..6d929a54
+--- /dev/null
++++ b/common/scummverse_conversation.h
+@@ -0,0 +1,137 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse portable conversation contract v1.
++// Owns one shared conversation: an ordered transcript with stable line IDs, a
++// bounded outbox for player messages, and reply scheduling across participants.
++// No threads, models, UI, network or game state; callers serialize access.
++// Reply providers (local model, classic lines, a future server) stay outside.
++#ifndef COMMON_SCUMMVERSE_CONVERSATION_H
++#define COMMON_SCUMMVERSE_CONVERSATION_H
++#include <cstdint>
++#include <deque>
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++
++enum class LineKind { Player, Reply, Classic };
++
++struct ConversationLine {
++	uint32_t id;       // Monotonic within a conversation; never reused.
++	int speaker;       // 0 is the player; 1..31 are participant IDs.
++	LineKind kind;     // Classic marks authored fallback lines, not model output.
++	std::string text;
++};
++
++struct ReplyJob {
++	uint32_t ticket;   // Must be returned to complete(); stale tickets are ignored.
++	int speaker;
++};
++
++class Conversation {
++public:
++	static const size_t kMaxQueued = 3;          // Waiting player messages.
++	static const size_t kMaxLines = 60;          // Bounded visible transcript.
++	static const size_t kRepliesPerMessage = 2;  // At most two NPCs answer.
++	static const size_t kMaxText = 512;
++
++	// Starts a fresh conversation; IDs continue increasing across resets so a
++	// stale reader can never mistake a new line for one it already consumed.
++	void reset(unsigned participants = 0) {
++		_participants = participants & ~1u; _lines.clear(); _outbox.clear();
++		_speakers.clear(); _inFlight = ReplyJob{0, 0}; _lastLead = 0; ++_revision;
++	}
++	unsigned participants() const { return _participants; }
++
++	// Returns true when the in-flight reply's speaker left and was cancelled.
++	// Lines already spoken by departed characters remain in the transcript.
++	bool setParticipants(unsigned mask) {
++		mask &= ~1u;
++		if (mask == _participants) return false;
++		_participants = mask; ++_revision;
++		std::deque<int> kept;
++		for (int id : _speakers) if (present(id)) kept.push_back(id);
++		_speakers.swap(kept);
++		if (_inFlight.ticket && !present(_inFlight.speaker)) { _inFlight = ReplyJob{0, 0}; return true; }
++		return false;
++	}
++
++	// Accepts a message even while replies are pending. Rejection (no one to
++	// talk to, blank, oversized or a full outbox) changes nothing.
++	bool submit(const std::string &text) {
++		if (!_participants || text.size() > kMaxText || _outbox.size() >= kMaxQueued) return false;
++		if (text.find_first_not_of(' ') == std::string::npos) return false;
++		_outbox.push_back(text); ++_revision;
++		return true;
++	}
++
++	// Starts the next reply if none is in flight. Delivers the next waiting
++	// player message into the transcript only after earlier replies finished.
++	bool nextJob(ReplyJob &job) {
++		if (_inFlight.ticket) return false;
++		while (_speakers.empty()) {
++			if (_outbox.empty()) return false;
++			append(0, LineKind::Player, _outbox.front()); _outbox.pop_front();
++			scheduleSpeakers();
++		}
++		_inFlight = ReplyJob{++_nextTicket, _speakers.front()}; _speakers.pop_front();
++		job = _inFlight; ++_revision; return true;
++	}
++
++	// Records a reply. An empty model reply uses the classic line instead;
++	// if both are empty the turn passes silently. Stale tickets change nothing.
++	bool complete(uint32_t ticket, const std::string &reply, const std::string &classic) {
++		if (!ticket || ticket != _inFlight.ticket) return false;
++		const int speaker = _inFlight.speaker; _inFlight = ReplyJob{0, 0};
++		if (!reply.empty()) append(speaker, LineKind::Reply, reply);
++		else if (!classic.empty()) append(speaker, LineKind::Classic, classic);
++		else ++_revision;
++		return true;
++	}
++
++	bool replying() const { return _inFlight.ticket != 0; }
++	int replyingSpeaker() const { return _inFlight.speaker; }
++	bool busy() const { return _inFlight.ticket || !_speakers.empty() || !_outbox.empty(); }
++	const std::deque<std::string> &outbox() const { return _outbox; }
++	const std::deque<ConversationLine> &lines() const { return _lines; }
++	uint32_t revision() const { return _revision; }
++
++	// Most recent model-visible lines, oldest first. Classic fallback lines are
++	// excluded so authored filler never becomes a model's "memory".
++	std::vector<ConversationLine> context(size_t maximum) const {
++		std::vector<ConversationLine> result;
++		for (auto it = _lines.rbegin(); it != _lines.rend() && result.size() < maximum; ++it)
++			if (it->kind != LineKind::Classic) result.insert(result.begin(), *it);
++		return result;
++	}
++
++private:
++	bool present(int id) const { return id > 0 && id < 32 && (_participants & (1u << id)); }
++	void append(int speaker, LineKind kind, const std::string &text) {
++		_lines.push_back(ConversationLine{++_nextId, speaker, kind, text});
++		while (_lines.size() > kMaxLines) _lines.pop_front();
++		++_revision;
++	}
++	// Rotate the leading speaker so every participant gets a turn to answer.
++	void scheduleSpeakers() {
++		std::vector<int> roster;
++		for (int id = 1; id < 32; ++id) if (present(id)) roster.push_back(id);
++		if (roster.empty()) return;
++		size_t start = 0;
++		while (start < roster.size() && roster[start] <= _lastLead) ++start;
++		if (start == roster.size()) start = 0;
++		_lastLead = roster[start];
++		for (size_t n = 0; n < kRepliesPerMessage && n < roster.size(); ++n)
++			_speakers.push_back(roster[(start + n) % roster.size()]);
++	}
++
++	unsigned _participants = 0;
++	std::deque<ConversationLine> _lines;
++	std::deque<std::string> _outbox;
++	std::deque<int> _speakers;
++	ReplyJob _inFlight{0, 0};
++	uint32_t _nextId = 0, _nextTicket = 0, _revision = 0;
++	int _lastLead = 0;
++};
++
++}
++#endif

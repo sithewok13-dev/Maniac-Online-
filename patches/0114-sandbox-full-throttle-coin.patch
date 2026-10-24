@@ -1,0 +1,1262 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index a7588622..ee401237 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -36,10 +36,12 @@ bool within(const Rect &r, int width, int height) {
+ 
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 	out = Source();
+-	// ("SVI2": controls over the scene; the same with a mask, pointers, a button.)
+-	const bool over = data && size >= 4 && !std::memcmp(data, "SVI2", 4);
++	// ("SVI2": controls over the scene; the same with a mask, pointers, a
++	// button. "SVI3": a coin, its verbs' parts on it, and its box's arrows.)
++	const bool coin = data && size >= 4 && !std::memcmp(data, "SVI3", 4);
++	const bool over = coin || (data && size >= 4 && !std::memcmp(data, "SVI2", 4));
+ 	if (!data || size < 12 || (!over && std::memcmp(data, "SVI1", 4))) { error = "not a verb panel"; return false; }
+-	out.over = over;
++	out.over = over; out.coin = coin;
+ 	Reader r(data + 4, data + size);
+ 	out.screenWidth = r.u16(); out.screenHeight = r.u16(); out.top = r.u16(); out.rows = r.u16();
+ 	if (out.screenWidth < 8 || out.screenWidth > 1024 || out.rows < 1 || out.rows > 480 || out.top + out.rows > out.screenHeight) { error = "bad panel size"; return false; }
+@@ -59,7 +61,8 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 		v.name.assign(name.begin(), name.end());
+ 		r.bytes((size_t)v.rect.width * v.rect.height, v.lit);
+ 		if (!r.ok) break;
+-		if (v.kind < kWalk || v.kind > kAct || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
++		// (A coin's parts are on the coin: checked once it is read.)
++		if (v.kind < kWalk || v.kind > kHand || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
+ 		out.verbs.push_back(v);
+ 	}
+ 	out.sentenceX = r.s16(); out.sentenceY = r.s16();
+@@ -111,10 +114,29 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 			out.cursors[verb] = p;
+ 		}
+ 		out.button.rect.x = r.s16(); out.button.rect.y = r.s16();
+-		if (!picture(out.button) || (r.ok && (out.button.pixels.empty() || !within(out.button.rect, out.screenWidth, out.screenHeight)))) { error = "bad button"; return false; }
++		// (A coin's box has none: a right click opens it.)
++		if (!picture(out.button) || (r.ok && ((!coin && out.button.pixels.empty()) || !within(out.button.rect, out.screenWidth, out.screenHeight)))) { error = "bad button"; return false; }
+ 		out.close = r.rect();
+ 		if (r.ok && !within(out.close, out.screenWidth, out.rows)) { error = "bad button"; return false; }
+ 		out.shade = r.u8();
++		if (coin && r.ok) {
++			Picture &c = out.coinPicture;
++			c.hotX = r.s16(); c.hotY = r.s16();
++			if (!picture(c) || (r.ok && c.pixels.empty())) { error = "bad coin"; return false; }
++			out.nameX = r.s16(); out.nameY = r.s16(); out.nameInk = r.u8();
++			for (Verb &v : out.verbs) {
++				if (!r.bytes((size_t)v.rect.width * v.rect.height, v.litMask)) break;
++				for (uint8_t &m : v.litMask) m = m != 0;
++				if (!v.rect.width || !within(v.rect, c.rect.width, c.rect.height)) { error = "bad verb"; return false; }
++			}
++			for (int k = 0; k < 2 && r.ok; ++k) {
++				Picture &a = k ? out.downPicture : out.upPicture;
++				a.rect = k ? out.down : out.up;
++				r.bytes((size_t)a.rect.width * a.rect.height, a.pixels);
++				r.bytes((size_t)a.rect.width * a.rect.height, a.mask);
++				for (uint8_t &m : a.mask) m = m != 0;
++			}
++		}
+ 	}
+ 	if (!r.ok) { error = "truncated panel"; return false; }
+ 	if (r.p != r.end) { error = "truncated panel"; return false; }
+@@ -209,14 +231,19 @@ Outcome decide(int kind, const Thing &thing, const std::string &name) {
+ 		return say("I can't wear that.");
+ 	case kTakeOff:
+ 		return say("I'm not wearing that.");
+-	case kAct: {
++	case kAct:
++	case kHand: {
+ 		// (One tap, The Dig's way: what can be taken is, what is shut opens,
+-		// else it is looked at.)
++		// else it is looked at. Full Throttle's hand: what is open shuts,
++		// else it doesn't work.)
+ 		const Outcome take = decide(kPickUp, thing, name);
+ 		if (take.result == kTake) return take;
+ 		const Outcome opened = decide(kOpen, thing, name);
+ 		if (opened.result == kShow) return opened;
+-		return decide(kLook, thing, name);
++		if (kind == kAct) return decide(kLook, thing, name);
++		const Outcome closed = decide(kClose, thing, name);
++		if (closed.result == kShow) return closed;
++		return say("That doesn't seem to work.");
+ 	}
+ 	default:
+ 		return o;
+@@ -277,8 +304,12 @@ Panel::Hit Panel::hit(int screenX, int screenY) const {
+ 		if (screenY < _top || screenY >= _top + _screenRows || screenX < _left || screenX >= _left + _columns || _rowScale <= 0 || _colScale <= 0) { h.close = true; return h; }
+ 		const int x = std::min(_source.screenWidth - 1, (int)((screenX - _left) / _colScale));
+ 		const int y = std::min(_source.rows - 1, (int)((screenY - _top) / _rowScale));
++		// (A coin's box: its arrows, wherever they are; not its verbs, which
++		// are the coin's.)
++		if (_source.coin && _source.up.contains(x, y)) { h.arrow = -1; return h; }
++		if (_source.coin && _source.down.contains(x, y)) { h.arrow = 1; return h; }
+ 		if (!_source.mask[(size_t)y * _source.screenWidth + x] || _source.close.contains(x, y)) { h.close = true; h.icon = _source.close.contains(x, y); return h; }
+-		for (size_t i = 0; i < _source.verbs.size(); ++i) if (_source.verbs[i].rect.contains(x, y)) { h.verb = (int)i; return h; }
++		for (size_t i = 0; i < _source.verbs.size() && !_source.coin; ++i) if (_source.verbs[i].rect.contains(x, y)) { h.verb = (int)i; return h; }
+ 		for (size_t c = 0; c < _source.slots.size(); ++c)
+ 			if (_source.slots[c].contains(x, y) && _first + (int)c < (int)_items.size()) { h.item = _first + (int)c; return h; }
+ 		return h;
+@@ -317,6 +348,74 @@ void Panel::nextVerb() {
+ 
+ Rect Panel::buttonOnScreen() const { return over() ? onScreen(_source.button.rect) : Rect(); }
+ 
++void Panel::openCoin(int screenX, int screenY, const std::string &name) {
++	if (!coin() || _rowScale <= 0 || _colScale <= 0) return;
++	const Picture &c = _source.coinPicture;
++	// (As many screen pixels as its columns and rows take, as hit maps them.)
++	const int w = firstAt(c.rect.width, 0, _colScale), h = firstAt(c.rect.height, 0, _rowScale);
++	// (Its anchor where it is held, the whole of it on the screen.)
++	const int x = screenX - (int)std::lround(c.hotX * _colScale), y = screenY - (int)std::lround(c.hotY * _rowScale);
++	_coinX = std::max(0, std::min(x, _screenWidth - w));
++	_coinY = std::max(_top, std::min(y, _top + _screenRows - h));
++	_coinName = name; _coinOpen = true; _coinLit = -1;
++}
++
++Rect Panel::coinOnScreen() const {
++	if (!_coinOpen || _rowScale <= 0 || _colScale <= 0) return Rect();
++	const Picture &c = _source.coinPicture;
++	return Rect(_coinX, _coinY, firstAt(c.rect.width, 0, _colScale), firstAt(c.rect.height, 0, _rowScale));
++}
++
++Rect Panel::partOnScreen(int verb) const {
++	if (!_coinOpen || verb < 0 || verb >= (int)_source.verbs.size() || _rowScale <= 0 || _colScale <= 0) return Rect();
++	const Rect &r = _source.verbs[verb].rect;
++	const int x0 = firstAt(r.x, _coinX, _colScale), x1 = firstAt(r.x + r.width, _coinX, _colScale);
++	const int y0 = firstAt(r.y, _coinY, _rowScale), y1 = firstAt(r.y + r.height, _coinY, _rowScale);
++	return Rect(x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0));
++}
++
++int Panel::coinVerb(int screenX, int screenY) const {
++	if (!_coinOpen || screenX < _coinX || screenY < _coinY || _rowScale <= 0 || _colScale <= 0) return -1;
++	const int x = (int)((screenX - _coinX) / _colScale), y = (int)((screenY - _coinY) / _rowScale);
++	// (Parts may lie one in another, the eyes in the skull: the smallest.)
++	int best = -1;
++	for (size_t i = 0; i < _source.verbs.size(); ++i) {
++		const Rect &r = _source.verbs[i].rect;
++		if (r.contains(x, y) && (best < 0 || r.width * r.height < _source.verbs[best].rect.width * _source.verbs[best].rect.height)) best = (int)i;
++	}
++	return best;
++}
++
++void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const {
++	if (!_coinOpen || !screen) return;
++	const Picture &c = _source.coinPicture;
++	const int W = c.rect.width, H = c.rect.height;
++	// (0: the scene shows.)
++	std::vector<uint32_t> canvas((size_t)W * H, 0u);
++	for (size_t i = 0; i < canvas.size(); ++i) if (c.mask[i]) canvas[i] = color(c.pixels[i]);
++	if (_coinLit >= 0) {
++		const Verb &v = _source.verbs[_coinLit];
++		for (int y = 0; y < v.rect.height; ++y)
++			for (int x = 0; x < v.rect.width; ++x) {
++				const size_t at = (size_t)y * v.rect.width + x;
++				canvas[(size_t)(v.rect.y + y) * W + v.rect.x + x] = v.litMask[at] ? color(v.lit[at]) : 0u;
++			}
++	}
++	const Rect on = coinOnScreen();
++	for (int sy = std::max(0, on.y); sy < std::min(screenHeight, on.y + on.height); ++sy) {
++		const int y = std::min(H - 1, (int)((sy - on.y) / _rowScale));
++		for (int sx = std::max(0, on.x); sx < std::min(screenWidth, on.x + on.width); ++sx) {
++			const uint32_t v = canvas[(size_t)y * W + std::min(W - 1, (int)((sx - on.x) / _colScale))];
++			if (v >> 24) screen[(size_t)sy * pitch + sx] = v;
++		}
++	}
++	// The name over it, centred on its banner, on the screen (a long one
++	// past the coin's edges).
++	const double width = textWidth(0, _coinName) * _colScale;
++	const double pen = std::max(0.0, std::min(screenWidth - width, on.x + _source.nameX * _colScale - width / 2));
++	line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, on.y + (int)std::lround(_source.nameY * _rowScale), _rowScale, _colScale, color(_source.nameInk));
++}
++
+ void Panel::picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const {
+ 	if (p.rect.width <= 0 || p.rect.height <= 0 || _rowScale <= 0 || _colScale <= 0) return;
+ 	const int w = (int)std::lround(p.rect.width * _colScale), h = (int)std::lround(p.rect.height * _rowScale);
+@@ -333,7 +432,8 @@ void Panel::renderControls(uint32_t *screen, int pitch, int screenWidth, int scr
+ 	if (!over() || !screen) return;
+ 	const Rect b = buttonOnScreen();
+ 	if (b.width > 0 && b.height > 0) picture(screen, pitch, screenWidth, screenHeight, _source.button, b.x, b.y);
+-	const int v = pointerVerb();
++	// (A coin game's pointer is its one.)
++	const int v = coin() ? 0 : pointerVerb();
+ 	if (!pointer || v < 0 || v >= (int)_source.cursors.size()) return;
+ 	const Picture &c = _source.cursors[v];
+ 	picture(screen, pitch, screenWidth, screenHeight, c, pointerX - (int)std::lround(c.hotX * _colScale), pointerY - (int)std::lround(c.hotY * _rowScale));
+@@ -359,6 +459,8 @@ void Panel::setItems(const std::vector<Item> &items) {
+ void Panel::scroll(int by) {
+ 	const int slots = (int)_source.slots.size();
+ 	if (!slots) { _first = 0; return; }
++	// (A coin's box, one row: a thing at a time, as its arrows go.)
++	if (_source.coin) { _first = std::max(0, std::min((int)_items.size() - slots, _first + by)); return; }
+ 	int perRow = 0;
+ 	for (const Rect &s : _source.slots) perRow += s.y == _source.slots[0].y;
+ 	perRow = std::max(1, perRow);
+@@ -391,9 +493,9 @@ std::vector<std::string> Panel::wrap(int font, const std::string &text, int widt
+ 	return lines;
+ }
+ 
+-void Panel::text(std::vector<uint32_t> &canvas, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const {
++void Panel::text(std::vector<uint32_t> &canvas, int width, int height, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const {
+ 	const Font &f = _source.fonts[font & 1];
+-	const int W = _source.screenWidth, H = _source.rows;
++	const int W = width, H = height;
+ 	for (unsigned char c : s) {
+ 		if (!f.has[c]) continue;
+ 		const Glyph &g = f.glyphs[c];
+@@ -413,7 +515,7 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 	canvas.resize((size_t)W * H);
+ 	// (Where the box darkens the scene: nothing of its own, 0, unless drawn on.)
+ 	for (size_t i = 0; i < canvas.size(); ++i) canvas[i] = _source.over && _source.mask[i] == 2 ? 0u : color(_source.pixels[i]);
+-	if (_selected >= 0 && _selected < (int)_source.verbs.size()) {
++	if (_selected >= 0 && _selected < (int)_source.verbs.size() && !_source.coin) {
+ 		const Verb &v = _source.verbs[_selected];
+ 		for (int y = 0; y < v.rect.height; ++y)
+ 			for (int x = 0; x < v.rect.width; ++x) canvas[(size_t)(v.rect.y + y) * W + v.rect.x + x] = color(v.lit[(size_t)y * v.rect.width + x]);
+@@ -421,7 +523,7 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 	if (!_sentence.empty() && !_source.over) {
+ 		const int width = textWidth(0, _sentence);
+ 		const int x = _source.sentenceCentred ? _source.sentenceX - width / 2 : _source.sentenceX;
+-		text(canvas, 0, _sentence, std::max(0, x), _source.sentenceY, color(_source.sentenceColor), W);
++		text(canvas, W, H, 0, _sentence, std::max(0, x), _source.sentenceY, color(_source.sentenceColor), W);
+ 	}
+ 	for (size_t s = 0; s < _source.slots.size(); ++s) {
+ 		const int i = _first + (int)s;
+@@ -429,7 +531,7 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		const Rect &r = _source.slots[s];
+ 		const Item &item = _items[i];
+ 		if (r.width <= 0 || r.height <= 0) continue;
+-		if (_source.slotKind == 1) { text(canvas, 0, item.name, r.x, r.y, color(_source.slotColor), r.x + r.width); continue; }
++		if (_source.slotKind == 1) { text(canvas, W, H, 0, item.name, r.x, r.y, color(_source.slotColor), r.x + r.width); continue; }
+ 		if (item.width <= 0 || item.height <= 0 || item.picture.size() != (size_t)item.width * item.height) continue;
+ 		// A picture fitted to its slot (smaller only), centred.
+ 		const double fit = std::min(1.0, std::min((double)r.width / item.width, (double)r.height / item.height));
+@@ -441,6 +543,15 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 				if ((c >> 24) && x0 + x < W && y0 + y < H) canvas[(size_t)(y0 + y) * W + x0 + x] = c;
+ 			}
+ 	}
++	// A coin's box shows its arrows where there is more that way.
++	for (int k = 0; k < 2 && _source.coin; ++k) {
++		const Picture &a = k ? _source.downPicture : _source.upPicture;
++		const bool more = k ? _first + (int)_source.slots.size() < (int)_items.size() : _first > 0;
++		if (!more) continue;
++		for (int y = 0; y < a.rect.height; ++y)
++			for (int x = 0; x < a.rect.width; ++x)
++				if (a.mask[(size_t)y * a.rect.width + x]) canvas[(size_t)(a.rect.y + y) * W + a.rect.x + x] = color(a.pixels[(size_t)y * a.rect.width + x]);
++	}
+ 	// Names lists show their arrows only when there is more (as the games do).
+ 	if (_source.slotKind == 1) {
+ 		const int slots = (int)_source.slots.size();
+@@ -489,28 +600,33 @@ void Panel::say(uint32_t *screen, int pitch, int screenWidth, int limit, const s
+ 	const int lineHeight = std::max(1, f.height);
+ 	int y = bottomY - (int)std::lround(lines.size() * lineHeight * rowScale);
+ 	y = std::max(0, y);
+-	for (const std::string &line : lines) {
+-		const int width = (int)std::lround(textWidth(1, line) * colScale);
+-		double pen = std::max(0, std::min(screenWidth - width, centreX - width / 2));
+-		for (unsigned char c : line) {
+-			if (!f.has[c]) continue;
+-			const Glyph &g = f.glyphs[c];
+-			for (int gy = 0; gy < g.height; ++gy)
+-				for (int gx = 0; gx < g.width; ++gx) {
+-					const int v = g.pixels[(size_t)gy * g.width + gx];
+-					if (v == f.none) continue;
+-					const uint32_t c2 = v == f.ink ? ink : color(v);
+-					const int x0 = (int)std::lround(pen + (g.x + gx) * colScale), x1 = (int)std::lround(pen + (g.x + gx + 1) * colScale);
+-					const int y0 = (int)std::lround(y + (g.y + gy) * rowScale), y1 = (int)std::lround(y + (g.y + gy + 1) * rowScale);
+-					for (int py = std::max(0, y0); py < std::min(limit, y1); ++py)
+-						for (int px = std::max(0, x0); px < std::min(screenWidth, x1); ++px) screen[(size_t)py * pitch + px] = c2;
+-				}
+-			pen += g.advance * colScale;
+-		}
++	for (const std::string &each : lines) {
++		const int width = (int)std::lround(textWidth(1, each) * colScale);
++		line(screen, pitch, screenWidth, limit, 1, each, std::max(0, std::min(screenWidth - width, centreX - width / 2)), y, rowScale, colScale, ink);
+ 		y += (int)std::lround(lineHeight * rowScale);
+ 	}
+ }
+ 
++void Panel::line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
++	double rowScale, double colScale, uint32_t ink) const {
++	const Font &f = _source.fonts[font & 1];
++	for (unsigned char c : text) {
++		if (!f.has[c]) continue;
++		const Glyph &g = f.glyphs[c];
++		for (int gy = 0; gy < g.height; ++gy)
++			for (int gx = 0; gx < g.width; ++gx) {
++				const int v = g.pixels[(size_t)gy * g.width + gx];
++				if (v == f.none) continue;
++				const uint32_t c2 = v == f.ink ? ink : color(v);
++				const int x0 = (int)std::lround(pen + (g.x + gx) * colScale), x1 = (int)std::lround(pen + (g.x + gx + 1) * colScale);
++				const int y0 = (int)std::lround(y + (g.y + gy) * rowScale), y1 = (int)std::lround(y + (g.y + gy + 1) * rowScale);
++				for (int py = std::max(0, y0); py < std::min(limit, y1); ++py)
++					for (int px = std::max(0, x0); px < std::min(screenWidth, x1); ++px) screen[(size_t)py * pitch + px] = c2;
++			}
++		pen += g.advance * colScale;
++	}
++}
++
+ } // End of namespace Panel
+ 
+ namespace PanelBridge {
+@@ -567,13 +683,31 @@ bool buttonRect(int &x, int &y, int &width, int &height) {
+ void renderControls(unsigned int *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) {
+ 	panel().renderControls(screen, pitch, screenWidth, screenHeight, pointerX, pointerY, pointer);
+ }
++bool coin() { return panel().coin(); }
++void openCoin(int screenX, int screenY, const char *name) { panel().openCoin(screenX, screenY, name ? name : ""); }
++void shutCoin() { panel().shutCoin(); }
++bool coinOpen() { return panel().coinOpen(); }
++int coinVerb(int screenX, int screenY) { return panel().coinVerb(screenX, screenY); }
++void lightCoin(int verb) { panel().lightCoin(verb); }
++int coinLit() { return panel().coinLit(); }
++bool coinRect(int &x, int &y, int &width, int &height) {
++	const Panel::Rect r = panel().coinOnScreen();
++	x = r.x; y = r.y; width = r.width; height = r.height;
++	return width > 0 && height > 0;
++}
++bool partRect(int verb, int &x, int &y, int &width, int &height) {
++	const Panel::Rect r = panel().partOnScreen(verb);
++	x = r.x; y = r.y; width = r.width; height = r.height;
++	return width > 0 && height > 0;
++}
++void renderCoin(unsigned int *screen, int pitch, int screenWidth, int screenHeight) { panel().renderCoin(screen, pitch, screenWidth, screenHeight); }
+ void select(int verb) { panel().select(verb); }
+ int selected() { return panel().selected(); }
+ int verbCount() { return (int)panel().source().verbs.size(); }
+ int verbKind(int verb) { return panel().kindOf(verb); }
+ int walkVerb() { return panel().walkVerb(); }
+ int verbName(int verb, char *name, int capacity) { return copy(panel().verbName(verb), name, capacity); }
+-bool verbShown(int verb) { return verb >= 0 && verb < verbCount() && panel().source().verbs[verb].rect.width > 0; }
++bool verbShown(int verb) { return verb >= 0 && verb < verbCount() && !panel().coin() && panel().source().verbs[verb].rect.width > 0; }
+ static bool screenRect(const Panel::Rect &source, int &x, int &y, int &width, int &height) {
+ 	const Panel::Rect r = panel().onScreen(source);
+ 	x = r.x; y = r.y; width = r.width; height = r.height;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index d970789f..5a53685d 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -9,7 +9,9 @@
+ // games' own scripts do not run here, so the same plain rules hold for all.
+ // A game whose controls are over the scene ("SVI2", step 2f: Sam & Max) has
+ // its panel as a box opened over the scene from a button, and its pointer
+-// as the verb (a right click the next).
++// as the verb (a right click the next). Full Throttle's ("SVI3") are a coin
++// held over a thing, its parts the verbs, and its things in a box a right
++// click opens.
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+@@ -28,7 +30,8 @@ namespace Panel {
+ enum VerbKind {
+ 	kWalk = 1, kLook, kPickUp, kOpen, kClose, kPush, kPull, kUse, kGive, kTalk, kTurnOn, kTurnOff, kWhatIs,
+ 	kRead, kUnlock, kFix, kNewKid, kPutOn, kTakeOff, // (the oldest games' own)
+-	kAct // (one tap does what fits: The Dig's)
++	kAct, // (one tap does what fits: The Dig's)
++	kHand // (the hand: Full Throttle's)
+ };
+ 
+ struct Rect {
+@@ -46,8 +49,9 @@ struct Font {
+ 	Glyph glyphs[256];
+ };
+ // A verb on the panel (no rectangle: one only named, as walking is in the
+-// later games); `lit` is its rectangle drawn highlighted.
+-struct Verb { int kind = 0, id = 0; Rect rect; std::string name; std::vector<uint8_t> lit; };
++// later games); `lit` is its rectangle drawn highlighted (on a coin, where
++// `litMask` is 1; the scene shows through elsewhere).
++struct Verb { int kind = 0, id = 0; Rect rect; std::string name; std::vector<uint8_t> lit, litMask; };
+ // A picture of the controls over the scene: palette indices, `mask` 1 where
+ // it is drawn, 2 where it darkens the scene (The Dig's grid), 0 where the
+ // scene shows; a pointer's hot spot.
+@@ -76,9 +80,18 @@ struct Source {
+ 	Picture button;
+ 	Rect close;
+ 	int shade = 255;
++	// A coin ("SVI3", Full Throttle's): the verbs are its parts, their
++	// rectangles on `coinPicture` (its hot spot the anchor, where it is
++	// held); the name of what it is over in fonts[0] and colour `nameInk`,
++	// centred on (nameX, nameY) of the coin. The box (no button: a right
++	// click opens it) shows its arrows' pictures, on `up` and `down`, where
++	// there is more that way; cursors[0] is the pointer.
++	bool coin = false;
++	Picture coinPicture, upPicture, downPicture;
++	int nameX = 0, nameY = 0, nameInk = 0;
+ };
+-// Bytes of an "SVI1" or "SVI2" file (uncompressed); false (with `error`) when
+-// malformed.
++// Bytes of an "SVI1", "SVI2" or "SVI3" file (uncompressed); false (with
++// `error`) when malformed.
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error);
+ 
+ // A thing carried: its name and picture (0xAARRGGBB, width * height).
+@@ -101,7 +114,8 @@ struct Outcome { int result = kNothing; int picture = -1; std::string say; };
+ // 0; push and pull switch one with two pictures, else step through those
+ // showing it; pick up takes what is small, shown and not a door; the rest is
+ // said not to work ("new kid" is the player's, not the thing's); one tap
+-// (act) picks up what can be, opens what is shut, else looks.
++// (act) picks up what can be, opens what is shut, else looks; the hand picks
++// up, opens what is shut, closes what is open, else it doesn't work.
+ // Where its game's script is known, each also needs the thing to answer
+ // that verb there (open or close for either, on or off, push or pull, pick
+ // up): a pirate is not taken, a wall not opened.
+@@ -152,11 +166,27 @@ public:
+ 	bool over() const { return _loaded && _source.over; }
+ 	void open(bool open) { _open = open && over(); }
+ 	bool isOpen() const { return _open; }
+-	// (A game without a walk verb, The Dig: its first verb, its tap.)
+-	int pointerVerb() const { return _selected >= 0 ? _selected : walkVerb() >= 0 ? walkVerb() : over() && !_source.verbs.empty() ? 0 : -1; }
++	// (A game without a walk verb, The Dig: its first verb, its tap; a coin
++	// game's pointer walks.)
++	int pointerVerb() const { return _selected >= 0 ? _selected : walkVerb() >= 0 ? walkVerb() : over() && !coin() && !_source.verbs.empty() ? 0 : -1; }
+ 	void nextVerb();
+ 	// The button where the scene is (screen pixels; none under the scene).
+ 	Rect buttonOnScreen() const;
++	// Full Throttle's coin ("SVI3"): opened with its anchor at a point (the
++	// whole coin kept on the layout's screen), the name of what it is over
++	// in its banner; the verb under a point (of the parts there, the
++	// smallest; -1 none), lit while the pointer is on it; drawn over the
++	// scene at the layout's scale.
++	bool coin() const { return _loaded && _source.coin; }
++	void openCoin(int screenX, int screenY, const std::string &name);
++	void shutCoin() { _coinOpen = false; _coinLit = -1; }
++	bool coinOpen() const { return _coinOpen; }
++	Rect coinOnScreen() const;
++	Rect partOnScreen(int verb) const; // (a verb's part on the coin open)
++	int coinVerb(int screenX, int screenY) const;
++	void lightCoin(int verb) { _coinLit = _coinOpen && verb >= 0 && verb < (int)_source.verbs.size() ? verb : -1; }
++	int coinLit() const { return _coinLit; }
++	void renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const;
+ 	// The button, and the pointer with its hot spot at (x, y), on a screen
+ 	// of 0xAARRGGBB at the layout's scale (under the scene: nothing).
+ 	void renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const;
+@@ -189,10 +219,17 @@ public:
+ 	uint32_t color(int index) const;
+ 
+ private:
+-	void text(std::vector<uint32_t> &canvas, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
++	// (Onto a canvas `width` by `height`.)
++	void text(std::vector<uint32_t> &canvas, int width, int height, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
++	// (Onto the screen at a scale, its pen at `pen`, its top at `y`; rows
++	// from `limit` on untouched.)
++	void line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
++		double rowScale, double colScale, uint32_t ink) const;
+ 	void picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const;
+ 	Source _source;
+-	bool _loaded = false, _open = false;
++	bool _loaded = false, _open = false, _coinOpen = false;
++	int _coinX = 0, _coinY = 0, _coinLit = -1; // (the coin's top left on screen)
++	std::string _coinName;
+ 	int _screenWidth = 0, _top = 0, _screenRows = 0, _left = 0, _columns = 0;
+ 	double _rowScale = 1, _colScale = 1;
+ 	int _selected = -1, _first = 0;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 717f8b92..cc4531cd 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -31,8 +31,9 @@ void layout(int screenWidth, int screenHeight, int top, double rowScale, double
+ int top();
+ int screenRows();
+ // A tap: 0 not on the panel, 1 on it (nothing there), 2 a verb, 3 a thing
+-// carried, 4 an arrow (`index` -1 up, 1 down); over the scene, 5 the button
+-// (the box shut), 6 off the box, 7 its icon that shuts it (the box open).
++// carried, 4 an arrow (`index` -1 up, 1 down: a coin's box's too); over the
++// scene, 5 the button (the box shut), 6 off the box, 7 its icon that shuts
++// it (the box open).
+ int hit(int screenX, int screenY, int &index);
+ // Controls over the scene (Sam & Max, "SVI2"): the panel is a box opened
+ // over the scene from a button; the pointer is the verb (pointerVerb: the
+@@ -47,8 +48,23 @@ int pointerVerb();
+ bool buttonRect(int &x, int &y, int &width, int &height);
+ bool closeRect(int &x, int &y, int &width, int &height);
+ void renderControls(unsigned int *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer);
++// Full Throttle's coin ("SVI3"): its verbs are the parts of a coin held over
++// a thing (a right click opens the box of things carried; its pointer
++// walks). Opened with its anchor at a point (kept on screen) and the name
++// of what it is over; the verb under a point (-1 none) and the one lit;
++// where it and a verb's part are on screen; drawn over the scene.
++bool coin();
++void openCoin(int screenX, int screenY, const char *name);
++void shutCoin();
++bool coinOpen();
++int coinVerb(int screenX, int screenY);
++void lightCoin(int verb);
++int coinLit();
++bool coinRect(int &x, int &y, int &width, int &height);
++bool partRect(int verb, int &x, int &y, int &width, int &height);
++void renderCoin(unsigned int *screen, int pitch, int screenWidth, int screenHeight);
+ // The verb chosen (-1: walking) and the verbs (their kinds as the catalog's
+-// WorldVerbKind; shown: on the panel).
++// WorldVerbKind; shown: on the panel, not a coin's part).
+ void select(int verb);
+ int selected();
+ int verbCount();
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 15f91757..0b3d3b17 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 20;
++static const int kWorldExportVersion = 21;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -667,14 +667,16 @@ static const WorldLegacyPlace kWorldLegacyPlaces[] = {
+ // pictures) and their scroll arrows, and the room where its start waits
+ // for a typed answer (Monkey Island 2's copy protection; the engine takes
+ // any answer). Loom, Sam & Max and the later games have none of these
+-// (Sam & Max's controls: kWorldOverlays).
++// (Sam & Max's controls: kWorldOverlays; Full Throttle's: kWorldCoins).
+ enum WorldVerbKind {
+ 	kWorldVerbWalk = 1, kWorldVerbLook, kWorldVerbPickUp, kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush,
+ 	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs,
+ 	// The oldest games' own (the mansion's, Zak's).
+ 	kWorldVerbRead, kWorldVerbUnlock, kWorldVerbFix, kWorldVerbNewKid, kWorldVerbPutOn, kWorldVerbTakeOff,
+ 	// One tap does what fits (The Dig's way: pick up, open, else look).
+-	kWorldVerbAct
++	kWorldVerbAct,
++	// The hand (Full Throttle's): pick up, open, close, else it doesn't work.
++	kWorldVerbHand
+ };
+ // The verb a things file's answers count one under (bit k: kind k, 1..13):
+ // the oldest games' own verbs as the nearest of those.
+@@ -683,7 +685,7 @@ inline int worldVerbAnswerKind(int kind) {
+ 	case kWorldVerbRead: return kWorldVerbLook;
+ 	case kWorldVerbUnlock: return kWorldVerbOpen;
+ 	case kWorldVerbFix: case kWorldVerbPutOn: case kWorldVerbTakeOff: return kWorldVerbUse;
+-	case kWorldVerbNewKid: case kWorldVerbAct: return 0;
++	case kWorldVerbNewKid: case kWorldVerbAct: case kWorldVerbHand: return 0;
+ 	default: return kind;
+ 	}
+ }
+@@ -723,6 +725,9 @@ static const WorldVerb kWorldVerbs[] = {
+ 	{6, 3, kWorldVerbPickUp},
+ 	// The Dig: one, its tap (no verb of its own scripts' numbers; 1 here).
+ 	{8, 1, kWorldVerbAct},
++	// Full Throttle: four, its coin's (see kWorldCoins): the skull's eyes,
++	// its teeth, the hand, the boot (a kick moves what a push would).
++	{7, 8, kWorldVerbLook}, {7, 10, kWorldVerbTalk}, {7, 9, kWorldVerbHand}, {7, 5, kWorldVerbPush},
+ };
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+@@ -765,6 +770,31 @@ inline const WorldOverlay *worldOverlay(int game) {
+ 	for (const auto &o : kWorldOverlays) if (o.game == game) return &o;
+ 	return nullptr;
+ }
++// A game whose verbs are a coin held over a thing (Full Throttle's, the new
++// engine's step 2f; "<game>-ui.svi" all the same, as "SVI3"). The coin is a
++// costume (`coin`) in animation `idle`, its anchor (the actor's position)
++// where it is held; each verb's part (`verbs`, the game's own numbers) lit
++// in an animation of its own (`lit`); the name of what it is held over in
++// lettering `charset`, colour `ink`, centred `nameY` below the anchor. A
++// right click opens the things carried: a costume (`box`, animation
++// `boxIdle`) with its anchor at (boxX, boxY) on the game's screen; its
++// cells there (one row: the first's top left, their size, from one to the
++// next, how many); its arrows there (`back`, `forward`: x, y, width,
++// height; a thing each way), each shown in an animation of its own.
++struct WorldCoin {
++	short game, coin, idle, nameY, charset, ink;
++	short verbs[4], lit[4];
++	short box, boxIdle, boxX, boxY, cellX, cellY, cellWidth, cellHeight, stepX, columns;
++	short back[4], forward[4], backLit, forwardLit;
++};
++static const WorldCoin kWorldCoins[] = {
++	{7, 5, 6, 18, 1, 7, {8, 10, 9, 5}, {18, 15, 9, 12},
++	 6, 6, 160, 80, 103, 105, 28, 34, 29, 4, {88, 66, 52, 21}, {180, 66, 52, 21}, 14, 10},
++};
++inline const WorldCoin *worldCoin(int game) {
++	for (const auto &c : kWorldCoins) if (c.game == game) return &c;
++	return nullptr;
++}
+ inline int worldVerbKind(int game, int verb) {
+ 	for (const auto &v : kWorldVerbs) if (v.game == game && v.verb == verb) return v.kind;
+ 	return 0;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 921dc8d9..b757fb18 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1653,6 +1653,8 @@ protected:
+ 	virtual bool scummverseExportPanelOld(int game, const Common::Path &file, Common::String &problem) { problem = "no verb panel"; return false; }
+ 	// (Controls over the scene: Sam & Max's pointer and box of things.)
+ 	bool scummverseExportOverlay(int game, const Common::Path &file, Common::String &problem);
++	// (Full Throttle's coin and its box of things, drawn from their costumes.)
++	bool scummverseExportCoin(int game, const Common::Path &file, Common::String &problem);
+ 	bool scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Array<int> &blasts, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask, Common::Array<uint16> *shaded = nullptr);
+ 	void scummverseCaptureLetters(int slot, int charset, int ink, VirtScreen &vs, int top, int rows, ScummverseUiFont &font);
+ 	void scummverseCaptureLettersV7(int charset, int ink, ScummverseUiFont &font);
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 3ed1fdf1..b343c3a4 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1429,7 +1429,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, kWorldExportVersion)), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	// The verb panel last (its game's start changes the game), after the
+ 	// marker: a start that fails costs the panel, never the places.
+-	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex))) {
++	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex) || worldCoin(gameIndex))) {
+ 		Common::String problem;
+ 		const Common::Path ui = dir.appendComponent(Common::String::format("%s-ui.svi", game->gameid));
+ 		const Common::Path things = dir.appendComponent(Common::String::format("%s-things.svo", game->gameid));
+@@ -1440,7 +1440,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 			empty(ui); empty(things);
+ 		} else if (!worldPanel(gameIndex)) {
+ 			// (Sam & Max's rooms' scripts, run out of their story's order, do
+-			// not end: its things are not placed yet.)
++			// not end: its things, and the later games', are not placed yet.)
+ 			warning("SCUMMVERSE_WORLD_PANEL %s", game->gameid);
+ 			empty(things);
+ 		} else {
+@@ -1520,7 +1520,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ }
+ 
+ // A verb panel as written (see scummverseExportPanel below).
+-struct ScummverseUiVerb { int kind, id, x, y, width, height; Common::String name; Common::Array<byte> lit; };
++struct ScummverseUiVerb { int kind, id, x, y, width, height; Common::String name; Common::Array<byte> lit, litMask; };
+ struct ScummverseUiRect { int x, y, width, height; };
+ struct ScummverseUiGlyph { int code, advance, x, y, width, height; Common::Array<byte> pixels; };
+ struct ScummverseUiFont { int height, ink, none; Common::Array<ScummverseUiGlyph> glyphs; };
+@@ -1528,7 +1528,7 @@ struct ScummverseUiFont { int height, ink, none; Common::Array<ScummverseUiGlyph
+ // leaves clear (mask 0), and a pointer's hot spot.)
+ struct ScummverseUiPicture { int x = 0, y = 0, width = 0, height = 0, hotX = 0, hotY = 0; Common::Array<byte> pixels, mask; };
+ struct ScummverseUi {
+-	int layout = 0; // 0: under the scene ("SVI1"); 1: over it ("SVI2", see kWorldOverlays)
++	int layout = 0; // 0: under the scene ("SVI1"); 1: over it ("SVI2", see kWorldOverlays); 2: a coin ("SVI3", kWorldCoins)
+ 	int width = 0, screenHeight = 0, top = 0, rows = 0;
+ 	const byte *palette = nullptr;
+ 	Common::Array<byte> image;
+@@ -1546,14 +1546,19 @@ struct ScummverseUi {
+ 	ScummverseUiPicture button;
+ 	ScummverseUiRect close = {0, 0, 0, 0};
+ 	int shade = 255; // (the brightness a darkened pixel keeps, of 255)
++	// (A coin: its picture, its anchor the hot spot; the verbs' rectangles
++	// on it, each lit where its litMask is 1; the name's centre on it and
++	// its colour; the arrows' pictures, on their rectangles.)
++	ScummverseUiPicture coin, back, forward;
++	int nameX = 0, nameY = 0, nameInk = 0;
+ };
+ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file, Common::String &problem) {
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	const bool over = ui.layout == 1;
+-	out.write(over ? "SVI2" : "SVI1", 4);
++	const bool over = ui.layout >= 1, coin = ui.layout == 2;
++	out.write(coin ? "SVI3" : over ? "SVI2" : "SVI1", 4);
+ 	for (int f : {ui.width, ui.screenHeight, ui.top, ui.rows}) scummverseWrite16(out, f);
+ 	out.write(ui.palette, 768);
+ 	out.write(ui.image.data(), ui.image.size());
+@@ -1594,6 +1599,12 @@ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file,
+ 		scummverseWrite16(out, ui.button.x); scummverseWrite16(out, ui.button.y); picture(ui.button);
+ 		for (int f : {ui.close.x, ui.close.y, ui.close.width, ui.close.height}) scummverseWrite16(out, f);
+ 		out.writeByte(ui.shade);
++		if (coin) {
++			scummverseWrite16(out, ui.coin.hotX); scummverseWrite16(out, ui.coin.hotY); picture(ui.coin);
++			scummverseWrite16(out, ui.nameX); scummverseWrite16(out, ui.nameY); out.writeByte(ui.nameInk);
++			for (uint i = 0; i < ui.verbs.size() && i < 255; ++i) out.write(ui.verbs[i].litMask.data(), ui.verbs[i].litMask.size());
++			for (const ScummverseUiPicture *a : {&ui.back, &ui.forward}) { out.write(a->pixels.data(), a->pixels.size()); out.write(a->mask.data(), a->mask.size()); }
++		}
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+@@ -1682,9 +1693,15 @@ void ScummEngine::scummverseCaptureLetters(int slot, int charset, int ink, VirtS
+ // the button: int16 x, y (screen pixels), u16 width, height, pixels, mask;
+ // the icon that shuts the panel: int16 x, y, u16 width, height (0: none);
+ // u8 the brightness kept (of 255) where the panel's mask is 2 (shaded).
++// "SVI3" (a coin, scummverseExportCoin) is "SVI2" with the verbs' rectangles
++// on the coin, and after the shade: the coin's anchor int16 x, y, u16 width,
++// height, pixels, mask; the name's centre on it int16 x, y and u8 colour;
++// each verb's lit mask (width * height, 1 where drawn); the arrows' (up,
++// then down) pixels and mask, the size of their rectangles.
+ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldPanel *panel = worldPanel(gameIndex);
+ 	if (!panel && worldOverlay(gameIndex)) return scummverseExportOverlay(gameIndex, file, problem);
++	if (!panel && worldCoin(gameIndex)) return scummverseExportCoin(gameIndex, file, problem);
+ 	if (!panel) { problem = "no verb panel"; return false; }
+ 	if (_game.version <= 2) return scummverseExportPanelOld(gameIndex, file, problem);
+ 	// (Mac Indiana Jones draws its verbs in a window of its own, FM Towns on
+@@ -2228,6 +2245,182 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 	return scummverseWriteUi(ui, file, problem);
+ }
+ 
++// A coin game's controls ("<game>-ui.svi" as "SVI3", the new engine's step
++// 2f; see kWorldCoins): from its own start, run on at once until the player
++// has the pointer (that pointer, and the palette then); the coin and the box
++// of things drawn alone from their costumes by an actor of the engine's
++// own, in the game's exact colours as it sets them each time it shows them
++// (each remapped to the palette, a free entry taken where none matches);
++// each verb's part lit where its animation differs from the coin's; the
++// box's arrows in theirs; its cells; the name's lettering and the talk's.
++bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file, Common::String &problem) {
++	const WorldCoin *coin = worldCoin(gameIndex);
++	if (!coin) { problem = "no controls"; return false; }
++	if (_game.version != 7 || _game.heversion) { problem = "its controls are drawn its own way"; return false; }
++	for (int c : {(int)coin->coin, (int)coin->box})
++		if (c <= 0 || c >= _numCostumes || !_res->_types[rtCostume][c]._roomno) { problem = "costume missing"; return false; }
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) { vm.slot[i].status = ssDead; vm.slot[i].cutsceneOverride = 0; vm.slot[i].freezeCount = 0; }
++	_currentScript = 0xFF; vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF;
++	memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
++	_EXCD_offs = 0;
++	int args[NUM_SCRIPT_LOCAL];
++	memset(args, 0, sizeof(args));
++	args[0] = _bootParam;
++	_rnd.setSeed(0x5C0BE); // (The same start each time.)
++	runScript(1, 0, 0, args);
++	int frame = 0;
++	auto frames = [&](int count) {
++		for (int n = 0; n < count && !shouldQuit(); ++n, ++frame) {
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i)
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++			scummverseSkipCutscene();
++			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++			_talkDelay = 0;
++			_scummverseMusicTimer = frame * 4;
++			scummLoop(4);
++			_sound->stopAllSounds();
++		}
++	};
++	auto ready = [&]() { return _userPut > 0 && _cursor.state > 0 && _cursor.width > 0 && _cursor.height > 0; };
++	int steady = 0;
++	while (frame < 3000 && !shouldQuit() && steady < 30) { frames(1); steady = ready() ? steady + 1 : 0; }
++	_scummverseMusicTimer = -1;
++	if (steady < 30 || shouldQuit()) { problem = "its pointer never showed"; return false; }
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const int W = _screenWidth, top = vs.topline, rows = MIN<int>(vs.h, _screenHeight - top);
++	if (top != 0 || rows <= 0 || vs.w < W) { problem = "no screen"; return false; }
++	ScummverseUi ui;
++	ui.layout = 2; ui.width = W; ui.screenHeight = _screenHeight; ui.top = top; ui.rows = rows;
++	// The pointer.
++	{
++		ScummverseUiPicture c;
++		c.width = _cursor.width; c.height = _cursor.height; c.hotX = _cursor.hotspotX; c.hotY = _cursor.hotspotY;
++		for (int i = 0; i < c.width * c.height && i < (int)sizeof(_grabbedCursor); ++i) {
++			const byte v = _grabbedCursor[i];
++			c.mask.push_back(v != 255); c.pixels.push_back(v != 255 ? v : 0);
++		}
++		if (c.width > 256 || c.height > 256) { problem = "its pointer is too big"; return false; }
++		ui.cursors.push_back(c);
++	}
++	// A costume drawn alone, its anchor at (x, y) of the screen's rows (the
++	// screen put back after): set up, in animation `base` as the game shows
++	// it, then in `anim` over that (a part lit).
++	Actor *a = _actors[_numActors - 1];
++	auto draw = [&](int costume, int base, int anim, int x, int y, ScummverseGuestFrame &f) {
++		ensureResourceLoaded(rtCostume, costume);
++		a->initActor(0);
++		a->_visible = false;
++		a->setActorCostume(costume);
++		a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
++		putClass(a->_number, kObjectClassNeverClip, true);
++		a->putActor(x + vs.xstart, y, _currentRoom);
++		a->_visible = true;
++		// (Its exact colours, as the game's kernel function 14 sets them, its
++		// shadow colour kept as one and left out, as for the people.)
++		a->_shadowMode = 1;
++		a->remapActorPalette(255, 255, 255, 0);
++		a->startAnimActor(a->_initFrame);
++		a->startAnimActor(base);
++		if (anim != base) a->startAnimActor(anim);
++		Common::Array<byte> kept(W * rows);
++		for (int row = 0; row < rows; ++row) memcpy(&kept[row * W], vs.getPixels(0, row), W);
++		const bool drawn = scummverseCaptureActor(vs, W, rows, a, x, y, f);
++		for (int row = 0; row < rows; ++row) memcpy(vs.getPixels(0, row), &kept[row * W], W);
++		return drawn;
++	};
++	struct ActorKeep { Actor *a; ~ActorKeep() { a->initActor(0); } } keep = {a};
++	// The coin, as it opens and with each part lit: one picture about its
++	// anchor, as big as all of them.
++	ScummverseGuestFrame idle;
++	if (!draw(coin->coin, coin->idle, coin->idle, W / 2, rows / 2, idle)) { problem = "no coin"; return false; }
++	int verbCount = 0;
++	while (verbCount < 4 && coin->verbs[verbCount]) ++verbCount;
++	Common::Array<ScummverseGuestFrame> lit(verbCount);
++	int x0 = idle.dx, y0 = idle.dy, x1 = idle.dx + idle.width, y1 = idle.dy + idle.height;
++	for (int k = 0; k < verbCount; ++k) {
++		if (!draw(coin->coin, coin->idle, coin->lit[k], W / 2, rows / 2, lit[k])) { problem = "a part of the coin not drawn"; return false; }
++		x0 = MIN(x0, lit[k].dx); y0 = MIN(y0, lit[k].dy);
++		x1 = MAX(x1, lit[k].dx + lit[k].width); y1 = MAX(y1, lit[k].dy + lit[k].height);
++	}
++	const int cw = x1 - x0, ch = y1 - y0;
++	if (cw > 256 || ch > 256) { problem = "the coin is too big"; return false; }
++	// (A frame's colour at (x, y) of the coin's picture; -1 where it is clear.)
++	auto at = [&](const ScummverseGuestFrame &f, int x, int y) {
++		const int fx = x + x0 - f.dx, fy = y + y0 - f.dy;
++		if (fx < 0 || fy < 0 || fx >= f.width || fy >= f.height || !f.mask[fy * f.width + fx]) return -1;
++		return (int)f.pixels[fy * f.width + fx];
++	};
++	ui.coin.width = cw; ui.coin.height = ch; ui.coin.hotX = -x0; ui.coin.hotY = -y0;
++	for (int y = 0; y < ch; ++y)
++		for (int x = 0; x < cw; ++x) { const int c = at(idle, x, y); ui.coin.mask.push_back(c >= 0); ui.coin.pixels.push_back(MAX(c, 0)); }
++	for (int k = 0; k < verbCount; ++k) {
++		ScummverseUiVerb v;
++		v.kind = worldVerbKind(gameIndex, coin->verbs[k]); v.id = coin->verbs[k];
++		if (!v.kind) { problem = "a verb the catalog does not name"; return false; }
++		int px0 = cw, py0 = ch, px1 = -1, py1 = -1;
++		for (int y = 0; y < ch; ++y)
++			for (int x = 0; x < cw; ++x)
++				if (at(lit[k], x, y) != at(idle, x, y)) { px0 = MIN(px0, x); py0 = MIN(py0, y); px1 = MAX(px1, x); py1 = MAX(py1, y); }
++		if (px1 < 0) { problem = "a part of the coin not lit"; return false; }
++		v.x = px0; v.y = py0; v.width = px1 - px0 + 1; v.height = py1 - py0 + 1;
++		for (int y = py0; y <= py1; ++y)
++			for (int x = px0; x <= px1; ++x) { const int c = at(lit[k], x, y); v.lit.push_back(MAX(c, 0)); v.litMask.push_back(c >= 0); }
++		ui.verbs.push_back(v);
++	}
++	// The name, centred below the anchor, in its lettering.
++	ui.nameX = -x0; ui.nameY = -y0 + coin->nameY; ui.nameInk = coin->ink;
++	scummverseCaptureLettersV7(coin->charset, coin->ink, ui.fonts[0]);
++	if (ui.fonts[0].glyphs.empty()) { problem = "no lettering"; return false; }
++	// The box of things where the game opens it, and its arrows (the box in
++	// an arrow's animation, over the arrow's rectangle).
++	ScummverseGuestFrame box, back, forward;
++	if (!draw(coin->box, coin->boxIdle, coin->boxIdle, coin->boxX, coin->boxY, box) || !draw(coin->box, coin->boxIdle, coin->backLit, coin->boxX, coin->boxY, back) ||
++		!draw(coin->box, coin->boxIdle, coin->forwardLit, coin->boxX, coin->boxY, forward)) { problem = "no box"; return false; }
++	ui.image = Common::Array<byte>(W * rows, 0); ui.mask = Common::Array<byte>(W * rows, 0);
++	for (int y = 0; y < box.height; ++y)
++		for (int x = 0; x < box.width; ++x) {
++			const int sx = coin->boxX + box.dx + x, sy = coin->boxY + box.dy + y;
++			if (sx < 0 || sy < 0 || sx >= W || sy >= rows || !box.mask[y * box.width + x]) continue;
++			ui.image[sy * W + sx] = box.pixels[y * box.width + x]; ui.mask[sy * W + sx] = 1;
++		}
++	auto onBox = [&](const ScummverseGuestFrame &f, const short *r, ScummverseUiPicture &p) {
++		p.width = r[2]; p.height = r[3];
++		for (int y = 0; y < r[3]; ++y)
++			for (int x = 0; x < r[2]; ++x) {
++				const int fx = r[0] + x - coin->boxX - f.dx, fy = r[1] + y - coin->boxY - f.dy;
++				const bool in = fx >= 0 && fy >= 0 && fx < f.width && fy < f.height && f.mask[fy * f.width + fx];
++				p.mask.push_back(in); p.pixels.push_back(in ? f.pixels[fy * f.width + fx] : 0);
++			}
++	};
++	for (const short *r : {coin->back, coin->forward})
++		if (r[0] < 0 || r[1] < 0 || r[2] <= 0 || r[3] <= 0 || r[0] + r[2] > W || r[1] + r[3] > rows) { problem = "its arrows are off the screen"; return false; }
++	ui.arrows[0] = {coin->back[0], coin->back[1], coin->back[2], coin->back[3]};
++	ui.arrows[1] = {coin->forward[0], coin->forward[1], coin->forward[2], coin->forward[3]};
++	onBox(back, coin->back, ui.back); onBox(forward, coin->forward, ui.forward);
++	// (An arrow drawn where the box is clear is the box's there too: shaded
++	// by nothing, so the scene shows unless the arrow does.)
++	for (int k = 0; k < 2; ++k) {
++		const short *r = k ? coin->forward : coin->back;
++		const ScummverseUiPicture &p = k ? ui.forward : ui.back;
++		for (int y = 0; y < r[3]; ++y)
++			for (int x = 0; x < r[2]; ++x)
++				if (p.mask[y * r[2] + x] && !ui.mask[(r[1] + y) * W + r[0] + x]) ui.mask[(r[1] + y) * W + r[0] + x] = 2;
++	}
++	ui.slotKind = 2;
++	for (int k = 0; k < coin->columns; ++k) {
++		const ScummverseUiRect r = {coin->cellX + k * coin->stepX, coin->cellY, coin->cellWidth, coin->cellHeight};
++		if (r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows) ui.slots.push_back(r);
++	}
++	// The talk lettering, in the player's talk colour.
++	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
++	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
++	scummverseCaptureLettersV7(_string[0]._default.charset, ui.talk, ui.fonts[1]);
++	if (ui.fonts[1].glyphs.empty()) { problem = "no lettering"; return false; }
++	// (The palette last: with the colours the costumes took.)
++	ui.palette = _currentPalette;
++	return scummverseWriteUi(ui, file, problem);
++}
++
+ // The oldest games' verb panel (as scummverseExportPanel writes it): the
+ // verbs their scripts set up (the mansion's from its script that does so,
+ // as the original engine's sandbox starts; else from the game's own start,
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 91e92235..9addd98d 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -57,6 +57,9 @@ static const double kDoorReach = 12;
+ static const int kBackRequest = kWorldSandboxRequest + 1;
+ static const int kGameRequest = kWorldSandboxGameRequest;
+ static const char *const kStateFile = "scummverse-sandbox.state";
++// How long a press is held before Full Throttle's coin opens (ms; on the
++// iPhone, after its own long press).
++static const uint32 kCoinHold = 250;
+ 
+ static bool squarePixels(int game) { return kWorldGames[game].version >= 8; }
+ static double pixelAspect(int game) { return squarePixels(game) ? 1.0 : 1.2; }
+@@ -251,6 +254,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		PanelBridge::layout(_width, _height, PanelBridge::over() ? top : top + height, rowScale, colScale);
+ 	}
+ 	_pointerX = _pointerY = -1;
++	_press = Press();
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
+ 	_action = 0; _target = -1; _speech.clear(); _speechClock = 0;
+ 	PanelBridge::select(-1);
+@@ -374,17 +378,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+ 		// (Sam & Max's use pointer and The Dig's tap on a door go through it, as
+ 		// their games' do.)
+-		if (thing >= 0 && !(PanelBridge::over() && (kind == kWorldVerbUse || kind == kWorldVerbAct) && isDoor(thing))) {
+-			char name[80], verbName[40];
+-			StageBridge::objectName(thing, name, sizeof(name));
+-			PanelBridge::verbName(verb, verbName, sizeof(verbName));
+-			sentence(Common::String::format("%s %s", verbName, name));
+-			_action = kind; _target = thing;
+-			double tx, ty;
+-			doorPoint(thing, tx, ty);
+-			StageBridge::walkTo(_player, tx, ty);
+-			return;
+-		}
++		if (thing >= 0 && !(PanelBridge::over() && (kind == kWorldVerbUse || kind == kWorldVerbAct) && isDoor(thing))) { useOn(kind, verb, thing); return; }
+ 	}
+ 	sentence("");
+ 	// A door of this room (shown there) under the tap, else near it.
+@@ -411,6 +405,72 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	StageBridge::walkTo(_player, x, y);
+ }
+ 
++void SandboxEngine::useOn(int kind, int verb, int thing) {
++	char name[80], verbName[40];
++	StageBridge::objectName(thing, name, sizeof(name));
++	PanelBridge::verbName(verb, verbName, sizeof(verbName));
++	sentence(Common::String::format("%s %s", verbName, name));
++	_action = kind; _target = thing;
++	double tx, ty;
++	doorPoint(thing, tx, ty);
++	StageBridge::walkTo(_player, tx, ty);
++}
++
++// A press in a coin game: on a thing carried in the open box, else on a
++// thing here (as a tap finds one).
++void SandboxEngine::press(int screenX, int screenY) {
++	// (A coin left open, its let go lost: shut.)
++	PanelBridge::shutCoin();
++	_press = Press();
++	_press.down = true; _press.x = screenX; _press.y = screenY; _press.at = g_system->getMillis();
++	_pointerX = screenX; _pointerY = screenY; _dirty = true;
++	if (_player < 0) return;
++	int on = -1;
++	if (PanelBridge::isOpen()) {
++		if (PanelBridge::hit(screenX, screenY, on) == 3) _press.item = on;
++		return;
++	}
++	double x, y;
++	StageBridge::toScene(screenX, screenY, x, y);
++	Common::Array<int> things;
++	for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
++	_press.object = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
++}
++
++// Held long enough: the coin over what the press is on (over nothing, none).
++void SandboxEngine::hold() {
++	_press.held = true;
++	char name[80] = "";
++	if (_press.item >= 0) PanelBridge::itemName(_press.item, name, sizeof(name));
++	else if (_press.object >= 0) StageBridge::objectName(_press.object, name, sizeof(name));
++	else return;
++	_action = 0; _target = -1; _door = -1;
++	PanelBridge::openCoin(_press.x, _press.y, name);
++	PanelBridge::lightCoin(PanelBridge::coinVerb(_pointerX, _pointerY));
++	_dirty = true;
++}
++
++void SandboxEngine::drag(int screenX, int screenY) {
++	_pointerX = screenX; _pointerY = screenY; _dirty = true;
++	if (PanelBridge::coinOpen()) PanelBridge::lightCoin(PanelBridge::coinVerb(screenX, screenY));
++}
++
++// Let go: on a part of the coin, its verb on what it is over (a thing here
++// walked to first); off its parts, nothing. With no coin open, a tap where
++// the press began.
++void SandboxEngine::release(int screenX, int screenY) {
++	const Press p = _press;
++	_press = Press();
++	if (!PanelBridge::coinOpen()) { tap(p.x, p.y); return; }
++	const int verb = PanelBridge::coinVerb(screenX, screenY);
++	PanelBridge::shutCoin();
++	_dirty = true;
++	if (verb < 0) return;
++	const int kind = PanelBridge::verbKind(verb);
++	if (p.item >= 0) useItem(p.item, kind);
++	else if (p.object >= 0 && isThing(p.object)) useOn(kind, verb, p.object);
++}
++
+ // A thing a verb is used on: named, and not carried (taken from here). (A
+ // state of 0 is a game's own: shut doors and the like are things too.)
+ bool SandboxEngine::isThing(int object) const {
+@@ -484,19 +544,26 @@ void SandboxEngine::newKid() {
+ }
+ 
+ // A right click (two fingers on the iPhone): over the scene, as in Sam &
+-// Max, the next verb for the pointer (where the click was), or the box shut.
++// Max, the next verb for the pointer (where the click was), or the box shut;
++// Full Throttle's box opened or shut.
+ void SandboxEngine::rightClick(int screenX, int screenY) {
+ 	if (!PanelBridge::loaded() || !PanelBridge::over()) return;
+ 	_action = 0; _target = -1; _door = -1;
++	// (Full Throttle's: a coin held let go of, else its box opened or shut.)
++	if (PanelBridge::coin()) {
++		if (PanelBridge::coinOpen()) PanelBridge::shutCoin(); else PanelBridge::open(!PanelBridge::isOpen());
++		_press = Press(); _dirty = true;
++		return;
++	}
+ 	if (PanelBridge::isOpen()) PanelBridge::open(false);
+ 	else { PanelBridge::nextVerb(); _pointerX = screenX; _pointerY = screenY; }
+ 	_dirty = true;
+ }
+ 
+ // A thing carried: looked at, it is named; nothing else works on it here.
+-void SandboxEngine::useItem(int item) {
++void SandboxEngine::useItem(int item, int kind) {
+ 	const int verb = PanelBridge::selected();
+-	int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
++	if (!kind) kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	char name[80];
+ 	PanelBridge::itemName(item, name, sizeof(name));
+ 	// (In Sam & Max's box the pointer stays the verb it is; walking there looks.)
+@@ -692,7 +759,9 @@ void SandboxEngine::present() {
+ 		// the pointer where the last tap was.
+ 		const bool over = PanelBridge::over();
+ 		if (over && PanelBridge::isOpen()) PanelBridge::render(_frame.data(), _width, _height);
+-		else if (over) PanelBridge::renderControls(_frame.data(), _width, _width, _height, _pointerX, _pointerY, _pointerX >= 0);
++		// (Full Throttle's coin over the scene, under the pointer.)
++		PanelBridge::renderCoin(_frame.data(), _width, _width, _height);
++		if (over && !PanelBridge::isOpen()) PanelBridge::renderControls(_frame.data(), _width, _width, _height, _pointerX, _pointerY, _pointerX >= 0);
+ 		// Speech over the one played's head, at the scene's scale.
+ 		int x0, y0, x1, y1;
+ 		if (!_speech.empty() && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) {
+@@ -869,9 +938,13 @@ Common::Error SandboxEngine::run() {
+ 	bool changed = true;
+ 	while (!shouldQuit()) {
+ 		Common::Event event;
++		// (Full Throttle's: a press held opens the coin, let go uses it.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+-			if (event.type == Common::EVENT_LBUTTONDOWN) { tap(event.mouse.x, event.mouse.y); changed = true; }
++			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
++			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
++			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
++		if (_press.down && !_press.held && g_system->getMillis() - _press.at >= kCoinHold) { hold(); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+ 		if (const int code = scummverseWorldPoll()) if (code > kWorldSandboxRequest) { request(code); changed = true; }
+ 		const uint32 now = g_system->getMillis();
+@@ -911,6 +984,7 @@ Common::Error SandboxEngine::run() {
+ Common::Error SandboxEngine::verbsTest() {
+ 	int panels = 0, verbs = 0, chosen = 0, failed = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
++	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+ 	auto tapRect = [&](int x, int y, int w, int h) { tap(x + w / 2, y + h / 2); };
+ 	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
+@@ -938,9 +1012,43 @@ Common::Error SandboxEngine::verbsTest() {
+ 		tapRect(x, y, w, h);
+ 		return true;
+ 	};
++	// A point of a coin's part where that part is the one there (a smaller
++	// part may lie in its middle: the eyes in the skull).
++	auto partPoint = [&](int v, int &px, int &py) {
++		int x, y, w, h;
++		if (!PanelBridge::partRect(v, x, y, w, h)) return false;
++		for (int r = 0; r < MAX(w, h); ++r)
++			for (int dy = -r; dy <= r; ++dy)
++				for (int dx = -r; dx <= r; ++dx) {
++					px = x + w / 2 + dx; py = y + h / 2 + dy;
++					if (px >= x && py >= y && px < x + w && py < y + h && PanelBridge::coinVerb(px, py) == v) return true;
++				}
++		return false;
++	};
++	// A verb of Full Throttle's coin used on an object: a press held on its
++	// middle, the pointer to the verb's part (lit), let go there.
++	auto useCoin = [&](int kind, int object) {
++		const int v = verbOf(kind);
++		int id, ox, oy, ow, oh, wx, wy, state, sx, sy, px, py;
++		if (v < 0 || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		_speech.clear();
++		StageBridge::lookAt(ox + ow / 2.0);
++		StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++		if (sx < 0 || sx >= _width || sy < 0 || sy >= _height) return false;
++		press(sx, sy);
++		hold();
++		if (!PanelBridge::coinOpen() || !partPoint(v, px, py)) { release(sx, sy); _action = 0; _target = -1; _door = -1; return false; }
++		drag(px, py);
++		if (PanelBridge::coinLit() != v) return false;
++		release(px, py);
++		if (_target != object) { _action = 0; _target = -1; return false; }
++		settle();
++		return _speech != "I can't reach that.";
++	};
+ 	// A verb used on an object: false when the panel has no such verb or a
+ 	// tap on the object's middle is for another one.
+ 	auto use = [&](int kind, int object) {
++		if (PanelBridge::coin()) return useCoin(kind, object);
+ 		const int v = verbOf(kind);
+ 		int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
+ 		if (v < 0 || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
+@@ -968,12 +1076,66 @@ Common::Error SandboxEngine::verbsTest() {
+ 		int left, top, width, height;
+ 		double rowScale, colScale;
+ 		StageBridge::view(left, top, width, height, rowScale, colScale);
+-		const bool over = PanelBridge::over();
++		const bool over = PanelBridge::over(), coin = PanelBridge::coin();
+ 		if (PanelBridge::top() != (over ? top : top + height) || PanelBridge::top() + PanelBridge::screenRows() > _height) fail(over ? "not over the scene" : "not under the scene", g);
++		// Full Throttle's: its box opens by a right click and shuts by a tap
++		// off it and another right click; a press held on a thing opens the
++		// coin there (not before), each part lit under the pointer; let go
++		// off the parts, nothing is done; a press let go at once walks.
++		int parts = 0;
++		if (coin) {
++			rightClick(_width / 2, _height / 2);
++			if (!PanelBridge::isOpen()) fail("the box not opened by a right click", g);
++			press(0, 0); release(0, 0);
++			if (PanelBridge::isOpen()) fail("the box not shut by a tap off it", g);
++			rightClick(_width / 2, _height / 2); rightClick(_width / 2, _height / 2);
++			if (PanelBridge::isOpen()) fail("the box not shut by a right click", g);
++			// (On a thing that is not a door: a press let go at once there walks.)
++			for (int o = 0; o < StageBridge::objectCount() && !parts; ++o) {
++				int id, ox, oy, w, h, wx, wy, state, sx, sy, px, py;
++				if (!isThing(o) || isDoor(o) || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
++				StageBridge::lookAt(ox + w / 2.0);
++				StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++				if (sx < 0 || sx >= _width || sy < 0 || sy >= _height) continue;
++				press(sx, sy);
++				if (_press.object < 0) { _press = Press(); continue; }
++				if (PanelBridge::coinOpen()) fail("the coin open before it is held", g);
++				hold();
++				if (!PanelBridge::coinOpen()) { fail("the coin not opened", g); break; }
++				for (int v = 0; v < PanelBridge::verbCount(); ++v) {
++					++verbs; ++parts;
++					if (!partPoint(v, px, py)) { fail("a part of the coin not found", g); continue; }
++					drag(px, py);
++					if (PanelBridge::coinLit() != v) fail("a part of the coin not lit", g); else ++chosen;
++				}
++				int cx, cy, cw, ch;
++				PanelBridge::coinRect(cx, cy, cw, ch);
++				// (Its picture with a part lit.)
++				if (partPoint(verbOf(kWorldVerbLook), px, py)) drag(px, py);
++				present();
++				if (ConfMan.hasKey("scummverse_shots")) shot(Common::String::format("verbs-%s-coin.png", kWorldGames[g].gameid));
++				drag(cx, cy);
++				if (PanelBridge::coinLit() != -1) fail("a part lit off the parts", g);
++				release(cx, cy);
++				if (PanelBridge::coinOpen() || _action || _target >= 0) fail("let go off its parts, something done", g); else ++coins;
++				// (From the spot farthest from it.)
++				double xs[12], ys[12], tx, ty;
++				StageBridge::toScene(sx, sy, tx, ty);
++				const int spots = StageBridge::spots(12, xs, ys);
++				int far = 0;
++				for (int k = 1; k < spots; ++k)
++					if ((xs[k] - tx) * (xs[k] - tx) + (ys[k] - ty) * (ys[k] - ty) > (xs[far] - tx) * (xs[far] - tx) + (ys[far] - ty) * (ys[far] - ty)) far = k;
++				if (spots) StageBridge::place(_player, xs[far], ys[far]);
++				press(sx, sy); release(sx, sy);
++				if (PanelBridge::coinOpen() || _action || !(StageBridge::moving(_player) || _door >= 0)) fail("a press let go at once not walked", g);
++				_door = -1;
++				settle();
++			}
++		}
+ 		// Over the scene (Sam & Max): the box opens from its button and shuts
+ 		// by its icon, a tap off it and a right click; a right click brings
+ 		// each verb round as the pointer, back to walking.
+-		if (over) {
++		if (over && !coin) {
+ 			int bx, by, bw, bh, cx, cy, cw, ch;
+ 			if (!PanelBridge::buttonRect(bx, by, bw, bh)) fail("no button", g);
+ 			else {
+@@ -1040,8 +1202,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!walk) tapRect(x, y, w, h);
+ 			if (PanelBridge::selected() != -1) fail("a verb not let go", g);
+ 		}
+-		// (Over the scene: its icons, where it has more than its tap.)
+-		if (over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < 9) fail("fewer verbs than the game has", g);
++		// (Over the scene: its icons, where it has more than its tap; a coin, its parts.)
++		if (coin ? parts < 4 : over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < 9) fail("fewer verbs than the game has", g);
+ 		Common::Array<int> things;
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 		auto facts = [&](int o, int &id, int &pictures, int &shown, bool &door, bool &small) {
+@@ -1097,6 +1259,54 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (StageBridge::objectShown(o) != 0) fail("not closed", g); else ++closed;
+ 			break;
+ 		}
++		// Full Throttle's hand: something done (a thing taken, opened or shut,
++		// else a line); one taken is in the box (a right click), named by a
++		// tap on its cell, and by its coin's eyes.
++		// (Each thing tried until one is taken.)
++		const int carriedBefore = (int)_carried.size();
++		for (int o : things) {
++			if (verbOf(kWorldVerbHand) < 0 || (int)_carried.size() > carriedBefore) break;
++			const int shownBefore = StageBridge::objectShown(o), had = (int)_carried.size();
++			if (!use(kWorldVerbHand, o)) continue;
++			if (_speech.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == had) { fail("the hand did nothing", g); break; }
++			++handed;
++		}
++		// Things carried in the box: the last named by a tap on its cell and
++		// by the coin's eyes held over it; its arrows a thing along each way.
++		if (coin && PanelBridge::itemCount()) {
++			++coinCarried;
++			rightClick(_width / 2, _height / 2);
++			for (int turn = 0; turn < 64 && PanelBridge::itemCount() - 1 - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++			int x, y, w, h, px, py;
++			char name[80];
++			PanelBridge::itemName(PanelBridge::itemCount() - 1, name, sizeof(name));
++			if (!PanelBridge::isOpen() || !PanelBridge::slotRect(PanelBridge::itemCount() - 1 - PanelBridge::firstItem(), x, y, w, h)) fail("a thing carried not in the box", g);
++			else {
++				_speech.clear();
++				press(x + w / 2, y + h / 2); release(x + w / 2, y + h / 2);
++				if (_speech.empty() || toupper((unsigned char)_speech[0]) != toupper((unsigned char)name[0])) fail("a thing carried not looked at", g);
++				_speech.clear();
++				press(x + w / 2, y + h / 2); hold();
++				if (!PanelBridge::coinOpen() || !partPoint(verbOf(kWorldVerbLook), px, py)) fail("no coin over a thing carried", g);
++				else { drag(px, py); release(px, py); }
++				if (_speech.empty() || toupper((unsigned char)_speech[0]) != toupper((unsigned char)name[0])) fail("a thing carried not looked at with the coin", g);
++				else ++coinItems;
++				// (Where they are: the points a tap there finds them.)
++				int back[2] = {-1, -1}, forward[2] = {-1, -1}, index;
++				for (int ay = 0; ay < _height && (back[0] < 0 || forward[0] < 0); ay += 2)
++					for (int ax = 0; ax < _width; ax += 2)
++						if (PanelBridge::hit(ax, ay, index) == 4) { int *a = index < 0 ? back : forward; if (a[0] < 0) { a[0] = ax; a[1] = ay; } }
++				const int first = PanelBridge::firstItem();
++				if (back[0] < 0 || forward[0] < 0) fail("the box's arrows not found", g);
++				else if (PanelBridge::itemCount() > PanelBridge::slotCount()) {
++					press(back[0], back[1]); release(back[0], back[1]);
++					if (PanelBridge::firstItem() != first - 1 || !PanelBridge::isOpen()) fail("the box's back arrow not a thing back", g);
++					press(forward[0], forward[1]); release(forward[0], forward[1]);
++					if (PanelBridge::firstItem() != first || !PanelBridge::isOpen()) fail("the box's forward arrow not a thing on", g);
++				}
++			}
++			if (PanelBridge::isOpen()) rightClick(_width / 2, _height / 2);
++		}
+ 		// Out of reach (from the farthest spot): nothing done.
+ 		double xs[12], ys[12];
+ 		const int spots = StageBridge::spots(12, xs, ys);
+@@ -1235,8 +1445,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), failed);
++	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
++	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 503f0399..cb1e1e25 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -84,7 +84,16 @@ private:
+ 	void chooseVerb(int verb);
+ 	void rightClick(int screenX, int screenY);
+ 	void newKid();
+-	void useItem(int item);
++	void useItem(int item, int kind = 0); // (kind 0: the verb chosen)
++	void useOn(int kind, int verb, int thing); // walked to, then the verb
++	// Full Throttle's coin (step 2f): a press, and what it is on (a thing
++	// here, else one carried in the open box); held long enough, the coin
++	// opens over it; the part under the pointer lit as it moves; let go, the
++	// verb of the part there (a press let go before then is a tap).
++	void press(int screenX, int screenY);
++	void hold();
++	void drag(int screenX, int screenY);
++	void release(int screenX, int screenY);
+ 	void act();
+ 	void say(const Common::String &line);
+ 	void showPicture(int object, int id, int picture);
+@@ -133,6 +142,8 @@ private:
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them
+ 	Common::HashMap<int, int> _pictures;    // objects in another picture (thingKey; taken: 0)
++	struct Press { bool down = false, held = false; int x = 0, y = 0, object = -1, item = -1; uint32 at = 0; };
++	Press _press;                           // (a coin game's press)
+ 	struct Carried { int game, room, id, picture; Common::String name; };
+ 	Common::Array<Carried> _carried;        // things carried, in order
+ 	Common::RandomSource _random;

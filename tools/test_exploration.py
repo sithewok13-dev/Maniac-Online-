@@ -7,7 +7,9 @@ engine source, normal executable, game files, or existing saves.
 """
 import argparse
 import hashlib
+import os
 from pathlib import Path
+import random
 import shlex
 import shutil
 import subprocess
@@ -78,11 +80,23 @@ def command_for(build, source, target):
     raise RuntimeError(f'Cannot find compiler command for {target}')
 
 
-def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None):
-    if reference_game not in (None, "zak"):
-        raise ValueError("Only the audited Zak source-reference launcher is supported")
+REFERENCE_GAMES = ("zak", "monkey", "monkey2", "loom", "indy3", "atlantis", "tentacle", "samnmax", "ft", "dig", "comi")
+
+
+def run_probe(data, probe_code, config_key, marker, label, prelude="", build_name="null", reference_game=None, timeout=45, extra_config=""):
+    if reference_game not in (None,) + REFERENCE_GAMES:
+        raise ValueError("Unsupported source-reference game")
     build = ROOT/'build'/build_name
     source = ROOT/'engine/engines/scumm/scumm.cpp'
+    # A random seed of its own for each run (not a fixed one: what chance
+    # decides, a roamer's wait or door, keeps being tried from run to run, and
+    # a fixed seed would keep a probe that only holds for some seeds passing,
+    # or failing, for good). Named, so a failure can be run again exactly:
+    # SCUMMVERSE_PROBE_SEED=<seed>. (Not where the probe's settings name one.)
+    seed = None if 'random_seed' in extra_config else int(os.environ.get('SCUMMVERSE_PROBE_SEED') or random.randint(1, 2**31 - 1))
+    if seed is not None:
+        extra_config += f'random_seed={seed}\n'
+        print(f'{label} probe: random_seed={seed}')
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
         work = Path(tmp)
         code = prelude + source.read_text()
@@ -90,6 +104,8 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         if code.count(boundary) != 1:
             raise RuntimeError('Pinned runBootscript boundary changed')
         probe = work/'scumm.cpp'
+        # Probes write private captures to <checkout>/build, wherever it lives.
+        probe_code = probe_code.replace('/workspace/Maniac-Online/build', str(ROOT/'build'))
         probe.write_text(code.replace(boundary, '\n' + probe_code + boundary))
         cmd = command_for(build, source, 'engines/scumm/scumm.o')
         cmd[cmd.index(str(source))] = str(probe)
@@ -107,8 +123,8 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
             main_source = ROOT/'engine/base/main.cpp'
             main_text = main_source.read_text()
             replacements = {
-                'command = "scumm:maniac";': 'command = "scumm:zak";',
-                'ConfMan.get("gameid") != "maniac"': 'ConfMan.get("gameid") != "zak"',
+                'command = "scumm:maniac";': f'command = "scumm:{reference_game}";',
+                'ConfMan.get("gameid") != "maniac"': f'ConfMan.get("gameid") != "{reference_game}"',
             }
             for before, after in replacements.items():
                 if main_text.count(before) != 1:
@@ -130,14 +146,20 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         subprocess.run(cmd, cwd=build, check=True)
         for enabled in (False, True):
             config = work/'probe.ini'
-            config.write_text('[scummvm]\n' + ('scummverse_roaming=false\n' if config_key != 'scummverse_roaming' else '') + config_key + '=' + str(enabled).lower() + '\n')
+            # Wanderers (other games' characters visiting) stay home unless a
+            # probe asks for them: rooms stay as each probe expects. (Roaming
+            # off when another setting is the one tried, unless asked for.)
+            wanderers = '' if 'scummverse_wanderers' in extra_config else 'scummverse_wanderers=false\n'
+            roaming = 'scummverse_roaming=false\n' if config_key != 'scummverse_roaming' and 'scummverse_roaming' not in extra_config else ''
+            config.write_text('[scummvm]\n' + roaming + config_key + '=' + str(enabled).lower() + '\n' + wanderers + extra_config)
             result = subprocess.run([str(exe), f'--config={config}', f'--path={data}',
                                      f'--savepath={work}', '--debuglevel=1'],
-                                    cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)
+                                    cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
             output = result.stdout + result.stderr
             (ROOT/f'build/{label}-probe-{enabled}.log').write_text(output)
             if result.returncode or f'{marker} enabled={int(enabled)}' not in output:
-                raise RuntimeError(output[-6000:])
+                again = '' if seed is None else f'\n(random_seed={seed}: SCUMMVERSE_PROBE_SEED={seed} runs it again)'
+                raise RuntimeError(output[-6000:] + again)
             print(f'PASS: {label} real-script probe, override enabled={enabled}')
         print('Normal source, executable, game data and saves unchanged')
 

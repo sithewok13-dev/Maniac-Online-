@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Run every test that needs privately supplied original data, in order.
+
+Usage: python3 tools/test_all_data.py game-data/mm-dos game-data/zak-dos
+Original-interpreter reference tests run first because several sandbox tests
+compare against their private outputs. Probes run one at a time (they share the
+build tree). test_temple_legacy is excluded: it needs a patch-0037 engine and
+build. Logs go to build/data-tests/. Native probes are not iPhone acceptance.
+STOCK compares Story mode with stock ScummVM 2.9.1 in build/stock-2.9.1 and
+skips when that build is not there (made once, a few minutes, by
+tools/test_story_differential.py game-data/mm-dos --make-stock). BOTH take the
+mansion's folder and Zak's.
+"""
+import argparse
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+# (Story mode against stock ScummVM 2.9.1; skipped without that build.)
+STOCK = ['test_story_differential']
+# (The mansion's data and Zak's: Zak played to its ending in both modes.)
+BOTH = ['test_playthrough_zak']
+REFERENCE = ['test_mars_reference', 'test_temple_reference', 'test_source_reference',
+             'test_perspective_reference']
+SANDBOX = ['test_exploration', 'test_safety', 'test_roaming', 'test_ai_encounters', 'test_worlds',
+           'test_airport', 'test_bus', 'test_flights', 'test_flight_join', 'test_companions',
+           'test_companion_presence', 'test_seating', 'test_zak_paths', 'test_zak_cast',
+           'test_portraits', 'test_walkboxes', 'test_perspective', 'test_chamber', 'test_temple',
+           'test_mars', 'test_maze', 'test_san_francisco', 'test_dig_bridges', 'test_dig_tram', 'test_van', 'test_mars_air', 'test_appearance', 'test_camera_engine', 'test_expansion', 'test_net_engine', 'test_tram', 'test_world_visit', 'test_tour_engine', 'test_lights_doors', 'test_pool_valve', 'test_mansion_links', 'test_mansion_locks', 'test_cast', 'test_wander_engine', 'test_damaged_engine', 'test_sandbox_engine', 'test_story_engine', 'test_playthrough_engine']
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('maniac', type=Path)
+    p.add_argument('zak', type=Path)
+    p.add_argument('--only', nargs='*', help='run only these test names')
+    a = p.parse_args()
+    logs = ROOT/'build/data-tests'
+    logs.mkdir(parents=True, exist_ok=True)
+    plan = [(t, a.zak) for t in REFERENCE] + [(t, a.maniac) for t in SANDBOX + STOCK]
+    plan += [(t, None) for t in BOTH]
+    plan.append(('test_scene_authenticity', None))
+    results = []
+    for name, data in plan:
+        if a.only and name not in a.only:
+            continue
+        args = [sys.executable, str(ROOT/'tools'/f'{name}.py')]
+        args += [str(a.maniac.resolve()), str(a.zak.resolve())] if data is None else [str(data.resolve())]
+        start = time.time()
+        result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+        (logs/f'{name}.log').write_text(result.stdout + result.stderr)
+        status = 'PASS' if result.returncode == 0 else 'FAIL'
+        results.append((name, status))
+        print(f'{status} {name} ({time.time()-start:.0f}s)', flush=True)
+    failed = [n for n, s in results if s != 'PASS']
+    print(f'{len(results)-len(failed)}/{len(results)} data tests passed' + (f'; failed: {failed}' if failed else ''))
+    return 1 if failed else 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
