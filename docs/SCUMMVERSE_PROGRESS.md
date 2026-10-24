@@ -6563,3 +6563,31 @@ can flash for a moment. A new section of tools/test_talk_provider.cpp
 runs the dialogue runtime from a UI thread and a game thread at once
 under TSan; it caught each of five races planted to check it. No iPhone
 code changed; not run on an iPhone.
+
+## Tests: Story mode frame by frame against stock ScummVM 2.9.1
+
+A new data test, tools/test_story_differential.py, runs every game folder
+in Story mode (as Story mode's own list starts it) and in stock ScummVM
+2.9.1 (built once from the pinned upstream source with --make-stock into
+build/stock-2.9.1) with the same seed, the same inputs at the same frames
+(clicks on verbs and things, Escape and the talk-skip key, the games' own
+menus, ScummVM saves and loads, autosaves) and a clock that moves only
+when the game waits, and compares every frame: screen, palette, cursor,
+sound, variables, objects, actors and scripts, then the saves both wrote,
+byte for byte, and 2000 frames gone on from them.
+- Every game the data allows matched exactly: Maniac Mansion, Zak, Monkey
+  Island 1 and 2, Loom, Indy3, Atlantis, Tentacle, Sam & Max, The Dig and
+  The Curse (3000 + 2000 frames by default; longer runs and other seeds,
+  and Maniac's, Zak's and Loom's rooms all visited, also identical).
+- The only differences are deliberate: Monkey Island 2's recipe and Sam &
+  Max's dolls answered (the test gives stock the same answers to compare
+  past them; without them it fails exactly there); a game's own save
+  waiting no longer replaced by ScummVM's autosave in the same frame
+  (0231; stock loses Atlantis's room change there); Full Throttle refused
+  in words for its missing files; Maniac's five guest actor slots (empty in
+  a story, not saved); the story saves and settings.
+- Stock's own faults met by the test's room moves, the same in both:
+  Indy3 room 9 writes past a mask buffer (that game's room tour is left
+  out), a Zak room 8 assertion, The Curse's quit question waiting for ever.
+- Not covered: deep story progress in the later games; films, voices and
+  music (missing from those copies); Tentacle's computer; the iPhone.
