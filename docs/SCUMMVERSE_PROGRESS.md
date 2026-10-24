@@ -6772,3 +6772,27 @@ From 0241's open note and a review of 0241.
   stopped during the mansion's own export at the next start, back from
   the autosave the start after), test_startup (six new cases), the full
   data suite. Not tested on an iPhone.
+
+## Patch 0244 — the mansion's engine in Explore mode: cheaper frames
+
+From the third round (performance; behaviour unchanged).
+- Profiled with callgrind: Explore mode cost about 4 times Story mode per
+  frame (Maniac 424K instructions against 114K), nearly all in the roaming
+  bookkeeping (the guests, wanderers, character mounting) and drawing.
+  Full-cast searches every frame, names re-parsed on every comparison, a
+  key formatted every frame, linear map searches, a per-pixel division in
+  the sprite scalers, a whole-canvas scan per redraw and Zak's bus repainted
+  into the street's maps every frame are now cached, tabled, done once per
+  column or skipped when nothing changed (the same bytes would have been
+  written). Zak's scenes check a tap's point before classifying an object
+  (the same object wins).
+- Per frame: Maniac's Explore playthrough 424K to 359K instructions, Zak's
+  442K to 387K, a scenario bench with visitors 369K to 258K; Story mode
+  unchanged. The Zak playthrough test as a whole runs about 13 times faster
+  (its tap search had been dominated by the old per-object order).
+- Identical results: the playthroughs (both games, both modes, four
+  seeds), a scenario bench's screens, the data probes' logs (apart from
+  wall-clock lines), fitSprites/fitScene compared byte for byte over 400
+  random rounds against the old code, ASan.
+- Tests: test_world, test_stage, test_panel (ASan/UBSan), test_wander
+  (ASan/UBSan, TSan), the full data suite. Not tested on an iPhone.
