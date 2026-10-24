@@ -6360,3 +6360,33 @@ From an independent review of 0220-0222.
   story test (an autosave and a phone save injected after the computer:
   failed before, passes now, scratch build), the full data suite. Not
   tested on an iPhone.
+
+## Patch 0232 — the export's scenes as the game shows them (export version 25)
+
+From the third bug hunt (exporter fidelity).
+- The exporter drew a place's scene before bringing its things' states up
+  to date, which the game does every frame just before drawing. Places
+  whose entry scripts change things (all of Zak's, Indy3's castle rooms,
+  The Dig's, others) were saved with the states from before their scripts
+  ran, and others with whatever the previous place left; a thing's shown
+  picture was then taken from that stale scene. In the new engine, places
+  showed the wrong furnishing (Zak 130's centrepiece, walls for doorways in
+  Zak's pyramid cells 156-167, Indy3's castle rooms, The Dig 43 and 65's
+  plate and crystals), and many doors and things never changed look when
+  opened or taken.
+- Compared with what the game itself shows after 100 frames, places that
+  differ fall from 289 (1.89 million pixels) to 153 (1.20 million): Zak
+  71 to 13, Indy3 52 to 17, The Dig 29 to 11, Curse 33 to 21, Full
+  Throttle 14 to 7, Sam & Max 17 to 13. Zak 130, 156, Indy3 134, 162, The
+  Dig 43, 65, Full Throttle 130 and Monkey Island 130 now match exactly.
+  133 of Zak's doors, containers and things regain their own pictures.
+  The mansion's files are byte for byte as before (the garage too).
+- Still different: animation the games' scripts change every few frames;
+  places drawn by how they are entered (Monkey Island 131/132 from the
+  next beach, Zak's plane in the sky); The Curse's start state (no things
+  file); cutscene frames; on purpose, the Dig's bridges, Indy3's floor
+  plans and dark places exported lit. Five places got slightly worse (Zak
+  16, Monkey Island 131/132 as entered from the beach, Curse 16 and 37).
+- Tests: a fresh export of all 12 games (version 25; 233 scene files
+  changed, nothing else), test_panel and test_world, the sandbox suite
+  (all, doors, verbs) and the full data suite. Not tested on an iPhone.
