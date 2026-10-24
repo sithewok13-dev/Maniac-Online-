@@ -23,8 +23,10 @@ the iPhone's chat (a stand-in for it) is told who is there, those in a
 conversation stand facing the one played, each line is said over its
 speaker's head, and a tap picks someone when the chat asks whom; someone
 asked along by it follows the one played, through doors too, until asked
-to stay or someone else is played; its character screen (a stand-in) gets a box per game with its lead's face and
-people, and each game's lead and another are played where they live, and a
+to stay or someone else is played (the same person of another game where
+they arrive steps aside); its character screen (a stand-in) gets a box per game with its lead's face and
+people, and each game's lead and another are played where they live (the
+same person as the one played chosen there: the one before goes home), and a
 last box of custom characters (Crispy first, played where the player is); its
 camera takes a photo of the scene and of the screen and a selfie of three
 (everyone posed, nobody moving), and holds still while asked; its tour
@@ -348,6 +350,11 @@ if __name__ == '__main__':
         raise SystemExit(0)
     exe = ROOT/'build/null/scummvm'
     shots = ROOT/'build/sandbox-shots'
+    # (Two games with people of one name in both, as Monkey Island's and
+    # Monkey Island 2's Guybrush, the mansion's and Day of the Tentacle's
+    # tentacles: the checks that nobody is shown twice have someone to try.)
+    monkeys = any(worlds.glob('monkey-*.svw')) and any(worlds.glob('monkey2-*.svw'))
+    twins = monkeys or (any(worlds.glob('maniac-*.svw')) and any(worlds.glob('tentacle-*.svw')))
     shots.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='scummverse-sandbox-', dir=ROOT/'build') as tmp:
         sandbox(exe, worlds, 'walk', shots, tmp)
@@ -409,8 +416,20 @@ if __name__ == '__main__':
         if not sw or sw.group(1) != sw.group(2) or ((worlds/'monkey-25.svw').exists() and sw.group(1) == '0'):
             raise SystemExit('FAIL: switched doors back\n' + output[-2000:])
         print(f'PASS: {sw.group(1)} switched doors gone through open, the door back open too')
-        sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
+        output = sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
+        # (From 0230) Never two of anyone (by name: another game's of the
+        # same name), in no place nor on the stage; with two games of the
+        # same people here, two of one person sent here shown once (and not
+        # beside one of them played); Monkey Island's lead played, the others
+        # of his name kept out.
+        t = re.search(r"never two of anyone: (\d+) places checked with nobody twice \((\d+) twice\), (\d+) on the stage twice, (\d+) of the one played's name came in "
+                      r"\((\d+) of (\d+) kept out\); (.+?) of games (-?\d+) and (-?\d+) sent here: (\d+) of 2 stepped aside", output)
+        if not t or int(t.group(1)) == 0 or any(t.group(i) != '0' for i in (2, 3, 4)) or t.group(5) != t.group(6) \
+                or (twins and (t.group(7) == 'nobody' or t.group(10) != '2')) or (monkeys and t.group(6) == '0'):
+            raise SystemExit('FAIL: wanderers: two of one person\n' + output[-2000:])
+        print(f'PASS: never two of anyone: {t.group(1)} places with nobody twice, nobody twice on the stage; {t.group(7)} of two games sent here, '
+              f'{t.group(10)} of 2 stepped aside; {t.group(6)} of the one played\'s name kept out')
         # Each game's own verb panel (exported from its start): every verb
         # chosen, used on the things there, kept.
         output = sandbox(exe, worlds, 'verbs', shots, tmp)
@@ -505,10 +524,13 @@ if __name__ == '__main__':
         # staying when asked, let go when someone else is played; with the
         # wanderers off and on.
         output = sandbox(exe, worlds, 'follow', shots, tmp)
-        m = re.search(r'selftest follow: (\d+) asked along, (\d+) walked after \((\d+) while talking\), (\d+) through a door, (\d+) told the chat, (\d+) kept, (\d+) stayed, (\d+) let go, (\d+) failed', output)
-        if not m or m.group(9) != '0' or any(m.group(i) != '2' for i in (1, 4, 5, 6, 7, 8)) or m.group(2) == '0' or m.group(3) == '0':
+        m = re.search(r'selftest follow: (\d+) asked along, (\d+) walked after \((\d+) while talking\), (\d+) through a door, (\d+) told the chat, (\d+) kept, (\d+) stayed, (\d+) let go, '
+                      r'(\d+) of (\d+) following where the same person lives or wanders shown once \(the other stepping aside\), (\d+) failed', output)
+        if not m or m.group(11) != '0' or any(m.group(i) != '2' for i in (1, 4, 5, 6, 7, 8)) or m.group(2) == '0' or m.group(3) == '0' \
+                or m.group(9) != m.group(10) or (twins and m.group(10) != '2'):
             raise SystemExit('FAIL: followers\n' + output[-2000:])
-        print(f'PASS: followers (the chat\'s Follow): asked along, walking after the one played (talking too), through a door beside them, the chat told, kept, staying when asked, let go when someone else is played; wanderers off and on')
+        print(f'PASS: followers (the chat\'s Follow): asked along, walking after the one played (talking too), through a door beside them, the chat told, kept, staying when asked, let go when someone else is played; wanderers off and on; '
+              f'{m.group(9)} of {m.group(10)} into where the same person (another game\'s) lives or wanders, shown once, the other stepping aside')
         # The character screen (a stand-in for the iPhone's): a box per game,
         # its people; each game's lead and another played where they live.
         output = sandbox(exe, worlds, 'cast', shots, tmp)
@@ -549,6 +571,13 @@ if __name__ == '__main__':
         if not chosen or chosen.group(1) != '1' or chosen.group(2) != '1' or chosen.group(3) != '1' or chosen.group(4) != chosen.group(5):
             raise SystemExit('FAIL: choosing on the character screen\n' + output[-2000:])
         print(f'PASS: choosing on the character screen: the one played chosen again where they live, as they were; someone here played, everyone else where they stood; a custom one left here chosen again, from where he stood; {chosen.group(4)} chosen aboard, the one before left at the stop')
+        # (The same person as the one played, another game's of the same
+        # name, chosen where they live with the one played there: the one
+        # before not left beside them, but gone home among the wanderers.)
+        twin = re.search(r'(\d+) of (\d+) the same person as the one played chosen there \(the one before gone home, not beside them\)', output)
+        if not twin or twin.group(1) != twin.group(2) or (twins and twin.group(2) != '1'):
+            raise SystemExit('FAIL: the same person as the one played chosen\n' + output[-2000:])
+        print(f'PASS: {twin.group(1)} of {twin.group(2)} the same person as the one played (another game\'s) chosen there: played, the one before gone home, not beside them')
         # Sith Ewok 3's moves (0200): L once a force grab (after the wait for
         # a second), L twice a swing, F force lightning, L once put away (a
         # walk stopped first); heckled and answered (written lines, a stand-in

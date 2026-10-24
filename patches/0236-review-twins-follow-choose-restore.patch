@@ -1,0 +1,218 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index e205990a..294ae8bf 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -45,6 +45,8 @@
+ 
+ #include "backends/audiocd/audiocd.h"
+ 
++#include "engines/metaengine.h"
++
+ #include "graphics/thumbnail.h"
+ #include "gui/message.h"
+ 
+@@ -152,9 +154,11 @@ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, b
+ 	// as the game starts; the game's own menus): it would take that one's
+ 	// place, and the game come back from a slot never written. An autosave
+ 	// asked for meanwhile (ScummVM's on its timer, the phone's as it puts the
+-	// app away) waits (canSaveAutosaveCurrently).
++	// app away) is made by keeping the one in its slot as it is, as touring
++	// (so the phone, which drops its restore point first, still points it
++	// there); with none there, it waits (canSaveAutosaveCurrently).
+ 	if (_saveLoadFlag)
+-		return Common::kWritingFailed;
++		return isAutosave && slot == getAutosaveSlot() && canSaveAutosaveCurrently() ? Common::kNoError : Common::kWritingFailed;
+ 	// SCUMMVERSE: an autosave asked for while the game is held still (the
+ 	// phone putting the app away: iOS's suspend loop, where no frame comes
+ 	// until the app is back, and it may be stopped first) is written now,
+@@ -251,12 +255,20 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ // SCUMMVERSE: touring, an autosave is "made" by keeping the one written as
+ // the tour began (saveGameState), where there is one: so the phone, putting
+ // the app away, still keeps a place to go on from (it drops the last one
+-// first) and ScummVM's own autosave waits its usual time.
++// first) and ScummVM's own autosave waits its usual time. So too while a
++// save or load waits for the next frame, by keeping the autosave there is.
+ bool ScummEngine::canSaveAutosaveCurrently() {
+ 	if (_scummverseTouring)
+ 		return _setupIsComplete && _scummverseTourAutosaved;
+-	// (Not while a save or load waits for the next frame: saveGameState.)
+-	return !_saveLoadFlag && canSaveGameStateCurrently();
++	// (A save or load waiting for the next frame: made by keeping the
++	// autosave there is, none written, saveGameState.)
++	if (_saveLoadFlag) {
++		const int slot = getAutosaveSlot();
++		if (slot < 0 || !canSaveGameStateCurrently()) return false;
++		const SaveStateDescriptor kept = getMetaEngine()->querySaveMetaInfos(_targetName.c_str(), slot);
++		return kept.getSaveSlot() != -1 && kept.isAutosave();
++	}
++	return canSaveGameStateCurrently();
+ }
+ 
+ 
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 7266c1d3..8083725f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -470,8 +470,12 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 			if (cast.game == game && cast.room == room) keys.push_back(worldAppearanceKey(game, cast.guest.costume));
+ 	}
+ 	for (int key : keys) {
+-		// (The same person as someone here already, by name: steps aside.)
+-		if (key == _playerKey || twinOnStage(key)) continue;
++		// (The same person as someone here already, by name, or as one
++		// following the one played (come along after them, bringFollowers:
++		// the one following stays): steps aside.)
++		bool followed = false;
++		for (int k : _followers) followed = followed || (following(k) && samePersonKeys(k, key));
++		if (key == _playerKey || twinOnStage(key) || followed) continue;
+ 		const int n = addPerson(key);
+ 		if (n >= 0) _onStage.push_back(key);
+ 	}
+@@ -1908,9 +1912,14 @@ bool SandboxEngine::castChoose(int key) {
+ 	if (shown >= 0) StageBridge::position(shown, kx, ky);
+ 	// (The one before stays, out among the wanderers here; aboard, at the
+ 	// stop, those following them too, not wherever their own wandering took
+-	// them meanwhile.)
++	// them meanwhile. The same person as the one chosen to play here
++	// (another game's of the same name) does not stay beside them: home,
++	// where they live, unless that person is there already.)
+ 	const int here = _wanderers && fromKey != key && keptGame >= 0 ? place(keptGame, keptRoom) : 0;
+-	if (here) WanderBridge::send(fromKey, here);
++	const bool twinHere = here && samePersonKeys(fromKey, key) && place(game, room) == here;
++	int home = -1;
++	if (!twinHere) { if (here) WanderBridge::send(fromKey, here); }
++	else if (castHome(fromKey, home) && (home = place(worldAppearanceGame(fromKey), home)) && home != here && !WanderBridge::taken(fromKey, home)) WanderBridge::send(fromKey, home);
+ 	if (here && aboard) for (int k : _followers) if (following(k)) WanderBridge::send(k, here);
+ 	_playerKey = key;
+ 	Common::String problem;
+@@ -1918,7 +1927,7 @@ bool SandboxEngine::castChoose(int key) {
+ 		const bool same = stood && _player >= 0 && _game == fromGame && _room == fromRoom;
+ 		int beside = -1;
+ 		for (uint n = 0; same && n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == fromKey) beside = n;
+-		if (same && beside < 0 && here && (beside = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
++		if (same && beside < 0 && here && !twinHere && (beside = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
+ 		if (same) {
+ 			// (Someone else here: where they stood, else (a custom one new
+ 			// here) where the one before stood, else where the place puts
+@@ -5616,11 +5625,50 @@ Common::Error SandboxEngine::followTest() {
+ 		step(1);
+ 		if (!_followers.empty() || following(key) || FakeTalk::party) fail("still following someone else played"); else ++letGo;
+ 	}
++	// One following the one played into where the same person (another
++	// game's of the same name) lives (wanderers off) or wanders (on): the one
++	// following there once, beside the one played, the other stepping aside.
++	int twinPlaces = 0, twinsAside = 0;
++	{
++		int first = 0, second = 0, atGame = -1, atRoom = -1;
++		for (const WorldCastGuest &a : kWorldCast)
++			for (const WorldCastGuest &b : kWorldCast) {
++				const int ka = worldAppearanceKey(a.game, a.guest.costume), kb = worldAppearanceKey(b.game, b.guest.costume);
++				if (first || ka == _playerKey || kb == _playerKey || !samePersonKeys(ka, kb) || samePersonKeys(ka, _playerKey) || samePersonKeys(kb, _playerKey) || !hasCharacter(ka) || !hasCharacter(kb) ||
++					!installed(b.game, b.room) || !place(b.game, b.room)) continue;
++				first = ka; second = kb; atGame = b.game; atRoom = b.room;
++			}
++		for (int pass = 0; first && pass < 2; ++pass) {
++			_wanderers = pass == 1;
++			if (_wanderers) {
++				buildWanderers();
++				WanderBridge::send(second, place(atGame, atRoom));
++				// (The one following elsewhere: come along with the one played.)
++				int home;
++				if (castHome(first, home) && place(worldAppearanceGame(first), home) && place(worldAppearanceGame(first), home) != place(atGame, atRoom))
++					WanderBridge::send(first, place(worldAppearanceGame(first), home));
++			}
++			_followers.clear(); _leader = 0;
++			follow(first, true);
++			++twinPlaces;
++			if (!enter(atGame, atRoom, 0, problem)) { fail("not shown where the same person as one following lives"); continue; }
++			int firsts = 0, seconds = 0, n = -1;
++			for (uint i = 0; i < _onStage.size(); ++i) { firsts += _onStage[i] == first; seconds += _onStage[i] == second; if (_onStage[i] == first) n = i; }
++			double px, py, x = 0, y = 0;
++			StageBridge::position(_player, px, py);
++			if (n >= 0) StageBridge::position(n, x, y);
++			if (firsts != 1 || seconds || !following(first) || apart(px, py, x, y) > 2 * 24.0 * screenWidthOf(_game) / 320) fail("the same person as one following shown beside them, or the one following not come along");
++			else ++twinsAside;
++			follow(first, false);
++		}
++		if (first) warning("SCUMMVERSE sandbox follow: %s of game %d following into %s-%d, where game %d's lives", worldAppearance(first)->name, worldAppearanceGame(first), kWorldGames[atGame].gameid, atRoom, worldAppearanceGame(second));
++	}
+ 	_wanderers = false;
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest follow: %d asked along, %d walked after (%d while talking), %d through a door, %d told the chat, %d kept, %d stayed, %d let go, %d failed",
+-		asked, walked, walkedTalking, through, told, kept, stayed, letGo, failed);
+-	if (failed || asked != 2 || through != 2 || told != 2 || kept != 2 || stayed != 2 || letGo != 2 || !walked || !walkedTalking) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest follow: %d asked along, %d walked after (%d while talking), %d through a door, %d told the chat, %d kept, %d stayed, %d let go, "
++		"%d of %d following where the same person lives or wanders shown once (the other stepping aside), %d failed",
++		asked, walked, walkedTalking, through, told, kept, stayed, letGo, twinsAside, twinPlaces, failed);
++	if (failed || asked != 2 || through != 2 || told != 2 || kept != 2 || stayed != 2 || letGo != 2 || !walked || !walkedTalking || twinsAside != twinPlaces) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -5930,6 +5978,51 @@ Common::Error SandboxEngine::castTest() {
+ 		if (most != 1 || times != 1) fail("the one played shown twice", "wanderers");
+ 		if (!WanderBridge::where(before)) fail("the one played before not out", "wanderers");
+ 	}
++	// The same person as the one played (another game's of the same name)
++	// chosen where they live, the one played there (where they stepped
++	// aside): played, the one before not left beside them (one person, once)
++	// but home, out among the wanderers there.
++	int twinsChosen = 0, twinsTried = 0;
++	{
++		int first = 0, second = 0, firstHome = 0, secondHome = 0;
++		for (const WorldCastGuest &a : kWorldCast)
++			for (const WorldCastGuest &b : kWorldCast) {
++				const int ka = worldAppearanceKey(a.game, a.guest.costume), kb = worldAppearanceKey(b.game, b.guest.costume);
++				int ra, rb;
++				if (first || !samePersonKeys(ka, kb) || !castHome(ka, ra) || !place(a.game, ra) || !castHome(kb, rb) || !place(b.game, rb)) continue;
++				// (Two of them only: a third may be at the second's home.)
++				Common::Array<int> twins;
++				for (const WorldCastGuest &c : kWorldCast) {
++					const int kc = worldAppearanceKey(c.game, c.guest.costume);
++					if (samePersonKeys(ka, kc) && hasCharacter(kc) && Common::find(twins.begin(), twins.end(), kc) == twins.end()) twins.push_back(kc);
++				}
++				if (twins.size() != 1) continue;
++				first = ka; second = kb; firstHome = place(a.game, ra); secondHome = place(b.game, rb);
++			}
++		if (first && castChoose(second) && _playerKey == second) {
++			++twinsTried;
++			WanderBridge::send(first, firstHome);
++			Common::String problem2;
++			int seconds = 0, firsts = 0;
++			if (!enter(Wander::placeGame(firstHome), Wander::placeRoom(firstHome), 0, problem2)) fail("not shown where the same person lives", "the same person chosen");
++			else {
++				for (int k : _onStage) firsts += k == first;
++				if (firsts) fail("the same person as the one played shown beside them", "the same person chosen");
++				else if (!castChoose(first)) fail("not played", "the same person chosen");
++				else {
++					firsts = 0;
++					for (int k : _onStage) { firsts += k == first; seconds += k == second; }
++					if (_playerKey != first || _player < 0 || _onStage[_player] != first || firsts != 1 || place(_game, _room) != firstHome) fail("not played where they live", "the same person chosen");
++					else if (seconds) fail("the one before left beside the same person", "the same person chosen");
++					else if (WanderBridge::where(second) != secondHome) fail("the one before not gone home", "the same person chosen");
++					else if ((int)_onStage.size() != StageBridge::actorCount() || _people != (int)_onStage.size()) fail("the stage and the actors out of step", "the same person chosen");
++					else ++twinsChosen;
++				}
++			}
++			warning("SCUMMVERSE sandbox cast: %s of game %d chosen in %s-%d, played there by game %d's", worldAppearance(first)->name, worldAppearanceGame(first),
++				kWorldGames[Wander::placeGame(firstHome)].gameid, Wander::placeRoom(firstHome), worldAppearanceGame(second));
++		}
++	}
+ 	// The mansion's New kid among the wanderers: the next of its people
+ 	// played where they are, the one played before left out where they stood.
+ 	int maniac = -1, kids = 0;
+@@ -6344,11 +6437,12 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d; %d left here kept), %d of the game's own here played (the one before kept), %d chosen again where they live as they were, %d played here with everyone else where they stood, %d custom chosen again where he stood, %d of %d chosen aboard left at the stop, %d failed",
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d; %d left here kept), %d of the game's own here played (the one before kept), %d chosen again where they live as they were, %d played here with everyone else where they stood, %d custom chosen again where he stood, %d of %d chosen aboard left at the stop, "
++		"%d of %d the same person as the one played chosen there (the one before gone home, not beside them), %d failed",
+ 		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, roamers, (int)roamedHere, customsLeft, herePlayed,
+-		sameAgain, othersKept, customAgain, aboardLeft, aboardTried, failed);
++		sameAgain, othersKept, customAgain, aboardLeft, aboardTried, twinsChosen, twinsTried, failed);
+ 	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast) || customsAmong != 1 || lighters != canLighters ||
+-		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere || customsLeft != 1 || sameAgain != 1 || othersKept != 1 || customAgain != 1 || aboardLeft != aboardTried) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere || customsLeft != 1 || sameAgain != 1 || othersKept != 1 || customAgain != 1 || aboardLeft != aboardTried || twinsChosen != twinsTried) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }

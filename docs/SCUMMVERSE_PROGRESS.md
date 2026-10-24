@@ -6444,3 +6444,28 @@ LeakSanitizer; no leaks and nothing growing without bound were found).
   under ASan/LSan, test_startup (with an ASan build: 2 failures before, 22
   OK after), the tour and camera probes on the desktop build. Not tested
   on an iPhone.
+
+## Patch 0236 — fixes from a review of 0230-0233: twins with followers and on the character screen
+
+From an independent review of 0230-0233 (new engine, and 0231's saves).
+- Someone following the player (the chat's Follow) into a place where the
+  same person from another game lives or wanders was shown beside them
+  (Monkey Island's Elaine in a Monkey Island 2 place): the follower wins,
+  the other is not shown.
+- Choosing on the character screen the same person as the one played,
+  where the one chosen lives, left the one before standing beside them
+  (two Guybrushes): the one before goes to their own home place, or stays
+  where the wanderers had them if that is here or already holds them.
+- The phone put away in the frame a save or load waits (0231) wrote no
+  restore point at all; with an autosave there it now keeps that one (as
+  before 0231), the waiting request untouched; with none, still refused.
+- Tests made to fail when nothing is tested: the wander self-test needs a
+  named pair and both steps aside when both Monkey Islands (or the mansion
+  and Tentacle) are exported; the tour test fails if Monkey Island is
+  exported but its parts were skipped.
+- Tests: the follow self-test (new: 2 of 2 following where the same
+  person lives or wanders, shown once), cast (new: the same person chosen
+  there), wander, the tour probe (new: waiting save and load, with and
+  without an autosave, ScummVM's timer and a copy of the phone's logic),
+  the story probe with an autosave injected at the computer, the full
+  data suite. Not tested on an iPhone.
