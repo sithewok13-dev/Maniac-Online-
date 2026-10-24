@@ -6920,3 +6920,15 @@ From the sweep of things left undone (the dead end next to the safe).
   the one played only, the typewriter refusing and answering, save and
   reload; 25 mutations caught), a fresh mansion export, the full sandbox
   suite (frame check on) and data suite. Not tested on an iPhone.
+
+## Patch 0249 — no ride pause kept for the one played
+
+From a review of 0246.
+- The Mars tram's and The Dig's tram's arrival gave every rider a ten-second
+  pause, the kid being played included; that kid's record is not touched
+  while played, so after 0246 (which keeps a longer pending pause) the kid
+  stood ten seconds when the player later switched away. The one played
+  now keeps no pause from the ride; the others still pause as intended.
+- Tests: the tram, Dig tram, Mars, roaming, van, companions, cast, world
+  visit, tour and Zak playthrough data tests, test_startup. Not tested on
+  an iPhone.
