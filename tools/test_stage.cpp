@@ -158,6 +158,47 @@ int main() {
 	assert(path(boxes, links, {20, 120}, {170, 50}).size() == 3);
 	std::puts("PASS: paths (across, up, into the boxes, cut off, none; groups of boxes)");
 
+	// The way through the fewest boxes, of those the shortest (not round by
+	// a box that comes first in the file); already in the next box, on from
+	// there (not back to its edge, nor sideways along a shared one); boxes
+	// apart that the game's table joins: to the edge facing the other first,
+	// across the gap there (not on a slant over the floor's edge).
+	{
+		auto walked = [](Point at, const std::vector<Point> &way) {
+			double length = 0;
+			for (const Point &p : way) { length += std::hypot(p.x - at.x, p.y - at.y); at = p; }
+			return length;
+		};
+		auto strays = [](const std::vector<Box> &on, Point at, const std::vector<Point> &way) {
+			double most = 0;
+			for (const Point &p : way) {
+				for (int k = 0; k <= 64; ++k) {
+					const Point q(at.x + (p.x - at.x) * k / 64, at.y + (p.y - at.y) * k / 64);
+					double off = 1e9;
+					for (const Box &piece : on) { const Point c = closest(piece, q); off = std::min(off, std::hypot(c.x - q.x, c.y - q.y)); }
+					most = std::max(most, off);
+				}
+				at = p;
+			}
+			return most;
+		};
+		const std::vector<Box> ring = {stageBox(0, 0, 100, 140), stageBox(0, 140, 300, 180), stageBox(100, 0, 200, 40), stageBox(200, 0, 300, 140)};
+		route = path(ring, {90, 20}, {210, 20}); // (along the top, not down and round the bottom)
+		assert(near(walked({90, 20}, route), 120, 0.01));
+		route = path({stageBox(0, 0, 100, 100), stageBox(50, 0, 150, 100)}, {60, 50}, {140, 50}); // (in both: not back to 50 first)
+		assert(near(walked({60, 50}, route), 80, 0.01) && near(route.back().x, 140));
+		route = path({stageBox(0, 0, 320, 50), stageBox(0, 50, 320, 100)}, {105, 50}, {105, 90}); // (on the edge: straight down)
+		assert(near(walked({105, 50}, route), 40, 0.01));
+		std::vector<Box> gap = {stageBox(0, 100, 300, 140), stageBox(250, 40, 290, 84)};
+		gap[0].source = 0; gap[1].source = 1;
+		const Links table = linksOf(gap, {0, 1, 0, 1}, 2);
+		assert(table.meets(0, 1) && !touching(gap[0], gap[1]));
+		route = path(gap, table, {20, 130}, {270, 60}); // (16 apart: up to the edge, then across)
+		assert(route.size() == 3 && near(route[0].y, 100) && near(route[1].y, 84) && near(route.back().x, 270) && near(route.back().y, 60));
+		assert(strays(gap, {20, 130}, route) < 9);
+	}
+	std::puts("PASS: ways (the fewest boxes, then the shortest; on from inside the next box; up to a gap the game's table joins, then across)");
+
 	// A scene drawn once at the screen's size, in its own colours: every
 	// screen pixel shows the source pixel under it.
 	const int w = 320, h = 144;

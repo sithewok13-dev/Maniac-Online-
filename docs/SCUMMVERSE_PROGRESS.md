@@ -5940,3 +5940,31 @@ zak v24; the rest v23).
   tour, lights and doors, camera, wanderers, cast, mansion links and locks,
   and world setup. Not tested on an iPhone (it exports on the phone the
   same way, once, at launch).
+
+## Patch 0215 — the new engine's walks: no long way round, not through walls
+
+From the second bug hunt (the stage's walks).
+- A walk kept the first chain of boxes with the fewest boxes in the order
+  the file lists them, however far it walked: Zak 12's 36-pixel walk took
+  129, a 110-pixel walk in The Dig's 4 took 589 round the room's edge,
+  some started backwards. Of the fewest-box chains it now takes the one
+  walked least (distance to each way in, plus the straight line on), and
+  enters each box where the line to the goal crosses it, carrying on from
+  where they stand when already inside it.
+- Boxes the game joins only by its own table, apart from each other, were
+  crossed straight from wherever the walker stood (the mansion's 8: a
+  467-pixel diagonal up to 20 pixels off the floor). The walk now goes
+  along the floor to the gate first, then across, as ScummVM's own walk
+  does.
+- Over the 781 places' sample walks: detours 5814 to 1248, walks starting
+  backwards 1956 to 175, places with detours 85 to 41, walks straying more
+  than 10 pixels off the floor 1324 to 148 (what is left are real gaps the
+  games join by script). Every walk still ends where it did.
+- Worse: a one-step turn (facing changed for a step and back) shows more
+  often, mostly where a walk goes to the gate and then a step across
+  (Maniac's 8-pixel gaps, as its own engine walks them).
+- Left: The Dig's 4 to 7 still go round where boxes only touch at a corner
+  (the box links, not the walk); Full Throttle's 99 unchanged.
+- Tests: test_stage (the box listed first not taken over a shorter chain;
+  two overlapping boxes not walked back first; no sidestep along a shared
+  edge; a table-linked gap not crossed on a slant), the full sandbox suite.
