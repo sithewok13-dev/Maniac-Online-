@@ -5968,3 +5968,34 @@ From the second bug hunt (the stage's walks).
 - Tests: test_stage (the box listed first not taken over a shorter chain;
   two overlapping boxes not walked back first; no sidestep along a shared
   edge; a table-linked gap not crossed on a slant), the full sandbox suite.
+
+## Patch 0216 — iPhone: game keys after the character screen, buttons off ScummVM's menu, WiFi addresses
+
+From the second bug hunt (the iPhone's menus and screens). The iPhone code
+is compiled by CI's iPhone build only; not tested on an iPhone.
+- With a hardware keyboard, the game's keys came back only after a pinch
+  once the character screen (or the roster) had been up: it took the focus
+  from the hidden field that passes keys to the game. It now ends editing
+  only on the chat bar and gives the keys back as it closes
+  (scummverseGameKeysBack: a keyboard connected, nothing shown over the
+  game, no other field typing).
+- In portrait, AI, Talk, Worlds and Camera floated over ScummVM's own menu
+  and dialogs (a tap there opened the Worlds menu instead): they are hidden
+  while it is up, and the touch-mode and menu buttons go back to their own
+  corner meanwhile.
+- Story mode's list: a game that needs a file says so when tapped (copy it
+  into its folder in Documents) and the list stays; no Cancel that only
+  brought the list back.
+- WiFi play lists the addresses friends can reach: interfaces up and
+  running, WiFi first, then a hotspot, no loopback, cellular or VPN, and
+  "192.168.1.2" no longer hidden by "192.168.1.20" (Net::reachableAddresses).
+- WiFi play says what happened: Join with no address asks again with a
+  hint; hosting, joining, players coming and going and a lost host are shown
+  a moment on screen and told to VoiceOver.
+- VoiceOver can close the camera options (the escape gesture; the panel is
+  modal for VoiceOver).
+- The hardware keyboard's fn-bar setting is read from a flag the game's
+  thread sets, not from the settings file it may be writing.
+- Tests: test_net (ASan/UBSan, TSan; the address filter: a phone-like list,
+  interfaces down, duplicates; three mutations caught), the WiFi engine
+  probe, the Story test (its list), test_startup, the desktop build.

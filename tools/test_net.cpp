@@ -5,6 +5,7 @@
 //   tools/test_net.cpp engine/common/scummverse_net.cpp
 #include "common/scummverse_net.h"
 #include "common/scummverse_net_engine.h"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
@@ -293,6 +294,40 @@ static void liveness() {
 	std::printf("PASS: quiet links kept by pings; a silent player and a silent host dropped after %d ms\n", kSilentMs);
 }
 
+// The addresses a host shares: only interfaces up and running, not loopback
+// or point-to-point (cellular, VPN), WiFi and the hotspot first, each address
+// once and whole (192.168.1.2 is not part of 192.168.1.20).
+static Interface entry(const char *name, const char *dotted, bool running = true, bool pointToPoint = false) {
+	Interface i; i.name = name; in_addr a;
+	if (inet_pton(AF_INET, dotted, &a) != 1) std::abort();
+	i.address = ntohl(a.s_addr); i.up = true; i.running = running; i.pointToPoint = pointToPoint; i.loopback = !std::strncmp(name, "lo", 2);
+	return i;
+}
+static void addresses() {
+	// (As an iPhone lists them: cellular and the VPN before the WiFi.)
+	const std::vector<Interface> phone = {
+		entry("lo0", "127.0.0.1"), entry("pdp_ip0", "10.64.12.7", true, true), entry("utun3", "10.8.0.2", true, true),
+		entry("anpi0", "10.0.0.5"), entry("en0", "192.168.1.20"), entry("bridge100", "172.20.10.1"),
+		entry("en0", "192.168.1.2"), entry("en2", "169.254.3.4", false), entry("en1", "192.168.1.20")};
+	const std::vector<std::string> expected = {"192.168.1.20", "192.168.1.2", "172.20.10.1", "10.0.0.5"};
+	assert(reachableAddresses(phone) == expected);
+	// Down, or loopback only: none (localAddresses then says "this device").
+	std::vector<Interface> off = {entry("lo0", "127.0.0.1"), entry("en0", "192.168.1.20")};
+	off[1].up = false;
+	assert(reachableAddresses(off).empty() && reachableAddresses({}).empty());
+	// This machine's own list: never loopback, never one address twice.
+	const std::string here = localAddresses();
+	std::vector<std::string> listed;
+	for (size_t at = 0; at <= here.size();) {
+		const size_t end = std::min(here.find(", ", at), here.size());
+		listed.push_back(here.substr(at, end - at)); at = end + 2;
+	}
+	for (const std::string &one : listed) assert(!one.empty() && one.compare(0, 4, "127.") != 0);
+	std::sort(listed.begin(), listed.end());
+	assert(std::adjacent_find(listed.begin(), listed.end()) == listed.end());
+	std::printf("PASS: shared addresses: up and running, no cellular, VPN or loopback, WiFi first, whole (here: %s)\n", here.c_str());
+}
+
 static void control() {
 	Request r; r.kind = Request::Join; r.text = "192.168.1.20"; postRequest(r);
 	Request got; assert(takeRequest(got) && got.kind == Request::Join && got.text == "192.168.1.20" && !takeRequest(got));
@@ -305,6 +340,6 @@ static void control() {
 }
 
 int main() {
-	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); liveness(); control();
+	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); liveness(); addresses(); control();
 	std::printf("PASS: local WiFi session tests (loopback, one process)\n");
 }
