@@ -51,6 +51,8 @@ data suite); the new engine's side is in test_startup.
 STORY vs STOCK: `python3 tools/test_story_differential.py game-data/mm-dos` (every game folder
 in Story mode frame by frame against stock 2.9.1 in build/stock-2.9.1; `--make-stock` once;
 in the data suite, which skips it without that build; about 2 minutes).
+RESTORE POINT: tools/test_restore.cpp with engine/common/scummverse_restore.cpp (-std=c++11,
+ASan/UBSan); the mansion's use of it is in test_startup and the sandbox suite's switch.
 STORY PLAY (Story mode, kept apart from Explore mode): `python3 tools/test_story_engine.py
 game-data/mm-dos` (in the data suite; Maniac's own story and every game folder under game-data/,
 copy protection answered: opened, saved, back, reopened from its save exactly, game to game,

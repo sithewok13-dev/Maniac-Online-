@@ -565,6 +565,33 @@ saves it, sets Explore and goes home: the mansion at its slot 100. Going on
 at the next start is Story mode's only. Stories default to text on
 (`subtitles`, unless set).
 
+The mansion at the next start (Explore mode). Putting the app away, the
+iPhone's backend autosaves the game playing and writes a restore point,
+Documents/scummvm.state (`[state]`, `restore_target`, `restore_slot`;
+`ios7_osys_main.cpp` saveState), which ScummVM's launcher takes from an
+event queued at the next start. With no launcher, and that event only
+clearing the file once an engine runs, base/main.cpp reads it itself as the
+app starts, before anything takes events (`scummverseTakeRestorePoint`; the
+file is the backend's `iOS7_getRestorePointFile`, elsewhere none unless
+`scummverse_restore_point` names a test's own): parsed by
+`common/scummverse_restore.h` (a damaged one, cut short or with a line
+ScummVM's INI reader refuses or stops at, is not used), then emptied
+whatever it held, so it is never taken twice nor again after a start that
+stops. At the mansion's first start a save it is chained to comes first
+(slot 100: the new engine's Back, a story's way home, Story mode's
+Explore), then 0239's `scummverse_sandbox_open` (the app stopped while the
+new engine was open: slot 100, saved as it opened, newer than any restore
+point naming the mansion; set as it opens, cleared as the mansion starts),
+then the restore point if it names the mansion's own target and a slot 0-99
+saved there (its autosave, slot 0); a story's target is left to the story's
+own rule (its newest save). Unlike ScummVM, the point is taken whatever iOS
+asks at that start (restore, or clear after the app was swiped away), as
+stories and the new engine go on however the app stopped; one left from an
+earlier put-away names the autosave slot, which ScummVM's autosave timer
+keeps current while the mansion plays. Tests: `tools/test_restore.cpp`,
+test_startup (the choice, damaged files), test_sandbox_engine's restore
+switch (the real mansion put away, stopped and started again).
+
 Copy protection in story play (0186): `scummverseStoryPassGuard` answers
 Monkey Island 2's recipe screen, which ScummVM leaves to the player with
 copy_protection off (room 108; any number is taken, ScummVM reading the

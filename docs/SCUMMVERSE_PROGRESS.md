@@ -6684,3 +6684,36 @@ could not follow; its record said nothing and changed nothing.
   right code key by key and what is inside taken, a wrong code, a menu
   choice leaving the keypad), a fresh mansion export, test_world_setup,
   the full sandbox suite and data suite. Not tested on an iPhone.
+
+## Patch 0241 — the iPhone's restore point used for the mansion
+
+Found by a review of 0239 and fixed (older than this round).
+- When the phone put the app away while the mansion ran, ScummVM's iPhone
+  code autosaved it and wrote a restore point naming the mansion and that
+  slot; but its restore is applied only from ScummVM's launcher, which
+  Explore mode does not show: the restore event reached the mansion
+  already running, the point was deleted, and the mansion started afresh
+  (then the next New engine or story saved that fresh mansion over its
+  own temporary save). The point is now read once at start, before
+  anything else runs, and emptied; the mansion goes on from it if it names
+  the mansion's own target and its save exists. Precedence: a chained
+  return first, then 0239's mark (the new engine opened), then the restore
+  point. A point naming a story or the new engine is set aside; Story
+  mode's rules are unchanged (and a story's point can no longer leak into
+  the mansion when Explore is chosen from the list).
+- The reader (common/scummverse_restore.cpp) refuses anything damaged or
+  cut short, never stopping the app (ScummVM's own reader stopped it on a
+  damaged file).
+- It is used whatever the phone asks at launch, after a swipe-away too (as
+  the app's other "go on where it was" rules), not only after the phone
+  stopped it in the background.
+- Still open: a story opened from the mansion and the app stopped in it
+  (the point names the story; the mansion starts afresh at its next
+  Explore start though its temporary save exists).
+- Tests: test_restore (ASan/UBSan; every cut of real-shaped files, 300,000
+  mutated ones), test_startup (6 new cases: applied once, no save, a
+  story's point, the new engine's mark winning, damaged files, a sandbox
+  start), the sandbox suite's switch (new: put away and stopped, started
+  again from the autosave; a story's point; the new engine's save winning
+  over an older point), the full data suite. The iPhone's side is compiled
+  only by CI; not tested on an iPhone.

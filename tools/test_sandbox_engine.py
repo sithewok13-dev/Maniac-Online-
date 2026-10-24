@@ -43,7 +43,10 @@ place gone from the cache, or it and the one played damaged, elsewhere (no
 way back from there); then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game (and with the app
-stopped in the sandbox instead, the next start finds Maniac there).
+stopped in the sandbox instead, the next start finds Maniac there); put
+away as the phone puts it away and stopped, Maniac starts again from the
+phone's restore point, where it was (one naming a story's target, or older
+than the save for the sandbox, not taken).
 Pictures go to build/sandbox-shots. Not an iPhone test.
 """
 import argparse
@@ -80,6 +83,46 @@ SWITCH = r'''
 			} else if (++scummverseSwitchFrames == ConfMan.getInt("scummverse_switch_probe")) {
 				warning("SCUMMVERSE_SWITCH_OPEN room=%d ego=%d", _currentRoom, VAR(VAR_EGO));
 				scummverseOpenSandbox();
+			}
+		}
+'''
+# Test-only, beside it: the phone's restore point (common/scummverse_restore.h).
+# Once the mansion has run a while, put away as the iPhone's backend puts the
+# app away (ios7_osys_main.cpp, saveState: the game held still, its autosave
+# unless a player's save is in that slot, then the restore point naming the
+# target and slot, written to scummverse_restore_point; the target named may
+# be set instead, a story's), then stopped (or played on); started with 0,
+# where it is at its first frame (the time played: a save's own once
+# loaded, about none afresh), then stop.
+RESTORE = r'''
+		if (ConfMan.hasKey("scummverse_restore_probe") && !_scummverseStory) {
+			static int scummverseRestoreFrames = 0;
+			const int at = ConfMan.getInt("scummverse_restore_probe");
+			if (at == 0 && scummverseRestoreFrames++ == 0) {
+				warning("SCUMMVERSE_RESTORE_START slot=%d room=%d ego=%d played=%u", ConfMan.hasKey("save_slot") ? ConfMan.getInt("save_slot") : -1,
+					_currentRoom, VAR(VAR_EGO), getTotalPlayTime() / 1000);
+				quitGame();
+			} else if (at > 0 && ++scummverseRestoreFrames == at) {
+				PauseToken held = pauseEngine();
+				const Common::String target = ConfMan.getActiveDomainName();
+				const int slot = getAutosaveSlot();
+				bool written = false;
+				if (hasFeature(kSupportsSavingDuringRuntime) && canSaveAutosaveCurrently() &&
+						getMetaEngine()->hasFeature(MetaEngine::kSupportsLoadingDuringStartup) && slot != -1) {
+					const SaveStateDescriptor desc = getMetaEngine()->querySaveMetaInfos(target.c_str(), slot);
+					if ((desc.getSaveSlot() == -1 || desc.isAutosave()) && saveGameState(slot, "Autosave", true).getCode() == Common::kNoError) {
+						Common::DumpFile point;
+						if (point.open(ConfMan.getPath("scummverse_restore_point"))) {
+							point.writeString("[state]\nrestore_target=" + (ConfMan.hasKey("scummverse_restore_probe_names") ? ConfMan.get("scummverse_restore_probe_names") : target) +
+								Common::String::format("\nrestore_slot=%d\n", slot));
+							written = point.flush() && !point.err();
+							point.close();
+						}
+					}
+				}
+				held.clear();
+				warning("SCUMMVERSE_RESTORE_AWAY room=%d ego=%d played=%u written=%d", _currentRoom, VAR(VAR_EGO), getTotalPlayTime() / 1000, written);
+				if (ConfMan.getBool("scummverse_restore_probe_stop")) quitGame();
 			}
 		}
 '''
@@ -305,7 +348,113 @@ def stopped_switch(exe, data, worlds, work, frames, log):
     print(f'PASS: Maniac -> new engine, the app stopped there; started again, Maniac where it was ({where}), the mark let go')
 
 
-def switch(data, worlds, frames, broken=False, story=False, stopped=False):
+def restored_switch(exe, data, worlds, work, frames, log):
+    """The phone's restore point (the mansion has no launcher to take it):
+    put away while the mansion plays (its autosave, the point naming it) and
+    stopped there, started again from it, where it was, the point let go (a
+    third start afresh); a point naming a story's target leaves the mansion
+    to start as it would; put away and played on, then the new engine opened
+    and the app stopped there, the mansion's save for the new engine wins
+    (0239's mark), the point (older) set aside."""
+    point = work/'scummvm.state'
+    config = work/'restored.ini'
+    base = ('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
+            f'scummverse_restore_point={point}\nscummverse_worlds_path={worlds}\n')
+    logs = []
+
+    def run(name, extra, fresh=False):
+        # (The settings as the run before left them, the probe's own changed.)
+        kept = base if fresh else re.sub(r'(?m)^scummverse_(restore_probe\w*|switch_probe|selftest)=.*\n', '', config.read_text())
+        config.write_text(kept.replace('[scummvm]\n', '[scummvm]\n' + extra, 1))
+        result = subprocess.run([str(exe), f'--config={config}', f'--path={data}', f'--savepath={saves}', '--debuglevel=1'],
+                                cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        output = result.stdout + result.stderr
+        logs.append(f'==== {name}\n' + output)
+        Path(log).write_text('\n'.join(logs))
+        if result.returncode:
+            raise SystemExit(f'FAIL: restore point, {name}: exit {result.returncode}\n' + output[-6000:])
+        return output
+
+    def said(output, text):
+        return [l.split(text + ' ')[1].rstrip('!') for l in output.splitlines() if text in l]
+
+    def loaded(output):
+        return [l.split("'")[1].rsplit('/', 1)[-1] for l in output.splitlines() if 'State loaded from' in l]
+
+    def fields(line):
+        return dict(f.split('=') for f in line.split())
+
+    def started(output):
+        start = said(output, 'SCUMMVERSE_RESTORE_START')
+        return fields(start[0]) if len(start) == 1 else {}
+
+    def put_away(output):
+        away = said(output, 'SCUMMVERSE_RESTORE_AWAY')
+        return fields(away[0]) if len(away) == 1 and away[0].endswith(' written=1') else {}
+
+    # Put away and stopped in the mansion; started again, from its autosave
+    # (where it was, its time played the save's own); once more, afresh.
+    saves = work/'restored'
+    saves.mkdir()
+    away = run('put away', f'scummverse_restore_probe={frames}\nscummverse_restore_probe_stop=true\n', fresh=True)
+    gone = put_away(away)
+    if not gone or int(gone['played']) < 2 or point.read_text() != '[state]\nrestore_target=maniac\nrestore_slot=0\n' or \
+            not (saves/'maniac.s00').is_file():
+        raise SystemExit('FAIL: restore point: not put away as the phone puts it away\n' + away[-6000:])
+    where = f"room={gone['room']} ego={gone['ego']}"
+    back = run('started again', 'scummverse_restore_probe=0\n')
+    again = started(back)
+    if not again or again['slot'] != '0' or f"room={again['room']} ego={again['ego']}" != where or \
+            not int(gone['played']) <= int(again['played']) <= int(gone['played']) + 2 or loaded(back) != ['maniac.s00'] or \
+            'the mansion where it was when the app was put away (its slot 0)' not in back or point.read_bytes():
+        raise SystemExit(f'FAIL: restore point: put away at {gone}, started again at {again} (loaded {loaded(back)})\n' + back[-6000:])
+    fresh = run('started once more', 'scummverse_restore_probe=0\n')
+    once = started(fresh)
+    if not once or once['slot'] != '-1' or int(once['played']) >= int(gone['played']) or loaded(fresh):
+        raise SystemExit(f'FAIL: restore point: taken twice ({once})\n' + fresh[-6000:])
+    print(f"PASS: Maniac put away as the phone puts it away and stopped; started again, where it was ({where}, {gone['played']} s played, "
+          'its autosave), the restore point taken once')
+
+    # The point naming a story's target (the app put away in a story): the
+    # mansion starts as it would (here afresh), its own autosave not taken.
+    saves = work/'restored-story'
+    saves.mkdir()
+    away = run('put away in a story', f'scummverse_restore_probe={frames}\nscummverse_restore_probe_stop=true\n'
+                                      'scummverse_restore_probe_names=scummverse-story-maniac\n', fresh=True)
+    gone = put_away(away)
+    if not gone or 'restore_target=scummverse-story-maniac\n' not in point.read_text() or not (saves/'maniac.s00').is_file():
+        raise SystemExit('FAIL: restore point: a story\'s not written\n' + away[-6000:])
+    back = run('started again after a story', 'scummverse_restore_probe=0\n')
+    again = started(back)
+    if not again or again['slot'] != '-1' or int(again['played']) >= int(gone['played']) or loaded(back) or \
+            "the phone's restore point is scummverse-story-maniac's, not the mansion's" not in back or point.read_bytes():
+        raise SystemExit(f'FAIL: restore point: a story\'s taken by the mansion ({again})\n' + back[-6000:])
+    print('PASS: a restore point naming a story leaves the mansion to start as it would (its own autosave not taken)')
+
+    # Put away and played on (the point left, as on the phone until the next
+    # start), then the new engine opened and the app stopped there: the
+    # mansion from its save for the new engine (later than the autosave),
+    # the point set aside.
+    saves = work/'restored-sandbox'
+    saves.mkdir()
+    away = run('put away, played on, the new engine', f'scummverse_restore_probe={max(frames // 2, 1)}\nscummverse_restore_probe_stop=false\n'
+                                                       f'scummverse_switch_probe={frames}\nscummverse_selftest=walk\n', fresh=True)
+    gone, opened = put_away(away), said(away, 'SCUMMVERSE_SWITCH_OPEN')
+    if not gone or len(opened) != 1 or 'SCUMMVERSE sandbox selftest PASS' not in away or \
+            'scummverse_sandbox_open' not in config.read_text() or not point.read_bytes():
+        raise SystemExit('FAIL: restore point: put away, played on, the new engine opened\n' + away[-6000:])
+    back = run('started again after the new engine', 'scummverse_restore_probe=0\n')
+    again = started(back)
+    if not again or again['slot'] != '100' or f"room={again['room']} ego={again['ego']}" != opened[0] or \
+            int(again['played']) <= int(gone['played']) or loaded(back) != ['maniac.c100'] or \
+            'the mansion where it was when the new engine was opened' not in back or \
+            "the phone's restore point set aside" not in back or point.read_bytes():
+        raise SystemExit(f'FAIL: restore point: put away at {gone}, the new engine opened at {opened[0]}, started again at {again} (loaded {loaded(back)})\n' + back[-6000:])
+    print(f"PASS: put away, played on, the new engine opened and the app stopped there: Maniac from its save for the new engine "
+          f"({opened[0]}, {again['played']} s played), the older restore point ({gone['played']} s) set aside")
+
+
+def switch(data, worlds, frames, broken=False, story=False, stopped=False, restored=False):
     build = ROOT/'build/null'
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix='scummverse-switch-', dir=ROOT/'build') as tmp:
@@ -314,7 +463,7 @@ def switch(data, worlds, frames, broken=False, story=False, stopped=False):
         if code.count(LOOP) != 1:
             raise RuntimeError('Pinned main loop boundary changed')
         probe = work/'scumm.cpp'
-        probe.write_text(code.replace(LOOP, LOOP.split('\n')[0] + '\n' + SWITCH + '\n'.join(LOOP.split('\n')[1:])))
+        probe.write_text(code.replace(LOOP, LOOP.split('\n')[0] + '\n' + RESTORE + SWITCH + '\n'.join(LOOP.split('\n')[1:])))
         cmd = command_for(build, source, 'engines/scumm/scumm.o')
         cmd[cmd.index(str(source))] = str(probe)
         cmd[cmd.index('-o')+1] = str(work/'scumm.o')
@@ -330,6 +479,9 @@ def switch(data, worlds, frames, broken=False, story=False, stopped=False):
         subprocess.run(cmd, cwd=build, check=True)
         if stopped:
             stopped_switch(exe, data, worlds, work, frames, ROOT/'build/sandbox-stopped.log')
+            return
+        if restored:
+            restored_switch(exe, data, worlds, work, frames, ROOT/'build/sandbox-restored.log')
             return
         config = work/'switch.ini'
         # (Roaming off: no character offer waiting for a tap at the start.)
@@ -806,4 +958,5 @@ if __name__ == '__main__':
         switch(a.data.resolve(), Path(broken), a.frames, broken=True)
     switch(a.data.resolve(), worlds, a.frames, story=True)
     switch(a.data.resolve(), worlds, a.frames, stopped=True)
+    switch(a.data.resolve(), worlds, a.frames, restored=True)
     print('PASS: sandbox engine')

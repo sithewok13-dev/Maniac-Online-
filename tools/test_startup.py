@@ -177,6 +177,101 @@ class StartupTests(unittest.TestCase):
         self.assert_data_failure(result)
         self.assertNotIn("scummverse_story_playing", self.config.read_text())
 
+    # The phone's restore point (common/scummverse_restore.h): the file the
+    # iPhone's backend writes as the app is put away, naming the target and
+    # the autosave slot it saved; ScummVM's launcher would take it, Explore
+    # mode's mansion takes it itself (here the test's own file, named by
+    # scummverse_restore_point: the desktop has none). Taken once, as the app
+    # starts: the file is let go (emptied) whatever it says.
+    def restore_point(self, text, saves=(), extra=""):
+        point = self.root / "scummvm.state"
+        point.write_bytes(text if isinstance(text, bytes) else text.encode())
+        (self.root / "saves").mkdir(exist_ok=True)
+        for name in saves:
+            (self.root / "saves" / name).write_bytes(b"not a real save")
+        self.config.write_text(f"[scummvm]\nscummverse_restore_point={point}\n{extra}")
+        return point
+
+    def run_saved(self, *args):
+        return self.run_game(f"--savepath={self.root / 'saves'}", *args)
+
+    def test_restore_point_names_the_mansion(self):
+        point = self.restore_point("[state]\nrestore_target=maniac\nrestore_slot=0\n", ("maniac.s00",))
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the mansion where it was when the app was put away (its slot 0)", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+        # (Taken once: the next start is afresh.)
+        again = self.run_saved()
+        self.assertNotIn("restore point", again.stdout)
+        self.assertNotIn("when the app was put away", again.stdout)
+        self.assert_data_failure(again)
+
+    def test_restore_point_needs_its_save(self):
+        point = self.restore_point("[state]\nrestore_target=maniac\nrestore_slot=3\n", ("maniac.s00",))
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the phone's restore point names slot 3, not saved there", result.stdout)
+        self.assertNotIn("when the app was put away", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+
+    def test_restore_point_of_a_story_is_not_the_mansions(self):
+        # (The app put away in a story: it goes on from its own newest save,
+        # by its own rule; the mansion starts as it would.)
+        point = self.restore_point("[state]\nrestore_target=scummverse-story-monkey\nrestore_slot=0\n",
+                                   ("maniac.s00", "scummverse-story-monkey.s00"))
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the phone's restore point is scummverse-story-monkey's, not the mansion's", result.stdout)
+        self.assertNotIn("when the app was put away", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+
+    def test_restore_point_after_the_new_engine(self):
+        # The app stopped while the new engine was open (0239's mark, and the
+        # mansion's save for it): that save is newer than any restore point
+        # naming the mansion (the backend writes none for the new engine).
+        point = self.restore_point("[state]\nrestore_target=maniac\nrestore_slot=0\n", ("maniac.s00", "maniac.c100"),
+                                   "scummverse_sandbox_open=true\n")
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the mansion where it was when the new engine was opened", result.stdout)
+        self.assertIn("SCUMMVERSE: the phone's restore point set aside: the mansion goes on from a later save", result.stdout)
+        self.assertNotIn("when the app was put away", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+        self.assertNotIn("scummverse_sandbox_open", self.config.read_text())
+
+    def test_damaged_restore_point(self):
+        # Cut short as it was written, a slot that is no number, a key outside
+        # its section (ScummVM's own INI reader stops the app at that), a NUL
+        # byte, far too long: not used, let go, the start as it would be.
+        for text in (b"[state]\nrestore_target=maniac\nrestore_slot=1", b"[state]\nrestore_target=maniac\nrestore_slot=0x\n",
+                     b"restore_target=maniac\n[state]\nrestore_target=maniac\nrestore_slot=0\n", b"[sta",
+                     b"[state]\nrestore_target=man\0iac\nrestore_slot=0\n",
+                     b"[state]\nrestore_target=maniac\nrestore_slot=0\n" + b"#" * 100000 + b"\n"):
+            with self.subTest(text=text[:60]):
+                point = self.restore_point(text, ("maniac.s00", "maniac.s01"))
+                result = self.run_saved()
+                self.assertIn("SCUMMVERSE: the phone's restore point is damaged; not used", result.stdout)
+                self.assertNotIn("when the app was put away", result.stdout)
+                self.assert_data_failure(result)
+                self.assertEqual(point.read_bytes(), b"")
+        # (A folder where the file would be: not read, left as it is.)
+        point.unlink()
+        point.mkdir()
+        result = self.run_saved()
+        self.assertNotIn("restore point", result.stdout)
+        self.assert_data_failure(result)
+        self.assertTrue(point.is_dir())
+
+    def test_restore_point_is_the_mansions_only(self):
+        # (The new engine started on its own: never taken there.)
+        point = self.restore_point("[state]\nrestore_target=maniac\nrestore_slot=0\n", ("maniac.s00",))
+        (self.root / "worlds").mkdir()
+        result = self.run_saved("scummverse:sandbox")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("restore point", result.stdout)
+        self.assertEqual(point.read_text(), "[state]\nrestore_target=maniac\nrestore_slot=0\n")
+
     def test_sandbox_without_places(self):
         (self.root / "worlds").mkdir()
         result = self.run_game("scummverse:sandbox")
