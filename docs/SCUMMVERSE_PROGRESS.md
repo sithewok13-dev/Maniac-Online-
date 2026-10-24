@@ -6185,3 +6185,30 @@ From the third bug hunt (wanderers, classic engine).
   with the light back; no greeting during a bus ride), the full data
   suite. The played look and Ted's dress-up in the dark were compiled and
   read, not run. Not tested on an iPhone.
+
+## Patch 0224 — the export's pictures as the scene; the van on the floor (export version 24)
+
+From an independent review of 0214 (new engine and exporter).
+- Things hidden inside a shut container (the cabinet in room 3, the coin
+  boxes in room 18) left marks where the place was drawn without them: the
+  stage now leaves out what the scene file shows hidden when it lays the
+  place bare, and a place entered with nothing shown is drawn exactly as
+  the game drew it.
+- A thing's showing picture differed from the scene in 17 places (laid
+  again with nothing changed, 37,075 pixels moved): the exporter takes the
+  covers-off picture only where the covers really draw, and the scene
+  everywhere else. 20 scene files change (The Dig 49 and 56; Indy3 134,
+  136-139, 153, 162, 168, 178; Monkey Island 132; Zak 130, 135, 141, 143,
+  145, 160, 184, 192); the garage's sequence is pixel for pixel as 0214.
+- The plane's cabin swings by time (600 ticks), not by frames drawn.
+- A lit actor standing still is busy only when its next frame is due.
+- The van no longer lands with its door off the floor (Atlantis 19: 126
+  pixels; Loom 5, Sam & Max 27 and 9): spots on the floor come first.
+- Known: Zak 141/143/145's plant shows its first picture as before 0214;
+  in some rooms the exporter's own redraw differs from the scene it saves
+  (under investigation).
+- Tests: a fresh export of all 12 games (version 24), test_stage
+  (ASan/UBSan; new: a hidden thing inside a shut container leaves no mark;
+  lit frames), the rides self-test (41 of 41 van sites with the door on the
+  floor), the full sandbox suite and the full data suite. Not tested on an
+  iPhone.

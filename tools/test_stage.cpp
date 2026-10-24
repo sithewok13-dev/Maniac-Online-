@@ -653,40 +653,83 @@ int main() {
 		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
 		std::vector<uint32_t> out((size_t)w * h);
 		auto at = [&](int x, int y) { place.render(out.data(), w); return out[(size_t)y * w + x]; };
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(4, 4) == sceneColor(30) && at(13, 11) == sceneColor(1) && at(40, 4) == sceneColor(1));
 		// (Opened under the cover: its picture has no cover; drawn again over it.)
 		assert(place.showObject(1, 1) && at(10, 10) == sceneColor(20)); // (the box's picture alone, no cover)
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(20) && at(4, 4) == sceneColor(30));
 		// (The cover away: the box as it is now, not as under the cover's picture.)
 		assert(place.showObject(0, 0) && at(13, 11) == sceneColor(1));
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(10, 10) == sceneColor(20) && at(8, 10) == sceneColor(1) && at(4, 4) == sceneColor(1) && at(23, 23) == sceneColor(20));
 		// (Hidden: not drawn; shut again: the place without either.)
-		place.layObjects({false, true}, false, false);
+		place.layObjects({false, true}, {}, false, false);
 		assert(at(10, 10) == sceneColor(1));
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(10, 10) == sceneColor(20));
 		assert(place.showObject(1, 0));
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(10, 10) == sceneColor(1) && at(4, 4) == sceneColor(1));
 		// (Sam & Max's order: the later on top.)
 		assert(place.showObject(0, 1) && place.showObject(1, 1));
-		place.layObjects({}, true, false);
+		place.layObjects({}, {}, true, false);
 		assert(at(10, 10) == sceneColor(20) && at(4, 4) == sceneColor(30) && at(8, 10) == sceneColor(30));
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(20));
 		// (Opaque, as the oldest games' tiles: the cover's whole picture, no
 		// hole where it matched what was under it.)
-		place.layObjects({}, false, true);
+		place.layObjects({}, {}, false, true);
 		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(1));
 		// (A new place: nothing until one is shown or hidden.)
 		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
-		place.layObjects({}, false, false);
+		place.layObjects({}, {}, false, false);
 		assert(at(4, 4) == sceneColor(30) && at(13, 11) == sceneColor(1));
 	}
-	std::puts("PASS: objects drawn again in their game's order (over what is under them as it is now; hidden; the other order; opaque; nothing until shown)");
+	// One inside another shut as the scene was loaded (the cabinet under the
+	// radio, the coin boxes; its pictures taken with that one open, from
+	// export version 23): the scene does not draw it, so it is left out of
+	// the place without them, no mark of its picture 0 on the one shut;
+	// opened, drawn in it; shut again, gone. Hidden as loaded and nothing
+	// shown: the scene as loaded; hidden otherwise: drawn again.
+	{
+		const int w = 320, h = 200;
+		std::vector<uint8_t> pixels((size_t)w * h, 1);
+		World::SourceObject inside, other, cabinet;
+		cabinet.id = 77; cabinet.x = cabinet.pictureX = 40; cabinet.y = cabinet.pictureY = 40; cabinet.width = cabinet.pictureWidth = 32;
+		cabinet.height = cabinet.pictureHeight = 24; cabinet.state = 1; cabinet.name = "cabinet"; cabinet.shown = 0;
+		cabinet.pictures = {std::vector<uint8_t>(32 * 24, 40), std::vector<uint8_t>(32 * 24, 50)}; // (shut, as the place has it; open)
+		inside = cabinet; inside.id = 80; inside.name = "inside"; inside.x = inside.pictureX = 48; inside.y = inside.pictureY = 48;
+		inside.width = inside.pictureWidth = 16; inside.height = inside.pictureHeight = 8; inside.shown = 1;
+		inside.pictures = {std::vector<uint8_t>(16 * 8, 50), std::vector<uint8_t>(16 * 8, 60)}; // (taken with the cabinet open)
+		other = cabinet; other.id = 81; other.name = "other"; other.x = other.pictureX = 200; other.width = other.pictureWidth = 16;
+		other.height = other.pictureHeight = 8; other.pictures = {std::vector<uint8_t>(16 * 8, 1), std::vector<uint8_t>(16 * 8, 70)};
+		for (int y = 40; y < 64; ++y) for (int x = 40; x < 72; ++x) pixels[(size_t)y * w + x] = 40;
+		const std::vector<uint8_t> data = scene5Bytes(w, h, pixels, {box(0, 100, 320, 190)}, {inside, other, cabinet}, {0}, {});
+		Scene place;
+		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> out((size_t)w * h);
+		auto at = [&](int x, int y) { place.render(out.data(), w); return out[(size_t)y * w + x]; };
+		const std::vector<bool> shut = {true, false, false}, open = {false, false, false};
+		place.layObjects(shut, shut, false, true);
+		assert(at(50, 50) == sceneColor(40) && at(42, 42) == sceneColor(40));
+		assert(place.showObject(1, 1)); // (something else shown: all drawn again)
+		place.layObjects(shut, shut, false, true);
+		assert(at(50, 50) == sceneColor(40) && at(42, 42) == sceneColor(40) && at(204, 44) == sceneColor(70));
+		assert(place.showObject(2, 1));
+		place.layObjects(open, shut, false, true);
+		assert(at(50, 50) == sceneColor(60) && at(42, 42) == sceneColor(50));
+		assert(place.showObject(2, 0));
+		place.layObjects(shut, shut, false, true);
+		assert(at(50, 50) == sceneColor(40) && at(42, 42) == sceneColor(40));
+		// (Nothing shown: as loaded while hidden as loaded; not hidden, drawn.)
+		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
+		place.layObjects(shut, shut, false, true);
+		assert(at(50, 50) == sceneColor(40));
+		place.layObjects(open, shut, false, true);
+		assert(at(50, 50) == sceneColor(60) && at(42, 42) == sceneColor(40));
+	}
+	std::puts("PASS: objects drawn again in their game's order (over what is under them as it is now; hidden; the other order; opaque; nothing until shown); one inside one shut as loaded, no mark of it on that one");
 
 	// Spots for people: inside the boxes, spread out.
 	for (int n : {1, 4, 12}) {
@@ -1146,11 +1189,33 @@ int main() {
 		assert(n == 0 && StageBridge::canLight(n) && !StageBridge::busy());
 		assert(StageBridge::light(n, true, true) && StageBridge::lit(n) && StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseIgnite);
 		StageBridge::update(3 * kIgniteTicks - 1); assert(StageBridge::busy());
-		// (Lit, standing: busy still, its crackle drawn in turn; from 0210.)
+		// (Lit, standing: busy until its lit frame is drawn; one lit frame,
+		// not again (from 0210 its crackle drawn in turn, below).)
+		std::vector<unsigned int> screen(320 * 200);
 		StageBridge::update(1); assert(StageBridge::busy() && StageBridge::shownKind(n) == StageBridge::kPoseLitStand);
+		StageBridge::render(screen.data(), 320);
+		assert(!StageBridge::busy());
+		StageBridge::update(5 * kTalkTicks); assert(!StageBridge::busy());
 		assert(StageBridge::light(n, false, true) && StageBridge::busy() && !StageBridge::lit(n));
+		// (Two lit frames, Sith Ewok's crackle: busy when the other is due,
+		// each kTalkTicks, until it is drawn; hidden, not at all.)
+		frames.push_back({2, World::kGuestLitStand, 1, -10, -40, 20, 40, 51});
+		const std::vector<uint8_t> crackle = spriteBytes(frames);
+		const int c = StageBridge::addActor(crackle.data(), crackle.size(), 1, 1.0, problem, sizeof(problem));
+		assert(c == 1 && StageBridge::light(c, true, false));
+		StageBridge::update(3 * kIgniteTicks); // (the other put out by now)
+		assert(!StageBridge::switching(n) && StageBridge::busy());
+		StageBridge::render(screen.data(), 320);
+		int due = 0;
+		while (!StageBridge::busy() && due <= kTalkTicks) { StageBridge::update(1); ++due; }
+		assert(due >= 1 && due <= kTalkTicks && StageBridge::busy());
+		StageBridge::render(screen.data(), 320);
+		StageBridge::update(kTalkTicks - 1); assert(!StageBridge::busy());
+		StageBridge::update(1); assert(StageBridge::busy());
+		StageBridge::render(screen.data(), 320); assert(!StageBridge::busy());
+		StageBridge::hide(c, true); StageBridge::update(kTalkTicks); assert(!StageBridge::busy());
 	}
-	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, turned back halfway, walking ends them; lit talking as lit standing; none without ignite frames; busy while lighting); a glow's light added, a lit blade in the dark");
+	std::puts("PASS: something lit (its ignite frames in turn, its lit poses, put out backwards, at once, turned back halfway, walking ends them; lit talking as lit standing; none without ignite frames; busy while lighting, lit until each lit frame due is drawn); a glow's light added, a lit blade in the dark");
 	// (From 0200) A leg lifted (Crispy 2's pee), from the side. Art points:
 	// art pixels from the feet in the place, mirrored facing left, as big as
 	// drawn there. Marks on the floor: a puddle spreading (yellow over the

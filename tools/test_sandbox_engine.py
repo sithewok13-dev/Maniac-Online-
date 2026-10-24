@@ -607,10 +607,12 @@ if __name__ == '__main__':
                 print('PASS: the Shuttle Bug not boarded on the way on the Mars tram; called home from a place no longer installed')
                 # (From 0212) Parked at each of its sites, no door's middle under
                 # it; in the plane's cabin everyone seated seen whole in the flight.
-                sv = re.search(r'rides seen: (\d+) flights with everyone seated seen whole, (\d+) of (\d+) van sites with no door\'s middle under the van', output)
-                if not sv or sv.group(2) != sv.group(3) or ((worlds/'zak-11.svw').exists() and sv.group(1) == '0'):
-                    raise SystemExit('FAIL: the van over doors, or someone seated aboard never seen\n' + output[-2000:])
-                print(f'PASS: the Shuttle Bug at each of its {sv.group(3)} sites off the doors\' middles (smaller where it must be); {sv.group(1)} flights with everyone seated seen whole (the camera across them)')
+                # Standing on the floor too: the walk to its door ends at it (not,
+                # as at Atlantis's Azores before, 126 pixels away).
+                sv = re.search(r'rides seen: (\d+) flights with everyone seated seen whole, (\d+) of (\d+) van sites with no door\'s middle under the van, (\d+) with it on the floor', output)
+                if not sv or sv.group(2) != sv.group(3) or sv.group(4) != sv.group(3) or ((worlds/'zak-11.svw').exists() and sv.group(1) == '0'):
+                    raise SystemExit('FAIL: the van over doors or off the floor, or someone seated aboard never seen\n' + output[-2000:])
+                print(f'PASS: the Shuttle Bug at each of its {sv.group(3)} sites off the doors\' middles (smaller where it must be), on the floor; {sv.group(1)} flights with everyone seated seen whole (the camera across them)')
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
