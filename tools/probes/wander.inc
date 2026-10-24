@@ -118,6 +118,38 @@
 			if (!_scummverseVisitors[visitor(edna)].sprite) error("The visiting Edna not back once her actor left");
 		}
 		warning("WANDER Monkey Island: Nurse Edna and Lou visiting; the Purple Meteor stepped aside%s",ednaActor?", Edna for her actor":"");
+		// Zak's people known by their costumes (Zak's own numbers), not their
+		// names: Lou steps aside while Dave plays Lou; the Zaire shaman while
+		// he plays the Zaire villager (one costume of Zak's, two names); Zak
+		// while Zak's own actor is here.
+		for (int key : {edna,meteor}) WB::send(key,W::placeCode(W::kZak,0,55));
+		if (!scummverseSetAppearance(3,worldAppearanceKey(kWorldZakLooks,44))) error("Cannot play Lou: %s",_scummverseWorldNotice.c_str());
+		settle(4);
+		if (visitor(lou)<0 || _scummverseVisitors[visitor(lou)].sprite) error("The visiting Lou does not step aside for the one played");
+		scummverseSetAppearance(3,0); settle(4);
+		if (visitor(lou)<0 || !_scummverseVisitors[visitor(lou)].sprite) error("The visiting Lou not back once nobody plays him");
+		Common::String zakFolk;
+		const int shaman=worldAppearanceKey(zk,21), zakKey=worldAppearanceKey(zk,1);
+		if (Common::find(keys.begin(),keys.end(),shaman)!=keys.end()) {
+			if (!scummverseSetAppearance(3,worldAppearanceKey(kWorldZakLooks,41))) error("Cannot play the Zaire villager: %s",_scummverseWorldNotice.c_str());
+			WB::send(shaman,place); settle(4);
+			if (visitor(shaman)<0 || _scummverseVisitors[visitor(shaman)].sprite) error("The visiting Zaire shaman does not step aside for the Zaire villager played");
+			scummverseSetAppearance(3,0); settle(4);
+			if (visitor(shaman)<0 || !_scummverseVisitors[visitor(shaman)].sprite) error("The visiting Zaire shaman not back once nobody plays the villager");
+			WB::send(shaman,W::placeCode(W::kManiac,0,1)); zakFolk+=", the Zaire shaman for the villager";
+		}
+		Actor *zak=_actors[24];
+		if (Common::find(keys.begin(),keys.end(),zakKey)!=keys.end() && _scummVars[760] && zak->_costume==34) {
+			const int room=zak->_room; const Common::Point at=zak->getRealPos();
+			WB::send(zakKey,place); settle(4);
+			if (visitor(zakKey)<0 || !_scummverseVisitors[visitor(zakKey)].sprite) error("The visiting Zak not drawn before his actor came");
+			zak->putActor(dave->getRealPos().x+12,dave->getRealPos().y,_currentRoom); settle(4);
+			if (visitor(zakKey)<0 || _scummverseVisitors[visitor(zakKey)].sprite) error("The visiting Zak does not step aside for his own actor");
+			zak->putActor(at.x,at.y,room); settle(4);
+			if (visitor(zakKey)<0 || !_scummverseVisitors[visitor(zakKey)].sprite) error("The visiting Zak not back once his actor left");
+			WB::send(zakKey,W::placeCode(W::kManiac,0,1)); zakFolk+=", Zak for his actor";
+		}
+		warning("WANDER Monkey Island: Lou stepped aside for the one played%s",zakFolk.c_str());
 	}
 	// Guybrush and two more in the living room (nobody else there).
 	int four[4]={guybrush,0,0,0};

@@ -99,9 +99,23 @@
 	}
 	// Pause: the guide stands, the stop stays; Previous and Next go from
 	// stop to stop and stay paused (taps waiting in turn: two on Next, two
-	// stops on); Play walks on.
+	// stops on); Play walks on. The player's taps, verbs and keys wait
+	// while touring (the one played is on autopilot), and are taken paused:
+	// a verb tapped (Walk to where there is one) sets the click area (V1's
+	// variable 32) before the game's input script runs, or leaves it.
 	{
 		settle(6);
+		int verb=0;
+		for (int i=1;i<_numVerbs;++i)
+			if (_verbs[i].verbid && _verbs[i].curmode==1 && (!verb || _verbs[i].verbid==13) && _verbs[i].verbid!=7 && (_verbs[i].verbid<20 || _verbs[i].verbid>22)) verb=_verbs[i].verbid;
+		if (!verb) error("No verb to tap");
+		auto tapped=[&]() {
+			const int before=_scummVars[32];
+			_scummVars[32]=99; runInputScript(kVerbClickArea,verb,1);
+			if (_scummVars[32]!=99) return true;
+			_scummVars[32]=before; return false;
+		};
+		if (!_scummverseTouring || _scummverseTourPaused || tapped()) error("A verb tapped while touring was taken (touring %d, paused %d)",_scummverseTouring,_scummverseTourPaused);
 		T::request(T::kPause); settle(1);
 		if (!_scummverseTourPaused || !T::paused()) error("Pause not taken");
 		status(label);
@@ -111,6 +125,8 @@
 		settle(60); status(label);
 		if (dave->_moving || dave->getRealPos()!=at || _currentRoom!=pausedRoom || label!=pausedLabel)
 			error("Paused, yet the guide went on: '%s' at %d,%d in %d, now '%s' at %d,%d in %d",pausedLabel.c_str(),at.x,at.y,pausedRoom,label.c_str(),dave->getRealPos().x,dave->getRealPos().y,_currentRoom);
+		if (!tapped()) error("A verb tapped while paused was not taken");
+		settle(2);
 		const int was=number(label);
 		T::request(T::kPrevious); settle(3); status(label);
 		if (number(label)!=was-1 || !_scummverseTourPaused || !scummverseTourThere(was-2)) error("Previous while paused: '%s'",label.c_str());
@@ -123,7 +139,7 @@
 		int moved=0;
 		for (int i=0;i<10;++i) { settle(1); moved+=dave->_moving!=0; }
 		if (!moved) error("Played, yet the guide stands");
-		warning("TOUR pause: stood 60 steps in stop %d; Previous to %d, Next twice to %d, paused; Play walked on",was,was-1,was+1);
+		warning("TOUR pause: stood 60 steps in stop %d; Previous to %d, Next twice to %d, paused; Play walked on; verb %d tapped waited while touring, taken paused",was,was-1,was+1,verb);
 	}
 
 	// Stops walked in turn, from one gone to by number: the guide never stands
@@ -252,6 +268,27 @@
 		if (resume!=1 || ConfMan.getInt("scummverse_tour_stop")!=1) error("After the last stop the tour resumes at %d (saved %d), not 1",resume,ConfMan.getInt("scummverse_tour_stop"));
 		for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=wayBack[i]) error("The way back to the mansion changed by the tour's end");
 		warning("TOUR after the last stop (%d steps): home in room %d, the next tour from stop 1",ended,_currentRoom);
+	}
+	// A load ends the tour (it would go on from the place loaded); so does
+	// playing someone else (as in the new engine), the way back as it began.
+	{
+		Common::String file;
+		if (!saveState(14,false,file)) error("Save before the tour failed");
+		request(T::kResume,0,2);
+		if (!status(label)) error("Not touring again: '%s'",label.c_str());
+		if (!loadState(14,false) || _scummverseTouring || status(label)) error("Still touring after a load: '%s'",label.c_str());
+		settle(2);
+		if (status(label) || _scummverseTouring) error("Touring again after a load: '%s'",label.c_str());
+		int other=0;
+		for (int id : {1,2,4,5,6,7}) if (!other && _actors[id]->_room>=1 && _actors[id]->_room<53 && _actors[id]->_room!=45 && _actors[id]->_costume) other=id;
+		if (other) {
+			request(T::kResume,0,2);
+			if (!status(label)) error("Not touring before playing someone else: '%s'",label.c_str());
+			if (!scummverseSwitchActor(other) || VAR(VAR_EGO)!=other || _scummverseTouring || status(label)) error("Still touring after playing actor %d: '%s'",other,label.c_str());
+			for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=wayBack[i]) error("The way back to the mansion changed by playing someone else mid-tour");
+			if (!scummverseSwitchActor(3) || VAR(VAR_EGO)!=3) error("Cannot play Dave again");
+		}
+		warning("TOUR ended by a load%s",other ? Common::String::format(" and by playing actor %d",other).c_str() : "");
 	}
 	warning("SCUMMVERSE_TOUR_PASS enabled=1");
 	quitGame();

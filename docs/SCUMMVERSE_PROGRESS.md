@@ -6051,3 +6051,30 @@ iPhone build only; not tested on an iPhone.
 - Tests: test_net (ASan/UBSan, TSan; the address cache: one lookup, none
   for 2.5 seconds, one after 5, again on hosting again; three mutations
   caught), the WiFi engine probe, test_startup, the desktop build.
+
+
+## Patch 0219 — the mansion's engine without Zak, Zak's twins, the tour taking the controls
+
+Leftovers from the earlier bug hunts (the classic engine).
+- Without Zak installed, someone sent "home" from another game's place went
+  to San Francisco's airport (53), which exists only with Zak: switching to
+  them stopped the engine ("Room 53: data not found"). Home is the airport
+  with Zak, else the mansion's front lawn (room 1, where Return to Maniac
+  Mansion arrives): roaming, a WiFi friend's character let go, a world
+  restored at launch, and the character screen all use it; switching
+  mounts Zak's rooms first and, where one cannot be mounted, plays them
+  from the front lawn.
+- Zak's twins: someone visiting stepped aside only for a look of the same
+  name, so the Zaire villager look and the visiting shaman (one costume,
+  two names) were both shown, and Zak's own actors without a look (Zak,
+  Annie, Melissa, Leslie, the Caponian, the King, the shaman) each stood
+  beside a wandering copy of themselves. People are now told apart by the
+  costume they wear (Zak's through kZakCastOriginal).
+- The mansion's tour takes the controls: while it runs (not paused) the
+  player's taps, verbs and keys are ignored (ScummEngine_v2::runInputScript),
+  its own controls and the iPhone's menus still work; paused, the player
+  has them back. A load ends the tour, and so does switching kids.
+- Tested: the full data suite with Maniac's and Zak's data (46 of 46,
+  among them the tour, wanderers, worlds, WiFi, camera, Story mode and the
+  sandbox suite), test_startup and the desktop build. Not tested on an
+  iPhone.

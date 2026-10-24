@@ -17,6 +17,39 @@
 	// Missing/wrong files fail without changing world, player or inventory.
 	ConfMan.setPath("scummverse_zak_path", Common::Path("/nonexistent/zak"));
 	if (scummverseTravel(1) || _currentRoom != 7 || dave->getRealPos() != original) error("Missing-world transfer was not atomic");
+	// Without Zak's files there is no airport (room 53 is made from them):
+	// one nobody plays, left in another world's place, goes home to the
+	// mansion's front lawn; one standing in the airport (a save made where
+	// Zak's files were) is played from the front lawn too.
+	{
+		Roamer roamers[25];
+		for (int id=0; id<25; ++id) roamers[id] = _scummverseRoamers[id];
+		for (int id : {1,2,4,6,7,9,10,11,13,14,23}) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"held")->_room; r.wait=60000; r.speech=60000; }
+		Actor *bernard = derefActor(5,"no airport");
+		const int bernardRoom = bernard->_room, bernardCostume = bernard->_costume; const Common::Point bernardAt = bernard->getRealPos();
+		bernard->setActorCostume(5);
+		const int slot = _scummVars[600], leader = _scummVars[770+5];
+		_scummVars[770+5] = 0; // (Following no one: on his own there.)
+		_scummVars[600] = 34; // (A place of Monkey Island's in the first slot room, 192.)
+		bernard->putActor(20,60,192); _scummverseRoamers[5] = Roamer();
+		for (int n=0; n<200 && bernard->_room==192; ++n) scummverseUpdateRoaming(4);
+		_scummVars[600] = slot;
+		if (bernard->_room != 1) error("Left in another world without Zak's files: home to room %d (%d,%d)",bernard->_room,bernard->getRealPos().x,bernard->getRealPos().y);
+		bernard->putActor(30,60,53);
+		// (The scripts the rooms' entries start are not this probe's.)
+		bool running[NUM_SCRIPT_SLOT];
+		for (uint i=0; i<NUM_SCRIPT_SLOT; ++i) running[i] = vm.slot[i].status != ssDead;
+		auto quiet = [&]() { for (uint i=0; i<NUM_SCRIPT_SLOT; ++i) if (!running[i]) vm.slot[i].status = ssDead; _currentScript = 0xFF; _userPut = 1; };
+		if (!scummverseSwitchActor(5) || VAR(VAR_EGO) != 5 || _currentRoom != 1 || bernard->_room != 1)
+			error("Played from Zak's airport without his files: room %d, Bernard in %d",_currentRoom,bernard->_room);
+		quiet();
+		if (!scummverseSwitchActor(3) || VAR(VAR_EGO) != 3 || _currentRoom != 7) error("Dave not played again: room %d",_currentRoom);
+		quiet();
+		dave->putActor(original.x,original.y,7);
+		bernard->setActorCostume(bernardCostume); bernard->putActor(bernardAt.x,bernardAt.y,bernardRoom);
+		for (int id=0; id<25; ++id) _scummverseRoamers[id] = roamers[id];
+		_scummVars[770+5] = leader;
+	}
 	ConfMan.removeKey("scummverse_zak_path", ConfMan.getActiveDomainName());
 	ConfMan.removeKey("scummverse_zak_path", Common::ConfigManager::kApplicationDomain);
 	if (!scummverseTravel(1) || _currentRoom != 54 || dave->_room != 54 || dave->_costume != costume || VAR(VAR_EGO) != 3)
