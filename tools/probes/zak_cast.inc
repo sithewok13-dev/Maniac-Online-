@@ -121,14 +121,19 @@
 		// Zak's broom hops along on its handle and stands at rest.
 		{
 			if(!scummverseSetAppearance(20,worldAppearanceKey(kWorldZakLooks,52))) error("Cannot play as the broom");
-			_scummverseRoamers[20].wait=60000; // (Annie walks only where sent.)
 			if(annie->_room!=_currentRoom) { annie->putActor(30,60,_currentRoom); annie->showActor(); }
+			// (Annie walks only where sent: parked in the room she is now in. A
+			// roamer whose room is not the one it last saw starts afresh there,
+			// a short wait and then out through one of the room's doors; out
+			// of sight a hop is not drawn and stays where it was.)
+			{ Roamer &r=_scummverseRoamers[20]; r=Roamer(); r.room=annie->_room; r.wait=60000; r.speech=60000; }
 			const AdjustBoxResult to=annie->adjustXYToBeInBox(annie->getRealPos().x>40 ? 10 : 70,annie->getRealPos().y);
 			annie->startWalkActor(to.x,to.y,-1);
 			int highest=0;
 			for(int n=0;n<40 && annie->_moving;++n) { stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); highest=MAX(highest,(int)annie->getElevation()); }
 			annie->stopActorMoving(); _scummVars[770+20]=0; // (not following anyone either)
 			for(int n=0;n<30 && (annie->_moving || annie->getElevation());++n) { annie->stopActorMoving(); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4); }
+			if(annie->_room!=_currentRoom) error("The broom wandered off to room %d while sent across room %d",annie->_room,_currentRoom);
 			if(highest<3 || annie->_moving || annie->getElevation()!=0) error("The broom does not hop (highest %d, at rest %d, moving %d)",highest,(int)annie->getElevation(),annie->_moving);
 			// (Beside whoever the camera follows, for the picture.)
 			const Actor *ego=derefActor(VAR(VAR_EGO),"broom picture");

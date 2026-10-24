@@ -6826,3 +6826,18 @@ From the third round (performance; every pixel unchanged).
 - Tests: test_stage (new: drawn in parts), test_panel (new: where each
   draws), the sandbox suite with the frame check, the full data suite.
   Desktop measurements; not tested on an iPhone.
+
+## Tests: Zak's broom held still; every probe's random seed printed
+
+The broom check in tools/probes/zak_cast.inc failed on about one random
+seed in seven (11, 13, 18 and 19 of 1-50): the probe held Annie still
+before putting her in the room, so the roaming code started her afresh
+there and walked her off through a door mid-hop on those seeds. No engine
+fault: she hops while moving and lands once stopped in view. The probe now
+holds her as the other probes do (her room set as well), and names the
+cause if she wanders off again; seeds 1-100 all pass. tools/test_exploration.py's
+run_probe picks a random seed for each run (as the clock did), prints it,
+and a failure says how to run it again with that seed
+(SCUMMVERSE_PROBE_SEED=N); a fixed seed would have hidden this.
+Found while checking: some of the engine's own pauses for characters
+after rides are cut short the same way; being looked at.

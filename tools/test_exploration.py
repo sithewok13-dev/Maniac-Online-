@@ -7,7 +7,9 @@ engine source, normal executable, game files, or existing saves.
 """
 import argparse
 import hashlib
+import os
 from pathlib import Path
+import random
 import shlex
 import shutil
 import subprocess
@@ -86,6 +88,15 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         raise ValueError("Unsupported source-reference game")
     build = ROOT/'build'/build_name
     source = ROOT/'engine/engines/scumm/scumm.cpp'
+    # A random seed of its own for each run (not a fixed one: what chance
+    # decides, a roamer's wait or door, keeps being tried from run to run, and
+    # a fixed seed would keep a probe that only holds for some seeds passing,
+    # or failing, for good). Named, so a failure can be run again exactly:
+    # SCUMMVERSE_PROBE_SEED=<seed>. (Not where the probe's settings name one.)
+    seed = None if 'random_seed' in extra_config else int(os.environ.get('SCUMMVERSE_PROBE_SEED') or random.randint(1, 2**31 - 1))
+    if seed is not None:
+        extra_config += f'random_seed={seed}\n'
+        print(f'{label} probe: random_seed={seed}')
     with tempfile.TemporaryDirectory(prefix=f'scummverse-{label}-', dir=ROOT/'build') as tmp:
         work = Path(tmp)
         code = prelude + source.read_text()
@@ -147,7 +158,8 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
             output = result.stdout + result.stderr
             (ROOT/f'build/{label}-probe-{enabled}.log').write_text(output)
             if result.returncode or f'{marker} enabled={int(enabled)}' not in output:
-                raise RuntimeError(output[-6000:])
+                again = '' if seed is None else f'\n(random_seed={seed}: SCUMMVERSE_PROBE_SEED={seed} runs it again)'
+                raise RuntimeError(output[-6000:] + again)
             print(f'PASS: {label} real-script probe, override enabled={enabled}')
         print('Normal source, executable, game data and saves unchanged')
 
