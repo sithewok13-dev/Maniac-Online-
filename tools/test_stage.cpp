@@ -196,8 +196,27 @@ int main() {
 		route = path(gap, table, {20, 130}, {270, 60}); // (16 apart: up to the edge, then across)
 		assert(route.size() == 3 && near(route[0].y, 100) && near(route[1].y, 84) && near(route.back().x, 270) && near(route.back().y, 60));
 		assert(strays(gap, {20, 130}, route) < 9);
+		// (The Dig's 4: a strip down the side touches the boxes above and
+		// below only at their corners; the game's table goes straight down
+		// through the three between, and so does the walk, not out to the
+		// strip and round. A box a corner alone joins is still reached.)
+		std::vector<Box> rooms = {stageBox(20, 0, 300, 20), stageBox(20, 20, 300, 100), stageBox(20, 100, 300, 180), stageBox(20, 180, 300, 200),
+			stageBox(0, 20, 20, 180), stageBox(300, 200, 340, 240)};
+		for (int i = 0; i < 6; ++i) rooms[i].source = i;
+		std::vector<uint8_t> straight = {0, 1, 1, 1, 1, 255, 0, 1, 2, 2, 4, 255, 1, 1, 2, 3, 4, 255, 2, 2, 2, 3, 2, 255, 1, 1, 2, 2, 4, 255};
+		for (int i = 0; i < 5; ++i) straight.push_back(255);
+		straight.push_back(5);
+		assert(touching(rooms[0], rooms[4]) && touching(rooms[3], rooms[4]) && touching(rooms[3], rooms[5]));
+		for (const Links &corner : {linksOf(rooms, straight, 6), linksOf(rooms)}) {
+			assert(!corner.meets(0, 4) && !corner.meets(3, 4) && corner.meets(1, 4) && corner.meets(2, 4) && corner.meets(3, 5));
+			assert(corner.group[5] == corner.group[0] && corner.group[4] == corner.group[0]);
+			route = path(rooms, corner, {150, 10}, {150, 190});
+			assert(near(walked({150, 10}, route), 180, 0.01) && near(route.back().y, 190));
+			route = path(rooms, corner, {150, 190}, {320, 220});
+			assert(near(route.back().x, 320) && near(route.back().y, 220));
+		}
 	}
-	std::puts("PASS: ways (the fewest boxes, then the shortest; on from inside the next box; up to a gap the game's table joins, then across)");
+	std::puts("PASS: ways (the fewest boxes, then the shortest; on from inside the next box; up to a gap the game's table joins, then across; not round by a corner)");
 
 	// A scene drawn once at the screen's size, in its own colours: every
 	// screen pixel shows the source pixel under it.

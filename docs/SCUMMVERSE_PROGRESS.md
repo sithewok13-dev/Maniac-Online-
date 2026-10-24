@@ -6246,3 +6246,20 @@ From the third bug hunt (new engine).
 - Tests: the moves self-test (new: out of sight on a ride, 3 of 3, each
   fix mutation-checked), rides, cast, the full sandbox suite and data
   suite. Not tested on an iPhone.
+
+## Patch 0227 — walks: boxes touching only at a corner
+
+From the second bug hunt (new engine's walks).
+- Two walk boxes touching only at a corner counted as joined, so walks cut
+  round the corner and doubled back (The Dig 4-7: 146 detours each, up to
+  257 pixels). Such a corner is now left out where a third box joins both
+  along their sides (as the games' own tables and ScummVM do); corners the
+  game joins, lines, points and slivers are kept. Which boxes reach which
+  is unchanged in all 781 scenes.
+- Over all scenes: detours 1248 to 686; walks longer than the game's own
+  route 571 to 30; The Dig 4-7 146 to 18 each; Full Throttle 99 83 to 30.
+  A few scenes have more small detours (Atlantis 71, COMI 10, FT 43 and
+  62), none longer than the game's route.
+- Tests: test_stage (ASan/UBSan; new: The Dig 4's layout), 210,400 walks
+  with no end point changed, a path fuzzer (200,000 rounds), the full
+  sandbox suite and data suite. Not tested on an iPhone.
