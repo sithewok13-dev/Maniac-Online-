@@ -6280,3 +6280,24 @@ From the third bug hunt (new engine).
 - Tests: the moves self-test (new section, each fix mutation-checked),
   test_stage (ASan/UBSan, the 12-mark limit), the full sandbox suite and
   data suite. Not tested on an iPhone.
+
+## Patch 0229 — the new engine opens again after a damaged file
+
+From the third bug hunt (new engine: what it keeps).
+- If the app was stopped mid-export and left the saved place's scene or
+  the played character's file damaged or gone, the new engine never
+  opened again ("could not start the sandbox"). It now starts at the saved
+  place with someone who can be shown, else the start place, else each
+  game's first place; what was carried, opened and stained is kept.
+- The "no way back" arrow followed the player to a start place they never
+  came from (tapped, it took them through a door of the old place); it is
+  cleared when the start is not where they were saved.
+- Checked and kept across a real stop (the process killed after the
+  phone's pause): the way back, the tour's stop, a follower, the character
+  chosen, rides cut off, where every wanderer was.
+- Known: the mansion is not restored from its own save if the phone stops
+  the app while the new engine is open (since 0104).
+- Tests: new keep/resume self-tests through the engine's real start
+  (gone, look and damaged caches; with ASan/UBSan), walk, back, follow,
+  cast, tour, the full sandbox suite and data suite. Not tested on an
+  iPhone.

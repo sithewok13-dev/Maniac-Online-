@@ -33,7 +33,12 @@ working, and ends back where it began; The Dig's tram is called from
 each ledge, comes, and is ridden to the other end, where it waits; Zak's
 bus and Mars tram are boarded and ridden both ways, a plane flies to every
 airport chosen from the list it asks with, and a ride walked off is missed;
-then from Maniac the
+launched as the phone launches it (its own target, its settings on disk),
+left past a door with no way back, someone asked along, the tour paused,
+put away and stopped as iOS stops the app, it starts again there with all
+of it; with the one played's file damaged, there as someone else; with that
+place gone from the cache, or it and the one played damaged, elsewhere (no
+way back from there); then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
 Mansion returns to the same room, from the saved game. Pictures go to
 build/sandbox-shots. Not an iPhone test.
@@ -91,6 +96,60 @@ def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False, extra='
     for line in summary:
         print('  ' + line.replace('WARNING: ', '').rstrip('!'))
     return output
+
+
+def relaunch(exe, worlds, tmp):
+    """The app stopped and started again: the sandbox's own target as Maniac
+    makes it (scummverse-sandbox, its settings written to disk as on the
+    phone). "keep" leaves it as in play, then put away as iOS puts the app
+    away and gone without the run's own save at its end, as iOS stops it;
+    "resume" starts as a launch starts and finds it all so. Then again with
+    that place gone from the cache, with the one played's file damaged (as
+    an export stopped partway leaves one): there as someone else, and with
+    both damaged: started elsewhere."""
+    work = Path(tmp)/'relaunch'
+    work.mkdir()
+    config, state = work/'sandbox.ini', work/'scummverse-sandbox.state'
+    config.write_text('[scummvm]\nscummverse_selftest=keep\nscummverse_screen=1280x720\nscummverse_wanderers=false\n'
+                      f'[scummverse-sandbox]\nengineid=scummverse\ngameid=sandbox\ndescription=Scummverse sandbox\npath={worlds}\n')
+
+    def launch(mode, path, cache=''):
+        # (The settings as the run before left them, the check and the cache changed.)
+        text = re.sub(r'(?m)^scummverse_selftest=.*$', f'scummverse_selftest={mode}', config.read_text())
+        text = re.sub(r'(?m)^scummverse_selftest_cache=.*\n', '', re.sub(r'(?m)^path=.*$', f'path={path}', text))
+        config.write_text(text.replace('[scummvm]\n', f'[scummvm]\nscummverse_selftest_cache={cache}\n' if cache else '[scummvm]\n', 1))
+        result = subprocess.run([str(exe), f'--config={config}', f'--savepath={work}', 'scummverse-sandbox'], cwd=work,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900)
+        output = result.stdout + result.stderr
+        (ROOT/f'build/sandbox-{mode}{"-" + cache if cache else ""}.log').write_text(output)
+        if result.returncode or 'SCUMMVERSE sandbox selftest PASS' not in output:
+            raise SystemExit(f'FAIL: sandbox {mode} {cache}\n' + output[-4000:])
+        for line in output.splitlines():
+            if 'sandbox selftest' in line and 'PASS' not in line:
+                print('  ' + line.replace('WARNING: ', '').rstrip('!'))
+
+    def cache(name, damage):
+        folder = work/name
+        folder.mkdir()
+        for f in worlds.iterdir():
+            (folder/f.name).symlink_to(f)
+        for f, size in damage:
+            (folder/f).unlink()
+            if size:
+                (folder/f).write_bytes((worlds/f).read_bytes()[:size])
+        return folder
+
+    launch('keep', worlds)
+    launch('resume', worlds)
+    print('PASS: stopped as iOS stops the app and started again: where it was left, the one played, those asked along, the way back, the tour\'s stop')
+    kept = config.read_text(), state.read_bytes()
+    scene, look = (work/'scummverse-selftest.expect').read_text().splitlines()[1].split()
+    for name, damage in (('gone', [(scene, 0)]), ('look', [(look, 40)]), ('damaged', [(scene, 3000), (look, 40)])):
+        config.write_text(kept[0])
+        state.write_bytes(kept[1])
+        launch('resume', cache(name, damage), name)
+    print('PASS: started again with that place gone, or it and the one played damaged: elsewhere (no way back from there); the one played damaged: '
+          'there as someone else; what was changed kept')
 
 
 def cycles_of(path):
@@ -644,6 +703,7 @@ if __name__ == '__main__':
                 if not sv or sv.group(2) != sv.group(3) or sv.group(4) != sv.group(3) or ((worlds/'zak-11.svw').exists() and sv.group(1) == '0'):
                     raise SystemExit('FAIL: the van over doors or off the floor, or someone seated aboard never seen\n' + output[-2000:])
                 print(f'PASS: the Shuttle Bug at each of its {sv.group(3)} sites off the doors\' middles (smaller where it must be), on the floor; {sv.group(1)} flights with everyone seated seen whole (the camera across them)')
+        relaunch(exe, worlds, tmp)
     switch(a.data.resolve(), worlds, a.frames)
     # A cache whose place cannot be read: back to Maniac all the same.
     with tempfile.TemporaryDirectory(prefix='scummverse-broken-', dir=ROOT/'build') as broken:
