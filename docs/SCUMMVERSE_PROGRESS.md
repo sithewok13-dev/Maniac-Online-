@@ -6499,3 +6499,23 @@ held, the code around them did not).
   1,000,000 runs) and of the engine (2,229 runs), the full data suite. The
   classic engine mounting a damaged file and the two save checks are
   compiled and read, not run. Not tested on an iPhone.
+
+## Tests: Maniac Mansion played to an ending
+
+A new data test, tools/test_playthrough_engine.py (with
+tools/probes/playthrough.inc), plays the original game with a player's
+own taps through the engine as it is now.
+- Story mode: from the kid screen to one of the game's endings with three
+  kids (18 steps, about 42 minutes of game time, 1.4 seconds on the
+  desktop); none of Explore mode's additions show (no visitors, no free
+  doors, no blocks).
+- Explore mode, built not to be completed (docs/roaming.md): one kid does
+  what it keeps of the puzzles (every thing taken, the hall statue, the
+  strength machine and garage door, the trunk, the batteries, the valve,
+  the breakers, the wiring repair, the padlocks) with other games'
+  visitors about (19 rooms of the route, up to 5 at once); every tap
+  reached the game and every walk arrived.
+- Both pass for many random seeds; a door made to re-lock every frame
+  fails it at the step that needs it. No engine change was needed: nothing
+  on the original's path was broken.
+- Not covered: the other endings, the iPhone's real touch and menus.

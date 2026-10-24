@@ -42,6 +42,9 @@ to main, codex/** and claude/**; it is not blocked. Each IPA is stamped
 `<patch>.<run>` (tools/package_ipa.py, `python3 tools/test_package_ipa.py`). Hugging Face may be blocked in
 cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
+PLAYTHROUGH: `python3 tools/test_playthrough_engine.py game-data/mm-dos` (in the data
+suite; Maniac Mansion played to an ending in Story mode, and what Explore mode keeps
+of its puzzles, with visitors about).
 STORY PLAY (Story mode, kept apart from Explore mode): `python3 tools/test_story_engine.py
 game-data/mm-dos` (in the data suite; Maniac's own story and every game folder under game-data/,
 copy protection answered: opened, saved, back, reopened from its save exactly, game to game,
