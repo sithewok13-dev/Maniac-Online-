@@ -1314,5 +1314,66 @@ int main() {
 		StageBridge::update(23 + kPuddleTicks); assert(!StageBridge::busy());
 	}
 	std::puts("PASS: a leg lifted (from the side, its frames in turn); art points in the place (mirrored facing left); marks on the floor (a puddle spreading, drying to a stain, under everyone, not in the dark, the oldest let go once a new one is there, gone with the place; busy while drying)");
+
+	// Damaged files (as the fuzzing of round 3 made them): a scene and a
+	// character cut short anywhere, or with any of their counts, sizes,
+	// places or numbers changed to an extreme, are refused or shown, walked
+	// in and drawn without a fault (run with the sanitizers).
+	{
+		const int w = 40, h = 24;
+		std::vector<uint8_t> pixels(w * h);
+		for (int i = 0; i < w * h; ++i) pixels[i] = (uint8_t)(i % 5 + 1);
+		World::SourceObject a, b;
+		a.id = 3; a.x = 2; a.y = 2; a.width = 8; a.height = 6; a.walkX = 6; a.walkY = 20; a.name = "door";
+		a.pictureX = 2; a.pictureY = 2; a.pictureWidth = 4; a.pictureHeight = 3; a.shown = 1;
+		a.pictures = {std::vector<uint8_t>(12, 1), std::vector<uint8_t>(12, 2), std::vector<uint8_t>(12, 3)};
+		b = a; b.id = 9; b.x = 30; b.name = "box"; b.pictureX = 30; b.shown = 0; b.pictures.resize(2);
+		const std::vector<World::SourceBox> boxes = {box(1, 14, 20, 23, 0, 120, 255), box(19, 16, 39, 23), box(30, 2, 30, 2)};
+		const std::vector<uint8_t> next = {0, 1, 255, 0, 1, 255, 255, 255, 2};
+		World::SourceCycle cycle; cycle.delay = 3; cycle.first = 1; cycle.last = 4; cycle.mode = 2;
+		const std::vector<uint8_t> scene = scene5Bytes(w, h, pixels, boxes, {a, b}, next, {cycle});
+		const std::vector<uint8_t> sprite = spriteBytes({{2, 0, 0, -2, -8, 4, 8, 7}, {0, 1, 0, -2, -8, 4, 8, 8}, {1, 1, 1, -3, -9, 6, 9, 9}, {0, 4, 0, -2, -8, 4, 8, 10}});
+		std::vector<uint32_t> screen(160 * 100);
+		auto play = [&](const std::vector<uint8_t> &data, const std::vector<uint8_t> &look) {
+			Scene s;
+			std::string problem;
+			if (!s.load(data.data(), data.size(), 1.2, 320, 160, 100, problem)) return false;
+			const int n = s.addActor(look.data(), look.size(), 1, 1.2, problem);
+			for (int o = 0; o < (int)s.source().objects.size(); ++o)
+				for (int k = -1; k < 4; ++k) { s.showObject(o, k); s.looksAs(o, k); }
+			const std::vector<bool> all(s.source().objects.size(), true), none(s.source().objects.size(), false);
+			s.layObjects(all, none, true, false); s.layObjects(none, all, false, true);
+			const std::vector<Point> at = s.spots(3, 0);
+			s.place(n, at[0]); s.walkTo(n, at[2]);
+			for (int t = 0; t < 8; ++t) s.update(3);
+			s.render(screen.data(), 160);
+			s.light(n, true, true); s.pose(n, 1, 1, 1); s.render(screen.data(), 160);
+			s.objectAt(Point(5, 5), {-1, 0, 1, 2}, 4);
+			return true;
+		};
+		assert(play(scene, sprite));
+		for (size_t cut = 0; cut < scene.size(); ++cut) assert(!play(std::vector<uint8_t>(scene.begin(), scene.begin() + cut), sprite));
+		for (size_t cut = 0; cut < sprite.size(); ++cut) { Scene s; std::string problem; assert(s.load(scene.data(), scene.size(), 1.2, 320, 320, 200, problem) && s.addActor(sprite.data(), cut, 1, 1.2, problem) < 0); }
+		int shown = 0, tried = 0;
+		const size_t pixelsAt = 12 + 768, pixelsEnd = pixelsAt + w * h;
+		for (size_t at = 0; at < scene.size(); ++at) {
+			if ((at >= 12 && at < pixelsAt) || (at >= pixelsAt && at < pixelsEnd)) continue; // (not its colours or picture)
+			for (int v : {0, 0x80, 0xFF}) {
+				std::vector<uint8_t> damaged = scene;
+				damaged[at] = (uint8_t)v;
+				shown += play(damaged, sprite); ++tried;
+			}
+		}
+		for (size_t at = 0; at < sprite.size(); ++at) {
+			if (at >= 8 && at < 8 + 768) continue;
+			for (int v : {0, 0x80, 0xFF}) {
+				std::vector<uint8_t> damaged = sprite;
+				damaged[at] = (uint8_t)v;
+				shown += play(scene, damaged); ++tried;
+			}
+		}
+		assert(shown > 0 && shown < tried);
+	}
+	std::puts("PASS: damaged scenes and characters (cut short anywhere, or a count, size, place or number made extreme) refused or shown without a fault");
 	return 0;
 }

@@ -6469,3 +6469,33 @@ From an independent review of 0230-0233 (new engine, and 0231's saves).
   without an autosave, ScummVM's timer and a copy of the phone's logic),
   the story probe with an autosave injected at the computer, the full
   data suite. Not tested on an iPhone.
+
+## Patch 0237 — damaged files and settings never stop the app
+
+From the third bug hunt (fuzzing every reader; the readers themselves
+held, the code around them did not).
+- A compressed cache file cut short claims a random size (its last bytes):
+  the new engine, or the mansion travelling there, tried to read
+  gigabytes (a maniac-1 scene cut to 3 KB claimed 3.9 GB; on a phone the
+  app dies). A file is read only if its size is sane (above 0, at most 64
+  MB, at most deflate's 1032 times its size on disk); else it counts as a
+  failed read, which 0229 already starts elsewhere from.
+- A setting ConfMan cannot parse (a settings file cut mid-write when the
+  phone stops the app, e.g. a half-written true or false) stopped the app at
+  every launch, in both engines. Such a value now counts as unset; every
+  value ConfMan accepted reads as before.
+- A scene claiming thousands of things stalled each entry (20,000: 26
+  seconds); scenes are refused above 1024 things (real ones have at most
+  66).
+- From a save: The Dig's tram trip is range-checked; the van's scale is
+  kept within 10 to 1000 (an out-of-range one could loop for ever on an
+  iPhone's processor).
+- Every real file in the cache reads exactly as before (1212 files, every
+  parsed field compared).
+- Tests: test_stage (new: scenes and characters cut at every length and
+  with counts and sizes made extreme), test_world (sizes, the thing cap),
+  test_panel, the relaunch self-test (now with a scene claiming 4 GB and a
+  3 GB memory limit), coverage-guided fuzzing of every reader (about
+  1,000,000 runs) and of the engine (2,229 runs), the full data suite. The
+  classic engine mounting a damaged file and the two save checks are
+  compiled and read, not run. Not tested on an iPhone.

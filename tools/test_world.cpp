@@ -198,6 +198,23 @@ static void testSprites() {
 	std::printf("PASS: character frames (parse, scale anchored at the feet, colors, fallbacks, shared palette, own scales, without a scene)\n");
 }
 
+// A file of the worlds cache is read whole only at a size it can have: a
+// compressed one says its size in its last four bytes, anything in one cut
+// short (here a scene's first 3002 bytes, saying nearly 4 GB, as an export
+// stopped partway leaves one). Never more than deflate makes of the bytes
+// there, nor than any file kept; every file of an export is.
+static void testCacheSizes() {
+	using Scummverse::WorldBridge::readableSize;
+	assert(readableSize(41806, 41806));                 // (kept plain)
+	assert(readableSize(5106448, 1500000));             // (the largest, compressed)
+	assert(readableSize(1032LL * 3002, 3002));          // (as much as deflate makes of it)
+	assert(!readableSize(1032LL * 3002 + 1, 3002));
+	assert(!readableSize(3938267034LL, 3002));          // (cut short)
+	assert(!readableSize(Scummverse::WorldBridge::kMostCacheFile + 1, 1LL << 30));
+	assert(!readableSize(0, 100) && !readableSize(-1, 100) && !readableSize(100, 0));
+	std::printf("PASS: cache file sizes (a damaged compressed one's refused, never read at gigabytes)\n");
+}
+
 // Places: keys round-trip and landmarks are found by game and room. The
 // cast: every character is in a valid game, at most five per room, slots
 // packed from 0, found by worldGuestAt. The frozen legacy order names real
@@ -428,6 +445,7 @@ static void testMaps() {
 }
 
 int main() {
+	testCacheSizes();
 	testCatalog();
 	testMaps();
 	testSprites();
@@ -555,12 +573,22 @@ int main() {
 	assert(!parseScene(noCount.data(), noCount.size(), src, error));
 	auto v1Extra = bytes; v1Extra.push_back(0); assert(!parseScene(v1Extra.data(), v1Extra.size(), src, error));
 	assert(parseScene(v2.data(), v2.size(), src, error));
+	// (No more objects than any game's room has: a thousand and more, refused.)
+	for (int count : {kMostSceneObjects, kMostSceneObjects + 1, 65535}) {
+		auto crowd = sceneBytes(W, H, pixels, boxes);
+		crowd[3] = '2';
+		put16(crowd, count);
+		for (int i = 0; i < count; ++i) for (int f : {101, 12, 6, 24, 18, 30, 44}) put16(crowd, f);
+		const bool parsed = parseScene(crowd.data(), crowd.size(), src, error);
+		assert(count <= kMostSceneObjects ? parsed && (int)src.objects.size() == count : !parsed && error == "too many objects");
+	}
+	assert(parseScene(v2.data(), v2.size(), src, error));
 	SandboxScene withObjects; assert(fitScene(src, 32, 16, 240, withObjects, error, 320));
 	const SandboxObject &door = withObjects.objects[0];
 	assert(withObjects.objects.size() == 2 && door.id == 101);
 	assert(door.x == 8 + 128 && door.y == 4 && door.width == 16 && door.height == 12); // x 12*2/3 + pad 128
 	assert(door.walkX == (int)std::lround((30 * 2.0 / 3 + 128) / 8) && door.walkY == (int)std::lround(44 * 2.0 / 3 / 2));
-	std::printf("PASS: SVW2 room objects (parse, truncation, sandbox rectangles and walk points)\n");
+	std::printf("PASS: SVW2 room objects (parse, truncation, at most %d, sandbox rectangles and walk points)\n", kMostSceneObjects);
 
 	// SVW3: per box, the character scale at its top and bottom edges follows
 	// the objects; the sandbox keeps those of the boxes it keeps and

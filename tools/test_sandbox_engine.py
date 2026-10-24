@@ -49,9 +49,11 @@ import argparse
 import gzip
 from pathlib import Path
 import re
+import resource
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 from test_exploration import ROOT, command_for
 
@@ -138,7 +140,12 @@ def relaunch(exe, worlds, tmp):
         for f, size in damage:
             (folder/f).unlink()
             if size:
-                (folder/f).write_bytes((worlds/f).read_bytes()[:size])
+                # (A compressed one cut where its last four bytes, the size
+                # it is read at, say gigabytes, as one cut short may say.)
+                data = (worlds/f).read_bytes()
+                while data[:2] == b'\x1f\x8b' and size < len(data) - 4 and struct.unpack('<I', data[size - 4:size])[0] < 7 << 29:
+                    size += 1
+                (folder/f).write_bytes(data[:size])
         return folder
 
     launch('keep', worlds)
@@ -150,6 +157,10 @@ def relaunch(exe, worlds, tmp):
         config.write_text(kept[0])
         state.write_bytes(kept[1])
         launch('resume', cache(name, damage), name)
+    # (Never read at the size a damaged one says: on the phone, the app gone.
+    # ru_maxrss is in kilobytes on Linux, bytes on macOS.)
+    if resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss > (3 << 30 if sys.platform == 'darwin' else 3 << 20):
+        raise SystemExit('FAIL: a damaged scene file read at the size it says (gigabytes)')
     print('PASS: started again with that place gone, or it and the one played damaged: elsewhere (no way back from there); the one played damaged: '
           'there as someone else; what was changed kept')
 
