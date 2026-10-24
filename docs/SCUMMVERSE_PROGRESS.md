@@ -6170,3 +6170,18 @@ Leftovers from the earlier bug hunts and an independent review (classic engine).
   another game, a paused door tap, a flight and the van's flight boarded
   while paused, the tour's autosave kept and loaded), cast and worlds
   probes, the full data suite. Not tested on an iPhone.
+
+## Patch 0223 — visitors in the dark; no greeting for a rider out of sight
+
+From the third bug hunt (wanderers, classic engine).
+- A mansion room's own people are drawn grey with black lines with the
+  light off, as the original draws them; a visiting character, or someone
+  played as another game's character, kept all its colours. They are now
+  shaded the same way in the dark (Ted's dress-up too).
+- A visitor near Zak's bus stop greeted the empty stop while the player
+  rode out of sight; a hidden player is not greeted.
+- Tests: test_wander (two schedulers on two threads, ASan/UBSan and TSan),
+  the wander probe (new: Guybrush grey in the dark basement and in colour
+  with the light back; no greeting during a bus ride), the full data
+  suite. The played look and Ted's dress-up in the dark were compiled and
+  read, not run. Not tested on an iPhone.

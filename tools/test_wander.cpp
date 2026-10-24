@@ -1,7 +1,7 @@
 // Wanderers (common/scummverse_wander.cpp): places and doors, everyone out
 // (mostly in their own game), moving along doors, jumps, gathering, toward
 // the player, the crowd and small ones, away ones (never in their own
-// game), weights, saving, the game's side.
+// game), weights, saving, the game's side, two sets on two threads.
 // c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
 //   tools/test_wander.cpp engine/common/scummverse_wander.cpp
 #include "common/scummverse_wander.h"
@@ -9,6 +9,8 @@
 #include <cassert>
 #include <cstdio>
 #include <set>
+#include <thread>
+#include <vector>
 using namespace Scummverse::Wander;
 
 // Two games: a ring of twelve rooms (game 3), a corridor of four Maniac
@@ -218,6 +220,25 @@ int main() {
 		assert(lost.where(3) == 0 && !lost.advance(600, 0, cast, none, rules, r1));
 	}
 	puts("PASS: deterministic; an empty map moves nobody");
+
+	// No state shared between sets of wanderers: two on two threads at once
+	// (each with its own map, cast and random source; TSan sees no race)
+	// move exactly as the same seed does alone.
+	{
+		auto run = [&](uint32_t seed, std::vector<int> &out) {
+			const Map m = world(); const Cast c = cast; Rules r; Random random(seed); Wanderers w;
+			w.start(c, m, r, random);
+			for (int t = 0; t < 200; ++t) w.advance(60 * 20, m.places[t % m.places.size()], c, m, r, random);
+			out.clear();
+			for (size_t i = 0; i < c.size(); ++i) out.push_back(w.where((int)i));
+		};
+		std::vector<int> alone9, alone10, one, two;
+		run(9, alone9); run(10, alone10);
+		std::thread first([&] { run(9, one); }), second([&] { run(10, two); });
+		first.join(); second.join();
+		assert(one == alone9 && two == alone10 && alone9 != alone10);
+	}
+	puts("PASS: two sets of wanderers on two threads, each as alone");
 
 	// The game's side: everyone out, saved two places to a value and read
 	// back; a character sent somewhere; small ones known.

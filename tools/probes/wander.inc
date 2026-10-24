@@ -314,6 +314,65 @@
 		noneHome("by the kitchen");
 		if (!inside || most>4+1) error("Kitchen: %d visits, %d at once",inside,most);
 	}
+	// In the dark (the basement's light switched off) a visitor is drawn as
+	// the room's own people are, a grey shape with black lines, not in its
+	// colours; lit again, in its colours.
+	{
+		const int basement=W::placeCode(W::kManiac,0,8);
+		{ int there[64]; const int n=MIN(64,WB::at(basement,there,64)); for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(W::kManiac,0,1)); }
+		WB::send(guybrush,basement);
+		if (!scummverseTourPlace(8,44,64)) error("Cannot enter the basement");
+		settle(6);
+		const int s=visitor(guybrush);
+		if (s<0) error("Guybrush not in the basement");
+		ScummverseVisitor &v=_scummverseVisitors[s];
+		Actor *dave=derefActor(3,"wander dark");
+		const AdjustBoxResult p=v.actor->adjustXYToBeInBox(dave->getRealPos().x+6,dave->getRealPos().y);
+		v.actor->stopActorMoving(); v.actor->putActor(p.x,p.y,_currentRoom); v.idle=60000;
+		const byte shade=_gdi->remapColorToRenderMode(11);
+		auto grey=[&]() {
+			int n=0;
+			for (int y=v.drawn.top;y<v.drawn.bottom;++y) for (int x=v.drawn.left;x<v.drawn.right;++x) {
+				const int sx=x-_virtscr[0].xstart;
+				n+=sx>=0 && sx<_screenWidth && *_virtscr[0].getPixels(sx,y)==shade;
+			}
+			return n;
+		};
+		int none[NUM_SCRIPT_LOCAL]; memset(none,0,sizeof(none));
+		settle(3);
+		if (pixelsOf(v)<100) error("Guybrush not drawn in the lit basement (%d pixels)",pixelsOf(v));
+		runObjectScript(335,5,false,false,none); settle(6);
+		if (VAR(VAR_CURRENT_LIGHTS) & LIGHTMODE_actor_use_colors) error("The basement's light not off (lights %d)",VAR(VAR_CURRENT_LIGHTS));
+		if (pixelsOf(v) || grey()<60) error("Guybrush in his colours in the dark (%d coloured pixels, %d grey)",pixelsOf(v),grey());
+		shot("wander-dark.ppm");
+		runObjectScript(335,4,false,false,none); settle(6);
+		if (pixelsOf(v)<100) error("Guybrush not in his colours once the basement is lit (%d pixels)",pixelsOf(v));
+		warning("WANDER the dark basement: Guybrush grey there, in his colours lit");
+	}
+	// Riding Zak's bus the player is out of sight at the stop: a visitor
+	// beside it greets nobody.
+	{
+		const int street=W::placeCode(W::kZak,0,55);
+		{ int there[64]; const int n=MIN(64,WB::at(street,there,64)); for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(W::kManiac,0,1)); }
+		WB::send(guybrush,street);
+		if (!scummverseTravel(5) || _currentRoom!=55) error("Cannot reach the street (%d)",_currentRoom);
+		settle(4);
+		const int s=visitor(guybrush);
+		if (s<0) error("Guybrush not on the street");
+		Actor *dave=derefActor(3,"wander bus");
+		scummverseWaitBus();
+		for (int n=0;n<400 && !(_scummVars[765]>kBusBoarding && !dave->_visible);++n) settle(1);
+		if (dave->_visible || _scummVars[765]<=kBusBoarding) error("Dave not aboard the bus (phase %d)",_scummVars[765]);
+		ScummverseVisitor &v=_scummverseVisitors[s];
+		const AdjustBoxResult p=v.actor->adjustXYToBeInBox(dave->getRealPos().x+2,dave->getRealPos().y+4);
+		v.actor->stopActorMoving(); v.actor->putActor(p.x,p.y,_currentRoom); v.idle=60000;
+		for (ScummverseVisitor &o : _scummverseVisitors) o.greeted=&o!=&v;
+		VAR(VAR_HAVE_MSG)=0; stopTalk(); _scummverseVisitorQuiet=0; _scummverseAIActor=0;
+		bool greeted=false;
+		for (int n=0;n<6 && _scummVars[765]>kBusBoarding;++n) { scummLoop(4); greeted=greeted || _scummverseVisitorTalking==s; }
+		if (greeted) error("A visitor greeted the player out of sight on the bus");
+		warning("WANDER on Zak's bus: nobody greets the stop");
+	}
 	warning("SCUMMVERSE_WANDER_PASS enabled=1");
 	quitGame();
 	return;

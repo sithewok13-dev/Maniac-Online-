@@ -8,7 +8,9 @@ in the living room are drawn there from their own frames, another walks in
 from a side; the others move on while the living room's stay; Guybrush
 greets once in his colour; one moved away leaves no trace; save and load
 keep them; none on the plane or in the van's cockpit; in time others take
-their turn. Not an iPhone test.
+their turn; in the dark basement one is a grey shape as Dave is, in its
+colours lit again; nobody greets the player out of sight on Zak's bus. Not
+an iPhone test.
 """
 import argparse
 from pathlib import Path
