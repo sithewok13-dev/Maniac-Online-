@@ -1375,5 +1375,139 @@ int main() {
 		assert(shown > 0 && shown < tried);
 	}
 	std::puts("PASS: damaged scenes and characters (cut short anywhere, or a count, size, place or number made extreme) refused or shown without a fault");
+
+	// Drawn in parts (from 0243): rectangles joined (overlapping and near
+	// ones, empty ones and what is off the screen dropped; all of it when
+	// they come to most of it).
+	{
+		std::vector<Rect> r = {Rect(10, 10, 50, 50), Rect(40, 40, 90, 90), Rect(5, 5, 5, 9), Rect(300, 200, 304, 204), Rect(500, 300, 520, 330), Rect(630, 350, 700, 400)};
+		join(r, 640, 360);
+		assert(r.size() == 4);
+		long long area = 0;
+		for (const Rect &q : r) { assert(!q.empty() && q.x0 >= 0 && q.y0 >= 0 && q.x1 <= 640 && q.y1 <= 360); area += q.area(); }
+		assert(area == 80 * 80 + 4 * 4 + 20 * 30 + 10 * 10);
+		std::vector<Rect> most = {Rect(0, 0, 600, 300)};
+		join(most, 640, 360);
+		assert(most.size() == 1 && most[0].x0 == 0 && most[0].y0 == 0 && most[0].x1 == 640 && most[0].y1 == 360);
+		std::vector<Rect> none = {Rect(3, 3, 3, 30), Rect(700, 0, 800, 10)};
+		join(none, 640, 360);
+		assert(none.empty());
+	}
+	// The screen drawn in parts onto the screen as it was drawn is the
+	// screen drawn whole, after every tick of a long run of everything that
+	// changes it: people walking (the camera following them across a wide
+	// place), talking, posed, hidden, made bigger, lighting up, moves; colours
+	// moving (only where the scene shows them); objects shown in their
+	// pictures and laid out again; a second picture slid; marks spreading and
+	// drying; props and pieces; the lights off, a flashlight moving; the
+	// camera sent elsewhere. Nothing changed: nothing to draw.
+	{
+		const int w = 640, h = 144;
+		std::vector<uint8_t> pixels((size_t)w * h);
+		for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) pixels[(size_t)y * w + x] = (uint8_t)((x / 8 + y / 8) % 150 + 20);
+		for (int y = 10; y < 20; ++y) for (int x = 300; x < 340; ++x) pixels[(size_t)y * w + x] = (uint8_t)(200 + (x + y) % 8); // (water: 200..207)
+		World::SourceObject door;
+		door.id = 401; door.x = 500; door.y = 30; door.width = 20; door.height = 40; door.state = 1; door.name = "door"; door.shown = 0;
+		door.pictureX = 500; door.pictureY = 30; door.pictureWidth = 20; door.pictureHeight = 40;
+		door.pictures = {std::vector<uint8_t>(800, 3), std::vector<uint8_t>(800, 90), std::vector<uint8_t>(800, 91)};
+		std::vector<uint8_t> next(4, 255);
+		next[0] = 0; next[3] = 1; next[1] = 1; next[2] = 0;
+		World::SourceCycle water;
+		water.delay = 5; water.first = 200; water.last = 207; water.mode = 0;
+		const std::vector<uint8_t> data = scene5Bytes(w, h, pixels, {box(10, 100, 320, 140, 0, 128, 255), box(320, 100, 630, 140)}, {door}, next, {water});
+		std::vector<uint8_t> parked(pixels);
+		for (int y = 60; y < 90; ++y) for (int x = 100; x < 160; ++x) parked[(size_t)y * w + x] = 130;
+		const std::vector<uint8_t> parkedData = scene5Bytes(w, h, parked, {box(10, 100, 320, 140, 0, 128, 255), box(320, 100, 630, 140)}, {door}, next, {water});
+		std::vector<Frame> glowing = {{2, 0, 0, -10, -40, 20, 40, 30}, {0, 1, 0, -8, -40, 16, 40, 50}, {1, 1, 0, -8, -40, 16, 40, 70}, {0, 0, 0, -8, -40, 16, 40, 40}};
+		const std::vector<uint8_t> sprite = spriteBytes(glowing);
+		uint32_t seed = 12345;
+		auto roll = [&](int n) { seed = seed * 1103515245u + 12345u; return (int)((seed >> 8) % (uint32_t)std::max(1, n)); };
+		for (const int screen : {0, 1}) {
+			const int sw = screen ? 1280 : 400, sh = screen ? 600 : 150;
+			Scene s;
+			std::string problem;
+			assert(s.load(data.data(), data.size(), 1.2, 320, sw, sh, problem) && s.mountPicture(parkedData.data(), parkedData.size(), problem));
+			for (int k = 0; k < 6; ++k) { const int n = s.addActor(sprite.data(), sprite.size(), 0.6 + 0.1 * k, 1.2, problem); s.place(n, {40.0 + 90 * k, 120}); }
+			s.follow(0);
+			std::vector<uint32_t> whole((size_t)sw * sh), kept((size_t)sw * sh, 0x55AA55AAu);
+			std::vector<Rect> rects;
+			long long drawn = 0, ticks = 0;
+			for (int tick = 0; tick < 1500; ++tick) {
+				const int what = roll(100), n = roll(s.actorCount());
+				if (what < 25 && !s.actor(n).moving) s.walkTo(n, {10.0 + roll(620), 100.0 + roll(40)});
+				else if (what < 28) s.talk(n, roll(2) != 0);
+				else if (what < 30) s.pose(n, roll(5) - 1, roll(5) - 1, roll(3));
+				else if (what < 32) s.unpose(n);
+				else if (what < 33) s.hide(n, !s.actor(n).hidden);
+				else if (what < 34) s.resize(n, roll(2) ? 1.25 : 0.8);
+				else if (what < 36) s.showObject(0, roll(3));
+				else if (what < 37) s.layObjects(std::vector<bool>(1, roll(2) != 0), std::vector<bool>(1, false), roll(2) != 0, roll(2) != 0);
+				else if (what < 39) s.showPicture(roll(80) - 40, roll(257));
+				else if (what < 41) s.addMark(s.actor(n).at, 10 + roll(30), -roll(20), roll(100));
+				else if (what < 42 && s.propCount() < 4) {
+					std::vector<uint8_t> prop(12 * 10, 2), palette(768, 200);
+					prop[5] = 0;
+					s.addProp(prop.data(), 12, 10, 0, palette.data(), {50.0 + roll(500), 130}, 30, 1.2);
+				} else if (what < 43 && s.propCount() < 6) s.addPiece(roll(300), roll(60), 30, 30, roll(300), roll(60), roll(2) ? -1 : 120);
+				else if (what < 44) s.setDark(!s.dark());
+				else if (what < 48 && s.dark()) s.setFlashlight(roll(4) != 0, {(double)roll(640), (double)roll(144)});
+				else if (what < 49) s.lookAt(roll(640));
+				else if (what < 50) s.follow(n);
+				s.update(1 + (roll(8) == 0 ? roll(30) : 0));
+				s.render(whole.data(), sw);
+				s.changes(rects);
+				s.render(kept.data(), sw, rects);
+				assert(kept == whole);
+				for (const Rect &r : rects) drawn += r.area();
+				++ticks;
+				// (Nothing changed since: nothing to draw.)
+				s.changes(rects);
+				assert(rects.empty());
+			}
+			// (Drawn in parts: far less than drawing it all each time.)
+			assert(drawn < ticks * sw * sh / 2);
+		}
+		// Only the colours moving, standing still: only where the water is.
+		Scene still;
+		std::string problem;
+		assert(still.load(data.data(), data.size(), 1.2, 320, 1280, 600, problem));
+		std::vector<uint32_t> whole((size_t)1280 * 600), kept((size_t)1280 * 600);
+		std::vector<Rect> rects;
+		still.changes(rects);
+		assert(rects.size() == 1 && rects[0].area() == 1280LL * 600); // (all of it, the first time)
+		still.render(kept.data(), 1280, rects);
+		const int version = still.paletteVersion();
+		still.update(5);
+		assert(still.paletteVersion() != version);
+		still.changes(rects);
+		const Point a = still.view().toScreen(300, 10), b = still.view().toScreen(340, 20);
+		assert(!rects.empty());
+		for (const Rect &r : rects) assert(r.x0 >= (int)a.x - 32 && r.x1 <= (int)b.x + 32 && r.y0 >= (int)a.y - 32 && r.y1 <= (int)b.y + 32);
+		still.render(kept.data(), 1280, rects);
+		still.render(whole.data(), 1280);
+		assert(kept == whole);
+		// (Forgotten, all of it again; and through the bridge.)
+		still.forget(); still.changes(rects);
+		assert(rects.size() == 1 && rects[0].area() == 1280LL * 600);
+		assert(StageBridge::load(data.data(), data.size(), 1.2, 320, 1280, 600, nullptr, 0));
+		int found[4 * 8];
+		assert(StageBridge::changes(found, 8) == -1 && StageBridge::changes(found, 8) == 0);
+		StageBridge::update(5);
+		const int count = StageBridge::changes(found, 8);
+		assert(count > 0);
+		std::vector<uint32_t> bridged((size_t)1280 * 600);
+		StageBridge::render(bridged.data(), 1280);
+		StageBridge::update(5);
+		const int more = StageBridge::changes(found, 8);
+		assert(more > 0);
+		StageBridge::render(bridged.data(), 1280, found, more);
+		StageBridge::render(whole.data(), 1280);
+		assert(bridged == whole);
+		int joined[8] = {0, 0, 10, 10, 5, 5, 20, 20};
+		assert(StageBridge::join(joined, 2, 1280, 600) == 1 && joined[0] == 0 && joined[3] == 20);
+		StageBridge::forget();
+		assert(StageBridge::changes(found, 8) == -1);
+	}
+	std::puts("PASS: drawn in parts (rectangles joined; what changed drawn again onto the screen as drawn is the screen drawn whole, tick by tick, through walking, the camera, colours moving, pictures, marks, props, the dark; nothing changed, nothing drawn; colours moving only where they show)");
 	return 0;
 }

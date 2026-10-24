@@ -49,7 +49,9 @@ phone's restore point, where it was (one naming a story's target, or older
 than the save for the sandbox, not taken; stopped again during its own
 export at the next start, the point taken: from it all the same at the
 start after); put away and stopped in a story it opened, Maniac starts
-again where it was when it opened it.
+again where it was when it opened it. In every check each frame drawn in
+parts (only where it changed) is the frame drawn whole, and the screen as
+sent the frame converted whole.
 Pictures go to build/sandbox-shots. Not an iPhone test.
 """
 import argparse
@@ -142,18 +144,28 @@ RESTORE = r'''
 LOOP = '\twhile (!shouldQuit()) {\n\t\t// Determine how long to wait before the next loop iteration should start\n'
 
 
+def frames_drawn_whole(output, what):
+    # (From 0243 the screen is drawn in parts; scummverse_check_frames draws
+    # each frame whole too: every one the same, and the screen as sent.)
+    m = re.search(r'sandbox frames: (\d+) checked, (\d+) drawn in parts not as drawn whole', output)
+    if not m or int(m.group(2)):
+        raise SystemExit(f'FAIL: sandbox {what}: frames drawn in parts not as drawn whole\n' + output[-4000:])
+    return int(m.group(1))
+
+
 def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False, extra=''):
     # (Wanderers off: each place's own people, the same every run.)
     config = Path(cwd)/f'sandbox-{mode}.ini'
     config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n'
-                      f'scummverse_wanderers={str(wanderers).lower()}\n{extra}')
+                      f'scummverse_wanderers={str(wanderers).lower()}\nscummverse_check_frames=true\n{extra}')
     result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', f'--savepath={cwd}', 'scummverse:sandbox'], cwd=cwd,
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
     (ROOT/f'build/sandbox-{mode}.log').write_text(output)
-    summary = [line for line in output.splitlines() if 'sandbox selftest' in line or 'sandbox walk' in line or 'sandbox verbs' in line]
+    summary = [line for line in output.splitlines() if 'sandbox selftest' in line or 'sandbox walk' in line or 'sandbox verbs' in line or 'sandbox frames' in line]
     if result.returncode or 'SCUMMVERSE sandbox selftest PASS' not in output:
         raise SystemExit(f'FAIL: sandbox {mode}\n' + output[-4000:])
+    frames_drawn_whole(output, mode)
     for line in summary:
         print('  ' + line.replace('WARNING: ', '').rstrip('!'))
     return output

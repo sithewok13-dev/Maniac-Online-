@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 using namespace Scummverse;
 using namespace Scummverse::Panel;
 
@@ -1329,5 +1330,83 @@ int main() {
 		PanelBridge::clear();
 	}
 	std::puts("PASS: Loom's distaff (read whole; its notes lit, four spinning a draft forwards or backwards, or none; no sentence line; the thing chosen in its box)");
+
+	// Where each draws (from 0243, the screen drawn in parts): every pixel
+	// render, the coin, the controls and speech draw is inside the bounds
+	// each says (drawn onto screens of one colour, three colours, so none is
+	// missed), for panels under the scene (names and pictures), over it
+	// (open and shut, the pointer anywhere, half off the screen), a coin
+	// held anywhere and a distaff, at several scales; none when nothing is
+	// drawn. The panel composed: as render composes it.
+	{
+		auto inside = [](const Rect &r, int W, int H, const std::function<void(uint32_t *)> &draw) {
+			bool any = false;
+			for (uint32_t fill : {0x00000000u, 0xFFFFFFFFu, 0x80123456u}) {
+				std::vector<uint32_t> s((size_t)W * H, fill);
+				draw(s.data());
+				for (int y = 0; y < H; ++y)
+					for (int x = 0; x < W; ++x)
+						if (s[(size_t)y * W + x] != fill) { assert(r.contains(x, y)); any = true; }
+			}
+			return any;
+		};
+		Spec pictures; pictures.slotKind = 2;
+		const std::vector<std::vector<uint8_t> > panels = {panelBytes(), panelBytes(pictures), overBytes(), coinBytes(), distaffBytes()};
+		int drew = 0;
+		for (size_t k = 0; k < panels.size(); ++k) {
+			Panel::Panel p;
+			std::string problem;
+			assert(p.load(panels[k].data(), panels[k].size(), problem));
+			std::vector<Item> items(5);
+			for (size_t i = 0; i < items.size(); ++i) { items[i].name = "AB"; items[i].width = 3; items[i].height = 2; items[i].picture.assign(6, 0xFF0000FFu); }
+			p.setItems(items);
+			p.setSentence("ABBA");
+			for (const double scale : {1.0, 2.0, 3.5}) {
+				const int W = (int)(64 * scale) + 7, H = (int)(40 * scale) + 9;
+				p.layout(W, H, p.over() ? 3 : H - p.rowsAt(scale), scale, scale / 1.2);
+				for (int state = 0; state < 4; ++state) {
+					p.select(state - 1);
+					p.open(state & 1);
+					if (p.coin()) { if (state) p.openCoin(state * W / 3, state * H / 3, "AAAAAAAAAAAA"); else p.shutCoin(); p.lightCoin(state - 1); }
+					drew += inside(p.renderBounds(H), W, H, [&](uint32_t *s) { p.render(s, W, H); });
+					drew += inside(p.coinBounds(W, H), W, H, [&](uint32_t *s) { p.renderCoin(s, W, W, H); });
+					for (const int px : {-30, 5, W / 2, W - 2})
+						drew += inside(p.controlsBounds(W, H, px, px / 2, state != 2), W, H, [&](uint32_t *s) { p.renderControls(s, W, W, H, px, px / 2, state != 2); });
+					for (const int cx : {-40, 3, W / 2, W + 20}) {
+						const int from = 5, across = W - 9, limit = H - 4 * state;
+						Rect r = p.sayBounds(across, limit, "AB BA AAB BBA ABAB AB", cx, cx / 3 + 4, scale, scale / 1.2);
+						r.x += from;
+						drew += inside(r, W, H, [&](uint32_t *s) { p.say(s + from, W, across, limit, "AB BA AAB BBA ABAB AB", cx, cx / 3 + 4, scale, scale / 1.2, 0xFFABCDEFu); });
+					}
+				}
+			}
+			// (Shut over the scene, a coin not held: nothing, and no bounds.)
+			if (p.over()) { p.open(false); assert(p.renderBounds(1000).width == 0); }
+			if (p.coin()) { p.shutCoin(); assert(p.coinBounds(1000, 1000).width == 0); }
+		}
+		assert(drew > 100);
+		// Through the bridge: the same, and the panel as composed.
+		const std::vector<uint8_t> under = panelBytes();
+		char problem[64];
+		assert(PanelBridge::load(under.data(), under.size(), problem, sizeof(problem)));
+		PanelBridge::layout(200, 100, 60, 2.0, 2.0);
+		int x, y, w, h;
+		assert(PanelBridge::renderBounds(100, x, y, w, h) && x == 0 && y == 60 && w == 200 && h == 32);
+		assert(!PanelBridge::coinBounds(200, 100, x, y, w, h) && !PanelBridge::controlsBounds(200, 100, 10, 10, true, x, y, w, h));
+		assert(PanelBridge::sayBounds(200, 60, "AB", 100, 50, 2.0, 2.0, x, y, w, h) && y + h <= 60 && x >= 0 && x + w <= 200);
+		assert(!PanelBridge::sayBounds(200, 60, "", 100, 50, 2.0, 2.0, x, y, w, h));
+		const int pixels = PanelBridge::composed(nullptr, 0);
+		assert(pixels == PanelBridge::columns() * PanelBridge::rows());
+		std::vector<unsigned int> canvas(pixels);
+		assert(PanelBridge::composed(canvas.data(), pixels) == pixels);
+		Panel::Panel same;
+		std::string why;
+		assert(same.load(under.data(), under.size(), why));
+		std::vector<uint32_t> composed;
+		same.compose(composed);
+		assert(std::equal(composed.begin(), composed.end(), canvas.begin()));
+		PanelBridge::clear();
+	}
+	std::puts("PASS: where each draws (the panel, its box over the scene, the coin, the controls, speech: every pixel drawn inside its bounds, at several scales, half off the screen; none when nothing is); the panel as composed");
 	return 0;
 }

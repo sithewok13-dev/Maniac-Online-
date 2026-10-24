@@ -6796,3 +6796,33 @@ From the third round (performance; behaviour unchanged).
   random rounds against the old code, ASan.
 - Tests: test_world, test_stage, test_panel (ASan/UBSan), test_wander
   (ASan/UBSan, TSan), the full data suite. Not tested on an iPhone.
+
+## Patch 0245 — the new engine's screen drawn in parts
+
+From the third round (performance; every pixel unchanged).
+- Each drawn frame converted and sent the whole screen (about 20 of 25 ms
+  at 2556x1179 was the generic pixel-format conversion; the iPhone then
+  uploaded the whole 12 MB texture), and any change at all, one person
+  walking or one colour-cycle step, redrew everything. The stage now
+  remembers what it drew and redraws only the rectangles that changed
+  (where someone was and is; colour cycles only where the scene uses the
+  moved colours; the flashlight's beam; the scene's area when the camera
+  moves); the pieces drawn over it (the panel, the coin, the pointer,
+  speech, the way-back sign, the tram's notice) know their own bounds; only
+  those parts are converted (the same result as before, by fixed
+  swizzles) and given to the screen, so the iPhone uploads only the rows
+  they span; a frame with nothing changed sends nothing.
+- At 2556x1179 a frame costs about 0.4-2.5 ms instead of 25-36 ms; a whole
+  frame 3-4 ms instead of 24-35; places with colour cycles left idle used
+  up to 68% of a core and now use under 1%; the iPad's 2732x2048 1.4-5 ms
+  instead of 51-60.
+- Proof of no visual change: every frame of every self-test and of a walk
+  through 257 places at three screen sizes (about 15,000 frames) compared
+  byte for byte with the old code, and the screen as sent; a check mode
+  (scummverse_check_frames, on in every sandbox self-test) draws each
+  frame whole too and fails on any difference.
+- Not changed: the shared OpenGL backend still uploads the full rows of
+  the changed parts' bounding box; a camera scroll redraws the scene area.
+- Tests: test_stage (new: drawn in parts), test_panel (new: where each
+  draws), the sandbox suite with the frame check, the full data suite.
+  Desktop measurements; not tested on an iPhone.
