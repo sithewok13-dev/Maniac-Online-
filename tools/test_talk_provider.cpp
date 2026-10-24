@@ -1,6 +1,7 @@
 // Real runtime worker thread and scheduling with a scripted reply provider:
 // model-load survival, queued sends, fallback, departures, ambient preemption,
-// cancellation and remembered lines. No weights needed. Build (also with -fsanitize=thread):
+// cancellation, remembered lines and the iPhone's UI and game threads at
+// once. No weights needed. Build (also with -fsanitize=thread):
 // c++ -std=c++17 -fsanitize=address,undefined -Iengine -Ibuild/llama-src/include
 //   -Ibuild/llama-src/ggml/include tools/test_talk_provider.cpp <llama/ggml libs>
 #define SCUMMVERSE_LOCAL_AI 1
@@ -238,7 +239,60 @@ int main() {
 	assert(waitFor([&] { return r.getStatus().find("Ready") == 0; }) && r.modelReady());
 	r.resume();
 
-	// 14. Shutdown (before the process exits) with a reply being written:
+	// 14. The iPhone's two threads at once, the worker writing meanwhile: the
+	// game's (each frame's scene, travel, who wears which look, the modes,
+	// greetings) and the UI's (the chat's refresh, chips, sends, the menus'
+	// tokens, losing the screen). Each read alone, many times over, its
+	// result kept: no other lock between them orders it by chance. (Under
+	// ThreadSanitizer: sceneToken or actorsInRoom without its lock is caught.)
+	{
+		std::atomic<bool> stop{false};
+		std::thread game([&] {
+			int who; char said[300];
+			for (unsigned n = 0; !stop; ++n) {
+				const int at = 7 + (n / 40) % 3;
+				r.scene(at, 3, edna | ((n & 4) ? fred : 0) | ((n & 8) ? 1ull << 26 : 0) | ((n & 16) ? 1ull << 31 : 0), true, who, said, sizeof(said));
+				scummverseTravelScene(at, 3, n & 0xffff, (n & 1) ? 5 : 0, n & 0xff);
+				scummverseTalkAppearance(1 + n % 24, (n & 2) ? worldAppearanceKey(0, 1) : 0);
+				scummverseTalkVisitor(n % kWanderers, (n & 2) ? worldAppearanceKey(3, 2) : 0);
+				scummverseSandboxActive((n & 64) != 0);
+				scummverseStoryPlaying((n & 128) ? 2 : -1);
+				scummverseWorldReport((n & 1) ? "A notice long enough to be kept on the heap, not inline." : "Short");
+				int a, rm; char line[200];
+				scummverseAIRequest(9, at, 3); scummverseAIPoll(a, rm, line, sizeof(line));
+				if (n % 7 == 0) scummverseAICancel();
+				scummverseWorldPoll(); scummverseTalkPick(10);
+				std::this_thread::sleep_for(std::chrono::microseconds(200));
+			}
+		});
+		uint64_t seen = 0; uint32_t revision = 0;
+		const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
+		for (unsigned n = 1; std::chrono::steady_clock::now() < until; ++n) {
+			for (int k = 0; k < 20; ++k) seen += r.actorsInRoom() + r.talkingWith() + (unsigned)r.talkingTo();
+			for (int id = 1; id < kTalkActors; ++id) seen += (uintptr_t)actorName(id) + canFollow(id) + follows(id);
+			for (int k = 0; k < 20; ++k) seen += sceneToken() + currentRoom() + worldStatus().size();
+			seen += r.waitingForTalk() + r.modelReady() + r.getStatus().size() + scummverseStoryPlaying() + scummverseSandboxActive() + scummverseTalkPicking();
+			std::vector<Scummverse::ConversationLine> lines; std::vector<std::string> queued; int replying = 0;
+			r.talkSnapshot(revision, lines, queued, replying);
+			if (n % 5 == 0) r.sendNearby("Hello everyone");
+			if (n % 11 == 0) r.toggleTalk(10);
+			if (n % 13 == 0) r.beginGroup();
+			if (n % 17 == 0) r.endTalk();
+			if (n % 19 == 0) scummverseWorldRequest(42);
+			if (n % 23 == 0) { r.suspend(5); r.resume(); }
+			std::this_thread::sleep_for(std::chrono::microseconds(300));
+		}
+		stop = true; game.join();
+		assert(seen != 0);
+		// (All undone: no conversation, nobody played as another, Explore.)
+		r.endTalk(); assert(!r.talkingWith() && !r.talkingTo());
+		for (int id = 1; id < kGuestActor; ++id) scummverseTalkAppearance(id, 0);
+		for (int s = 0; s < kWanderers; ++s) scummverseTalkVisitor(s, 0);
+		scummverseSandboxActive(false); scummverseStoryPlaying(-1); scummverseTravelScene(0, 0, 0, 0, 0); scummverseWorldPoll();
+		while (r.poll(actor, room, text, sizeof(text))) {}
+	}
+
+	// 15. Shutdown (before the process exits) with a reply being written:
 	// prompt; again, or anything after, is harmless.
 	r.scene(7, 3, edna, true, speaker, text, sizeof(text));
 	assert(r.beginTalk(10)); replyDelayMs = 5000;
@@ -248,5 +302,5 @@ int main() {
 	r.shutdown();
 	assert(std::chrono::steady_clock::now() - begin < std::chrono::seconds(1));
 	r.shutdown(); r.configure("", false); assert(!r.request(9, 7, 3) && r.suspend(0));
-	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks, remembered lines, losing the screen, shutdown\n";
+	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks, remembered lines, losing the screen, the UI's and the game's threads at once, shutdown\n";
 }

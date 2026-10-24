@@ -6549,3 +6549,17 @@ From an independent review of 0234-0237.
 - Tests: test_camera (ASan/UBSan, TSan), test_startup (23), the camera,
   tour, tram and damaged probes, the full data suite. Not tested on an
   iPhone.
+
+## Tests: the iPhone's UI thread and the game's at once
+
+A review of every SCUMMVERSE change to the iPhone code for state shared
+between the UI thread and the game thread (who writes, who reads, what
+guards it), for dispatch deadlocks and for blocks outliving what they
+point at found nothing left to fix (earlier rounds made the shared flags
+atomic). Noted, harmless: the game rect's four atomics can mix two
+updates (its only reader uses one); the chat's refresh can mix two frames
+for one tick; between a story and Story mode's list the mansion's buttons
+can flash for a moment. A new section of tools/test_talk_provider.cpp
+runs the dialogue runtime from a UI thread and a game thread at once
+under TSan; it caught each of five races planted to check it. No iPhone
+code changed; not run on an iPhone.
