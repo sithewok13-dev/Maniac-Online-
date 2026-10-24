@@ -46,7 +46,10 @@ Mansion returns to the same room, from the saved game (and with the app
 stopped in the sandbox instead, the next start finds Maniac there); put
 away as the phone puts it away and stopped, Maniac starts again from the
 phone's restore point, where it was (one naming a story's target, or older
-than the save for the sandbox, not taken).
+than the save for the sandbox, not taken; stopped again during its own
+export at the next start, the point taken: from it all the same at the
+start after); put away and stopped in a story it opened, Maniac starts
+again where it was when it opened it.
 Pictures go to build/sandbox-shots. Not an iPhone test.
 """
 import argparse
@@ -62,15 +65,17 @@ import tempfile
 from test_exploration import ROOT, command_for
 
 # Test-only: at the top of Maniac's main loop. Once the game has run a while,
-# the menu's New engine (preview); back from the sandbox (loaded from the
-# temporary save), where Maniac is, then stop.
+# the menu's New engine (preview), or with scummverse_switch_probe_story its
+# story (Maniac Mansion's own, as the Worlds menu opens one); back from the
+# sandbox (loaded from the temporary save), where Maniac is, then stop.
 SWITCH = r'''
 		if (ConfMan.hasKey("scummverse_switch_probe")) {
 			static int scummverseSwitchFrames = 0, scummverseStoryFrames = 0;
 			if (_scummverseStory) {
 				// (Maniac's own story, opened from the sandbox: a while, then
-				// ScummVM's menu's way out, home to the mansion.)
-				if (++scummverseStoryFrames == 120) {
+				// ScummVM's menu's way out, home to the mansion. Opened from
+				// the mansion: left to the restore probe, which stops the app.)
+				if (!ConfMan.hasKey("scummverse_switch_probe_story") && ++scummverseStoryFrames == 120) {
 					warning("SCUMMVERSE_SWITCH_STORY %s additions=%d room=%d", _targetName.c_str(),
 						_scummverseRoaming + _scummverseExplorationDoors + _scummverseExplorationSafety + _scummverseAuditedManiac, _currentRoom);
 					Common::Event event;
@@ -82,7 +87,9 @@ SWITCH = r'''
 				quitGame();
 			} else if (++scummverseSwitchFrames == ConfMan.getInt("scummverse_switch_probe")) {
 				warning("SCUMMVERSE_SWITCH_OPEN room=%d ego=%d", _currentRoom, VAR(VAR_EGO));
-				scummverseOpenSandbox();
+				if (!ConfMan.hasKey("scummverse_switch_probe_story")) scummverseOpenSandbox();
+				else for (int g = 0; g < ::Scummverse::WorldCatalog::worldGameCount(); ++g)
+					if (::Scummverse::WorldCatalog::sameId(::Scummverse::WorldCatalog::kWorldGames[g].gameid, "maniac")) scummverseOpenStory(g);
 			}
 		}
 '''
@@ -91,11 +98,14 @@ SWITCH = r'''
 # app away (ios7_osys_main.cpp, saveState: the game held still, its autosave
 # unless a player's save is in that slot, then the restore point naming the
 # target and slot, written to scummverse_restore_point; the target named may
-# be set instead, a story's), then stopped (or played on); started with 0,
-# where it is at its first frame (the time played: a save's own once
+# be set instead, a story's), then stopped (or played on); with
+# scummverse_restore_probe_story, the story playing put away instead (the
+# mansion's own frames not counted) and the app stopped at once, as iOS
+# stops it (a story's own quitting goes home to the mansion); started with
+# 0, where it is at its first frame (the time played: a save's own once
 # loaded, about none afresh), then stop.
 RESTORE = r'''
-		if (ConfMan.hasKey("scummverse_restore_probe") && !_scummverseStory) {
+		if (ConfMan.hasKey("scummverse_restore_probe") && _scummverseStory == ConfMan.hasKey("scummverse_restore_probe_story")) {
 			static int scummverseRestoreFrames = 0;
 			const int at = ConfMan.getInt("scummverse_restore_probe");
 			if (at == 0 && scummverseRestoreFrames++ == 0) {
@@ -122,7 +132,10 @@ RESTORE = r'''
 				}
 				held.clear();
 				warning("SCUMMVERSE_RESTORE_AWAY room=%d ego=%d played=%u written=%d", _currentRoom, VAR(VAR_EGO), getTotalPlayTime() / 1000, written);
-				if (ConfMan.getBool("scummverse_restore_probe_stop")) quitGame();
+				if (ConfMan.getBool("scummverse_restore_probe_stop")) {
+					if (_scummverseStory) _system->quit(); // (the null backend's: the process ends here)
+					quitGame();
+				}
 			}
 		}
 '''
@@ -353,21 +366,44 @@ def restored_switch(exe, data, worlds, work, frames, log):
     put away while the mansion plays (its autosave, the point naming it) and
     stopped there, started again from it, where it was, the point let go (a
     third start afresh); a point naming a story's target leaves the mansion
-    to start as it would; put away and played on, then the new engine opened
-    and the app stopped there, the mansion's save for the new engine wins
-    (0239's mark), the point (older) set aside."""
+    to start as it would; the mansion's own story opened from it (its Worlds
+    menu's way), put away and stopped there: started again (Explore mode, no
+    story gone on in), the mansion from its save for the story (the mark the
+    opening left), the story's point set aside; put away and played on, then
+    the new engine opened and the app stopped there, the mansion's save for
+    the new engine wins (0239's mark), the point (older) set aside; put away
+    and stopped, then stopped again during the mansion's own export at the
+    next start (as after an update that changes it), the point taken: the
+    start after that, the export done, from the autosave all the same."""
     point = work/'scummvm.state'
     config = work/'restored.ini'
     base = ('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
             f'scummverse_restore_point={point}\nscummverse_worlds_path={worlds}\n')
     logs = []
 
-    def run(name, extra, fresh=False):
+    def run(name, extra, fresh=False, stop_at=None):
         # (The settings as the run before left them, the probe's own changed.)
-        kept = base if fresh else re.sub(r'(?m)^scummverse_(restore_probe\w*|switch_probe|selftest)=.*\n', '', config.read_text())
+        kept = base if fresh else re.sub(r'(?m)^scummverse_(restore_probe\w*|switch_probe\w*|selftest)=.*\n', '', config.read_text())
         config.write_text(kept.replace('[scummvm]\n', '[scummvm]\n' + extra, 1))
-        result = subprocess.run([str(exe), f'--config={config}', f'--path={data}', f'--savepath={saves}', '--debuglevel=1'],
-                                cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        command = [str(exe), f'--config={config}', f'--path={data}', f'--savepath={saves}', '--debuglevel=1']
+        if stop_at:
+            # (Stopped as iOS stops the app once stop_at is said: nothing more
+            # saved or written.)
+            with subprocess.Popen(command, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+                lines = []
+                for line in proc.stdout:
+                    lines.append(line)
+                    if stop_at in line:
+                        proc.kill()
+                        break
+                proc.wait(timeout=600)
+            output = ''.join(lines)
+            logs.append(f'==== {name}\n' + output)
+            Path(log).write_text('\n'.join(logs))
+            if stop_at not in output:
+                raise SystemExit(f'FAIL: restore point, {name}: never said {stop_at!r}\n' + output[-6000:])
+            return output
+        result = subprocess.run(command, cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
         logs.append(f'==== {name}\n' + output)
         Path(log).write_text('\n'.join(logs))
@@ -431,6 +467,34 @@ def restored_switch(exe, data, worlds, work, frames, log):
         raise SystemExit(f'FAIL: restore point: a story\'s taken by the mansion ({again})\n' + back[-6000:])
     print('PASS: a restore point naming a story leaves the mansion to start as it would (its own autosave not taken)')
 
+    # A story the mansion opened (Maniac Mansion's own, as its Worlds menu
+    # opens one: the mansion saved in its slot 100), put away there (its own
+    # autosave, the point naming it) and stopped: started again in Explore
+    # mode, where a story is not gone on in, the mansion from its save for
+    # the story (the mark the opening left, let go), the point set aside.
+    saves = work/'restored-opened'
+    saves.mkdir()
+    story = 'scummverse-story-maniac'
+    away = run('put away in a story the mansion opened', f'scummverse_restore_probe={frames}\nscummverse_restore_probe_stop=true\n'
+                                                         f'scummverse_restore_probe_story=true\nscummverse_switch_probe={frames}\n'
+                                                         'scummverse_switch_probe_story=true\n', fresh=True)
+    gone, opened = put_away(away), said(away, 'SCUMMVERSE_SWITCH_OPEN')
+    marked = f'scummverse_sandbox_open={story}\n' in config.read_text()
+    if not gone or len(opened) != 1 or point.read_text() != f'[state]\nrestore_target={story}\nrestore_slot=0\n' or \
+            not (saves/'maniac.c100').is_file() or not (saves/f'{story}.s00').is_file():
+        raise SystemExit('FAIL: restore point: put away in a story the mansion opened\n' + away[-6000:])
+    back = run('started again after a story the mansion opened', 'scummverse_restore_probe=0\n')
+    again = started(back)
+    # (Afresh it is in the same room at its first frame: the slot, the save
+    # loaded and the time played tell them apart.)
+    if not again or again['slot'] != '100' or f"room={again['room']} ego={again['ego']}" != opened[0] or loaded(back) != ['maniac.c100'] or \
+            int(again['played']) < 2 or not marked or f'the mansion where it was when {story} was opened' not in back or "the phone's restore point set aside" not in back or \
+            point.read_bytes() or 'scummverse_sandbox_open' in config.read_text():
+        raise SystemExit(f'FAIL: restore point: the mansion left for its own story at {opened[0]} (marked so: {marked}), put away and '
+                         f'stopped there, started again at {again} (loaded {loaded(back)})\n' + back[-6000:])
+    print(f"PASS: the mansion's own story opened from it ({opened[0]}), put away and stopped there: started again, the mansion "
+          'where it was (its save for the story), the story\'s restore point set aside, the mark let go')
+
     # Put away and played on (the point left, as on the phone until the next
     # start), then the new engine opened and the app stopped there: the
     # mansion from its save for the new engine (later than the autosave),
@@ -452,6 +516,36 @@ def restored_switch(exe, data, worlds, work, frames, log):
         raise SystemExit(f'FAIL: restore point: put away at {gone}, the new engine opened at {opened[0]}, started again at {again} (loaded {loaded(back)})\n' + back[-6000:])
     print(f"PASS: put away, played on, the new engine opened and the app stopped there: Maniac from its save for the new engine "
           f"({opened[0]}, {again['played']} s played), the older restore point ({gone['played']} s) set aside")
+
+    # Put away and stopped in the mansion; at the next start the mansion's
+    # own export runs first (as after an update that changes it: here its
+    # marker removed) and the app is stopped during it, the point taken (the
+    # file let go); the start after that, the export done, the mansion from
+    # its autosave all the same: the point kept on disk until the mansion's
+    # start decides on it, then let go.
+    saves = work/'restored-export'
+    saves.mkdir()
+    away = run('put away before an export', f'scummverse_restore_probe={frames}\nscummverse_restore_probe_stop=true\n', fresh=True)
+    gone = put_away(away)
+    if not gone or point.read_text() != '[state]\nrestore_target=maniac\nrestore_slot=0\n':
+        raise SystemExit('FAIL: restore point: not put away before an export\n' + away[-6000:])
+    where = f"room={gone['room']} ego={gone['ego']}"
+    for marker in list((work/'worlds').glob('maniac-v*.svx')) + list((work/'worlds').glob('maniac-v*.try')):
+        marker.unlink()
+    stopped = run('stopped during the export', 'scummverse_restore_probe=0\n', stop_at="User picked target 'scummverse-export-maniac'")
+    kept = 'scummverse_restore_taken=maniac\n' in config.read_text()
+    if point.read_bytes() or any((work/'worlds').glob('maniac-v*.svx')):
+        raise SystemExit('FAIL: restore point: the point not taken, or the export not stopped\n' + stopped[-6000:])
+    back = run('started again after the export stopped', 'scummverse_restore_probe=0\n')
+    again = started(back)
+    if not again or again['slot'] != '0' or f"room={again['room']} ego={again['ego']}" != where or \
+            not int(gone['played']) <= int(again['played']) <= int(gone['played']) + 2 or loaded(back) != ['maniac.s00'] or \
+            'SCUMMVERSE_WORLD_EXPORT maniac ' not in back or 'the mansion where it was when the app was put away (its slot 0)' not in back or \
+            not kept or 'scummverse_restore_taken' in config.read_text():
+        raise SystemExit(f'FAIL: restore point: put away at {gone}, stopped during the export (kept on disk: {kept}), started again at {again} '
+                         f'(loaded {loaded(back)})\n' + back[-6000:])
+    print(f"PASS: put away and stopped, then stopped again during the mansion's own export (the point taken): the next start, "
+          f"the export done, where it was ({where}, its autosave), the kept point let go")
 
 
 def switch(data, worlds, frames, broken=False, story=False, stopped=False, restored=False):

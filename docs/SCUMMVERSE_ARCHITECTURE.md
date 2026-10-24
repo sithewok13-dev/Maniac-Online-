@@ -474,8 +474,9 @@ story needs a file its folder lacks (`kWorldStoryNeeds`: Full Throttle's
 DATA, The Curse's RESOURCE fonts; its engine would stop the app) is refused
 in words. The hub
 Maniac's `scummverseOpenStory` (a sibling of `scummverseOpenSandbox`: not
-during WiFi or the tour) saves Maniac to slot 100 and chains the game's
-target at its story save, slot 99 (`kWorldStorySlot`, an ordinary save named
+during WiFi or the tour) saves Maniac to slot 100 (marked as waiting there,
+below: The mansion at the next start) and chains the game's target at its
+story save, slot 99 (`kWorldStorySlot`, an ordinary save named
 "Story", so iMUSE state is kept), when it has one. In a story the engine
 carries none of the mansion's additions (`_scummverseStory`; the roaming,
 doors and safety gates are the audited Maniac's, and other worlds' rooms
@@ -576,21 +577,39 @@ file is the backend's `iOS7_getRestorePointFile`, elsewhere none unless
 `scummverse_restore_point` names a test's own): parsed by
 `common/scummverse_restore.h` (a damaged one, cut short or with a line
 ScummVM's INI reader refuses or stops at, is not used), then emptied
-whatever it held, so it is never taken twice nor again after a start that
-stops. At the mansion's first start a save it is chained to comes first
-(slot 100: the new engine's Back, a story's way home, Story mode's
-Explore), then 0239's `scummverse_sandbox_open` (the app stopped while the
-new engine was open: slot 100, saved as it opened, newer than any restore
-point naming the mansion; set as it opens, cleared as the mansion starts),
+whatever it held, so it is never taken twice. What it names is kept first in
+the application domain, flushed (`scummverse_restore_taken` and
+`scummverse_restore_taken_slot`), until the mansion's first start decides
+on it: a start that stops before the mansion starts (its exports, as after
+an update that changes the mansion's export; a story gone on in; Story
+mode's list) leaves it to the next, read back as the file is (a damaged one
+dropped). A newer point replaces it, except one naming another game over
+the mansion's own (the mansion has not played since, so its autosave is
+still the one named). At the mansion's first start a save it is chained to
+comes first (slot 100: the new engine's Back, a story's way home, Story
+mode's Explore), then the mark that it waits in that save for a game it opened,
+`scummverse_sandbox_open` (`kManiacWaitingKey`: 0239's, true, for the new
+engine; a story its Worlds menu opened, its target, as in Explore mode a
+story is not gone on in at the next start; the app stopped in that game:
+slot 100, saved as it opened, newer than any restore point naming the
+mansion; set once on its way, cleared as the mansion starts),
 then the restore point if it names the mansion's own target and a slot 0-99
 saved there (its autosave, slot 0); a story's target is left to the story's
-own rule (its newest save). Unlike ScummVM, the point is taken whatever iOS
-asks at that start (restore, or clear after the app was swiped away), as
+own rule (its newest save). Whatever is decided there, the kept point is let
+go, on disk too: it is tried once, so a save that stops the app as it loads
+is not tried again. The mark and the kept point are both cleared at every
+mansion start; the mark is set only by a mansion playing, and the point is
+kept only from an app start until the mansion's start, so the two never
+outlive that start. When both are there, the mark is the newer. Unlike
+ScummVM, the point is taken whatever iOS asks at that start (restore, or
+clear after the app was swiped away), as
 stories and the new engine go on however the app stopped; one left from an
 earlier put-away names the autosave slot, which ScummVM's autosave timer
 keeps current while the mansion plays. Tests: `tools/test_restore.cpp`,
 test_startup (the choice, damaged files), test_sandbox_engine's restore
-switch (the real mansion put away, stopped and started again).
+switch (the real mansion put away, stopped and started again; put away
+and stopped in its own story, opened from it; put away, then stopped again
+during its own export at the next start).
 
 Copy protection in story play (0186): `scummverseStoryPassGuard` answers
 Monkey Island 2's recipe screen, which ScummVM leaves to the player with

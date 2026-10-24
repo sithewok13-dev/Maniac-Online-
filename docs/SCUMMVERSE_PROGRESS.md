@@ -6746,3 +6746,29 @@ in the new engine showed it.
   with the view up; 18 mutations caught), a fresh mansion export,
   test_world_setup, the full sandbox suite and data suite. Not tested on an
   iPhone.
+
+## Patch 0243 — the mansion kept after the app stops in a story it opened, or before it starts
+
+From 0241's open note and a review of 0241.
+- A story opened from the mansion (the mansion saved to its temporary
+  slot), the app then stopped in it: the next start goes to the mansion
+  (Explore mode), with no chained save, no mark (only the new engine set
+  one) and the phone's restore point naming the story, so the mansion
+  started afresh and its temporary save was overwritten later. 0239's mark
+  now means "the mansion waits in its temporary save for a game it
+  opened" and is set by opening a story too (once the story is on its
+  way); the setting's name is unchanged, so an older mark still reads.
+- The phone's restore point, read once at start (0241), was held only in
+  memory: an app stopped again before the mansion's first start (launch
+  exports, which follow every update to the export; a story resumed first;
+  Story mode's list) lost it, and the autosave timer later overwrote that
+  save. It is now kept in the settings until the mansion's first start
+  acts on it (once: a save that stops the app is not tried again); a newer
+  point replaces it, except a story's over a kept mansion point.
+- Precedence unchanged: a chained return, then the mark, then the restore
+  point; both are cleared at every mansion start, so they cannot disagree.
+- Tests: the sandbox suite's restore switch (new: put away and stopped in
+  a story the mansion opened, the mansion back from its temporary save;
+  stopped during the mansion's own export at the next start, back from
+  the autosave the start after), test_startup (six new cases), the full
+  data suite. Not tested on an iPhone.

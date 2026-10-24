@@ -240,6 +240,82 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(point.read_bytes(), b"")
         self.assertNotIn("scummverse_sandbox_open", self.config.read_text())
 
+    def test_restore_point_after_a_story_the_mansion_opened(self):
+        # The app put away and stopped in a story the mansion opened (the
+        # same mark, naming the story; the mansion's save for it): started
+        # again, the mansion from that save; the story's point set aside.
+        point = self.restore_point("[state]\nrestore_target=scummverse-story-monkey\nrestore_slot=0\n",
+                                   ("maniac.s00", "maniac.c100", "scummverse-story-monkey.s00"),
+                                   "scummverse_sandbox_open=scummverse-story-monkey\n")
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the mansion where it was when scummverse-story-monkey was opened", result.stdout)
+        self.assertIn("SCUMMVERSE: the phone's restore point set aside: the mansion goes on from a later save", result.stdout)
+        self.assertNotIn("the new engine was opened", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+        self.assertNotIn("scummverse_sandbox_open", self.config.read_text())
+
+    # The point taken at a start that stopped before the mansion started (its
+    # exports, a story gone on in, Story mode's list): kept on disk, as that
+    # start left it, until the mansion's first start decides on it (tried
+    # once), then let go.
+    def kept_point(self, target, slot, saves=(), file="", extra=""):
+        return self.restore_point(file, saves, f"scummverse_restore_taken={target}\nscummverse_restore_taken_slot={slot}\n{extra}")
+
+    def test_restore_point_kept_from_a_start_that_stopped(self):
+        point = self.kept_point("maniac", "0", ("maniac.s00",))
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the phone's restore point, kept from a start that stopped first: maniac, slot 0", result.stdout)
+        self.assertIn("SCUMMVERSE: the mansion where it was when the app was put away (its slot 0)", result.stdout)
+        self.assert_data_failure(result)
+        self.assertNotIn("scummverse_restore_taken", self.config.read_text())
+        # (Tried once: the next start is afresh, even though that one failed.)
+        again = self.run_saved()
+        self.assertNotIn("restore point", again.stdout)
+        self.assert_data_failure(again)
+        self.assertEqual(point.read_bytes(), b"")
+
+    def test_restore_point_kept_over_another_games(self):
+        # (The mansion's kept point and one another game left since, the
+        # mansion not played: the mansion's stands.)
+        point = self.kept_point("maniac", "0", ("maniac.s00", "scummverse-story-monkey.s00"),
+                                "[state]\nrestore_target=scummverse-story-monkey\nrestore_slot=0\n")
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the phone's restore point is scummverse-story-monkey's; the mansion's kept from before stands", result.stdout)
+        self.assertIn("SCUMMVERSE: the mansion where it was when the app was put away (its slot 0)", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+        self.assertNotIn("scummverse_restore_taken", self.config.read_text())
+
+    def test_restore_point_kept_replaced_by_a_newer(self):
+        point = self.kept_point("scummverse-story-monkey", "0", ("maniac.s00", "maniac.s01"),
+                                "[state]\nrestore_target=maniac\nrestore_slot=1\n")
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the mansion where it was when the app was put away (its slot 1)", result.stdout)
+        self.assert_data_failure(result)
+        self.assertEqual(point.read_bytes(), b"")
+        self.assertNotIn("scummverse_restore_taken", self.config.read_text())
+
+    def test_restore_point_kept_after_the_mark(self):
+        # (The mansion's save for a game it opened is newer: both let go.)
+        self.kept_point("maniac", "0", ("maniac.s00", "maniac.c100"), extra="scummverse_sandbox_open=scummverse-story-monkey\n")
+        result = self.run_saved()
+        self.assertIn("SCUMMVERSE: the mansion where it was when scummverse-story-monkey was opened", result.stdout)
+        self.assertIn("SCUMMVERSE: the phone's restore point set aside: the mansion goes on from a later save", result.stdout)
+        self.assert_data_failure(result)
+        self.assertNotIn("scummverse_restore_taken", self.config.read_text())
+        self.assertNotIn("scummverse_sandbox_open", self.config.read_text())
+
+    def test_damaged_kept_restore_point(self):
+        for target, slot in (("maniac", "x"), ("man iac", "0"), ("maniac", "1000"), ("", "0")):
+            with self.subTest(target=target, slot=slot):
+                self.kept_point(target, slot, ("maniac.s00", "maniac.s01"))
+                result = self.run_saved()
+                self.assertIn("SCUMMVERSE: the phone's restore point kept from before is damaged; not used", result.stdout)
+                self.assertNotIn("when the app was put away", result.stdout)
+                self.assert_data_failure(result)
+                self.assertNotIn("scummverse_restore_taken", self.config.read_text())
+
     def test_damaged_restore_point(self):
         # Cut short as it was written, a slot that is no number, a key outside
         # its section (ScummVM's own INI reader stops the app at that), a NUL
