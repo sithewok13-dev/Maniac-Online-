@@ -29,6 +29,9 @@ handling of them is what runs.
   from that newer autosave (numbered after the story save), Save now,
   then ScummVM's menu (Return to Launcher) saves it again on the way out,
   and the mansion comes back where it was.
+- Then Story mode's list, and Day of the Tentacle's computer (with Tentacle
+  and Maniac's own story here): Maniac Mansion's own story opened from it
+  three times, Tentacle's place kept each time (computer_run).
 Maniac Mansion's own story (its data, with none of the mansion's additions)
 is the first game unless --no-maniac. Every story starts with none of them.
 Films are cut short; a start that asks something is clicked through.
@@ -91,6 +94,8 @@ PROBE = r'''
 			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_resume")) probePass = 5;
 			// (Story mode: its list's choices, the configuration's in turn.)
 			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_mode")) probePass = 6;
+			// (Day of the Tentacle's computer: Maniac Mansion's own story from it.)
+			if (probePass == 0 && ConfMan.hasKey("scummverse_story_probe_computer")) probePass = 7;
 			if (fresh) { probeSeen = g_probeEngines; g_probeFrames = 0; probeAsked = false; probeFirstRoom = 0; }
 			if (!probeFirstRoom) probeFirstRoom = _currentRoom;
 			++g_probeFrames;
@@ -256,6 +261,51 @@ PROBE = r'''
 					warning("SCUMMVERSE_STORY_BACK %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
 					g_probeRequest = kWorldStoryHomeRequest;
 				}
+				// (Day of the Tentacle's computer, three times, where Tentacle can
+				// be saved: its kernel call's startManiac, as its script makes it.
+				// Maniac Mansion's own story from it: the first time its Save now,
+				// then ScummVM's menu (back to Tentacle); the second its Story list
+				// (Tentacle opened from the list); the third, once it is marked to
+				// go on in at the next start, the app stopped at once. Started
+				// again (phase 2): Maniac's story gone on in, its Story list,
+				// Tentacle, its Story list, Explore.)
+				static int probeComputer = 0;
+				static bool probeComputerSaving = false;
+				if (fresh) probeComputerSaving = false;
+				if (probePass == 7 && !probeAsked && g_probeFrames >= frames / 4 && can) {
+					const int phase = ConfMan.getInt("scummverse_story_probe_computer");
+					if (_game.id == GID_TENTACLE && phase == 1) {
+						probeAsked = true;
+						++probeComputer;
+						warning("SCUMMVERSE_STORY_COMPUTER %s n=%d room=%d ego=%d", _targetName.c_str(), probeComputer, _currentRoom, ego);
+						if (!startManiac()) { warning("SCUMMVERSE_STORY_COMPUTER_REFUSED %s", _targetName.c_str()); quitGame(); }
+					} else if (_game.id == GID_MANIAC && phase == 1 && probeComputer == 1) {
+						if (!probeComputerSaving) {
+							probeComputerSaving = true;
+							warning("SCUMMVERSE_STORY_SAVE_NOW %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+							g_probeRequest = kWorldStorySaveRequest;
+						} else if (g_probeFrames >= frames / 2) {
+							// (ScummVM's own menu, Return to Launcher: no request.)
+							probeAsked = true;
+							warning("SCUMMVERSE_STORY_QUIT %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+							Common::Event event;
+							event.type = Common::EVENT_RETURN_TO_LAUNCHER;
+							_system->getEventManager()->pushEvent(event);
+						}
+					} else if (_game.id == GID_MANIAC && phase == 1 && probeComputer == 3) {
+						if (_scummverseStoryPlayed < 0) {
+							probeAsked = true;
+							warning("SCUMMVERSE_STORY_COMPUTER_STOP %s room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+							// (The null backend's quit: the process ends here.)
+							_system->quit();
+						}
+					} else {
+						// (Its Story list.)
+						probeAsked = true;
+						warning("SCUMMVERSE_STORY_COMPUTER_LEAVE %s list room=%d ego=%d", _targetName.c_str(), _currentRoom, ego);
+						g_probeRequest = kWorldStoryHomeRequest;
+					}
+				}
 				if (g_probeFrames == frames * 6 + (probePass == 0 ? 2400 : 0)) { warning("SCUMMVERSE_STORY_STUCK %s room=%d", _targetName.c_str(), _currentRoom); probePass = 4; quitGame(); }
 			}
 		}
@@ -329,6 +379,127 @@ def probe_binary(work):
 def missing(path, name):
     places = [path] + [d for d in path.iterdir() if d.is_dir() and d.name.lower() in ('data', 'video', 'resource')]
     return not any(f.name.lower() == name.lower() for d in places for f in d.iterdir())
+
+
+def ordered(lines, wants):
+    """The first of wants not found in lines in that order (each after the one before), else None."""
+    at = 0
+    for want in wants:
+        while at < len(lines) and want not in lines[at]:
+            at += 1
+        if at == len(lines):
+            return want
+        at += 1
+    return None
+
+
+def computer_run(exe, config, a, saves, docs, fail, report):
+    """Day of the Tentacle's computer in Story mode: Maniac Mansion's own story from it.
+
+    Its kernel call's startManiac is made by the probe where Tentacle can be
+    saved (its script makes it at the computer; the probe does not play there).
+    Phase 1, three times from Tentacle: the first, Maniac's story (opened by
+    Tentacle, from its own newest save) is saved by Save now and left by
+    ScummVM's menu, saved on the way out, and Tentacle comes back from its
+    temporary save exactly where it was (every variable as at the hand-over,
+    when its story save was written too); the second, Maniac's story goes on
+    from that save and is left by its Story list: the list, not Tentacle, and
+    Tentacle chosen there goes on from its story save written at the
+    hand-over, exactly; the third, the app is stopped in Maniac's story once
+    it is marked to go on in. Phase 2, started again: Maniac's story gone on
+    in (opened by nobody now), its Story list, Tentacle chosen there goes on
+    where the third hand-over left it, its Story list, Explore mode.
+    Returns the lines it kept (fail and report are added to)."""
+    def computer(phase, choices):
+        keys = 'scummverse_story_probe_resume|scummverse_story_probe_mode|scummverse_story_probe_computer|scummverse_mode|scummverse_story_choices'
+        # (The engine's own mark, from phase 1, kept for phase 2.)
+        keys += '|scummverse_story_playing' if phase == 1 else ''
+        text = re.sub(r'^(' + keys + r')=.*\n', '', config.read_text(), flags=re.M)
+        config.write_text(text.replace('[scummvm]\n', f'[scummvm]\nscummverse_story_probe_computer={phase}\nscummverse_mode=story\n'
+                                       f'scummverse_story_choices={choices}\n', 1))
+        run = subprocess.run([str(exe), f'--config={config}', f'--path={a.maniac.resolve()}', f'--savepath={saves}', '--debuglevel=1'],
+                             cwd=docs, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1800)
+        out = run.stdout + run.stderr
+        (ROOT/f'build/story-engine-computer{phase}.log').write_text(out)
+        keep = [l for l in out.splitlines() if 'SCUMMVERSE_STORY_' in l or 'SCUMMVERSE story' in l or 'Story mode' in l or
+                'Explore mode' in l or 'going on with' in l or 'could not start' in l]
+        return run, keep
+
+    def tagged(keep, tag, target):
+        return [l.split(tag + ' ', 1)[1].rstrip('!') for l in keep if tag + ' ' + target + ' ' in l]
+
+    def where(text):
+        m = re.search(r'room=(\d+) ego=(-?\d+)', text)
+        return m.groups() if m else None
+    tentacle, maniac = 'scummverse-story-tentacle', 'scummverse-story-maniac'
+    first, keep = computer(1, 'tentacle,tentacle')
+    absent = ordered(keep, [
+        f'SCUMMVERSE: Story mode: {tentacle}', f'SCUMMVERSE_STORY_START {tentacle} ',
+        f'SCUMMVERSE_STORY_COMPUTER {tentacle} n=1 ', f"SCUMMVERSE story: {tentacle}'s computer opens {maniac}",
+        f'SCUMMVERSE_STORY_SAVED {tentacle} ', f'SCUMMVERSE story: {tentacle} saved, waiting for',
+        f'SCUMMVERSE story: {maniac} opened by {tentacle}', f'SCUMMVERSE_STORY_START {maniac} ',
+        f'SCUMMVERSE_STORY_SAVE_NOW {maniac} ', f'SCUMMVERSE story: {maniac} saved now', f'SCUMMVERSE_STORY_QUIT {maniac} ',
+        f'SCUMMVERSE story: {maniac} saved on quitting', f'SCUMMVERSE_STORY_START {tentacle} ', f'SCUMMVERSE_STORY_LOADED {tentacle} ',
+        f'SCUMMVERSE_STORY_COMPUTER {tentacle} n=2 ', f'SCUMMVERSE_STORY_SAVED {tentacle} ',
+        f'SCUMMVERSE story: {maniac} opened by {tentacle}', f'SCUMMVERSE_STORY_START {maniac} ', f'SCUMMVERSE_STORY_LOADED {maniac} ',
+        f'SCUMMVERSE_STORY_COMPUTER_LEAVE {maniac} list', f'SCUMMVERSE story: {maniac} saved, leaving for home',
+        f'SCUMMVERSE story: {maniac} no longer goes back to {tentacle}', f'SCUMMVERSE: Story mode: {tentacle}',
+        f'SCUMMVERSE_STORY_START {tentacle} ', f'SCUMMVERSE_STORY_LOADED {tentacle} ',
+        f'SCUMMVERSE_STORY_COMPUTER {tentacle} n=3 ', f'SCUMMVERSE_STORY_SAVED {tentacle} ',
+        f'SCUMMVERSE story: {maniac} opened by {tentacle}', f'SCUMMVERSE_STORY_START {maniac} ',
+        f'SCUMMVERSE story: {maniac} goes on at the next start', f'SCUMMVERSE_STORY_COMPUTER_STOP {maniac} '])
+    tsaved, tstarts, tloaded = (tagged(keep, t, tentacle) for t in ('SCUMMVERSE_STORY_SAVED', 'SCUMMVERSE_STORY_START', 'SCUMMVERSE_STORY_LOADED'))
+    msaved, mstarts, mloaded = (tagged(keep, t, maniac) for t in ('SCUMMVERSE_STORY_SAVED', 'SCUMMVERSE_STORY_START', 'SCUMMVERSE_STORY_LOADED'))
+    # (Maniac's story's saves before each of its starts: before the second,
+    # its Save now, then on quitting; before the third, also its Story list's.)
+    at = [i for i, l in enumerate(keep) if f'SCUMMVERSE_STORY_START {maniac} ' in l] + [len(keep)] * 3
+    mkept, mleft = ([l.split('SCUMMVERSE_STORY_SAVED ', 1)[1] for l in keep[at[0]:at[n]] if f'SCUMMVERSE_STORY_SAVED {maniac} ' in l] for n in (1, 2))
+    for tag in ('SCUMMVERSE_STORY_STUCK', 'SCUMMVERSE_STORY_COMPUTER_REFUSED', 'could not start', 'temporary save only', 'not saved on quitting'):
+        fail += [f'computer: {tag}: {l}' for l in keep if tag in l]
+    if first.returncode or absent:
+        fail.append(f'computer: {absent or "exit " + str(first.returncode)} not as expected')
+    elif len(tsaved) != 3 or len(tstarts) != 3 or len(tloaded) != 3 or len(mstarts) != 3 or len(mloaded) != 3 or len(mkept) != 2 or len(mleft) != 3:
+        fail.append(f'computer: Tentacle saved {len(tsaved)}, started {len(tstarts)}, Maniac\'s story started {len(mstarts)} '
+                    f'and saved {len(mkept)} and {len(mleft)} times before its second and third; expected 3, 3, 3, 2 and 3')
+    elif sum(f'SCUMMVERSE story: {maniac} opened by {tentacle}' in l for l in keep) != 3:
+        fail.append('computer: Maniac\'s story not opened by Tentacle each time')
+    elif not tstarts[1].endswith(' slot=100') or not re.search(r' from=99 slot=-1$', tstarts[2]):
+        fail.append(f'computer: Tentacle not back from its temporary save, then from its story save: {tstarts[1:]}')
+    elif not all(s.endswith(' slot=-1') for s in mstarts) or not all(' from=99 ' in s for s in mstarts[1:]):
+        fail.append(f'computer: Maniac\'s story not gone on in from its own story save: {mstarts}')
+    elif ' differ=0 ' not in tloaded[1] or where(tloaded[1]) != where(tsaved[0]):
+        fail.append(f'computer: Tentacle back from Maniac\'s story at {tloaded[1]}, handed over at {tsaved[0]}')
+    elif ' differ=0 ' not in tloaded[2] or where(tloaded[2]) != where(tsaved[1]):
+        fail.append(f'computer: Tentacle from the list at {tloaded[2]}, handed over at {tsaved[1]}')
+    elif ' differ=0 ' not in mloaded[1] or where(mloaded[1]) != where(mkept[-1]):
+        fail.append(f'computer: Maniac\'s story again at {mloaded[1]}, saved on quitting at {mkept[-1]}')
+    elif ' differ=0 ' not in mloaded[2] or where(mloaded[2]) != where(mleft[-1]):
+        fail.append(f'computer: Maniac\'s story the third time at {mloaded[2]}, saved for the list at {mleft[-1]}')
+    elif not (saves/f'{tentacle}.c100').exists() or not (saves/f'{maniac}.s99').exists():
+        fail.append('computer: no temporary save for Tentacle or no story save for Maniac\'s story')
+    elif f'scummverse_story_playing={maniac}' not in config.read_text():
+        fail.append('computer: Maniac\'s story not marked on disk to go on in at the next start')
+    if fail:
+        return keep
+    second, again = computer(2, 'tentacle,explore')
+    absent = ordered(again, [
+        f'going on with {maniac}', f'SCUMMVERSE_STORY_START {maniac} ', f'SCUMMVERSE_STORY_COMPUTER_LEAVE {maniac} list',
+        f'SCUMMVERSE story: {maniac} saved, leaving for home', f'SCUMMVERSE: Story mode: {tentacle}', f'SCUMMVERSE_STORY_START {tentacle} ',
+        f'SCUMMVERSE_STORY_COMPUTER_LEAVE {tentacle} list', f'SCUMMVERSE story: {tentacle} saved, leaving for home',
+        'SCUMMVERSE: Explore mode', 'SCUMMVERSE_STORY_HOME', 'SCUMMVERSE_STORY_DONE'])
+    restart = tagged(again, 'SCUMMVERSE_STORY_START', tentacle)
+    for tag in ('SCUMMVERSE_STORY_STUCK', 'could not start', ' opened by '):
+        fail += [f'computer, started again: {tag}: {l}' for l in again if tag in l]
+    if second.returncode or absent:
+        fail.append(f'computer, started again: {absent or "exit " + str(second.returncode)} not as expected')
+    elif len(restart) != 1 or not re.search(r' from=99 slot=-1$', restart[0]) or where(restart[0]) != where(tsaved[2]):
+        fail.append(f'computer, started again: Tentacle at {restart}, handed over at {tsaved[2]}')
+    if not fail:
+        report.append('Tentacle\'s computer three times: Maniac\'s own story opened by it, Save now, ScummVM\'s menu saved it and Tentacle came '
+                      'back from its temporary save exactly; again, from its own story save, its Story list: the list, and Tentacle from its '
+                      'story save written at the hand-over, exactly; again, the app stopped in it: started again it went on there, its Story '
+                      'list, Tentacle where the hand-over left it, Explore')
+    return keep + again
 
 
 def main():
@@ -583,6 +754,8 @@ def main():
                                   'Story mode from the mansion\'s menu, its list, Explore')
                 lines += relines
                 output += more
+            if not fail and 'tentacle' in ok and 'maniac' in ok:
+                lines += computer_run(exe, config, a, saves, docs, fail, report)
         if fail:
             raise SystemExit('FAIL: story play\n  ' + '\n  '.join(fail) + '\n' + '\n'.join(lines[-60:]) + '\n' + output[-3000:])
         print(f'PASS: story play: Maniac opens each of {len(ok)} games (a request from before dropped), each saves and goes back, '

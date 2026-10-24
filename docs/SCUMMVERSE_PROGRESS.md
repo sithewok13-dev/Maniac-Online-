@@ -6078,3 +6078,36 @@ Leftovers from the earlier bug hunts (the classic engine).
   among them the tour, wanderers, worlds, WiFi, camera, Story mode and the
   sandbox suite), test_startup and the desktop build. Not tested on an
   iPhone.
+
+## Patch 0220 — Story mode: Day of the Tentacle's computer opens Maniac Mansion's own story
+
+0211 left this undone. In Story mode, Tentacle's computer now opens
+Maniac Mansion's own story (the mansion's data, as Story mode's list
+opens it), not a Maniac copy inside Tentacle's folder.
+- ScummVM's own way is kept: Tentacle waits in its temporary save (slot
+  100) and comes back from it when Maniac's story ends. That same moment
+  is also written as Tentacle's story save, so leaving Maniac any other way
+  (its Worlds menu: another game, the Story list, Explore mode), or the app
+  stopping in it, keeps Tentacle's progress; it goes on from the computer
+  next time.
+- Maniac's story, opened so, goes on from its own newest story save and
+  keeps its place there; Save now works (it was ignored while Tentacle
+  waited); its own Quit or ScummVM's menu saves it and goes back to
+  Tentacle. Its Worlds menu's ways go where they say, the way back to
+  Tentacle dropped (put back if a Go to is refused). If Tentacle's story
+  save could not be written, every way out goes back to Tentacle first.
+- Without Maniac's own story files, the computer says where they go
+  (Documents/maniac on the phone) and Tentacle plays on.
+- Explore mode and exports keep ScummVM's original behaviour.
+- Not covered: Tentacle's real computer script (the test calls the
+  computer's opening where Tentacle can be saved); an autosave asked for in
+  the frame between the computer and its temporary save (ScummVM has the
+  same window). If the app is stopped inside Maniac's story, the next start
+  goes on in Maniac's story (no longer opened by Tentacle); Tentacle's
+  Continue resumes at the computer.
+- Tests: test_story_engine.py with a new run (Tentacle's computer three
+  times: Maniac's story opened, Save now, ScummVM's menu saving it and
+  Tentacle back from its temporary save exactly; its Story list going to
+  the list and Tentacle from its hand-over save exactly; the app stopped in
+  it and started again), test_startup, then the full data suite. Not tested
+  on an iPhone.

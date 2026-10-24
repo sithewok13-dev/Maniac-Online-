@@ -1,0 +1,266 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 805ad904..a19cc32c 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -642,6 +642,8 @@ bool ScummEngine::saveState(int slot, bool compat, Common::String &filename) {
+ 
+ 	if (!saveFailed && !compat)
+ 		scummverseStoryCount(slot); // (SCUMMVERSE: a story's own saves, in the order written.)
++	else if (!saveFailed && slot == 100)
++		scummverseStoryHandOver(); // (SCUMMVERSE: a story's computer opening Maniac's: this place in its story save too.)
+ 
+ 	return !saveFailed;
+ }
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 65c74b7e..67ec2c47 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -202,6 +202,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 		scummverseWorldPoll();
+ 		for (int g = 0; g < Scummverse::WorldCatalog::worldGameCount(); ++g)
+ 			if (_targetName == Common::String(Scummverse::WorldCatalog::kWorldStoryPrefix) + Scummverse::WorldCatalog::kWorldGames[g].gameid) scummverseStoryPlaying(g);
++		scummverseStoryChainedIn(); // (Opened by another game: Day of the Tentacle's computer.)
+ 	}
+ 
+ 	// Convert MD5 checksum back into a digest
+@@ -4112,7 +4113,12 @@ bool ScummEngine::startManiac() {
+ 	Common::Path currentPath = ConfMan.getPath("path");
+ 	Common::String maniacTarget;
+ 
+-	if (!ConfMan.hasKey("easter_egg")) {
++	if (_scummverseStory) {
++		// SCUMMVERSE: in a game's story, Maniac Mansion's own story; its
++		// place kept in its story save too (scummverse_story.inc).
++		if (!scummverseStoryManiac(maniacTarget))
++			return false;
++	} else if (!ConfMan.hasKey("easter_egg")) {
+ 		// Look for a game with a game path pointing to a 'Maniac' directory
+ 		// as a subdirectory to the current game.
+ 		Common::ConfigManager::DomainMap::iterator iter = ConfMan.beginGameDomains();
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 14441e56..7698b42e 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1692,6 +1692,13 @@ protected:
+ 	int _scummverseStoryFrom = -1; // (Started with no save named: the one it went on from, -1 none.)
+ 	int _scummverseStoryPlayed = 0; // (Its time played, in 1/60 s, until it is marked to go on in at the next start.)
+ 	int _scummverseStoryGuardWait = 0, _scummverseStoryGuardTries = 0, _scummverseStoryGuardStep = 0; // (Its copy-protection screen, answered for the player.)
++	bool _scummverseStoryHandover = false; // (Its computer opening Maniac Mansion's own story: its temporary save, once written, goes to its story save too.)
++	bool _scummverseStoryChained = false; // (Opened by another game, which waits behind it in its temporary save: its Quit goes back there.)
++	Common::String _scummverseStoryWaiting; // (That game, once its place is in its story save too; else empty.)
++	bool scummverseStoryManiac(Common::String &target);
++	void scummverseStoryHandOver();
++	void scummverseStoryChainedIn();
++	bool scummverseStoryOnItsWay();
+ 	void scummverseStoryPassGuard(int delta);
+ 	void scummverseStoryDressDolls();
+ 	// (v6 on: an array's value, -1 if it has none there.)
+@@ -1702,7 +1709,7 @@ protected:
+ 	bool scummverseStoryReady(int game);
+ 	bool scummverseStoryChain(int game, Common::String &refusal);
+ 	bool scummverseStorySave(Common::String &problem);
+-	bool scummverseSaveNow(int slot, const Common::String &description);
++	bool scummverseSaveNow(int slot, const Common::String &description, bool ownScripts = true);
+ 	virtual void scummverseSaveThumbnail() {} // (The Curse's own picture of a save, as its own saves make it.)
+ 	void scummverseStoryCount(int slot);
+ 	void scummverseStoryBeforeMenu(const Common::KeyState &key);
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index 0dd155f2..8d15a988 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -12,6 +12,12 @@
+ // left where it could not be saved, or the app put away or stopped in it). A
+ // game left with nothing else to start goes back to the mansion where it was
+ // saved when the story was opened (base/main.cpp).
++// Day of the Tentacle's computer plays Maniac Mansion's own story (startManiac,
++// ScummVM's chained games): Tentacle waits in its temporary save (slot 100),
++// that same place written to its story save too (scummverseStoryHandOver);
++// Maniac's story goes on from its own newest save and keeps its place in its
++// own story save; its own Quit (or ScummVM's menu) goes back to Tentacle, as
++// ScummVM does, and its Worlds menu's ways go where they say.
+ 
+ // The number a story's save was given as it was written (its story save or
+ // its autosave, scummverseStoryCount): 0 if none (written before these
+@@ -92,6 +98,84 @@ bool ScummEngine::scummverseStoryChain(int game, Common::String &refusal) {
+ 	return true;
+ }
+ 
++// The story waiting behind the one its computer opened (scummverseStoryHandOver),
++// for that one to read as it starts (scummverseStoryChainedIn): its target, in
++// the session (never written to disk).
++static const char *const kScummverseStoryWaitingKey = "scummverse_story_waiting";
++
++// Day of the Tentacle's computer (startManiac) in its story: Maniac Mansion's
++// own story (the mansion's data, as Story mode's list opens it), not a Maniac
++// target inside Tentacle's folder. Its target, on its way (the computer's
++// temporary save next, then scummverseStoryHandOver); false, and why for the
++// player, when it is not here.
++bool ScummEngine::scummverseStoryManiac(Common::String &target) {
++	target.clear();
++	if (!ChainedGamesMan.empty()) return false; // (on its way already)
++	int maniac = -1;
++	for (int g = 0; g < worldGameCount(); ++g)
++		if (sameId(kWorldGames[g].gameid, "maniac")) maniac = g;
++	const Common::String story = maniac >= 0 ? Common::String(kWorldStoryPrefix) + kWorldGames[maniac].gameid : Common::String();
++	bool here = maniac >= 0 && scummverseStoryReady(maniac) && ConfMan.hasKey("path", story);
++	if (here) {
++		const Common::FSNode folder(ConfMan.getPath("path", story));
++		here = folder.exists() && folder.isDirectory() && ::Scummverse::storyMissing(kWorldGames[maniac].gameid, folder.getPath()).empty();
++	}
++	if (!here) {
++		warning("SCUMMVERSE story: %s's computer: Maniac Mansion's own story is not here", _targetName.c_str());
++		GUI::MessageDialog dialog(_("Usually, Maniac Mansion would start now: Maniac Mansion's own story. For that, its files must be in the folder the mansion plays from (Documents/maniac on the phone)."));
++		runDialog(dialog);
++		return false;
++	}
++	// (Left from a hand-over before, never read: not this one's.)
++	if (ConfMan.hasKey(kScummverseStoryWaitingKey, Common::ConfigManager::kSessionDomain))
++		ConfMan.removeKey(kScummverseStoryWaitingKey, Common::ConfigManager::kSessionDomain);
++	_scummverseStoryHandover = true;
++	target = story;
++	warning("SCUMMVERSE story: %s's computer opens %s", _targetName.c_str(), story.c_str());
++	return true;
++}
++
++// Its computer's temporary save written (slot 100, where it comes back from
++// when Maniac's story ends): the same place, at once, in its story save too,
++// so it is kept however Maniac's story is left (its Worlds menu: another
++// game, the list, Explore mode) or the app stopped in it; it goes on from
++// there next time. (Within the main loop's own save, which runs a v6 game's
++// scripts before and after it.) Then the story it opens is told so.
++void ScummEngine::scummverseStoryHandOver() {
++	if (!_scummverseStory || !_scummverseStoryHandover) return;
++	_scummverseStoryHandover = false;
++	if (!scummverseSaveNow(kWorldStorySlot, "Story", false)) {
++		warning("SCUMMVERSE story: %s waits in its temporary save only", _targetName.c_str());
++		return;
++	}
++	_scummverseStorySaved = true;
++	ConfMan.set(kScummverseStoryWaitingKey, _targetName, Common::ConfigManager::kSessionDomain);
++	warning("SCUMMVERSE story: %s saved, waiting for Maniac Mansion's own story", _targetName.c_str());
++}
++
++// As a story starts: opened by another game, which waits behind it in its
++// temporary save (ScummVM's chained games, the only way a story starts with
++// games still to come: Day of the Tentacle's computer). Its own Quit, or
++// ScummVM's menu, goes back there, saved first; its Worlds menu's ways go
++// where they say once that game's place is in its story save too
++// (scummverseStoryHandOver), else back there first.
++void ScummEngine::scummverseStoryChainedIn() {
++	_scummverseStoryChained = !ChainedGamesMan.empty();
++	if (ConfMan.hasKey(kScummverseStoryWaitingKey, Common::ConfigManager::kSessionDomain)) {
++		if (_scummverseStoryChained)
++			_scummverseStoryWaiting = ConfMan.get(kScummverseStoryWaitingKey, Common::ConfigManager::kSessionDomain);
++		ConfMan.removeKey(kScummverseStoryWaitingKey, Common::ConfigManager::kSessionDomain);
++	}
++	if (_scummverseStoryChained)
++		warning("SCUMMVERSE story: %s opened by %s", _targetName.c_str(), _scummverseStoryWaiting.empty() ? "a game kept in its temporary save only" : _scummverseStoryWaiting.c_str());
++}
++
++// On its way to another game already: a chain it set up itself (another
++// game's story, its computer's Maniac), not the one it was opened in front of.
++bool ScummEngine::scummverseStoryOnItsWay() {
++	return !ChainedGamesMan.empty() && !_scummverseStoryChained;
++}
++
+ // From the mansion (its Worlds menu): saved to the temporary slot, as for
+ // the sandbox, then the game's story.
+ void ScummEngine::scummverseOpenStory(int game) {
+@@ -161,10 +245,11 @@ bool ScummEngine::scummverseStorySave(Common::String &problem) {
+ // story's own, an autosave while the game is held still. As there: a v6
+ // game's own scripts run before and after it (Sam & Max keeps its cursor
+ // so), The Curse's own picture of it made and its "game loaded" cleared.
+-bool ScummEngine::scummverseSaveNow(int slot, const Common::String &description) {
+-	if (_game.version == 8 && VAR_GAME_LOADED != 0xFF)
++// (ownScripts false: within the main loop's own save, which does those.)
++bool ScummEngine::scummverseSaveNow(int slot, const Common::String &description, bool ownScripts) {
++	if (ownScripts && _game.version == 8 && VAR_GAME_LOADED != 0xFF)
+ 		VAR(VAR_GAME_LOADED) = 0;
+-	if (_game.version == 6 && VAR_PRE_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
++	if (ownScripts && _game.version == 6 && VAR_PRE_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
+ 		runScript(VAR(VAR_PRE_SAVELOAD_SCRIPT), 0, 0, nullptr);
+ 	scummverseSaveThumbnail();
+ 	const bool temporary = _saveTemporaryState;
+@@ -175,7 +260,7 @@ bool ScummEngine::scummverseSaveNow(int slot, const Common::String &description)
+ 	const bool saved = saveState(slot, false, file);
+ 	_saveTemporaryState = temporary;
+ 	_saveLoadDescription = previous;
+-	if (_game.version == 6 && VAR_POST_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
++	if (ownScripts && _game.version == 6 && VAR_POST_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
+ 		runScript(VAR(VAR_POST_SAVELOAD_SCRIPT), 0, 0, nullptr);
+ 	if (!saved) warning("SCUMMVERSE: %s not written (slot %d)", file.c_str(), slot);
+ 	else _lastSaveTime = _system->getMillis();
+@@ -203,10 +288,10 @@ void ScummEngine::scummverseStoryBeforeMenu(const Common::KeyState &key) {
+ }
+ 
+ // Leaving any other way (the game's own Quit, ScummVM's menu, the app's
+-// Return to Launcher): saved on the way out, if it can be (else its
+-// autosave may be newer, and is taken next time).
++// Return to Launcher; opened by another game, back to it): saved on the way
++// out, if it can be (else its autosave may be newer, and is taken next time).
+ void ScummEngine::scummverseStoryQuit() {
+-	if (!_scummverseStory || _scummverseStorySaved || !ChainedGamesMan.empty()) return;
++	if (!_scummverseStory || _scummverseStorySaved || scummverseStoryOnItsWay()) return;
+ 	Common::String problem;
+ 	if (scummverseStorySave(problem)) warning("SCUMMVERSE story: %s saved on quitting", _targetName.c_str());
+ 	else warning("SCUMMVERSE story: %s not saved on quitting (%s)", _targetName.c_str(), problem.c_str());
+@@ -300,7 +385,7 @@ void ScummEngine::scummverseUpdateStory(int delta) {
+ 		warning("SCUMMVERSE story: %s goes on at the next start", _targetName.c_str());
+ 	}
+ 	const int request = scummverseWorldPoll();
+-	if (request == kWorldStorySaveRequest && _scummverseStoryLeaving == -2 && ChainedGamesMan.empty()) {
++	if (request == kWorldStorySaveRequest && _scummverseStoryLeaving == -2 && !scummverseStoryOnItsWay()) {
+ 		// (The menu's Save now: saved where it is, and on it goes.)
+ 		Common::String problem;
+ 		const bool leaving = _scummverseStorySaved;
+@@ -319,7 +404,7 @@ void ScummEngine::scummverseUpdateStory(int delta) {
+ 	if (request == kWorldStoryHomeRequest) scummverseLeaveStory(-1);
+ 	else if (request == kWorldStoryExploreRequest) scummverseLeaveStory(-3);
+ 	else if (request >= kWorldStoryRequest && request < kWorldStoryRequest + worldGameCount()) scummverseLeaveStory(request - kWorldStoryRequest);
+-	if (_scummverseStoryLeaving == -2 || !ChainedGamesMan.empty() || shouldQuit()) return;
++	if (_scummverseStoryLeaving == -2 || scummverseStoryOnItsWay() || shouldQuit()) return;
+ 	const int game = _scummverseStoryLeaving;
+ 	// (This game itself: nothing to do.)
+ 	if (game >= 0 && _targetName == Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid) { _scummverseStoryLeaving = -2; return; }
+@@ -336,6 +421,26 @@ void ScummEngine::scummverseUpdateStory(int delta) {
+ 		_scummverseStoryLeaving = -2;
+ 		warning("SCUMMVERSE story: %s saved, leaving for %s", _targetName.c_str(), game >= 0 ? kWorldGames[game].gameid : game == -3 ? "Explore mode" : "home");
+ 	}
++	// (Opened by another game, waiting behind it: its place in its story save
++	// too, so on to where the menu says, the way back to it dropped; else back
++	// there first, where its place is, as this one's Quit goes.)
++	const bool opened = _scummverseStoryChained;
++	if (opened) {
++		_scummverseStoryChained = false;
++		if (_scummverseStoryWaiting.empty()) {
++			warning("SCUMMVERSE story: %s back to the game that opened it first", _targetName.c_str());
++			GUI::TimedMessageDialog dialog(_("First back to the game that opened this one: its place is kept only there."), 2500);
++			runDialog(dialog);
++			Common::Event event;
++			event.type = Common::EVENT_RETURN_TO_LAUNCHER;
++			_system->getEventManager()->pushEvent(event);
++			return;
++		}
++		Common::String next;
++		int slot;
++		while (ChainedGamesMan.pop(next, slot)) {}
++		warning("SCUMMVERSE story: %s no longer goes back to %s (saved in its story save)", _targetName.c_str(), _scummverseStoryWaiting.c_str());
++	}
+ 	if (game < 0) {
+ 		// (Explore mode: the mansion next, where it was. Else Story mode's
+ 		// list, or in Explore mode the mansion: base/main.cpp.)
+@@ -346,8 +451,13 @@ void ScummEngine::scummverseUpdateStory(int delta) {
+ 		return;
+ 	}
+ 	if (!scummverseStoryChain(game, problem)) {
+-		// (Staying: its quitting saves it again.)
++		// (Staying: its quitting saves it again; opened by another game, its
++		// way back there again.)
+ 		_scummverseStorySaved = false;
++		if (opened) {
++			ChainedGamesMan.push(_scummverseStoryWaiting, 100);
++			_scummverseStoryChained = true;
++		}
+ 		warning("SCUMMVERSE story: %s not opened (%s)", kWorldGames[game].gameid, problem.c_str());
+ 		GUI::TimedMessageDialog dialog(Common::U32String(problem), 3000);
+ 		runDialog(dialog);
