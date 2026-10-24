@@ -6717,3 +6717,32 @@ Found by a review of 0239 and fixed (older than this round).
   again from the autosave; a story's point; the new engine's save winning
   over an older point), the full data suite. The iPhone's side is compiled
   only by CI; not tested on an iPhone.
+
+## Patch 0242 — the telescope's view in the new engine (the safe's clue); close-up fixes (mansion export version 35)
+
+From 0240's open note: the safe opened with the game's code, but nothing
+in the new engine showed it.
+- The telescope (room 28) now works as the original: Use shows its view
+  (exported rooms 34 and 35, as scenes, not places) at the turn it is at,
+  for the game's own time or until a tap; at the right end, with the
+  painting by the safe moved, the view shows the code. Its two buttons turn
+  it a step while a turn is paid for (a coin used in its slot pays one, and
+  is used up); unpaid, each says its own line; at an end nothing happens.
+  The turn and the turns paid are kept in the new engine's state (SVS4;
+  older states still load). The export records every turn and painting
+  state, the buttons and the coins by running the game's scripts (things
+  file SVO7; SVO6 and older still read).
+- From a review of 0240: custom characters could not be chosen while a
+  close-up was up (the box was empty); "Board the Shuttle Bug" did nothing
+  there; tour commands could leave the player in a close-up. The
+  close-up's limits are kept in one place and the exporter leaves out one
+  over them instead of writing a things file the reader refuses whole.
+- Not modelled: the left end's one-time pan and flash, the telescope's
+  sounds, a start that draws one of the code's overlays (the export's
+  fixed start draws none, as the game's background shows that code).
+- Tests: test_panel (ASan/UBSan; new: SVO7), the verbs self-test (new: all
+  eight views as recorded, paid and unpaid turns, coins, save and reload,
+  the code's view, everyone back; a custom character and the Shuttle Bug
+  with the view up; 18 mutations caught), a fresh mansion export,
+  test_world_setup, the full sandbox suite and data suite. Not tested on an
+  iPhone.

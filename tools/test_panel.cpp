@@ -760,13 +760,90 @@ int main() {
 			std::vector<uint8_t> noneShown(five.begin(), five.end());
 			noneShown[3] = '6'; noneShown.push_back(0);
 			assert(parseThings(noneShown.data(), noneShown.size(), things, error) && things.closeUps.empty() && things.powerId == 157);
+			// ("SVO7", from 0242: each close-up goes on with a view's turns, the
+			// thing seen, its buttons and coins; a keypad has none, a view no
+			// keys and no code: the mansion's telescope, turned by two buttons
+			// a step at a time, a coin in its slot paying a turn, the part shown
+			// at one turn following the painting.)
+			const std::vector<uint8_t> keypad(six.begin() + sixth + 1, six.end());
+			auto seven = [&](int start, int turnCount, int firstAfter, bool keypadTurns, int coins, bool coded) {
+				std::vector<uint8_t> v = five;
+				v[3] = '7';
+				v.push_back(2);
+				v.insert(v.end(), keypad.begin(), keypad.end());
+				v.push_back(0); // (its start)
+				if (keypadTurns) { put(v, {1, 0}); for (int k = 0; k < 6; ++k) put16(v, 0); } else v.push_back(0);
+				put16(v, 0); put16(v, 0); put(v, {0, 0});
+				put16(v, 28); put16(v, 413); put16(v, 1 << kUse); put16(v, 34); put16(v, 640);
+				put(v, {0}); // (no keys)
+				if (coded) put(v, {1, 1}); else v.push_back(0);
+				put(v, {0, 0, 0, 0});
+				put(v, {start, turnCount});
+				static const int values[] = {1, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+				for (int t = 0; t < turnCount; ++t) {
+					v.push_back(values[t]);
+					for (int seen = 0; seen < 2; ++seen) { put16(v, values[t] ? 34 : 35); put16(v, values[t] == 2 && seen ? 0 : values[t] * 320 % 1280); put16(v, values[t] ? 240 : 120); }
+				}
+				put16(v, 9); put16(v, 218);
+				v.push_back(2);
+				put16(v, 411); v.push_back(kPush); put(v, {1, '<'});
+				for (int t = 0; t < turnCount; ++t) v.push_back(t ? (t == 1 ? 1 : 0) : firstAfter);
+				put16(v, 412); v.push_back(kPush); put(v, {1, '>'});
+				for (int t = 0; t < turnCount; ++t) v.push_back(t == 0 ? 2 : t == 1 ? 0 : t);
+				v.push_back(coins);
+				for (int k = 0; k < coins; ++k) { put16(v, 414); put16(v, 36 + k); }
+				return v;
+			};
+			std::vector<uint8_t> scope = seven(1, 3, 1, false, 1, false);
+			assert(parseThings(scope.data(), scope.size(), things, error) && things.closeUps.size() == 2 && !things.closeUps[0].view() && things.closeUps[1].view());
+			assert(things.closeUps[0].keys.size() == 3 && things.closeUps[0].turns.empty() && things.closeUps[1].turns.size() == 3 && things.closeUps[1].coins.size() == 1);
+			assert(PanelBridge::loadThings(8, scope.data(), scope.size(), problem, sizeof(problem)) && PanelBridge::closeUpCount(8) == 2);
+			int start = -1, turns = 0, seenRoom = 0, seen = 0, ticks = 0, verb = 0, next = -1, slot = 0, coin = 0;
+			assert(!PanelBridge::closeUpView(8, 0, start, turns, seenRoom, seen) && PanelBridge::closeUpScene(8, 0, room, left, keys, presses) && keys == 3 && presses == 4);
+			assert(PanelBridge::closeUpView(8, 1, start, turns, seenRoom, seen) && start == 1 && turns == 3 && seenRoom == 9 && seen == 218);
+			assert(PanelBridge::closeUpThing(8, 1, room, id, kinds) && room == 28 && id == 413 && kinds == 1 << kUse);
+			assert(PanelBridge::closeUpScene(8, 1, room, left, keys, presses) && room == 34 && left == 640 && keys == 0 && presses == 0);
+			assert(PanelBridge::closeUpTurn(8, 1, 0, 0, value, room, left, ticks) && value == 1 && room == 34 && left == 320 && ticks == 240);
+			assert(PanelBridge::closeUpTurn(8, 1, 1, 1, value, room, left, ticks) && value == 0 && room == 35 && left == 0 && ticks == 120);
+			assert(PanelBridge::closeUpTurn(8, 1, 2, 0, value, room, left, ticks) && value == 2 && left == 640 && PanelBridge::closeUpTurn(8, 1, 2, 1, value, room, left, ticks) && left == 0);
+			assert(!PanelBridge::closeUpTurn(8, 1, 3, 0, value, room, left, ticks) && !PanelBridge::closeUpTurn(8, 1, 0, 2, value, room, left, ticks) && !PanelBridge::closeUpTurn(8, 0, 0, 0, value, room, left, ticks));
+			assert(PanelBridge::closeUpButtons(8, 1) == 2 && PanelBridge::closeUpButtons(8, 0) == 0);
+			assert(PanelBridge::closeUpButton(8, 1, 0, 0, id, verb, next, shows, sizeof(shows)) && id == 411 && verb == kPush && next == 1 && std::string(shows) == "<");
+			assert(PanelBridge::closeUpButton(8, 1, 1, 0, id, verb, next, shows, sizeof(shows)) && id == 412 && next == 2);
+			assert(PanelBridge::closeUpButton(8, 1, 1, 2, id, verb, next, shows, sizeof(shows)) && next == 2); // (at its end)
+			assert(!PanelBridge::closeUpButton(8, 1, 2, 0, id, verb, next, shows, sizeof(shows)) && !PanelBridge::closeUpButton(8, 1, 0, 3, id, verb, next, shows, sizeof(shows)));
+			assert(PanelBridge::closeUpCoin(8, 1, 0, slot, coin) && slot == 414 && coin == 36 && !PanelBridge::closeUpCoin(8, 1, 1, slot, coin) && !PanelBridge::closeUpCoin(8, 0, 0, slot, coin));
+			assert(PanelBridge::closeUpCode(8, 0, 0) == 9 && PanelBridge::closeUpCode(8, 1, 0) == -1);
+			for (size_t less = 1; less < scope.size() - sixth; ++less) {
+				std::vector<uint8_t> shorter(scope.begin(), scope.end() - less);
+				assert(!parseThings(shorter.data(), shorter.size(), things, error));
+			}
+			std::vector<uint8_t> asSix = scope;
+			asSix[3] = '6'; // (read as "SVO6": its turns left over, refused whole)
+			assert(!parseThings(asSix.data(), asSix.size(), things, error));
+			// (Refused: a start that is none of its turns; a turn after past its
+			// turns; two turns of one value; a keypad with turns; a view with a
+			// code; more turns or coins than a file holds. As many as it holds:
+			// read.)
+			for (const std::vector<uint8_t> &refused : {seven(4, 3, 1, false, 1, false), seven(1, 3, 3, false, 1, false), seven(1, 3, 1, true, 1, false), seven(1, 3, 1, false, 1, true),
+				seven(1, PanelBridge::kMostTurns + 1, 1, false, 1, false), seven(1, 3, 1, false, PanelBridge::kMostCoins + 1, false)})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad close-up");
+			std::vector<uint8_t> again = scope;
+			const size_t turnsAt = scope.size() - (1 + 4) - (1 + 2 * (2 + 1 + 2 + 3)) - 4 - 3 * 13; // (before the thing seen, the buttons, the coin)
+			assert(scope[turnsAt] == 1 && scope[turnsAt + 13] == 0);
+			again[turnsAt + 13] = 1; // (the second turn's value the first's)
+			assert(!parseThings(again.data(), again.size(), things, error) && error == "bad close-up");
+			std::vector<uint8_t> most = seven(1, PanelBridge::kMostTurns, 1, false, PanelBridge::kMostCoins, false);
+			assert(parseThings(most.data(), most.size(), things, error) && things.closeUps[1].turns.size() == (size_t)PanelBridge::kMostTurns && things.closeUps[1].coins.size() == (size_t)PanelBridge::kMostCoins);
+			PanelBridge::clearThings();
+			assert(PanelBridge::closeUpCount(8) == 0);
 		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad or view (its turns, buttons, coins)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

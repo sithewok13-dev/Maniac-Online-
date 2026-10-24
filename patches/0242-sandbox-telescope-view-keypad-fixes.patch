@@ -1,0 +1,1001 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 81e4bcec..43563cc8 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -184,7 +184,8 @@ const ThingParent *GameThings::parent(int room, int id) const {
+ 
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	const bool closeUps = data && size >= 4 && !std::memcmp(data, "SVO6", 4);
++	const bool views = data && size >= 4 && !std::memcmp(data, "SVO7", 4);
++	const bool closeUps = views || (data && size >= 4 && !std::memcmp(data, "SVO6", 4));
+ 	const bool power = closeUps || (data && size >= 4 && !std::memcmp(data, "SVO5", 4));
+ 	const bool pairs = power || (data && size >= 4 && !std::memcmp(data, "SVO4", 4));
+ 	const bool withParents = pairs || (data && size >= 4 && !std::memcmp(data, "SVO3", 4));
+@@ -261,15 +262,53 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			for (int k = 0; k < presses && r.ok; ++k) c.code.push_back(r.u8());
+ 			c.right = r.u8(); line(c.rightLine);
+ 			c.wrong = r.u8(); line(c.wrongLine);
++			int turns = 0, buttons = 0, coins = 0;
++			if (views) {
++				c.start = r.u8();
++				turns = r.u8();
++				if (turns > kMostTurns) { out = GameThings(); error = "bad close-up"; return false; }
++				for (int t = 0; t < turns && r.ok; ++t) {
++					CloseUpTurn turn;
++					turn.value = r.u8();
++					for (CloseUpView &v : turn.seen) { v.room = r.u16(); v.left = r.u16(); v.ticks = r.u16(); }
++					c.turns.push_back(turn);
++				}
++				c.seenRoom = r.u16(); c.seen = r.u16();
++				buttons = r.u8();
++				if (buttons > kMostButtons) { out = GameThings(); error = "bad close-up"; return false; }
++				for (int b = 0; b < buttons && r.ok; ++b) {
++					CloseUpButton button;
++					button.id = r.u16(); button.kind = r.u8(); line(button.line);
++					for (int t = 0; t < turns && r.ok; ++t) button.after.push_back(r.u8());
++					c.buttons.push_back(button);
++				}
++				coins = r.u8();
++				if (coins > kMostCoins) { out = GameThings(); error = "bad close-up"; return false; }
++				for (int k = 0; k < coins && r.ok; ++k) { const int slot = r.u16(); c.coins.push_back(std::make_pair(slot, (int)r.u16())); }
++			}
+ 			// (Shown by some verb; keys to press, a key for each value the code
+-			// wants; each answer a picture its thing has.)
+-			bool keyed = !c.code.empty();
++			// wants; each answer a picture its thing has. Or, from 0242, a view:
++			// no keys, no code, its start one of its turns (each once), each
++			// button's turns after some of them, each coin a slot and a coin.)
++			bool keyed = !c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty();
+ 			for (int value : c.code) {
+ 				bool any = false;
+ 				for (const CloseUpKey &key : c.keys) any = any || key.value == value;
+ 				keyed = keyed && any;
+ 			}
+-			if (count > kMostCloseUps || keys > kMostCloseUpKeys || presses > kMostPresses || !(c.kinds & 0xFFFE) || !c.closeUp || !keyed || c.right > 1 || c.wrong > 1) {
++			bool view = c.keys.empty() && c.code.empty() && !c.turns.empty() && !c.right && !c.wrong;
++			bool started = false;
++			for (size_t t = 0; t < c.turns.size(); ++t) {
++				started = started || c.turns[t].value == c.start;
++				for (size_t u = 0; u < t; ++u) view = view && c.turns[u].value != c.turns[t].value;
++			}
++			for (const CloseUpButton &button : c.buttons) {
++				view = view && button.id && button.kind > 0 && button.kind < 32;
++				for (int after : button.after) view = view && after < turns;
++			}
++			for (const std::pair<int, int> &coin : c.coins) view = view && coin.first && coin.second;
++			view = view && started;
++			if (count > kMostCloseUps || keys > kMostCloseUpKeys || presses > kMostPresses || !(c.kinds & 0xFFFE) || !c.closeUp || !(keyed || view) || c.right > 1 || c.wrong > 1) {
+ 				out = GameThings(); error = "bad close-up"; return false;
+ 			}
+ 			out.closeUps.push_back(c);
+@@ -1128,6 +1167,37 @@ bool closeUpAnswer(int game, int index, bool right, int &picture, char *line, in
+ 	copy(right ? c->rightLine : c->wrongLine, line, capacity);
+ 	return true;
+ }
++bool closeUpView(int game, int index, int &start, int &turns, int &seenRoom, int &seen) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || !c->view()) return false;
++	start = c->start; turns = (int)c->turns.size(); seenRoom = c->seenRoom; seen = c->seen;
++	return true;
++}
++bool closeUpTurn(int game, int index, int turn, int seenPicture, int &value, int &room, int &left, int &ticks) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || turn < 0 || turn >= (int)c->turns.size() || seenPicture < 0 || seenPicture > 1) return false;
++	const Panel::CloseUpView &v = c->turns[turn].seen[seenPicture];
++	value = c->turns[turn].value; room = v.room; left = v.left; ticks = v.ticks;
++	return true;
++}
++int closeUpButtons(int game, int index) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	return c ? (int)c->buttons.size() : 0;
++}
++bool closeUpButton(int game, int index, int button, int turn, int &id, int &kind, int &after, char *line, int capacity) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || button < 0 || button >= (int)c->buttons.size() || turn < 0 || turn >= (int)c->buttons[button].after.size()) return false;
++	const Panel::CloseUpButton &b = c->buttons[button];
++	id = b.id; kind = b.kind; after = b.after[turn];
++	copy(b.line, line, capacity);
++	return true;
++}
++bool closeUpCoin(int game, int index, int k, int &slot, int &coin) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || k < 0 || k >= (int)c->coins.size()) return false;
++	slot = c->coins[k].first; coin = c->coins[k].second;
++	return true;
++}
+ bool unpowered(int game, int room) {
+ 	for (const auto &g : gameThings())
+ 		if (g.first == game) return std::binary_search(g.second.unpowered.begin(), g.second.unpowered.end(), room);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index c1e354a8..92fe6250 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -167,12 +167,31 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // presses and each the value the code wants then, then right and wrong (any
+ // other values), each u8 the thing's picture after and the line said (u8
+ // length, the line).
++// "SVO7" (from 0242): each close-up goes on with a view's turns (none for a
++// keypad; a view has no keys and no code: the mansion's telescope): u8 the
++// turn its game starts at (as its game counts), u8 count of turns, each u8
++// its value and, for the thing seen in its picture 0 then 1, u16 the room
++// shown, u16 the left of the part shown and u16 how long (the game's ticks,
++// 1/60 s; room 0: nothing shown); u16 room, u16 object of the thing seen (0
++// 0: none); u8 count of buttons that turn it, each u16 object, u8 the verb
++// kind, its line (u8 length, the line said turning) and per turn u8 the turn
++// after (an index; its own: no further); u8 count of coins, each u16 the
++// slot (a thing of the close-up's thing's place) and u16 the coin (carried)
++// whose use with it pays a turn.
+ struct CloseUpKey { int id = 0, value = 0; std::string line; };
++struct CloseUpView { int room = 0, left = 0, ticks = 0; };
++struct CloseUpTurn { int value = 0; CloseUpView seen[2]; };
++struct CloseUpButton { int id = 0, kind = 0; std::string line; std::vector<int> after; };
+ struct CloseUp {
+ 	int room = 0, id = 0, kinds = 0, closeUp = 0, left = 0, right = 0, wrong = 0;
+ 	std::vector<CloseUpKey> keys;
+ 	std::vector<int> code; // (values, in the order pressed)
+ 	std::string rightLine, wrongLine;
++	int start = 0, seenRoom = 0, seen = 0;
++	std::vector<CloseUpTurn> turns;
++	std::vector<CloseUpButton> buttons;
++	std::vector<std::pair<int, int> > coins; // (slot, coin)
++	bool view() const { return keys.empty(); }
+ };
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
+@@ -187,7 +206,9 @@ struct GameThings {
+ };
+ // (At most this many rooms, objects in one, effects and others in one.)
+ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 32768, kMostEffectParts = 64;
+-static const int kMostCloseUps = 16, kMostCloseUpKeys = 64, kMostPresses = 16;
++// (Its close-ups' limits are the engine bridge's, which the export keeps to.)
++using PanelBridge::kMostCloseUps; using PanelBridge::kMostCloseUpKeys; using PanelBridge::kMostPresses;
++using PanelBridge::kMostTurns; using PanelBridge::kMostButtons; using PanelBridge::kMostCoins;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index ddaff97d..d0219bd3 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -159,12 +159,30 @@ bool unpowered(int game, int room);
+ // counts) and the line it shows pressed; the value the code wants at a press
+ // (-1: none); what the code (right) or any other values do: the thing's
+ // picture after and the line said.
++// (The most a things file's close-ups have: close-ups, keys and presses in
++// one, from 0242 a view's turns, buttons and coins. A file with more is
++// refused whole, so the export leaves out a close-up over them.)
++static const int kMostCloseUps = 16, kMostCloseUpKeys = 64, kMostPresses = 16, kMostTurns = 16, kMostButtons = 16, kMostCoins = 64;
+ int closeUpCount(int game);
+ bool closeUpThing(int game, int index, int &room, int &id, int &kinds);
+ bool closeUpScene(int game, int index, int &room, int &left, int &keys, int &presses);
+ bool closeUpKey(int game, int index, int key, int &id, int &value, char *line, int capacity);
+ int closeUpCode(int game, int index, int press);
+ bool closeUpAnswer(int game, int index, bool right, int &picture, char *line, int capacity);
++// From 0242 ("SVO7") a close-up may be a view (no keys: the mansion's
++// telescope): the turn its game starts at (as its game counts), how many
++// turns, the thing seen (room, object; 0 0: none); at a turn (an index),
++// with the thing seen in a picture (0, 1), its value and what is shown (room
++// 0: nothing; the left of the part shown, source pixels; for how many ticks,
++// 1/60 s); its buttons: the object, the verb kind and the line said
++// turning, and the turn after a turn (its own: no further); its coins (by
++// index): a coin (carried) used with a slot (a thing of its thing's place)
++// pays a turn.
++bool closeUpView(int game, int index, int &start, int &turns, int &seenRoom, int &seen);
++bool closeUpTurn(int game, int index, int turn, int seenPicture, int &value, int &room, int &left, int &ticks);
++int closeUpButtons(int game, int index);
++bool closeUpButton(int game, int index, int button, int turn, int &id, int &kind, int &after, char *line, int capacity);
++bool closeUpCoin(int game, int index, int k, int &slot, int &coin);
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index f9e57e2b..ab37baae 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -50,10 +50,11 @@ static const int kWorldExportVersion = 25;
+ // from 0195 the mansion's again (its main power: where it leaves the house
+ // dark); from 0198 Zak's (the insides of its plane and the Shuttle Bug,
+ // kWorldRideScenes); from 0240 the mansion's again (its wall safe's keypad,
+-// kWorldCloseUps: "maniac-v34").
++// kWorldCloseUps: "maniac-v34"); from 0242 the mansion's again (its
++// telescope's view, kWorldCloseUps: "maniac-v35").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 9 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 10 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -550,10 +551,21 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ // right. The export plays it so (scummverseExportThings, "SVO6": the keys,
+ // the code, what each answer does); the variables are named here, as the
+ // export cannot tell which of the game's are the keypad's.
+-struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses; };
+-static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4}};
++// From 0242 also a view, a close-up with no keys (`presses` 0): the
++// mansion's telescope (room 28, 413), whose Use shows what it is turned to
++// for a while (room 34, or `also`, 35, at one end), as its script picks by
++// the game's variable `turned` (its start's turn); the buttons beside it
++// turn it a step while turns are paid for (variable `paid`: a coin in its
++// slot pays one), and at one turn the part shown follows the picture of
++// `seen` in room `seenRoom` (the painting by the wall safe, moved: the code
++// its start chose there, behind it, marked as that start marked it). The
++// export plays each turn, button and coin (scummverseExportThings, "SVO7");
++// the variables and the thing seen are named here, as the export cannot
++// tell which of the game's the telescope's script reads.
++struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen; };
++static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218}};
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+-	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && c.closeUp == closeUp) return &c;
++	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && (c.closeUp == closeUp || (c.also && c.also == closeUp))) return &c;
+ 	return nullptr;
+ }
+ // The ride boarded at an object of a place, else null.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 6aa07ad2..d96a303d 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1531,11 +1531,12 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		}
+ 	// (And the insides of its rides, seen on the way, and its close-ups.)
+ 	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == gameIndex) rooms.push_back(s.room);
+-	for (const WorldCloseUp &c : kWorldCloseUps) {
+-		bool listed = c.game != gameIndex;
+-		for (int r : rooms) listed = listed || r == c.closeUp;
+-		if (!listed) rooms.push_back(c.closeUp);
+-	}
++	for (const WorldCloseUp &c : kWorldCloseUps)
++		for (int shown : {(int)c.closeUp, (int)c.also}) {
++			bool listed = c.game != gameIndex || !shown;
++			for (int r : rooms) listed = listed || r == shown;
++			if (!listed) rooms.push_back(shown);
++		}
+ 	Common::Array<int> costumes;
+ 	int written = 0;
+ 	for (int room : rooms) {
+@@ -1640,9 +1641,11 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // count, u16 each): lit on arriving with it on, dark with it turned off by
+ // its own script. From 0240 "SVO6": then the close-ups (kWorldCloseUps, u8
+ // count; see Scummverse::Panel::CloseUp), each played from the game's own
+-// start as a player plays it; a close-up's room is no place here. Every
+-// other game's is "SVO3" with no effects (before, "SVO1"), so that what is
+-// inside another is known there too.
++// start as a player plays it; a close-up's room is no place here. From 0242
++// "SVO7": each close-up also has a view's turns, buttons and coins (none for
++// a keypad), and a view's rooms are listed with their things as that start
++// leaves them. Every other game's is "SVO3" with no effects (before,
++// "SVO1"), so that what is inside another is known there too.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1682,7 +1685,14 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (found.empty()) { problem = "no room set up"; return false; }
+ 	struct Effect { int room, id, kind, from, after, with = 0; bool taken, firstGone = false, secondGone = false; Common::Array<int> others; Common::String line; };
+ 	Common::Array<Effect> effects;
+-	struct CloseUp { int room = 0, id = 0, kinds = 0, closeUp = 0, left = 0, right = 0, wrong = 0; Common::Array<int> keys, values, code; Common::Array<Common::String> keyLines; Common::String rightLine, wrongLine; };
++	struct CloseUp {
++		int room = 0, id = 0, kinds = 0, closeUp = 0, left = 0, right = 0, wrong = 0; Common::Array<int> keys, values, code; Common::Array<Common::String> keyLines; Common::String rightLine, wrongLine;
++		// (From 0242, a view's: its start's turn and the turns found; per turn,
++		// for the thing seen in its picture 0 then 1, the room, the left and the
++		// ticks shown; per button its object and verb kind, its line and per
++		// turn the turn after (an index); each coin's slot and coin.)
++		int start = 0, seenRoom = 0, seen = 0; Common::Array<int> turns, views, buttons, buttonKinds, after, coins; Common::Array<Common::String> buttonLines;
++	};
+ 	Common::Array<CloseUp> closeUps;
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;
+ 	Common::Array<int> unpowered;
+@@ -2047,10 +2057,150 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			picture = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
+ 			return _currentRoom == c.room;
+ 		};
++		// (From 0242, "SVO7": a view, a close-up with no keys (kWorldCloseUps:
++		// the mansion's telescope), played as a player plays it from the game's
++		// own start. Its buttons: each other thing of its place with a script
++		// for a verb that might turn it, pressed at each turn found (from its
++		// start's, with a turn paid for) until none is new: the turn after and
++		// the line said. Its coins: each use there of a thing with one carried
++		// (the effects above) that pays a turn. At each turn, the thing seen in
++		// each of its pictures, its verb run until its script waits in a view's
++		// room: that room, the part shown, and how long it waits there (the
++		// game's ticks) until it is back. The views' rooms' things as that start
++		// leaves them: the marking it made for the code it chose.)
++		static const int viewKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
++		auto viewAt = [&](const WorldCloseUp &c, int verb, int turned, int picture, int &room, int &left, int &ticks) {
++			restore(started);
++			_rnd.setSeed(0x5C0BE + c.room);
++			room = left = ticks = 0;
++			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
++			VAR(c.turned) = turned;
++			if (c.seen && picture >= 0) putState(c.seen, picture ? getState(c.seen) | kObjectStateIntrinsic : getState(c.seen) & ~kObjectStateIntrinsic);
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			runObjectScript(c.object, verb, false, false, nullptr);
++			for (int n = 0; n < 600 && !shouldQuit(); ++n) {
++				const bool there = _currentRoom == c.closeUp || (c.also && _currentRoom == c.also);
++				if (room && !there) break;
++				for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) {
++					if (vm.slot[k].status != ssPaused) continue;
++					// (Its own script waiting there, the others held still.)
++					if (there && !vm.slot[k].freezeCount) {
++						if (!room) { room = _currentRoom; left = MAX(0, camera._cur.x - _screenWidth / 2); }
++						ticks += vm.slot[k].delay;
++					}
++					vm.slot[k].delay = 0; vm.slot[k].status = ssRunning;
++				}
++				VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++			}
++			return room && _currentRoom == c.room;
++		};
++		auto turnAt = [&](const WorldCloseUp &c, int obj, int verb, int turned, Common::String &line) {
++			restore(started);
++			_rnd.setSeed(0x5C0BE + c.room);
++			line.clear();
++			if (!verb || !arrive(c.room) || !getVerbEntrypoint(obj, verb)) return turned;
++			VAR(c.turned) = turned; VAR(c.paid) = 1;
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = obj; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			_charsetBuffer[0] = 0;
++			runObjectScript(obj, verb, false, false, nullptr);
++			// (Until it has said its line, or ends saying none.)
++			for (int n = 0; n < 240 && _currentRoom == c.room && line.empty(); ++n) {
++				bool running = false;
++				for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) running = running || vm.slot[k].status == ssRunning || vm.slot[k].status == ssPaused;
++				if (!running && n > 1) break;
++				oneFrame(); line = lineOf();
++			}
++			// (Turned: the turn paid for used, the place as it was.)
++			const int now = VAR(c.turned);
++			const int after = _currentRoom == c.room && VAR(c.paid) == 0 && now != turned && now >= 0 && now < 256 ? now : turned;
++			stopTalk(); _sound->stopAllSounds();
++			return after;
++		};
++		auto playView = [&](const WorldCloseUp &c, CloseUp &u) {
++			restore(started);
++			u.start = VAR(c.turned); u.seenRoom = c.seenRoom; u.seen = c.seen;
++			_rnd.setSeed(0x5C0BE + c.room);
++			if (u.start < 0 || u.start > 255 || !arrive(c.room)) return false;
++			Common::Array<int> tries; // (object, kind)
++			for (int i = 1; i < _numLocalObjects; ++i) {
++				const int obj = _objs[i].obj_nr;
++				if (!obj || obj == c.object) continue;
++				for (int kind : viewKinds) if (verbOf(kind) && getVerbEntrypoint(obj, verbOf(kind))) { tries.push_back(obj); tries.push_back(kind); }
++			}
++			u.turns.push_back(u.start);
++			Common::HashMap<int, int> next; // (try * 16 + turn: the turn after)
++			Common::Array<Common::String> said(tries.size() / 2);
++			for (uint t = 0; t < u.turns.size() && !shouldQuit(); ++t)
++				for (uint k = 0; k + 1 < tries.size(); k += 2) {
++					Common::String line;
++					const int after = turnAt(c, tries[k], verbOf(tries[k + 1]), u.turns[t], line);
++					if (after == u.turns[t]) continue;
++					uint at = 0;
++					while (at < u.turns.size() && u.turns[at] != after) ++at;
++					if (at == u.turns.size()) { if ((int)u.turns.size() >= Scummverse::PanelBridge::kMostTurns) continue; u.turns.push_back(after); }
++					next[k / 2 * 16 + t] = at;
++					if (said[k / 2].empty()) said[k / 2] = line;
++				}
++			for (uint k = 0; k + 1 < tries.size(); k += 2) {
++				bool turning = false;
++				for (uint t = 0; t < u.turns.size(); ++t) turning = turning || next.contains(k / 2 * 16 + t);
++				if (!turning || (int)u.buttons.size() >= Scummverse::PanelBridge::kMostButtons) continue;
++				u.buttons.push_back(tries[k]); u.buttonKinds.push_back(tries[k + 1]); u.buttonLines.push_back(said[k / 2]);
++				for (uint t = 0; t < u.turns.size(); ++t) u.after.push_back(next.contains(k / 2 * 16 + t) ? next[k / 2 * 16 + t] : (int)t);
++			}
++			const int useVerb = verbOf(kWorldVerbUse);
++			for (const Effect &e : effects) {
++				if (e.room != c.room || e.kind != kWorldVerbUse || !e.with || e.with == 0xFFFF || !e.secondGone || !useVerb || (int)u.coins.size() >= 2 * Scummverse::PanelBridge::kMostCoins) continue;
++				bool listed = false;
++				for (uint k = 0; k + 1 < u.coins.size(); k += 2) listed = listed || (u.coins[k] == e.id && u.coins[k + 1] == e.with);
++				restore(started);
++				_rnd.setSeed(0x5C0BE + c.room);
++				if (listed || !arrive(c.room) || !getVerbEntrypoint(e.id, useVerb)) continue;
++				putOwner(e.with, VAR(VAR_EGO)); VAR(c.paid) = 0;
++				VAR(VAR_ACTIVE_VERB) = useVerb; VAR(VAR_ACTIVE_OBJECT1) = e.id; VAR(VAR_ACTIVE_OBJECT2) = e.with;
++				runObjectScript(e.id, useVerb, false, false, nullptr);
++				for (int n = 0; n < 120 && _currentRoom == c.room; ++n) oneFrame();
++				if (VAR(c.paid) == 1) { u.coins.push_back(e.id); u.coins.push_back(e.with); }
++				stopTalk(); _sound->stopAllSounds();
++			}
++			int room, left, ticks;
++			for (int kind : viewKinds) if (viewAt(c, verbOf(kind), u.start, -1, room, left, ticks)) u.kinds |= 1 << kind;
++			int kind = 1;
++			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
++			if (kind >= 16 || !viewAt(c, verbOf(kind), u.start, -1, u.closeUp, u.left, ticks)) return false;
++			for (int value : u.turns)
++				for (int picture = 0; picture < 2; ++picture) {
++					if (!viewAt(c, verbOf(kind), value, picture, room, left, ticks)) room = left = ticks = 0;
++					u.views.push_back(room); u.views.push_back(left); u.views.push_back(MIN(ticks, 65535));
++				}
++			for (int shown : {(int)c.closeUp, (int)c.also}) {
++				bool listed = !shown;
++				for (const Room &r : found) listed = listed || r.room == shown;
++				if (listed) continue;
++				restore(started);
++				_rnd.setSeed(0x5C0BE + shown);
++				Room r;
++				r.room = shown;
++				Common::String why;
++				if (scummverseExportScene(shown, Common::Path(), why, true, nullptr, 0, nullptr, &r.things)) found.push_back(r);
++				else warning("SCUMMVERSE world things: %s view room %d not set up (%s)", kWorldGames[gameIndex].gameid, shown, why.c_str());
++			}
++			return true;
++		};
+ 		for (const WorldCloseUp &c : kWorldCloseUps) {
+ 			if (c.game != gameIndex || shouldQuit() || !booted) continue;
+ 			CloseUp u;
+ 			u.room = c.room; u.id = c.object; u.closeUp = c.closeUp;
++			if (!c.presses) {
++				const bool played = playView(c, u);
++				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
++					warning("SCUMMVERSE world things: %s view %d of room %d object %d left out (more close-ups than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++				else if (played) closeUps.push_back(u);
++				else warning("SCUMMVERSE world things: %s view %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++				debug(1, "SCUMMVERSE world things: %s view %d (room %d object %d): %d turns, %d buttons, %d coins, %s", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object,
++					(int)u.turns.size(), (int)u.buttons.size(), (int)u.coins.size() / 2, played ? "played" : "not played");
++				continue;
++			}
+ 			for (int kind : {(int)kWorldVerbOpen, (int)kWorldVerbClose, (int)kWorldVerbPush, (int)kWorldVerbPull, (int)kWorldVerbUse, (int)kWorldVerbTurnOn, (int)kWorldVerbTurnOff})
+ 				if (showCloseUp(c, verbOf(kind))) u.kinds |= 1 << kind;
+ 			int kind = 1;
+@@ -2083,7 +2233,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				if (u.values[k] != u.code[0]) { wrong = right; wrong[0] = u.keys[k]; }
+ 			const bool played = !wrong.empty() && showCloseUp(c, verbOf(kind)) && pressKeys(c, right, u.right, u.rightLine) &&
+ 				showCloseUp(c, verbOf(kind)) && pressKeys(c, wrong, u.wrong, u.wrongLine) && u.right != u.wrong;
+-			if (played) closeUps.push_back(u);
++			// (More than a things file holds: left out, as the reader would
++			// refuse the whole file, every effect with it.)
++			if (played && ((int)u.keys.size() > Scummverse::PanelBridge::kMostCloseUpKeys || (int)u.code.size() > Scummverse::PanelBridge::kMostPresses || (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps))
++				warning("SCUMMVERSE world things: %s close-up %d of room %d object %d left out (%d keys, %d presses: more than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, (int)u.keys.size(), (int)u.code.size());
++			else if (played) closeUps.push_back(u);
+ 			else warning("SCUMMVERSE world things: %s close-up %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+ 			debug(1, "SCUMMVERSE world things: %s close-up %d (room %d object %d): %d keys, %d pressed, %s", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, (int)u.keys.size(), (int)u.code.size(), played ? "played" : "not played");
+ 		}
+@@ -2094,7 +2248,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO3" : "SVO6", 4);
++	out.write(effects.empty() ? "SVO3" : "SVO7", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -2136,8 +2290,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		for (uint k = 0; k < unpowered.size() && k < 1024; ++k) scummverseWrite16(out, unpowered[k]);
+ 		// (From 0240, "SVO6": the close-ups, see Scummverse::Panel::CloseUp.)
+ 		auto line = [&](const Common::String &l) { out.writeByte(MIN<uint>(l.size(), 255)); out.write(l.c_str(), MIN<uint>(l.size(), 255)); };
+-		out.writeByte(MIN<uint>(closeUps.size(), 16));
+-		for (uint k = 0; k < closeUps.size() && k < 16; ++k) {
++		out.writeByte(closeUps.size()); // (at most kMostCloseUps, as recorded)
++		for (uint k = 0; k < closeUps.size(); ++k) {
+ 			const CloseUp &u = closeUps[k];
+ 			scummverseWrite16(out, u.room); scummverseWrite16(out, u.id); scummverseWrite16(out, u.kinds);
+ 			scummverseWrite16(out, u.closeUp); scummverseWrite16(out, u.left);
+@@ -2147,6 +2301,20 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			for (int value : u.code) out.writeByte(value);
+ 			out.writeByte(u.right); line(u.rightLine);
+ 			out.writeByte(u.wrong); line(u.wrongLine);
++			// (From 0242, "SVO7": a view's turns, buttons and coins.)
++			out.writeByte(u.start); out.writeByte(u.turns.size());
++			for (uint t = 0; t < u.turns.size(); ++t) {
++				out.writeByte(u.turns[t]);
++				for (int i = 0; i < 6; ++i) scummverseWrite16(out, u.views[6 * t + i]);
++			}
++			scummverseWrite16(out, u.seenRoom); scummverseWrite16(out, u.seen);
++			out.writeByte(u.buttons.size());
++			for (uint b = 0; b < u.buttons.size(); ++b) {
++				scummverseWrite16(out, u.buttons[b]); out.writeByte(u.buttonKinds[b]); line(u.buttonLines[b]);
++				for (uint t = 0; t < u.turns.size(); ++t) out.writeByte(u.after[b * u.turns.size() + t]);
++			}
++			out.writeByte(u.coins.size() / 2);
++			for (uint i = 0; i + 1 < u.coins.size(); i += 2) { scummverseWrite16(out, u.coins[i]); scummverseWrite16(out, u.coins[i + 1]); }
+ 		}
+ 	}
+ 	out.finalize();
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index a1e5204a..8c6fa068 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1359,6 +1359,8 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			} else if (game == _game) setPicture(r, o, picture);
+ 			else _pictures[thingKey(game, r, o)] = picture;
+ 		}
++		// (From 0242: a coin in a view's slot, a turn paid for.)
++		if (flags & 8) viewPaid(game, room, id, with);
+ 		return true;
+ 	}
+ 	return false;
+@@ -1862,7 +1864,12 @@ void SandboxEngine::castOffer() {
+ bool SandboxEngine::castHome(int key, int &room) const {
+ 	room = -1;
+ 	if (!worldAppearance(key) || !hasCharacter(key) || _broken.contains(key)) return false;
+-	if (customArt(key)) { room = _room; return installed(_game, _room); }
++	// (In a close-up, the place it was shown from: played there once it is left.)
++	if (customArt(key)) {
++		const int game = _closeUp.index >= 0 ? _closeUp.game : _game;
++		room = _closeUp.index >= 0 ? _closeUp.room : _room;
++		return installed(game, room);
++	}
+ 	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
+ 	for (const WorldCastGuest &cast : kWorldCast)
+ 		if (room < 0 && cast.game == game && cast.guest.costume == costume && installed(game, cast.room) && walkable(game, cast.room)) room = cast.room;
+@@ -2098,6 +2105,10 @@ void SandboxEngine::act() {
+ 	// picture it is in (the wall safe's keypad, shut): shown instead.)
+ 	const int closeUp = door ? -1 : closeUpFor(id, kind);
+ 	if (closeUp >= 0 && thingBit(target, id) == 0 && closeUpShow(closeUp, id)) return;
++	// (From 0242: a button turning a view's thing here (the telescope's),
++	// a turn paid for: turned, its line said; none paid: as its own script
++	// answers, below.)
++	if (!door && viewButton(id, kind)) { if (!_testing) saveState(); return; }
+ 	// (Another thing shown so by this one, as its game's script: its own
+ 	// answer then only if it has one; all of it, when it moves with them.)
+ 	const int sets = thingSets(id, kind);
+@@ -2154,8 +2165,15 @@ int SandboxEngine::closeUpFor(int id, int kind) const {
+ bool SandboxEngine::closeUpShow(int index, int id) {
+ 	int scene, left, keys, presses;
+ 	if (_game < 0 || _player < 0 || !PanelBridge::closeUpScene(_game, index, scene, left, keys, presses)) return false;
++	// (From 0242, a view: what its thing is turned to, as the thing seen is
++	// now; nothing there at that turn, or not installed: not shown.)
++	int start, turns, seenRoom, seen, value, ticks = 0;
++	const bool view = PanelBridge::closeUpView(_game, index, start, turns, seenRoom, seen);
++	if (view && (!PanelBridge::closeUpTurn(_game, index, viewTurn(index), seen ? pictureOf(seenRoom, seen) & 1 : 0, value, scene, left, ticks) ||
++		!scene || !_closeUps.contains(_game * 1024 + scene))) return false;
+ 	CloseUp c;
+ 	c.index = index; c.game = _game; c.room = _room; c.id = id;
++	c.view = view; c.clock = view ? MAX(1, ticks) : 0;
+ 	StageBridge::position(_player, c.x, c.y);
+ 	c.stood = standing(); c.left = customLeft();
+ 	_closeUp = c;
+@@ -2179,6 +2197,8 @@ bool SandboxEngine::closeUpShow(int index, int id) {
+ }
+ 
+ void SandboxEngine::closeUpTap(int screenX, int screenY) {
++	// (A view: a tap ends it, as the original's key ends its cut-scene.)
++	if (_closeUp.view) { closeUpLeave(); return; }
+ 	int scene, left, keys, presses;
+ 	if (!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
+ 	double x, y;
+@@ -2239,6 +2259,60 @@ void SandboxEngine::closeUpLeave() {
+ 	if (closeUpBack() && !_testing) saveState();
+ }
+ 
++// The turn a view's thing is at (kept, else the one its game starts at; one
++// no longer among its turns, an export later: that one too).
++int SandboxEngine::viewTurn(int index) const {
++	int room, thing, kinds, start, turns, seenRoom, seen;
++	if (_game < 0 || !PanelBridge::closeUpThing(_game, index, room, thing, kinds) || !PanelBridge::closeUpView(_game, index, start, turns, seenRoom, seen)) return -1;
++	const Common::HashMap<int, Turned>::const_iterator kept = _turned.find(thingKey(_game, room, thing));
++	int at = -1;
++	for (int pass = 0; pass < 2 && at < 0; ++pass) {
++		const int wanted = !pass && kept != _turned.end() && kept->_value.value >= 0 ? kept->_value.value : start;
++		for (int t = 0; t < turns && at < 0; ++t) {
++			int value, shown, left, ticks;
++			if (PanelBridge::closeUpTurn(_game, index, t, 0, value, shown, left, ticks) && value == wanted) at = t;
++		}
++	}
++	return at;
++}
++
++// A button of a view's thing here, as its game's: with a turn paid for, a
++// step to the turn after (the turn paid used, its line said); at its end,
++// nothing (none used). None paid: false, its own script's answer then.
++bool SandboxEngine::viewButton(int id, int kind) {
++	if (_game < 0 || _closeUp.index >= 0) return false;
++	for (int i = 0; i < PanelBridge::closeUpCount(_game); ++i) {
++		int room, thing, kinds;
++		const int turn = viewTurn(i);
++		if (turn < 0 || !PanelBridge::closeUpThing(_game, i, room, thing, kinds) || room != _room) continue;
++		for (int b = 0; b < PanelBridge::closeUpButtons(_game, i); ++b) {
++			int button, buttonKind, after, value, shown, left, ticks;
++			char line[256];
++			if (!PanelBridge::closeUpButton(_game, i, b, turn, button, buttonKind, after, line, sizeof(line)) || button != id || buttonKind != kind) continue;
++			const Common::HashMap<int, Turned>::iterator kept = _turned.find(thingKey(_game, room, thing));
++			if (kept == _turned.end() || kept->_value.paid <= 0) return false;
++			if (after == turn || !PanelBridge::closeUpTurn(_game, i, after, 0, value, shown, left, ticks)) return true;
++			kept->_value.value = value; --kept->_value.paid;
++			if (*line) say(line);
++			return true;
++		}
++	}
++	return false;
++}
++
++// A coin used with a thing (its own answer): a turn paid for, where that
++// thing is a view's slot that takes it.
++void SandboxEngine::viewPaid(int game, int room, int slot, int coin) {
++	for (int i = 0; game >= 0 && i < PanelBridge::closeUpCount(game); ++i) {
++		int r, thing, kinds, s, c;
++		bool pays = false;
++		for (int k = 0; !pays && PanelBridge::closeUpCoin(game, i, k, s, c); ++k) pays = s == slot && c == coin;
++		if (!pays || !PanelBridge::closeUpThing(game, i, r, thing, kinds) || r != room) continue;
++		Turned &t = _turned[thingKey(game, r, thing)];
++		t.paid = MIN(t.paid + 1, 255);
++	}
++}
++
+ // From that place through its game's doors (a door shut, or kept shut by its
+ // game until something is so, is one) to the other, or to a ride, a tram or
+ // the van, which go on anywhere.
+@@ -2473,6 +2547,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_action && !StageBridge::moving(_player)) act();
+ 	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); StageBridge::talk(_speaker, false); _speaker = -1; _dirty = true; }
+ 	if (_noticeClock > 0 && (_noticeClock -= ticks) <= 0) { _notice.clear(); _dirty = true; }
++	if (_closeUp.view && _closeUp.clock > 0 && (_closeUp.clock -= ticks) <= 0) closeUpLeave(); // (a view shown as long as its game shows it)
+ 	tramStep(ticks);
+ 	rideStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+@@ -2540,6 +2615,9 @@ void SandboxEngine::request(int code) {
+ 	// The van's site, and the van boarded where it is (the Worlds menu).
+ 	if (code >= kWorldVanRequest && code < kWorldAppearanceRequest) { rideSite(code - kWorldVanRequest); return; }
+ 	if (code == kWorldSandboxVanRequest) {
++		// (A close-up shown: left first, back where it was shown from, as for
++		// someone else chosen to play.)
++		if (_closeUp.index >= 0) closeUpLeave();
+ 		// (Touring: the tour ends only for the van where it stops, else goes on.)
+ 		if (_touring.on && _vanPlace == _game * 1024 + _room) tourEnd(false);
+ 		vanBoard();
+@@ -2761,6 +2839,9 @@ bool SandboxEngine::tourDoor(int link, double &x, double &y) const {
+ 
+ void SandboxEngine::tourCommand(int command, int number) {
+ 	if (!_touring.built) tourBuild();
++	// (A close-up shown (a paused tour lets one be): left first by what moves
++	// the tour, back where it was shown from, the tour going on from there.)
++	if (_closeUp.index >= 0 && (command == Tour::kResume || command == Tour::kRestart || command == Tour::kGoTo || (_touring.on && command != Tour::kPause))) closeUpLeave();
+ 	const int last = (int)_touring.stops.size() - 1;
+ 	switch (command) {
+ 	case Tour::kResume: tourStart(_touring.resume); break;
+@@ -4088,7 +4169,10 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // picture (u16 count; s16 game, room, u16 id, u8 picture) and the things
+ // carried (u16 count; s16 game, room, u16 id, u8 picture, u8 name length,
+ // name). "SVS3" (0200) adds the stains on the floor (u16 count; s16 game,
+-// room, s32 x, y and u16 width, sixteenths of a source pixel).
++// room, s32 x, y and u16 width, sixteenths of a source pixel). "SVS4" (0242)
++// adds the views' turns (u16 count; s16 game, room, u16 id of the view's
++// thing, u8 its turn as its game counts (255: the one it starts at), u8 the
++// turns paid for).
+ // "SVS1" (0105, 0106) ends after everyone; "SVS2" after the things carried.
+ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
+ 	if (_game < 0 || _player < 0) return false;
+@@ -4122,7 +4206,7 @@ void SandboxEngine::saveState() const {
+ 	if (!keptPlace(game, room, x, y)) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+-	out->writeUint32BE(MKTAG('S', 'V', 'S', '3'));
++	out->writeUint32BE(MKTAG('S', 'V', 'S', '4'));
+ 	out->writeSint16LE(game); out->writeSint16LE(room); out->writeSint32LE(_playerKey);
+ 	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
+ 	const int values = _wanderers ? WanderBridge::packedCount() : 0;
+@@ -4150,6 +4234,12 @@ void SandboxEngine::saveState() const {
+ 		out->writeSint16LE(s.game); out->writeSint16LE(s.room);
+ 		out->writeSint32LE((int32)(s.x * 16)); out->writeSint32LE((int32)(s.y * 16)); out->writeUint16LE((uint16)CLIP<double>(s.width * 16, 0, 65535));
+ 	}
++	out->writeUint16LE(MIN<uint>(_turned.size(), 65535));
++	int turned = 0;
++	for (Common::HashMap<int, Turned>::const_iterator i = _turned.begin(); i != _turned.end() && turned < 65535; ++i, ++turned) {
++		out->writeSint16LE(i->_key / 65536 / 1024); out->writeSint16LE(i->_key / 65536 % 1024); out->writeUint16LE(i->_key % 65536);
++		out->writeByte(i->_value.value < 0 ? 255 : CLIP(i->_value.value, 0, 254)); out->writeByte(CLIP(i->_value.paid, 0, 255));
++	}
+ 	out->finalize();
+ }
+ 
+@@ -4157,7 +4247,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	if (kept) *kept = false;
+ 	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 	const uint32 tag = in ? in->readUint32BE() : 0;
+-	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3')) return false;
++	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4')) return false;
+ 	game = in->readSint16LE(); room = in->readSint16LE();
+ 	const int key = in->readSint32LE();
+ 	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
+@@ -4180,7 +4270,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	}
+ 	// What was changed and taken, and what is carried (dropped as a whole
+ 	// when the file ends early).
+-	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear();
++	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear();
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && everyone) {
+ 		Common::HashMap<int, int> pictures;
+ 		const int changed = in->readUint16LE();
+@@ -4200,17 +4290,27 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The stains, from SVS3: dropped as a whole when the file ends early.)
+ 		Common::Array<Stain> stains;
+-		const int marks = tag == MKTAG('S', 'V', 'S', '3') ? in->readUint16LE() : 0;
++		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < marks && !in->eos(); ++i) {
+ 			Stain s;
+ 			s.game = in->readSint16LE(); s.room = in->readSint16LE();
+ 			s.x = in->readSint32LE() / 16.0; s.y = in->readSint32LE() / 16.0; s.width = in->readUint16LE() / 16.0;
+ 			if (s.game >= 0 && s.game < worldGameCount() && s.room >= 0) stains.push_back(s);
+ 		}
++		// (The views' turns, from SVS4: likewise.)
++		Common::HashMap<int, Turned> turned;
++		const int views = tag == MKTAG('S', 'V', 'S', '4') ? in->readUint16LE() : 0;
++		for (int i = 0; i < views && !in->eos(); ++i) {
++			const int g = in->readSint16LE(), r = in->readSint16LE(), id = in->readUint16LE(), value = in->readByte(), paid = in->readByte();
++			Turned t;
++			t.value = value == 255 ? -1 : value; t.paid = paid;
++			if (g >= 0 && g < worldGameCount() && r >= 0 && r < 1024) turned[thingKey(g, r, id)] = t;
++		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+ 			for (const Carried &c : carried) if (!carry(c.game, c.room, c.id, c.name, c.picture, false)) _carriedAway.push_back(c);
+ 			_stains = stains;
++			_turned = turned;
+ 		}
+ 	}
+ 	return usable;
+@@ -5096,6 +5196,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// places dark kept as written.
+ 	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
+ 	int safes = 0, safesWrong = 0, safesLeft = 0, effectsCloseUp = 0;
++	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -5656,6 +5757,226 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!ok) fail("the wall safe's keypad not left unanswered by a menu's choice", maniac); else ++safesLeft;
+ 			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
+ 		}
++		// (From 0242) The telescope (room 28, 413), as a player has it, someone
++		// following along. First at each turn its record has, the thing seen
++		// (the painting by the safe) each way: Use on it shows the view the
++		// export recorded (a close-up: nobody there, kept as where it was used
++		// from, the part recorded in the middle; its things in the pictures
++		// the export recorded from the start that chose the safe's code), gone
++		// after the ticks recorded and not before, everyone back where they
++		// stood; nothing at a turn showing nothing. Then from the turn it
++		// starts at, the painting moved as the code's view wants it (the view
++		// with all its things in the part shown): a button pressed with no
++		// turn paid for answers as its own script, not turned; each step
++		// there, a coin carried used in its slot (used up), the button pressed
++		// turns it, its line said; at its end, a press paid for does nothing.
++		// There Use shows the code's part, its things as recorded (the marking
++		// that start made for the code it chose); a tap leaves it, everyone
++		// back where they stood.
++		int scope = -1, scopeRoom = 0, scopeThing = 0, scopeKinds = 0, scopeStart = 0, turnCount = 0, scopeSeenRoom = 0, scopeSeen = 0;
++		for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac) && scope < 0; ++i)
++			if (PanelBridge::closeUpThing(maniac, i, scopeRoom, scopeThing, scopeKinds) && PanelBridge::closeUpView(maniac, i, scopeStart, turnCount, scopeSeenRoom, scopeSeen)) scope = i;
++		if (scope >= 0 && installed(maniac, scopeRoom)) {
++			const int scopeKey = thingKey(maniac, scopeRoom, scopeThing), scopeSeenKey = thingKey(maniac, scopeSeenRoom, scopeSeen);
++			int useKind = 0;
++			for (int k = 1; k < 16 && !useKind; ++k) if (scopeKinds & 1 << k) useKind = k;
++			// (Someone following: one of the mansion's own, beside them.)
++			int along = 0;
++			for (const WorldCastGuest &c : kWorldCast)
++				if (!along && c.game == maniac && worldAppearanceKey(maniac, c.guest.costume) != _playerKey && hasCharacter(worldAppearanceKey(maniac, c.guest.costume))) along = worldAppearanceKey(maniac, c.guest.costume);
++			if (along) follow(along, true);
++			auto paid = [&]() { const Common::HashMap<int, Turned>::const_iterator t = _turned.find(scopeKey); return t == _turned.end() ? 0 : t->_value.paid; };
++			// (The part its script shows, its game's screen wide from `left`, on
++			// the screen, the view on its middle as far as the scene allows; and
++			// whether all the view's things are in that part.)
++			auto shownAt = [&](int left) {
++				double x0, x1, y;
++				StageBridge::toScene(0, _height / 4, x0, y); StageBridge::toScene(_width, _height / 4, x1, y);
++				const double half = (x1 - x0) / 2, want = CLIP<double>(left + screenWidthOf(maniac) / 2.0, half, MAX(half, StageBridge::sceneWidth() - half));
++				return fabs((x0 + x1) / 2 - want) < 2 && x0 <= left + 1 && left + screenWidthOf(maniac) <= x1 + 1;
++			};
++			auto allIn = [&](int left) {
++				int count = 0;
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state;
++					if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || StageBridge::objectPictures(o) < 2) continue;
++					if (ox < left || ox + w > left + screenWidthOf(maniac)) return false;
++					++count;
++				}
++				return count > 0;
++			};
++			// (Each of its things as the export recorded it; how many drawn.)
++			auto asRecorded = [&](int room, int &marked) {
++				bool same = true;
++				marked = 0;
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state, picture, answers;
++					if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || StageBridge::objectPictures(o) < 2) continue;
++					same = same && PanelBridge::gameThing(maniac, room, id, picture, answers) && StageBridge::objectShown(o) == picture;
++					if (StageBridge::objectShown(o)) ++marked;
++				}
++				return same;
++			};
++			double x = 0, y = 0;
++			Common::Array<Left> stood;
++			// (Use on it from beside it: shown as recorded at that turn, the
++			// thing seen as it is.)
++			auto viewShown = [&](int room, int left, int &marked) {
++				bool ok = enter(maniac, scopeRoom, 0, problem) && thingIn(scopeThing) >= 0 && doorPoint(thingIn(scopeThing), x, y);
++				if (!ok) return false;
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				bringFollowers();
++				// (Those here a step aside, not where the place or the following
++				// puts them: back there after, where they stood.)
++				for (uint n = 0; n < _onStage.size(); ++n) {
++					double ox = x + 30 + 10 * n, oy = y;
++					StageBridge::walkable(ox, oy);
++					if ((int)n != _player) StageBridge::place(n, ox, oy);
++				}
++				stood = standing();
++				ok = doAt(useKind, thingIn(scopeThing));
++				if (!room) return ok && _closeUp.index < 0 && _game == maniac && _room == scopeRoom;
++				int g, r;
++				double kx, ky;
++				ok = ok && _closeUp.index == scope && _closeUp.view && _game == maniac && _room == room && !installed(maniac, room) && StageBridge::hidden(_player);
++				ok = ok && keptPlace(g, r, kx, ky) && g == maniac && r == scopeRoom && fabs(kx - x) < 1 && fabs(ky - y) < 1;
++				return ok && shownAt(left) && asRecorded(room, marked);
++			};
++			auto backAt = [&]() {
++				double px, py;
++				StageBridge::position(_player, px, py);
++				bool ok = _closeUp.index < 0 && _game == maniac && _room == scopeRoom && !StageBridge::hidden(_player) && fabs(px - x) < 1 && fabs(py - y) < 1;
++				const Common::Array<Left> now = standing();
++				ok = ok && now.size() == stood.size();
++				for (uint i = 0; ok && i < now.size(); ++i) ok = now[i].key == stood[i].key && fabs(now[i].x - stood[i].x) < 1 && fabs(now[i].y - stood[i].y) < 1;
++				return ok;
++			};
++			_turned.erase(scopeKey);
++			int target = -1, targetPicture = -1;
++			for (int t = 0; t < turnCount; ++t)
++				for (int p = 0; p < 2; ++p) {
++					int value, room, left, ticks, marked;
++					if (!PanelBridge::closeUpTurn(maniac, scope, t, p, value, room, left, ticks)) { fail("a telescope's turn not read", maniac); continue; }
++					++scopeTurns;
++					_turned[scopeKey].value = value; _turned[scopeKey].paid = 0;
++					_pictures[scopeSeenKey] = p;
++					bool ok = viewShown(room, left, marked);
++					if (ok && room) {
++						if (target < 0 && allIn(left)) { target = t; targetPicture = p; }
++						for (int k = 0; k + 1 < ticks && ok; ++k) { step(1); ok = _closeUp.index == scope; }
++						step(1);
++						ok = ok && backAt();
++					}
++					if (!ok) fail("a telescope's view not shown as the export recorded it, or not gone after its time", maniac); else ++scopeViews;
++				}
++			_turned.erase(scopeKey);
++			// (The way from its start's turn to the code's view, a button a step.)
++			const int startTurn = viewTurn(scope);
++			Common::Array<int> before(turnCount, -1), by(turnCount, -1), path;
++			Common::Array<int> queue;
++			if (startTurn >= 0) { before[startTurn] = startTurn; queue.push_back(startTurn); }
++			for (uint q = 0; q < queue.size(); ++q)
++				for (int b = 0; b < PanelBridge::closeUpButtons(maniac, scope); ++b) {
++					int id, kind, after;
++					char line[256];
++					if (PanelBridge::closeUpButton(maniac, scope, b, queue[q], id, kind, after, line, sizeof(line)) && before[after] < 0) { before[after] = queue[q]; by[after] = b; queue.push_back(after); }
++				}
++			for (int t = target; t >= 0 && t != startTurn && before[t] >= 0; t = before[t]) path.insert_at(0, by[t]);
++			// (A coin, where its game puts it, and the slot it is used in.)
++			int coinRoom = -1, slot = 0, coin = 0;
++			for (int k = 0; coinRoom < 0 && PanelBridge::closeUpCoin(maniac, scope, k, slot, coin); ++k)
++				for (int r = 0; r < 256 && coinRoom < 0; ++r) {
++					int picture, answers;
++					if (PanelBridge::gameThing(maniac, r, coin, picture, answers)) coinRoom = r;
++				}
++			// (One paid for: the coin carried, used in the slot, used up.)
++			auto payOne = [&]() {
++				const int had = paid();
++				if (coinRoom < 0 || thingIn(slot) < 0 || !carry(maniac, coinRoom, coin, "", 0)) return false;
++				Pair p;
++				p.kind = kWorldVerbUse; p.item = _carried.size() - 1; p.withThing = thingIn(slot);
++				_speech.clear();
++				pairUp(p);
++				const bool ok = !isCarried(maniac, coinRoom, coin) && paid() == had + 1;
++				_pictures.erase(thingKey(maniac, coinRoom, coin));
++				if (ok) ++scopeCoins;
++				return ok;
++			};
++			// (The thing seen as the code's view wants it, as a player moves it.)
++			int marked = 0, value, room, left, ticks;
++			_pictures.erase(scopeSeenKey);
++			bool ok = target >= 0 && targetPicture >= 0 && (path.size() || target == startTurn) && enter(maniac, scopeSeenRoom, 0, problem) && thingIn(scopeSeen) >= 0;
++			if (ok && pictureOf(scopeSeenRoom, scopeSeen) != targetPicture) ok = doAt(targetPicture ? kWorldVerbOpen : kWorldVerbClose, thingIn(scopeSeen));
++			ok = ok && enter(maniac, scopeRoom, 0, problem) && pictureOf(scopeSeenRoom, scopeSeen) == targetPicture;
++			for (uint i = 0; ok && i < path.size(); ++i) {
++				int id, kind, after, own, others[3 * 64], count;
++				char line[256], said[256];
++				const int turn = viewTurn(scope);
++				ok = PanelBridge::closeUpButton(maniac, scope, path[i], turn, id, kind, after, line, sizeof(line)) && thingIn(id) >= 0 && !paid();
++				// (None paid for: its own script's answer, not turned; the first only.)
++				if (ok && !i) {
++					const bool answers = PanelBridge::thingEffect(maniac, scopeRoom, id, kind, thingBit(thingIn(id), id), own, others, count, 64, said, sizeof(said));
++					ok = doAt(kind, thingIn(id)) && viewTurn(scope) == turn && (answers ? _speech == said : true) && _speech != line;
++					if (ok) ++scopeUnpaid;
++				}
++				ok = ok && payOne() && doAt(kind, thingIn(id)) && viewTurn(scope) == after && !paid() && _speech == line;
++				if (ok) ++scopeSteps;
++				// (At its end: a press paid for does nothing, kept paid.)
++				int further = -1, at, againKind;
++				if (ok && i + 1 == path.size() && PanelBridge::closeUpButton(maniac, scope, path[i], after, at, againKind, further, line, sizeof(line)) && further == after) {
++					ok = payOne() && doAt(kind, thingIn(id)) && viewTurn(scope) == after && paid() == 1 && _speech.empty();
++					if (ok) ++scopeEnds;
++				}
++			}
++			// (Kept: saved and read back, its turn and the turn paid.)
++			if (ok) {
++				const int paidBefore = paid();
++				int g, r;
++				double kx, ky;
++				saveState();
++				_turned.clear();
++				ok = loadState(g, r, kx, ky) && g == maniac && r == scopeRoom && viewTurn(scope) == target && paid() == paidBefore;
++			}
++			if (_turned.contains(scopeKey)) _turned[scopeKey].paid = 0;
++			ok = ok && PanelBridge::closeUpTurn(maniac, scope, target, targetPicture, value, room, left, ticks) && viewShown(room, left, marked) && allIn(left);
++			if (ok && ConfMan.hasKey("scummverse_shots")) { present(); shot("telescope-view.png"); }
++			if (ok) {
++				int vl, vt, vw, vh;
++				double rs, cs;
++				StageBridge::view(vl, vt, vw, vh, rs, cs);
++				tap(vl + vw / 2, vt + vh / 2);
++				ok = backAt();
++			}
++			if (!ok) fail("the telescope not turned to the code's view with coins, or that view not shown as recorded and left", maniac);
++			else { ++scopeCode; scopeMarked = marked; scopeFollowing = along && following(along) ? 1 : 0; }
++			// (While it is shown, a custom character chosen on the character
++			// screen (which offers them there): played where it was used from,
++			// the view left; and the Shuttle Bug asked for from the Worlds menu,
++			// parked there: the view left, boarded where it is parked.)
++			const int was = _playerKey, custom = worldAppearanceKey(kWorldCustomLooks, kWorldCustomArt[0].costume);
++			int home = -1;
++			ok = ok && viewShown(room, left, marked) && castHome(custom, home) && home == scopeRoom && castChoose(custom) &&
++				_closeUp.index < 0 && _playerKey == custom && _game == maniac && _room == scopeRoom && !StageBridge::hidden(_player);
++			ok = ok && castChoose(was) && _playerKey == was;
++			if (ok) ++scopeCustom;
++			else if (scopeCode) fail("a custom character not played while the telescope's view is shown", maniac);
++			const int vanBefore = _vanPlace, vanXBefore = _vanX, vanYBefore = _vanY;
++			int van = -1;
++			for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) van = i;
++			_vanPlace = maniac * 1024 + scopeRoom; _vanX = _vanY = -1;
++			ok = ok && van >= 0 && viewShown(room, left, marked);
++			if (ok) request(kWorldSandboxVanRequest);
++			ok = ok && _closeUp.index < 0 && _game == maniac && _room == scopeRoom && _riding.ride == van && _riding.fromGame == maniac && _riding.fromRoom == scopeRoom;
++			rideOff();
++			_vanPlace = vanBefore; _vanX = vanXBefore; _vanY = vanYBefore;
++			if (ok) ++scopeVan;
++			else if (scopeCode) fail("the Shuttle Bug not boarded from the Worlds menu while the telescope's view is shown", maniac);
++			if (along) follow(along, false);
++			_followers.clear(); _leader = 0;
++			_turned.erase(scopeKey); _pictures.erase(scopeSeenKey);
++			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
++		}
+ 		// The grating behind the bushes: no way through until they are
+ 		// pulled aside.
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+@@ -5724,6 +6045,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest interface: %d coins let go unmoved where they opened, nothing done; %d drafts spun after a stray note", unmoved, strayNotes);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others; %d taken whose pictures are the same)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside, sameTaken);
+ 	warning("SCUMMVERSE sandbox selftest close-ups: %d records shown as close-ups; the wall safe: %d opened with its code key by key on its keypad, the envelope inside taken, shut again; %d not opened with a wrong code, the keypad closed, its line said; %d left by a menu's choice, unanswered", effectsCloseUp, safes, safesWrong, safesLeft);
++	warning("SCUMMVERSE sandbox selftest telescope: %d of %d views shown as recorded (nobody there, kept as where it was used from, gone after their time, everyone back); %d pressed unpaid as its own script answers, %d turned towards the code's view a coin at a time (%d coins used up), %d at its end; %d showed the code's part with its things as recorded (%d marked), left by a tap, everyone back (%d following); left for %d custom character chosen there, %d Shuttle Bug boarded from the Worlds menu",
++		scopeViews, scopeTurns, scopeUnpaid, scopeSteps, scopeCoins, scopeEnds, scopeCode, scopeMarked, scopeFollowing, scopeCustom, scopeVan);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index c1266c7f..6ecf9277 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -227,13 +227,26 @@ private:
+ 	// answers the keys pressed (the right code: the safe open) and its line
+ 	// said. Never kept as where the one played is (the place it was shown
+ 	// from is); a menu's choice there leaves it unanswered first.
++	// From 0242 a view too ("SVO7": a close-up with turns and no keys, the
++	// mansion's telescope): the part its game's script shows at the turn its
++	// thing is at (and as the thing seen is), for as long as its game shows
++	// it or until a tap; then back where the one played stood, nothing
++	// changed. Its turn and the turns paid for are kept per view (_turned):
++	// its buttons turn it a step while one is paid for, a coin used in its
++	// slot paying one; none paid, a button answers as its own script does.
+ 	struct CloseUp {
+ 		int index = -1, game = -1, room = 0, id = 0, presses = 0;
+ 		double x = 0, y = 0;
+-		bool right = true;
++		bool right = true, view = false;
++		int clock = 0; // (a view's ticks left)
+ 		Common::String typed;
+ 		Common::Array<Left> stood, left;
+ 	};
++	struct Turned { int value = -1, paid = 0; }; // (value -1: the turn its game starts at)
++	Common::HashMap<int, Turned> _turned;       // by the view's thing's thingKey
++	int viewTurn(int index) const;              // a view's turn now (an index among its turns; -1: none)
++	bool viewButton(int id, int kind);          // a button here turning a view, a turn paid for (false: none paid, or no button)
++	void viewPaid(int game, int room, int slot, int coin); // (a coin used in a view's slot)
+ 	CloseUp _closeUp;                       // (index -1: none shown)
+ 	bool _enteringCloseUp = false;
+ 	Common::HashMap<int, bool> _closeUps;   // close-ups exported: game * 1024 + room (not places)

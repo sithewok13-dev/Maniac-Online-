@@ -717,6 +717,28 @@ if __name__ == '__main__':
             print('PASS: the wall safe behind the painting: Open shows its keypad (the close-up, nobody there, kept as the room it was opened from); '
                   'the code its own start chose, tapped key by key, opens it back where they stood, the envelope inside taken; Use and a wrong code: '
                   'the keypad closes, its line said, the safe still shut; a menu\'s choice there leaves it unanswered')
+        # (From 0242) The telescope (room 28): Use shows its view (room 34, or
+        # 35 at its left end; a close-up, no place), what it is turned to as
+        # the export recorded each turn both ways the painting can be, for the
+        # game's own time; its buttons turn it a coin at a time (none paid:
+        # its own line), and turned to where the painting moved shows the
+        # code's part, its things as the start that chose the safe's code
+        # marked them; a tap leaves it, everyone back where they stood. A
+        # custom character chosen, or the Shuttle Bug boarded from the Worlds
+        # menu, while it is shown: left first.
+        scope = re.search(r'selftest telescope: (\d+) of (\d+) views shown as recorded \(nobody there, kept as where it was used from, gone after their time, everyone back\); '
+                          r'(\d+) pressed unpaid as its own script answers, (\d+) turned towards the code\'s view a coin at a time \((\d+) coins used up\), (\d+) at its end; '
+                          r"(\d+) showed the code's part with its things as recorded \((\d+) marked\), left by a tap, everyone back \((\d+) following\); "
+                          r'left for (\d+) custom character chosen there, (\d+) Shuttle Bug boarded from the Worlds menu', output)
+        if (worlds/'maniac-28.svw').exists() and (worlds/'maniac-34.svw').exists() and (worlds/'maniac-34.svw').stat().st_size and \
+                (not scope or scope.group(1) != scope.group(2) or int(scope.group(2)) < 6 or scope.group(3) != '1' or int(scope.group(4)) < 1
+                 or int(scope.group(5)) < int(scope.group(4)) or scope.group(7) != '1' or scope.group(9) != '1' or scope.group(10) != '1' or scope.group(11) != '1'):
+            raise SystemExit('FAIL: the telescope and its view (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if scope and scope.group(7) == '1':
+            print(f'PASS: the telescope: Use shows its view (a close-up, nobody there, kept as the room it was used from), {scope.group(1)} turns and paintings '
+                  f'as the export recorded them, for the game\'s own time, everyone back; its buttons turned it {scope.group(4)} steps a coin at a time '
+                  f'(unpaid, its own line), to the code\'s part with the painting moved, its things as that start marked them ({scope.group(8)} drawn); '
+                  'a tap leaves it; a custom character chosen and the Shuttle Bug boarded from the Worlds menu there leave it first')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
@@ -851,8 +873,9 @@ if __name__ == '__main__':
         stops, foot, warped, refused = (int(m.group(i)) for i in range(1, 5))
         # (Not The Dig's subway cars, nor the insides of rides, from 0198:
         # kWorldRideScenes, Zak's plane cabin and van cockpit; nor, from 0240,
-        # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad.)
-        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw'}
+        # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad, from
+        # 0242 its telescope's views.)
+        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw'}
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
