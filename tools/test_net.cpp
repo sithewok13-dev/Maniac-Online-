@@ -452,6 +452,20 @@ static void engineAway() {
 	assert(heard.size() == 2 && heard[0].kind == Event::Moved && heard[0].avatar.x == 50 + lines - 1);
 	assert(heard[1].kind == Event::Said && heard[1].text == "Line " + std::to_string(lines));
 	noneLost();
+	// Annie's engine away while Zak speaks, then walks on: back, she has his
+	// last place first, then his line (an engine takes a line only from
+	// someone it has placed).
+	for (Node *n : {&host, &annie, &zak}) n->events.clear();
+	assert(zak.session.say("Over here")); later({&host, &zak}, {&annie});
+	for (int i = 1; i <= 3; ++i) { zak.session.setLocal(at(24, 53, 70 + i, 60)); later({&host, &zak}, {&annie}); }
+	assert(pumpUntil({&host, &zak}, [&] { return !only(host, 24).empty() && only(host, 24).back().avatar.x == 73; }));
+	settle({&host, &zak}, {&annie});
+	noneLost();
+	annie.pump();
+	heard = only(annie, 24);
+	assert(heard.size() == 2 && heard[0].kind == Event::Moved && heard[0].avatar == at(24, 53, 73, 60));
+	assert(heard[1].kind == Event::Said && heard[1].text == "Over here");
+	noneLost();
 	// Everyone's engine away at once (every device in a menu): all still
 	// there after.
 	for (int t = 0; t < 2 * kSilentMs; t += step) later({}, {&host, &annie, &zak});
@@ -479,6 +493,27 @@ static void engineAway() {
 	heard = only(annie, 24);
 	assert(heard.size() == 1 && heard[0].kind == Event::Left && annie.session.connected());
 	std::printf("PASS: an engine away %d ms (host, player, everyone) drops nobody; what was heard waits, the latest of each\n", 2 * kSilentMs);
+}
+
+// (A player who joins while the host's engine is away, speaks, then moves:
+// back, the host's engine has them placed first, then their line, which it
+// would drop from someone it has not placed.)
+static void joinedWhileAway() {
+	Node host, suzy; std::string error;
+	const uint16_t p = hostOn(host.session, 3);
+	host.session.setLocal(at(3, 53, 30, 60)); host.pump();
+	advanceClockForTests(kAwayMs + kKeepMs); // (The host's engine away from here on.)
+	assert(suzy.session.join("127.0.0.1:" + std::to_string(p), kContent, 5, error));
+	suzy.session.setLocal(at(5, 53, 40, 60));
+	for (int i = 0; i < 400 && !suzy.has(Event::Moved, 3); ++i) { suzy.pump(); kept({&host}); }
+	assert(suzy.session.connected() && suzy.has(Event::Moved, 3));
+	assert(suzy.session.say("Hello there")); suzy.pump(); kept({&host}); kept({&host});
+	suzy.session.setLocal(at(5, 53, 42, 60)); suzy.pump(); kept({&host}); kept({&host});
+	assert(host.session.remoteCount() == 1 && host.events.empty());
+	host.pump();
+	assert(host.events.size() == 2 && host.events[0].kind == Event::Moved && host.events[0].peer == 1 && host.events[0].avatar == at(5, 53, 42, 60));
+	assert(host.events[1].kind == Event::Said && host.events[1].peer == 1 && host.events[1].avatar.actor == 5 && host.events[1].text == "Hello there");
+	std::printf("PASS: joined, spoke and moved while the host's engine was away: placed first, then heard\n");
 }
 
 // (patch 0221) A host out of descriptors (EMFILE) keeps its listener: one
@@ -580,6 +615,6 @@ static void control() {
 }
 
 int main() {
-	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); crowdedListener(); liveness(); engineAway(); addresses(); addressCache(); control();
+	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); crowdedListener(); liveness(); engineAway(); joinedWhileAway(); addresses(); addressCache(); control();
 	std::printf("PASS: local WiFi session tests (loopback, one process)\n");
 }

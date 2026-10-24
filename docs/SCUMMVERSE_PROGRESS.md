@@ -6310,9 +6310,11 @@ From the third bug hunt (wanderers, both engines).
   Day of the Tentacle's Edisons beside the mansion's own). People are now
   told apart by name (case, punctuation and a leading "the" ignored, one
   trailing family name allowed; small creatures never merged): over the
-  cast this joins exactly the 29 expected pairs (Guybrush, Elaine and Stan
-  in three games, Herman, the Voodoo Lady, Wally, LeChuck, Lemonhead, Indy,
-  Marcus Brody, the Edisons, the tentacles, Nurse Edna, Dead Cousin Ted).
+  cast this joins the same people across games and no others (Guybrush,
+  Elaine and Stan in three games, Herman, the Voodoo Lady, Wally, LeChuck,
+  Lemonhead, Indy, Marcus Brody, the Edisons, the tentacles, Nurse Edna,
+  Dead Cousin Ted: 25 pairs by a later review's count, the patch's own
+  count of 29 having included small creatures, which stay apart).
   The scheduler refuses a move into a place where that person already is
   (wandering or standing there: the one played, followers, residents);
   both engines step aside for the same person in view, whoever came first
@@ -6328,3 +6330,33 @@ From the third bug hunt (wanderers, both engines).
   twice), and the data tests for wanderers, world visit, cast, looks,
   portraits, companions, camera, lights and doors. Not tested on an
   iPhone.
+
+## Patch 0231 — fixes from a review of 0220-0222: friends' lines, waiting saves, taps, the van
+
+From an independent review of 0220-0222.
+- WiFi (0221): a friend who spoke and then moved while this device's game
+  was away (a menu, a pause) had the line held before the move, and the
+  game dropped it (it takes a line only from someone it has placed). Each
+  friend's held news is now: left (if so), latest place, latest line.
+- A save or load already waiting (Tentacle's computer asking for its
+  temporary save, a load picked from ScummVM's menu) could be taken over by
+  an autosave due in the next frame or by the phone saving as the app is
+  put away: Tentacle then came back from a missing or old temporary save
+  (0220's hand-over lost). Saves now wait while one is pending, and the
+  phone writes no restore point for one never made.
+- A door tapped and then the tour stopped or a save loaded (into another
+  game's map, where a waiting tap is taken at once) no longer takes a door
+  near the old tap.
+- A van destination answered after Play (its list left open from a pause
+  in the tour's cockpit stop) ends the tour first, as other menu choices
+  do (0222), instead of pulling the player into the flight from wherever
+  the tour had gone.
+- The tour probe no longer fails without a Monkey Island export: it says
+  so and skips the parts that need it.
+- Tests: test_net (ASan/UBSan and TSan; new: speaks then walks while away,
+  joins, speaks and moves while the host is away), the tour probe (new:
+  waiting saves and loads kept, a tap cleared by Stop and by a load, the
+  van chosen as the tour plays on; with and without Monkey Island), the
+  story test (an autosave and a phone save injected after the computer:
+  failed before, passes now, scratch build), the full data suite. Not
+  tested on an iPhone.
