@@ -6422,3 +6422,25 @@ wanderers on).
 - Tests: test_camera (ASan/UBSan, TSan; new: low views, 50,000 made-up
   scenes), the camera probe (failed 4 of 4 on the old framing), the
   sandbox camera self-test. Not tested on an iPhone.
+
+## Patch 0235 — desktop builds quit cleanly; probes link on optimised builds
+
+From the third bug hunt (long sessions under AddressSanitizer and
+LeakSanitizer; no leaks and nothing growing without bound were found).
+- Quitting a desktop build after the mansion, or after the new engine's
+  rides or cast self-tests, read freed memory: a static path (0186) and the
+  self-tests' stand-ins were destroyed after the system was. Harmless in
+  practice, but it stopped the leak check. They are cleared before. The
+  iPhone, which does not destroy its system first, was not affected.
+- The probes' prelude defines Story mode's and the sandbox's flags, so
+  probes link on optimised and sanitizer builds too.
+- Measured (desktop, rough iPhone equivalents): the new engine about 0 MB
+  per 100 places, idle +0.5 MB per hour for about 5 hours as people arrive,
+  then flat; the classic engine about 0 MB per 100 tour stops, up to about
+  9 MB as visitors fill a room in the first hour; nothing per engine
+  switch; nothing per chat line. A place left idle for hours fills with
+  small creatures (by design: small ones always come in).
+- Tests: every sandbox self-test and the classic tour loop (3084 stops)
+  under ASan/LSan, test_startup (with an ASan build: 2 failures before, 22
+  OK after), the tour and camera probes on the desktop build. Not tested
+  on an iPhone.

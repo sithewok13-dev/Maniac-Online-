@@ -59,6 +59,12 @@ void scummversePlacesItem(const char *name, int request) {
  ++FakeAI::places;
 }
 void scummversePlacesShow() { ++FakeAI::placesShown; }
+// (Defined here too: an optimised or sanitizer build inlines the desktop's
+// empty ones away, and the probe would not link.)
+void scummverseStoryModeOn(bool) {}
+bool scummverseStoryModeOn() { return false; }
+void scummverseSandboxActive(bool) {}
+bool scummverseSandboxActive() { return false; }
 '''
 
 if __name__ == '__main__':
