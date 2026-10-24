@@ -5,7 +5,10 @@
 	// each game walked in turn without standing still, through their doors;
 	// every stop gone to by number must be entered (the label naming it),
 	// its room the one it names; and every door of the route taken from the
-	// stop before. Stops of games not exported are passed over.
+	// stop before. Stops of games not exported are passed over. Then what
+	// interrupts it: a load, playing someone else, somewhere else chosen from
+	// the menus (paused or not), a ride boarded while paused; a door tapped
+	// while paused; the autosave kept where it began.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_TOUR_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -289,6 +292,201 @@
 			if (!scummverseSwitchActor(3) || VAR(VAR_EGO)!=3) error("Cannot play Dave again");
 		}
 		warning("TOUR ended by a load%s",other ? Common::String::format(" and by playing actor %d",other).c_str() : "");
+	}
+	// Choices from the menus mid-tour, paused or not, and what a paused tour lets the player do.
+	{
+		const int mi=(int)(worldGame("monkey")-kWorldGames);
+		const WorldGame &monkey=kWorldGames[mi];
+		int landmark=-1; // (the menu's numbering of named places, home games left out)
+		for (int g=0, base=0; g<worldGameCount(); ++g) { if (worldHome(g)) continue; if (g==mi) landmark=base; base+=kWorldGames[g].sceneCount; }
+		auto chose=[&](int choice) { FakeAI::worldRequest=choice; settle(3); };
+		auto in=[&](int g, int room) { int source=0; return scummverseWorldGameOf(_currentRoom,source)==g && source==room && dave->_room==_currentRoom; };
+		auto ended=[&](const char *what) { const bool shown=status(label); if (_scummverseTouring || shown) error("%s mid-tour: still touring ('%s', room %d)",what,label.c_str(),_currentRoom); };
+		auto stale=[&]() { return ((_currentRoom==44 ? 1 : 44)*32+VAR(VAR_EGO))<<8; }; // (a room the tour was in before)
+		int zakStop=-1, monkeyStop=-1, airportStop=-1, cockpitStop=-1;
+		for (int i=0;i<total;++i) {
+			const ScummverseTourStop &s=_scummverseTourStops[i];
+			if (s.kind==1 && s.room==54 && zakStop<0) zakStop=i;
+			if (s.kind==1 && s.room==53 && airportStop<0) airportStop=i;
+			if (s.kind==1 && s.room==kVanCockpit && cockpitStop<0) cockpitStop=i;
+			if (s.kind==2 && s.game==mi && monkeyStop<0 && scummverseTourAvailable(i)) monkeyStop=i;
+		}
+		if (zakStop<0 || monkeyStop<0 || landmark<0 || !scummverseTourAvailable(zakStop)) error("No Zak or Monkey Island stops (%d, %d)",zakStop,monkeyStop);
+		// Somewhere else chosen mid-tour, paused or not (a place from the Worlds
+		// menu, Return to Maniac Mansion, the mansion's own places, a teleport
+		// pad, someone from another game on the character screen): the tour ends
+		// where it is and the one played goes where chosen, to stay; their way
+		// back to the mansion is theirs (as the tour began, or the mansion stop
+		// they chose to leave from), never the tour's own departures. A menu's
+		// scene token may name a room the tour has left meanwhile: still the
+		// player's choice.
+		{
+			// A named place of another game, from a mansion stop (unpaused).
+			request(T::kGoTo,3,2);
+			if (!_scummverseTouring || _scummverseTourPaused || _currentRoom>=53) error("Not touring stop 3 in the mansion (room %d)",_currentRoom);
+			const int leftRoom=_currentRoom, leftX=dave->getRealPos().x, leftY=dave->getRealPos().y;
+			chose(stale()|(160+landmark+1));
+			ended("A place chosen from the Worlds menu");
+			if (!in(mi,monkey.scenes[1].room)) error("A place chosen mid-tour (%s %d) not reached: room %d",monkey.gameid,monkey.scenes[1].room,_currentRoom);
+			if (_scummVars[wayKey]!=leftRoom || ABS(_scummVars[wayKey+1]-leftX)>6 || ABS(_scummVars[wayKey+2]-leftY)>6)
+				error("The way back after leaving the tour's stop: %d,%d,%d (left room %d at %d,%d)",_scummVars[wayKey],_scummVars[wayKey+1],_scummVars[wayKey+2],leftRoom,leftX,leftY);
+			settle(300);
+			if (!in(mi,monkey.scenes[1].room) || _scummverseTouring) error("Taken back from the place chosen mid-tour: room %d",_currentRoom);
+			warning("TOUR a place chosen mid-tour (the menu's token from a stop before): the tour ended, still in %s %d 300 steps on; the way back the mansion stop left (room %d)",monkey.gameid,monkey.scenes[1].room,leftRoom);
+			// Return to Maniac Mansion from a paused tour in Zak's apartment (the
+			// tour left the mansion for it: its departure is not the way back).
+			chose(2);
+			if (_currentRoom!=leftRoom) error("Return to Maniac Mansion: room %d, not %d",_currentRoom,leftRoom);
+			const int way[3]={_scummVars[wayKey],_scummVars[wayKey+1],_scummVars[wayKey+2]};
+			request(T::kGoTo,5,2); request(T::kGoTo,zakStop+1,2); request(T::kPause,0,1);
+			if (!_scummverseTourPaused || !scummverseTourThere(zakStop)) error("Not paused in Zak's apartment: room %d",_currentRoom);
+			const int tourWay=_scummVars[wayKey];
+			chose(2);
+			ended("Return to Maniac Mansion");
+			if (_currentRoom!=way[0] || dave->_room!=way[0]) error("Return to Maniac Mansion mid-tour: room %d, not the way back %d (the tour left from %d)",_currentRoom,way[0],tourWay);
+			for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=way[i]) error("The way back changed by Return to Maniac Mansion mid-tour");
+			warning("TOUR Return to Maniac Mansion, paused in Zak's apartment: the tour ended, in room %d (the player's way back; the tour had left from %d)",_currentRoom,tourWay);
+			// The mansion's own places offered mid-tour (the tour going on), the
+			// kitchen chosen from Monkey Island.
+			request(T::kGoTo,monkeyStop+1,2);
+			if (!scummverseTourThere(monkeyStop)) error("Not in stop %d (Monkey Island): room %d",monkeyStop+1,_currentRoom);
+			const int offered=FakeAI::placesShown;
+			chose(((_currentRoom*32+VAR(VAR_EGO))<<8)|121);
+			if (FakeAI::placesShown!=offered+1 || !_scummverseTouring) error("The mansion's places not offered mid-tour (shown %d, touring %d)",FakeAI::placesShown-offered,_scummverseTouring);
+			chose(worldPlaceRequest(kWorldManiacPlaces,7));
+			ended("The mansion's kitchen chosen");
+			if (_currentRoom!=7 || dave->_room!=7) error("The mansion's kitchen chosen mid-tour: room %d",_currentRoom);
+			for (int i=0;i<3;++i) if (_scummVars[wayKey+i]!=way[i]) error("The way back changed by a mansion place chosen mid-tour");
+			warning("TOUR the mansion's places offered mid-tour, the kitchen chosen from %s: the tour ended, in room 7",monkey.gameid);
+			// A teleport pad, its token from a stop before: where it leads when
+			// not touring.
+			chose(((_currentRoom*32+VAR(VAR_EGO))<<8)|50);
+			const int padRoom=_currentRoom;
+			chose(2);
+			if (padRoom<56 || _currentRoom!=7) error("The first pad: room %d, back in %d",padRoom,_currentRoom);
+			request(T::kGoTo,3,2);
+			chose(stale()|50);
+			ended("A teleport pad chosen");
+			if (_currentRoom!=padRoom || dave->_room!=padRoom) error("A teleport pad chosen mid-tour: room %d, not %d",_currentRoom,padRoom);
+			warning("TOUR a teleport pad chosen mid-tour (its token from a stop before): the tour ended, in room %d",padRoom);
+			// Someone from another game on the character screen: met where they
+			// live, as them.
+			const WorldCastGuest *met=nullptr;
+			for (const auto &c : kWorldCast)
+				if (!met && scummverseWorldSceneInstalled(c.game,c.room) && scummverseCharacterInstalled(c.game,c.guest.costume) && worldAppearance(worldAppearanceKey(c.game,c.guest.costume))) met=&c;
+			if (met) {
+				request(T::kGoTo,zakStop+1,2);
+				const int key=worldAppearanceKey(met->game,met->guest.costume);
+				chose(kWorldCastRequest+key);
+				ended("Someone met where they live");
+				if (!in(met->game,met->room) || scummverseAppearance(3)!=key) error("Someone chosen mid-tour: room %d, look %d (not %s %d, %d)",_currentRoom,scummverseAppearance(3),kWorldGames[met->game].gameid,met->room,key);
+				scummverseSetAppearance(3,0);
+				warning("TOUR someone from another game chosen on the character screen mid-tour: the tour ended, in %s %d as them",kWorldGames[met->game].gameid,met->room);
+			}
+			chose(2);
+		}
+		// Paused, the player has the controls back: a door tapped in another
+		// game's place is walked through (the tour stays paused); played on, the
+		// tap is not kept, and touring a walk is no tap.
+		{
+			int tried=0; bool through=false;
+			Common::String door;
+			for (int i=0;i<total && !through && tried<8;++i) {
+				const ScummverseTourStop &s=_scummverseTourStops[i];
+				if (s.kind!=2 || s.game!=mi || !scummverseTourAvailable(i)) continue;
+				request(T::kGoTo,i+1,2); request(T::kPause,0,1);
+				if (!_scummverseTourPaused || !scummverseTourThere(i)) error("Not paused in stop %d: room %d",i+1,_currentRoom);
+				int source=0; const int g=scummverseWorldGameOf(_currentRoom,source);
+				for (int k=0;k<::Scummverse::WorldBridge::objectCount() && !through && tried<8;++k) {
+					int id,x,y,w,h,wx,wy;
+					if (!::Scummverse::WorldBridge::object(k,id,x,y,w,h,wx,wy)) continue;
+					const WorldLink *link=worldLinkFrom(g,source,id);
+					if (!link || (link->switched && !::Scummverse::WorldBridge::objectState(k)) || link->target==source || !scummverseWorldSceneInstalled(g,link->target)) continue;
+					const int tx=(x+w/2)/8, ty=(y+h/2)/2, px=tx*8+4, py=ty*2;
+					bool covered=px<x || px>=x+w || py<y || py>=y+h; // (its middle under it, and under no other door)
+					for (int o=0;o<::Scummverse::WorldBridge::objectCount() && !covered;++o) {
+						int oid,ox,oy,ow,oh,owx,owy;
+						if (o==k || !::Scummverse::WorldBridge::object(o,oid,ox,oy,ow,oh,owx,owy) || !worldLinkFrom(g,source,oid)) continue;
+						covered=px>=ox && px<ox+ow && py>=oy && py<oy+oh;
+					}
+					if (covered) continue;
+					++tried;
+					const int from=_currentRoom;
+					dave->startWalkActor(tx,ty,-1);
+					for (int n=0;n<900 && _currentRoom==from;++n) settle(1);
+					int now=0;
+					through=scummverseWorldGameOf(_currentRoom,now)==g && now==link->target;
+					door=Common::String::format("%s %d's door %d to %d",kWorldGames[g].gameid,source,id,link->target);
+					if (!_scummverseTouring || !_scummverseTourPaused) error("Through a door paused (%s), the tour ended or played on",door.c_str());
+					if (_currentRoom!=from) break;
+				}
+			}
+			if (!through) error("No door tapped while paused was walked through (%d tried; the last %s)",tried,door.c_str());
+			T::request(T::kPlay); settle(1);
+			if (_scummverseTourPaused || _scummverseTapPending) error("Played on: paused %d, a tap kept %d",_scummverseTourPaused,_scummverseTapPending);
+			scummverseWorldTap(VAR(VAR_EGO),dave->getRealPos().x,dave->getRealPos().y);
+			if (_scummverseTapPending) error("Touring, a walk was taken as a tap");
+			request(T::kStop,0,3);
+			warning("TOUR paused in another game's place: %s tapped and walked through (%d tried), still paused; played on, no tap kept",door.c_str(),tried);
+		}
+		// Paused, the player boarded a ride: the tour ends there (played on it
+		// would leave the ride holding them). A flight from Zak's airport; the
+		// van's flight chosen in its cockpit.
+		if (airportStop>=0) {
+			request(T::kGoTo,airportStop+1,2); request(T::kPause,0,1);
+			if (!_scummverseTourPaused || _currentRoom!=53) error("Not paused at the airport: room %d",_currentRoom);
+			_scummVars[733]=7; // (Dave's destination: travellerDestinationKey; Seattle)
+			scummverseBoard();
+			if (_currentRoom!=56 || !_scummVars[724]) error("Not boarded at the airport: room %d",_currentRoom);
+			settle(1);
+			ended("A flight boarded while paused");
+			if (_currentRoom!=56) error("Not aboard after the tour ended: room %d",_currentRoom);
+			scummverseArrive();
+			if (_currentRoom==56 || _scummVars[724]) error("The flight did not land: room %d",_currentRoom);
+			warning("TOUR paused at the airport, a flight boarded: the tour ended aboard; landed in room %d",_currentRoom);
+		}
+		if (cockpitStop>=0 && !_scummVars[kVanPhaseVar] && scummverseVanSite()==0) {
+			request(T::kGoTo,cockpitStop+1,2); request(T::kPause,0,1);
+			if (!_scummverseTourPaused || _currentRoom!=kVanCockpit) error("Not paused in the van's cockpit: room %d",_currentRoom);
+			FakeAI::worldRequest=kWorldVanRequest+3; settle(3); // (the mansion's site)
+			if (_scummverseTouring || !scummverseInVan()) error("The van's flight chosen while paused: touring %d, aboard %d",_scummverseTouring,scummverseInVan());
+			for (int n=0;n<600 && _currentRoom!=kVanFlightRoom;++n) settle(1);
+			if (_currentRoom!=kVanFlightRoom) error("The van did not lift off: room %d",_currentRoom);
+			FakeAI::worldRequest=((kVanFlightRoom*32+VAR(VAR_EGO))<<8)|24; settle(3); // (Arrive)
+			if (_currentRoom!=44 || scummverseInVan()) error("The van did not land at the mansion: room %d",_currentRoom);
+			warning("TOUR paused in the van's cockpit, its flight chosen: the tour ended aboard; landed in room %d",_currentRoom);
+		} else warning("TOUR the van's flight not tried (cockpit stop %d, van phase %d, site %d)",cockpitStop,_scummVars[kVanPhaseVar],scummverseVanSite());
+		// The autosave is written as the tour begins (where it began: the
+		// phone's restore point if it stops the app mid-tour); asked for
+		// meanwhile (as the phone puts the app away, and by ScummVM) it is kept
+		// as it is, not written from a stop. Loaded, it is where the tour began.
+		{
+			if (_currentRoom>=53 && !scummverseTravel(2)) error("Not back in the mansion");
+			settle(2);
+			const int home=_currentRoom; const Common::Point at=dave->getRealPos();
+			const int slot=getAutosaveSlot();
+			auto bytes=[&]() {
+				Common::Array<byte> b;
+				Common::ScopedPtr<Common::InSaveFile> f(_saveFileMan->openForLoading(makeSavegameName(slot,false)));
+				if (f) { b.resize(f->size()); f->read(b.data(),b.size()); }
+				return b;
+			};
+			request(T::kGoTo,zakStop+1,2);
+			if (!_scummverseTouring || !scummverseTourThere(zakStop)) error("Not touring in Zak's apartment: room %d",_currentRoom);
+			const Common::Array<byte> began=bytes();
+			if (began.empty() || !getMetaEngine()->querySaveMetaInfos(_targetName.c_str(),slot).isAutosave()) error("No autosave written as the tour began");
+			if (!canSaveAutosaveCurrently()) error("No autosave can be made mid-tour: the phone would keep no place to go on from");
+			if (saveGameState(slot,"Autosave",true).getCode()!=Common::kNoError) error("The phone's autosave failed mid-tour");
+			saveAutosaveIfEnabled();
+			settle(2);
+			if (bytes()!=began) error("The autosave was written from the tour's stop");
+			{ Common::U32String why; if (canSaveGameStateCurrently(&why) || why.empty()) error("Saving not refused mid-tour"); }
+			if (!loadState(slot,false) || _scummverseTouring || status(label)) error("The autosave not loaded, or still touring");
+			settle(2);
+			if (_currentRoom!=home || dave->_room!=home || ABS(dave->getRealPos().x-at.x)>2 || ABS(dave->getRealPos().y-at.y)>4)
+				error("The autosave is not where the tour began: room %d at %d,%d (began in %d at %d,%d)",_currentRoom,dave->getRealPos().x,dave->getRealPos().y,home,at.x,at.y);
+			warning("TOUR autosave: written as the tour began (room %d), kept mid-tour (the phone's and ScummVM's autosaves made without writing it from the stop); loaded, there again",home);
+		}
 	}
 	warning("SCUMMVERSE_TOUR_PASS enabled=1");
 	quitGame();

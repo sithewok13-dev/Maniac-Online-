@@ -6142,3 +6142,31 @@ From an independent review of 0209.
   s while Zak's player walks on, nobody dropped; the device away 30 s),
   test_talk_runtime, test_startup, the full data suite. Not tested on two
   phones or an iPhone.
+
+## Patch 0222 — the mansion's tour and the menus; a place to go on from
+
+Leftovers from the earlier bug hunts and an independent review (classic engine).
+- Somewhere else chosen mid-tour, paused or not (another game's place,
+  Return to Maniac Mansion, the mansion's or Zak's places, a teleport pad,
+  someone from another game on the character screen, Arrive in the cabin
+  mid-flight), ends the tour where it is and goes there. Before, the tour
+  pulled the guide back to its own way, and choices from the menus were
+  dropped once the tour had changed rooms. The way back to the mansion is
+  as the tour began, or the stop the player left from. The mansion's and
+  Zak's place lists are offered mid-tour.
+- Paused, other games' doors are walked through as tapped (Play forgets a
+  tap); a ride boarded while paused (a flight, the van, a tram, the bus)
+  ends the tour, and Next or Play then say to finish the ride first.
+- The autosave is written as the tour begins and kept while touring
+  (autosaves asked for meanwhile, ScummVM's or the phone's as it puts the
+  app away, succeed by keeping it), so a phone that stops the app mid-tour
+  goes on from where the tour began. Before, it started the mansion afresh.
+  Manual saves are still refused mid-tour; play during a paused tour is not
+  saved.
+- Left as is: the road edges stay off while paused; Story mode and the new
+  engine are still refused mid-tour in this engine.
+- Tests: the tour probe (new: a place chosen mid-tour, Return to Maniac
+  Mansion, the mansion's places, a pad with an old menu token, someone from
+  another game, a paused door tap, a flight and the van's flight boarded
+  while paused, the tour's autosave kept and loaded), cast and worlds
+  probes, the full data suite. Not tested on an iPhone.

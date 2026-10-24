@@ -5,7 +5,11 @@ Asked as the Worlds menu does, the player's character visits stop 1 (a
 mansion room), walks across it and goes on to stop 2 by itself; Stop brings
 it back where it began; Resume (the remembered stop), Next and Previous;
 then every stop is gone to by number and must be entered, in the room its
-label names. Zak's stops need his files; other worlds' stops need their
+label names. Then what interrupts it: a load, playing someone else, a
+place, a pad or someone chosen from the menus (the tour ends there), a ride
+boarded while paused; a door of another game's tapped while paused; the
+autosave written as it begins and kept while touring (as the phone asks
+for one). Zak's stops need his files; other worlds' stops need their
 export cache (build/worlds), else they are passed over. Not an iPhone test.
 """
 import argparse
