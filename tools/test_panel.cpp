@@ -839,12 +839,41 @@ int main() {
 			PanelBridge::clearThings();
 			assert(PanelBridge::closeUpCount(8) == 0);
 		}
+		// (From 0247, Sam & Max's: "SVO7" with one thing's answers only (no
+		// second), no main power and no close-ups; one taken from its picture
+		// 0, its place then in picture 1; one saying a line and giving
+		// another (an other's picture 2) after setting its picture. Read whole
+		// or not at all.)
+		{
+			std::vector<uint8_t> snm = {'S', 'V', 'O', '7'};
+			put16(snm, 1); put16(snm, 20); put16(snm, 2);
+			put16(snm, 205); snm.push_back(0); put16(snm, 1 << kUse | 1 << kPickUp);
+			put16(snm, 209); snm.push_back(0); put16(snm, PanelBridge::kThingAway);
+			put16(snm, 2);
+			put16(snm, 20); put16(snm, 205); put(snm, {kUse, 0}); put16(snm, 0); put(snm, {1 | 2, 0, 5, 'M', 'i', 'n', 'e', '.'});
+			put16(snm, 20); put16(snm, 205); put(snm, {kPickUp, 0}); put16(snm, 0); put(snm, {0, 2});
+			put16(snm, 20); put16(snm, 209); snm.push_back(1); put16(snm, 20); put16(snm, 209); snm.push_back(2);
+			put(snm, {5, 'H', 'e', 'r', 'e', '.'});
+			put16(snm, 0); // (no parents)
+			put16(snm, 0); put16(snm, 0); snm.push_back(0); put16(snm, 0); // (no main power)
+			snm.push_back(0); // (no close-ups)
+			assert(parseThings(snm.data(), snm.size(), things, error) && things.effects.size() == 2 && !things.powerId && things.unpowered.empty() && things.closeUps.empty());
+			const ThingEffect *took = things.effect(20, 205, kUse, 0), *gave = things.effect(20, 205, kPickUp, 0);
+			assert(took && took->taken && took->after == 1 && took->others.empty() && took->line == "Mine." && !things.effect(20, 205, kUse, 1));
+			assert(gave && !gave->taken && gave->after == 0 && gave->others.size() == 2 && gave->others[0].picture == 1 && gave->others[1].picture == 2 && gave->line == "Here.");
+			for (size_t cut = 1; cut < snm.size() - 4; ++cut) assert(!parseThings(snm.data(), snm.size() - cut, things, error));
+			bool taken = false;
+			assert(PanelBridge::loadThings(6, snm.data(), snm.size(), problem, sizeof(problem)) && PanelBridge::effectCount(6) == 2);
+			assert(PanelBridge::thingEffect(6, 20, 205, kUse, 0, after, others, count, 2, said, sizeof(said), &taken) && taken && after == 1 && !count && std::string(said) == "Mine.");
+			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others, count, 2, said, sizeof(said), &taken) && !taken && count == 2 && others[5] == 2);
+			PanelBridge::clearThings();
+		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad or view (its turns, buttons, coins)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad or view (its turns, buttons, coins); Sam & Max's (taken, a thing given; no power, no close-ups)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

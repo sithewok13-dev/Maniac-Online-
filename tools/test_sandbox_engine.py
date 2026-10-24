@@ -847,6 +847,19 @@ if __name__ == '__main__':
                   'a tap leaves it; a custom character chosen and the Shuttle Bug boarded from the Worlds menu there leave it first')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
+        # (From 0247) Sam & Max's things as its own sentences answer (its
+        # things file, from its own start): every record replayed as a player
+        # uses that verb there (the line, the picture after, taken, the others
+        # it sets and gives); one taken with its pointer chosen in its box.
+        own = re.search(r"selftest Sam & Max: (\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
+                        r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry\), (\d+) taken with its pointer from the box", output)
+        snm = worlds/'samnmax-things.svo'
+        if snm.exists() and snm.stat().st_size and (not own or int(own.group(2)) < 1000 or int(own.group(1)) + int(own.group(4)) != int(own.group(2))
+                                                    or int(own.group(7)) < 20 or own.group(10) != '1'):
+            raise SystemExit('FAIL: Sam & Max\'s things as its own sentences answer (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
+        if own and int(own.group(2)):
+            print(f"PASS: {own.group(1)} of {own.group(2)} answers of Sam & Max's {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
+                  f"{own.group(7)} taken, {own.group(8)} giving another, {own.group(9)} of those with no picture to carry; {own.group(4)} away); one taken with its pointer from its box")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)

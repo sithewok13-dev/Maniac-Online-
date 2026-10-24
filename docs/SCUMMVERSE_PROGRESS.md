@@ -6864,3 +6864,31 @@ Found while finding why Zak's broom test failed on some seeds.
   at least 500 ticks; they fail on the old code at every seed), sweeps of
   seeds 1-30 over nineteen probes and 1-3 over twenty more, test_startup,
   the full data suite. Not tested on an iPhone.
+
+## Patch 0247 — Sam & Max's things answer as the original in the new engine
+
+From the third round (the new engine's later games).
+- Only the mansion's things file recorded answers; Sam & Max had no things
+  file at all (its out-of-order room scripts stopped the export: a state
+  out of range, an ambient sound flooding the sound queue past its end, Max's
+  follow script looping for ever where Max is not). The export now gets
+  through Sam & Max (while exporting only: out-of-range states passed over,
+  a script stopped after 2,000,000 steps without a break; always: a sound
+  command that would overflow its queue is dropped, which normal play,
+  emptying the queue each frame, never reaches), places its things as the
+  game has them, and plays each of its pointer verbs (look, use, talk, pick
+  up) on every touchable thing from its first two pictures, with Sam at the
+  thing and Max beside him, the game's own sentence script answering.
+- 45 places, 733 things placed; 1390 answers for 186 things (the thing's own
+  script or the game's default answer), 39 changing a picture, 28 taking
+  the thing, 3 giving another. The new engine plays them: the line, the
+  picture after, the thing taken into the box, what is given.
+- Every other game's exported files are byte for byte as before.
+- Not expressed by the record yet: pictures past the second, who speaks
+  (Max's lines shown as the one played's), lines after the first, things
+  given with no picture of their own, a carried thing used on another.
+- Tests: test_panel (ASan/UBSan; new: a Sam & Max-shaped record), the
+  verbs self-test (new: all 1390 answers as recorded, one taken through the
+  real controls), all, doors and tour self-tests, a fresh export (two
+  exports identical), the full data suite with the story differential. Not
+  tested on an iPhone.
