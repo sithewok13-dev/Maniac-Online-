@@ -874,6 +874,42 @@ if __name__ == '__main__':
                   'left for the one who watched only; a menu\'s choice leaves it unwatched, a tap skips it, marked; the typewriter with the envelope refuses '
                   'until the kid watched, then types the address once; the mailbox and the envelope answer without and with it; the marks kept through a '
                   'save and reload, an older state read')
+        # (From 0250) The rest of the envelope's way to the mailbox, from
+        # afresh: each answer refusing before what its script wants, as
+        # recorded (the empty jar in the microwave, the tap off, the contents
+        # unopened, the stamps unsteamed, the mailbox with nothing in the
+        # envelope); the jar filled at the running tap, it and the envelope in
+        # the microwave (touchable only open), steamed open turned on (not
+        # with the envelope alone), both taken out again; opened carried (the
+        # quarter given, not torn), the manuscript put in, addressed after the
+        # TV; the package at the front door its time after the stairs (not a
+        # tick before, never twice), its stamps given opened, stamped; posted
+        # (read addressed; taken back before its time: nothing then), not due
+        # with the flag down, the mailbox open or a mark missing, due on
+        # leaving it shut with the flag up, kept through a save and reload,
+        # collected its time after leaving (waiting while at the front door),
+        # nothing after it; torn open, refused by the contents, the stamps and
+        # the microwave; an older state (marks, no timed events) read, damaged
+        # timed events let go; a film whose place cannot be shown again as it
+        # ends over once, elsewhere, marked (from a review of 0248).
+        mail = re.search(r"selftest mail: (\d+) refused before what their scripts want, as recorded \(the empty jar, the tap off, the contents unopened, the stamps unsteamed, "
+                         r"the mailbox with nothing in the envelope\); the kitchen: (\d+) jar filled at the running tap, (\d+) put in the microwave with the envelope, (\d+) steamed open \((\d+) not with "
+                         r"the envelope alone\), (\d+) taken out again; (\d+) opened carried \(the quarter given, not torn\), (\d+) manuscript put in, (\d+) addressed after the TV; (\d+) package at the front "
+                         r"door (\d+) ticks after the stairs \(not before; (\d+) stamps given by it\), (\d+) stamped; (\d+) posted \((\d+) read addressed, (\d+) taken back with no pickup\), (\d+) not due with the "
+                         r"flag down, the mailbox open or a mark missing, (\d+) due on leaving the mailbox shut with its flag up; (\d+) kept through a save and reload, (\d+) collected (\d+) ticks after leaving \((\d+) "
+                         r"waited while at the front door\), (\d+) nothing after it; (\d+) torn open \(the contents, the stamps and the microwave refusing it\); (\d+) older states read \(marks, no "
+                         r"timed events\), (\d+) with damaged timed events read without them; (\d+) film over once where its place could not be shown again \(elsewhere, marked\)", output)
+        if film and all((worlds/f'maniac-{r}.svw').exists() for r in (1, 2, 7, 9, 12, 17, 22, 27, 36, 38)) and \
+                (not mail or mail.group(1) != '5' or mail.group(3) != '2' or mail.group(11) != '18300' or mail.group(21) != '7200'
+                 or any(mail.group(k) != '1' for k in (2, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27))):
+            raise SystemExit('FAIL: the envelope\'s way to the mailbox and its pickup (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if mail and mail.group(14) == '1':
+            print('PASS: the envelope\'s way to the mailbox: each answer refusing before what its script wants, then as recorded: the jar filled at the running tap, '
+                  'it and the envelope put in the microwave and steamed open (not with the envelope alone), taken out again; opened carried (the quarter given, not '
+                  'torn), the manuscript put in, addressed after the TV; the package at the front door its time after the stairs, its stamps, stamped; posted (read '
+                  'addressed; taken back, no pickup; not due with the flag down, the mailbox open or a mark missing), due on leaving, kept through a save and reload, collected '
+                  f'{mail.group(21)} ticks after leaving (waiting while at the front door), nothing after it; torn open, refused; older and damaged states read; '
+                  'a film whose place cannot be shown again over once, elsewhere')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its

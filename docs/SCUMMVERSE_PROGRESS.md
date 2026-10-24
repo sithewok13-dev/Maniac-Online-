@@ -6932,3 +6932,70 @@ From a review of 0246.
 - Tests: the tram, Dig tram, Mars, roaming, van, companions, cast, world
   visit, tour and Zak playthrough data tests, test_startup. Not tested on
   an iPhone.
+
+## Patch 0250 — the mansion's letter chain in the new engine, up to the mail pickup (mansion export version 37)
+
+Continues 0248 (which stopped at the addressed envelope).
+- The new engine now plays the chain from the TV to the mail pickup, with
+  the original's timing: steaming the envelope in the microwave (with the
+  jar filled at the tap), opening it (steamed, or torn for good), putting
+  the manuscript in, the stamps from the package at the front door, the
+  mailbox and the pickup.
+- Marks: five game marks join 0248's two (steamed, torn, opened,
+  manuscript in, stamped), plus the filled jar: eight, the most a things
+  file holds. Twelve new readers (the microwave, the tap, the envelope,
+  the package, the stamps, the posted letter picked back up). Readers now
+  say which marks they read, so the export plays only those combinations
+  (100 answers in all; the answer record layout is unchanged). A reader
+  whose thing can be carried is played from the kid's inventory. The
+  export now lists only other things whose picture changed, so closing the
+  microwave no longer hides what is in it.
+- The new engine: things an answer gives are carried; Open works on a
+  carried mansion thing (the envelope, the package); the microwave's
+  contents (while it is open), the posted letter and the package are
+  touchable while shown.
+- Timed events (saved as SVS6; SVS1–5 still load) run on the new engine's
+  clock: the package comes 18300 ticks after a kid first takes the stairs
+  up from the hall, once, with nobody at the front door or in Weird Ed's
+  room; the pickup comes on leaving the front door with the letter posted,
+  the mailbox shut, its flag up and the letter addressed and stamped, 5400
+  ticks later, then every 1800 while a kid is at the front door, as long as
+  the letter is still there. None start during the tour, and their clock
+  waits while it runs. The export measures the original's two delays
+  (18312 and 5412 ticks, within 15 of these) and tools/export_worlds.py
+  now fails if that check warns.
+- From a review of 0248: the TV's film ends once when the way back fails
+  (it no longer retries every frame); a film lead longer than the film or
+  than 600 ticks is refused (the real one is 126) and the export leaves
+  such a film out; saved timed events that are unknown, due already or
+  longer than their wait are dropped.
+- Not modelled: what follows the pickup (the reply cut-scene, the contract
+  and the ending; the original accepts only a manuscript retyped by one kid
+  or a recorded cassette, which would need a ninth mark), the cassette,
+  Weird Ed fetching the package and a second set of stamps, the
+  microwave's power-off and other lines and its heating time, sounds. The
+  keypad close-up still retries a failed way back on each key tap.
+- Tests: test_panel (ASan/UBSan; new parser cases), test_world, test_stage
+  (-Werror, ASan/UBSan), the verbs self-test (new: every step refused
+  before its condition then answered, the whole chain, save and reload
+  with the pickup due, the pickup waiting, taken back early, not due with
+  a condition missing, the torn path, older and damaged states, the film
+  fallback; 26 mutations caught), the tour starting no timed event, a
+  fresh export (two exports byte-identical; only the mansion's things file
+  changed), test_startup, test_world_setup and the full data suite. Not
+  tested on an iPhone.
+
+## Paused after 0250 (work in flight, not in any patch)
+
+Paused at the user's request. Started and stopped before delivery, so
+none of it is in a patch, and it has to be redone or restarted:
+- The things file's next format (SVO9: who speaks an answer, the full
+  picture, several lines, icons) and two Sam & Max fixes (room 30's object
+  299, placing things without their owner).
+- The Dig's and Full Throttle's things answering as the originals.
+- Reviews of 0242-0245 (the telescope, the mansion kept on stopping,
+  cheaper frames, drawing in parts) and of 0247 and 0250 (Sam & Max's
+  answers, the letter chain).
+- The keypad close-up retrying a failed way back on each key tap (0250's
+  film-end fix, not yet applied to the keypad).
+- The mansion's next dead end in the new engine after the mail pickup.

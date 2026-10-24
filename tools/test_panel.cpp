@@ -845,6 +845,7 @@ int main() {
 			// typewriter's answers by the marks.)
 			auto line = [](std::vector<uint8_t> &v, const char *text) { v.push_back((uint8_t)std::strlen(text)); for (const char *c = text; *c; ++c) v.push_back((uint8_t)*c); };
 			struct Ev { int tick, id, picture; const char *line; };
+			int leadTicks = 126;
 			auto eight = [&](const std::vector<Ev> &evs, int length, int mark, int facing, int leadPicture, int markCount, std::initializer_list<int> answerMarks, bool keyedFilm) {
 				std::vector<uint8_t> v = five;
 				v[3] = '8';
@@ -861,7 +862,7 @@ int main() {
 				if (keyedFilm) { v.push_back(1); put16(v, 300); v.push_back(0); line(v, "0"); put(v, {1, 0}); } else put(v, {0, 0});
 				put(v, {0, 0, 0, 0});
 				put(v, {0, 0}); put16(v, 0); put16(v, 0); put(v, {0, 0});
-				put16(v, length); put16(v, 126); v.push_back(leadPicture);
+				put16(v, length); put16(v, leadTicks); v.push_back(leadPicture);
 				put16(v, 17); put16(v, 136); put16(v, 104); v.push_back(facing); v.push_back(3);
 				v.push_back(evs.size());
 				for (const Ev &e : evs) { put16(v, e.tick); put16(v, e.id); v.push_back(e.picture); line(v, e.line); }
@@ -932,6 +933,23 @@ int main() {
 			for (const std::vector<uint8_t> &refused : {eight(film, 1308, 2, 2, 1, 2, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, PanelBridge::kMostMarks + 1, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, 1, {0, 1, 2}, false),
 				eight(film, 1308, 0, 2, 1, 2, {0, 4, 2}, false)})
 				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad marks");
+			// (From a review of 0248: its lead past its length, or past
+			// kMostFilmLead (its thing shown, taps waiting, meanwhile): refused;
+			// at the most, read.)
+			for (int tooLong : {1309, PanelBridge::kMostFilmLead + 1, 65535}) {
+				leadTicks = tooLong;
+				std::vector<uint8_t> refused = eight(film, 2000, 0, 2, 1, 2, {0, 1, 2}, false);
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad close-up");
+				refused = eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad close-up");
+			}
+			leadTicks = PanelBridge::kMostFilmLead;
+			std::vector<uint8_t> longest = eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(parseThings(longest.data(), longest.size(), things, error) && things.closeUps[2].film.lead == PanelBridge::kMostFilmLead);
+			leadTicks = 1308;
+			longest = eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(!parseThings(longest.data(), longest.size(), things, error) && error == "bad close-up");
+			leadTicks = 126;
 			std::vector<uint8_t> twice = eight(film, 1308, 0, 2, 1, 2, {0, 0, 2}, false);
 			assert(!parseThings(twice.data(), twice.size(), things, error) && error == "an answer twice");
 			// (As many events as a file holds: read; one more: refused.)

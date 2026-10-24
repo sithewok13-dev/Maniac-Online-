@@ -64,6 +64,12 @@ def main():
             if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'SCUMMVERSE_WORLD_PRESET' in line or 'SCUMMVERSE_WORLD_PANEL' in line or 'SCUMMVERSE_WORLD_THINGS' in line or 'world export' in line:
                 print(line.strip())
         print(f'{len(exported)} scenes, {len(guests)} characters, {len(panels)} verb panels exported to {a.out} in {time.time() - started:.0f}s')
+        # (From 0250: a timed event's first wait (kWorldTimed) not as the
+        # script that waits it counts, or not checked, told by the export.)
+        timed = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world things' in line and 'timed event' in line]
+        if timed:
+            print('\n'.join(timed) + '\nFAIL: a timed event not as its script waits it (common/scummverse_world_catalog.h, kWorldTimed)')
+            return 1
         return 0 if exported else 1
 
 
