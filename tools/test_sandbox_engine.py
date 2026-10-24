@@ -568,20 +568,22 @@ if __name__ == '__main__':
               f'heckled and answered (written, the model\'s, written when it is slow); {m.group(8)} shows not played ({m.group(9)} saber, {m.group(10)} lightning), held far away or walking; '
               f'Crispy 2: P (a walk stopped, a puddle behind him either way, dried to a stain), stains kept (back again, saved and read back, 12 at most), on his own; '
               f'cut short (as big as it got; none before his leg was up), drying on when entered again, his while begun again when played')
-        # On a map or a floor plan (no floor there) no pee and no moves, the
-        # one played told so, none by those left there; at a place's limit a
-        # pee let go before the leg is up lets no stain go; a save during a pee
-        # (the app put away, then closed) holds none of it, its stain saved as
-        # it ends; a walk asked for after L once goes on; Sith Ewok 2 and 3
-        # switched from lit put it away beside the one played; a show heckled
-        # by someone else, never the one played.
-        left = re.search(r"(\d+) of (\d+) maps and floor plans \(no pee, no moves, said so; none by those left there\), (\d+) at a place's limit .*?, "
+        # On a map or a floor plan (no floor there) no pee, no moves and
+        # nothing lit (Sith Ewok 2's either; lit already, put away there by
+        # him and Sith Ewok 3), the one played told so, none by those left
+        # there; at a place's limit a pee let go before the leg is up lets no
+        # stain go; a save during a pee (the app put away, then closed) holds
+        # none of it, its stain saved as it ends; a walk asked for after L once goes on; Sith Ewok 2 and 3
+        # switched from lit put it away beside the one played (the mansion's
+        # New kid too); a show heckled by someone else, never the one played.
+        left = re.search(r"(\d+) of (\d+) maps and floor plans \(no pee, no moves, nothing lit, said so; put away there; none by those left there\), (\d+) at a place's limit .*?, "
                          r"(\d+) saved during a pee \(none of it\) and as it ended, (\d+) walks asked for after L once gone on, (\d+) of 2 put away beside when switched from lit, "
-                         r"(\d+) shows heckled by someone else only, 0 failed", output)
-        if not left or left.group(1) != left.group(2) or any(left.group(i) != '1' for i in (3, 4, 5, 7)) or left.group(6) != '2':
+                         r"(\d+) of (\d+) at the mansion's New kid, (\d+) shows heckled by someone else only, 0 failed", output)
+        if not left or left.group(1) != left.group(2) or any(left.group(i) != '1' for i in (3, 4, 5, 9)) or left.group(6) != '2' \
+                or left.group(7) != left.group(8) or ((worlds/'maniac-1.svw').exists() and left.group(7) != '2'):
             raise SystemExit('FAIL: moves (maps, the stains\' limit, a save during a pee, a walk after L once, switched from lit, the heckler)\n' + output[-2000:])
-        print(f'PASS: on {left.group(1)} maps and floor plans no pee and no moves (said so; none by those left there); no stain let go at a place\'s limit for a pee let go before the leg is up; '
-              f'a save during a pee holds none of it, its stain saved as it ends; a walk asked for after L once goes on; Sith Ewok 2 and 3 switched from lit put it away beside; '
+        print(f'PASS: on {left.group(1)} maps and floor plans no pee, no moves and nothing lit (said so; put away there; none by those left there); no stain let go at a place\'s limit for a pee let go before the leg is up; '
+              f'a save during a pee holds none of it, its stain saved as it ends; a walk asked for after L once goes on; Sith Ewok 2 and 3 switched from lit put it away beside ({left.group(7)} at New kid); '
               f'a show heckled by someone else, never the one played')
         # The camera (a stand-in for the iPhone's Photos): photos of the scene
         # and of the screen, a selfie of three, held still while asked.

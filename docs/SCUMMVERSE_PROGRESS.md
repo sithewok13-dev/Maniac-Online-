@@ -6390,3 +6390,15 @@ From the third bug hunt (exporter fidelity).
 - Tests: a fresh export of all 12 games (version 25; 233 scene files
   changed, nothing else), test_panel and test_world, the sandbox suite
   (all, doors, verbs) and the full data suite. Not tested on an iPhone.
+
+## Patch 0233 — the sabers on maps and at New kid
+
+From a review of 0228 (new engine).
+- On a map or floor plan, L now lights nothing for either Sith Ewok ("Not
+  here."; Sith Ewok 2 still lit his there), and an L that puts a lit saber
+  away works there for both (Sith Ewok 3 arriving lit could not).
+- Maniac's New kid from a lit Sith Ewok 2 or 3: he puts the saber away
+  beside you, as the character screen does (it vanished).
+- Tests: the moves self-test (new: lit on maps refused and put away; New
+  kid twice; each fix mutation-checked), the full sandbox suite and data
+  suite. Not tested on an iPhone.
