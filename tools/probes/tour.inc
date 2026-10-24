@@ -7,11 +7,12 @@
 	// its room the one it names; and every door of the route taken from the
 	// stop before. Stops of games not exported are passed over. Then what
 	// interrupts it: a load, playing someone else, somewhere else chosen from
-	// the menus (paused or not), a ride boarded while paused, the van's
-	// flight chosen as it plays on; a door tapped while paused (no tap kept
-	// after Stop or a load); the autosave kept where it began, and a save
-	// waiting for its frame never taken over by one. Without Monkey
-	// Island's export, what needs its places is passed over.
+	// the menus (paused or not), a ride boarded while paused, the road's end
+	// walked off while paused, the van's flight chosen as it plays on; a
+	// door tapped while paused (no tap kept after Stop or a load); the
+	// autosave kept where it began, and a save waiting for its frame never
+	// taken over by one. Without Monkey Island's export, what needs its
+	// places is passed over.
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_TOUR_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -469,6 +470,34 @@
 			if (_currentRoom==56 || _scummVars[724]) error("The flight did not land: room %d",_currentRoom);
 			warning("TOUR paused at the airport, a flight boarded: the tour ended aboard; landed in room %d",_currentRoom);
 		}
+		// Paused, the player walked off the road's end (the front lawn's left
+		// edge, to the airport): the tour ends where it is and they go on, the
+		// way back the stop left from. The guide put there by the tour, or
+		// standing there as it is paused, goes nowhere: the player has to walk
+		// off it themselves.
+		int lawnStop=-1;
+		for (int i=0;i<total && lawnStop<0;++i) if (_scummverseTourStops[i].kind==0 && _scummverseTourStops[i].room==1 && scummverseTourAvailable(i)) lawnStop=i;
+		if (lawnStop>=0 && scummverseMountAirport()) {
+			request(T::kGoTo,lawnStop+1,2);
+			if (!_scummverseTouring || _scummverseTourPaused || _currentRoom!=1) error("Not touring the front lawn: room %d",_currentRoom);
+			const AdjustBoxResult end=dave->adjustXYToBeInBox(0,64);
+			if (end.x!=0) error("The road's end not walkable on the front lawn (%d,%d)",end.x,end.y);
+			dave->stopActorMoving(); dave->putActor(end.x,end.y,1); settle(2);
+			if (!_scummverseTouring || _currentRoom!=1) error("Touring, the guide at the road's end took the road: room %d",_currentRoom);
+			request(T::kPause,0,1);
+			dave->stopActorMoving(); dave->putActor(end.x,end.y,1); settle(3);
+			if (!_scummverseTouring || !_scummverseTourPaused || _currentRoom!=1) error("Paused at the road's end, not walked there: taken off it (room %d)",_currentRoom);
+			dave->startWalkActor(8,end.y,-1);
+			for (int n=0;n<300 && dave->_moving;++n) settle(1);
+			dave->startWalkActor(end.x,end.y,-1);
+			for (int n=0;n<600 && _currentRoom==1;++n) settle(1);
+			ended("The road's end walked off while paused");
+			if (_currentRoom!=53 || dave->_room!=53) error("The road's end walked off while paused: room %d, not the airport",_currentRoom);
+			if (_scummVars[wayKey]!=1) error("The way back after the road's end: room %d, not the front lawn",_scummVars[wayKey]);
+			chose(2); // (Return to Maniac Mansion: the front lawn.)
+			if (_currentRoom!=1) error("Back from the road's end: room %d, not the front lawn",_currentRoom);
+			warning("TOUR paused on the front lawn, the road's end walked off: the tour ended, the airport; the guide put there touring or paused went nowhere");
+		} else warning("TOUR the road's end not tried (front lawn stop %d, Zak's airport %d)",lawnStop,scummverseMountAirport());
 		if (cockpitStop>=0 && !_scummVars[kVanPhaseVar] && scummverseVanSite()==0) {
 			request(T::kGoTo,cockpitStop+1,2); request(T::kPause,0,1);
 			if (!_scummverseTourPaused || _currentRoom!=kVanCockpit) error("Not paused in the van's cockpit: room %d",_currentRoom);

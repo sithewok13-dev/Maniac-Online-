@@ -42,8 +42,9 @@ of it; with the one played's file damaged, there as someone else; with that
 place gone from the cache, or it and the one played damaged, elsewhere (no
 way back from there); then from Maniac the
 Worlds menu's New engine (preview) opens the sandbox and its Back to Maniac
-Mansion returns to the same room, from the saved game. Pictures go to
-build/sandbox-shots. Not an iPhone test.
+Mansion returns to the same room, from the saved game (and with the app
+stopped in the sandbox instead, the next start finds Maniac there).
+Pictures go to build/sandbox-shots. Not an iPhone test.
 """
 import argparse
 import gzip
@@ -272,7 +273,39 @@ def check_cycles(worlds):
     return places, cycling
 
 
-def switch(data, worlds, frames, broken=False, story=False):
+def stopped_switch(exe, data, worlds, work, frames, log):
+    """Maniac -> the new engine, the app stopped there: the new engine's run
+    ends without Back to Maniac Mansion (as iOS stops the app, which leaves
+    the mansion no restore point of its own); started again, the mansion is
+    where it was saved for the new engine (its slot 100), not afresh, and the
+    mark that says so is let go once it plays."""
+    config = work/'stopped.ini'
+    config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
+                      f'scummverse_switch_probe={frames}\nscummverse_worlds_path={worlds}\nscummverse_selftest=walk\n')
+    outputs, marks = [], []
+    for _ in range(2):
+        result = subprocess.run([str(exe), f'--config={config}', f'--path={data}', f'--savepath={work}', '--debuglevel=1'],
+                                cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+        outputs.append(result.stdout + result.stderr)
+        marks.append('scummverse_sandbox_open' in config.read_text())
+        if result.returncode:
+            break
+    Path(log).write_text('\n'.join(outputs))
+    def said(output, text):
+        return [l.split(text + ' ')[1].rstrip('!') for l in output.splitlines() if text in l]
+    if len(outputs) != 2 or len(said(outputs[0], 'SCUMMVERSE_SWITCH_OPEN')) != 1 or said(outputs[0], 'SCUMMVERSE_SWITCH_BACK') or \
+            'SCUMMVERSE sandbox selftest PASS' not in outputs[0] or not marks[0]:
+        raise SystemExit('FAIL: switch, the app stopped in the new engine: the first run\n' + outputs[-1][-6000:])
+    where, again = said(outputs[0], 'SCUMMVERSE_SWITCH_OPEN')[0], said(outputs[1], 'SCUMMVERSE_SWITCH_BACK')
+    loaded = [l for l in outputs[1].splitlines() if 'State loaded from' in l and ".c100'" in l]
+    if again != [where] or len(loaded) != 1 or 'the mansion where it was when the new engine was opened' not in outputs[1]:
+        raise SystemExit(f'FAIL: switch, the app stopped in the new engine: left Maniac at {where}, started again at {again or "its start"}\n' + outputs[1][-6000:])
+    if marks[1]:
+        raise SystemExit('FAIL: switch, the app stopped in the new engine: the mark kept once the mansion played')
+    print(f'PASS: Maniac -> new engine, the app stopped there; started again, Maniac where it was ({where}), the mark let go')
+
+
+def switch(data, worlds, frames, broken=False, story=False, stopped=False):
     build = ROOT/'build/null'
     source = ROOT/'engine/engines/scumm/scumm.cpp'
     with tempfile.TemporaryDirectory(prefix='scummverse-switch-', dir=ROOT/'build') as tmp:
@@ -295,6 +328,9 @@ def switch(data, worlds, frames, broken=False, story=False):
         exe = work/'scummvm-probe'
         cmd[cmd.index('-o')+1] = str(exe)
         subprocess.run(cmd, cwd=build, check=True)
+        if stopped:
+            stopped_switch(exe, data, worlds, work, frames, ROOT/'build/sandbox-stopped.log')
+            return
         config = work/'switch.ini'
         # (Roaming off: no character offer waiting for a tap at the start.)
         config.write_text('[scummvm]\nscummverse_roaming=false\nscummverse_wanderers=false\n'
@@ -752,4 +788,5 @@ if __name__ == '__main__':
         (Path(broken)/'monkey-33.svw').write_bytes(b'SVW3 not a scene')
         switch(a.data.resolve(), Path(broken), a.frames, broken=True)
     switch(a.data.resolve(), worlds, a.frames, story=True)
+    switch(a.data.resolve(), worlds, a.frames, stopped=True)
     print('PASS: sandbox engine')

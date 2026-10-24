@@ -6591,3 +6591,32 @@ byte for byte, and 2000 frames gone on from them.
   out), a Zak room 8 assertion, The Curse's quit question waiting for ever.
 - Not covered: deep story progress in the later games; films, voices and
   music (missing from those copies); Tentacle's computer; the iPhone.
+
+## Patch 0239 — the road's ends during a paused tour; the mansion kept when the app stops in the new engine
+
+From a sweep of the record's "left as is" and "known" notes (each checked
+against the code; the list is kept in the coordinator's scratch notes).
+- The road's ends (the front lawn's left edge, the entry road's right edge,
+  Zak's airport gate) did nothing while the tour was paused (0222 left
+  them off). They now work whenever the player has the controls: the tour
+  ends where it is first (as when somewhere else is chosen), the way back
+  is the stop left from. A guide the tour leaves standing on an edge goes
+  nowhere until the player has stepped off it.
+- 0229's known gap, since 0104: if the phone stopped the app while the
+  new engine was open, the mansion started afresh at the next launch, and
+  opening the new engine again saved that fresh mansion over its own save
+  (progress lost for good). The mansion now remembers that it is waiting
+  in its temporary save (a setting written once that save is made) and
+  goes on from it at the next start; the setting is cleared on every
+  mansion start.
+- docs/roaming.md no longer says multiplayer is unimplemented (local WiFi
+  play exists since 0053; riding together is not done).
+- Still open from the sweep (not small, or the user's call): the mansion's
+  wall safe in the new engine (its keypad close-up; being worked on), 26
+  chat ids per place, riding together on two devices, the later games'
+  stray pixels and missing things files, Zak's original-engine fixes in
+  the new engine, the van painted into Mars's landing site.
+- Tests: the tour probe (new: the road's end touring, paused, and walked
+  off while paused), the airport probe, the sandbox switch test (new: the
+  new engine ended without Back, then the mansion from its save), the full
+  data suite. Not tested on an iPhone.

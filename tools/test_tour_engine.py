@@ -7,10 +7,11 @@ it back where it began; Resume (the remembered stop), Next and Previous;
 then every stop is gone to by number and must be entered, in the room its
 label names. Then what interrupts it: a load, playing someone else, a
 place, a pad or someone chosen from the menus (the tour ends there), a ride
-boarded while paused, the van's flight chosen as it plays on; a door of
-another game's tapped while paused (no tap kept after Stop or a load); the
-autosave written as it begins and kept while touring (as the phone asks
-for one); not touring, a save waiting for its frame (Tentacle's computer's)
+boarded while paused, the road's end walked off while paused (the guide
+put there by the tour going nowhere), the van's flight chosen as it plays
+on; a door of another game's tapped while paused (no tap kept after Stop
+or a load); the autosave written as it begins and kept while touring (as
+the phone asks for one); not touring, a save waiting for its frame (Tentacle's computer's)
 never taken over by an autosave (the phone's, the game held still: the one
 there kept as its restore point; with none, or in a story, refused;
 ScummVM's own as the game runs refused, to try again soon). Zak's stops need his files; other worlds'
