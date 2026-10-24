@@ -6231,3 +6231,18 @@ From the third bug hunt (new engine).
 - Tests: the cast self-test (four new counts), the camera self-test (also
   at 1920x1440), moves, follow, verbs, talk, tour, rides, walk and back,
   the full sandbox suite and data suite. Not tested on an iPhone or iPad.
+
+## Patch 0226 — the custom characters on a ride out of sight
+
+From the third bug hunt (new engine).
+- Crispy 2's pee, or Sith Ewok 3's moves, went on after the bus or a tram
+  left with him hidden (the puddle spread at the empty stop and was saved
+  full size; a heckle was still said). The ride now ends the move where he
+  got on, the puddle as big as it got.
+- Sith Ewok 2's L lit the saber unseen in a plane seat (he stepped off
+  lit); it does nothing while hidden or seated, as Sith Ewok 3's.
+- The moves self-test no longer fails now and then (a show running in the
+  Crispy 2 section).
+- Tests: the moves self-test (new: out of sight on a ride, 3 of 3, each
+  fix mutation-checked), rides, cast, the full sandbox suite and data
+  suite. Not tested on an iPhone.
