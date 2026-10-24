@@ -838,6 +838,112 @@ int main() {
 			assert(parseThings(most.data(), most.size(), things, error) && things.closeUps[1].turns.size() == (size_t)PanelBridge::kMostTurns && things.closeUps[1].coins.size() == (size_t)PanelBridge::kMostCoins);
 			PanelBridge::clearThings();
 			assert(PanelBridge::closeUpCount(8) == 0);
+			// ("SVO8", from 0248: each close-up goes on with a film (none: u16
+			// 0), then the marks and the answers that read them. The mansion's
+			// TV: on first a while, then its studio, the one there saying his
+			// lines and the sign blinking, its mark left for the kid; the
+			// typewriter's answers by the marks.)
+			auto line = [](std::vector<uint8_t> &v, const char *text) { v.push_back((uint8_t)std::strlen(text)); for (const char *c = text; *c; ++c) v.push_back((uint8_t)*c); };
+			struct Ev { int tick, id, picture; const char *line; };
+			auto eight = [&](const std::vector<Ev> &evs, int length, int mark, int facing, int leadPicture, int markCount, std::initializer_list<int> answerMarks, bool keyedFilm) {
+				std::vector<uint8_t> v = five;
+				v[3] = '8';
+				v.push_back(3);
+				v.insert(v.end(), keypad.begin(), keypad.end());
+				put(v, {0, 0}); put16(v, 0); put16(v, 0); put(v, {0, 0}); // (a keypad: no turns, nothing seen, no buttons, no coins)
+				put16(v, 0); // (no film)
+				put16(v, 28); put16(v, 413); put16(v, 1 << kUse); put16(v, 34); put16(v, 640);
+				put(v, {0, 0, 0, 0, 0, 0}); // (no keys, no code, its answers none)
+				put(v, {1, 1, 1}); for (int k = 0; k < 2; ++k) { put16(v, 34); put16(v, 640); put16(v, 240); }
+				put16(v, 0); put16(v, 0); put(v, {0, 0});
+				put16(v, 0); // (no film)
+				put16(v, 17); put16(v, 190); put16(v, 1 << kTurnOn | 1 << kUse); put16(v, 40); put16(v, 0);
+				if (keyedFilm) { v.push_back(1); put16(v, 300); v.push_back(0); line(v, "0"); put(v, {1, 0}); } else put(v, {0, 0});
+				put(v, {0, 0, 0, 0});
+				put(v, {0, 0}); put16(v, 0); put16(v, 0); put(v, {0, 0});
+				put16(v, length); put16(v, 126); v.push_back(leadPicture);
+				put16(v, 17); put16(v, 136); put16(v, 104); v.push_back(facing); v.push_back(3);
+				v.push_back(evs.size());
+				for (const Ev &e : evs) { put16(v, e.tick); put16(v, e.id); v.push_back(e.picture); line(v, e.line); }
+				put(v, {0, mark, 1}); line(v, "Off");
+				v.push_back(markCount);
+				for (int k = 0; k < markCount; ++k) v.push_back(k & 1);
+				put16(v, answerMarks.size());
+				int n = 0;
+				for (int marks : answerMarks) {
+					const bool mailbox = n++ == 2;
+					put16(v, mailbox ? 1 : 27); put16(v, mailbox ? 276 : 416); put(v, {kUse, mailbox ? 1 : 0}); put16(v, 222); put16(v, mailbox ? 50 : 0); v.push_back(marks);
+					if (mailbox) { put(v, {1 | 2, 1}); put16(v, 1); put16(v, 58); put(v, {1, 0}); line(v, "Taken"); }
+					else { put(v, {0, 0, marks == 1 ? 2 : 0}); line(v, marks == 1 ? "Typed" : "No"); }
+				}
+				return v;
+			};
+			const std::vector<Ev> film = {{66, 0, 1, "Hi"}, {102, 266, 0, ""}, {168, 266, 1, ""}, {1308, 0, 0, ""}};
+			std::vector<uint8_t> tv = eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(parseThings(tv.data(), tv.size(), things, error) && things.closeUps.size() == 3 && things.closeUps[2].isFilm() && !things.closeUps[2].view());
+			assert(!things.closeUps[0].isFilm() && !things.closeUps[1].isFilm() && things.closeUps[1].view() && things.marks.size() == 2 && things.marked.size() == 3);
+			assert(PanelBridge::loadThings(9, tv.data(), tv.size(), problem, sizeof(problem)) && PanelBridge::closeUpCount(9) == 3);
+			int length = 0, lead = 0, leadPicture = 0, costume = 0, fx = 0, fy = 0, facing = 0, color = 0, events = 0, filmAfter = -1, mark = -1, tick = 0, need = -1, flags = 0, sets = 0;
+			bool powered = false;
+			char offSaid[8], said[16];
+			assert(PanelBridge::closeUpFilm(9, 2, length, lead, leadPicture, costume, fx, fy, facing, color, events, filmAfter, mark, powered, offSaid, sizeof(offSaid)));
+			assert(length == 1308 && lead == 126 && leadPicture == 1 && costume == 17 && fx == 136 && fy == 104 && facing == 2 && color == 3 && events == 4 && filmAfter == 0 && mark == 0 && powered && std::string(offSaid) == "Off");
+			assert(!PanelBridge::closeUpFilm(9, 0, length, lead, leadPicture, costume, fx, fy, facing, color, events, filmAfter, mark, powered, offSaid, sizeof(offSaid)) &&
+				!PanelBridge::closeUpFilm(9, 1, length, lead, leadPicture, costume, fx, fy, facing, color, events, filmAfter, mark, powered, offSaid, sizeof(offSaid)) &&
+				!PanelBridge::closeUpFilm(9, 3, length, lead, leadPicture, costume, fx, fy, facing, color, events, filmAfter, mark, powered, offSaid, sizeof(offSaid)));
+			assert(!PanelBridge::closeUpView(9, 2, start, turns, seenRoom, seen) && PanelBridge::closeUpView(9, 1, start, turns, seenRoom, seen) && PanelBridge::closeUpCode(9, 2, 0) == -1);
+			assert(PanelBridge::closeUpThing(9, 2, room, id, kinds) && room == 17 && id == 190 && kinds == (1 << kTurnOn | 1 << kUse));
+			assert(PanelBridge::closeUpScene(9, 2, room, left, keys, presses) && room == 40 && keys == 0 && presses == 0);
+			assert(PanelBridge::closeUpFilmEvent(9, 2, 0, tick, id, picture, said, sizeof(said)) && tick == 66 && id == 0 && picture == 1 && std::string(said) == "Hi");
+			assert(PanelBridge::closeUpFilmEvent(9, 2, 2, tick, id, picture, said, sizeof(said)) && tick == 168 && id == 266 && picture == 1 && !*said);
+			assert(PanelBridge::closeUpFilmEvent(9, 2, 3, tick, id, picture, said, sizeof(said)) && tick == 1308 && !id && !picture && !PanelBridge::closeUpFilmEvent(9, 2, 4, tick, id, picture, said, sizeof(said)));
+			assert(PanelBridge::markCount(9) == 2 && PanelBridge::markKind(9, 0) == 0 && PanelBridge::markKind(9, 1) == 1 && PanelBridge::markKind(9, 2) == -1 && PanelBridge::markCount(8) == 0);
+			assert(PanelBridge::markReader(9, 27, 416, kUse, 222, need) && need == 0 && PanelBridge::markReader(9, 1, 276, kUse, 222, need) && need == 50);
+			assert(!PanelBridge::markReader(9, 27, 416, kUse, 221, need) && !PanelBridge::markReader(9, 27, 416, kOpen, 222, need) && !PanelBridge::markReader(8, 27, 416, kUse, 222, need));
+			int others[3 * 4], count = 0;
+			assert(PanelBridge::markedAnswer(9, 27, 416, kUse, 0, 222, 1, after, others, count, 4, said, sizeof(said), flags, sets) && std::string(said) == "Typed" && sets == 2 && !count && !flags && after == 0);
+			assert(PanelBridge::markedAnswer(9, 27, 416, kUse, 0, 222, 0, after, others, count, 4, said, sizeof(said), flags, sets) && std::string(said) == "No" && sets == 0);
+			assert(!PanelBridge::markedAnswer(9, 27, 416, kUse, 0, 222, 3, after, others, count, 4, said, sizeof(said), flags, sets)); // (not recorded so)
+			assert(!PanelBridge::markedAnswer(9, 27, 416, kUse, 1, 222, 0, after, others, count, 4, said, sizeof(said), flags, sets));
+			assert(PanelBridge::markedAnswer(9, 1, 276, kUse, 1, 222, 2, after, others, count, 4, said, sizeof(said), flags, sets) && after == 1 && flags == 1 && count == 1 &&
+				others[0] == 1 && others[1] == 58 && others[2] == 1 && std::string(said) == "Taken");
+			// (Any order of the answers: the same.)
+			std::vector<uint8_t> reordered = eight(film, 1308, 0, 2, 1, 2, {1, 0, 2}, false);
+			assert(parseThings(reordered.data(), reordered.size(), things, error) && things.marked[0].room == 1 && things.marked[1].marks == 0 && things.marked[2].marks == 1);
+			// (No close-ups, no marks: read.)
+			std::vector<uint8_t> bare = five;
+			bare[3] = '8'; put(bare, {0, 0}); put16(bare, 0);
+			assert(parseThings(bare.data(), bare.size(), things, error) && things.closeUps.empty() && things.marks.empty() && things.marked.empty() && things.powerId == 157);
+			// (Cut short anywhere: refused whole; read as "SVO7", the film left over.)
+			for (size_t less = 1; less < tv.size() - sixth; ++less) {
+				std::vector<uint8_t> shorter(tv.begin(), tv.end() - less);
+				assert(!parseThings(shorter.data(), shorter.size(), things, error));
+			}
+			std::vector<uint8_t> asSeven = tv;
+			asSeven[3] = '7';
+			assert(!parseThings(asSeven.data(), asSeven.size(), things, error));
+			// (Refused: an event past its end, events out of order, a way past
+			// four, a picture past 1 meanwhile, a mark past the marks, a film
+			// with keys; marks past those a file holds, an answer's marks past
+			// the marks, an answer twice; more events than a file holds.)
+			for (const std::vector<uint8_t> &refused : {eight({{1400, 0, 1, "Hi"}}, 1308, 0, 2, 1, 2, {0, 1, 2}, false), eight({{168, 0, 1, "Hi"}, {66, 266, 0, ""}}, 1308, 0, 2, 1, 2, {0, 1, 2}, false),
+				eight(film, 1308, 0, 4, 1, 2, {0, 1, 2}, false), eight(film, 1308, 0, 2, 2, 2, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, true)})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad close-up");
+			for (const std::vector<uint8_t> &refused : {eight(film, 1308, 2, 2, 1, 2, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, PanelBridge::kMostMarks + 1, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, 1, {0, 1, 2}, false),
+				eight(film, 1308, 0, 2, 1, 2, {0, 4, 2}, false)})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad marks");
+			std::vector<uint8_t> twice = eight(film, 1308, 0, 2, 1, 2, {0, 0, 2}, false);
+			assert(!parseThings(twice.data(), twice.size(), things, error) && error == "an answer twice");
+			// (As many events as a file holds: read; one more: refused.)
+			std::vector<Ev> many;
+			for (int k = 0; k <= PanelBridge::kMostFilmEvents; ++k) many.push_back({k, 266, k & 1, ""});
+			std::vector<uint8_t> crowded = eight(many, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(!parseThings(crowded.data(), crowded.size(), things, error) && error == "bad close-up");
+			many.pop_back();
+			crowded = eight(many, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(parseThings(crowded.data(), crowded.size(), things, error) && things.closeUps[2].film.events.size() == (size_t)PanelBridge::kMostFilmEvents);
+			PanelBridge::clearThings();
+			assert(PanelBridge::markCount(9) == 0 && PanelBridge::closeUpCount(9) == 0);
 		}
 		// (From 0247, Sam & Max's: "SVO7" with one thing's answers only (no
 		// second), no main power and no close-ups; one taken from its picture
@@ -873,7 +979,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad or view (its turns, buttons, coins); Sam & Max's (taken, a thing given; no power, no close-ups)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

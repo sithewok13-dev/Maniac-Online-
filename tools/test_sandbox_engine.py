@@ -816,8 +816,10 @@ if __name__ == '__main__':
         safe = re.search(r'selftest close-ups: (\d+) records shown as close-ups; the wall safe: (\d+) opened with its code key by key on its keypad, '
                          r'the envelope inside taken, shut again; (\d+) not opened with a wrong code, the keypad closed, its line said; '
                          r"(\d+) left by a menu's choice, unanswered", output)
+        # (From 0248 the TV's Turn on (room 17) shows its film: a record too.)
+        film = (worlds/'maniac-40.svw').exists() and (worlds/'maniac-40.svw').stat().st_size > 0
         if (worlds/'maniac-9.svw').exists() and (worlds/'maniac-43.svw').exists() and (worlds/'maniac-43.svw').stat().st_size and \
-                (not safe or safe.group(1) != '1' or safe.group(2) != '1' or safe.group(3) != '1' or safe.group(4) != '1'):
+                (not safe or safe.group(1) != ('2' if film else '1') or safe.group(2) != '1' or safe.group(3) != '1' or safe.group(4) != '1'):
             raise SystemExit('FAIL: the wall safe and its keypad (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if safe and safe.group(2) == '1':
             print('PASS: the wall safe behind the painting: Open shows its keypad (the close-up, nobody there, kept as the room it was opened from); '
@@ -845,6 +847,33 @@ if __name__ == '__main__':
                   f'as the export recorded them, for the game\'s own time, everyone back; its buttons turned it {scope.group(4)} steps a coin at a time '
                   f'(unpaid, its own line), to the code\'s part with the painting moved, its things as that start marked them ({scope.group(8)} drawn); '
                   'a tap leaves it; a custom character chosen and the Shuttle Bug boarded from the Worlds menu there leave it first')
+        # (From 0248) The TV (room 17) and the typewriter (room 27): with the
+        # main power off, Turn on says its line, no film; Turn off as its
+        # script answers; with it on, its film (room 40, a close-up: the TV on
+        # in the place first, then the one there in their place and colour,
+        # nobody else in view, every line and picture on its tick as the
+        # export recorded them), back where they stood, the TV off, the mark
+        # left for the one played only; a menu's choice leaves it unwatched, a
+        # tap skips to its end, marked. The typewriter with the envelope:
+        # refused unwatched, typed once watched (then already so), refused
+        # for another unwatched; the mailbox shut as before, open and the
+        # envelope read as they answer without and with the address; the
+        # marks kept through a save and reload, an older state (none) read.
+        tv = re.search(r"selftest TV: (\d+) said its line with the main power off \(no film\), (\d+) turned off as its own script answers; (\d+) played its film as recorded "
+                       r"\((\d+) of (\d+) events on their ticks, (\d+) lines said, the one there in their place and colour, nobody else in view, kept as where it was turned on from, back where they stood\), "
+                       r"(\d+) marked for the one played only; (\d+) left unwatched by a menu's choice, (\d+) skipped by a tap and marked; the typewriter: (\d+) refused unwatched, (\d+) typed the address "
+                       r"once watched \((\d+) already addressed, (\d+) for another who watched\); the mailbox: (\d+) shut as before, open (\d+) without the address, (\d+) with it; the envelope read: (\d+) blank, (\d+) addressed; "
+                       r"(\d+) marks kept through a save and reload \((\d+) older states read with none\)", output)
+        if film and all((worlds/f'maniac-{r}.svw').exists() for r in (1, 9, 17, 27)) and \
+                (not tv or tv.group(1, 2, 3) != ('1', '1', '1') or int(tv.group(5)) < 4 or tv.group(4) != tv.group(5) or int(tv.group(6)) < 2 or tv.group(7) != '1'
+                 or tv.group(8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18) != ('1',) * 11 or tv.group(19) != '3' or tv.group(20) != '1'):
+            raise SystemExit('FAIL: the TV, its film and the typewriter (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if tv and tv.group(3) == '1':
+            print(f'PASS: the TV: with the main power off its line, no film; Turn off as its script answers; with it on, its film (a close-up: the TV on first, '
+                  f'then the one there in their place and colour, {tv.group(4)} lines and pictures each on its tick as recorded, {tv.group(6)} lines), back where they stood, the mark '
+                  'left for the one who watched only; a menu\'s choice leaves it unwatched, a tap skips it, marked; the typewriter with the envelope refuses '
+                  'until the kid watched, then types the address once; the mailbox and the envelope answer without and with it; the marks kept through a '
+                  'save and reload, an older state read')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its
@@ -993,8 +1022,8 @@ if __name__ == '__main__':
         # (Not The Dig's subway cars, nor the insides of rides, from 0198:
         # kWorldRideScenes, Zak's plane cabin and van cockpit; nor, from 0240,
         # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad, from
-        # 0242 its telescope's views.)
-        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw'}
+        # 0242 its telescope's views, from 0248 its TV's film.)
+        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw', 'maniac-40.svw'}
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')

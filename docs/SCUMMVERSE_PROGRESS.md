@@ -6892,3 +6892,31 @@ From the third round (the new engine's later games).
   real controls), all, doors and tour self-tests, a fresh export (two
   exports identical), the full data suite with the story differential. Not
   tested on an iPhone.
+
+## Patch 0248 — the mansion's TV and the typewriter in the new engine (mansion export version 36)
+
+From the sweep of things left undone (the dead end next to the safe).
+- With the power on, the TV (room 17) showed and said nothing in the new
+  engine (the export ran its cut-scene unseen and recorded only "off
+  again"), and the typewriter always refused the envelope (no kid at the
+  export's start had watched). The TV now plays its cut-scene as a film
+  close-up (room 40 exported as a scene, its actor placed as the game
+  places him, each line and picture change on its recorded tick, the
+  game's own timing), and marks that the one played watched; with the power
+  off it says its own line. A tap skips to the end (and marks, as the
+  original's key does); a menu choice leaves it unwatched.
+- Per-character and game-wide marks are kept in the new engine's state
+  (SVS5; older states load) and answers that read them (the typewriter
+  with the envelope, the mailbox, reading the envelope) are exported under
+  every combination of marks and chosen by them: the typewriter types the
+  address once for a kid who watched; the envelope then reads as
+  addressed. The things file is SVO8 where it has a film or a mark (only
+  the mansion); every other file is unchanged (Sam & Max's byte for byte).
+- Not modelled yet: the stamps, the envelope's contents and posting it
+  (the mailbox's next checks), so the chain's end is not reached; the
+  typewriter's sound.
+- Tests: test_panel (ASan/UBSan; new: SVO8), the verbs self-test (new: the
+  TV's power-off answer, the film's lead, events and length, the mark for
+  the one played only, the typewriter refusing and answering, save and
+  reload; 25 mutations caught), a fresh mansion export, the full sandbox
+  suite (frame check on) and data suite. Not tested on an iPhone.
