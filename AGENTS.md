@@ -44,7 +44,8 @@ cloud sessions, so real-model probes may only be compile-checked there.
 With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-dos`.
 PLAYTHROUGH: `python3 tools/test_playthrough_engine.py game-data/mm-dos` (in the data
 suite; Maniac Mansion played to an ending in Story mode, and what Explore mode keeps
-of its puzzles, with visitors about).
+of its puzzles, with visitors about); Zak McKracken the same:
+`python3 tools/test_playthrough_zak.py game-data/mm-dos game-data/zak-dos` (in the data suite).
 DAMAGED FILES AND SETTINGS: `python3 tools/test_damaged_engine.py game-data/mm-dos` (in the
 data suite); the new engine's side is in test_startup.
 STORY vs STOCK: `python3 tools/test_story_differential.py game-data/mm-dos` (every game folder

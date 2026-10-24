@@ -6620,3 +6620,37 @@ against the code; the list is kept in the coordinator's scratch notes).
   off while paused), the airport probe, the sandbox switch test (new: the
   new engine ended without Back, then the mansion from its save), the full
   data suite. Not tested on an iPhone.
+
+## Tests: Zak McKracken played to an ending
+
+A new data test, tools/test_playthrough_zak.py (with
+tools/probes/playthrough_zak.inc; in the data suite, given the mansion's
+folder and Zak's), plays Zak McKracken (the audited DOS V1 edition) with a
+player's own taps through the engine as it is now, by a route worked out
+from the game's own data and kept in the probe by room, object, actor and
+script number.
+- Story mode (Zak's own story from Story mode's list): the whole game to
+  its ending in 59 steps with all four played (actors 1 to 4): the card,
+  the cash and what it buys, the flights booked on the terminals' screen
+  and flown, the capture and the way out of it, the jungles, the drawings,
+  the maze, actor 2 joining, actors 3 and 4 on Mars, the complex there
+  with its air rules (the gear put on, no one dying), the device two must
+  work at once, and the ending's two switches held together (about 63000
+  frames, 100 minutes of game time, 3 seconds on the desktop). None of the
+  mansion's additions show; afterwards the app goes back to the mansion.
+- Explore mode (the mansion's world: roaming, the wanderers on, other
+  games' visitors): Zak chosen on the character screen, then 17 steps
+  through his places as the sandbox joins them: his street and the bus,
+  eight of the ten flights the terminals offer (seated aboard, Arrive; not
+  the mansion's and not the home airport's), the places beyond each, the
+  maze both ways, the pads to Mars and back, Mars's rooms with and without
+  the air gear, and the tram (about 8800 frames, 15 minutes of game time,
+  14 seconds); visitors met in 23 to 26 rooms, up to 3 at once. No fares,
+  puzzles or ending there, as the sandbox promises (docs/roaming.md).
+- Both pass for random seeds 1, 2, 7 and 42. A route step made wrong fails
+  at that step; the tram's request turned off in the engine fails Explore
+  mode at the tram (step 16); the mansion's safety let into Zak's story
+  fails Story mode where actor 2 joins (step 15). No engine change was
+  needed: nothing on the original's path was broken.
+- Not covered: other orders of play, the deaths (only checked never to
+  happen), the iPhone's real touch and menus, the ASan build.

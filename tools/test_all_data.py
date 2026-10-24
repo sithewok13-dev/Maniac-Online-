@@ -8,7 +8,8 @@ build tree). test_temple_legacy is excluded: it needs a patch-0037 engine and
 build. Logs go to build/data-tests/. Native probes are not iPhone acceptance.
 STOCK compares Story mode with stock ScummVM 2.9.1 in build/stock-2.9.1 and
 skips when that build is not there (made once, a few minutes, by
-tools/test_story_differential.py game-data/mm-dos --make-stock).
+tools/test_story_differential.py game-data/mm-dos --make-stock). BOTH take the
+mansion's folder and Zak's.
 """
 import argparse
 from pathlib import Path
@@ -19,6 +20,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 # (Story mode against stock ScummVM 2.9.1; skipped without that build.)
 STOCK = ['test_story_differential']
+# (The mansion's data and Zak's: Zak played to its ending in both modes.)
+BOTH = ['test_playthrough_zak']
 REFERENCE = ['test_mars_reference', 'test_temple_reference', 'test_source_reference',
              'test_perspective_reference']
 SANDBOX = ['test_exploration', 'test_safety', 'test_roaming', 'test_ai_encounters', 'test_worlds',
@@ -37,6 +40,7 @@ def main():
     logs = ROOT/'build/data-tests'
     logs.mkdir(parents=True, exist_ok=True)
     plan = [(t, a.zak) for t in REFERENCE] + [(t, a.maniac) for t in SANDBOX + STOCK]
+    plan += [(t, None) for t in BOTH]
     plan.append(('test_scene_authenticity', None))
     results = []
     for name, data in plan:
