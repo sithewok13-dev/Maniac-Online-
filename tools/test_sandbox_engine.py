@@ -108,11 +108,12 @@ def cycles_of(path):
 
 
 def things_of(path):
-    """A things file: {room: {object: (picture, answers)}}."""
+    """A things file: {room: {object: (picture, answers)}} ("SVO1"; from
+    export version 23 "SVO3" with no effects, then what each is inside)."""
     data = path.read_bytes()
     if data[:2] == b'\x1f\x8b':
         data = gzip.decompress(data)
-    if data[:4] != b'SVO1':
+    if data[:4] not in (b'SVO1', b'SVO3'):
         raise SystemExit(f'FAIL: {path.name}: not a things file')
     rooms, p, found = struct.unpack_from('<H', data, 4)[0], 6, {}
     for _ in range(rooms):
@@ -123,6 +124,11 @@ def things_of(path):
             obj, picture, answers = struct.unpack_from('<HBH', data, p)
             found[room][obj] = (picture, answers)
             p += 5
+    if data[:4] == b'SVO3':
+        effects, parents = struct.unpack_from('<HH', data, p)
+        if effects:
+            raise SystemExit(f'FAIL: {path.name}: what its things do, outside the mansion')
+        p += 4 + parents * 7
     if p != len(data):
         raise SystemExit(f'FAIL: {path.name}: {len(data) - p} bytes left over')
     return found
@@ -410,12 +416,13 @@ if __name__ == '__main__':
         # read, picked up and fixed too, some taken.)
         effects = re.search(r"selftest effects: (\d+) as the mansion's own scripts answer \((\d+) away, (\d+) taken, (\d+) read carried, (\d+) left to the plain rules; (\d+) inside others; (\d+) taken whose pictures are the same\)", output)
         # (From 0203 the garage's two (room 16, their export's pictures the
-        # same) are taken as their game gives them.)
+        # same) are taken as their game gives them; from export version 23
+        # their pictures leave out the garage door over them: none the same.)
         # (From 0204 nearer what the mansion gives: 849 answered, 74 away, 63
         # to the plain rules when pinned.)
         if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 840 or int(effects.group(2)) > 80 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
                                                  or int(effects.group(5)) > 70 or effects.group(6) != '4'
-                                                 or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '2')):
+                                                 or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '0')):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")

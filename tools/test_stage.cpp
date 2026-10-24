@@ -586,6 +586,67 @@ int main() {
 	}
 	std::puts("PASS: object pictures (the render as with the picture in the scene; middle and edge; small and large screens)");
 
+	// Objects drawn again as their game draws them (layObjects): a box under
+	// a cover (the garage door over the car's trunk), its pictures without
+	// the cover over it (as exported from version 23); the cover's taken
+	// with the box shut. The cover drawn over the box opened, through its
+	// hole the box as it is now; the cover away, the box opened, not the
+	// box as under the cover's picture; one hidden (inside one shut) not
+	// drawn; Sam & Max's order the other way; opaque, the whole picture;
+	// nothing until one is shown.
+	{
+		const int w = 320, h = 200;
+		std::vector<uint8_t> pixels((size_t)w * h, 1);
+		World::SourceObject cover, box_;
+		cover.id = 144; cover.x = 0; cover.y = 0; cover.width = 32; cover.height = 24; cover.state = 1; cover.name = "cover";
+		cover.shown = 1; cover.pictureX = 0; cover.pictureY = 0; cover.pictureWidth = 32; cover.pictureHeight = 24;
+		cover.pictures = {std::vector<uint8_t>(32 * 24, 1), std::vector<uint8_t>(32 * 24, 30)};
+		for (int y = 10; y < 14; ++y) for (int x = 12; x < 16; ++x) cover.pictures[1][(size_t)y * 32 + x] = 1; // (its hole)
+		box_ = cover; box_.id = 151; box_.name = "box"; box_.x = box_.pictureX = 8; box_.y = box_.pictureY = 8; box_.width = box_.pictureWidth = 16;
+		box_.height = box_.pictureHeight = 16; box_.shown = 0;
+		box_.pictures = {std::vector<uint8_t>(16 * 16, 1), std::vector<uint8_t>(16 * 16, 20)};
+		for (int y = 0; y < 16; ++y) box_.pictures[1][(size_t)y * 16] = 1; // (its left column the place's own)
+		for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) pixels[(size_t)y * w + x] = cover.pictures[1][(size_t)y * 32 + x];
+		const std::vector<uint8_t> data = scene5Bytes(w, h, pixels, {box(0, 100, 320, 190)}, {cover, box_}, {0}, {});
+		Scene place;
+		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
+		std::vector<uint32_t> out((size_t)w * h);
+		auto at = [&](int x, int y) { place.render(out.data(), w); return out[(size_t)y * w + x]; };
+		place.layObjects({}, false, false);
+		assert(at(4, 4) == sceneColor(30) && at(13, 11) == sceneColor(1) && at(40, 4) == sceneColor(1));
+		// (Opened under the cover: its picture has no cover; drawn again over it.)
+		assert(place.showObject(1, 1) && at(10, 10) == sceneColor(20)); // (the box's picture alone, no cover)
+		place.layObjects({}, false, false);
+		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(20) && at(4, 4) == sceneColor(30));
+		// (The cover away: the box as it is now, not as under the cover's picture.)
+		assert(place.showObject(0, 0) && at(13, 11) == sceneColor(1));
+		place.layObjects({}, false, false);
+		assert(at(10, 10) == sceneColor(20) && at(8, 10) == sceneColor(1) && at(4, 4) == sceneColor(1) && at(23, 23) == sceneColor(20));
+		// (Hidden: not drawn; shut again: the place without either.)
+		place.layObjects({false, true}, false, false);
+		assert(at(10, 10) == sceneColor(1));
+		place.layObjects({}, false, false);
+		assert(at(10, 10) == sceneColor(20));
+		assert(place.showObject(1, 0));
+		place.layObjects({}, false, false);
+		assert(at(10, 10) == sceneColor(1) && at(4, 4) == sceneColor(1));
+		// (Sam & Max's order: the later on top.)
+		assert(place.showObject(0, 1) && place.showObject(1, 1));
+		place.layObjects({}, true, false);
+		assert(at(10, 10) == sceneColor(20) && at(4, 4) == sceneColor(30) && at(8, 10) == sceneColor(30));
+		place.layObjects({}, false, false);
+		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(20));
+		// (Opaque, as the oldest games' tiles: the cover's whole picture, no
+		// hole where it matched what was under it.)
+		place.layObjects({}, false, true);
+		assert(at(10, 10) == sceneColor(30) && at(13, 11) == sceneColor(1));
+		// (A new place: nothing until one is shown or hidden.)
+		assert(place.load(data.data(), data.size(), 1.0, 320, 320, 200, error));
+		place.layObjects({}, false, false);
+		assert(at(4, 4) == sceneColor(30) && at(13, 11) == sceneColor(1));
+	}
+	std::puts("PASS: objects drawn again in their game's order (over what is under them as it is now; hidden; the other order; opaque; nothing until shown)");
+
 	// Spots for people: inside the boxes, spread out.
 	for (int n : {1, 4, 12}) {
 		const std::vector<Point> spots = scene.spots(n);

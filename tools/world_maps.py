@@ -59,6 +59,14 @@ TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
 VERSIONS = {'monkey': 4, 'monkey2': 5, 'loom': 3, 'indy3': 3, 'atlantis': 5, 'tentacle': 6, 'samnmax': 6, 'ft': 7, 'dig': 7, 'comi': 8,
             'maniac': 1, 'zak': 1}
 SCUMM = ROOT/'engine/engines/scumm'
+WORLDS = ROOT/'build/worlds'
+
+
+def shown(game, room):
+    """Whether the export has a scene of a room (build/worlds; an emptied
+    scene, a room whose export failed, is none). Without a cache, any."""
+    scene = WORLDS/f'{game}-{room}.svw'
+    return not WORLDS.exists() or (scene.exists() and scene.stat().st_size > 0)
 
 
 def exportable(game, info):
@@ -103,18 +111,13 @@ def fixed_doors(game, travel):
     if not path.exists():
         return travel
     table = json.loads(path.read_text())
-    worlds = ROOT/'build/worlds'
-    # (An emptied scene, a room whose export failed, is not one.)
-    def shown(room):
-        scene = worlds/f'{game}-{room}.svw'
-        return not worlds.exists() or (scene.exists() and scene.stat().st_size > 0)
     drop = {(d['room'], d['object']) for d in table['doors']} | {(r['room'], r['object']) for r in table.get('remove', [])}
     # (A template room exported as one of its instances has that instance's
     # doors only.)
     replaced = set(table.get('replaceRooms', []))
     fixed = [{'room': d['room'], 'object': d['object'], 'target': d['target'], 'arrivalObject': d['arrival'],
               'needsObjectState': bool(d.get('switched')), 'kind': 'door'}
-             for d in table['doors'] if shown(d['target']) and shown(d['room'])]
+             for d in table['doors'] if shown(game, d['target']) and shown(game, d['room'])]
     return fixed + [l for l in travel if (int(l['room']), int(l['object'])) not in drop and int(l['room']) not in replaced]
 
 
@@ -209,7 +212,7 @@ def load_zak():
     exported = {}
     def shows(room, obj):
         if room not in exported:
-            path = ROOT/'build/worlds'/f'zak-{room}.svw'
+            path = WORLDS/f'zak-{room}.svw'
             exported[room] = scene_objects(path) if path.exists() else None
         return exported[room] is None or obj in exported[room]
     visit, out, seen = {}, [], set()
@@ -270,17 +273,26 @@ def load(game):
     joined = set(physical.get(int(r), int(r)) for r in data.get('reachable', []))
     for l in travel:
         joined |= {int(l['room']), int(l['target'])}
+    # (Only rooms the export has a scene of (Loom's 65 and Full Throttle's 13
+    # come out blank), and doors their scenes show (those with no rectangle
+    # are not exported), as for Zak's below.)
     visit = {}
     for room in joined:
         info = rooms.get(str(room)) or {}
         kind = kinds.get(room)
         resource = int(info.get('physicalRoom') or room) if room >= 128 else room
-        if kind in KINDS and 0 < room < 1000 and exportable(game, info):
+        if kind in KINDS and 0 < room < 1000 and exportable(game, info) and shown(game, room):
             visit[room] = (KINDS[kind], resource)
+    exported = {}
+    def shows(room, obj):
+        if room not in exported:
+            path = WORLDS/f'{game}-{room}.svw'
+            exported[room] = scene_objects(path) if path.exists() and path.stat().st_size > 0 else None
+        return exported[room] is None or obj in exported[room]
     links, seen = [], set()
     for link in travel:
         room, obj, target = int(link['room']), int(link['object']), int(link['target'])
-        if room not in visit or target not in visit or room == target or (room, obj) in seen:
+        if room not in visit or target not in visit or room == target or (room, obj) in seen or not shows(room, obj):
             continue
         seen.add((room, obj))
         arrival = int(link.get('arrivalObject') or 0)
@@ -302,7 +314,7 @@ AREA_NAMES = {
     ('monkey', 60): 'Gym', ('monkey', 80): 'Fort',
     ('monkey2', 73): "LeChuck's fortress", ('monkey2', 24): "Captain Dread's deck",
     ('monkey2', 40): 'Basement', ('monkey2', 66): 'Galleon', ('monkey2', 75): "LeChuck's dungeon",
-    ('monkey2', 90): 'Storage room', ('monkey2', 96): 'Jungle',
+    ('monkey2', 90): 'Storage room', ('monkey2', 96): 'Jungle', ('monkey2', 61): 'Up the great tree', ('monkey2', 82): 'Sea map',
     ('loom', 43): 'The castle', ('loom', 13): 'Waterspout', ('loom', 65): 'Cave',
     ('indy3', 12): 'Castle Brunwald', ('indy3', 81): 'Grail temple', ('indy3', 3): 'Lecture hall',
     ('indy3', 7): "Henry's house", ('indy3', 86): 'Grail chamber', ('indy3', 132): 'Castle Brunwald corridor',

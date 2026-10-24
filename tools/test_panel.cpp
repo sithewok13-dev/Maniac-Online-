@@ -633,6 +633,16 @@ int main() {
 		put16(twice, 2);
 		for (int k = 0; k < 2; ++k) { put16(twice, 1); put16(twice, 55); put16(twice, 54); twice.push_back(1); }
 		assert(!parseThings(twice.data(), twice.size(), things, error) && error == "a parent twice");
+		// (From export version 23 every game's but the mansion's: "SVO3"
+		// with no effects, then what each thing is inside.)
+		std::vector<uint8_t> inside = {'S', 'V', 'O', '3'};
+		put16(inside, 1); put16(inside, 2); put16(inside, 2);
+		for (int id : {15, 92}) { put16(inside, id); inside.push_back(0); put16(inside, 0); }
+		put16(inside, 0);
+		put16(inside, 1); put16(inside, 2); put16(inside, 15); put16(inside, 92); inside.push_back(1);
+		assert(parseThings(inside.data(), inside.size(), things, error) && things.effects.empty() && things.parents.size() == 1);
+		assert(things.parent(2, 15) && things.parent(2, 15)->parent == 92 && things.parent(2, 15)->picture == 1 && things.find(2, 92));
+		for (size_t cut = 1; cut < inside.size() - 4; ++cut) assert(!parseThings(inside.data(), inside.size() - cut, things, error));
 		int parent = -1, parentPicture = -1;
 		assert(PanelBridge::loadThings(3, three.data(), three.size(), problem, sizeof(problem)) && PanelBridge::thingParent(3, 7, 90, parent, parentPicture) && parent == 89 && parentPicture == 1);
 		assert(!PanelBridge::thingParent(3, 7, 89, parent, parentPicture) && !PanelBridge::thingParent(4, 7, 90, parent, parentPicture));

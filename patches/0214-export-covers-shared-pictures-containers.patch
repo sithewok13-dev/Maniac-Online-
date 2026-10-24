@@ -1,0 +1,741 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 71d89d56..fafadc40 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -240,6 +240,7 @@ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameS
+ 	for (const World::SourceCycle &cycle : _source.cycles) { Cycle k; k.cycle = cycle; _cycles.push_back(k); }
+ 	_showing.clear();
+ 	for (const World::SourceObject &o : _source.objects) _showing.push_back(o.shown);
++	_shown = false; _loaded = _source.pixels; _bare.clear(); _bareOrder = -1;
+ 	_picture = Picture();
+ 	_scaled.assign((size_t)_view.width * _view.height, 0);
+ 	_columns.resize(_view.width); _rows.resize(_view.height);
+@@ -813,6 +814,7 @@ bool Scene::showObject(int object, int picture) {
+ 	for (int y = 0; y < o.pictureHeight; ++y)
+ 		std::memcpy(&_source.pixels[(size_t)(o.pictureY + y) * _source.width + o.pictureX], &o.pictures[picture][(size_t)y * o.pictureWidth], o.pictureWidth);
+ 	if (object < (int)_showing.size()) _showing[object] = picture;
++	_shown = true;
+ 	// (Under the second picture: the place without it is the new one, and
+ 	// the picture stays as shown over it.)
+ 	if (_picture.on) {
+@@ -826,6 +828,63 @@ bool Scene::showObject(int object, int picture) {
+ 	return true;
+ }
+ 
++void Scene::layObjects(const std::vector<bool> &hidden, bool laterOnTop, bool opaque) {
++	const int count = (int)_source.objects.size(), width = _source.width;
++	bool any = _shown;
++	for (int o = 0; o < count && o < (int)hidden.size(); ++o) any = any || hidden[o];
++	if (!any || _loaded.size() != _source.pixels.size()) return;
++	auto at = [&](const World::SourceObject &o, int x, int y) { return (size_t)(o.pictureY + y) * width + o.pictureX + x; };
++	// (The place without them: from the one on top down, each the scene
++	// shows taken away where it differs from its picture without it.)
++	if (_bareOrder != (int)laterOnTop) {
++		_bare = _loaded; _bareOrder = laterOnTop;
++		for (int i = 0; i < count; ++i) {
++			const World::SourceObject &o = _source.objects[laterOnTop ? count - 1 - i : i];
++			if (o.pictures.empty() || o.shown <= 0) continue;
++			for (int y = 0; y < o.pictureHeight; ++y)
++				for (int x = 0; x < o.pictureWidth; ++x) {
++					const size_t k = (size_t)y * o.pictureWidth + x;
++					if (o.pictures[o.shown][k] != o.pictures[0][k]) _bare[at(o, x, y)] = o.pictures[0][k];
++				}
++		}
++	}
++	// (Then each from the one under all up, where its picture now differs
++	// from its picture without it, or all of it.)
++	std::vector<uint8_t> laid = _bare;
++	for (int i = 0; i < count; ++i) {
++		const int object = laterOnTop ? i : count - 1 - i;
++		const World::SourceObject &o = _source.objects[object];
++		const int shown = showing(object);
++		if (o.pictures.empty() || shown <= 0 || shown >= (int)o.pictures.size() || (object < (int)hidden.size() && hidden[object])) continue;
++		for (int y = 0; y < o.pictureHeight; ++y)
++			for (int x = 0; x < o.pictureWidth; ++x) {
++				const size_t k = (size_t)y * o.pictureWidth + x;
++				if (opaque || o.pictures[shown][k] != o.pictures[0][k]) laid[at(o, x, y)] = o.pictures[shown][k];
++			}
++	}
++	// (Written where the objects are, as showObject writes one.)
++	bool changed = false;
++	for (const World::SourceObject &o : _source.objects) {
++		if (o.pictures.empty()) continue;
++		bool here = false;
++		for (int y = 0; y < o.pictureHeight; ++y)
++			for (int x = 0; x < o.pictureWidth; ++x) {
++				const size_t a = at(o, x, y);
++				if (_source.pixels[a] != laid[a]) { _source.pixels[a] = laid[a]; here = true; }
++			}
++		if (!here) continue;
++		changed = true;
++		if (_picture.on) {
++			Picture &p = _picture;
++			for (int y = std::max(p.y, o.pictureY); y < std::min(p.y + p.h, o.pictureY + o.pictureHeight); ++y)
++				for (int x = std::max(p.x, o.pictureX); x < std::min(p.x + p.w, o.pictureX + o.pictureWidth); ++x)
++					p.clean[(size_t)(y - p.y) * p.w + x - p.x] = _source.pixels[(size_t)y * width + x];
++		}
++		rescale(o.pictureX, o.pictureY, o.pictureWidth, o.pictureHeight);
++	}
++	if (changed && _picture.on && _picture.applied) showPicture(_picture.dx, _picture.amount);
++}
++
+ // A fixed scatter (a dissolve's): whether a scene pixel is among `amount`
+ // of 256.
+ static bool scattered(int x, int y, int amount) {
+@@ -1178,6 +1237,9 @@ void view(int &left, int &top, int &width, int &height, double &rowScale, double
+ 	left = v.left; top = v.top; width = v.width; height = v.height; rowScale = v.rowScale; colScale = v.colScale;
+ }
+ bool showObject(int index, int picture) { return stage().showObject(index, picture); }
++void layObjects(const bool *hidden, int count, bool laterOnTop, bool opaque) {
++	stage().layObjects(hidden && count > 0 ? std::vector<bool>(hidden, hidden + count) : std::vector<bool>(), laterOnTop, opaque);
++}
+ int paletteVersion() { return stage().paletteVersion(); }
+ int objectAt(double x, double y, const int *candidates, int count, double slack) {
+ 	return stage().objectAt(Stage::Point(x, y), std::vector<int>(candidates, candidates + std::max(0, count)), slack);
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index c97c7c5f..0fd7c824 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -231,6 +231,17 @@ public:
+ 	// An object shown in one of its pictures (0: without it; "SVW5").
+ 	bool showObject(int object, int picture);
+ 	int showing(int object) const; // the picture an object is in now
++	// Every object drawn again as its game draws its room's objects (the
++	// last first, so the first is on top; laterOnTop: the other way, as Sam
++	// & Max): where they are, the place without them (as loaded, each the
++	// scene shows taken away from the top down, where it differs from its
++	// picture 0), then each but those hidden (one inside another shut) in
++	// the picture it shows, where that differs from its picture 0 (opaque:
++	// all of it, as the oldest games draw theirs, tiles without holes). So
++	// what one covers is as it is now, not as when its pictures were taken
++	// (from export version 23 they leave out what is drawn over it).
++	// Nothing until an object is shown in a picture or one is hidden.
++	void layObjects(const std::vector<bool> &hidden, bool laterOnTop, bool opaque);
+ 	bool picturesDiffer(int object, int a, int b) const;
+ 	// Whether the scene, where an object is, looks as one of its pictures
+ 	// (what was drawn over it since).
+@@ -301,6 +312,9 @@ private:
+ 	std::vector<Cycle> _cycles;
+ 	int _paletteVersion = 0;
+ 	std::vector<int> _showing; // each object's picture now
++	bool _shown = false; // (an object shown in a picture since loaded)
++	std::vector<uint8_t> _loaded, _bare; // the scene as loaded, and without its objects (layObjects)
++	int _bareOrder = -1; // (the order _bare was made in: laterOnTop, -1 none)
+ 	struct Picture {
+ 		bool on = false, applied = false;
+ 		int x = 0, y = 0, w = 0, h = 0, dx = 0, amount = 256; // (as last shown)
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 0d8e6792..2e61f970 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -143,6 +143,9 @@ int objectName(int index, char *name, int capacity);
+ int objectPictures(int index);
+ int objectShown(int index);
+ bool showObject(int index, int picture);
++// Every object drawn again over what is under it as it is now (count
++// flags: hidden, one inside another shut; Stage::Scene::layObjects).
++void layObjects(const bool *hidden, int count, bool laterOnTop, bool opaque);
+ // Whether two of an object's pictures look different.
+ bool picturesDiffer(int index, int a, int b);
+ // Whether the scene where an object is looks as one of its pictures.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 25068077..d13962cc 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -26,8 +26,12 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // Named places shown in the menu. Games only ever append (their index names
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+-// export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 22;
++// export once more (marker "<gameid>-v<version>.svx"). 23: each object's
++// pictures leave out what is drawn over it and show what is inside another
++// with that one open, in every game; an oldest game's object whose image
++// others point at too has its pictures; every game's things file says what
++// is inside what, and has the rooms whose entry script leaves them.
++static const int kWorldExportVersion = 23;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+ // file also says what each thing's verbs do; from 0161 read and pick up too,
+ // from 0162 not fix; from 0168 what each thing is inside, drawn with that
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index 54a1423f..5be23630 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -84,40 +84,41 @@ static const WorldLink kWorldMap_monkey2Links[] = {
+ 	{2, 21, 20, 202, 0}, {4, 22, 2, 19, 0}, {4, 30, 6, 38, 0}, {4, 27, 6, 38, 0}, {6, 38, 4, 30, 0}, {7, 40, 12, 102, 0},
+ 	{7, 41, 8, 64, 0}, {7, 42, 9, 72, 0}, {7, 43, 2, 17, 0}, {7, 44, 14, 126, 0}, {7, 47, 15, 139, 0}, {7, 48, 11, 92, 0},
+ 	{8, 65, 7, 41, 0}, {8, 64, 7, 41, 0}, {9, 72, 7, 42, 0}, {11, 91, 9, 75, 0}, {11, 92, 7, 48, 0}, {12, 102, 7, 40, 0},
+-	{12, 100, 13, 108, 0}, {13, 119, 21, 0, 0}, {13, 117, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0},
+-	{16, 155, 18, 187, 0}, {16, 163, 17, 0, 0}, {16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0},
+-	{18, 187, 16, 155, 0}, {20, 202, 2, 21, 0}, {20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0},
+-	{22, 238, 82, 0, 0}, {23, 241, 22, 234, 0}, {23, 242, 2, 18, 0}, {24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0},
+-	{26, 248, 38, 378, 0}, {26, 247, 37, 369, 0}, {26, 253, 27, 262, 0}, {26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0},
+-	{27, 256, 29, 275, 0}, {27, 257, 26, 249, 0}, {27, 262, 26, 253, 0}, {27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0},
+-	{29, 275, 27, 256, 0}, {29, 291, 27, 256, 0}, {30, 293, 27, 258, 0}, {33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0},
+-	{35, 363, 26, 252, 0}, {36, 367, 35, 359, 0}, {37, 368, 38, 378, 0}, {37, 369, 26, 247, 0}, {38, 378, 26, 248, 0}, {38, 374, 39, 387, 0},
+-	{39, 387, 38, 374, 0}, {40, 425, 37, 370, 0}, {41, 429, 42, 435, 0}, {41, 430, 26, 250, 0}, {42, 432, 43, 437, 0}, {42, 435, 41, 429, 0},
+-	{43, 437, 42, 432, 0}, {45, 472, 22, 0, 0}, {45, 467, 46, 477, 0}, {45, 468, 51, 0, 0}, {45, 469, 52, 593, 0}, {45, 470, 58, 661, 0},
+-	{45, 471, 60, 665, 0}, {45, 473, 47, 489, 0}, {46, 476, 48, 512, 0}, {46, 474, 49, 553, 0}, {46, 477, 45, 467, 0}, {46, 478, 47, 488, 0},
+-	{46, 475, 50, 576, 0}, {46, 484, 22, 0, 0}, {47, 488, 46, 478, 0}, {47, 489, 45, 473, 0}, {48, 512, 46, 476, 0}, {49, 553, 46, 474, 0},
+-	{50, 576, 46, 475, 0}, {51, 588, 52, 590, 0}, {52, 590, 45, 469, 0}, {52, 593, 45, 469, 0}, {53, 597, 54, 605, 0}, {53, 598, 52, 591, 0},
+-	{53, 599, 54, 604, 0}, {53, 601, 54, 604, 0}, {53, 602, 52, 0, 0}, {53, 596, 55, 611, 0}, {54, 604, 53, 599, 0}, {54, 605, 53, 597, 0},
+-	{54, 606, 57, 659, 0}, {55, 611, 53, 596, 0}, {55, 612, 56, 648, 0}, {56, 648, 55, 612, 0}, {57, 659, 54, 606, 0}, {58, 661, 45, 470, 0},
+-	{58, 662, 59, 0, 0}, {60, 665, 45, 471, 0}, {60, 666, 45, 471, 0}, {60, 685, 61, 693, 0}, {60, 686, 61, 693, 0}, {60, 687, 61, 693, 0},
+-	{60, 688, 61, 693, 0}, {60, 689, 61, 693, 0}, {60, 691, 61, 693, 0}, {60, 692, 61, 693, 0}, {61, 693, 60, 669, 0}, {61, 694, 62, 697, 0},
+-	{62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0}, {71, 719, 70, 716, 0}, {71, 720, 72, 731, 0}, {71, 721, 72, 732, 0},
+-	{72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0}, {72, 744, 71, 721, 0}, {72, 745, 71, 721, 0}, {72, 746, 71, 721, 0},
+-	{72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0}, {72, 732, 71, 721, 0}, {73, 752, 74, 753, 0}, {73, 749, 72, 731, 0},
+-	{73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0}, {82, 782, 46, 484, 0}, {82, 783, 27, 264, 0},
++	{12, 100, 13, 108, 0}, {13, 119, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0}, {16, 155, 18, 187, 0},
++	{16, 163, 17, 0, 0}, {16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0}, {18, 187, 16, 155, 0},
++	{20, 202, 2, 21, 0}, {20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0}, {23, 241, 22, 234, 0},
++	{23, 242, 2, 18, 0}, {24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0}, {26, 248, 38, 378, 0}, {26, 247, 37, 369, 0},
++	{26, 253, 27, 262, 0}, {26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0}, {27, 256, 29, 275, 0}, {27, 257, 26, 249, 0},
++	{27, 262, 26, 253, 0}, {27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0}, {29, 275, 27, 256, 0}, {29, 291, 27, 256, 0},
++	{30, 293, 27, 258, 0}, {33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0}, {35, 363, 26, 252, 0}, {36, 367, 35, 359, 0},
++	{37, 368, 38, 378, 0}, {37, 369, 26, 247, 0}, {38, 378, 26, 248, 0}, {38, 374, 39, 387, 0}, {39, 387, 38, 374, 0}, {40, 425, 37, 370, 0},
++	{41, 429, 42, 435, 0}, {41, 430, 26, 250, 0}, {42, 432, 43, 437, 0}, {42, 435, 41, 429, 0}, {43, 437, 42, 432, 0}, {45, 472, 22, 0, 0},
++	{45, 467, 46, 477, 0}, {45, 468, 51, 0, 0}, {45, 469, 52, 593, 0}, {45, 470, 58, 661, 0}, {45, 471, 60, 665, 0}, {45, 473, 47, 489, 0},
++	{46, 476, 48, 512, 0}, {46, 474, 49, 553, 0}, {46, 477, 45, 467, 0}, {46, 478, 47, 488, 0}, {46, 475, 50, 576, 0}, {46, 484, 22, 0, 0},
++	{47, 488, 46, 478, 0}, {47, 489, 45, 473, 0}, {48, 512, 46, 476, 0}, {49, 553, 46, 474, 0}, {50, 576, 46, 475, 0}, {51, 588, 52, 590, 0},
++	{52, 590, 45, 469, 0}, {52, 593, 45, 469, 0}, {53, 597, 54, 605, 0}, {53, 598, 52, 591, 0}, {53, 599, 54, 604, 0}, {53, 601, 54, 604, 0},
++	{53, 602, 52, 0, 0}, {53, 596, 55, 611, 0}, {54, 604, 53, 599, 0}, {54, 605, 53, 597, 0}, {54, 606, 57, 659, 0}, {55, 611, 53, 596, 0},
++	{55, 612, 56, 648, 0}, {56, 648, 55, 612, 0}, {57, 659, 54, 606, 0}, {58, 661, 45, 470, 0}, {58, 662, 59, 0, 0}, {60, 665, 45, 471, 0},
++	{60, 666, 45, 471, 0}, {61, 693, 60, 669, 0}, {61, 694, 62, 697, 0}, {62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0},
++	{71, 719, 70, 716, 0}, {71, 720, 72, 731, 0}, {71, 721, 72, 732, 0}, {72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0},
++	{72, 744, 71, 721, 0}, {72, 745, 71, 721, 0}, {72, 746, 71, 721, 0}, {72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0},
++	{72, 732, 71, 721, 0}, {73, 752, 74, 753, 0}, {73, 749, 72, 731, 0}, {73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0},
++	{82, 782, 46, 484, 0}, {82, 783, 27, 264, 0},
+ };
+ static const WorldArea kWorldMap_monkey2Areas[] = {
++	{61, "Up the great tree"},
+ 	{73, "LeChuck's fortress"},
+ 	{24, "Captain Dread's deck"},
+ 	{40, "Basement"},
+ 	{66, "Galleon"},
+ 	{75, "LeChuck's dungeon"},
++	{82, "Sea map"},
+ };
+ static const WorldRoom kWorldMap_loomRooms[] = {
+ 	{2, 0, 2}, {3, 0, 3}, {4, 0, 4}, {5, 0, 5}, {6, 0, 6}, {7, 0, 7}, {8, 0, 8}, {9, 0, 9}, {10, 0, 10}, {13, 0, 13},
+ 	{15, 0, 15}, {16, 0, 16}, {17, 0, 17}, {18, 0, 18}, {20, 0, 20}, {22, 0, 22}, {23, 0, 23}, {24, 0, 24}, {25, 0, 25}, {26, 0, 26},
+ 	{28, 0, 28}, {30, 0, 30}, {31, 0, 31}, {32, 0, 32}, {33, 0, 33}, {34, 0, 34}, {35, 0, 35}, {36, 0, 36}, {37, 0, 37}, {38, 0, 38},
+-	{41, 0, 41}, {43, 0, 43}, {44, 0, 44}, {45, 0, 45}, {46, 0, 46}, {47, 0, 47}, {50, 0, 50}, {62, 0, 62}, {63, 0, 63}, {65, 0, 65},
++	{41, 0, 41}, {43, 0, 43}, {44, 0, 44}, {45, 0, 45}, {46, 0, 46}, {47, 0, 47}, {50, 0, 50}, {62, 0, 62}, {63, 0, 63},
+ };
+ static const WorldLink kWorldMap_loomLinks[] = {
+ 	{2, 153, 3, 160, 0}, {3, 160, 2, 153, 0}, {3, 161, 5, 200, 0}, {3, 162, 4, 167, 0}, {3, 163, 10, 284, 0}, {3, 164, 10, 284, 0},
+@@ -135,12 +136,11 @@ static const WorldLink kWorldMap_loomLinks[] = {
+ 	{36, 599, 37, 601, 0}, {37, 601, 36, 599, 0}, {37, 602, 38, 609, 0}, {37, 603, 41, 630, 0}, {38, 609, 37, 602, 0}, {38, 623, 37, 602, 0},
+ 	{41, 630, 37, 603, 0}, {43, 639, 44, 652, 0}, {44, 652, 43, 0, 0}, {44, 653, 45, 0, 0}, {45, 655, 43, 0, 0}, {46, 681, 47, 696, 0},
+ 	{46, 683, 26, 449, 0}, {46, 684, 34, 0, 0}, {47, 695, 50, 722, 0}, {47, 696, 46, 681, 0}, {50, 721, 7, 251, 0}, {50, 722, 47, 695, 0},
+-	{62, 807, 5, 203, 0}, {63, 819, 5, 203, 0}, {63, 821, 62, 0, 0}, {63, 822, 62, 0, 0}, {65, 827, 28, 0, 0}, {65, 828, 30, 0, 0},
++	{62, 807, 5, 203, 0}, {63, 819, 5, 203, 0}, {63, 821, 62, 0, 0}, {63, 822, 62, 0, 0},
+ };
+ static const WorldArea kWorldMap_loomAreas[] = {
+ 	{43, "The castle"},
+ 	{13, "Waterspout"},
+-	{65, "Cave"},
+ };
+ static const WorldRoom kWorldMap_indy3Rooms[] = {
+ 	{1, 0, 1}, {2, 0, 2}, {3, 0, 3}, {4, 0, 4}, {6, 0, 6}, {7, 0, 7}, {12, 0, 12}, {13, 0, 13}, {15, 0, 15}, {16, 0, 16},
+@@ -268,15 +268,14 @@ static const WorldLink kWorldMap_atlantisLinks[] = {
+ 	{46, 553, 18, 191, 0}, {46, 573, 88, 0, 0}, {48, 582, 85, 0, 0}, {49, 596, 63, 851, 0}, {52, 706, 61, 0, 0}, {53, 715, 48, 0, 0},
+ 	{55, 725, 21, 258, 0}, {55, 780, 22, 260, 0}, {56, 794, 60, 0, 0}, {57, 797, 61, 833, 0}, {59, 812, 72, 0, 0}, {59, 813, 72, 0, 0},
+ 	{61, 833, 57, 797, 0}, {63, 851, 49, 596, 0}, {63, 853, 69, 945, 0}, {63, 854, 69, 945, 0}, {63, 855, 69, 945, 0}, {64, 856, 29, 304, 0},
+-	{65, 866, 78, 0, 0}, {65, 874, 20, 0, 0}, {66, 887, 48, 0, 0}, {66, 888, 48, 0, 0}, {66, 890, 48, 0, 0}, {67, 920, 75, 0, 0},
+-	{67, 915, 73, 996, 0}, {67, 925, 32, 0, 0}, {67, 921, 32, 352, 0}, {69, 945, 63, 0, 0}, {69, 942, 72, 0, 0}, {72, 985, 49, 0, 0},
+-	{72, 987, 75, 0, 0}, {72, 978, 41, 0, 0}, {72, 981, 69, 942, 0}, {72, 982, 59, 812, 0}, {72, 983, 33, 381, 0}, {73, 993, 67, 915, 0},
+-	{73, 997, 67, 0, 0}, {75, 1024, 29, 303, 0}, {75, 1018, 2, 0, 0}, {75, 1019, 76, 1035, 0}, {75, 1020, 13, 161, 0}, {75, 1021, 19, 210, 0},
+-	{75, 1027, 29, 303, 0}, {75, 1026, 27, 282, 0}, {75, 1029, 33, 0, 0}, {75, 1030, 49, 0, 0}, {75, 1031, 49, 0, 0}, {75, 1025, 27, 282, 0},
+-	{75, 1028, 2, 0, 0}, {75, 1034, 10, 0, 0}, {76, 1035, 75, 0, 0}, {76, 1049, 77, 1052, 0}, {77, 1052, 76, 1049, 0}, {78, 1064, 29, 328, 0},
+-	{78, 1070, 29, 328, 0}, {78, 1065, 65, 0, 0}, {78, 1066, 65, 0, 0}, {78, 1067, 65, 0, 0}, {78, 1068, 65, 0, 0}, {78, 1069, 65, 0, 0},
+-	{80, 1089, 20, 0, 0}, {80, 1086, 29, 301, 0}, {82, 1096, 48, 0, 0}, {82, 1097, 48, 0, 0}, {82, 1098, 48, 0, 0}, {82, 1099, 48, 0, 0},
+-	{82, 1100, 48, 0, 0}, {82, 1101, 48, 0, 0}, {82, 1102, 48, 0, 0},
++	{65, 866, 78, 0, 0}, {65, 874, 20, 0, 0}, {67, 920, 75, 0, 0}, {67, 915, 73, 996, 0}, {67, 925, 32, 0, 0}, {67, 921, 32, 352, 0},
++	{69, 945, 63, 0, 0}, {69, 942, 72, 0, 0}, {72, 985, 49, 0, 0}, {72, 987, 75, 0, 0}, {72, 978, 41, 0, 0}, {72, 981, 69, 942, 0},
++	{72, 982, 59, 812, 0}, {72, 983, 33, 381, 0}, {73, 993, 67, 915, 0}, {73, 997, 67, 0, 0}, {75, 1024, 29, 303, 0}, {75, 1018, 2, 0, 0},
++	{75, 1019, 76, 1035, 0}, {75, 1020, 13, 161, 0}, {75, 1021, 19, 210, 0}, {75, 1027, 29, 303, 0}, {75, 1026, 27, 282, 0}, {75, 1029, 33, 0, 0},
++	{75, 1030, 49, 0, 0}, {75, 1031, 49, 0, 0}, {75, 1025, 27, 282, 0}, {75, 1028, 2, 0, 0}, {75, 1034, 10, 0, 0}, {76, 1035, 75, 0, 0},
++	{76, 1049, 77, 1052, 0}, {77, 1052, 76, 1049, 0}, {78, 1064, 29, 328, 0}, {78, 1070, 29, 328, 0}, {78, 1065, 65, 0, 0}, {78, 1066, 65, 0, 0},
++	{78, 1067, 65, 0, 0}, {78, 1068, 65, 0, 0}, {78, 1069, 65, 0, 0}, {80, 1089, 20, 0, 0}, {80, 1086, 29, 301, 0}, {82, 1096, 48, 0, 0},
++	{82, 1097, 48, 0, 0}, {82, 1098, 48, 0, 0}, {82, 1099, 48, 0, 0}, {82, 1100, 48, 0, 0}, {82, 1101, 48, 0, 0}, {82, 1102, 48, 0, 0},
+ };
+ static const WorldArea kWorldMap_atlantisAreas[] = {
+ 	{42, "Submarine, surfaced"},
+@@ -297,20 +296,20 @@ static const WorldLink kWorldMap_tentacleLinks[] = {
+ 	{12, 71, 17, 118, 0}, {12, 72, 7, 22, 0}, {13, 78, 12, 69, 0}, {13, 79, 14, 95, 0}, {13, 80, 24, 168, 0}, {14, 95, 13, 79, 0},
+ 	{14, 96, 15, 104, 0}, {15, 104, 14, 96, 0}, {16, 109, 12, 70, 0}, {17, 115, 18, 124, 0}, {17, 116, 20, 134, 0}, {17, 117, 19, 127, 0},
+ 	{17, 118, 12, 71, 0}, {17, 119, 21, 144, 0}, {18, 124, 17, 115, 0}, {19, 127, 17, 117, 0}, {20, 134, 17, 116, 0}, {21, 142, 22, 148, 0},
+-	{21, 143, 23, 155, 0}, {21, 144, 17, 119, 0}, {22, 148, 21, 142, 0}, {23, 156, 24, 167, 0}, {23, 166, 21, 143, 0}, {24, 167, 23, 156, 0},
+-	{24, 168, 13, 80, 0}, {25, 173, 43, 435, 0}, {25, 178, 39, 375, 0}, {26, 179, 34, 295, 0}, {26, 180, 27, 195, 0}, {26, 181, 40, 395, 0},
+-	{27, 195, 26, 0, 0}, {27, 196, 33, 287, 0}, {28, 202, 43, 436, 0}, {29, 215, 34, 298, 0}, {29, 216, 11, 50, 0}, {30, 247, 31, 0, 0},
+-	{30, 256, 31, 264, 0}, {30, 258, 41, 425, 0}, {31, 260, 34, 299, 0}, {31, 261, 43, 434, 0}, {31, 262, 41, 415, 0}, {31, 263, 32, 273, 0},
+-	{31, 264, 30, 247, 0}, {32, 273, 31, 0, 0}, {32, 286, 31, 263, 0}, {33, 287, 27, 196, 0}, {34, 295, 26, 179, 0}, {34, 296, 37, 346, 0},
+-	{34, 297, 36, 331, 0}, {34, 298, 29, 215, 0}, {34, 299, 31, 260, 0}, {36, 331, 34, 297, 0}, {36, 332, 38, 362, 0}, {37, 346, 34, 296, 0},
+-	{38, 362, 36, 332, 0}, {38, 366, 89, 756, 0}, {39, 375, 25, 178, 0}, {39, 376, 40, 396, 0}, {40, 395, 26, 0, 0}, {40, 396, 39, 376, 0},
+-	{41, 415, 31, 0, 0}, {41, 425, 30, 258, 0}, {42, 427, 43, 437, 0}, {43, 434, 31, 261, 0}, {43, 435, 25, 173, 0}, {43, 436, 28, 202, 0},
+-	{43, 437, 42, 427, 0}, {44, 440, 46, 464, 0}, {45, 450, 46, 465, 0}, {46, 462, 47, 476, 0}, {46, 463, 54, 560, 0}, {46, 464, 44, 440, 0},
+-	{46, 465, 45, 450, 0}, {46, 466, 59, 616, 0}, {47, 472, 49, 504, 0}, {47, 473, 50, 511, 0}, {47, 474, 52, 529, 0}, {47, 476, 46, 462, 0},
+-	{47, 490, 53, 538, 0}, {48, 492, 58, 608, 0}, {48, 493, 52, 531, 0}, {49, 503, 57, 590, 0}, {49, 504, 47, 472, 0}, {50, 511, 47, 473, 0},
+-	{51, 519, 52, 530, 0}, {52, 529, 47, 474, 0}, {52, 530, 51, 519, 0}, {52, 531, 48, 493, 0}, {52, 532, 56, 582, 0}, {53, 538, 47, 475, 0},
+-	{54, 560, 46, 463, 0}, {56, 582, 52, 532, 0}, {57, 590, 49, 503, 0}, {57, 593, 11, 50, 0}, {57, 604, 49, 503, 0}, {58, 608, 48, 492, 0},
+-	{59, 616, 46, 466, 0}, {89, 756, 38, 366, 0},
++	{21, 143, 23, 155, 0}, {21, 144, 17, 119, 0}, {22, 148, 21, 142, 0}, {23, 156, 24, 167, 0}, {24, 167, 23, 156, 0}, {24, 168, 13, 80, 0},
++	{25, 173, 43, 435, 0}, {25, 178, 39, 375, 0}, {26, 179, 34, 295, 0}, {26, 180, 27, 195, 0}, {26, 181, 40, 395, 0}, {27, 195, 26, 0, 0},
++	{27, 196, 33, 287, 0}, {28, 202, 43, 436, 0}, {29, 215, 34, 298, 0}, {29, 216, 11, 50, 0}, {30, 247, 31, 0, 0}, {30, 256, 31, 264, 0},
++	{30, 258, 41, 425, 0}, {31, 260, 34, 299, 0}, {31, 261, 43, 434, 0}, {31, 262, 41, 415, 0}, {31, 263, 32, 273, 0}, {31, 264, 30, 247, 0},
++	{32, 273, 31, 0, 0}, {32, 286, 31, 263, 0}, {33, 287, 27, 196, 0}, {34, 295, 26, 179, 0}, {34, 296, 37, 346, 0}, {34, 297, 36, 331, 0},
++	{34, 298, 29, 215, 0}, {34, 299, 31, 260, 0}, {36, 331, 34, 297, 0}, {36, 332, 38, 362, 0}, {37, 346, 34, 296, 0}, {38, 362, 36, 332, 0},
++	{38, 366, 89, 756, 0}, {39, 375, 25, 178, 0}, {39, 376, 40, 396, 0}, {40, 395, 26, 0, 0}, {40, 396, 39, 376, 0}, {41, 415, 31, 0, 0},
++	{41, 425, 30, 258, 0}, {42, 427, 43, 437, 0}, {43, 434, 31, 261, 0}, {43, 435, 25, 173, 0}, {43, 436, 28, 202, 0}, {43, 437, 42, 427, 0},
++	{44, 440, 46, 464, 0}, {45, 450, 46, 465, 0}, {46, 462, 47, 476, 0}, {46, 463, 54, 560, 0}, {46, 464, 44, 440, 0}, {46, 465, 45, 450, 0},
++	{46, 466, 59, 616, 0}, {47, 472, 49, 504, 0}, {47, 473, 50, 511, 0}, {47, 474, 52, 529, 0}, {47, 476, 46, 462, 0}, {47, 490, 53, 538, 0},
++	{48, 492, 58, 608, 0}, {48, 493, 52, 531, 0}, {49, 503, 57, 590, 0}, {49, 504, 47, 472, 0}, {50, 511, 47, 473, 0}, {51, 519, 52, 530, 0},
++	{52, 529, 47, 474, 0}, {52, 530, 51, 519, 0}, {52, 531, 48, 493, 0}, {52, 532, 56, 582, 0}, {53, 538, 47, 475, 0}, {54, 560, 46, 463, 0},
++	{56, 582, 52, 532, 0}, {57, 590, 49, 503, 0}, {57, 593, 11, 50, 0}, {57, 604, 49, 503, 0}, {58, 608, 48, 492, 0}, {59, 616, 46, 466, 0},
++	{89, 756, 38, 366, 0},
+ };
+ static const WorldRoom kWorldMap_samnmaxRooms[] = {
+ 	{7, 0, 7}, {8, 0, 8}, {9, 0, 9}, {10, 1, 10}, {11, 0, 11}, {12, 0, 12}, {15, 0, 15}, {16, 0, 16}, {17, 0, 17}, {20, 0, 20},
+@@ -343,31 +342,29 @@ static const WorldArea kWorldMap_samnmaxAreas[] = {
+ 	{49, "Virtual reality"},
+ };
+ static const WorldRoom kWorldMap_ftRooms[] = {
+-	{5, 0, 5}, {6, 0, 6}, {7, 0, 7}, {10, 0, 10}, {12, 0, 12}, {13, 1, 13}, {17, 0, 17}, {18, 0, 18}, {20, 0, 20}, {21, 0, 21},
+-	{23, 0, 23}, {25, 0, 25}, {26, 0, 26}, {27, 0, 27}, {28, 0, 28}, {43, 0, 43}, {45, 0, 45}, {47, 0, 47}, {48, 0, 48}, {49, 0, 49},
+-	{50, 0, 50}, {51, 0, 51}, {52, 0, 52}, {53, 0, 53}, {54, 0, 54}, {55, 0, 55}, {56, 0, 56}, {57, 0, 57}, {60, 0, 60}, {61, 0, 61},
+-	{62, 0, 62}, {63, 0, 63}, {64, 0, 64}, {65, 0, 65}, {66, 0, 66}, {70, 0, 70}, {90, 0, 90}, {91, 0, 91}, {95, 0, 95}, {99, 0, 99},
+-	{107, 0, 107}, {115, 0, 115}, {116, 0, 116}, {117, 1, 117}, {123, 0, 123}, {129, 0, 129}, {130, 0, 130}, {131, 0, 131}, {132, 0, 132}, {144, 0, 144},
+-	{174, 0, 174},
++	{5, 0, 5}, {6, 0, 6}, {7, 0, 7}, {10, 0, 10}, {12, 0, 12}, {17, 0, 17}, {18, 0, 18}, {20, 0, 20}, {21, 0, 21}, {23, 0, 23},
++	{25, 0, 25}, {26, 0, 26}, {27, 0, 27}, {28, 0, 28}, {43, 0, 43}, {45, 0, 45}, {47, 0, 47}, {48, 0, 48}, {49, 0, 49}, {50, 0, 50},
++	{51, 0, 51}, {52, 0, 52}, {53, 0, 53}, {54, 0, 54}, {55, 0, 55}, {56, 0, 56}, {57, 0, 57}, {60, 0, 60}, {61, 0, 61}, {62, 0, 62},
++	{63, 0, 63}, {64, 0, 64}, {65, 0, 65}, {66, 0, 66}, {70, 0, 70}, {90, 0, 90}, {91, 0, 91}, {95, 0, 95}, {99, 0, 99}, {107, 0, 107},
++	{115, 0, 115}, {116, 0, 116}, {117, 1, 117}, {123, 0, 123}, {129, 0, 129}, {130, 0, 130}, {131, 0, 131}, {132, 0, 132}, {144, 0, 144}, {174, 0, 174},
+ };
+ static const WorldLink kWorldMap_ftLinks[] = {
+ 	{5, 41, 6, 51, 0}, {5, 48, 10, 89, 0}, {6, 50, 10, 89, 0}, {6, 51, 5, 41, 0}, {6, 52, 5, 41, 0}, {6, 53, 5, 41, 0},
+-	{6, 54, 5, 41, 0}, {6, 55, 7, 63, 0}, {6, 60, 13, 0, 0}, {7, 63, 6, 55, 0}, {7, 82, 132, 0, 0}, {10, 89, 6, 50, 0},
+-	{12, 96, 13, 0, 0}, {17, 105, 18, 115, 0}, {18, 115, 17, 105, 0}, {18, 116, 20, 128, 0}, {18, 122, 20, 128, 0}, {20, 128, 18, 116, 0},
+-	{20, 130, 21, 141, 0}, {20, 131, 26, 176, 0}, {20, 132, 26, 176, 0}, {20, 133, 21, 141, 0}, {20, 134, 27, 185, 0}, {20, 135, 27, 185, 0},
+-	{21, 141, 20, 130, 0}, {21, 142, 23, 151, 0}, {23, 151, 21, 142, 0}, {25, 166, 23, 159, 0}, {25, 167, 18, 115, 0}, {26, 176, 20, 131, 0},
+-	{26, 177, 20, 131, 0}, {27, 184, 20, 134, 0}, {27, 185, 20, 134, 0}, {27, 187, 91, 454, 0}, {28, 192, 91, 460, 0}, {28, 195, 91, 462, 0},
+-	{43, 214, 131, 561, 0}, {45, 236, 13, 0, 0}, {45, 237, 13, 0, 0}, {47, 246, 117, 527, 0}, {47, 247, 117, 527, 0}, {47, 248, 48, 251, 0},
+-	{49, 258, 50, 0, 0}, {51, 272, 54, 284, 0}, {51, 273, 61, 320, 0}, {51, 275, 60, 315, 0}, {51, 276, 54, 284, 0}, {53, 280, 90, 452, 0},
+-	{53, 281, 52, 0, 0}, {54, 284, 51, 272, 0}, {54, 285, 55, 296, 0}, {55, 296, 54, 285, 0}, {56, 304, 57, 0, 0}, {57, 312, 56, 0, 0},
+-	{57, 313, 56, 0, 0}, {60, 315, 51, 275, 0}, {60, 316, 51, 275, 0}, {61, 320, 51, 273, 0}, {61, 321, 62, 337, 0}, {62, 337, 61, 321, 0},
+-	{62, 338, 64, 349, 0}, {62, 339, 63, 0, 0}, {64, 349, 62, 338, 0}, {64, 350, 65, 355, 0}, {64, 351, 65, 355, 0}, {64, 353, 66, 363, 0},
+-	{65, 355, 64, 351, 0}, {65, 356, 66, 362, 0}, {65, 357, 62, 337, 0}, {65, 359, 62, 337, 0}, {65, 360, 62, 337, 0}, {66, 362, 65, 356, 0},
+-	{66, 363, 64, 350, 0}, {70, 372, 99, 0, 0}, {70, 373, 99, 0, 0}, {70, 374, 99, 0, 0}, {90, 452, 52, 0, 0}, {91, 454, 27, 187, 0},
+-	{91, 456, 18, 115, 0}, {91, 462, 28, 195, 0}, {95, 467, 54, 0, 0}, {99, 487, 70, 0, 0}, {99, 488, 123, 0, 0}, {99, 493, 123, 0, 0},
+-	{107, 499, 7, 63, 0}, {107, 500, 115, 515, 0}, {107, 501, 115, 515, 0}, {115, 510, 7, 63, 0}, {115, 514, 116, 517, 0}, {116, 517, 115, 514, 0},
+-	{117, 524, 13, 0, 0}, {117, 526, 130, 0, 0}, {117, 527, 13, 0, 0}, {117, 528, 144, 0, 0}, {131, 561, 43, 214, 0}, {131, 569, 43, 0, 0},
+-	{131, 572, 43, 0, 0}, {132, 575, 7, 0, 0}, {174, 667, 129, 0, 0}, {174, 668, 129, 0, 0}, {174, 669, 129, 0, 0}, {174, 670, 129, 0, 0},
++	{6, 54, 5, 41, 0}, {6, 55, 7, 63, 0}, {7, 63, 6, 55, 0}, {7, 82, 132, 0, 0}, {10, 89, 6, 50, 0}, {17, 105, 18, 115, 0},
++	{18, 115, 17, 105, 0}, {18, 116, 20, 128, 0}, {18, 122, 20, 128, 0}, {20, 128, 18, 116, 0}, {20, 130, 21, 141, 0}, {20, 131, 26, 176, 0},
++	{20, 132, 26, 176, 0}, {20, 133, 21, 141, 0}, {20, 134, 27, 185, 0}, {20, 135, 27, 185, 0}, {21, 141, 20, 130, 0}, {21, 142, 23, 151, 0},
++	{23, 151, 21, 142, 0}, {25, 166, 23, 159, 0}, {25, 167, 18, 115, 0}, {26, 176, 20, 131, 0}, {26, 177, 20, 131, 0}, {27, 184, 20, 134, 0},
++	{27, 185, 20, 134, 0}, {27, 187, 91, 454, 0}, {28, 192, 91, 460, 0}, {28, 195, 91, 462, 0}, {43, 214, 131, 561, 0}, {45, 236, 51, 0, 0},
++	{45, 237, 51, 0, 0}, {47, 246, 117, 527, 0}, {47, 247, 117, 527, 0}, {47, 248, 48, 251, 0}, {49, 258, 50, 0, 0}, {51, 272, 54, 284, 0},
++	{51, 273, 61, 320, 0}, {51, 275, 60, 315, 0}, {51, 276, 54, 284, 0}, {53, 280, 90, 452, 0}, {53, 281, 52, 0, 0}, {54, 284, 51, 272, 0},
++	{54, 285, 55, 296, 0}, {55, 296, 54, 285, 0}, {56, 304, 57, 0, 0}, {57, 312, 56, 0, 0}, {57, 313, 56, 0, 0}, {60, 315, 51, 275, 0},
++	{60, 316, 51, 275, 0}, {61, 320, 51, 273, 0}, {61, 321, 62, 337, 0}, {62, 337, 61, 321, 0}, {62, 338, 64, 349, 0}, {62, 339, 63, 0, 0},
++	{64, 349, 62, 338, 0}, {64, 350, 65, 355, 0}, {64, 351, 65, 355, 0}, {64, 353, 66, 363, 0}, {65, 355, 64, 351, 0}, {65, 356, 66, 362, 0},
++	{65, 357, 62, 337, 0}, {65, 359, 62, 337, 0}, {65, 360, 62, 337, 0}, {66, 362, 65, 356, 0}, {66, 363, 64, 350, 0}, {70, 372, 99, 0, 0},
++	{70, 373, 99, 0, 0}, {70, 374, 99, 0, 0}, {90, 452, 52, 0, 0}, {91, 454, 27, 187, 0}, {91, 456, 18, 115, 0}, {91, 462, 28, 195, 0},
++	{95, 467, 54, 0, 0}, {99, 487, 70, 0, 0}, {99, 488, 123, 0, 0}, {99, 493, 123, 0, 0}, {107, 499, 7, 63, 0}, {107, 500, 115, 515, 0},
++	{107, 501, 115, 515, 0}, {115, 510, 7, 63, 0}, {115, 514, 116, 517, 0}, {116, 517, 115, 514, 0}, {117, 524, 45, 0, 0}, {117, 526, 130, 0, 0},
++	{117, 528, 144, 0, 0}, {131, 561, 43, 214, 0}, {131, 569, 43, 0, 0}, {131, 572, 43, 0, 0}, {132, 575, 7, 0, 0}, {174, 667, 129, 0, 0},
+ };
+ static const WorldArea kWorldMap_ftAreas[] = {
+ 	{47, "Highway vista and mine road"},
+@@ -379,7 +376,6 @@ static const WorldArea kWorldMap_ftAreas[] = {
+ 	{174, "Tunnel and finale"},
+ 	{12, "Road"},
+ 	{25, "Todd's basement"},
+-	{45, "Gorge"},
+ 	{95, "Minefield"},
+ };
+ static const WorldRoom kWorldMap_digRooms[] = {
+@@ -553,13 +549,13 @@ static const WorldArea kWorldMap_zakAreas[] = {
+ };
+ static const WorldMap kWorldMaps[] = {
+ 	{kWorldMap_monkeyRooms, 81, kWorldMap_monkeyLinks, 231, kWorldMap_monkeyAreas, 9},
+-	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 185, kWorldMap_monkey2Areas, 5},
+-	{kWorldMap_loomRooms, 40, kWorldMap_loomLinks, 96, kWorldMap_loomAreas, 3},
++	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 176, kWorldMap_monkey2Areas, 7},
++	{kWorldMap_loomRooms, 39, kWorldMap_loomLinks, 94, kWorldMap_loomAreas, 2},
+ 	{kWorldMap_indy3Rooms, 110, kWorldMap_indy3Links, 340, kWorldMap_indy3Areas, 5},
+-	{kWorldMap_atlantisRooms, 73, kWorldMap_atlantisLinks, 267, kWorldMap_atlantisAreas, 3},
+-	{kWorldMap_tentacleRooms, 50, kWorldMap_tentacleLinks, 116, nullptr, 0},
++	{kWorldMap_atlantisRooms, 73, kWorldMap_atlantisLinks, 264, kWorldMap_atlantisAreas, 3},
++	{kWorldMap_tentacleRooms, 50, kWorldMap_tentacleLinks, 115, nullptr, 0},
+ 	{kWorldMap_samnmaxRooms, 45, kWorldMap_samnmaxLinks, 93, kWorldMap_samnmaxAreas, 3},
+-	{kWorldMap_ftRooms, 51, kWorldMap_ftLinks, 102, kWorldMap_ftAreas, 11},
++	{kWorldMap_ftRooms, 50, kWorldMap_ftLinks, 96, kWorldMap_ftAreas, 10},
+ 	{kWorldMap_digRooms, 61, kWorldMap_digLinks, 139, kWorldMap_digAreas, 3},
+ 	{kWorldMap_comiRooms, 52, kWorldMap_comiLinks, 143, kWorldMap_comiAreas, 6},
+ 	{kWorldMap_maniacRooms, 37, kWorldMap_maniacLinks, 73, kWorldMap_maniacAreas, 1},
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 5b04b8da..a5dbe892 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -24,8 +24,9 @@
+ // when any, u8 the one the scene shows, int16 x, y, u16 width, height
+ // (clipped to the scene) and each picture (width * height palette
+ // indices): the rectangle without the object (state 0), then in each of
+-// its states, all else as the scene has it. Readers also accept
+-// "SVW1".."SVW4".
++// its states, all else as the scene has it but what the game draws over it
++// (left out: the new engine draws those over it) and what it is inside (as
++// the game draws it in that). Readers also accept "SVW1".."SVW4".
+ //
+ // Character file ("SVC1"): u16 costume, u16 frameCount, palette[768], then
+ // per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk, seated),
+@@ -72,17 +73,36 @@ bool ScummEngine::scummverseObjectDrawable(const ObjectData &o, int state) {
+ 	if (!o.OBIMoffset && (_game.features & GF_SMALL_HEADER)) return false;
+ 	if (o.y_pos < 0 || o.y_pos + o.height > _virtscr[kMainVirtScreen].h) return false;
+ 	// (The oldest games' objects have one image each, of the room's tiles;
+-	// those without one all point at the same place, or past the images.)
++	// those without one point where the next image starts, or past the
++	// images.)
+ 	if (_game.version <= 2) {
+ 		if (state != 1) return state == 0;
+-		uint32 firstCode = 0xFFFFFFFF;
++		uint32 firstCode = 0xFFFFFFFF, next = 0xFFFFFFFF;
++		bool shared = false;
+ 		for (int i = 1; i < _numLocalObjects; ++i) {
+ 			const ObjectData &other = _objs[i];
+ 			if (!other.obj_nr) continue;
+ 			firstCode = MIN<uint32>(firstCode, other.OBCDoffset);
+-			if (&other != &o && other.OBIMoffset == o.OBIMoffset) return false;
+-		}
+-		return o.OBIMoffset < firstCode;
++			if (other.OBIMoffset > o.OBIMoffset) next = MIN<uint32>(next, other.OBIMoffset);
++			shared = shared || (&other != &o && other.OBIMoffset == o.OBIMoffset);
++		}
++		if (o.OBIMoffset >= firstCode) return false;
++		if (!shared) return true;
++		if (_game.version == 2) return false;
++		// (Of several pointing at one, the one whose image it is: its tiles,
++		// read as GdiV1 decodes them, end exactly where the next image, or
++		// the first code, starts. Several the same size share it.)
++		const byte *room = getResourceAddress(rtRoom, _roomResource);
++		const uint32 end = MIN(next, firstCode), size = (o.width / 8) * (o.height / 8) * 3;
++		if (!room || !size || end > (uint32)getResourceSize(rtRoom, _roomResource)) return false;
++		uint32 at = o.OBIMoffset + 4, count = 0;
++		while (count < size && at < end) {
++			const byte run = room[at++];
++			if (run & 0x80) count += (run & 0x1F) + 1;
++			else if (run & 0x40) { ++at; count += (run & 0x3F) + 1; }
++			else { at += run + 1; count += run + 1; }
++		}
++		return count == size && at == end;
+ 	}
+ 	const byte *image = getObjectImage(getOBIMFromObjectData(o), state);
+ 	if (!image) return false;
+@@ -281,6 +301,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			_rnd.setSeed(0x5C0BE + room); // (The same picks each time.)
+ 			VAR(VAR_CAMERA_MIN_X) = _screenWidth / 2; VAR(VAR_CAMERA_MAX_X) = _roomWidth - _screenWidth / 2;
+ 		}
++		// (The things pass's put back after too: a room whose script takes
++		// the player on is set up again without it, below.)
++		if (things && !keep.vm) keep.take(this);
+ 		// (An instance's own settings first; all of it put back after.)
+ 		if (instance) {
+ 			if (!keep.vm) keep.take(this);
+@@ -326,9 +349,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		// games' room colours are: what their scripts set stays).
+ 		if (_game.version > 2) for (int i = 0; i < 256; ++i) _roomPalette[i] = i;
+ 		if (_currentRoom != logical || _roomResource != resource) {
+-			// (An oldest game's room whose script takes the player on at once:
++			// (A room whose script takes the player on at once, in any game:
+ 			// as drawn, without it.)
+-			if (_game.version <= 2 && !_scummverseNoEntryScript) {
++			if (!_scummverseNoEntryScript) {
+ 				keep.put();
+ 				_scummverseNoEntryScript = true;
+ 				const bool done = scummverseExportScene(room, file, problem, scripted, shown, shownCount, depths, things);
+@@ -618,6 +641,16 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				for (int x = 0; x < p.width; ++x) rect[y * p.width + x] = from[(p.y + y) * W + p.x + x];
+ 			return rect;
+ 		};
++		// (Which objects get pictures: in the picture, with an image the
++		// game draws; the older games draw whole rows of 8: none, none drawn.)
++		auto pictured = [&](const ObjectData &c) {
++			const int images = !getOBIMFromObjectData(c) ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : CLIP(getObjectImageCount(c.obj_nr), 0, 16);
++			return c.obj_nr && c.width > 0 && c.height > 0 && MAX<int>(0, c.x_pos) < MIN<int>(W, c.x_pos + c.width) &&
++				MAX<int>(0, c.y_pos) < MIN<int>(shownHeight, c.y_pos + c.height) && images > 0 && (_game.version >= 7 || (c.height & ~7) > 0) &&
++				scummverseObjectDrawable(c, 1);
++		};
++		// (A state the game draws an object in: drawRoomObjects' test.)
++		const int on = old ? kObjectStateIntrinsic : 0xF;
+ 		int drift = 0;
+ 		for (int i = 1; i < _numLocalObjects; ++i) {
+ 			const ObjectData &o = _objs[i];
+@@ -627,22 +660,35 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			const int x0 = MAX<int>(0, o.x_pos), y0 = MAX<int>(0, o.y_pos), x1 = MIN<int>(W, o.x_pos + o.width), y1 = MIN<int>(shownHeight, o.y_pos + o.height);
+ 			const byte *obim = getOBIMFromObjectData(o);
+ 			const int images = !obim ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : CLIP(getObjectImageCount(o.obj_nr), 0, 16);
+-			// (The older games draw whole rows of 8: none, none drawn.)
+-			const bool rows = _game.version >= 7 || (o.height & ~7) > 0;
+-			// (From 0168 the mansion's thing inside another (the fridge's food,
+-			// the key under the mat) is drawn with that one as it shows it: the
+-			// one it is in opened while its pictures are taken, then shut
+-			// again. The scene keeps it as it was.)
+-			Common::Array<int> opened, openedWas;
+-			if (_game.id == GID_MANIAC && _game.version <= 1)
+-				for (int at = i, depth = 0; _objs[at].parent && _objs[at].parent < _numLocalObjects && depth < 8; at = _objs[at].parent, ++depth) {
+-					const int up = _objs[at].parent, want = _objs[at].parentstate & kObjectStateIntrinsic;
+-					if ((_objs[up].state & kObjectStateIntrinsic) == want) continue;
+-					opened.push_back(up); openedWas.push_back(getState(_objs[up].obj_nr));
+-					_objs[up].state = (_objs[up].state & ~kObjectStateIntrinsic) | want;
+-					putState(_objs[up].obj_nr, (getState(_objs[up].obj_nr) & ~kObjectStateIntrinsic) | want);
+-				}
+-			if (x0 < x1 && y0 < y1 && images > 0 && rows && scummverseObjectDrawable(o, 1)) {
++			// (A thing inside another (the fridge's food, the key under the
++			// mat; from 0168 the mansion's, now every game's) is drawn with
++			// that one as it shows it: the one it is in put in the state the
++			// game draws it in (drawRoomObject's test) while its pictures are
++			// taken, then put back. The scene keeps it as it was.)
++			Common::Array<int> opened, openedWas, inside;
++			for (int at = i, depth = 0; _objs[at].parent && _objs[at].parent < _numLocalObjects && depth < 8; at = _objs[at].parent, ++depth) {
++				const int up = _objs[at].parent, want = _objs[at].parentstate & on;
++				inside.push_back(up);
++				if ((_objs[up].state & on) == want) continue;
++				opened.push_back(up); openedWas.push_back(getState(_objs[up].obj_nr));
++				_objs[up].state = (_objs[up].state & ~on) | want;
++				putState(_objs[up].obj_nr, (getState(_objs[up].obj_nr) & ~on) | want);
++			}
++			// (What the game draws over it (the objects before it; Sam & Max's
++			// after it) where its picture is, switched off meanwhile, so that
++			// its pictures show it, not what covers it (the garage door over
++			// the car's trunk). Only those with pictures of their own: the new
++			// engine draws them over it again; not one it is inside.)
++			Common::Array<int> covers, coversWere;
++			for (int k = 1; k < _numLocalObjects; ++k) {
++				const ObjectData &c = _objs[k];
++				const bool over = _game.id == GID_SAMNMAX ? k > i : k < i;
++				if (!over || !c.obj_nr || !(_game.id == GID_SAMNMAX ? c.state : c.state & on) || Common::find(inside.begin(), inside.end(), k) != inside.end()) continue;
++				if (c.x_pos >= x1 || c.x_pos + c.width <= x0 || c.y_pos >= y1 || c.y_pos + c.height <= y0 || !pictured(c)) continue;
++				covers.push_back(k); coversWere.push_back(c.state);
++			}
++			for (int k : covers) _objs[k].state = old ? _objs[k].state & ~kObjectStateIntrinsic : 0;
++			if (pictured(o)) {
+ 				p.x = x0; p.y = y0; p.width = x1 - x0; p.height = y1 - y0;
+ 				const int global = getState(o.obj_nr);
+ 				// The one shown: its state, drawn (else none; the older games
+@@ -651,8 +697,10 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				const int now = old ? (states[i - 1] & kObjectStateIntrinsic ? 1 : 0) : !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
+ 				renderSpan(x0, x1);
+ 				const Common::Array<byte> drawn = grab(pixels, p);
+-				// (One inside another shut in the scene: as that one opened.)
+-				const Common::Array<byte> inScene = opened.empty() ? grab(scene, p) : drawn;
++				// (One inside another shut in the scene, or under another: as
++				// drawn now.)
++				const bool asScene = opened.empty() && covers.empty();
++				const Common::Array<byte> inScene = asScene ? grab(scene, p) : drawn;
+ 				for (int state = 0; state <= images; ++state) {
+ 					if (state && !scummverseObjectDrawable(o, state)) break;
+ 					const int as = old ? (state ? global | kObjectStateIntrinsic : global & ~kObjectStateIntrinsic) : state;
+@@ -671,8 +719,8 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 						for (byte c : rect) if (++counts[c] > most) { most = counts[c]; block = c; }
+ 						int alike = 0, ring = 0, ringAlike = 0;
+ 						for (byte c : inScene) alike += c == block;
+-						// (Around one inside another: that one opened, as drawn now.)
+-						const Common::Array<byte> &around = opened.empty() ? scene : pixels;
++						// (Around one inside another, or under another: as drawn now.)
++						const Common::Array<byte> &around = asScene ? scene : pixels;
+ 						for (int y = MAX(0, y0 - 8); y < MIN(shownHeight, y1 + 8); ++y)
+ 							for (int x = MAX(0, x0 - 8); x < MIN(W, x1 + 8); ++x)
+ 								if (x < x0 || x >= x1 || y < y0 || y >= y1) { ++ring; ringAlike += around[y * W + x] == block; }
+@@ -687,6 +735,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				drift += p.states[p.shown] != inScene;
+ 				p.states[p.shown] = inScene;
+ 			}
++			for (uint k = 0; k < covers.size(); ++k) _objs[covers[k]].state = coversWere[k];
+ 			for (uint k = opened.size(); k-- > 0;) { _objs[opened[k]].state = states[opened[k] - 1]; putState(_objs[opened[k]].obj_nr, openedWas[k]); }
+ 			pictures.push_back(p);
+ 		}
+@@ -1552,9 +1601,10 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // game's variables and states put back after each room. "SVO1", u16 room
+ // count, per room u16 room, u16 object count and per object u16 number, u8
+ // the picture it is in (its state as drawn). A room whose script leaves it
+-// is not listed. Per object also u16 the verbs its own script answers (bit
+-// k: WorldVerbKind k; bit 14: it has a catch-all entry, bit 15: untouchable
+-// there, or carried). From 0155, the mansion's is "SVO2": then what each
++// is set up again without that script (not listed if that fails too). Per
++// object also u16 the verbs its own script answers (bit k: WorldVerbKind
++// k; bit 14: it has a catch-all entry, bit 15: untouchable there, or
++// carried). From 0155, the mansion's is "SVO2": then what each
+ // thing's own script does to the verbs that change a picture (open, close,
+ // turn on and off, push, pull) from each of its two pictures (see
+ // Scummverse::Panel::ThingEffect): each from the game's own start again,
+@@ -1571,7 +1621,8 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // From 0195 "SVO5": then the main power (kWorldMainPowers: u16 room, u16
+ // object, u8 its picture when off) and the places dark while it is off (u16
+ // count, u16 each): lit on arriving with it on, dark with it turned off by
+-// its own script.
++// its own script. Every other game's is "SVO3" with no effects (before,
++// "SVO1"), so that what is inside another is known there too.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1600,7 +1651,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		r.room = room;
+ 		Common::String why;
+ 		if (scummverseExportScene(room, Common::Path(), why, true, nullptr, 0, nullptr, &r.things)) found.push_back(r);
+-		else debug(1, "SCUMMVERSE world things: %s room %d not set up (%s)", kWorldGames[gameIndex].gameid, room, why.c_str());
++		else warning("SCUMMVERSE world things: %s room %d not set up (%s)", kWorldGames[gameIndex].gameid, room, why.c_str());
+ 	}
+ 	putBack();
+ 	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
+@@ -1895,7 +1946,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO1" : "SVO5", 4);
++	out.write(effects.empty() ? "SVO3" : "SVO5", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -1904,26 +1955,32 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			scummverseWrite16(out, r.things[i]); out.writeByte(CLIP(r.things[i + 1], 0, 255)); scummverseWrite16(out, r.things[i + 2]);
+ 		}
+ 	}
+-	if (!effects.empty()) {
+-		scummverseWrite16(out, MIN<uint>(effects.size(), 32768));
+-		for (uint k = 0; k < effects.size() && k < 32768; ++k) {
+-			const Effect &e = effects[k];
+-			scummverseWrite16(out, e.room); scummverseWrite16(out, e.id);
+-			out.writeByte(e.kind); out.writeByte(e.from); scummverseWrite16(out, e.with);
+-			out.writeByte(e.after | (e.taken ? 2 : 0) | (e.firstGone ? 4 : 0) | (e.secondGone ? 8 : 0)); out.writeByte(e.others.size() / 3);
+-			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2]); }
+-			out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
+-		}
+-		// (From 0168, "SVO3": what each thing is inside, and the picture
+-		// that one shows it in.)
+-		Common::Array<int> parents;
+-		for (const Room &r : found)
+-			for (uint i = 0; i + 4 < r.things.size(); i += 5)
+-				if (r.things[i + 3] && r.things[i + 3] != r.things[i]) { parents.push_back(r.room); parents.push_back(r.things[i]); parents.push_back(r.things[i + 3]); parents.push_back(r.things[i + 4]); }
+-		scummverseWrite16(out, MIN<uint>(parents.size() / 4, 4096));
+-		for (uint k = 0; k + 3 < parents.size() && k / 4 < 4096; k += 4) {
+-			scummverseWrite16(out, parents[k]); scummverseWrite16(out, parents[k + 1]); scummverseWrite16(out, parents[k + 2]); out.writeByte(CLIP(parents[k + 3], 0, 255));
++	scummverseWrite16(out, MIN<uint>(effects.size(), 32768));
++	for (uint k = 0; k < effects.size() && k < 32768; ++k) {
++		const Effect &e = effects[k];
++		scummverseWrite16(out, e.room); scummverseWrite16(out, e.id);
++		out.writeByte(e.kind); out.writeByte(e.from); scummverseWrite16(out, e.with);
++		out.writeByte(e.after | (e.taken ? 2 : 0) | (e.firstGone ? 4 : 0) | (e.secondGone ? 8 : 0)); out.writeByte(e.others.size() / 3);
++		for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2]); }
++		out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
++	}
++	// (From 0168, "SVO3": what each thing is inside, and the picture that
++	// one shows it in; every game's, not only the mansion's. A number a room
++	// lists twice (Zak's) once: readers refuse a thing's parent twice.)
++	Common::Array<int> parents;
++	Common::HashMap<uint32, bool> listed;
++	for (const Room &r : found)
++		for (uint i = 0; i + 4 < r.things.size(); i += 5) {
++			const uint32 key = (uint32)r.room << 16 | (uint16)r.things[i];
++			if (!r.things[i + 3] || r.things[i + 3] == r.things[i] || listed.contains(key)) continue;
++			listed[key] = true;
++			parents.push_back(r.room); parents.push_back(r.things[i]); parents.push_back(r.things[i + 3]); parents.push_back(r.things[i + 4]);
+ 		}
++	scummverseWrite16(out, MIN<uint>(parents.size() / 4, 4096));
++	for (uint k = 0; k + 3 < parents.size() && k / 4 < 4096; k += 4) {
++		scummverseWrite16(out, parents[k]); scummverseWrite16(out, parents[k + 1]); scummverseWrite16(out, parents[k + 2]); out.writeByte(CLIP(parents[k + 3], 0, 255));
++	}
++	if (!effects.empty()) {
+ 		// (From 0195, "SVO5": the main power (room, object, its picture off;
+ 		// 0 0: none) and the places dark while it is off.)
+ 		scummverseWrite16(out, powerRoom); scummverseWrite16(out, powerId); out.writeByte(powerOff);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 1650a0fa..4208d6f2 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -590,9 +590,9 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	// (Read or picked up, saying nothing and changing nothing, or taken
+ 	// from the picture without it: the plain rules, as before 0161.)
+ 	if (plainAnswer(kind, from, after, taken, count, said) || (taken && isCarried(_game, _room, id))) return false;
+-	// (Taken where its two pictures are the same (the garage's, room 16: its
+-	// export has no picture without it): carried all the same, as its game
+-	// gives it, the place as it was.)
++	// (Taken where its two pictures are the same (the garage's, room 16,
++	// before export version 23: no picture without it): carried all the
++	// same, as its game gives it, the place as it was.)
+ 	if (taken && StageBridge::objectPictures(target) < 2) return false;
+ 	if (taken) {
+ 		// (Taken: carried, gone from the place, as the plain rules take one.)
+@@ -1070,36 +1070,18 @@ bool SandboxEngine::insideShut(int object) const {
+ }
+ 
+ // Drawn again as the original draws its room's objects (from the last to
+-// the first, so the first is on top): each thing something is inside, each
+-// such thing, and each other one over or under them; one inside one shut
+-// not drawn, so that one covers it. A room with none of them: nothing.
++// the first, so the first is on top; Sam & Max's the other way), each over
++// what is under it as it is now (StageBridge::layObjects; the oldest games'
++// objects whole, their tiles have no holes): one inside one shut not drawn,
++// so that one covers it; what covers another (the garage door over the car)
++// drawn over it again once it changes. Nothing while all are as the scene
++// has them.
+ void SandboxEngine::layInside() {
+ 	if (_game < 0) return;
+ 	const int count = StageBridge::objectCount();
+-	Common::Array<bool> family(count, false);
+-	bool any = false;
+-	for (int o = 0; o < count; ++o) {
+-		int id, ox, oy, w, h, wx, wy, state, parent, picture;
+-		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || !PanelBridge::thingParent(_game, _room, id, parent, picture)) continue;
+-		family[o] = any = true;
+-		for (int k = 0; k < count; ++k) {
+-			int kid, kx, ky, kw, kh, kwx, kwy, ks;
+-			if (StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && kid == parent) family[k] = true;
+-		}
+-	}
+-	if (!any) return;
+-	// (And what overlaps them.)
+-	Common::Array<bool> draw = family;
+-	for (int o = 0; o < count; ++o) {
+-		int id, ox, oy, w, h, wx, wy, state;
+-		if (draw[o] || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
+-		for (int k = 0; k < count && !draw[o]; ++k) {
+-			int kid, kx, ky, kw, kh, kwx, kwy, ks;
+-			draw[o] = family[k] && StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && ox < kx + kw && kx < ox + w && oy < ky + kh && ky < oy + h;
+-		}
+-	}
+-	for (int o = count - 1; o >= 0; --o)
+-		if (draw[o] && StageBridge::objectPictures(o) > 0 && !insideShut(o)) StageBridge::showObject(o, StageBridge::objectShown(o));
++	Common::Array<bool> hidden(count, false);
++	for (int o = 0; o < count; ++o) hidden[o] = insideShut(o);
++	StageBridge::layObjects(hidden.data(), count, !strcmp(kWorldGames[_game].gameid, "samnmax"), kWorldGames[_game].version <= 2);
+ 	_dirty = true;
+ }
+ 
+@@ -5079,8 +5061,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			const int o = thingIn(id);
+ 			if (o < 0 || !isThing(o)) { ++effectsAway; continue; }
+ 			// (Taken with no picture of its own: the plain rules, not taken. One
+-			// whose two pictures are the same (the garage's, from 0203) is
+-			// taken all the same, the place as it was.)
++			// whose two pictures are the same (the garage's, from 0203 until
++			// export version 23) is taken all the same, the place as it was.)
+ 			if (took && StageBridge::objectPictures(o) < 2) {
+ 				if (!doAt(kind, o) || isCarried(maniac, room, id)) fail("taken where no picture is without it", maniac);
+ 				++effectsPlain;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index c84ce5fa..40c1a39f 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -93,7 +93,7 @@ private:
+ 	bool tapsDoorFirst(int door, double x, double y) const;
+ 	bool tapFinds(int door, bool things) const; // some spot of it a tap takes (with the things a tap takes first, or without)
+ 	bool otherWay(int door) const;              // another door here a tap finds, leading where it does
+-	void layInside();                  // what is inside another drawn over it, or under it
++	void layInside();                  // each object drawn over what is under it now (what is inside another too)
+ 	bool isCarried(int game, int room, int id) const;
+ 	void sentence(const Common::String &text);
+ 	void chooseVerb(int verb);

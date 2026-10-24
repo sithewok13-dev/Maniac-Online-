@@ -5893,3 +5893,50 @@ From the second bug hunt (the classic engine's wanderers, tour and camera).
   wanderers (221 no place), camera, seating, van, flights, roaming, lights
   and doors, world visit and Story mode probes. The selfie aboard the plane
   is read and compiled, not run by a test. Not tested on an iPhone.
+
+## Patch 0214 — the exporter: what is drawn over things, shared door pictures, containers in every game
+
+From the second bug hunt (the world export). Export version 23: every game
+is exported again (markers: maniac-v31; comi, loom, monkey2, atlantis and
+zak v24; the rest v23).
+- Pictures were taken with what the game draws over a thing still drawn
+  (the mansion garage's door slats over the trunk and its tools, the
+  shower curtain over the bathroom's things, the wall safe under its
+  opened painting): both of a thing's pictures came out alike. While a
+  thing's pictures are taken, everything drawn over it is put away a
+  moment. Identical pictures under a shown thing: the mansion 12 to 0,
+  Loom 57 to 0, Zak 52 to 2, Indy 3 44 to 27, Monkey Island 69 to 49 (those
+  left draw nothing of their own: path hotspots).
+- The new engine lays things as the games draw them (Scene::layObjects):
+  the place without them, then each in its picture now, from the one under
+  all up; the oldest games' things whole, the others where they differ.
+  The garage: door opened, trunk opened, tools taken, door shut and opened
+  again, all drawn right; the drained pool no longer keeps a patch of water;
+  Monkey Island 2's people in room 47 are drawn in the right order.
+- Version 1 rooms where things share one picture pointer: the one it
+  belongs to (whose tiles end just where the next begin) keeps it. The
+  mansion's doors 10/454, 12/456, 21/465, 23/459 and 38/460 now open, and
+  46 of Zak's (doors and the containers holding things) have pictures.
+- Things inside closed containers, in every game: Zak, Monkey Island, Indy
+  3, Atlantis, Tentacle and Monkey Island 2 now say what each is inside
+  (things files "SVO3" with no effects), so they are hidden and untouched
+  while shut.
+- Door maps leave out places the export cannot make (Loom 65, Full
+  Throttle 13) and doors with nothing to tap (Monkey Island 2's 0x0 ones,
+  three of Atlantis', one of Tentacle's, three of Full Throttle's); two
+  Monkey Island 2 places get names ("Up the great tree", "Sea map").
+- The things pass says so when it fails, and retries without the room's
+  entry script in every game: 22 rooms that had none now have things.
+- Known limit: in the later games a thing whose colour matched what was
+  under it at export can show a few stray pixels of a changed thing under
+  it (needs per-picture opacity: a new format).
+- Tests: exported again here (all 12 games, the mansion's and Zak's too);
+  the full sandbox suite on it (objects with pictures 5860 to 5976; things
+  where their games put them 397 in 137 places to 418 in 146; doors 1923 of
+  1923 through; 134 arrivals with no way back, 32 from further in; the
+  garage's things whose pictures were alike: none now), test_stage (the
+  places without their things, laid in order), test_panel (a things file
+  with parents and no effects), test_world, the data suite's world visit,
+  tour, lights and doors, camera, wanderers, cast, mansion links and locks,
+  and world setup. Not tested on an iPhone (it exports on the phone the
+  same way, once, at launch).
