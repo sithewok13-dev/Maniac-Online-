@@ -6033,3 +6033,21 @@ compiled by CI's iPhone build only; not tested on an iPhone.
   each part undone caught), test_metal_ownership on the patched llama.cpp,
   the real llama.cpp path on the CPU with small random models under
   ASan/TSan (the wait under 15 ms; exit with a job in flight clean).
+
+## Patch 0218 — iPhone: the AI settings screen steady, settings read off the game's thread, WiFi addresses looked up less
+
+Leftovers from the second bug hunt. The iPhone code is compiled by CI's
+iPhone build only; not tested on an iPhone.
+- The AI settings screen rebuilt its whole table every second (VoiceOver
+  lost its place; a model's row flipped between available and not as free
+  memory hovered at its limit). Rows are worked out as the screen appears and
+  updated in place only when the status really changes.
+- Closing the AI settings screen gives a hardware keyboard's keys back to
+  the game, as the character screen does (0216).
+- The touch-mode setting (onscreen_control) is read from a flag the game's
+  thread sets, not from the settings file, on rotation, suspend and pinch.
+- While hosting WiFi play, the device's addresses are looked up as hosting
+  starts and then at most every 5 seconds, not on every engine update.
+- Tests: test_net (ASan/UBSan, TSan; the address cache: one lookup, none
+  for 2.5 seconds, one after 5, again on hosting again; three mutations
+  caught), the WiFi engine probe, test_startup, the desktop build.

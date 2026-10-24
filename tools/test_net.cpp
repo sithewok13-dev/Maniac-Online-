@@ -328,6 +328,32 @@ static void addresses() {
 	std::printf("PASS: shared addresses: up and running, no cellular, VPN or loopback, WiFi first, whole (here: %s)\n", here.c_str());
 }
 
+// A host's status is asked on every engine update: the system's list is read
+// as hosting starts (again when hosting anew), then at most every
+// kAddressRefreshMs; it says what a fresh look says.
+static void addressCache() {
+	Session host;
+	const uint16_t p = hostOn(host, 3);
+	const int first = addressLookupsForTests();
+	const std::string said = host.describe();
+	assert(addressLookupsForTests() == first + 1);
+	const std::string here = localAddresses();
+	assert(said == "Hosting on " + here + " port " + std::to_string(p) + " - 0 other players");
+	const int looked = first + 2;
+	for (int i = 0; i < 200; ++i) assert(host.describe() == said);
+	advanceClockForTests(kAddressRefreshMs / 2);
+	assert(host.describe() == said && addressLookupsForTests() == looked);
+	advanceClockForTests(kAddressRefreshMs / 2);
+	assert(host.describe() == said && addressLookupsForTests() == looked + 1);
+	assert(host.describe() == said && addressLookupsForTests() == looked + 1);
+	host.close();
+	const uint16_t q = hostOn(host, 3);
+	assert(host.describe() == "Hosting on " + here + " port " + std::to_string(q) + " - 0 other players");
+	assert(addressLookupsForTests() == looked + 2);
+	host.close();
+	std::printf("PASS: a host's addresses read as it starts, then at most every %d ms\n", kAddressRefreshMs);
+}
+
 static void control() {
 	Request r; r.kind = Request::Join; r.text = "192.168.1.20"; postRequest(r);
 	Request got; assert(takeRequest(got) && got.kind == Request::Join && got.text == "192.168.1.20" && !takeRequest(got));
@@ -340,6 +366,6 @@ static void control() {
 }
 
 int main() {
-	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); liveness(); addresses(); control();
+	codec(); play(); capacity(); fullWhileLeaving(); brokenListener(); liveness(); addresses(); addressCache(); control();
 	std::printf("PASS: local WiFi session tests (loopback, one process)\n");
 }
