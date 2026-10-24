@@ -6402,3 +6402,23 @@ From a review of 0228 (new engine).
 - Tests: the moves self-test (new: lit on maps refused and put away; New
   kid twice; each fix mutation-checked), the full sandbox suite and data
   suite. Not tested on an iPhone.
+
+## Patch 0234 — a selfie no wider than 4:3 in a low room
+
+Found as a random data-suite failure (the classic engine's camera test,
+wanderers on).
+- A selfie in a mansion room (136 rows drawn) with people close on both
+  sides came out wider than 4:3 (2180x1572; a row of the kids, 2420x1632):
+  the frame grew taller for the group, was cut to the room's height and
+  kept its width. Now a frame that needs more than the view gives takes
+  the view's whole height and is narrowed to 4:3 around the player, keeping
+  the nearest others who fit whole (the player is never cut); rounding no
+  longer puts a frame a pixel over 4:3. The new engine uses the same rule.
+- The camera probe tests the rule rather than luck: every selfie exactly
+  4:5 to 4:3 with Dave whole in it, and a row of the kids placed beside
+  him in a mansion room (the frame the room's whole 136 rows, 4:3 at most,
+  Dave and those beside him whole). Three shots that come out alike (two
+  people, random poses) are taken again.
+- Tests: test_camera (ASan/UBSan, TSan; new: low views, 50,000 made-up
+  scenes), the camera probe (failed 4 of 4 on the old framing), the
+  sandbox camera self-test. Not tested on an iPhone.

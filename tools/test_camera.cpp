@@ -5,7 +5,9 @@
 //       tools/test_camera.cpp engine/common/scummverse_camera.cpp -o build/test_camera
 #include "common/scummverse_camera.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -94,6 +96,96 @@ static void framing() {
 	f = frameSelfie(rect(100, 0, 40, 128), {}, view);
 	assert(inside(f, view) && f.h == 128);
 	puts("PASS: selfie framing (near ones in, far ones out, head room, 4:5 to 4:3 as shown, inside the view)");
+}
+
+// A frame's width over its height as shown (rows rowAspect times taller).
+static double seen(const Rect &r, double rowAspect) { return r.w / (r.h * rowAspect); }
+
+// A group too wide for the view's height at 4:3 (the mansion's 136 rows):
+// narrower, never wider than 4:3 as shown.
+static void lowViews() {
+	const Rect low = rect(0, 0, 320, 136);
+	const Rect player = rect(148, 40, 24, 60); // (within reach: 45 either side)
+	const Rect nearL = rect(120, 42, 24, 58), nearR = rect(176, 42, 24, 58);
+	const Rect farL = rect(44, 45, 64, 55), farR = rect(216, 45, 74, 55); // (40 and 44 away)
+	std::vector<Rect> group = {farR, nearL, farL, nearR};
+	Rect f = frameSelfie(player, group, low);
+	// The whole height, 4:3 as shown at most (it was 264 by 127: 1.73); the
+	// player and the nearest whole, then as many as fit (the far one on the
+	// left, not the farther one on the right as well).
+	assert(inside(f, low) && f.h == 136 && f.w == 217 && seen(f, 1.2) <= 4.0 / 3 && seen(f, 1.2) > 1.32);
+	assert(inside(player, f) && inside(nearL, f) && inside(nearR, f) && inside(farL, f) && !inside(farR, f));
+	// (The other way round: the one on the right nearer.)
+	f = frameSelfie(player, {rect(40, 45, 64, 55), nearL, rect(212, 45, 74, 55), nearR}, low);
+	assert(inside(f, low) && f.w == 217 && inside(rect(212, 45, 74, 55), f) && !inside(rect(40, 45, 64, 55), f) && inside(player, f));
+	// A few all fitting at 4:3 but not with their margins: all of them.
+	const Rect narrowR = rect(216, 45, 40, 55);
+	f = frameSelfie(player, {rect(40, 45, 64, 55), nearL, nearR, narrowR}, low);
+	assert(inside(f, low) && f.h == 136 && f.w == 217 && inside(rect(40, 45, 64, 55), f) && inside(narrowR, f) && inside(player, f));
+	assert(40 - f.x <= 2 && f.right() - narrowR.right() <= 2); // (216 of 217: centred)
+	// One nearer that cannot be kept whole does not keep out a farther one
+	// that can.
+	const Rect lower = rect(0, 0, 320, 100), kid = rect(148, 30, 24, 50), wideNear = rect(10, 32, 130, 48), farther = rect(200, 32, 100, 48);
+	f = frameSelfie(kid, {wideNear, farther}, lower); // (8 and 28 away; reach 37)
+	assert(inside(f, lower) && f.w == 160 && f.h == 100 && inside(kid, f) && inside(farther, f) && !inside(wideNear, f));
+	// Square pixels (the sandbox engine's), a low scene: 4:3 as it is.
+	const Rect scene = rect(0, 80, 1280, 540);
+	const Rect me = rect(600, 300, 60, 200), wideL = rect(270, 310, 190, 190), wideR = rect(810, 310, 190, 190), nextL = rect(520, 300, 70, 200);
+	f = frameSelfie(me, {wideR, nextL, wideL}, scene, 1.0); // (140 and 150 away; reach 150)
+	assert(inside(f, scene) && f.h == 540 && f.w == 720 && seen(f, 1.0) <= 4.0 / 3);
+	assert(inside(me, f) && inside(nextL, f) && inside(wideL, f) && !inside(wideR, f));
+	// At the view's edge: inside it, flush with that edge, the player whole
+	// (the one far inside cut, the near one whole).
+	const Rect edge = rect(290, 40, 24, 60), beside = rect(262, 42, 24, 58), bench = rect(80, 45, 166, 55);
+	f = frameSelfie(edge, {bench, beside}, low);
+	assert(inside(f, low) && f.right() == 320 && f.h == 136 && seen(f, 1.2) <= 4.0 / 3);
+	assert(inside(edge, f) && inside(beside, f) && !inside(bench, f));
+	f = frameSelfie(rect(6, 40, 24, 60), {rect(34, 42, 24, 58), rect(74, 45, 166, 55)}, low);
+	assert(inside(f, low) && f.x == 0 && f.h == 136 && seen(f, 1.2) <= 4.0 / 3 && inside(rect(6, 40, 24, 60), f) && inside(rect(34, 42, 24, 58), f));
+	// Alone in a low room: as before (portrait-ish, head room).
+	f = frameSelfie(player, {}, low);
+	assert(inside(player, f) && f.y <= player.y - 10 && seen(f, 1.2) >= 0.8 && seen(f, 1.2) <= 4.0 / 3 && f.h < 136);
+	// Alone and wider than 4:3 of the view's height: the player is never cut.
+	f = frameSelfie(rect(100, 0, 80, 40), {}, rect(0, 0, 320, 40));
+	assert(inside(rect(100, 0, 80, 40), f) && f.w == 80 && f.h == 40);
+	// A tall view: the same wide group made 4:3 by room above and below,
+	// everyone whole.
+	const Rect tall = rect(0, 0, 320, 240);
+	f = frameSelfie(player, group, tall);
+	for (const Rect &r : group) assert(inside(r, f));
+	assert(inside(player, f) && inside(f, tall) && f.h > 136 && seen(f, 1.2) <= 4.0 / 3 + 0.01 && seen(f, 1.2) >= 4.0 / 3 - 0.01);
+	// A view too narrow for 4:5: lower, the player whole (the room below the
+	// feet goes first, then the head room).
+	const Rect narrow = rect(0, 0, 120, 400), lanky = rect(40, 100, 40, 150);
+	f = frameSelfie(lanky, {}, narrow, 1.0);
+	assert(inside(f, narrow) && inside(lanky, f) && f.w == 120 && f.h == 150 && f.y == 100 && seen(f, 1.0) >= 0.8);
+	f = frameSelfie(rect(40, 100, 40, 120), {}, narrow, 1.0);
+	assert(inside(f, narrow) && f.w == 120 && f.h == 150 && f.y == 73 && f.bottom() >= 220 && seen(f, 1.0) >= 0.8); // (all the head room)
+	puts("PASS: selfie framing in low views (narrower, 4:3 at most, the player and the nearest whole, at the edges, alone), tall and narrow views");
+}
+
+// Many made-up scenes (a fixed sequence): always inside the view, the
+// player whole, 4:5 to 4:3 as shown unless the player alone is not.
+static void framingSweep() {
+	uint32_t state = 12345;
+	auto next = [&](int n) { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return (int)(state % (uint32_t)n); };
+	int wholeHeight = 0, wholeWidth = 0;
+	for (int round = 0; round < 50000; ++round) {
+		const double rowAspect = next(2) ? 1.2 : 1.0;
+		const Rect view = rect(next(50), next(50), 40 + next(1400), 40 + next(800));
+		Rect player = rect(0, 0, 8 + next(std::max(1, view.w / 3)), 16 + next(std::max(1, view.h - 15)));
+		player.w = std::min(player.w, view.w); player.h = std::min(player.h, view.h);
+		player.x = view.x + next(view.w - player.w + 1); player.y = view.y + next(view.h - player.h + 1);
+		std::vector<Rect> others;
+		for (int i = next(8); i > 0; --i) others.push_back(rect(player.x - 300 + next(600), player.y - 60 + next(120), 4 + next(160), 8 + next(300)));
+		const Rect f = frameSelfie(player, others, view, rowAspect);
+		assert(inside(f, view) && inside(player, f));
+		const bool wideAlone = player.w > (int)std::floor(view.h * rowAspect * 4 / 3), tallAlone = player.h > (int)std::floor(view.w / (rowAspect * 0.8));
+		if (!wideAlone && !tallAlone) assert(seen(f, rowAspect) >= 0.8 && seen(f, rowAspect) <= 4.0 / 3);
+		wholeHeight += f.h == view.h && f.w < view.w; wholeWidth += f.w == view.w && f.h < view.h;
+	}
+	assert(wholeHeight > 1000 && wholeWidth > 100);
+	printf("PASS: selfie framing over 50000 made-up scenes (inside the view, the player whole, 4:5 to 4:3; %d the view's whole height, %d its whole width)\n", wholeHeight, wholeWidth);
 }
 
 static void poses() {
@@ -216,6 +308,8 @@ int main() {
 	requests();
 	pictures();
 	framing();
+	lowViews();
+	framingSweep();
 	poses();
 	names();
 	delivery();
