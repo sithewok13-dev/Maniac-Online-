@@ -6212,3 +6212,22 @@ From an independent review of 0214 (new engine and exporter).
   lit frames), the rides self-test (41 of 41 van sites with the door on the
   floor), the full sandbox suite and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0225 — the new engine's character screen; a selfie aboard
+
+From the third bug hunt (new engine).
+- Picking whoever is played, in their home place, changed nothing but the
+  place was entered again (everyone moved, the chat or a ride dropped):
+  now only "You are playing ..." is said.
+- Someone else picked in the same place (New kid too): everyone else stays
+  where they stood (they were spread to the arrival spots).
+- A custom character left in the place and picked again plays from where
+  he stood (he took the previous one's spot).
+- Someone picked aboard a ride (the plane, the Shuttle Bug): the one left
+  stays at the stop it was boarded at (they turned up wherever their
+  wanderer record had drifted).
+- A selfie in the plane's cabin with the camera panned away (4:3 screens,
+  four or five seated) is taken, the camera put on the player first.
+- Tests: the cast self-test (four new counts), the camera self-test (also
+  at 1920x1440), moves, follow, verbs, talk, tour, rides, walk and back,
+  the full sandbox suite and data suite. Not tested on an iPhone or iPad.

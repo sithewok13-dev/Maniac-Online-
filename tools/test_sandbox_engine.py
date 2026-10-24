@@ -481,6 +481,15 @@ if __name__ == '__main__':
         if not h or h.group(1) != '1' or h.group(2) != '1':
             raise SystemExit('FAIL: those left here at a switch\n' + output[-2000:])
         print('PASS: switching here: a custom one left who does not roam stays; someone of the game\'s own played, the one before stays where they stood')
+        # Choosing on the screen: the one played chosen again where they live
+        # changes nothing; someone here played, everyone else stays where they
+        # stood; a custom one left here chosen again plays from where he
+        # stood; someone chosen aboard the plane leaves the one before at the
+        # airport it was boarded at (where the cabin is exported).
+        chosen = re.search(r'(\d+) chosen again where they live as they were, (\d+) played here with everyone else where they stood, (\d+) custom chosen again where he stood, (\d+) of (\d+) chosen aboard left at the stop', output)
+        if not chosen or chosen.group(1) != '1' or chosen.group(2) != '1' or chosen.group(3) != '1' or chosen.group(4) != chosen.group(5):
+            raise SystemExit('FAIL: choosing on the character screen\n' + output[-2000:])
+        print(f'PASS: choosing on the character screen: the one played chosen again where they live, as they were; someone here played, everyone else where they stood; a custom one left here chosen again, from where he stood; {chosen.group(4)} chosen aboard, the one before left at the stop')
         # Sith Ewok 3's moves (0200): L once a force grab (after the wait for
         # a second), L twice a swing, F force lightning, L once put away (a
         # walk stopped first); heckled and answered (written lines, a stand-in
@@ -507,6 +516,13 @@ if __name__ == '__main__':
         if not m or int(m.group(5)) != 3:
             raise SystemExit('FAIL: camera\n' + output[-2000:])
         print(f'PASS: camera: a photo of the scene ({m.group(1)}x{m.group(2)}), of the screen ({m.group(3)}x{m.group(4)}), a selfie of three ({m.group(6)}x{m.group(7)}), held still')
+        # (Aboard the plane, the camera panned away from the one played: a
+        # selfie all the same, they seated again after.)
+        aboard = re.search(r'(\d+) of (\d+) aboard with the camera panned away', output)
+        if not aboard or aboard.group(1) != aboard.group(2):
+            raise SystemExit('FAIL: camera aboard\n' + output[-2000:])
+        if aboard.group(2) != '0':
+            print('PASS: camera aboard the plane, panned away from the one played: a selfie all the same, seated again after')
         # The tour: every place installed a stop, the whole of it at 16x.
         output = sandbox(exe, worlds, 'tour', shots, tmp)
         m = re.search(r'selftest tour: (\d+) stops \((\d+) on foot, (\d+) warped, (\d+) not shown\)', output)
