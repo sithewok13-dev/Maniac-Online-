@@ -5999,3 +5999,37 @@ is compiled by CI's iPhone build only; not tested on an iPhone.
 - Tests: test_net (ASan/UBSan, TSan; the address filter: a phone-like list,
   interfaces down, duplicates; three mutations caught), the WiFi engine
   probe, the Story test (its list), test_startup, the desktop build.
+
+## Patch 0217 — the on-phone model: no crash going to the home screen mid-reply, phones it fits, downloads kept
+
+From the second bug hunt (the on-phone model's own path, which the
+scripted tests do not take). The iPhone code and the llama.cpp fix are
+compiled by CI's iPhone build only; not tested on an iPhone.
+- Going to the home screen (or locking the phone) while the model was
+  writing a greeting or a remark on the GPU could stop the app: iOS
+  refuses GPU work from the background and llama.cpp aborted on the failed
+  copy. Losing the screen now stops any job in flight and waits (at most
+  300 ms) until the worker is out of llama.cpp; nothing new starts until
+  the app is active again (a cut-off chat reply is written again then; a
+  greeting falls back to the game's own line). Going to the background
+  waits up to a second before the model is put away. A second llama.cpp
+  fix (tools/runtime-patches/0002) makes that failed copy an error, not an
+  abort.
+- Phones report a little less memory than they are sold with, so "6 GB"
+  phones never got the larger model or the GPU, and "3 GB" ones not even
+  the small one: memory is rounded up to whole GB first, and a model a phone
+  can never run says "Needs a phone with more memory".
+- Control Center, a banner or the Photos prompt no longer ends the chat
+  (only the keyboard is put away); going to the background still closes it.
+- A download put away during its check is installed when it passes (only
+  not made current if another was chosen meanwhile); staged files get
+  unique names and leftovers are cleared at launch; the storage check comes
+  before the current model is turned off; a download may take 6 hours.
+- The runtime shuts down before the app or a desktop probe exits (a job in
+  flight at exit used freed memory).
+- Tests: test_talk_runtime (two new sections: losing the screen stops a
+  reply within the bound, nothing starts while held, the reply written
+  again, a greeting dropped, a load kept; shutdown prompt and repeatable;
+  each part undone caught), test_metal_ownership on the patched llama.cpp,
+  the real llama.cpp path on the CPU with small random models under
+  ASan/TSan (the wait under 15 ms; exit with a job in flight clean).

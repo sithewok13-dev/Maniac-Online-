@@ -43,5 +43,6 @@ int main(int argc, char **argv) {
 	assert(r.scene(7,2,1u<<10,true,speaker,speech,sizeof(speech)) == 0); // Switching kid ends chat.
 	assert(r.beginTalk(10)); r.cancel(); assert(!r.talkingTo()); // load/boot clears history.
 	assert(r.beginTalk(10)); r.configure("",false); assert(!r.talkingTo());
+	r.shutdown(); // (Before llama's statics go: the unload above may still be running.)
 	std::cout << "PASS: real two-turn conversation, bounded input, speech bridge, isolated results, cancellation and scene/visitor changes\n";
 }

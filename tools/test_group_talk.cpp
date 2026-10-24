@@ -86,5 +86,6 @@ int main(int argc, char **argv) {
 	}
 	assert(zakReplied); r.endTalk(); r.scene(7,3,group,true,speaker,speech,sizeof(speech));
 	assert(r.beginGroup()); r.configure("",false); assert(!r.talkingWith());
+	r.shutdown(); // (Before llama's statics go: the unload above may still be running.)
 	std::cout << "PASS: real shared group conversation, attributed rotating replies, serialized speech, join/leave, close/load/off cancellation\n";
 }

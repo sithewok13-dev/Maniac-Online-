@@ -186,5 +186,61 @@ int main() {
 	assert(r.toggleTalk(9) && r.talkingTo() == 10);
 	assert(waitFor([&] { return !r.waitingForTalk(); }, 2000));
 	assert(dump(r) == "0:Who first?|10:Reply10 to Who first?.|");
-	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks, remembered lines\n";
+
+	// 13. The app losing the screen (Control Center, the background): the
+	// reply being written stops within the bound and is written again, in
+	// full, on return; nothing starts while held; the conversation stays.
+	r.scene(7, 3, edna, true, speaker, text, sizeof(text));
+	assert(r.beginTalk(10));
+	replyDelayMs = 3000; generated = 0;
+	assert(r.sendTalk("Hold on"));
+	std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Edna is replying.
+	begin = std::chrono::steady_clock::now();
+	assert(r.suspend(300) && std::chrono::steady_clock::now() - begin < std::chrono::milliseconds(300));
+	replyDelayMs = 0;
+	assert(r.sendTalk("And this"));
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	assert(r.waitingForTalk() && generated == 0 && dump(r) == "0:Hold on|" && r.talkingTo() == 10);
+	r.resume();
+	assert(waitFor([&] { return !r.waitingForTalk(); }));
+	assert(dump(r) == "0:Hold on|10:Reply10 to Hold on.|0:And this|10:Reply10 to And this.|");
+	// Back before the reply being written has stopped (past the bound): it
+	// is written again all the same.
+	replyDelayMs = 300;
+	assert(r.sendTalk("Quick"));
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	assert(!r.suspend(0)); r.resume();
+	assert(waitFor([&] { return !r.waitingForTalk(); }));
+	assert(dump(r).find("|0:Quick|10:Reply10 to Quick.|") != std::string::npos);
+	// A greeting being written is dropped (the game says its own line); one
+	// asked for afterwards comes.
+	r.endTalk(); ambientBlocks = true; ambientAborts = 0;
+	assert(r.request(9, 7, 3));
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	assert(r.suspend(300) && ambientAborts == 1);
+	assert(!r.request(9, 7, 3) && !r.remark(9, 7, 3, "He swung it.")); // (none starts while held)
+	ambientBlocks = false; r.resume();
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	assert(!r.poll(actor, room, text, sizeof(text)));
+	assert(r.request(9, 7, 3) && waitFor([&] { return r.poll(actor, room, text, sizeof(text)); }) && actor == 9);
+	// A model load is never undone by it: the model is ready after.
+	loadDelayMs = 300; r.configure("fake", false);
+	assert(waitFor([&] { return r.getStatus().find("Loading") == 0; }));
+	std::this_thread::sleep_for(std::chrono::milliseconds(60)); // Worker is inside load().
+	begin = std::chrono::steady_clock::now();
+	assert(r.suspend(300) && std::chrono::steady_clock::now() - begin < std::chrono::milliseconds(100));
+	assert(waitFor([&] { return r.getStatus().find("Ready") == 0; }) && r.modelReady());
+	r.resume();
+
+	// 14. Shutdown (before the process exits) with a reply being written:
+	// prompt; again, or anything after, is harmless.
+	r.scene(7, 3, edna, true, speaker, text, sizeof(text));
+	assert(r.beginTalk(10)); replyDelayMs = 5000;
+	assert(r.sendTalk("Last words"));
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	begin = std::chrono::steady_clock::now();
+	r.shutdown();
+	assert(std::chrono::steady_clock::now() - begin < std::chrono::seconds(1));
+	r.shutdown(); r.configure("", false); assert(!r.request(9, 7, 3) && r.suspend(0));
+	std::cout << "PASS: worker scheduling, load survival, queued sends, fallback, departures, ambient preemption, cancellation, remarks, remembered lines, losing the screen, shutdown\n";
 }
