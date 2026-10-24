@@ -1,5 +1,6 @@
 	// Wanderers: every other game's character out, anywhere, shown where it
-	// is; the mansion's and Zak's people out of their own game's places.
+	// is; the mansion's and Zak's people out of their own game's places;
+	// never two of one person (by name: another game's of the same name).
 	if (!_scummverseRoaming) { warning("SCUMMVERSE_WANDER_PASS enabled=0"); quitGame(); return; }
 	for(int n=0;n<100 && !_scummverseRoamingReady;++n) {
 		for(uint i=0;i<NUM_SCRIPT_SLOT;++i) if(vm.slot[i].status==ssPaused) {vm.slot[i].delay=0;vm.slot[i].status=ssRunning;}
@@ -151,10 +152,14 @@
 		}
 		warning("WANDER Monkey Island: Lou stepped aside for the one played%s",zakFolk.c_str());
 	}
-	// Guybrush and two more in the living room (nobody else there).
+	// Guybrush and two more in the living room (nobody else there; none the
+	// same person as another: Monkey Island 2's Guybrush is not taken).
 	int four[4]={guybrush,0,0,0};
-	for (int i=1, k=0; i<4 && k<(int)keys.size(); ++k)
-		if (keys[k]!=guybrush && !WB::small(keys[k]) && worldAppearanceGame(keys[k])!=worldAppearanceGame(four[i-1]) && worldAppearanceGame(keys[k])!=mm) four[i++]=keys[k];
+	for (int i=1, k=0; i<4 && k<(int)keys.size(); ++k) {
+		bool twin=false;
+		for (int j=0;j<i;++j) twin=twin || WB::twins(keys[k],four[j]);
+		if (keys[k]!=guybrush && !twin && !WB::small(keys[k]) && worldAppearanceGame(keys[k])!=worldAppearanceGame(four[i-1]) && worldAppearanceGame(keys[k])!=mm) four[i++]=keys[k];
+	}
 	{
 		int there[64]; const int n=MIN(64,WB::at(living,there,64));
 		for (int i=0;i<n;++i) WB::send(there[i],W::placeCode(W::kManiac,0,1));
@@ -291,6 +296,45 @@
 		for (uint i=0;i<keys.size();++i) if (WB::where(keys[i])!=kept[i]) error("%s moved by save and load",name(keys[i]));
 		if (shownHere()<4) error("%d visitors after loading",shownHere());
 	}
+	// Never two of one person in view, by name: Monkey Island 2's Guybrush
+	// sent into the living room, where Monkey Island's is shown, stays aside;
+	// Dave playing Monkey Island 2's Guybrush, neither visiting one is drawn,
+	// one again once he is himself; Day of the Tentacle's Edna steps aside
+	// while the mansion's own Edna stands here.
+	{
+		const int guy2=worldAppearanceKey(1,1), edna2=worldAppearanceKey(5,330);
+		Common::String done;
+		if (Common::find(keys.begin(),keys.end(),guy2)!=keys.end()) {
+			if (!WB::twins(guybrush,guy2) || WB::twins(guybrush,four[1])) error("Guybrush told by name wrongly");
+			WB::send(guy2,living); settle(4);
+			const int s1=visitor(guybrush), s2=visitor(guy2);
+			if (s1<0 || s2<0) error("Both Guybrushes not in the living room");
+			if (!_scummverseVisitors[s1].sprite || _scummverseVisitors[s2].sprite) error("Two Guybrushes drawn in the living room (%d, %d)",_scummverseVisitors[s1].sprite,_scummverseVisitors[s2].sprite);
+			if (!scummverseSetAppearance(3,guy2)) error("Cannot play Monkey Island 2's Guybrush: %s",_scummverseWorldNotice.c_str());
+			settle(4);
+			if (_scummverseVisitors[s1].sprite || _scummverseVisitors[s2].sprite) error("A visiting Guybrush drawn beside Dave playing him");
+			scummverseSetAppearance(3,0); settle(4);
+			if (!_scummverseVisitors[s1].sprite == !_scummverseVisitors[s2].sprite) error("Not one Guybrush drawn once Dave is himself again");
+			WB::send(guy2,W::placeCode(W::kManiac,0,1)); settle(4);
+			if (visitor(guy2)>=0 || visitor(guybrush)<0 || !_scummverseVisitors[visitor(guybrush)].sprite) error("Guybrush not drawn once the other one left");
+			done+="the two Guybrushes drawn once, both aside for Dave playing him";
+		}
+		int ednaActor=0;
+		for (int id=1;id<kScummverseManiacActors && !ednaActor;++id) if (id!=3 && _actors[id]->_costume==10) ednaActor=id;
+		if (ednaActor && Common::find(keys.begin(),keys.end(),edna2)!=keys.end()) {
+			WB::send(edna2,living); settle(4);
+			if (visitor(edna2)<0 || !_scummverseVisitors[visitor(edna2)].sprite) error("Day of the Tentacle's Edna not drawn in the living room");
+			Actor *e=_actors[ednaActor], *dave=derefActor(3,"wander twins"); const int room=e->_room; const Common::Point at=e->getRealPos();
+			e->putActor(dave->getRealPos().x+12,dave->getRealPos().y,_currentRoom); settle(4);
+			if (_scummverseVisitors[visitor(edna2)].sprite) error("Day of the Tentacle's Edna does not step aside for the mansion's");
+			e->putActor(at.x,at.y,room); settle(4);
+			if (!_scummverseVisitors[visitor(edna2)].sprite) error("Day of the Tentacle's Edna not back once the mansion's left");
+			WB::send(edna2,W::placeCode(W::kManiac,0,1)); settle(4);
+			done+=Common::String(done.empty()?"":"; ")+"Day of the Tentacle's Edna aside for the mansion's";
+		}
+		if (done.empty()) error("No one of the same name to try");
+		warning("WANDER nobody twice in view: %s",done.c_str());
+	}
 	// No visitors on the plane, in the van's cockpit or in the van in flight.
 	if (scummverseWanderPlace(56) || scummverseWanderPlace(81) || scummverseWanderPlace(221)) error("Visitors on the plane, in the cockpit or in the van in flight");
 	// Small ones (an animal, a critter) are known and never part of a crowd.
@@ -313,6 +357,58 @@
 		warning("WANDER ten minutes by the kitchen: %d visits, at most %d at once",inside,most);
 		noneHome("by the kitchen");
 		if (!inside || most>4+1) error("Kitchen: %d visits, %d at once",inside,most);
+	}
+	// Nobody twice: everyone out afresh, then an hour passing by the
+	// kitchen: in no place two of one person (by name: another game's of the
+	// same name), nor anyone where the same person of the engine's own
+	// stands (the mansion's people by their costume, anyone played by the
+	// look: Day of the Tentacle's Edna never in the mansion's Edna's room).
+	{
+		const int kitchen=W::placeCode(W::kManiac,0,7);
+		scummverseUpdateWanderers(0); // (who stands where told)
+		auto standingAs=[&](int id) {
+			const int look=scummverseAppearance(id), worn=_actors[id]->_costume;
+			const int as=look && !worldNativeLook(look) ? look : worn<kScummverseFirstZakCostume && worn!=34 ? worldAppearanceKey(mm,worn) : 0;
+			return worldSmall(worldAppearanceGame(as),worldAppearanceCostume(as)) ? 0 : as;
+		};
+		// (Told: each of the cast of a standing one's name is kept from there.)
+		int told=0, standers=0;
+		for (int id=1;id<kScummverseManiacActors;++id) {
+			const int at=_actors[id]->_room ? scummverseWanderPlace(_actors[id]->_room) : 0;
+			const WorldGuest *who=worldAppearance(standingAs(id));
+			standers+=at!=0;
+			if (!at || !who) continue;
+			for (int key : keys)
+				if (!WB::small(key) && ::Scummverse::Wander::samePerson(who->name,name(key))) {
+					if (!WB::taken(key,at)) error("%s not kept from place %d where %s stands",name(key),at,who->name);
+					++told;
+				}
+		}
+		if (!told) error("Nobody of a standing one's name kept from where they stand");
+		WB::start();
+		int checked=0, stood=0;
+		for (int n=0;n<=60;++n) {
+			if (n) WB::advance(60*60,kitchen);
+			Common::Array<int> places;
+			for (int key : keys) { const int at=WB::where(key); if (at && Common::find(places.begin(),places.end(),at)==places.end()) places.push_back(at); }
+			for (int at : places) {
+				int there[64]; const int k=MIN(64,WB::at(at,there,64));
+				for (int i=0;i<k;++i) for (int j=i+1;j<k;++j) if (WB::twins(there[i],there[j])) error("%s and %s both in place %d",name(there[i]),name(there[j]),at);
+				bool here=false;
+				for (int id=1;id<kScummverseManiacActors;++id) {
+					if (!_actors[id]->_room || scummverseWanderPlace(_actors[id]->_room)!=at) continue;
+					const WorldGuest *who=worldAppearance(standingAs(id));
+					if (!who) continue;
+					here=true;
+					for (int i=0;i<k;++i)
+						if (!WB::small(there[i]) && ::Scummverse::Wander::samePerson(who->name,name(there[i]))) error("%s in place %d where %s stands",name(there[i]),at,who->name);
+				}
+				++checked; stood+=here;
+			}
+		}
+		warning("WANDER nobody twice: %d places checked with nobody twice over an hour, everyone out afresh (%d where one of the %d people of the engine's own stands; %d of the cast of their names kept from there)",checked,stood,standers,told);
+		if (checked<1000 || !stood) error("Nobody twice: only %d places checked, %d where the engine's own stand",checked,stood);
+		noneHome("out afresh");
 	}
 	// In the dark (the basement's light switched off) a visitor is drawn as
 	// the room's own people are, a grey shape with black lines, not in its

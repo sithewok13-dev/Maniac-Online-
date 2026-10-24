@@ -6301,3 +6301,30 @@ From the third bug hunt (new engine: what it keeps).
   (gone, look and damaged caches; with ASan/UBSan), walk, back, follow,
   cast, tour, the full sandbox suite and data suite. Not tested on an
   iPhone.
+
+## Patch 0230 — wanderers: nobody twice; no greeting for a hidden player
+
+From the third bug hunt (wanderers, both engines).
+- The same person from two games could stand side by side (Monkey
+  Island's and Monkey Island 2's Guybrush in the mansion's living room;
+  Day of the Tentacle's Edisons beside the mansion's own). People are now
+  told apart by name (case, punctuation and a leading "the" ignored, one
+  trailing family name allowed; small creatures never merged): over the
+  cast this joins exactly the 29 expected pairs (Guybrush, Elaine and Stan
+  in three games, Herman, the Voodoo Lady, Wally, LeChuck, Lemonhead, Indy,
+  Marcus Brody, the Edisons, the tentacles, Nurse Edna, Dead Cousin Ted).
+  The scheduler refuses a move into a place where that person already is
+  (wandering or standing there: the one played, followers, residents);
+  both engines step aside for the same person in view, whoever came first
+  staying. Numbered custom characters (Suzy and Suzy 4) stay separate.
+- The classic engine's scene guests no longer greet a player out of sight.
+- New engine: a wandering Sith Ewok 3's show or Crispy 2's pee no longer
+  starts beside a player riding out of sight.
+- Tests: test_wander (ASan/UBSan, TSan; new: 6600 places checked with
+  nobody twice), the wander probe (two Guybrushes drawn once, both stepping
+  aside when Dave plays Guybrush, Tentacle's Edna for the mansion's; an
+  hour with nobody twice), the world visit probe (no greeting for a hidden
+  player), the sandbox suite (moves out of sight 4 of 4; wander nobody
+  twice), and the data tests for wanderers, world visit, cast, looks,
+  portraits, companions, camera, lights and doors. Not tested on an
+  iPhone.

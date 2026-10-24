@@ -148,10 +148,15 @@
 		if (scummverseTalkRoom()!=place) error("Dialogue context %d is not place %d",scummverseTalkRoom(),place);
 		Actor *guest=derefActor(25,"world guest"), *second=derefActor(26,"second guest");
 		if (scummverseGuestSlot(guest)<0 || scummverseGuestSlot(second)<0) error("Guests not placed for behaviour");
-		// One greeting when the player walks up.
+		// One greeting when the player walks up; none while the player is out
+		// of sight there (aboard a ride at the stop: nobody to greet).
 		for (bool &greeted : _scummverseGuestGreeted) greeted=true;
 		_scummverseGuestGreeted[0]=false; VAR(VAR_HAVE_MSG)=0; stopTalk();
 		me->putActor(guest->getRealPos().x+3,guest->getRealPos().y,_currentRoom);
+		me->hideActor();
+		scummverseUpdateGuests(4,0);
+		if (_scummverseGuestGreeted[0] || getTalkingActor()==25) error("Guest %s greeted a player out of sight",g->name);
+		me->showActor();
 		scummverseUpdateGuests(4,0);
 		if (!_scummverseGuestGreeted[0] || getTalkingActor()!=25) error("Guest %s did not greet",g->name);
 		// Talking frames are drawn while the line is shown.

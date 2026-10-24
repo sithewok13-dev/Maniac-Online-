@@ -9,8 +9,12 @@ from a side; the others move on while the living room's stay; Guybrush
 greets once in his colour; one moved away leaves no trace; save and load
 keep them; none on the plane or in the van's cockpit; in time others take
 their turn; in the dark basement one is a grey shape as Dave is, in its
-colours lit again; nobody greets the player out of sight on Zak's bus. Not
-an iPhone test.
+colours lit again; nobody greets the player out of sight on Zak's bus.
+Never two of one person (by name, another game's of the same name): Monkey
+Island 2's Guybrush stays aside beside Monkey Island's, both for Dave playing
+him, Day of the Tentacle's Edna for the mansion's; everyone out afresh, an
+hour passing, no place holds two of anyone, nor one where the same person of
+the mansion's own stands. Not an iPhone test.
 """
 import argparse
 from pathlib import Path
