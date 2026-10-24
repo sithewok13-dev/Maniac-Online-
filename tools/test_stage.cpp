@@ -1295,6 +1295,14 @@ int main() {
 		// The oldest let go past kMarks; gone with the place.
 		for (int i = 0; i < kMarks; ++i) place.addMark({20.0 + i * 20, 120}, 10, 1 << 20, 0);
 		assert(place.markCount() == kMarks && place.mark(0).at.y == 120);
+		// (One not there yet keeps the oldest until it is: let go before it
+		// is, none lost.)
+		place.addMark({30, 170}, 10, -5, 10);
+		assert(place.markCount() == kMarks + 1 && place.mark(0).at.x == 20 && place.mark(0).at.y == 120);
+		assert(place.endMark({30, 170}) == 0 && place.markCount() == kMarks && place.mark(0).at.x == 20);
+		place.addMark({30, 170}, 10, -5, 10);
+		place.update(4); assert(place.markCount() == kMarks + 1 && place.mark(0).at.x == 20);
+		place.update(1); assert(place.markCount() == kMarks && place.mark(0).at.x == 40 && place.mark(kMarks - 1).at.y == 170);
 		assert(place.load(d.data(), d.size(), 1.0, 320, 320, 200, error) && place.markCount() == 0);
 		// (The bridge: busy while one spreads or dries; its marks read back.)
 		char problem[128];
@@ -1305,6 +1313,6 @@ int main() {
 		assert(StageBridge::busy() && StageBridge::mark(0, mx, my, mw, age, grow) && mx == 50 && my == 150 && mw == 12 && age == -3 && grow == 20 && !StageBridge::mark(1, mx, my, mw, age, grow));
 		StageBridge::update(23 + kPuddleTicks); assert(!StageBridge::busy());
 	}
-	std::puts("PASS: a leg lifted (from the side, its frames in turn); art points in the place (mirrored facing left); marks on the floor (a puddle spreading, drying to a stain, under everyone, not in the dark, the oldest let go, gone with the place; busy while drying)");
+	std::puts("PASS: a leg lifted (from the side, its frames in turn); art points in the place (mirrored facing left); marks on the floor (a puddle spreading, drying to a stain, under everyone, not in the dark, the oldest let go once a new one is there, gone with the place; busy while drying)");
 	return 0;
 }

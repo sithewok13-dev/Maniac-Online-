@@ -6263,3 +6263,20 @@ From the second bug hunt (new engine's walks).
 - Tests: test_stage (ASan/UBSan; new: The Dig 4's layout), 210,400 walks
   with no end point changed, a path fuzzer (200,000 rounds), the full
   sandbox suite and data suite. Not tested on an iPhone.
+
+## Patch 0228 — the custom characters: maps, stains, the saber put away
+
+From the third bug hunt (new engine).
+- On a map or floor plan, Crispy 2 no longer pees (it left a stain on the
+  map) and Sith Ewok 3 no longer shows off: "Not here."
+- At a place's 12 stains, a pee cut short no longer drops the oldest.
+- A stain is saved as the pee ends, at the size it reached (it was saved
+  full size as it began, so the app stopped mid-pee kept a full one; one
+  that ran to its end was not saved).
+- Sith Ewok 3's L then a tap: the walk wins over the delayed grab.
+- Switching away from a lit Sith Ewok 2 or 3 in the place: he puts the
+  saber away beside you.
+- The one played is never the heckler of a Sith Ewok 3 show.
+- Tests: the moves self-test (new section, each fix mutation-checked),
+  test_stage (ASan/UBSan, the 12-mark limit), the full sandbox suite and
+  data suite. Not tested on an iPhone.
