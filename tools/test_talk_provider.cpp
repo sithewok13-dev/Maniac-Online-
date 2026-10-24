@@ -57,6 +57,10 @@ template <class Done> static bool waitFor(Done done, int ms = 5000) {
 int main() {
 	Runtime &r = runtime(); int speaker; char text[600];
 	const unsigned edna = 1u << 10, fred = 1u << 9;
+	// The worker has started the job (its status says so), not merely been
+	// given it: a sleep is not enough under a sanitizer and load.
+	auto replying = [&] { return r.getStatus().find(" is replying") != std::string::npos; };
+	auto writingGreeting = [&] { return r.getStatus().find("Writing a line") == 0; };
 
 	// 1. A room change during an active conversation must not discard a model
 	// load in progress (it previously bumped the epoch unconditionally).
@@ -114,7 +118,7 @@ int main() {
 	// 7. A conversation pre-empts a slow ambient encounter line immediately.
 	replyDelayMs = 0; ambientBlocks = true; ambientAborts = 0;
 	assert(r.request(9, 7, 3));
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	assert(waitFor(writingGreeting)); // (Started, not merely asked for.)
 	auto begin = std::chrono::steady_clock::now();
 	assert(r.beginTalk(10) && r.sendTalk("Quick question"));
 	assert(waitFor([&] { return !r.waitingForTalk(); }, 2000)); // Ambient deadline is 5 s.
@@ -194,7 +198,7 @@ int main() {
 	assert(r.beginTalk(10));
 	replyDelayMs = 3000; generated = 0;
 	assert(r.sendTalk("Hold on"));
-	std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Edna is replying.
+	assert(waitFor(replying)); // Edna is replying.
 	begin = std::chrono::steady_clock::now();
 	assert(r.suspend(300) && std::chrono::steady_clock::now() - begin < std::chrono::milliseconds(300));
 	replyDelayMs = 0;
@@ -206,17 +210,19 @@ int main() {
 	assert(dump(r) == "0:Hold on|10:Reply10 to Hold on.|0:And this|10:Reply10 to And this.|");
 	// Back before the reply being written has stopped (past the bound): it
 	// is written again all the same.
-	replyDelayMs = 300;
+	// (Long enough that it is still being written when suspended; the one
+	// written again, after, is quick.)
+	replyDelayMs = 3000;
 	assert(r.sendTalk("Quick"));
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
-	assert(!r.suspend(0)); r.resume();
+	assert(waitFor(replying));
+	assert(!r.suspend(0)); replyDelayMs = 0; r.resume();
 	assert(waitFor([&] { return !r.waitingForTalk(); }));
 	assert(dump(r).find("|0:Quick|10:Reply10 to Quick.|") != std::string::npos);
 	// A greeting being written is dropped (the game says its own line); one
 	// asked for afterwards comes.
 	r.endTalk(); ambientBlocks = true; ambientAborts = 0;
 	assert(r.request(9, 7, 3));
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	assert(waitFor(writingGreeting));
 	assert(r.suspend(300) && ambientAborts == 1);
 	assert(!r.request(9, 7, 3) && !r.remark(9, 7, 3, "He swung it.")); // (none starts while held)
 	ambientBlocks = false; r.resume();

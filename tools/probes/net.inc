@@ -69,6 +69,44 @@
 	if (!device.join("127.0.0.1",scummverseNetContent(),24,problem)) error("Join again failed: %s",problem.c_str());
 	device.setLocal(avatar(24,53,24,60)); for(int n=0;n<200 && !(scummverseRemoteActor(24) && zak->_room==53);++n) pump(1);
 	if (!scummverseRemoteActor(24) || zak->_room!=53 || scummverseAppearance(24) || _scummverseRemoteLookBefore[24]!=police+1) error("Joined again: remote %d room %d look %d",scummverseRemoteActor(24),zak->_room,scummverseAppearance(24));
+	// (patch 0221) The engine away longer than the silence limit (as in
+	// ScummVM's menu: paused, no updates; real time, as a menu is) while
+	// Zak's player walks on: nobody dropped, the session's own thread
+	// answering for it; back, Zak goes where his player is now.
+	{
+		seen.clear();
+		const int to=zak->getRealPos().x>=40 ? zak->getRealPos().x-16 : zak->getRealPos().x+16;
+		{
+			PauseToken paused=pauseEngine();
+			const uint32 start=g_system->getMillis();
+			bool walked=false;
+			while (g_system->getMillis()-start<(uint32)(N::kSilentMs+3000)) {
+				device.poll(seen);
+				if (!walked && g_system->getMillis()-start>(uint32)N::kSilentMs/2) { device.setLocal(avatar(24,53,to,60)); walked=true; }
+				g_system->delayMillis(10);
+			}
+		}
+		for(const auto &e:seen) if (e.kind==N::Event::Failed || e.kind==N::Event::Left) error("The engine away: the device lost the game (%s)",e.kind==N::Event::Failed ? e.text.c_str() : "a player left");
+		if (!device.connected() || !_scummverseNetOn) error("The engine away: dropped (device %d, net %d)",device.connected(),_scummverseNetOn);
+		const int reach=zak->adjustXYToBeInBox(to,60).x;
+		for(int n=0;n<300 && (zak->_moving || zak->getRealPos().x!=reach);++n) pump(1);
+		if (!scummverseRemoteActor(24) || zak->getRealPos().x!=reach || N::players()!=1 || !N::online())
+			error("The engine away: Zak at %d, not %d (remote %d, players %d)",zak->getRealPos().x,reach,scummverseRemoteActor(24),N::players());
+		// The device away as long (its own menu; session time moved on, its
+		// keeper's polls only): the engine keeps Zak.
+		seen.clear();
+		for(int t=0;t<2*N::kSilentMs;t+=N::kPingMs/2) {
+			N::advanceClockForTests(N::kPingMs/2);
+			const int polls=device.keeperPollsForTests();
+			for(int n=0;n<1000 && device.keeperPollsForTests()<=polls;++n) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummverseUpdateRoaming(4); walkActors(); g_system->delayMillis(2); }
+			if (device.keeperPollsForTests()<=polls) error("The device's keeper never polled");
+		}
+		pump(4);
+		for(const auto &e:seen) if (e.kind==N::Event::Failed || e.kind==N::Event::Left) error("The device away: it lost the game (%s)",e.kind==N::Event::Failed ? e.text.c_str() : "a player left");
+		if (!scummverseRemoteActor(24) || !device.connected() || N::players()!=1)
+			error("The device away: Zak dropped (remote %d, device %d, players %d)",scummverseRemoteActor(24),device.connected(),N::players());
+		warning("SCUMMVERSE net: the engine away %d ms (paused) and the device away %d ms: nobody dropped; Zak walked on",N::kSilentMs+3000,2*N::kSilentMs);
+	}
 	// Speech both ways.
 	device.setLocal(avatar(24,53,24,60)); pump(20);
 	device.say("Hello from my phone");

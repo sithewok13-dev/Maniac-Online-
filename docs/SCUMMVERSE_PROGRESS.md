@@ -6111,3 +6111,34 @@ opens it), not a Maniac copy inside Tentacle's folder.
   the list and Tentacle from its hand-over save exactly; the app stopped in
   it and started again), test_startup, then the full data suite. Not tested
   on an iPhone.
+
+## Patch 0221 — WiFi play: a paused game stays in; the host's listener kept
+
+From an independent review of 0209.
+- A device was dropped once its game loop stood still for 15 seconds (the
+  session was polled only from the loop): ScummVM's menu, the pause
+  banner, typing a save's name, and on the iPhone Control Center or a call
+  banner. A paused host dropped everyone. Now a small thread owned by the
+  session (the keeper) polls in the engine's stead once the engine has not
+  for 1 second: it answers and sends pings, relays between players, and
+  holds what it hears for the engine (each player's last place and last
+  line, who left), so a long pause holds little. While the engine polls,
+  the keeper only sleeps. If no thread can be made, play goes on as before.
+  0209's note above now holds only for the background: once the phone
+  suspends the app nothing runs, and a device gone for 15 seconds (killed,
+  WiFi off, suspended) is still dropped; a closed connection at once.
+- Any error from accepting a new connection closed and reopened the
+  host's listener, resetting everyone waiting to join (and ending hosting
+  if it could not reopen). Out of descriptors or memory, the host stops
+  accepting for a moment; one connection's error skips that connection;
+  only a dead listener (or more failures in a row than its backlog) is
+  reopened.
+- tools/test_talk_provider.cpp waits for the worker's real status instead
+  of a 50 ms sleep (it failed now and then under TSan and load).
+- Tests: test_net (ASan/UBSan and TSan; new: the engine away for 30 s
+  while others walk and talk, every device away at once, leaving and
+  joining while away, out of descriptors, a listener shut down, liveness
+  on raw silent sockets), the WiFi engine probe (new: the engine paused 18
+  s while Zak's player walks on, nobody dropped; the device away 30 s),
+  test_talk_runtime, test_startup, the full data suite. Not tested on two
+  phones or an iPhone.

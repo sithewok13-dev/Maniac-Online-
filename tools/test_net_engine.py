@@ -7,8 +7,9 @@ release on departure; places in other worlds (0196) and the looks played,
 through a save and a load (0197); from 0209, a character refused here gives
 back the one played, taking the local player's is refused and closed, lines
 wait their turn (five seconds at most), and after a load friends stand where
-they are, no one's companions. One process on one machine: not a two-device
-or iPhone network test.
+they are, no one's companions; from round 3, the engine away (paused, no
+updates) longer than the silence limit, and the device away as long, drop
+nobody. One process on one machine: not a two-device or iPhone network test.
 """
 import argparse
 from pathlib import Path
