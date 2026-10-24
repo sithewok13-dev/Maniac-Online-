@@ -7,7 +7,7 @@
 	}
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
-	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked")->_room; r.wait=60000; r.speech=60000; }
 	Actor *me=derefActor(3,"world visitor");
 	byte maniacColors[48]; memcpy(maniacColors,_currentPalette,48);
 	auto shot=[&](const Common::String &name) {

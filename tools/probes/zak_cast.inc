@@ -124,8 +124,9 @@
 			if(annie->_room!=_currentRoom) { annie->putActor(30,60,_currentRoom); annie->showActor(); }
 			// (Annie walks only where sent: parked in the room she is now in. A
 			// roamer whose room is not the one it last saw starts afresh there,
-			// a short wait and then out through one of the room's doors; out
-			// of sight a hop is not drawn and stays where it was.)
+			// a short wait (or the longer one it was given) and then out
+			// through one of the room's doors; out of sight a hop is not drawn
+			// and stays where it was.)
 			{ Roamer &r=_scummverseRoamers[20]; r=Roamer(); r.room=annie->_room; r.wait=60000; r.speech=60000; }
 			const AdjustBoxResult to=annie->adjustXYToBeInBox(annie->getRealPos().x>40 ? 10 : 70,annie->getRealPos().y);
 			annie->startWalkActor(to.x,to.y,-1);

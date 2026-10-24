@@ -12,7 +12,7 @@
 	if(!_scummverseRoaming || !_scummverseRoamingReady) error("The mansion not as itself (roaming=tr, its default, on): roaming %d, ready %d",_scummverseRoaming,_scummverseRoamingReady);
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
-	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked")->_room; r.wait=60000; r.speech=60000; }
 	using namespace ::Scummverse::WorldCatalog;
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
 	Actor *me=derefActor(3,"damaged");

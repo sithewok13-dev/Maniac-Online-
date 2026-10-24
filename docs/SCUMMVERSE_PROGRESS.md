@@ -6841,3 +6841,26 @@ and a failure says how to run it again with that seed
 (SCUMMVERSE_PROBE_SEED=N); a fixed seed would have hidden this.
 Found while checking: some of the engine's own pauses for characters
 after rides are cut short the same way; being looked at.
+
+## Patch 0246 — characters' pauses after rides and doors kept
+
+Found while finding why Zak's broom test failed on some seeds.
+- A character's roaming record reset with a long pause (600 ticks) but no
+  room was restarted at the next update with a fresh 30-150, so the pause
+  never happened: the van's riders stepping out, the Mars tram's and The
+  Dig's tram's arrivals (half the time a Mars arrival called the tram
+  again at once), a WiFi friend's character let go, the pause after a
+  mansion door (cut short 16 times in 20) and after a move between rooms in
+  Zak's and other worlds' places (7 in 10). The restart now keeps a longer
+  pending pause (the same random calls, so a seed means the same as
+  before). Airports, which record the room first, were not affected.
+- Visible change: in Zak's and other worlds' places characters now wait
+  the 10-25 seconds the code sets between moves, instead of moving every
+  half second to two seconds; one left out of sight there goes home after
+  that wait.
+- Probes hold characters with their room set as well (eleven more probes;
+  the hold now really holds).
+- Tests: the tram, Dig tram and van probes (new: the pause after a ride is
+  at least 500 ticks; they fail on the old code at every seed), sweeps of
+  seeds 1-30 over nineteen probes and 1-3 over twenty more, test_startup,
+  the full data suite. Not tested on an iPhone.

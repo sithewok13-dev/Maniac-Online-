@@ -10,7 +10,7 @@
 	}
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
-	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked")->_room; r.wait=60000; r.speech=60000; }
 	using namespace ::Scummverse::WorldCatalog;
 	const int dig=8;
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
@@ -81,6 +81,9 @@
 	if(game!=dig || source!=37) error("Arrived in %d:%d, not the map-spire station",game,source);
 	if(!me->_visible || me->_room!=_currentRoom || friendly->_room!=_currentRoom || bystander->_room!=_currentRoom) error("Riders did not step off");
 	if(away->_room==_currentRoom) error("Razor rode along");
+	// Off the car Wendy stays a while (600), not the short wait of someone
+	// found somewhere new.
+	if(_scummverseRoamers[6].wait<500) error("Wendy not resting after the ride: wait %d",_scummverseRoamers[6].wait);
 	if(((_scummVars[612]>>0)&3)!=2) error("Car not parked at the spire end: %d",_scummVars[612]);
 	settle(60); shot("dig-tram-37");
 	// The parked car opens at once for the way back; walking off before it

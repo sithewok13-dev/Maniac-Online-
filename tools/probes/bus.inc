@@ -72,7 +72,8 @@
 	if (!loadState(2,false) || _currentRoom!=55 || player->_room!=55 || player->_costume!=3 || _virtscr[0].h!=128) error("Bus save reload failed");
 	// Loading resets transient roaming timers; keep bystanders parked so the
 	// bus is free for this check.
-	// (A roamer whose room differs from its actor's starts a new short wait.)
+	// (A roamer whose room differs from its actor's starts afresh there: a
+	// short wait, or the longer one it was given.)
 	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked bystander")->_room; r.wait=60000; r.speech=60000; }
 	_scummVars[765]=_scummVars[766]=_scummVars[767]=0;
 	player=derefActor(VAR(VAR_EGO),"bus queue"); player->putActor(92,59,55); _scummverseBusClock=156;

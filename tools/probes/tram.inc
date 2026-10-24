@@ -12,7 +12,7 @@
 	_currentScript=0xFF; _userPut=1; VAR(VAR_EGO)=3; _scummverseLastEgo=3;
 	if (!scummverseTravel(1) || !_scummVars[763]) error("Sandbox not ready");
 	// Park everyone so only the riders under test use the tram.
-	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked")->_room; r.wait=60000; r.speech=60000; }
 	auto scratch=[&](int room,int original) { for(int i=0;i<33;++i) if(scummverseOriginalObject(room,732+i)==original) return 732+i; return 0; };
 	Actor *me=derefActor(3,"tram player");
 	auto run=[&](int ticks) { for(int n=0;n<ticks && _scummVars[797];++n) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
@@ -53,6 +53,9 @@
 	Actor *annie=derefActor(20,"tram npc"); annie->stopActorMoving(); annie->putActor(15,60,184);
 	scummverseTramRequest(20,true); run(400);
 	if (annie->_room!=79 || !me->_visible || _currentRoom!=184 || (_scummVars[799]&1)) error("NPC ride failed: annie %d station %d",annie->_room,_scummVars[799]);
+	// Off the tram she stays a while (600) before going on or calling it
+	// again, not the short wait of someone found somewhere new.
+	if (_scummverseRoamers[20].wait<500) error("NPC rider not resting after the ride: wait %d",_scummverseRoamers[20].wait);
 	if (getState(tram)!=10) error("Departed tram still drawn at 184");
 	// Call it back with the button: it arrives empty.
 	runObjectScript(button,13,false,false,nullptr); if (!(_scummVars[799]&2)) error("Call not accepted");

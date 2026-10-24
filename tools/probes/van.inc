@@ -12,7 +12,7 @@
 	}
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
-	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.wait=60000; r.speech=60000; }
+	for (int id=1;id<25;++id) { Roamer &r=_scummverseRoamers[id]; r=Roamer(); r.room=derefActor(id,"parked")->_room; r.wait=60000; r.speech=60000; }
 	using namespace ::Scummverse::WorldCatalog;
 	const bool otherWorld=@MONKEY@;
 	auto settle=[&](int n) { for(int i=0;i<n;++i) { VAR(VAR_HAVE_MSG)=0; stopTalk(); scummLoop(4); } };
@@ -63,6 +63,9 @@
 	if(_currentRoom!=kVanFlightRoom) error("Landed before Arrive: %d",_currentRoom);
 	scummverseVanArrive(); settle(4);
 	if(_currentRoom!=55 || _scummVars[kVanSiteVar]!=sf || _scummVars[kVanPhaseVar] || !me->_visible || friendly->_room!=55 || hitch->_room!=55) error("Landing failed: view %d site %d phase %d (passenger in %d)",_currentRoom,_scummVars[kVanSiteVar],_scummVars[kVanPhaseVar],hitch->_room);
+	// Out of the van they stay a while (600), not the short wait of someone
+	// found somewhere new.
+	for(int id : {5,6}) if(_scummverseRoamers[id].wait<500) error("Rider %d not resting after stepping out: wait %d",id,_scummverseRoamers[id].wait);
 	warning("VAN the one by the van rode along and stepped out");
 	auto drawnHere=[&](const char *where) {
 		int x,y,w,h; if(!scummverseVanRect(x,y,w,h)) error("No van rect in %s",where);
