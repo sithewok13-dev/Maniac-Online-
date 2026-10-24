@@ -527,11 +527,14 @@
 	}
 	// Not touring, a save waiting for the main loop's next frame (Day of the
 	// Tentacle's computer's temporary save, slot 100, as startManiac asks for
-	// it; a load) is never taken over by an autosave asked for meanwhile,
-	// ScummVM's or the phone's: with an autosave in its slot, that one is
-	// kept as it is (made without writing it: the phone, putting the app
-	// away, drops its restore point first and points it there again); with
-	// none, refused (the phone keeps none). The save written as asked.
+	// it; a load) is never taken over by an autosave asked for meanwhile:
+	// the phone's (the game held still as it puts the app away), with an
+	// autosave in its slot, is made by keeping that one as it is (the phone
+	// drops its restore point first and points it there again); with none,
+	// or in a story (which goes on from its newest save), refused (the phone
+	// keeps none). ScummVM's own, on its timer as the game runs, is refused
+	// (tried again in a few minutes, not taken for made). The save written
+	// as asked.
 	{
 		const int slot=getAutosaveSlot();
 		auto bytes=[&](int s, bool temporary) {
@@ -541,9 +544,11 @@
 			return b;
 		};
 		auto phone=[&]() { PauseToken pt=pauseEngine(); return saveGameState(slot,"Autosave",true).getCode(); }; // (held still)
-		// (As iOS's saveState, OSystem_iOS7: a restore point kept where an
-		// autosave can be made, not over a save of the player's own.)
+		// (As iOS's saveState, OSystem_iOS7, in its suspend loop, the game
+		// held still: a restore point kept where an autosave can be made,
+		// not over a save of the player's own.)
 		auto restorePoint=[&]() {
+			PauseToken held=pauseEngine();
 			if (!canSaveAutosaveCurrently()) return false;
 			const SaveStateDescriptor kept=getMetaEngine()->querySaveMetaInfos(_targetName.c_str(),slot);
 			return (kept.getSaveSlot()==-1 || kept.isAutosave()) && phone()==Common::kNoError;
@@ -556,20 +561,29 @@
 			if (!there) _saveFileMan->removeSavefile(makeSavegameName(slot,false));
 			_saveFileMan->removeSavefile(makeSavegameName(100,true));
 			_saveLoadFlag=1; _saveLoadSlot=100; _saveTemporaryState=true;
+			if (canSaveAutosaveCurrently()) error("A save waiting, an autosave %s: ScummVM's autosave offered as the game runs (taken for made, it would wait its whole time)",there ? "there" : "not there");
 			saveAutosaveIfEnabled(); // (ScummVM's, due: as handleAutoSave calls it)
 			const bool kept=restorePoint();
 			if (kept!=(there!=0) || _saveLoadFlag!=1 || _saveLoadSlot!=100 || !_saveTemporaryState || bytes(slot,false)!=was)
 				error("A save waiting, an autosave %s: the phone's restore point %d; flag %d, slot %d, temporary %d; the autosave %s",there ? "there" : "not there",kept,_saveLoadFlag,_saveLoadSlot,_saveTemporaryState,bytes(slot,false)==was ? "as it was" : "written");
+			if (there) {
+				// (In a story: the autosave there may be older than its newest save.)
+				_scummverseStory=true;
+				const bool inStory=restorePoint();
+				_scummverseStory=false;
+				if (inStory || _saveLoadFlag!=1 || bytes(slot,false)!=was) error("A save waiting in a story: the phone's restore point kept at the autosave (%d), flag %d",inStory,_saveLoadFlag);
+			}
 			scummLoop_handleSaveLoad();
 			if (_saveLoadFlag || bytes(100,true).empty() || bytes(slot,false)!=was) error("Slot 100 not written, or the autosave written meanwhile");
 			_saveLoadFlag=2; _saveLoadSlot=100; _saveTemporaryState=true;
+			if (canSaveAutosaveCurrently()) error("A load waiting: ScummVM's autosave offered as the game runs");
 			saveAutosaveIfEnabled();
 			if (restorePoint()!=(there!=0) || _saveLoadFlag!=2 || _saveLoadSlot!=100 || bytes(slot,false)!=was)
 				error("A load waiting, an autosave %s: flag %d, slot %d",there ? "there" : "not there",_saveLoadFlag,_saveLoadSlot);
 			_saveLoadFlag=0; _saveTemporaryState=false;
 		}
 		if (!restorePoint() || _saveLoadFlag || bytes(slot,false).empty()) error("With nothing waiting, the phone's autosave not written at once");
-		warning("TOUR not touring, a save waiting for its frame (slot 100, as Tentacle's computer asks for it) or a load kept: ScummVM's and the phone's autosaves made by keeping the autosave there (the phone's restore point), refused with none; with nothing waiting, written");
+		warning("TOUR not touring, a save waiting for its frame (slot 100, as Tentacle's computer asks for it) or a load kept: the phone's autosave (held still) made by keeping the autosave there (its restore point), refused with none or in a story; ScummVM's (the game running) refused; with nothing waiting, written");
 	}
 	warning("SCUMMVERSE_TOUR_PASS enabled=1");
 	quitGame();

@@ -136,9 +136,11 @@ def run_probe(data, probe_code, config_key, marker, label, prelude="", build_nam
         for enabled in (False, True):
             config = work/'probe.ini'
             # Wanderers (other games' characters visiting) stay home unless a
-            # probe asks for them: rooms stay as each probe expects.
+            # probe asks for them: rooms stay as each probe expects. (Roaming
+            # off when another setting is the one tried, unless asked for.)
             wanderers = '' if 'scummverse_wanderers' in extra_config else 'scummverse_wanderers=false\n'
-            config.write_text('[scummvm]\n' + ('scummverse_roaming=false\n' if config_key != 'scummverse_roaming' else '') + config_key + '=' + str(enabled).lower() + '\n' + wanderers + extra_config)
+            roaming = 'scummverse_roaming=false\n' if config_key != 'scummverse_roaming' and 'scummverse_roaming' not in extra_config else ''
+            config.write_text('[scummvm]\n' + roaming + config_key + '=' + str(enabled).lower() + '\n' + wanderers + extra_config)
             result = subprocess.run([str(exe), f'--config={config}', f'--path={data}',
                                      f'--savepath={work}', '--debuglevel=1'],
                                     cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)

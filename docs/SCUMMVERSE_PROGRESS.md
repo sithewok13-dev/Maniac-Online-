@@ -6519,3 +6519,33 @@ own taps through the engine as it is now.
   fails it at the step that needs it. No engine change was needed: nothing
   on the original's path was broken.
 - Not covered: the other endings, the iPhone's real touch and menus.
+
+## Patch 0238 — fixes from a review of 0234-0237: the autosave timer, the selfie's margin, the tram
+
+From an independent review of 0234-0237.
+- ScummVM's own autosave timer, due while a save or load waits, counted
+  0236's kept autosave as made and waited a whole period: the autosave is
+  kept that way only when the engine is paused (the phone's path), else
+  refused and tried again in 5 minutes as before. In Story mode it is
+  refused (a story goes on from its newest save, never a restore point
+  naming an older autosave).
+- A narrowed selfie (0234) could leave the player flush with the frame's
+  edge, and the next shots' poses cut: at least a strip (8 pixels, or 0.15
+  of the player's height) is kept beside the player where the view and 4:3
+  allow; others are kept whole only if they fit beside that.
+- The character screen's "is that person home already" check (0236) no
+  longer counts the one just chosen.
+- The Dig's tram: a damaged phase from a save (0237 checked only the
+  trip) disarmed the ledge so the tram never came; both are checked, before
+  the stop's approach.
+- Tests for what 0237 promised (none failed if it was undone): the
+  new-engine start with damaged settings (test_startup: a half-written
+  true or false, a non-numeric tour speed, a van place out of range); a new
+  data test, tools/test_damaged_engine.py, starting the mansion with
+  damaged settings, a cut scene claiming 4 GB refused at once, the van at
+  damaged scales, out-of-range tram phases and trips dropped; the tram
+  probe calling the tram with a damaged phase; the camera probe checking
+  Dave whole in all three shots with a strip beside him.
+- Tests: test_camera (ASan/UBSan, TSan), test_startup (23), the camera,
+  tour, tram and damaged probes, the full data suite. Not tested on an
+  iPhone.

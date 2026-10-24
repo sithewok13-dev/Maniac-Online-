@@ -11,8 +11,9 @@ boarded while paused, the van's flight chosen as it plays on; a door of
 another game's tapped while paused (no tap kept after Stop or a load); the
 autosave written as it begins and kept while touring (as the phone asks
 for one); not touring, a save waiting for its frame (Tentacle's computer's)
-never taken over by an autosave (the one there kept as the phone's restore
-point; with none, refused). Zak's stops need his files; other worlds'
+never taken over by an autosave (the phone's, the game held still: the one
+there kept as its restore point; with none, or in a story, refused;
+ScummVM's own as the game runs refused, to try again soon). Zak's stops need his files; other worlds'
 stops need their export cache (build/worlds), else they are passed over
 (without Monkey Island's, so are its place and doors tried mid-tour; with
 it, they must be tried). Not an iPhone test.

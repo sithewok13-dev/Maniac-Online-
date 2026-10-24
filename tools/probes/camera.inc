@@ -109,7 +109,10 @@
 	// where everyone was drawn in its last shot.
 	Cam::Rect framed, drawn[64];
 	// A selfie of three: the game holds still, each shot posed afresh and
-	// framed on Dave (whole), and afterwards the game is exactly as it was.
+	// framed on Dave (whole in each: the frame, made from the first shot's
+	// poses and kept, leaves room either side of him, a strip or more where
+	// the room goes on, for a pose a little wider after), and afterwards the
+	// game is exactly as it was.
 	// still: a scene where nothing moves (Dave alone), so that the screen
 	// one step later can be compared with the one before. True: the three
 	// shots came out alike.
@@ -125,12 +128,15 @@
 		int steps=0, shown=0;
 		byte posed[3][64]={};
 		Common::Array<byte> lastShot(_screenWidth*main.h);
+		Cam::Rect daveAt[3]; // (Dave as drawn for each shot: each is posed and drawn as the one before is taken)
 		for(;steps<600 && (steps==0 || Cam::busy());++steps) {
 			scummLoop(4);
+			if(FakeCamera::pictures.empty() && Cam::busy()) daveAt[0]=drawnRect(3);
 			if((int)FakeCamera::pictures.size()>shown) {
 				// Each shot: everyone in the room posing, as drawn.
 				for(int id=1;id<_numActors && id<64;++id) posed[shown][id]=_actors[id]->isInCurrentRoom() ? (byte)(_actors[id]->getFacing()/90*16+_actors[id]->_frame) : 0;
 				++shown;
+				if(shown<3) daveAt[shown]=drawnRect(3);
 				// (The last stays on the screen a moment: the screen it was cut from.)
 				if(shown==3) {
 					for(int y=0;y<main.h;++y) memcpy(&lastShot[y*_screenWidth],main.getPixels(0,y),_screenWidth);
@@ -164,10 +170,15 @@
 					if(same(p,lastShot.data(),_screenWidth,x0,y0,kx,ky) && !found++) { framed.x=x0; framed.y=y0; framed.w=w; framed.h=h; }
 			}
 			if(!found) error("Selfie in %s is not of the room as drawn",where);
-			if(!drawn[3].empty() && !within(drawn[3],framed))
-				error("Dave cut in the selfie (%s): %d..%d, %d..%d in %d..%d, %d..%d",where,drawn[3].x,drawn[3].right(),drawn[3].y,drawn[3].bottom(),framed.x,framed.right(),framed.y,framed.bottom());
-			warning("CAMERA selfie %s framed %d..%d, %d..%d of %dx%d (%d found), Dave %d..%d, %d..%d",where,framed.x,framed.right(),framed.y,framed.bottom(),_screenWidth,main.h,found,
-				drawn[3].x,drawn[3].right(),drawn[3].y,drawn[3].bottom());
+			for(int k=0;k<3;++k) if(!daveAt[k].empty() && !within(daveAt[k],framed))
+				error("Dave cut in the selfie's shot %d (%s): %d..%d, %d..%d in %d..%d, %d..%d",k+1,where,daveAt[k].x,daveAt[k].right(),daveAt[k].y,daveAt[k].bottom(),framed.x,framed.right(),framed.y,framed.bottom());
+			// (The room either side of him as framed: at least a strip, as
+			// far as the room goes, wherever 4:3 of its height holds that.)
+			const Cam::Rect &d=daveAt[0];
+			if(!d.empty() && d.w+16<=main.h*6/5*4/3 && (d.x-framed.x<MIN(8,d.x) || framed.right()-d.right()<MIN(8,_screenWidth-d.right())))
+				error("Dave at the edge of the selfie (%s): %d..%d in %d..%d of %d",where,d.x,d.right(),framed.x,framed.right(),_screenWidth);
+			warning("CAMERA selfie %s framed %d..%d, %d..%d of %dx%d (%d found), Dave %d..%d, %d..%d (shots: %d..%d, %d..%d, %d..%d)",where,framed.x,framed.right(),framed.y,framed.bottom(),_screenWidth,main.h,found,
+				drawn[3].x,drawn[3].right(),drawn[3].y,drawn[3].bottom(),daveAt[0].x,daveAt[0].right(),daveAt[1].x,daveAt[1].right(),daveAt[2].x,daveAt[2].right());
 		}
 		int differ=0;
 		for(int i=1;i<3;++i) differ+=memcmp(posed[i],posed[i-1],sizeof(posed[i]))!=0 || FakeCamera::pictures[i].rgba!=FakeCamera::pictures[i-1].rgba;

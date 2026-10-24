@@ -34,6 +34,23 @@
 	const int width=::Scummverse::WorldBridge::width(), height=::Scummverse::WorldBridge::height();
 	Common::Array<byte> empty; empty.resize(width*height); memcpy(empty.data(),::Scummverse::WorldBridge::pixels(),width*height);
 	int lx,ly; ledgeOf(80,false,lx,ly);
+	// A damaged save's tram on this very trip (a time no trip takes: before
+	// its start, past its end): dropped first, so the ledge's call goes
+	// through (not taken for that one under way).
+	{
+		const AdjustBoxResult on=me->adjustXYToBeInBox(lx,ly);
+		me->putActor(on.x,on.y,_currentRoom); me->stopActorMoving();
+		for (int phase : {-5,kDigTramDone+1,0x7FFFFFFF}) {
+			_scummVars[609]=phase; _scummVars[610]=0; _scummVars[611]=1; _scummverseDigTramArmed=true;
+			scummverseServiceDigTram(1);
+			if(_scummVars[609]<1 || _scummVars[609]>kDigTramOpen || _scummVars[611]!=1)
+				error("A damaged tram (phase %d) kept the ledge's call from going through: phase %d, trip %d",phase,_scummVars[609],_scummVars[611]);
+			_scummVars[609]=_scummVars[610]=_scummVars[611]=_scummVars[612]=0;
+		}
+		_scummverseDigTramArmed=true; _scummverseDigTramBusySaid=false;
+		scummverseServiceDigTram(1); VAR(VAR_HAVE_MSG)=0; stopTalk();
+		warning("DIG TRAM a damaged save's phase on this trip dropped, the ledge's call through");
+	}
 	// Companion (follows Dave) and a bystander already on the ledge; Razor stays back.
 	_scummVars[770+5]=3;
 	const AdjustBoxResult start=me->adjustXYToBeInBox(lx-14,ly);

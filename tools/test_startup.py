@@ -183,9 +183,7 @@ class StartupTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("SCUMMVERSE: could not start the sandbox", result.stdout)
 
-    def test_sandbox_synthetic_place(self):
-        # A made-up place and lead (no game data): the sandbox shows it at
-        # 1280x720 in true colour and the lead walks across.
+    def make_synthetic_place(self):
         worlds = self.root / "worlds"
         worlds.mkdir()
         w, h = 320, 144
@@ -202,14 +200,34 @@ class StartupTests(unittest.TestCase):
             lead += bytes((direction, kind, 0, 0)) + struct.pack("<hhHH", -10, -40, 20, 40)
             lead += bytes([30]) * 800 + bytes([0] * 20 + [1] * 780)
         (worlds / "monkey-c1.svc").write_bytes(lead)
-        self.config.write_text("[scummvm]\nscummverse_selftest=walk\nscummverse_screen=1280x720\n")
-        result = self.run_game("scummverse:sandbox")
+
+    def assert_synthetic_walk(self, result):
         self.assertEqual(result.returncode, 0, result.stdout)
         # (The lead and, from 0201, the four custom characters who roam: in a
         # world of one place, all of them there.)
         self.assertIn("1 shown, 5 people, 1 walked across, 0 as near as they go, 0 skipped, 0 failed", result.stdout)
         self.assertIn("screen 1280x720", result.stdout)
         self.assertIn("SCUMMVERSE sandbox selftest PASS", result.stdout)
+
+    def test_sandbox_synthetic_place(self):
+        # A made-up place and lead (no game data): the sandbox shows it at
+        # 1280x720 in true colour and the lead walks across.
+        self.make_synthetic_place()
+        self.config.write_text("[scummvm]\nscummverse_selftest=walk\nscummverse_screen=1280x720\n")
+        self.assert_synthetic_walk(self.run_game("scummverse:sandbox"))
+
+    def test_sandbox_damaged_settings(self):
+        # Its settings as a file cut short as the app was stopped writing it
+        # leaves them (not true or false, not a number, or a number out of
+        # range): read as not kept, the defaults (wanderers out), and it
+        # starts all the same. (ConfMan's own getBool and getInt end the app.)
+        self.make_synthetic_place()
+        self.config.write_text("[scummvm]\nscummverse_selftest=walk\nscummverse_screen=1280x720\n"
+                               "scummverse_wanderers=fal\nscummverse_verbs=tr\nscummverse_tour_speed=fast\n"
+                               "scummverse_sandbox_tour_place=\nscummverse_sandbox_van_place=99999999999\n"
+                               "scummverse_sandbox_flashlight=of\nscummverse_sandbox_tram_parked=x7\n"
+                               "scummverse_sandbox_van_x=-\nscummverse_sandbox_van_y=1e\n")
+        self.assert_synthetic_walk(self.run_game("scummverse:sandbox"))
 
     def assert_edition_rejected(self, filename, header):
         # Synthetic detector signatures only, never copyrighted game fixtures.

@@ -45,6 +45,8 @@ With privately supplied assets: `python3 tools/test_expansion.py game-data/mm-do
 PLAYTHROUGH: `python3 tools/test_playthrough_engine.py game-data/mm-dos` (in the data
 suite; Maniac Mansion played to an ending in Story mode, and what Explore mode keeps
 of its puzzles, with visitors about).
+DAMAGED FILES AND SETTINGS: `python3 tools/test_damaged_engine.py game-data/mm-dos` (in the
+data suite); the new engine's side is in test_startup.
 STORY PLAY (Story mode, kept apart from Explore mode): `python3 tools/test_story_engine.py
 game-data/mm-dos` (in the data suite; Maniac's own story and every game folder under game-data/,
 copy protection answered: opened, saved, back, reopened from its save exactly, game to game,

@@ -7,7 +7,8 @@ line the ledge calls the car; Dave, his companion and someone on the ledge
 board during the wait (not someone standing back), travel is locked during
 the ride (saved and loaded halfway), everyone steps off at the spire
 station, and the parked car there opens at once but never leaves without
-the player. Not an iPhone test.
+the player. A damaged save's phase for that trip (before its start, past
+its end) is dropped first: the ledge's call goes through. Not an iPhone test.
 """
 import argparse
 from pathlib import Path
