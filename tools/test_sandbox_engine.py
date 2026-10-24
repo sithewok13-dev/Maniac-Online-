@@ -549,6 +549,22 @@ if __name__ == '__main__':
                                                  or int(effects.group(5)) > 70 or effects.group(6) != '4'
                                                  or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '0')):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        # (From 0240) The wall safe behind the painting (room 9): Open on it
+        # shows its keypad (room 43, a close-up, exported with the mansion's
+        # places, no place itself); the code its own start chose, tapped key by
+        # key, opens it, the envelope inside taken; a wrong code closes the
+        # keypad with its line, the safe shut (its records not tried as plain
+        # answers: shown as the close-up).
+        safe = re.search(r'selftest close-ups: (\d+) records shown as close-ups; the wall safe: (\d+) opened with its code key by key on its keypad, '
+                         r'the envelope inside taken, shut again; (\d+) not opened with a wrong code, the keypad closed, its line said; '
+                         r"(\d+) left by a menu's choice, unanswered", output)
+        if (worlds/'maniac-9.svw').exists() and (worlds/'maniac-43.svw').exists() and (worlds/'maniac-43.svw').stat().st_size and \
+                (not safe or safe.group(1) != '1' or safe.group(2) != '1' or safe.group(3) != '1' or safe.group(4) != '1'):
+            raise SystemExit('FAIL: the wall safe and its keypad (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if safe and safe.group(2) == '1':
+            print('PASS: the wall safe behind the painting: Open shows its keypad (the close-up, nobody there, kept as the room it was opened from); '
+                  'the code its own start chose, tapped key by key, opens it back where they stood, the envelope inside taken; Use and a wrong code: '
+                  'the keypad closes, its line said, the safe still shut; a menu\'s choice there leaves it unanswered')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
@@ -682,8 +698,9 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: tour\n' + output[-2000:])
         stops, foot, warped, refused = (int(m.group(i)) for i in range(1, 5))
         # (Not The Dig's subway cars, nor the insides of rides, from 0198:
-        # kWorldRideScenes, Zak's plane cabin and van cockpit.)
-        insides = {'zak-11.svw', 'zak-30.svw'}
+        # kWorldRideScenes, Zak's plane cabin and van cockpit; nor, from 0240,
+        # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad.)
+        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw'}
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')

@@ -6654,3 +6654,33 @@ script number.
   needed: nothing on the original's path was broken.
 - Not covered: other orders of play, the deaths (only checked never to
   happen), the iPhone's real touch and menus, the ASan build.
+
+## Patch 0240 — the mansion's wall safe in the new engine (export version 34 for the mansion)
+
+From the sweep of things left undone (0202/0203): in the new engine the
+wall safe (room 9) never opened, so what is inside could not be reached.
+The original's Open goes to a keypad close-up (room 43), which the export
+could not follow; its record said nothing and changed nothing.
+- The safe's Open or Use (the painting moved) now shows its keypad, as the
+  original does: tap the four digits, the right code opens the safe (what
+  is inside shown and takeable), a wrong one closes the keypad with the
+  safe shut and the kid's answer said. The code is the game's own pick,
+  made as its start makes it (the export now runs the mansion's start from
+  the beginning, answering the kid picker as the classic engine's own
+  sandbox start does).
+- The export records the close-up (a one-row table names the safe, its
+  close-up, the keypad's variable and where the code is compared; all else
+  is read from the game): room 43 is exported as a scene, not a place, and
+  the things file gains a close-ups section (SVO6). Only the mansion's
+  things file and the new room 43 scene change.
+- In the keypad nobody is shown or walks; saves and the chat keep the
+  room; entering any other place lets the keypad go unanswered.
+- Still open: the code's clue (the telescope's view, room 34) is not shown
+  in the new engine, so only a player who knows the game knows the code;
+  the TV and typewriter chain (a film-like close-up and a per-character
+  "watched" mark) and the one-time scene the safe's opening starts are not
+  modelled.
+- Tests: test_panel (ASan/UBSan; new: SVO6), the verbs self-test (new: the
+  right code key by key and what is inside taken, a wrong code, a menu
+  choice leaving the keypad), a fresh mansion export, test_world_setup,
+  the full sandbox suite and data suite. Not tested on an iPhone.

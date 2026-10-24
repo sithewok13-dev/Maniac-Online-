@@ -1,0 +1,837 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index cca94cc5..81e4bcec 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -184,7 +184,8 @@ const ThingParent *GameThings::parent(int room, int id) const {
+ 
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	const bool power = data && size >= 4 && !std::memcmp(data, "SVO5", 4);
++	const bool closeUps = data && size >= 4 && !std::memcmp(data, "SVO6", 4);
++	const bool power = closeUps || (data && size >= 4 && !std::memcmp(data, "SVO5", 4));
+ 	const bool pairs = power || (data && size >= 4 && !std::memcmp(data, "SVO4", 4));
+ 	const bool withParents = pairs || (data && size >= 4 && !std::memcmp(data, "SVO3", 4));
+ 	const bool effects = withParents || (data && size >= 4 && !std::memcmp(data, "SVO2", 4));
+@@ -240,6 +241,40 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		for (int i = 0; i < dark && r.ok; ++i) out.unpowered.push_back(r.u16());
+ 		std::sort(out.unpowered.begin(), out.unpowered.end());
+ 	}
++	if (closeUps && r.ok) {
++		auto line = [&](std::string &to) {
++			std::vector<uint8_t> bytes;
++			if (r.bytes(r.u8(), bytes)) to.assign(bytes.begin(), bytes.end());
++		};
++		const int count = r.u8();
++		for (int i = 0; i < count && r.ok; ++i) {
++			CloseUp c;
++			c.room = r.u16(); c.id = r.u16(); c.kinds = r.u16(); c.closeUp = r.u16(); c.left = r.u16();
++			const int keys = r.u8();
++			for (int k = 0; k < keys && r.ok; ++k) {
++				CloseUpKey key;
++				key.id = r.u16(); key.value = r.u8();
++				line(key.line);
++				c.keys.push_back(key);
++			}
++			const int presses = r.u8();
++			for (int k = 0; k < presses && r.ok; ++k) c.code.push_back(r.u8());
++			c.right = r.u8(); line(c.rightLine);
++			c.wrong = r.u8(); line(c.wrongLine);
++			// (Shown by some verb; keys to press, a key for each value the code
++			// wants; each answer a picture its thing has.)
++			bool keyed = !c.code.empty();
++			for (int value : c.code) {
++				bool any = false;
++				for (const CloseUpKey &key : c.keys) any = any || key.value == value;
++				keyed = keyed && any;
++			}
++			if (count > kMostCloseUps || keys > kMostCloseUpKeys || presses > kMostPresses || !(c.kinds & 0xFFFE) || !c.closeUp || !keyed || c.right > 1 || c.wrong > 1) {
++				out = GameThings(); error = "bad close-up"; return false;
++			}
++			out.closeUps.push_back(c);
++		}
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
+ 	std::stable_sort(out.parents.begin(), out.parents.end(), [](const ThingParent &a, const ThingParent &b) { return std::make_pair(a.room, a.id) < std::make_pair(b.room, b.id); });
+ 	for (size_t i = 1; i < out.parents.size(); ++i)
+@@ -1054,6 +1089,45 @@ bool mainPower(int game, int &room, int &id, int &offPicture) {
+ 	}
+ 	return false;
+ }
++static const Panel::CloseUp *closeUpOf(int game, int index) {
++	for (const auto &g : gameThings())
++		if (g.first == game) return index >= 0 && index < (int)g.second.closeUps.size() ? &g.second.closeUps[index] : nullptr;
++	return nullptr;
++}
++int closeUpCount(int game) {
++	for (const auto &g : gameThings()) if (g.first == game) return (int)g.second.closeUps.size();
++	return 0;
++}
++bool closeUpThing(int game, int index, int &room, int &id, int &kinds) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c) return false;
++	room = c->room; id = c->id; kinds = c->kinds;
++	return true;
++}
++bool closeUpScene(int game, int index, int &room, int &left, int &keys, int &presses) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c) return false;
++	room = c->closeUp; left = c->left; keys = (int)c->keys.size(); presses = (int)c->code.size();
++	return true;
++}
++bool closeUpKey(int game, int index, int key, int &id, int &value, char *line, int capacity) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || key < 0 || key >= (int)c->keys.size()) return false;
++	id = c->keys[key].id; value = c->keys[key].value;
++	copy(c->keys[key].line, line, capacity);
++	return true;
++}
++int closeUpCode(int game, int index, int press) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	return c && press >= 0 && press < (int)c->code.size() ? c->code[press] : -1;
++}
++bool closeUpAnswer(int game, int index, bool right, int &picture, char *line, int capacity) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c) return false;
++	picture = right ? c->right : c->wrong;
++	copy(right ? c->rightLine : c->wrongLine, line, capacity);
++	return true;
++}
+ bool unpowered(int game, int room) {
+ 	for (const auto &g : gameThings())
+ 		if (g.first == game) return std::binary_search(g.second.unpowered.begin(), g.second.unpowered.end(), room);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 2b4542c7..c1e354a8 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -158,18 +158,36 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // "SVO5" (from 0195) goes on after the parents: the main power (u16 room, u16
+ // object, u8 its picture when off; 0 0: none) and the places dark while it
+ // is off (u16 count, u16 each).
++// "SVO6" (from 0240) goes on after them: u8 count of close-ups a thing's
++// script shows (the mansion's wall safe's keypad), each u16 room, u16
++// object, u16 the verbs (bit k: WorldVerbKind k) that show it from its
++// picture 0, u16 the close-up's room, u16 the left of the part shown (source
++// pixels), u8 count of keys, each u16 object, u8 the value it gives (as its
++// game counts) and its line (u8 length, the line shown pressed), u8 count of
++// presses and each the value the code wants then, then right and wrong (any
++// other values), each u8 the thing's picture after and the line said (u8
++// length, the line).
++struct CloseUpKey { int id = 0, value = 0; std::string line; };
++struct CloseUp {
++	int room = 0, id = 0, kinds = 0, closeUp = 0, left = 0, right = 0, wrong = 0;
++	std::vector<CloseUpKey> keys;
++	std::vector<int> code; // (values, in the order pressed)
++	std::string rightLine, wrongLine;
++};
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
+ 	std::vector<ThingEffect> effects;                            // by room, id, kind, from
+ 	std::vector<ThingParent> parents;                            // by room, id
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;                // the main power (0 0: none)
+ 	std::vector<int> unpowered;                                  // places dark while it is off, in order
++	std::vector<CloseUp> closeUps;                               // as listed
+ 	const GameThing *find(int room, int id) const;
+ 	const ThingEffect *effect(int room, int id, int kind, int from, int with = 0) const;
+ 	const ThingParent *parent(int room, int id) const;
+ };
+ // (At most this many rooms, objects in one, effects and others in one.)
+ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 32768, kMostEffectParts = 64;
++static const int kMostCloseUps = 16, kMostCloseUpKeys = 64, kMostPresses = 16;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index fa832469..ddaff97d 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -151,6 +151,20 @@ bool thingParent(int game, int room, int id, int &parent, int &picture);
+ // while it is off (as that game's own room scripts leave it).
+ bool mainPower(int game, int &room, int &id, int &offPicture);
+ bool unpowered(int game, int room);
++// The close-ups a game's things' scripts show ("SVO6", the mansion's from
++// 0240: its wall safe's keypad), by index: the thing (room, object) and the
++// verbs that show it from its picture 0 (bit k: WorldVerbKind k); the
++// close-up's room, the left of the part shown (source pixels), its keys and
++// the presses that close it; a key's object, the value it gives (as its game
++// counts) and the line it shows pressed; the value the code wants at a press
++// (-1: none); what the code (right) or any other values do: the thing's
++// picture after and the line said.
++int closeUpCount(int game);
++bool closeUpThing(int game, int index, int &room, int &id, int &kinds);
++bool closeUpScene(int game, int index, int &room, int &left, int &keys, int &presses);
++bool closeUpKey(int game, int index, int key, int &id, int &value, char *line, int capacity);
++int closeUpCode(int game, int index, int press);
++bool closeUpAnswer(int game, int index, bool right, int &picture, char *line, int capacity);
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 1ec0a611..f9e57e2b 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -49,10 +49,11 @@ static const int kWorldExportVersion = 25;
+ // Fate of Atlantis's (its labyrinth, rings and travel screens likewise);
+ // from 0195 the mansion's again (its main power: where it leaves the house
+ // dark); from 0198 Zak's (the insides of its plane and the Shuttle Bug,
+-// kWorldRideScenes).
++// kWorldRideScenes); from 0240 the mansion's again (its wall safe's keypad,
++// kWorldCloseUps: "maniac-v34").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 8 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 9 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -537,6 +538,24 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ 	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == game && s.kind == kind) return &s;
+ 	return nullptr;
+ }
++// Close-ups (from 0240): a scene a thing's own script shows instead of the
++// place, with keys pressed one at a time; exported with the game's places
++// but no place itself (no door leads in; never listed, toured or kept as
++// where the one played is). The mansion's wall safe (room 9, 219, behind
++// its painting): Open or Use shows its keypad (room 43, the half its script
++// turns to); each key puts its value in the game's variable `pressed`
++// (`idle` until one is), which the script compares with the code from
++// variable `code` on (copied there from the code its start chose), until
++// `presses` keys are in; then it closes, the safe open only if all were
++// right. The export plays it so (scummverseExportThings, "SVO6": the keys,
++// the code, what each answer does); the variables are named here, as the
++// export cannot tell which of the game's are the keypad's.
++struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses; };
++static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4}};
++inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
++	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && c.closeUp == closeUp) return &c;
++	return nullptr;
++}
+ // The ride boarded at an object of a place, else null.
+ inline const WorldRide *worldRideAt(int game, int room, int object) {
+ 	for (const WorldRide &r : kWorldRides) if (r.game == game && r.room == room && r.object == object) return &r;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index a3aaa821..6aa07ad2 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1529,8 +1529,13 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 			for (int r : rooms) listed = listed || r == map->rooms[i].room;
+ 			if (!listed) rooms.push_back(map->rooms[i].room);
+ 		}
+-	// (And the insides of its rides, seen on the way.)
++	// (And the insides of its rides, seen on the way, and its close-ups.)
+ 	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == gameIndex) rooms.push_back(s.room);
++	for (const WorldCloseUp &c : kWorldCloseUps) {
++		bool listed = c.game != gameIndex;
++		for (int r : rooms) listed = listed || r == c.closeUp;
++		if (!listed) rooms.push_back(c.closeUp);
++	}
+ 	Common::Array<int> costumes;
+ 	int written = 0;
+ 	for (int room : rooms) {
+@@ -1633,8 +1638,11 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // From 0195 "SVO5": then the main power (kWorldMainPowers: u16 room, u16
+ // object, u8 its picture when off) and the places dark while it is off (u16
+ // count, u16 each): lit on arriving with it on, dark with it turned off by
+-// its own script. Every other game's is "SVO3" with no effects (before,
+-// "SVO1"), so that what is inside another is known there too.
++// its own script. From 0240 "SVO6": then the close-ups (kWorldCloseUps, u8
++// count; see Scummverse::Panel::CloseUp), each played from the game's own
++// start as a player plays it; a close-up's room is no place here. Every
++// other game's is "SVO3" with no effects (before, "SVO1"), so that what is
++// inside another is known there too.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1655,6 +1663,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	Common::Array<Room> found;
+ 	for (int room : rooms) {
+ 		if (shouldQuit()) break;
++		// (A close-up is no place: what its keys do is its own record below.)
++		if (worldCloseUpScene(gameIndex, room)) continue;
+ 		putBack();
+ 		// (The same each time: what a room's script picks at random, the
+ 		// same picks.)
+@@ -1672,6 +1682,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (found.empty()) { problem = "no room set up"; return false; }
+ 	struct Effect { int room, id, kind, from, after, with = 0; bool taken, firstGone = false, secondGone = false; Common::Array<int> others; Common::String line; };
+ 	Common::Array<Effect> effects;
++	struct CloseUp { int room = 0, id = 0, kinds = 0, closeUp = 0, left = 0, right = 0, wrong = 0; Common::Array<int> keys, values, code; Common::Array<Common::String> keyLines; Common::String rightLine, wrongLine; };
++	Common::Array<CloseUp> closeUps;
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;
+ 	Common::Array<int> unpowered;
+ 	if (_game.id == GID_MANIAC && _game.version <= 1) {
+@@ -1951,6 +1963,130 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			powerRoom = m.room; powerId = m.object;
+ 			debug(1, "SCUMMVERSE world things: %s main power off (room %d object %d): %d places dark", kWorldGames[gameIndex].gameid, m.room, m.object, (int)unpowered.size());
+ 		}
++		// (From 0240, "SVO6": each close-up a thing's script shows
++		// (kWorldCloseUps), played as a player plays it. From the game's own
++		// start (below) and the place as arrived, the thing in its picture 0
++		// and what it is inside showing it, each verb with a script run until
++		// the close-up stands waiting for a key; there each object in view run
++		// alone (a key: the value it gives the keypad, the line it shows), and
++		// the code read where the script compares it. Then the code pressed,
++		// and a wrong one, each until the close-up has gone: the thing's
++		// picture after, the line said.)
++		const int pushVerb = verbOf(kWorldVerbPush);
++		auto oneFrame = [&]() {
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++			VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++		};
++		auto lineOf = [&]() {
++			Common::String line;
++			for (const byte *c = _charsetBuffer; *c && line.size() < 255; ++c) {
++				if (*c >= 32 && *c < 127) line += (char)*c;
++				else if (!line.empty() && line.lastChar() != ' ') line += ' ';
++				if (*c == 0xFF && c[1]) ++c;
++			}
++			while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
++			return line;
++		};
++		// (The code is its start's: the mansion's boot script picks the wall
++		// safe's after its kid picker, which the panel's start (script 164)
++		// never reaches. So the boot is run from its beginning, the picker
++		// answered as a player can (three kids, those the original engine's
++		// own sandbox start picks, see readVar; the introduction skipped by
++		// its cutscene's exit, as the player's key does), until it ends; its
++		// random picks the same each time.)
++		Kept started;
++		bool booted = false, wanted = false;
++		for (const WorldCloseUp &c : kWorldCloseUps) wanted = wanted || c.game == gameIndex;
++		if (pushVerb && wanted && !shouldQuit()) {
++			putBack(); quiet();
++			_rnd.setSeed(0x5C0BE);
++			int args[NUM_SCRIPT_LOCAL];
++			memset(args, 0, sizeof(args));
++			args[0] = _bootParam;
++			runScript(1, false, false, args);
++			bool picked = false;
++			for (int n = 0; n < 3000 && isScriptRunning(1) && !shouldQuit(); ++n) {
++				if (!picked && _currentRoom == 45 && vm.cutSceneStackPointer == 0 && vm.cutScenePtr[0]) {
++					VAR(47) = 3; VAR(48) = 2; VAR(49) = 5; VAR(111) = 3;
++					abortCutscene();
++					picked = true;
++				}
++				oneFrame();
++			}
++			booted = picked && !isScriptRunning(1);
++			if (booted) started = keep();
++			else warning("SCUMMVERSE world things: %s start not run past its kid picker", kWorldGames[gameIndex].gameid);
++		}
++		auto showCloseUp = [&](const WorldCloseUp &c, int verb) {
++			if (booted) restore(started); else putBack();
++			_rnd.setSeed(0x5C0BE + c.room);
++			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
++			const int at = getObjectIndex(c.object);
++			if (at < 0) return false;
++			for (int up = at, depth = 0; _objs[up].parent && _objs[up].parent < _numLocalObjects && depth < 8; up = _objs[up].parent, ++depth) {
++				const int parent = _objs[_objs[up].parent].obj_nr;
++				putState(parent, _objs[up].parentstate & kObjectStateIntrinsic ? getState(parent) | kObjectStateIntrinsic : getState(parent) & ~kObjectStateIntrinsic);
++			}
++			putState(c.object, getState(c.object) & ~kObjectStateIntrinsic);
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			runObjectScript(c.object, verb, false, false, nullptr);
++			for (int n = 0; n < 300 && !(_currentRoom == c.closeUp && VAR(c.pressed) == c.idle); ++n) oneFrame();
++			return _currentRoom == c.closeUp && VAR(c.pressed) == c.idle;
++		};
++		// (Pressed in turn as a player presses them, until the close-up takes
++		// each; after the last, until it has gone and the place answers.)
++		auto pressKeys = [&](const WorldCloseUp &c, const Common::Array<int> &keys, int &picture, Common::String &line) {
++			for (uint k = 0; k < keys.size() && _currentRoom == c.closeUp; ++k) {
++				VAR(VAR_ACTIVE_VERB) = pushVerb; VAR(VAR_ACTIVE_OBJECT1) = keys[k]; VAR(VAR_ACTIVE_OBJECT2) = 0;
++				runObjectScript(keys[k], pushVerb, false, false, nullptr);
++				for (int n = 0; n < 300 && _currentRoom == c.closeUp && VAR(c.pressed) != c.idle; ++n) oneFrame();
++			}
++			if (_currentRoom == c.closeUp) return false;
++			_charsetBuffer[0] = 0;
++			for (int n = 0; n < 240 && line.empty(); ++n) { oneFrame(); line = lineOf(); }
++			picture = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
++			return _currentRoom == c.room;
++		};
++		for (const WorldCloseUp &c : kWorldCloseUps) {
++			if (c.game != gameIndex || shouldQuit() || !booted) continue;
++			CloseUp u;
++			u.room = c.room; u.id = c.object; u.closeUp = c.closeUp;
++			for (int kind : {(int)kWorldVerbOpen, (int)kWorldVerbClose, (int)kWorldVerbPush, (int)kWorldVerbPull, (int)kWorldVerbUse, (int)kWorldVerbTurnOn, (int)kWorldVerbTurnOff})
++				if (showCloseUp(c, verbOf(kind))) u.kinds |= 1 << kind;
++			int kind = 1;
++			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
++			if (kind < 16 && showCloseUp(c, verbOf(kind))) {
++				// (The part shown: the camera's middle, the screen's width.)
++				u.left = MAX(0, camera._cur.x - _screenWidth / 2);
++				for (int i = 1; i < _numLocalObjects; ++i) {
++					const int obj = _objs[i].obj_nr;
++					if (!obj || _objs[i].x_pos + _objs[i].width <= u.left || _objs[i].x_pos >= u.left + _screenWidth || !getVerbEntrypoint(obj, pushVerb)) continue;
++					VAR(c.pressed) = c.idle;
++					_charsetBuffer[0] = 0;
++					VAR(VAR_ACTIVE_VERB) = pushVerb; VAR(VAR_ACTIVE_OBJECT1) = obj; VAR(VAR_ACTIVE_OBJECT2) = 0;
++					runObjectScript(obj, pushVerb, false, false, nullptr);
++					const int value = VAR(c.pressed);
++					const Common::String line = lineOf();
++					stopTalk(); _sound->stopAllSounds();
++					VAR(c.pressed) = c.idle;
++					if (value == c.idle || value < 0 || value > 255) continue;
++					u.keys.push_back(obj); u.values.push_back(value); u.keyLines.push_back(line);
++				}
++				for (int i = 0; i < c.presses; ++i) u.code.push_back(VAR(c.code + i));
++			}
++			// (The code, each value a key's; then a wrong one: its first
++			// press another key's.)
++			Common::Array<int> right, wrong;
++			for (int value : u.code)
++				for (uint k = 0; k < u.keys.size(); ++k) if (u.values[k] == value) { right.push_back(u.keys[k]); break; }
++			for (uint k = 0; right.size() == u.code.size() && k < u.keys.size() && wrong.empty(); ++k)
++				if (u.values[k] != u.code[0]) { wrong = right; wrong[0] = u.keys[k]; }
++			const bool played = !wrong.empty() && showCloseUp(c, verbOf(kind)) && pressKeys(c, right, u.right, u.rightLine) &&
++				showCloseUp(c, verbOf(kind)) && pressKeys(c, wrong, u.wrong, u.wrongLine) && u.right != u.wrong;
++			if (played) closeUps.push_back(u);
++			else warning("SCUMMVERSE world things: %s close-up %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++			debug(1, "SCUMMVERSE world things: %s close-up %d (room %d object %d): %d keys, %d pressed, %s", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, (int)u.keys.size(), (int)u.code.size(), played ? "played" : "not played");
++		}
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+ 	}
+@@ -1958,7 +2094,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO3" : "SVO5", 4);
++	out.write(effects.empty() ? "SVO3" : "SVO6", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -1998,6 +2134,20 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		scummverseWrite16(out, powerRoom); scummverseWrite16(out, powerId); out.writeByte(powerOff);
+ 		scummverseWrite16(out, MIN<uint>(unpowered.size(), 1024));
+ 		for (uint k = 0; k < unpowered.size() && k < 1024; ++k) scummverseWrite16(out, unpowered[k]);
++		// (From 0240, "SVO6": the close-ups, see Scummverse::Panel::CloseUp.)
++		auto line = [&](const Common::String &l) { out.writeByte(MIN<uint>(l.size(), 255)); out.write(l.c_str(), MIN<uint>(l.size(), 255)); };
++		out.writeByte(MIN<uint>(closeUps.size(), 16));
++		for (uint k = 0; k < closeUps.size() && k < 16; ++k) {
++			const CloseUp &u = closeUps[k];
++			scummverseWrite16(out, u.room); scummverseWrite16(out, u.id); scummverseWrite16(out, u.kinds);
++			scummverseWrite16(out, u.closeUp); scummverseWrite16(out, u.left);
++			out.writeByte(u.keys.size());
++			for (uint i = 0; i < u.keys.size(); ++i) { scummverseWrite16(out, u.keys[i]); out.writeByte(u.values[i]); line(u.keyLines[i]); }
++			out.writeByte(u.code.size());
++			for (int value : u.code) out.writeByte(value);
++			out.writeByte(u.right); line(u.rightLine);
++			out.writeByte(u.wrong); line(u.wrongLine);
++		}
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 7a4e17d5..a1e5204a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -163,7 +163,7 @@ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data)
+ // "<gameid>-<room>.svw" and "<gameid>-c<costume>.svc"; an empty scene is a
+ // room a later export found no place in.
+ void SandboxEngine::scan() {
+-	_rooms.clear(); _characters.clear(); _insides.clear();
++	_rooms.clear(); _characters.clear(); _insides.clear(); _closeUps.clear();
+ 	Common::FSList files;
+ 	_folder.getChildren(files, Common::FSNode::kListFilesOnly);
+ 	for (const Common::FSNode &file : files) {
+@@ -180,7 +180,8 @@ void SandboxEngine::scan() {
+ 				if (end && !strcmp(end, ".svc") && costume >= 0 && costume < 1024) _characters[worldAppearanceKey(game, (int)costume)] = true;
+ 			} else if (name.hasSuffix(".svw")) {
+ 				const long room = strtol(rest, &end, 10);
+-				if (end && !strcmp(end, ".svw") && room > 0 && room < 1024) (worldRideScene(game, (int)room) ? _insides : _rooms)[game * 1024 + (int)room] = true;
++				if (end && !strcmp(end, ".svw") && room > 0 && room < 1024)
++					(worldRideScene(game, (int)room) ? _insides : worldCloseUpScene(game, (int)room) ? _closeUps : _rooms)[game * 1024 + (int)room] = true;
+ 			}
+ 		}
+ 	}
+@@ -228,7 +229,13 @@ bool SandboxEngine::startPlace(int &game, int &room) const {
+ }
+ 
+ int SandboxEngine::place(int game, int room) const {
+-	return walkable(game, room) && !worldRideScene(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
++	return walkable(game, room) && !worldRideScene(game, room) && !worldCloseUpScene(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
++}
++
++// (In a close-up, the place it was shown from: those there stay while it is
++// shown, as while the one played watches.)
++int SandboxEngine::placeHere() const {
++	return _closeUp.index >= 0 ? place(_closeUp.game, _closeUp.room) : place(_game, _room);
+ }
+ 
+ // Small: an animal or a critter, one of a kind (two parrots are two birds,
+@@ -259,7 +266,7 @@ bool SandboxEngine::twinOnStage(int key) const {
+ void SandboxEngine::wanderStanding() {
+ 	WanderBridge::clearStanding();
+ 	const WorldGuest *who = worldAppearance(_playerKey);
+-	if (who && _game >= 0) WanderBridge::stand(who->name, place(_game, _room), smallOne(_playerKey));
++	if (who && _game >= 0) WanderBridge::stand(who->name, placeHere(), smallOne(_playerKey));
+ }
+ 
+ // Everyone out (common/scummverse_wander.h, as Maniac's other-world
+@@ -387,8 +394,10 @@ bool SandboxEngine::startElsewhere(int game, int room, Common::String &problem)
+ 
+ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &problem) {
+ 	const WorldGame &g = kWorldGames[game];
+-	// (A ride's inside only on the way, by rideInside.)
++	// (A ride's inside only on the way, by rideInside; a close-up only as its
++	// thing shows it, by closeUpShow.)
+ 	if (worldRideScene(game, room) && !_enteringInside) { problem = "the inside of a ride"; return false; }
++	if (worldCloseUpScene(game, room) && !_enteringCloseUp) { problem = "a close-up"; return false; }
+ 	Common::Array<byte> data;
+ 	char error[128];
+ 	// (The one played must be there before the stage changes.)
+@@ -457,13 +466,14 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+ 	// (A way back kept while still past its door, with no way to the place
+-	// it leads to; elsewhere let go. Kept too.)
+-	if (_wayBack.game >= 0) {
++	// it leads to; elsewhere let go. Kept too. A close-up leaves it as it is.)
++	if (_wayBack.game >= 0 && !_enteringCloseUp) {
+ 		if (game != _wayBack.game || room == _wayBack.room || reaches(game, room, _wayBack.room)) _wayBack = WayBack();
+ 		else { _wayBack.atGame = game; _wayBack.atRoom = room; }
+ 		wayBackKeep();
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
++	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+ 	_cabinLeft = _cabinRight = 0;
+ 	_notice.clear(); _noticeClock = 0; // (what was told at the place before)
+ 	// (What is inside another over it where that one is open, else under it.)
+@@ -854,6 +864,9 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	case 7: PanelBridge::open(false); PanelBridge::select(-1); _dirty = true; return;
+ 	default: break;
+ 	}
++	// (A close-up: a key under the tap pressed, whatever the verb; nothing
++	// else there.)
++	if (_closeUp.index >= 0) { PanelBridge::select(-1); closeUpTap(screenX, screenY); return; }
+ 	// (The chat choosing whom to talk to: someone tapped, picked.)
+ 	if (_phone.pick(talkIdAt(screenX, screenY))) return;
+ 	// (No way back from here: a tap on the arrow at its left goes back the way
+@@ -1435,6 +1448,7 @@ void SandboxEngine::spin(int draft) {
+ // among the wanderers here; without them, while the place is shown). Here
+ // already, the next stays where they stood.
+ void SandboxEngine::newKid() {
++	if (_closeUp.index >= 0) closeUpLeave(); // (from where it was shown)
+ 	Common::Array<int> keys;
+ 	for (const WorldCastGuest &c : kWorldCast)
+ 		if (c.game == _game && hasCharacter(worldAppearanceKey(c.game, c.guest.costume))) keys.push_back(worldAppearanceKey(c.game, c.guest.costume));
+@@ -1621,7 +1635,9 @@ void SandboxEngine::talkScene() {
+ // Maniac's rooms by their own numbers, as Maniac tells the chat; the other
+ // games' as places.
+ int SandboxEngine::talkRoom() const {
+-	return _game < 0 ? 0 : !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
++	// (A close-up: the place it was shown from, the chat's window kept.)
++	const int room = _closeUp.index >= 0 ? _closeUp.room : _room;
++	return _game < 0 ? 0 : !strcmp(kWorldGames[_game].gameid, "maniac") ? room : worldPlaceKey(_game, room);
+ }
+ 
+ void SandboxEngine::chatCommand(int command) {
+@@ -1907,6 +1923,7 @@ bool SandboxEngine::castChoose(int key) {
+ 	};
+ 	int room;
+ 	if (!castHome(key, room)) return refuse();
++	if (_closeUp.index >= 0) closeUpLeave(); // (from where it was shown)
+ 	const bool custom = customArt(key);
+ 	const int game = custom ? _game : worldAppearanceGame(key);
+ 	// (The one played chosen again where they live: as they are, everyone
+@@ -2077,6 +2094,10 @@ void SandboxEngine::act() {
+ 	// where that script answers only the other, it won't budge.)
+ 	if ((kind == kWorldVerbPush || kind == kWorldVerbPull) && answers >= 0 && !(answers & 1 << kind) && _game >= 0 &&
+ 		!strcmp(kWorldGames[_game].gameid, "maniac") && maniacTogether(_room, id)) { say("It won't budge."); return; }
++	// (From 0240: a close-up its game's script shows for this verb from the
++	// picture it is in (the wall safe's keypad, shut): shown instead.)
++	const int closeUp = door ? -1 : closeUpFor(id, kind);
++	if (closeUp >= 0 && thingBit(target, id) == 0 && closeUpShow(closeUp, id)) return;
+ 	// (Another thing shown so by this one, as its game's script: its own
+ 	// answer then only if it has one; all of it, when it moves with them.)
+ 	const int sets = thingSets(id, kind);
+@@ -2115,6 +2136,109 @@ void SandboxEngine::act() {
+ 	if (!_testing) saveState();
+ }
+ 
++// ---- Close-ups (from 0240; kWorldCloseUps, the things file's "SVO6") ----
++
++int SandboxEngine::closeUpFor(int id, int kind) const {
++	if (_game < 0 || _closeUp.index >= 0 || kind <= 0 || kind >= 16) return -1;
++	for (int i = 0; i < PanelBridge::closeUpCount(_game); ++i) {
++		int room, thing, kinds, scene, left, keys, presses;
++		if (PanelBridge::closeUpThing(_game, i, room, thing, kinds) && room == _room && thing == id && (kinds & 1 << kind) &&
++			PanelBridge::closeUpScene(_game, i, scene, left, keys, presses) && _closeUps.contains(_game * 1024 + scene)) return i;
++	}
++	return -1;
++}
++
++// Its scene instead of the place: nobody in view (the one played, and those
++// following, hidden there), the part its script shows. Kept meanwhile as
++// where it was shown from (keptPlace), so set before the stage changes.
++bool SandboxEngine::closeUpShow(int index, int id) {
++	int scene, left, keys, presses;
++	if (_game < 0 || _player < 0 || !PanelBridge::closeUpScene(_game, index, scene, left, keys, presses)) return false;
++	CloseUp c;
++	c.index = index; c.game = _game; c.room = _room; c.id = id;
++	StageBridge::position(_player, c.x, c.y);
++	c.stood = standing(); c.left = customLeft();
++	_closeUp = c;
++	Common::String problem;
++	_enteringCloseUp = true;
++	const bool shown = enter(c.game, scene, 0, problem);
++	_enteringCloseUp = false;
++	if (!shown) {
++		warning("SCUMMVERSE sandbox: close-up %s-%d not shown (%s)", kWorldGames[c.game].gameid, scene, problem.c_str());
++		// (Here still, as they stood; the stage back should it have changed.)
++		if (_game != c.game || _room != c.room) closeUpBack();
++		_closeUp = CloseUp();
++		return false;
++	}
++	// (Nobody walks, follows or acts there, as aboard a ride's inside.)
++	_aboard = true;
++	for (uint n = 0; n < _onStage.size(); ++n) { StageBridge::stop(n); StageBridge::hide(n, true); }
++	StageBridge::lookAt(left + screenWidthOf(c.game) / 2.0);
++	_dirty = true;
++	return true;
++}
++
++void SandboxEngine::closeUpTap(int screenX, int screenY) {
++	int scene, left, keys, presses;
++	if (!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
++	double x, y;
++	StageBridge::toScene(screenX, screenY, x, y);
++	Common::Array<int> objects, which;
++	for (int k = 0; k < keys; ++k) {
++		int key, value;
++		char line[8];
++		if (!PanelBridge::closeUpKey(_closeUp.game, _closeUp.index, k, key, value, line, sizeof(line))) continue;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == key) { objects.push_back(o); which.push_back(k); }
++		}
++	}
++	const int hit = StageBridge::objectAt(x, y, objects.data(), objects.size(), 0);
++	for (uint i = 0; i < objects.size(); ++i) if (objects[i] == hit) { closeUpPress(which[i]); return; }
++}
++
++// A key pressed: its line added to those shown (at the top, while the
++// close-up lasts), its value against the code's at this press; the last
++// closes it at once, as its game's does, the thing as the keys leave it and
++// its line said.
++void SandboxEngine::closeUpPress(int key) {
++	int id, value, scene, left, keys, presses;
++	char line[64];
++	if (_closeUp.index < 0 || !PanelBridge::closeUpKey(_closeUp.game, _closeUp.index, key, id, value, line, sizeof(line)) ||
++		!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
++	_closeUp.right = _closeUp.right && PanelBridge::closeUpCode(_closeUp.game, _closeUp.index, _closeUp.presses) == value;
++	_closeUp.typed += line;
++	_notice = _closeUp.typed; _noticeClock = 1 << 30; _dirty = true;
++	if (++_closeUp.presses < presses) return;
++	const CloseUp c = _closeUp;
++	int picture;
++	char said[256];
++	if (!PanelBridge::closeUpAnswer(c.game, c.index, c.right, picture, said, sizeof(said))) { picture = -1; *said = 0; }
++	if (!closeUpBack()) return;
++	if (picture >= 0) setPicture(c.room, c.id, picture);
++	if (*said) say(said);
++	if (!_testing) saveState();
++}
++
++bool SandboxEngine::closeUpBack() {
++	const CloseUp c = _closeUp;
++	if (c.index < 0) return false;
++	Common::String problem;
++	if (!enter(c.game, c.room, 0, problem)) {
++		warning("SCUMMVERSE sandbox: %s-%d not shown again after its close-up (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
++		return false;
++	}
++	placePlayer(c.x, c.y);
++	standBack(c.stood);
++	customBack(c.left);
++	return true;
++}
++
++// (Back, the close-up let go as any other place's entering lets it go.)
++void SandboxEngine::closeUpLeave() {
++	if (closeUpBack() && !_testing) saveState();
++}
++
+ // From that place through its game's doors (a door shut, or kept shut by its
+ // game until something is so, is one) to the other, or to a ride, a tram or
+ // the van, which go on anywhere.
+@@ -2355,7 +2479,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_noteGap > 0) _noteGap -= ticks;
+ 	cabinPan(ticks);
+ 	if (_wanderers) wanderStanding();
+-	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
++	if (_wanderers && WanderBridge::advance(ticks, placeHere())) arrivals();
+ 	stroll(ticks);
+ 	followStep(ticks);
+ 	if (_touring.on) tourStep(ticks);
+@@ -3973,6 +4097,11 @@ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const
+ 		game = _touring.homeGame; room = _touring.homeRoom; x = _touring.homeX; y = _touring.homeY;
+ 		return true;
+ 	}
++	// (A close-up: where it was shown from, as they stood.)
++	if (_closeUp.index >= 0) {
++		game = _closeUp.game; room = _closeUp.room; x = _closeUp.x; y = _closeUp.y;
++		return true;
++	}
+ 	if (worldRideScene(_game, _room)) {
+ 		if (_riding.fromGame < 0) return false;
+ 		game = _riding.fromGame; room = _riding.fromRoom; x = _riding.x; y = _riding.y;
+@@ -4966,6 +5095,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+ 	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
++	int safes = 0, safesWrong = 0, safesLeft = 0, effectsCloseUp = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -5253,6 +5383,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int with = 0;
+ 			if (!PanelBridge::effectAt(maniac, k, room, id, kind, from, &with) || !installed(maniac, room)) continue;
+ 			if (with) { ++effectsPairs; continue; }
++			// (One whose script shows a close-up from there (from 0240, the wall
++			// safe's keypad): the safe's check below.)
++			bool shows = false;
++			for (int i = 0; i < PanelBridge::closeUpCount(maniac) && !from; ++i) {
++				int r, thing, kinds;
++				shows = shows || (PanelBridge::closeUpThing(maniac, i, r, thing, kinds) && r == room && thing == id && (kinds & 1 << kind));
++			}
++			if (shows) { ++effectsCloseUp; continue; }
+ 			if (PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said), &took) &&
+ 				plainAnswer(kind, from, after, took, count, said)) { ++effectsPlain; continue; }
+ 			if ((_game != maniac || _room != room) && !enter(maniac, room, 0, problem)) { fail("a place of the mansion's not shown", maniac); continue; }
+@@ -5440,6 +5578,84 @@ Common::Error SandboxEngine::verbsTest() {
+ 			putBack(keyRoom, 141);
+ 			for (int id : {160, 161, 162}) _pictures.erase(thingKey(maniac, 4, id));
+ 		}
++		// (From 0240) The wall safe behind the painting (room 9), as a player
++		// does it: the safe no thing until the painting is moved; Open on it
++		// shows its keypad (its close-up: nobody there, the part its script
++		// shows, kept meanwhile as where it was shown from); the code its game
++		// chose tapped key by key on the screen, it closes back where they
++		// stood, the safe open, the envelope inside shown and taken; shut again
++		// (the painting back too, as its script has it), moved, and Use with a
++		// wrong code: the keypad closes, its line said, the safe still shut.
++		int safe = -1, keypad = 0, keys = 0, presses = 0;
++		for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac); ++i) {
++			int r, thing, kinds, left;
++			if (PanelBridge::closeUpThing(maniac, i, r, thing, kinds) && r == 9 && thing == 219 && PanelBridge::closeUpScene(maniac, i, keypad, left, keys, presses)) safe = i;
++		}
++		if (safe >= 0 && installed(maniac, 9)) {
++			// (A key giving that value tapped where it is on the screen.)
++			auto tapKey = [&](int value) {
++				for (int k = 0; k < keys; ++k) {
++					int key, v, id, ox, oy, w, h, wx, wy, state, sx, sy;
++					char line[8];
++					if (!PanelBridge::closeUpKey(maniac, safe, k, key, v, line, sizeof(line)) || v != value || !StageBridge::object(thingIn(key), id, ox, oy, w, h, wx, wy, state)) continue;
++					StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++					if (sx < 0 || sx >= _width || sy < 0 || sy >= _height) return false;
++					tap(sx, sy);
++					return true;
++				}
++				return false;
++			};
++			// (Open, or Use, on the safe, the painting moved: the keypad shown,
++			// kept as where it was shown from; then the code, or the code with
++			// its first value another key's, pressed.)
++			auto keypadShown = [&](int verb, double &x, double &y) {
++				for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
++				bool ok = enter(maniac, 9, 0, problem) && thingIn(218) >= 0 && thingIn(219) >= 0 && thingIn(222) >= 0 && !isThing(thingIn(219));
++				ok = ok && doAt(kWorldVerbOpen, thingIn(218)) && pictureOf(9, 218) == 1 && isThing(thingIn(219)) && !isThing(thingIn(222));
++				if (!ok || !doorPoint(thingIn(219), x, y)) return false;
++				StageBridge::walkable(x, y);
++				int g, r;
++				double kx, ky;
++				ok = doAt(verb, thingIn(219)) && _closeUp.index == safe && _game == maniac && _room == keypad && StageBridge::hidden(_player) && !installed(maniac, keypad);
++				return ok && keptPlace(g, r, kx, ky) && g == maniac && r == 9 && fabs(kx - x) < 1 && fabs(ky - y) < 1;
++			};
++			auto backAt = [&](double x, double y) {
++				double px, py;
++				StageBridge::position(_player, px, py);
++				return _closeUp.index < 0 && _game == maniac && _room == 9 && !StageBridge::hidden(_player) && fabs(px - x) < 1 && fabs(py - y) < 1;
++			};
++			double x = 0, y = 0;
++			bool ok = keypadShown(kWorldVerbOpen, x, y);
++			for (int i = 0; ok && i < presses; ++i) {
++				ok = tapKey(PanelBridge::closeUpCode(maniac, safe, i)) && (i + 1 < presses ? _room == keypad : backAt(x, y));
++				if (ok && i + 2 == presses && ConfMan.hasKey("scummverse_shots")) { present(); shot("safe-keypad.png"); }
++			}
++			if (ok && ConfMan.hasKey("scummverse_shots")) { present(); shot("safe-open.png"); }
++			ok = ok && pictureOf(9, 219) == 1 && _speech.empty() && isThing(thingIn(222)) && doAt(kWorldVerbPickUp, thingIn(222)) && isCarried(maniac, 9, 222);
++			ok = ok && doAt(kWorldVerbClose, thingIn(219)) && pictureOf(9, 219) == 0 && pictureOf(9, 218) == 0;
++			if (!ok) fail("the wall safe not opened with its code, or the envelope inside not taken", maniac); else ++safes;
++			putBack(9, 222);
++			int wrongPicture = -1, wrongFirst = -1;
++			char wrongLine[256];
++			for (int k = 0; k < keys && wrongFirst < 0; ++k) {
++				int key, value;
++				char line[8];
++				if (PanelBridge::closeUpKey(maniac, safe, k, key, value, line, sizeof(line)) && value != PanelBridge::closeUpCode(maniac, safe, 0)) wrongFirst = value;
++			}
++			ok = wrongFirst >= 0 && PanelBridge::closeUpAnswer(maniac, safe, false, wrongPicture, wrongLine, sizeof(wrongLine)) && *wrongLine && keypadShown(kWorldVerbUse, x, y);
++			for (int i = 0; ok && i < presses; ++i)
++				ok = tapKey(i ? PanelBridge::closeUpCode(maniac, safe, i) : wrongFirst) && (i + 1 < presses ? _room == keypad : backAt(x, y));
++			ok = ok && pictureOf(9, 219) == 0 && pictureOf(9, 219) == wrongPicture && _speech == wrongLine && !isThing(thingIn(222));
++			if (!ok) fail("the wall safe opened with a wrong code, or its keypad not closed so", maniac); else ++safesWrong;
++			// (A menu's choice there, the mansion's first place: left unanswered,
++			// the safe shut.)
++			int first = 0;
++			ok = firstPlace(maniac, first) && keypadShown(kWorldVerbOpen, x, y) && tapKey(PanelBridge::closeUpCode(maniac, safe, 0));
++			if (ok) request(kGameRequest + maniac);
++			ok = ok && _closeUp.index < 0 && _game == maniac && _room == first && pictureOf(9, 219) == 0 && _notice.empty();
++			if (!ok) fail("the wall safe's keypad not left unanswered by a menu's choice", maniac); else ++safesLeft;
++			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
++		}
+ 		// The grating behind the bushes: no way through until they are
+ 		// pulled aside.
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+@@ -5507,6 +5723,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone (%d looked at them, not what is behind)", paired, pairsSeen, pairsAway, pairsFound, given, lookedAtPerson);
+ 	warning("SCUMMVERSE sandbox selftest interface: %d coins let go unmoved where they opened, nothing done; %d drafts spun after a stray note", unmoved, strayNotes);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others; %d taken whose pictures are the same)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside, sameTaken);
++	warning("SCUMMVERSE sandbox selftest close-ups: %d records shown as close-ups; the wall safe: %d opened with its code key by key on its keypad, the envelope inside taken, shut again; %d not opened with a wrong code, the keypad closed, its line said; %d left by a menu's choice, unanswered", effectsCloseUp, safes, safesWrong, safesLeft);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 3a51c3e7..c1266c7f 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -65,6 +65,7 @@ private:
+ 	void wanderStanding(); // the one played, standing where they are: nobody of the same name wanders in
+ 	bool twinOnStage(int key) const; // the same person (by name) as someone on stage already
+ 	int place(int game, int room) const; // a room as the wanderers know it (0: a map, not a place)
++	int placeHere() const;               // where the one played is, so (a close-up: where it was shown from)
+ 	// On stage, as tall as a person here (appearance key): its actor, -1
+ 	// (and never tried again: a character whose file is damaged).
+ 	int addPerson(int key);
+@@ -217,6 +218,31 @@ private:
+ 	// where the place puts people arriving).
+ 	Common::Array<Left> standing() const;
+ 	void standBack(const Common::Array<Left> &stood);
++	// A close-up a thing's own script shows (from 0240; kWorldCloseUps, its
++	// things file's "SVO6": the mansion's wall safe's keypad): its scene on
++	// the stage instead of the place, nobody in view, the part its script
++	// shows; a tap on a key presses it, whatever the verb (its line shown at
++	// the top); once its presses are in it closes at once, back where the one
++	// played stood (everyone there as they stood), the thing as its game
++	// answers the keys pressed (the right code: the safe open) and its line
++	// said. Never kept as where the one played is (the place it was shown
++	// from is); a menu's choice there leaves it unanswered first.
++	struct CloseUp {
++		int index = -1, game = -1, room = 0, id = 0, presses = 0;
++		double x = 0, y = 0;
++		bool right = true;
++		Common::String typed;
++		Common::Array<Left> stood, left;
++	};
++	CloseUp _closeUp;                       // (index -1: none shown)
++	bool _enteringCloseUp = false;
++	Common::HashMap<int, bool> _closeUps;   // close-ups exported: game * 1024 + room (not places)
++	int closeUpFor(int id, int kind) const; // the one this verb on this thing here shows (-1: none)
++	bool closeUpShow(int index, int id);    // (false: not shown, here as before)
++	void closeUpTap(int screenX, int screenY);
++	void closeUpPress(int key);             // (an index among its keys)
++	bool closeUpBack();                     // where it was shown from, everyone as they stood
++	void closeUpLeave();                    // (unanswered: someone else chosen to play there)
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;

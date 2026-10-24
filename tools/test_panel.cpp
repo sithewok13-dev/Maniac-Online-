@@ -718,6 +718,48 @@ int main() {
 			std::vector<uint8_t> startsOff = five;
 			startsOff[4 + 2 + 2 + 2 + 2 + 1 + 2 + 2 + 2 + 2] = 1; // (157 drawn in its picture 1 at the start)
 			assert(parseThings(startsOff.data(), startsOff.size(), things, error) && !things.powerId && things.unpowered.empty());
+			// ("SVO6", from 0240: then the close-ups a thing's script shows,
+			// the mansion's wall safe's keypad: its verbs, the scene and the
+			// part shown, the keys and their lines, the code, each answer.)
+			std::vector<uint8_t> six = five;
+			six[3] = '6';
+			const size_t sixth = six.size();
+			six.push_back(1);
+			put16(six, 9); put16(six, 219); put16(six, 1 << kOpen | 1 << kUse); put16(six, 43); put16(six, 0);
+			six.push_back(3);
+			for (int key : {300, 429, 430}) { put16(six, key); six.push_back((uint8_t)(key % 10)); six.push_back(1); six.push_back((uint8_t)('0' + key % 10)); }
+			six.push_back(4); put(six, {9, 0, 0, 0});
+			six.push_back(1); six.push_back(0);
+			six.push_back(0); six.push_back(4); put(six, {'N', 'o', 'p', 'e'});
+			assert(parseThings(six.data(), six.size(), things, error) && things.closeUps.size() == 1 && things.powerId == 157);
+			const CloseUp &safe = things.closeUps[0];
+			assert(safe.room == 9 && safe.id == 219 && safe.closeUp == 43 && safe.keys.size() == 3 && safe.keys[1].id == 429 && safe.keys[1].value == 9 && safe.keys[1].line == "9");
+			assert(safe.code.size() == 4 && safe.code[0] == 9 && safe.code[1] == 0 && safe.right == 1 && safe.rightLine.empty() && safe.wrong == 0 && safe.wrongLine == "Nope");
+			assert(PanelBridge::loadThings(7, six.data(), six.size(), problem, sizeof(problem)) && PanelBridge::closeUpCount(7) == 1 && PanelBridge::closeUpCount(6) == 0);
+			int kinds = 0, left = -1, keys = 0, presses = 0, picture = -1, value = -1;
+			char shows[8];
+			assert(PanelBridge::closeUpThing(7, 0, room, id, kinds) && room == 9 && id == 219 && kinds == (1 << kOpen | 1 << kUse) && !PanelBridge::closeUpThing(7, 1, room, id, kinds));
+			assert(PanelBridge::closeUpScene(7, 0, room, left, keys, presses) && room == 43 && left == 0 && keys == 3 && presses == 4);
+			assert(PanelBridge::closeUpKey(7, 0, 2, id, value, shows, sizeof(shows)) && id == 430 && value == 0 && std::string(shows) == "0" && !PanelBridge::closeUpKey(7, 0, 3, id, value, shows, sizeof(shows)));
+			assert(PanelBridge::closeUpCode(7, 0, 0) == 9 && PanelBridge::closeUpCode(7, 0, 3) == 0 && PanelBridge::closeUpCode(7, 0, 4) == -1);
+			assert(PanelBridge::closeUpAnswer(7, 0, true, picture, shows, sizeof(shows)) && picture == 1 && !*shows);
+			assert(PanelBridge::closeUpAnswer(7, 0, false, picture, shows, sizeof(shows)) && picture == 0 && std::string(shows) == "Nope");
+			for (size_t cut = 1; cut < six.size() - sixth; ++cut) {
+				std::vector<uint8_t> shorter(six.begin(), six.end() - cut);
+				assert(!parseThings(shorter.data(), shorter.size(), things, error));
+			}
+			std::vector<uint8_t> past = six;
+			past[sixth + 1 + 10 + 1 + 3 * 5 + 1 + 1] = 7; // (a press no key gives)
+			assert(!parseThings(past.data(), past.size(), things, error) && error == "bad close-up");
+			std::vector<uint8_t> unseen = six;
+			unseen[sixth + 1 + 4] = unseen[sixth + 1 + 5] = 0; // (shown by no verb)
+			assert(!parseThings(unseen.data(), unseen.size(), things, error) && error == "bad close-up");
+			std::vector<uint8_t> asFive = six;
+			asFive[3] = '5'; // (read as "SVO5": the close-ups left over, refused whole)
+			assert(!parseThings(asFive.data(), asFive.size(), things, error));
+			std::vector<uint8_t> noneShown(five.begin(), five.end());
+			noneShown[3] = '6'; noneShown.push_back(0);
+			assert(parseThings(noneShown.data(), noneShown.size(), things, error) && things.closeUps.empty() && things.powerId == 157);
 		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
