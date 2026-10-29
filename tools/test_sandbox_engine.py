@@ -1040,10 +1040,14 @@ if __name__ == '__main__':
         # (From 0261) Fate of Atlantis's and the Last Crusade's so too, each of
         # their panels' verbs on a thing alone (not giving, using one their
         # games want a second thing for, the Last Crusade's talking or what
-        # is), their answers whole.
+        # is), their answers whole. (From 0262) The Curse of Monkey Island's
+        # likewise, its coin's hand, skull and parrot; one taken with its coin's
+        # hand, seen in its chest; four things its answers show kept
+        # untouchable, as its game keeps them.
         for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2), ('Day of the Tentacle', 'tentacle', 3000, 40),
                                                  ('The Secret of Monkey Island', 'monkey', 6000, 40), ('Monkey Island 2', 'monkey2', 5000, 40),
-                                                 ('Indiana Jones and the Fate of Atlantis', 'atlantis', 3000, 40), ('Indiana Jones and the Last Crusade', 'indy3', 3500, 30)):
+                                                 ('Indiana Jones and the Fate of Atlantis', 'atlantis', 3000, 40), ('Indiana Jones and the Last Crusade', 'indy3', 3500, 30),
+                                                 ('The Curse of Monkey Island', 'comi', 2000, 20)):
             own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                             r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
                             r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through; (\d+) of (\d+) things it keeps untouchable all the same shown so, not things; "
@@ -1066,6 +1070,7 @@ if __name__ == '__main__':
                                                               or int(own.group(7)) < least_taken or own.group(11) != '1' or own.group(12) != own.group(13)
                                                               or (gameid == 'dig' and own.group(13) == '0') or own.group(14) != own.group(15)
                                                               or (gameid == 'ft' and (worlds/'ft-131.svw').exists() and own.group(15) == '0')
+                                                              or (gameid == 'comi' and (worlds/'comi-65.svw').exists() and own.group(15) == '0')
                                                               or (ninth and (int(own.group(16)) < least_several.get(gameid, 1) or int(own.group(16)) > most_several.get(gameid, int(own.group(16))) or own.group(17) == '0' or int(own.group(18)) < least_past.get(gameid, 0)))):
                 raise SystemExit(f'FAIL: {title}\'s things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
             if own and int(own.group(2)):

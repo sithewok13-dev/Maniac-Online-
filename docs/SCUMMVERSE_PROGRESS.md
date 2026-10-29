@@ -7373,3 +7373,35 @@ From the fourth round, on 0251-0260's machinery.
   the rest not tried), the doors, all and tour self-tests, test_startup,
   test_panel (ASan/UBSan), a fresh export (two identical) and the full data
   suite. Not tested on an iPhone.
+
+## Patch 0262 — The Curse of Monkey Island's things answer as the original in the new engine (comi export version 27)
+
+From the fourth round, on 0251-0261's machinery.
+- The Curse of Monkey Island had no things file: the export emptied it
+  (only Sam & Max, The Dig and Full Throttle went through among the games
+  without a verb panel). Its things are now placed and its coin's verbs
+  (hand, skull, parrot) played on every touchable, named thing in its 52
+  exported places, with Guybrush at the thing, through the game's own
+  sentence script and SVO9's whole answers (every line and who says it),
+  filed in the place played; the new engine plays them from the coin.
+- 2701 answers for 460 things (296 with several lines, 268 lines by
+  someone else). The three things its answers show and make touchable are
+  played too (0261's way); the four it keeps untouchable all the same are
+  held so (0255's table).
+- Export-only guards: a list assigned into an array the game's story would
+  have made first (room 20) is told and passed over; inside a run, reading
+  an array never made costs the run 1000 steps, so the one run that looped
+  on the game's random-line tables ends early and is dropped (its
+  warnings fell from about 420,000 to 1,185 an export, which matters for
+  the export the iPhone runs at setup).
+- Every other game's exported files are byte for byte as before.
+- Not done: two things (its coin has no Give or Use-with verb), things
+  given or taken that have no picture of their own, runs that leave the
+  place, and answers that read the random-line tables the game makes later
+  in its story. Tested only with this copy (films and voices missing).
+- Tests: the verbs self-test (new: 2695 of 2701 records replayed, the rest
+  away; one taken with the coin's hand and seen in the chest; kept
+  untouchable and made touchable 10 of 10 each), the all and doors
+  self-tests (COMI's places now among them; 9 fewer doors hidden under
+  things), test_panel (ASan/UBSan), a fresh export (two identical) and the
+  full data suite. Not tested on an iPhone.
