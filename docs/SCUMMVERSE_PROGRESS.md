@@ -7163,3 +7163,35 @@ From the fourth round, on 0251's and 0253's machinery.
   thing, it is not a thing; the old rule fails it), test_sandbox_engine.py
   (the new clause, for every game with its own answers), test_startup and
   the full data suite (with 0252-0254). Not tested on an iPhone.
+
+## Patch 0256 — Zak McKracken's things answer as the original in the new engine (zak export version 27)
+
+From the fourth round, on 0251's and 0253's machinery.
+- The export plays every panel verb on every touchable thing in Zak's
+  exported places, as the one the game has there (Melissa on Mars, by
+  0253's table; Zak elsewhere), the game's own scripts answering, and
+  records the answer as 0251 does; the new engine plays them from the
+  panel. "What is" is not played; things outside a shared room's visible
+  part (the airports, the maze cells) and the insides of rides are skipped.
+- Use with: a new pass plays each thing the game lets a kid carry (put in
+  the inventory as its own pick-up leaves it) used with each touchable
+  thing, filed under what it is used on, with a "usual" answer kept once,
+  as the mansion's are; the new engine answers such sentences from them.
+  Use on a thing the game would ask "with" for waits for the second thing
+  (by its own preposition, in 0253's table).
+- 65 places with answers (17 on Mars), 279 things: 5816 one-thing answers
+  (5616 with a line, 154 changing a picture, 46 taking a thing) and 1214
+  Use-with answers (672 for one carried thing, 542 usual; 11 changing a
+  picture, 2 taking, 8 giving another, 23 using the carried one up).
+- Every other game's exported files are byte for byte as before.
+- Not expressed yet: who speaks (Melissa's lines are said by the one
+  played), lines after the first, Give, Use started on the thing that asks
+  "with" (its plain line is given), verbs other than Read on carried
+  things, the story's progress (every answer is as at the game's start).
+- Tests: the verbs self-test (new: 5477 of 5816 one-thing records replayed,
+  the rest inside something shut; every taken thing shown taken when the
+  place is entered again; one taken with the panel; 1167 of 1214 Use-with
+  records, the rest with no carried thing to try; leaving Zak out of
+  either path fails), a fresh export (two identical), test_startup,
+  test_world_setup and the full data suite (with 0252-0255). Not tested
+  on an iPhone.

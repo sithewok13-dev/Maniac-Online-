@@ -946,6 +946,25 @@ if __name__ == '__main__':
         if own and int(own.group(2)):
             print(f"PASS: {own.group(1)} of {own.group(2)} answers of Sam & Max's {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                   f"{own.group(7)} taken, {own.group(8)} giving another, {own.group(9)} of those with no picture to carry; {own.group(4)} away); one taken with its pointer from its box")
+        # (From 0256) Zak's likewise (its things file): every record of one
+        # thing replayed as a player uses that verb there (its panel's verbs
+        # but What is and Give), its place entered again after each one
+        # taken; one taken with its panel's verb, seen in its slots; each of
+        # two (Use: a thing carried first, then one here or carried too) as
+        # its own sentence answers, used up as it uses up.
+        zak = re.search(r"selftest Zak McKracken: (\d+) of (\d+) records of one thing of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
+                        r"(\d+) taken \((\d+) places entered again as left\), (\d+) given, (\d+) of them with no picture to carry\), (\d+) taken with its panel, in its slots; "
+                        r"(\d+) of (\d+) of two things \(Use\) as its own sentence answers \((\d+) not tried; (\d+) a usual answer, (\d+) using up, (\d+) with both carried\)", output)
+        answers = worlds/'zak-things.svo'
+        if answers.exists() and answers.stat().st_size and gzip.decompress(answers.read_bytes())[:4] != b'SVO3' and \
+                (not zak or int(zak.group(2)) < 4000 or int(zak.group(1)) + int(zak.group(4)) != int(zak.group(2)) or int(zak.group(7)) < 20
+                 or zak.group(8) != zak.group(7) or zak.group(11) != '1' or int(zak.group(13)) < 1000 or int(zak.group(12)) + int(zak.group(14)) != int(zak.group(13))
+                 or int(zak.group(16)) < 1 or int(zak.group(17)) < 1):
+            raise SystemExit('FAIL: Zak\'s things as its own sentences answer (export Zak again: tools/export_worlds.py)\n' + output[-2000:])
+        if zak and int(zak.group(2)):
+            print(f"PASS: {zak.group(1)} of {zak.group(2)} answers of Zak's {zak.group(3)} things as its own sentences give them ({zak.group(5)} lines, {zak.group(6)} pictures changed, "
+                  f"{zak.group(7)} taken, each place entered again as left; {zak.group(4)} away); one taken with its panel's verb, in its slots; "
+                  f"{zak.group(12)} of {zak.group(13)} Use of two as its sentences give them ({zak.group(15)} usual answers, {zak.group(16)} using up, {zak.group(17)} both carried; {zak.group(14)} not tried)")
         # (From 0251) The Dig's and Full Throttle's likewise (their things
         # files): every record replayed as a player uses that verb there (The
         # Dig's tap; Full Throttle's coin: eyes, teeth, hand, boot); one taken
