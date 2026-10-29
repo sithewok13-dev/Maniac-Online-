@@ -7833,3 +7833,23 @@ of using the verb.
   caught); all, tour, rides, follow, walk, moves, talk, cast and camera
   unchanged; test_startup, test_sandbox_engine.py and the full data suite
   (with 0271). No exported file changes. Not tested on an iPhone.
+
+## Patch 0273 — the world export runs each game as a player's, whatever debug level logs it
+
+From the review of 0269 and 0270: an export started with a debug level (`-d`)
+recorded other answers than one started without. The engine sets each
+game's own debug-mode variable from the debug level, and some scripts read
+it: Monkey Island's room 14, object 176 (Turn on) starts a debug script
+instead of its usual answer, so two records were missing from such an
+export. That was the "stale" pair noted in 0271's work, not machine load.
+- The export now keeps the game's debug mode off for its whole run and puts
+  the engine's back after. An export without `-d` already ran this way, so
+  no export version changes and every exported file is byte for byte as
+  before.
+- test_world_setup.py also sets a game up with and without
+  `--debuglevel=1` and requires every file written to be the same.
+- Tests: the unfixed export at `-d1` fails the new check with Monkey
+  Island's things file, the fixed one passes (Monkey Island 180 files,
+  Loom 125); a full `-d1` export of the eleven other games matches the
+  cache file for file; test_startup and the full data suite. Not tested
+  on an iPhone.

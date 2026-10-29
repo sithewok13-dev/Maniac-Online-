@@ -7,7 +7,10 @@ case ("loom " from a zip made on a Mac) and one folder further down (the
 Files app unzips a zip of several folders into a folder named after it,
 next to a Mac's __MACOSX, which is never taken for the game), that a game
 whose setup stopped twice is skipped and logged, and that one which stopped
-once is retried.
+once is retried. From 0273 also that a game set up with a debug level
+(--debuglevel=1, as the tests start the app) writes the same files, byte
+for byte, as one set up without: its scripts read their debug mode (with
+monkey=game-data/monkey1-vga, Monkey Island's room 14 object 176's Turn on).
 Needs privately supplied games; nothing is copied out of build/.
 
 Usage: tools/test_world_setup.py game-data/mm-dos loom=game-data/loom-ega
@@ -33,8 +36,9 @@ def version(game):
     return VERSION + next((n for games, n in AHEAD if game in games), 0)
 
 
-def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
-    """Start the app once; returns (log, finished marker written, attempt count)."""
+def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300, extra=(), files=None):
+    """Start the app once; returns (log, finished marker written, attempt count).
+    (From 0273 `extra` more arguments, and `files` filled with what it wrote.)"""
     with tempfile.TemporaryDirectory(prefix='scummverse-setup-', dir=ROOT/'build') as tmp:
         docs = Path(tmp)
         (docs/'maniac').symlink_to(maniac.resolve())
@@ -49,7 +53,7 @@ def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
         if attempts is not None:
             attempt.write_bytes(b'SVT1' + bytes([attempts]))
         (docs/'scummvm.ini').write_text('[scummvm]\n')
-        proc = subprocess.Popen([str(binary), '--config=scummvm.ini'], cwd=docs, stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen([str(binary), '--config=scummvm.ini', *extra], cwd=docs, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         lines, deadline = [], time.time() + timeout
         for line in proc.stdout:
@@ -63,6 +67,8 @@ def launch(binary, maniac, game, data, folder_name, attempts=None, timeout=300):
         except subprocess.TimeoutExpired:
             proc.kill()
         count = attempt.read_bytes()[4] if attempt.exists() and attempt.stat().st_size > 4 else None
+        if files is not None:
+            files.update((f.name, f.read_bytes()) for f in worlds.iterdir() if f.is_file() and f.suffix != '.try')
         return ''.join(lines), (worlds/f'{game}-v{version(game)}.svx').exists(), count
 
 
@@ -89,6 +95,15 @@ def main():
     log, done, count = launch(binary, a.maniac, gameid, data, 'not-' + folder)
     assert not done and count is None and "target 'maniac'" in log, (done, count, log[-3000:])
     print('PASS: no matching folder, nothing set up; Maniac starts')
+    # (From 0273: the same files with a debug level as without.)
+    plain, debugged = {}, {}
+    log, done, count = launch(binary, a.maniac, gameid, data, folder, files=plain)
+    assert done, log[-3000:]
+    log, done, count = launch(binary, a.maniac, gameid, data, folder, extra=('--debuglevel=1',), files=debugged)
+    assert done, log[-3000:]
+    differ = sorted(name for name in set(plain) | set(debugged) if plain.get(name) != debugged.get(name))
+    assert not differ, f'set up otherwise with a debug level: {differ}'
+    print(f'PASS: set up with a debug level, the same {len(plain)} files byte for byte')
 
 
 if __name__ == '__main__':

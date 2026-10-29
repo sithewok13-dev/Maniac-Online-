@@ -1,0 +1,20 @@
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index b897de29..0b90c8a0 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -4066,7 +4066,15 @@ void ScummEngine::runBootscript() {
+ 	// the private cache, then quit. Never set for normal play.
+ 	if (ConfMan.hasKey("scummverse_world_export")) {
+ 		_scummverseExporting = true;
++		// (From 0273 the game as a player's runs, whatever debug level logs
++		// it: its scripts read its debug mode, set from that level (Monkey
++		// Island's room 14 object 176 starts its debug script for Turn on),
++		// so an export started with -d recorded other answers.)
++		const bool debugMode = _debugMode;
++		_debugMode = false;
++		if (VAR_DEBUGMODE != 0xFF) VAR(VAR_DEBUGMODE) = 0;
+ 		const int written = scummverseExportWorld(ConfMan.getPath("scummverse_world_export"));
++		_debugMode = debugMode;
+ 		_scummverseExporting = false;
+ 		warning("SCUMMVERSE_WORLD_EXPORT %s %d", _game.gameid, written);
+ 		if (written) warning("SCUMMVERSE_WORLD_EXPORT_PASS enabled=%d", scummverseSwitch("scummverse_roaming", true));
