@@ -314,7 +314,9 @@ def answer_keys(path):
     data = path.read_bytes() if path.exists() else b''
     if data[:2] == b'\x1f\x8b':
         data = gzip.decompress(data)
-    if data[:4] not in (b'SVO9', b'SVOA', b'SVOB'):
+    # (From 0286 "SVOC" too: its answers as SVOB's, its later steps lines
+    # too, after them.)
+    if data[:4] not in (b'SVO9', b'SVOA', b'SVOB', b'SVOC'):
         return set()
     p = 6
     for _ in range(struct.unpack_from('<H', data, 4)[0]):
@@ -1274,6 +1276,52 @@ if __name__ == '__main__':
             if again:
                 print(f"PASS: the tape played again once the key is carried, the key not drawn where it lay ({again.group(1)}); a second record put on the Victrola refused, "
                       f"the first given back ({again.group(2)} of {again.group(3)})")
+        # (From 0286) The mansion's music, as a player has it (its export
+        # version 47's things file, "SVOC"): the piano answering anyone but Syd
+        # or Razor with their line, recorded by each of them with the recorder
+        # on, with the Victrola on turning it off first; the Green Tentacle
+        # hearing its tape on his stereo (his lines, his demo tape shown, the
+        # cassette kept), the demo tape given back as the cassette, refused by
+        # the recorder and by him; three tapes given to him; the stereo with
+        # him away only playing; a tape put in the stereo while on played; the
+        # demo tape mailed, its reply due, waiting at the front door, a contract
+        # for him read and given to him; the piano's tape's reply read and given
+        # to the Purple Meteor (no ending); a blank tape's reply nothing; the
+        # chandelier falling with the one played under it and away. Saved and
+        # loaded between steps.
+        if mansion >= 47 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            music = re.search(r"selftest music: the piano (\d+) answered with their line for someone not Syd or Razor, (\d+) of 2 recorded by Syd and Razor \(157 at 50\) and kept, (\d+) with "
+                              r"the Victrola on turned off first; the Green Tentacle (\d+) hearing its tape on his stereo .*?, (\d+) refused by the recorder and by him; (\d+) of 3 tapes given "
+                              r"to him .*?; (\d+) the stereo with him away only playing; (\d+) a tape put in the stereo while on played .*?; the demo tape (\d+) put in the envelope, .*?, (\d+) a "
+                              r"contract for him read and given to him; (\d+) the piano's tape's reply .*?; (\d+) a blank tape's reply nothing; (\d+) of 2 the chandelier falling", output)
+            if there(1, 2, 3, 4, 5, 8, 9, 17, 20, 51) and (not music or music.groups() != ('1', '2', '1', '1', '1', '3', '1', '1', '1', '1', '1', '1', '2')):
+                raise SystemExit('FAIL: the mansion\'s music not as its scripts (the piano, the Green Tentacle, his demo tape, the cassette mailed and its reply, the chandelier\'s line; '
+                                 'export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if music:
+                print("PASS: the mansion's music as its scripts: the piano (anyone else's line; recorded by Syd and by Razor; the Victrola turned off first), the Green Tentacle hearing "
+                      "its tape (his lines, his demo tape, the cassette kept), three tapes given to him, the stereo with him away, a tape put in the stereo while on played, "
+                      "the demo tape mailed (its reply, a contract for him read and given), the piano's tape's reply given to the Purple Meteor (no ending), a blank tape's "
+                      "reply nothing, the chandelier's line under it and not away; saved and loaded between steps")
+        # (From 0286) The original's endings (its script 63), each its main way
+        # as a player has it from afresh, as far as this engine plays it: the
+        # Meteor Police's reached (the radio's tube by Bernard, the radio on, its
+        # call, the key down the drained pool and the dungeon's doors, the
+        # meteor taken, the switch's films, the ending seen); the book
+        # contract's as far as its reply (the manuscript retyped by Wendy not
+        # kept: none posted back); the Edsel's as far as the meteor in the lab
+        # (refused: Dr Fred's cut-scene's value not kept).
+        if mansion >= 47 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            endings = re.search(r"selftest endings: the Meteor Police's (\d+) reached \((\d+) of 6 steps.*?; the book contract's (\d+) as far as its reply \((\d+) of 3 steps.*?; "
+                                r"the Edsel's (\d+) as far as the meteor in the lab \((\d+) of 1 step", output)
+            if there(1, 2, 3, 4, 6, 9, 21, 22, 27, 29, 51) and (not endings or endings.groups() != ('1', '6', '1', '3', '1', '1')):
+                raise SystemExit('FAIL: the endings\' ways not as far as this engine plays them (the Meteor Police\'s ending, the book contract\'s reply, the meteor in the lab; '
+                                 'export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if endings:
+                print("PASS: the endings as a player plays them from afresh: the Meteor Police's reached (the radio's tube, its call, the pool's key, the dungeon's doors, the meteor taken, "
+                      "the switch's films, the ending seen); the book contract's as far as its reply (none posted back: the retyped manuscript not kept); the Edsel's as far "
+                      "as the meteor in the lab (refused: Dr Fred's cut-scene's value not kept)")
         # (From 0277) A verb Zak's or a later game's thing does not answer, as
         # a player chooses it: from a picture its export played it from (a
         # record of another verb from there), each verb with no record from
@@ -1504,8 +1552,9 @@ if __name__ == '__main__':
         def svoa(gameid):
             f = worlds/f'{gameid}-things.svo'
             data = f.read_bytes() if f.exists() else b''
-            # (From 0282 "SVOB" too: SVOA and more, the mansion's from 0282.)
-            return (gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data)[:4] in (b'SVOA', b'SVOB')
+            # (From 0282 "SVOB" too: SVOA and more, the mansion's from 0282; from
+            # 0286 "SVOC", the mansion's from then.)
+            return (gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data)[:4] in (b'SVOA', b'SVOB', b'SVOC')
         known = [g for g, room in (('dig', 19), ('dig', 20), ('dig', 31), ('dig', 34), ('dig', 49), ('dig', 56), ('dig', 61), ('dig', 65), ('dig', 68), ('dig', 75),
                                    ('ft', 50), ('ft', 54), ('ft', 54), ('ft', 115), ('ft', 131), ('atlantis', 1), ('samnmax', 25), ('samnmax', 25))
                  if svoa(g) and (worlds/f'{g}-{room}.svw').exists()]

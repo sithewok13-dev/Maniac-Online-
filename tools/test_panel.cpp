@@ -1341,6 +1341,54 @@ int main() {
 			goesValued.others.pop_back();
 			std::vector<uint8_t> halfValued = eleventh({goesValued});
 			assert(!parseThings(halfValued.data(), halfValued.size(), things, error) && error == "bad effect" && things.valued.empty() && things.effects.empty());
+			// (From 0286, "SVOC": all SVOB has, a later step of object 0 a line,
+			// then where the one played's feet must be for it (x0, x1) and the
+			// line. 205 turned on with 25: its later steps 300 (209 in its
+			// picture 1), 420 a line from 272 to 367, 72300 (205 in 0); read in
+			// order; through the bridge (valueLater lists it with object 0,
+			// valueLaterLine has its bounds and line, none for a step that is
+			// no line, past the steps, another key or game). A value read with
+			// marks set (its high byte) is a key like another. In an SVOB, cut
+			// short, or out of range (an empty line, a picture or a touch, x0
+			// past x1): refused whole.)
+			struct LineStep { int tick, room, id, picture, touch, x0, x1; const char *line; };
+			auto twelfth = [&](const std::vector<LineStep> &steps, int value = 25, char tag = 'C') {
+				std::vector<uint8_t> v = tenth(8, others10);
+				v[3] = tag;
+				put16(v, 1);
+				put16(v, 20); put16(v, 205); put(v, {kTurnOn, 0}); put16(v, 0); put16(v, 0); put16(v, value);
+				put(v, {1, 0, 0});
+				v.push_back(0);
+				v.push_back(0);
+				v.push_back((uint8_t)steps.size());
+				for (const LineStep &st : steps) {
+					put16(v, st.tick & 0xFFFF); put16(v, st.tick >> 16); put16(v, st.room); put16(v, st.id); put(v, {st.picture, st.touch});
+					if (!st.id) { put16(v, st.x0); put16(v, st.x1); text(v, st.line); }
+				}
+				return v;
+			};
+			const std::vector<LineStep> lineSteps = {{300, 20, 209, 1, 0, 0, 0, ""}, {420, 3, 0, 0, 0, 272, 367, "Look out!"}, {72300, 20, 205, 0, 2, 0, 0, ""}};
+			std::vector<uint8_t> lining = twelfth(lineSteps);
+			assert(parseThings(lining.data(), lining.size(), things, error) && things.valued.size() == 1 && things.valued[0].later.size() == 3 && things.valued[0].later[1].id == 0 &&
+				things.valued[0].later[1].x0 == 272 && things.valued[0].later[1].x1 == 367 && things.valued[0].later[1].line == "Look out!" && things.valued[0].later[1].tick == 420 &&
+				things.valued[0].later[2].id == 205 && things.valued[0].later[0].line.empty());
+			assert(PanelBridge::loadThings(6, lining.data(), lining.size(), problem, sizeof(problem)));
+			int later12[5 * 4], x0 = -1, x1 = -1;
+			char line12[32];
+			assert(PanelBridge::valueLater(6, 20, 205, kTurnOn, 0, 0, 0, 25, later12, 4) == 3 && later12[5] == 420 && later12[6] == 3 && !later12[7]);
+			assert(PanelBridge::valueLaterLine(6, 20, 205, kTurnOn, 0, 0, 0, 25, 1, x0, x1, line12, sizeof(line12)) && x0 == 272 && x1 == 367 && std::string(line12) == "Look out!");
+			assert(!PanelBridge::valueLaterLine(6, 20, 205, kTurnOn, 0, 0, 0, 25, 0, x0, x1, line12, sizeof(line12)) && !PanelBridge::valueLaterLine(6, 20, 205, kTurnOn, 0, 0, 0, 25, 3, x0, x1, line12, sizeof(line12)) &&
+				!PanelBridge::valueLaterLine(6, 20, 205, kTurnOn, 0, 0, 0, 44, 1, x0, x1, line12, sizeof(line12)) && !PanelBridge::valueLaterLine(7, 20, 205, kTurnOn, 0, 0, 0, 25, 1, x0, x1, line12, sizeof(line12)));
+			assert(PanelBridge::valueLaterLine(6, 20, 205, kTurnOn, 0, 0, 0, 25, 1, x0, x1, line12, 5) && std::string(line12) == "Look");
+			PanelBridge::clearThings();
+			std::vector<uint8_t> marked12 = twelfth({{300, 20, 209, 1, 0, 0, 0, ""}}, 2 | 0x50 << 8);
+			assert(parseThings(marked12.data(), marked12.size(), things, error) && things.value(20, 205, kTurnOn, 0, 0, 0, 2 | 0x50 << 8) && !things.value(20, 205, kTurnOn, 0, 0, 0, 2));
+			for (size_t cut = 1; cut < lining.size() - 4; ++cut) assert(!parseThings(lining.data(), lining.size() - cut, things, error) && things.valued.empty() && things.effects.empty());
+			std::vector<uint8_t> liningB = twelfth(lineSteps, 25, 'B');
+			assert(!parseThings(liningB.data(), liningB.size(), things, error) && things.valued.empty() && things.effects.empty());
+			for (const std::vector<uint8_t> &refused : {twelfth({{420, 3, 0, 0, 0, 272, 367, ""}}), twelfth({{420, 3, 0, 1, 0, 272, 367, "Look out!"}}),
+				twelfth({{420, 3, 0, 0, 1, 272, 367, "Look out!"}}), twelfth({{420, 3, 0, 0, 0, 368, 367, "Look out!"}}), twelfth({{420, 0, 0, 0, 0, 272, 367, "Look out!"}})})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad values" && things.valued.empty() && things.effects.empty());
 		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
@@ -1507,7 +1555,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused; from 0283 where an answer takes the one played, read into the answer (an SVOB one's too), left out by the older readers; in an SVO9, half or out of range: refused); from 0282 SVOB, the answers played with a value kept, what they leave of them and their later steps (by their key; read in order; cut short, as an SVOA or out of range: refused whole); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused; from 0283 where an answer takes the one played, read into the answer (an SVOB one's too), left out by the older readers; in an SVO9, half or out of range: refused); from 0282 SVOB, the answers played with a value kept, what they leave of them and their later steps (by their key; read in order; cut short, as an SVOA or out of range: refused whole); from 0286 SVOC, a later step a line with where it is said (its bounds and line through the bridge; in an SVOB, cut short or out of range: refused whole); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

@@ -46,8 +46,9 @@ def answers_of(data):
     as its bytes, sorted, its bytes after): see common/scummverse_panel.h."""
     raw = gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data
     magic, at = raw[:4], 4
-    # (From 0284 "SVOB" too: SVOA's answers, its valued ones after them.)
-    ninth = magic in (b'SVO9', b'SVOA', b'SVOB')
+    # (From 0284 "SVOB" too: SVOA's answers, its valued ones after them;
+    # from 0286 "SVOC" likewise, its later steps lines too.)
+    ninth = magic in (b'SVO9', b'SVOA', b'SVOB', b'SVOC')
     pairs = ninth or magic in (b'SVO4', b'SVO5', b'SVO6', b'SVO7', b'SVO8')
     if not (pairs or magic in (b'SVO2', b'SVO3')):
         return raw, [], b''

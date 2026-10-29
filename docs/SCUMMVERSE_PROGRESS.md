@@ -8284,3 +8284,45 @@ From the review of 0283 and 0284.
   check that records needing the one played in the place are there, and
   lower minimums for answers left to the plain rules; test_startup,
   test_world_setup and the full data suite. Not tested on an iPhone.
+
+## Patch 0286 — the mansion's music in the new engine (the piano, the Green Tentacle, his demo tape, a tape mailed and its reply, the chandelier's line), and its endings checked route by route (mansion export version 47, things file "SVOC")
+
+From 0282's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- The piano (room 17) played by Syd or Razor while the recorder records
+  with the cassette in it records the piano on the cassette; anyone else
+  only gets a line. Picking up the Green Tentacle's demo tape gives the
+  cassette back as his demo tape.
+- The Green Tentacle's stereo turned on with a tape in it while he is
+  there, or the tape given to him: he answers what is on it as the original
+  does (the piano: his lines and his demo tape shown; a blank tape or the
+  old record: a line; his own tape: the kid's line).
+- Mailing a tape: the cassette in the steamed-open envelope, addressed and
+  stamped, posted in the mailbox with the flag up; after the time the
+  original waits, a reply is in the mailbox (a contract for the Green
+  Tentacle for his demo tape, for the kid for the piano tape, nothing for
+  anything else), which can be picked up and read.
+- A kid standing under the chandelier as it falls says the original's
+  line; a tape put in the stereo while it plays plays.
+- Catalog: value readers take whose answer a row is (`kids`), the marks it
+  reads, and cast members as things; a timed event can follow another
+  (`after`, `kWorldTimedValues`); later steps can be lines
+  (`kWorldLaterLines`). Things file "SVOC": SVOB plus line steps.
+- Endings, each driven from afresh in the verbs self-test: the Meteor
+  Police's is reached end to end (the radio's tube, the police called, the
+  key from the drained pool, the police take the meteor, the lab switch).
+  The book contract stops at the reply (the retyped manuscript isn't kept,
+  and giving the contract to the Purple Meteor has no film here). The Edsel
+  stops at the meteor (picking it up needs a value Dr Fred's cut-scene
+  sets, not kept).
+- Not done: who played the piano isn't kept (the kid's-contract line is
+  always one kid's); the Green Tentacle's friendship; the record company's
+  cut-scene; the Purple Tentacle guarding the lab and the lab door's code;
+  the reactor alarm with the pool drained; deaths (off in Explore by
+  design).
+- Tests: new verbs self-test lines "music" (every item, with saves and
+  loads between steps, one while the reply is on its way) and "endings";
+  10 mutations caught; ASan/UBSan verbs and mansion export; test_panel
+  (SVOC); every export identical except the mansion's things file; the
+  other self-tests as before; test_startup, test_world_setup and the full
+  data suite. Not tested on an iPhone.
