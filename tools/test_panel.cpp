@@ -4,7 +4,7 @@
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
 // the plain rules for each verb, things carried from a scene, what a
-// thing's own script answers (the things files, SVO1 to SVO9), controls
+// thing's own script answers (the things files, SVO1 to SVOA), controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
 // coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
@@ -1110,6 +1110,58 @@ int main() {
 			assert(!parseThings(twice9.data(), twice9.size(), things, error) && error == "an icon twice");
 			std::vector<uint8_t> biggest = nine(1, said3, others9, {{547, "Big", PanelBridge::kMostIconSide, PanelBridge::kMostIconSide, 1}});
 			assert(parseThings(biggest.data(), biggest.size(), things, error) && things.icon(547)->picture.size() == (size_t)(PanelBridge::kMostIconSide * PanelBridge::kMostIconSide));
+			// (From 0267, "SVOA": SVO9 whose answers say what they make
+			// touchable or untouchable. The first answer leaves its thing
+			// untouchable (flags bit 3, not taken); the second shows 209 in its
+			// picture 3 and makes it touchable, makes 210 untouchable and only
+			// that (its picture as it was, 1), gives two. Read whole; through
+			// the bridge: the older readers leave out one only made so,
+			// answerTouches has each and the thing itself's, thingsTouch says
+			// the file says so (an SVO9's does not). The same bits in an SVO9:
+			// refused. Cut short anywhere, or out of range (both bits, with
+			// given or taken, only that with neither, past their bits): refused
+			// whole.)
+			auto tenth = [&](int flags, const std::vector<Other> &others10) {
+				std::vector<uint8_t> v = nine(flags, said3, others10, icons);
+				v[3] = 'A';
+				return v;
+			};
+			const std::vector<Other> others10 = {{20, 209, 3, 2}, {20, 210, 1, 4 | 8}, {22, 221, 0, 1}, {0, 547, 0, 1}};
+			std::vector<uint8_t> ten = tenth(8, others10);
+			assert(parseThings(ten.data(), ten.size(), things, error) && things.touches && things.effects.size() == 2 && things.icons.size() == 2);
+			const ThingEffect *self10 = things.effect(20, 205, kUse, 3), *shown10 = things.effect(20, 205, kPickUp, 0);
+			assert(self10 && self10->touch == PanelBridge::kMadeUntouchable && !self10->taken && self10->after == 4 && self10->lines.size() == 3);
+			assert(shown10 && !shown10->touch && shown10->others.size() == 4 && shown10->others[0].touch == PanelBridge::kMadeTouchable && !shown10->others[0].touchOnly &&
+				shown10->others[0].picture == 3 && !shown10->others[0].given && shown10->others[1].touch == PanelBridge::kMadeUntouchable && shown10->others[1].touchOnly &&
+				shown10->others[1].picture == 1 && shown10->others[2].given && !shown10->others[2].touch && shown10->others[3].given && !shown10->others[3].room);
+			assert(parseThings(whole.data(), whole.size(), things, error) && !things.touches && !things.effect(20, 205, kUse, 3)->touch && !things.effect(20, 205, kPickUp, 0)->others[0].touch);
+			assert(PanelBridge::loadThings(6, ten.data(), ten.size(), problem, sizeof(problem)) && PanelBridge::thingsTouch(6) && !PanelBridge::thingsTouch(7));
+			int touched10[3 * 4], count10 = -1, self = -1;
+			assert(PanelBridge::answerTouches(6, 20, 205, kPickUp, 0, 0, touched10, count10, 4, self) && count10 == 2 && !self);
+			assert(touched10[0] == 20 && touched10[1] == 209 && touched10[2] == PanelBridge::kMadeTouchable && touched10[3] == 20 && touched10[4] == 210 && touched10[5] == PanelBridge::kMadeUntouchable);
+			assert(PanelBridge::answerTouches(6, 20, 205, kPickUp, 0, 0, touched10, count10, 1, self) && count10 == 1); // (as many as asked)
+			assert(PanelBridge::answerTouches(6, 20, 205, kUse, 3, 0, touched10, count10, 4, self) && !count10 && self == PanelBridge::kMadeUntouchable);
+			assert(!PanelBridge::answerTouches(6, 20, 205, kUse, 0, 0, touched10, count10, 4, self) && !count10 && !self);
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 4, lines9) && count9 == 3 && others4[1] == 209 && others4[2] == 3 && !others4[3] &&
+				others4[5] == 221 && others4[7] == 1 && others4[9] == 547 && !flags9);
+			assert(PanelBridge::thingAnswer(6, 20, 205, kUse, 3, 0, after9, flags9, others4, count9, 4, lines9) && flags9 == 0 && after9 == 4);
+			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others3, count, 4, said, sizeof(said), &taken) && count == 2 && others3[1] == 221 && others3[2] == 2 && others3[4] == 547);
+			int flags10 = -1;
+			assert(PanelBridge::pairEffect(6, 20, 205, kPickUp, 0, 0, after, others3, count, 4, said, sizeof(said), flags10) && count == 2 && others3[1] == 221);
+			assert(PanelBridge::loadThings(6, whole.data(), whole.size(), problem, sizeof(problem)) && !PanelBridge::thingsTouch(6) &&
+				PanelBridge::answerTouches(6, 20, 205, kPickUp, 0, 0, touched10, count10, 4, self) && !count10 && !self);
+			PanelBridge::clearThings();
+			assert(!PanelBridge::thingsTouch(6));
+			std::vector<uint8_t> asNine = ten;
+			asNine[3] = '9';
+			assert(!parseThings(asNine.data(), asNine.size(), things, error) && error == "bad effect" && things.effects.empty() && !things.touches);
+			std::vector<uint8_t> selfOnly = tenth(16, {{20, 209, 3, 0}});
+			assert(parseThings(selfOnly.data(), selfOnly.size(), things, error) && things.touches && things.effect(20, 205, kUse, 3)->touch == PanelBridge::kMadeTouchable &&
+				!things.effect(20, 205, kPickUp, 0)->others[0].touch);
+			for (size_t cut = 1; cut < ten.size() - 4; ++cut) assert(!parseThings(ten.data(), ten.size() - cut, things, error) && things.effects.empty() && !things.touches);
+			for (const std::vector<uint8_t> &refused : {tenth(24, others10), tenth(8 | 1, others10), tenth(16 | 1, others10), tenth(32, others10), tenth(8, {{20, 209, 3, 2 | 4}}),
+				tenth(8, {{22, 221, 0, 1 | 2}}), tenth(8, {{22, 221, 0, 1 | 4 | 8}}), tenth(8, {{20, 209, 3, 8}}), tenth(8, {{20, 209, 3, 16 | 2}}), tenth(8, {{0, 209, 3, 2}})})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty() && !things.touches);
 		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
@@ -1225,7 +1277,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); two things of the later games (Use with one here, Give to someone, own and usual answers)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that); two things of the later games (Use with one here, Give to someone, own and usual answers)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

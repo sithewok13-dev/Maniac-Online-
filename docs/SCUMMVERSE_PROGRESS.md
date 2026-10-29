@@ -7605,3 +7605,48 @@ from "on").
     the change: all eleven others identical, 1126 files.
   - test_startup, test_world_setup and the full data suite (with 0267).
   - Not tested on an iPhone.
+
+## Patch 0267 — what answers make touchable or untouchable, recorded and kept (things file "SVOA", state "SVS8")
+
+From the fourth round's reviews: the record could not say that an answer
+makes a thing touchable or untouchable (the originals' scripts change
+object classes), so the new engine guessed (0251's rule that a thing shown
+by another's answer becomes touchable, with 0255's table of exceptions) and
+did nothing for answers that make a thing untouchable.
+- Things file "SVOA" (SVO9 plus touches; written for every game with
+  answers, the mansion and Zak included): an answer says whether it made
+  its own thing touchable or untouchable, and each other thing it touched
+  whether it was made touchable or untouchable, and whether that is all the
+  answer did to it. Out-of-range values are refused, and so are these bits
+  in an SVO9 file.
+- The export records the untouchable class (or, in the oldest games, the
+  untouchable state bit) of every thing before and after each run, one-
+  and two-thing answers alike; a thing an answer merely leaves as it was
+  is kept only if some answer really changes it.
+- The new engine keeps, per thing, touchable or untouchable as the answers
+  left it, saved in its state ("SVS8"; SVS1-7 still load: in the five games
+  that guessed, things an older state had in another picture are kept as
+  guessed, so they behave as they did). The guess and its table now apply
+  only to older things files and to things kept as guessed.
+- Answers that touch something: Monkey Island 254, Monkey Island 2 89, Zak
+  92, the mansion 67, Fate of Atlantis 61, The Curse of Monkey Island 36,
+  Day of the Tentacle 34, The Dig 24, Sam & Max 17, the Last Crusade 13,
+  Full Throttle 10. The reviews' 18 known cases (The Dig's ten, Full
+  Throttle's five, Atlantis room 1 object 22, Sam & Max room 25's two)
+  behave as the originals.
+- Every scene, character and panel file is byte for byte as before; only
+  things files and their markers change (the mansion v41, Monkey Island 2
+  v31, Monkey Island v30, Zak and Day of the Tentacle v29, Sam & Max, The
+  Dig, Full Throttle, Atlantis and COMI v28, the Last Crusade v27).
+- test_sandbox_engine.py now runs the new engine with a fixed random seed,
+  so its self-tests' counts are the same from run to run.
+- Not done: the mansion's mark-reading answers say nothing about touch;
+  things that start untouchable and are made touchable later have no
+  answers of their own in five games (they answer by the plain rules).
+- Tests: test_panel (ASan/UBSan; new: SVOA read whole, the bridge calls,
+  the bits refused in SVO9, every truncation, out-of-range shapes), the
+  verbs self-test (new: every touched thing kept as recorded and a thing or
+  not afterwards as the original leaves it, in all eight later games; the
+  18 known cases; old states kept as guessed), the doors and other
+  self-tests, fresh exports (two identical), test_startup, test_world_setup
+  and the full data suite. Not tested on an iPhone.

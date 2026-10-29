@@ -154,10 +154,11 @@ def frames_drawn_whole(output, what):
 
 
 def sandbox(exe, worlds, mode, shots, cwd, timeout=900, wanderers=False, extra=''):
-    # (Wanderers off: each place's own people, the same every run.)
+    # (Wanderers off: each place's own people, the same every run. From 0267
+    # a fixed random_seed: where they stroll the same every run too.)
     config = Path(cwd)/f'sandbox-{mode}.ini'
     config.write_text(f'[scummvm]\nscummverse_selftest={mode}\nscummverse_shots={shots}\nscummverse_screen=1280x720\n'
-                      f'scummverse_wanderers={str(wanderers).lower()}\nscummverse_check_frames=true\n{extra}')
+                      f'scummverse_wanderers={str(wanderers).lower()}\nscummverse_check_frames=true\nrandom_seed=4242\n{extra}')
     result = subprocess.run([str(exe), f'--config={config}', f'--path={worlds}', f'--savepath={cwd}', 'scummverse:sandbox'], cwd=cwd,
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
@@ -252,11 +253,11 @@ def things_of(path):
     """A things file: {room: {object: (picture, answers)}} ("SVO1"; from
     export version 23 "SVO3" with no effects, then what each is inside;
     from 0254 a game's own answers after the same table, "SVO7" and on,
-    read by test_panel: only the table here)."""
+    read by test_panel: only the table here; from 0267 "SVOA" too)."""
     data = path.read_bytes()
     if data[:2] == b'\x1f\x8b':
         data = gzip.decompress(data)
-    if data[:3] != b'SVO' or data[3:4] not in b'13456789':
+    if data[:3] != b'SVO' or data[3:4] not in b'13456789A':
         raise SystemExit(f'FAIL: {path.name}: not a things file')
     rooms, p, found = struct.unpack_from('<H', data, 4)[0], 6, {}
     for _ in range(rooms):
@@ -1025,7 +1026,7 @@ if __name__ == '__main__':
                           r"\((\d+) let go by a line said meanwhile and by another place\)", output)
         snm = worlds/'samnmax-things.svo'
         snmBytes = snm.read_bytes() if snm.exists() else b''
-        snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] == b'SVO9'
+        snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] in (b'SVO9', b'SVOA')  # (from 0267 "SVOA": SVO9 and more)
         # (Its export from 0258, version 27, writes "SVO9": one exported so
         # that is not, is not whole.)
         if (worlds/'samnmax-v27.svx').exists() and snm.exists() and not snmNinth:
@@ -1106,7 +1107,7 @@ if __name__ == '__main__':
             least_several = most_several = {'monkey': 0, 'monkey2': 0}
             answers = worlds/f'{gameid}-things.svo'
             answerBytes = answers.read_bytes() if answers.exists() else b''
-            ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] == b'SVO9'
+            ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] in (b'SVO9', b'SVOA')  # (from 0267 "SVOA": SVO9 and more)
             ninthVersion = {'monkey2': 28, 'indy3': 26}.get(gameid, 27)
             if (worlds/f'{gameid}-v{ninthVersion}.svx').exists() and answers.exists() and not ninth:
                 raise SystemExit(f'FAIL: {title}\'s things file not "SVO9" though exported as version {ninthVersion} (export {title} again: tools/export_worlds.py)')
@@ -1117,11 +1118,49 @@ if __name__ == '__main__':
                                                               or (gameid == 'comi' and (worlds/'comi-65.svw').exists() and own.group(15) == '0')
                                                               or (ninth and (int(own.group(16)) < least_several.get(gameid, 1) or int(own.group(16)) > most_several.get(gameid, int(own.group(16))) or own.group(17) == '0' or int(own.group(18)) < least_past.get(gameid, 0)))):
                 raise SystemExit(f'FAIL: {title}\'s things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            # (From 0267, its things file "SVOA" (its export from 0267's
+            # version on writes it): what its answers make touchable or
+            # untouchable, as its game's scripts set or clear their classes,
+            # kept so, each a thing then or not (the thing itself too).)
+            touches = re.search(re.escape(f"selftest {title} touches: ") + r"(\d+) of (\d+) made touchable or untouchable by its answers kept so; (\d+) of (\d+) made touchable things then, "
+                                r"(\d+) of (\d+) made untouchable not things then; (\d+) records of things it starts untouchable answered once made touchable", output)
+            tenth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] == b'SVOA'
+            tenthVersion = {'monkey': 30, 'monkey2': 31, 'tentacle': 29, 'indy3': 27}.get(gameid, 28)
+            if (worlds/f'{gameid}-v{tenthVersion}.svx').exists() and answers.exists() and not tenth:
+                raise SystemExit(f'FAIL: {title}\'s things file not "SVOA" though exported as version {tenthVersion} (export {title} again: tools/export_worlds.py)')
+            if tenth and (not touches or touches.group(1) != touches.group(2) or touches.group(2) == '0' or touches.group(3) != touches.group(4) or touches.group(5) != touches.group(6)):
+                raise SystemExit(f'FAIL: what {title}\'s answers make touchable or untouchable (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if touches:
+                print(f"PASS: what {title}'s answers make touchable or untouchable as its scripts leave it: {touches.group(1)} kept so; {touches.group(3)} made touchable things then, "
+                      f"{touches.group(5)} made untouchable not things then; {touches.group(7)} answers of things it starts untouchable once made touchable")
             if own and int(own.group(2)):
                 print(f"PASS: {own.group(1)} of {own.group(2)} answers of {title}'s {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                       f"{own.group(7)} taken, {own.group(8)} giving another; {own.group(10)}; {own.group(4)} away); one taken with its own controls, in its box; "
                       f"{own.group(12)} door kept untouchable until another's answer shows it, then gone through; {own.group(14)} shown by another's answer, kept untouchable; "
                       f"whole: {own.group(16)} answers of several lines said in turn, {own.group(17)} lines by someone else, {own.group(18)} from or to a picture past the second ({own.group(19)} in a picture their places have not)")
+        # (From 0267) Sam & Max's, Zak's and the mansion's answers that make
+        # things touchable or untouchable (their things files "SVOA"), each
+        # as the new engine plays it, kept so, each a thing then or not; and
+        # the cases the reviews of 0251 to 0262 found, each played as a player
+        # uses that verb there, its thing a thing (or not) then as the
+        # original's scripts leave it: The Dig's ten made untouchable, Full
+        # Throttle's four and its 573 kept untouchable though shown, Fate of
+        # Atlantis's 22 and Sam & Max's 267 and 268 made touchable with no or
+        # a picture change.
+        t = re.search(r"selftest touches: (\d+) of (\d+) records of one thing of Sam & Max, Zak and the mansion making things touchable or untouchable as the new engine plays them "
+                      r"\((\d+) away, (\d+) left to the plain rules\); (\d+) of (\d+) cases the reviews found as the original's scripts leave them", output)
+        def svoa(gameid):
+            f = worlds/f'{gameid}-things.svo'
+            data = f.read_bytes() if f.exists() else b''
+            return (gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data)[:4] == b'SVOA'
+        known = [g for g, room in (('dig', 19), ('dig', 20), ('dig', 31), ('dig', 34), ('dig', 49), ('dig', 56), ('dig', 61), ('dig', 65), ('dig', 68), ('dig', 75),
+                                   ('ft', 50), ('ft', 54), ('ft', 54), ('ft', 115), ('ft', 131), ('atlantis', 1), ('samnmax', 25), ('samnmax', 25))
+                 if svoa(g) and (worlds/f'{g}-{room}.svw').exists()]
+        if not t or int(t.group(1)) + int(t.group(3)) + int(t.group(4)) != int(t.group(2)) or t.group(5) != t.group(6) or int(t.group(6)) != len(known) or \
+                any(svoa(g) and t.group(2) == '0' for g in ('samnmax', 'zak', 'maniac')):
+            raise SystemExit(f'FAIL: what answers make touchable or untouchable ({len(known)} cases the reviews found here)\n' + output[-2000:])
+        print(f"PASS: {t.group(1)} of {t.group(2)} answers of Sam & Max, Zak and the mansion making things touchable or untouchable as the new engine plays them ({t.group(3)} away, "
+              f"{t.group(4)} left to the plain rules); {t.group(5)} of {t.group(6)} cases the reviews found as the original's scripts leave them")
         # (From 0260) Day of the Tentacle's and both Monkey Islands' two
         # things as their own sentences answer: each record of a thing carried
         # used with what it is used on (here, or carried too) and of one given
