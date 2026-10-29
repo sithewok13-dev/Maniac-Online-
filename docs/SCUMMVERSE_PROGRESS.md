@@ -7138,3 +7138,28 @@ From the fourth round, on 0251's and 0253's machinery.
   test_startup (its version helper reads monkey2's own branch), a fresh
   export (two identical), the full data suite (with 0252 and 0253). Not
   tested on an iPhone.
+
+## Patch 0255 — a review of 0251: a Full Throttle thing kept untouchable; normal play confirmed unchanged
+
+- In Full Throttle's room 131 the hand on 571 shows 573, and 0251's rule
+  (a thing shown by another's answer becomes touchable) made it touchable;
+  the original keeps it untouchable (no script changes its class), so in
+  the new engine it caught taps and the coin meant for 564, for good once
+  saved. A table of things kept untouchable all the same now holds it.
+  Every other thing a Dig or Full Throttle answer shows was checked
+  against the original: their scripts make them touchable as they show
+  them.
+- The review confirmed normal play unchanged by 0251: every change is
+  behind the export's own flag (set only for the export's targets), the
+  step budget is reset after every run and never saved.
+- 0251's note corrected: runs that call a Dig tram are recorded, with the
+  car's pictures left out.
+- Not fixed: answers that make a thing untouchable (the record cannot say
+  so: The Dig 19/152, 20/161, 31/252, 34/265, 49/367, 56/394, 61/427,
+  65/453, 68/466, 75/512; Full Throttle 50/265, 54/284, 54/287, 115/513);
+  Sam & Max's room 25 script making two things touchable along with a
+  mini-game.
+- Tests: the verbs self-test (new: after each answer that shows such a
+  thing, it is not a thing; the old rule fails it), test_sandbox_engine.py
+  (the new clause, for every game with its own answers), test_startup and
+  the full data suite (with 0252-0254). Not tested on an iPhone.
