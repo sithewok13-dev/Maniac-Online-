@@ -7497,3 +7497,33 @@ the original's main ending route.
   of the mansion, Atlantis, the Last Crusade and The Curse of Monkey Island
   (identical to before), test_startup and the full data suite. Not tested
   on an iPhone.
+
+## Patch 0265 — fixes from a review of 0258 and 0260: Give to someone where the cast stands them, two-thing answers whole, a stale colour
+
+- Giving a thing to someone the game's cast places in another room than the
+  export found them in (Monkey Island's monkey in room 20, recorded in room
+  21; four more in Monkey Island 2, two in Day of the Tentacle, Fate of
+  Atlantis's and the Last Crusade's) found none of their answers: "No,
+  thanks." and nothing used up. The new engine now looks where the person
+  is first, then in the cast's rooms, then in every room the things file
+  has them in, their own answer to that thing first, else their usual one.
+- Two-thing answers (0260) were read with the reader from before SVO9,
+  which drops other things set to a picture past the second (Monkey Island
+  2's rooms 22 and 38: 7 answers); they are now read whole, their lines
+  said by who says them as one-thing answers are.
+- A line said by no one left its colour behind: the next notice (the wall
+  safe's keypad digits) was drawn in it. A place entered and a close-up's
+  notice now reset it.
+- Checked and found right: the SVO9 parser (3500 damaged files from the
+  real exports: no crash, every one read or refused whole), the line queue,
+  Sam & Max's icons carried and kept, Day of the Tentacle's Give answers
+  (all its own out-of-reach check at the game's start).
+- Noted, not changed: a line by someone not on stage, or wearing a costume
+  the cast does not know, is said by the one played (Full Throttle's
+  bartender in room 54 among them); all two-thing lines are said by the one
+  played.
+- Tests: the verbs self-test (new: Give where the cast places them in five
+  games; two-thing answers setting another past its second picture; each
+  fix undone fails), the all, doors, talk and keep self-tests, test_panel
+  (ASan/UBSan), test_startup and the full data suite. Not tested on an
+  iPhone.

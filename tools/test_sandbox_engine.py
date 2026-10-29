@@ -1130,10 +1130,14 @@ if __name__ == '__main__':
                     not two or int(two.group(2)) < least or int(two.group(1)) + int(two.group(3)) != int(two.group(2)) or 4 * int(two.group(1)) < 3 * int(two.group(2))
                     or two.group(7) == '0' or two.group(8) == '0'):
                 raise SystemExit(f'FAIL: {title}\'s two things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            # (From 0265: of them, given to someone where the cast puts them
+            # though filed where their game has them, and setting another to a
+            # picture past the second, as the new engine now reads them.)
+            more = re.search(re.escape(f"selftest {title} two things: ") + r".*?\); (\d+) given to someone where the cast puts them, filed where their game has them; (\d+) setting another to a picture past the second", output)
             if two and int(two.group(2)):
                 print(f"PASS: {two.group(1)} of {two.group(2)} answers of {title}'s two things as its own sentences give them (Use with what it is used on, Give to someone: "
                       f"{two.group(7)} usual answers, {two.group(8)} given to someone, {two.group(9)} using up, {two.group(10)} with both carried; not tried: {two.group(4)} with a thing carried that has no picture to carry, "
-                      f"{two.group(5)} away there, {two.group(6)} with nobody there)")
+                      f"{two.group(5)} away there, {two.group(6)} with nobody there)" + (f"; {more.group(1)} given where the cast puts them, {more.group(2)} setting another past its second picture" if more else ""))
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)
