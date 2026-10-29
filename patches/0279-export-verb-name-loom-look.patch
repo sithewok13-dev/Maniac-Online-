@@ -1,0 +1,80 @@
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 376acd9e..5d76f63f 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -3826,10 +3826,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0271, Loom's: its distaff in hand, as its own scripts give it to
+ 	// Bobbin (kWorldDistaffs' `held`, `inHand`: each place's own entry then
+ 	// keeps it so), from the start its distaff's export left, every note and
+-	// draft known.)
++	// draft known. From 0279 `held` bounded as the bit variable it is: the
++	// EGA edition's writeVar keeps its bit variables in the others, `held`
++	// in variable held >> 4, under 256 for any of its 4096 so within its 800.)
+ 	const WorldDistaff *distaff = _game.id == GID_LOOM ? worldDistaff(gameIndex) : nullptr;
+ 	if (distaff && VAR_VERB_SCRIPT != 0xFF && distaff->drafts + 31 < _numVariables && distaff->chosen > 0 && distaff->chosen < _numVariables &&
+-		distaff->held > 0 && distaff->held < 0x1000 && (distaff->held >> 4) < _numVariables) {
++		distaff->held > 0 && distaff->held < _numBitVariables) {
+ 		writeVar(0x8000 | distaff->held, 1);
+ 		int args[NUM_SCRIPT_LOCAL];
+ 		memset(args, 0, sizeof(args));
+@@ -4141,7 +4143,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// script (kWorldDistaffs' `click`) stopped once that click is done (its
+ 	// first local 0 again, following the pointer on); a note, its verb (1 to
+ 	// 8) clicked. A frame as below; `settle` until nothing runs.)
+-	int hidden = 0, retapped = 0, unchosen = 0;
++	int hidden = 0, retapped = 0, unchosen = 0, moved = 0;
+ 	auto clickPoint = [&](int obj, int &cx, int &cy) {
+ 		const int at = getObjectIndex(obj);
+ 		if (at <= 0) return false;
+@@ -4230,6 +4232,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (_currentRoom != room || a->_room != room) { ++left; quiet(); _scummverseStepBudget = -1; return; }
+ 			if (pictureOf(obj) != from) { ++retapped; quiet(); _scummverseStepBudget = -1; return; }
+ 			if (kinds[v] >= kWorldVerbDraft && VAR(distaff->chosen) != obj) { ++unchosen; quiet(); _scummverseStepBudget = -1; return; }
++			// (From 0279 the second tap only where a click still finds it:
++			// the first may change what is there, and another's answer is
++			// not this one's look.)
++			if (kinds[v] < kWorldVerbDraft && findObject(cx, cy) != obj) { ++moved; quiet(); _scummverseStepBudget = -1; return; }
+ 		}
+ 		const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
+ 		const Common::Array<bool> was = untouchables(); // (from 0267: see touches)
+@@ -4372,8 +4378,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		kWorldGames[gameIndex].gameid, madeTouchable, madeUntouchable, touchedOnly, touchedSelf, touchedAsWas, touchCut);
+ 	// (From 0271, Loom's controls.)
+ 	if (distaff)
+-		debug(1, "SCUMMVERSE world things: %s its controls, %d a thing (a tap, a second, %d drafts): %d runs not made where no click finds the thing, %d where its first click leaves it in another picture, %d drafts on one that click does not choose",
+-			kWorldGames[gameIndex].gameid, (int)kinds.size(), (int)kinds.size() - 2, hidden, retapped, unchosen);
++		debug(1, "SCUMMVERSE world things: %s its controls, %d a thing (a tap, a second, %d drafts): %d runs not made where no click finds the thing, %d where its first click leaves it in another picture, %d drafts on one that click does not choose, %d seconds where a click there no longer finds it",
++			kWorldGames[gameIndex].gameid, (int)kinds.size(), (int)kinds.size() - 2, hidden, retapped, unchosen, moved);
+ 	// (From 0256, the oldest games' two things (Zak's): Use with a thing that
+ 	// can be carried (one an answer above took or gave), as a player uses
+ 	// it: that one first, carried (in the kid's inventory as its game's pick
+@@ -5049,9 +5055,14 @@ void ScummEngine::scummverseCaptureLetters(int slot, int charset, int ink, VirtS
+ 	typedef ScummverseUiGlyph Glyph;
+ 	VerbSlot &line = _verbs[slot];
+ 	const VerbSlot kept = line;
++	// (From 0279 its name kept as stored, its escape codes whole: a
++	// sentence line's is all codes, each a name from a variable whose
++	// number's high byte is 0; a copy up to the first 0 ended in the first,
++	// and putting it back (loadPtrToResource steps over a code's arguments)
++	// read on past it. 0s after the copy, so a code at its end cannot.)
+ 	Common::Array<byte> keptName;
+-	for (const byte *c = getResourceAddress(rtVerb, slot); c && *c; ++c) keptName.push_back(*c);
+-	keptName.push_back(0);
++	if (const byte *name = getResourceAddress(rtVerb, slot)) keptName = Common::Array<byte>(name, getResourceSize(rtVerb, slot));
++	keptName.resize(keptName.size() + 8, 0);
+ 	auto at = [&](int x, int y) -> byte & { return *((byte *)vs.getPixels(x, y)); };
+ 	const byte *resource = charset >= 0 && charset < _numCharsets ? getResourceAddress(rtCharset, charset) : nullptr;
+ 	const int count = !resource ? 0 : _game.version <= 3 ? resource[4] : READ_LE_UINT16(resource + (_game.version == 4 ? 17 : 29) + 2);
+@@ -5349,9 +5360,10 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	typedef ScummverseUiFont Font;
+ 	VerbSlot &line = _verbs[sentence];
+ 	const VerbSlot kept = line;
++	// (From 0279 its name kept whole, as scummverseCaptureLetters keeps it.)
+ 	Common::Array<byte> keptName;
+-	for (const byte *c = getResourceAddress(rtVerb, sentence); c && *c; ++c) keptName.push_back(*c);
+-	keptName.push_back(0);
++	if (const byte *name = getResourceAddress(rtVerb, sentence)) keptName = Common::Array<byte>(name, getResourceSize(rtVerb, sentence));
++	keptName.resize(keptName.size() + 8, 0);
+ 	const int ink = line.color;
+ 	Font fonts[2];
+ 	const int talkFont = _string[0]._default.charset;

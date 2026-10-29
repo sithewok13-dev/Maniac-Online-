@@ -8038,3 +8038,22 @@ nothing copied).
   export byte for byte as before, two mansion exports identical;
   test_startup, test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0279 — the export reads no further than a verb's name, and Loom's look taps the same thing
+
+Fixes in the world export; no exported file changes in any game.
+- Putting the sentence line's name back after the panel export read past
+  the end of an 8-byte copy, in all five games with a sentence line (Monkey
+  Island 1 and 2, the Last Crusade, Fate of Atlantis, Day of the Tentacle):
+  the name is only codes that take a verb's or a thing's name from a
+  variable, their arguments hold zero bytes, and the copy stopped at the
+  first. The name is now copied whole, as stored (both places that did
+  it).
+- Loom: the look's second tap is skipped, and counted, when a click there
+  no longer finds the thing (twice, room 18's object 374, already dropped
+  before as leaving the place). The distaff's held-notes bound now uses the
+  bit-variable count.
+- Tests: every game exported twice, identical to each other and to the
+  cache (1117 files), and once under ASan with no errors (the old code
+  shows the over-read on all five); test_startup and the full data suite.
+  Not tested on an iPhone.
