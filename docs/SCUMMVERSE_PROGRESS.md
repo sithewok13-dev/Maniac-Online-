@@ -7195,3 +7195,35 @@ From the fourth round, on 0251's and 0253's machinery.
   either path fails), a fresh export (two identical), test_startup,
   test_world_setup and the full data suite (with 0252-0255). Not tested
   on an iPhone.
+
+## Patch 0257 — the mansion's radio calls the Meteor Police in the new engine (mansion export version 38)
+
+From the sweep for the next dead end on the original's main ending route
+(the first point the new engine could not get past).
+- The radio tube (room 3) is taken, and put in its socket in the hidden
+  room's radio, only by Bernard, as in the original (readers can now name
+  a kid: the export plays that answer as the kid, and the new engine gives
+  it only when that mansion kid is played; the others get the game's own
+  refusals). The radio turns on only with the tube in and the main power
+  on (its on/off is a game variable, now recorded as its picture by a new
+  table); taking the tube out turns it off.
+- The wanted poster now shows the number the keypad wants (both read from
+  the same game start). Using the radio when it is on shows the shared
+  keypad; the right number plays the police headquarters film (room 32
+  exported, its events on their recorded ticks) and they come 21258 ticks
+  later, as measured: with both dungeon doors open they leave the badge
+  there, to be picked up, once; with either shut nothing happens and they
+  can be called again. 0252's keypad rule holds here too: a failed way
+  back ends it once, and the call is still made.
+- Every other game's exported files are as before; the safe, telescope,
+  TV and mail answers are unchanged.
+- Not modelled: what the police's visit does in the original (its
+  cut-scene; the meteor and the lab are left as they are, so the ending
+  through the lab switch is still unreachable), the radio's later lines
+  (each call plays the first call's film), "fix radio with tube", the
+  film's camera pan, sounds.
+- Tests: the verbs self-test (new: every step of the radio, the keypad's
+  last key with the way back failing; 16 mutations caught; ASan/UBSan
+  clean), the tour, all, doors, keep and cast self-tests, test_world,
+  test_panel, a fresh export (two identical; the police delay measured as
+  named), test_startup and the full data suite. Not tested on an iPhone.

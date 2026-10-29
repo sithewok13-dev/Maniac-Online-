@@ -931,6 +931,36 @@ if __name__ == '__main__':
                   'addressed; taken back, no pickup; not due with the flag down, the mailbox open or a mark missing), due on leaving, kept through a save and reload, collected '
                   f'{mail.group(21)} ticks after leaving (waiting while at the front door), nothing after it; torn open, refused; older and damaged states read; '
                   'a film whose place cannot be shown again over once, elsewhere')
+        # (From 0257) The radio in the hidden room and the Meteor Police, from
+        # afresh: the old radio opened, its tube refused to another kid (as
+        # recorded) and taken by Bernard; the socket refusing another kid and
+        # taking the tube from Bernard (in its place, touchable); the radio
+        # refusing to turn on without the tube (as recorded), nothing with the
+        # main power off, on, off (its lines off and used off); the wanted
+        # poster read with the number its keypad wants; on, Use: the keypad, a
+        # wrong number calling nothing, the right one calling the Meteor
+        # Police: their film (room 32) as recorded, back where they stood; at
+        # their time (as the export measured it) with the dungeon shut nothing,
+        # called again (the film skipped by a tap), kept through a save and
+        # reload; with its doors open the badge left there (taken), never
+        # called again after; the tube taken out again (the radio off). As the
+        # wall safe's keypad (0252): where it was used from not shown again as
+        # the last key is pressed, over once, someone else played, called.
+        radio = re.search(r"selftest radio: the tube (\d+) refused to another kid, (\d+) taken by Bernard; the socket (\d+) refused to another kid, (\d+) the tube put in by Bernard; "
+                          r"the radio (\d+) refused on without the tube, (\d+) nothing with the main power off, (\d+) on, (\d+) off \(its lines off and used off\); (\d+) poster read with the "
+                          r"keypad's number; (\d+) keypad shown on, (\d+) wrong number calling nothing, (\d+) right number calling the Meteor Police \((\d+) film played as recorded, (\d+) "
+                          r"events, back where they stood\); their time (\d+) ticks: (\d+) with the dungeon shut \(nothing, called again\), (\d+) kept through a save and reload, (\d+) with its "
+                          r"doors open \(the badge left, taken\), (\d+) not called again after; (\d+) tube taken out again \(the radio off\); (\d+) keypad over once where its place "
+                          r"could not be shown again \(someone else played, called\)", output)
+        if all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in (3, 4, 21, 32, 43)) and \
+                (not radio or any(radio.group(k) != '1' for k in list(range(1, 14)) + list(range(16, 22))) or int(radio.group(14)) < 1 or int(radio.group(15)) < 18000):
+            raise SystemExit('FAIL: the radio and the Meteor Police (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if radio and radio.group(12) == '1':
+            print('PASS: the radio: its tube taken from the old radio and put in its socket only by Bernard (refused to another kid as recorded); on only with the tube in '
+                  'and the main power on, off, its lines; the wanted poster\'s number the keypad\'s; on, its keypad: a wrong number calls nothing, the right one the Meteor '
+                  f'Police: their film as recorded ({radio.group(14)} events), back where they stood; {radio.group(15)} ticks later with the dungeon shut nothing, called again, '
+                  'kept through a save and reload; with its doors open the badge left there, taken; not called again after; the tube taken out again, the radio off; '
+                  'where it was used from not shown again, the keypad over once, called all the same')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its
@@ -1128,8 +1158,9 @@ if __name__ == '__main__':
         # (Not The Dig's subway cars, nor the insides of rides, from 0198:
         # kWorldRideScenes, Zak's plane cabin and van cockpit; nor, from 0240,
         # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad, from
-        # 0242 its telescope's views, from 0248 its TV's film.)
-        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw', 'maniac-40.svw'}
+        # 0242 its telescope's views, from 0248 its TV's film, from 0257 the
+        # police headquarters' film after the radio's call.)
+        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw', 'maniac-40.svw', 'maniac-32.svw'}
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')
