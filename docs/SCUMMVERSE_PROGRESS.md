@@ -7072,3 +7072,33 @@ From the third round (the new engine's later games).
   character file broken, damaged timed-event records, the tour stopped at
   the hall; each fix undone makes its test fail), test_startup and the full
   data suite. Not tested on an iPhone.
+
+## Patch 0253 — Day of the Tentacle's things answer as the original in the new engine (tentacle export version 26)
+
+From the fourth round (the new engine's other games), on 0251's machinery.
+- The export plays each panel verb but walk (open, close, push, pull, use,
+  look, pick up, talk) on every touchable thing in Day of the Tentacle's
+  50 places, as the kid of that place's time (Hoagie, Bernard or Laverne,
+  by a new table of rooms; each kid dressed as the game starts them), the
+  game's own sentence script answering, and records the answer as 0251
+  does. The new engine plays them from the panel.
+- 3738 answers for 243 things (3618 with a line, 97 changing a picture, 76
+  taking the thing, 2 giving one). Each kid says their own default lines.
+  Give, and Use on things the game asks "with" for (by a new table from
+  its verb script), wait for a second thing and are not recorded; runs
+  that leave the place or end past the second picture are not either.
+- Export-only: the computer in room 42 starting Maniac Mansion is passed
+  over while exporting (it stopped the export), so it has no answer.
+- The new engine: four things the game takes that have no picture of their
+  own are refused (as the new engine's rule already was); the general
+  take, use-with and give self-test keeps running for games with a panel.
+- Every other game's exported files are byte for byte as before.
+- Not expressed yet: who speaks (each kid's line is said by the one
+  played), lines after the first, pictures past the second, Give and Use
+  with, answers that take the kid elsewhere, the story's progress (every
+  answer is as at the game's start), sending things through time.
+- Tests: the verbs self-test (new: 3682 of 3738 records replayed as
+  recorded, the rest inside something shut; one thing taken through the
+  panel; leaving the game out fails 3446 records), the all, doors and tour
+  self-tests, test_panel (ASan/UBSan), test_world, test_startup, a fresh
+  export (two identical), the full data suite. Not tested on an iPhone.

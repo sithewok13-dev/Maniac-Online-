@@ -947,8 +947,11 @@ if __name__ == '__main__':
         # Dig's tap; Full Throttle's coin: eyes, teeth, hand, boot); one taken
         # through the game's own controls (the tap; the coin's hand) and seen
         # in its box; The Dig's way down kept untouchable under its hatch until
-        # the hatch's answer shows it, then gone through with a tap.
-        for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2)):
+        # the hatch's answer shows it, then gone through with a tap. (From
+        # 0253) Day of the Tentacle's likewise, each of its verb panel's verbs
+        # but giving, each answer as the kid of that place's time gives it;
+        # one taken with its verb chosen on the panel, seen among its things.
+        for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2), ('Day of the Tentacle', 'tentacle', 3000, 40)):
             own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                             r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
                             r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through", output)
