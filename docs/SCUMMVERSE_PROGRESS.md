@@ -7650,3 +7650,31 @@ did nothing for answers that make a thing untouchable.
   18 known cases; old states kept as guessed), the doors and other
   self-tests, fresh exports (two identical), test_startup, test_world_setup
   and the full data suite. Not tested on an iPhone.
+
+## Patch 0268 — fixes from a review of 0266 and 0267: the lab's switch works once, from on, as the original's; the shower curtain's touches
+
+- 0266 was wrong about the original: the lab switch's code (room 51,
+  object 176; one entry for Push, Pull, Use and Turn off) runs only while
+  the switch is on, sets it off and starts Dr Fred's script once; from off
+  it does nothing, and nothing ever turns it on again (every script was
+  checked). So turning it off before the police come leaves no way to this
+  ending in the original too. 0266 made both of its films play from either
+  picture, replaying Dr Fred's other film each time and reaching the ending
+  from off. Both films are shown only from on again, as 0263 had them;
+  0266's once-seen list and its state are kept as a safeguard.
+- The bathroom's shower curtain (room 24, its parts moved as one): its
+  touch records (0267: the hidden parts untouchable while the curtain is
+  aside) were never applied, because things moved as one return before
+  answers are applied; the hidden parts still caught taps over the bare
+  wall. They are applied there now.
+- Found, not fixed: things a mansion one-thing answer gives (a tape taken
+  out of a deck, the record off the phonograph) are not recorded, so they
+  are lost; Turn on on the switch turns it off by the plain rules; doors a
+  record makes untouchable can still be walked through; the original's
+  ending branch if the police come within the switch's wait.
+- Tests: the verbs self-test (new: the switch from off does nothing, from
+  on plays the films, in both orders; the curtain's hidden parts not things
+  while aside; each fix undone fails), the doors, all, tour, cast, keep,
+  rides, follow, talk, walk, moves and camera self-tests, test_panel,
+  test_stage and test_world (ASan/UBSan), test_startup and the full data
+  suite (with 0269). No exported file changes. Not tested on an iPhone.
