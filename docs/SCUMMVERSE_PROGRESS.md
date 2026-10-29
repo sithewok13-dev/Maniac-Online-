@@ -8210,3 +8210,45 @@ nothing here) and 0271's (Loom's runs that leave the place).
   mutations caught); the all, doors, tour and follow self-tests unchanged;
   two exports identical, every other file byte for byte as before;
   test_startup and the full data suite. Not tested on an iPhone.
+
+## Patch 0284 — the world export puts the whole game back before each run, so no answer depends on the runs before it (export versions: maniac 46, monkey2 34, monkey and tentacle 33, atlantis, zak, samnmax, dig, ft and comi 31, indy3 29)
+
+- Found: played backwards (`scummverse_export_order=reversed`, for tests
+  only), the 0281 export recorded otherwise in every game but Loom, and
+  Fate of Atlantis's stopped altogether. Each run's put-back covered only
+  variables, object pictures, owners and classes and what was carried;
+  everyone's place, clothes, walk and talk colour, the carried things'
+  code, arrays, verbs, text settings, camera, palette and more were as the
+  runs before had left them. In Zak's room 4 every other run arrived in
+  room 16; Sam & Max's sky car was set by whichever Give to Max ran first.
+- Now the whole game is put back before each run (`ScummverseKept`):
+  actors as a save keeps them, the carried things' code, arrays, verbs and
+  verb names, text and scale slots, the camera, charset colours, palette,
+  pointer, user and talk state; the cut-scene stack is cleared.
+- Pictures asked for a thing not yet revealed are asked once it is
+  revealed. Fate of Atlantis's actor 11, whose costume can't be loaded,
+  wears none. In the mansion, a wait of a minute or more of game time is
+  its game's timed event, not the answer (Ed's walk), so the fridge and the
+  tap answer as before. The Dig's Brink and Maggie are known by their cast
+  costumes (`kWorldSpeakers`), so Give to them answers. Two UBSan reports
+  (0-byte copies of room variables) are fixed.
+- Films: each film's part shown is now where the original's own camera
+  stands at its first line or picture change, with the kid standing at the
+  thing first and the camera following, and the ending played as the
+  original plays it (Dr Fred's film, then the ending from its end). Dr
+  Fred's lab films now show his side of the lab (left 144, was 0 or 280
+  left over from other runs); the ending 272 (was 280). The keypads, the TV
+  film, the telescope and the police film are as before.
+- Result: every game's things file is the same answer for answer forwards
+  and backwards; two exports identical; 11 things files change (not
+  Loom's) and no other file. Answers now: mansion 1428, Zak 7162, Monkey
+  Island 11323, Monkey Island 2 9639, the Last Crusade 4851, Fate of
+  Atlantis 6082, Day of the Tentacle 8287, Sam & Max 2006, Full Throttle
+  1078, The Dig 862, the Curse 3658. Monkey Island 2's room 60 no longer
+  has Guybrush in another costume left by an earlier run; Sam & Max's Give
+  to Max answers in every place; the Curse's Give to people in 7 more.
+- Not done: other games still wait out long waits within a run.
+- Tests: test_world_setup.py also sets each game up in reversed order and
+  requires the same answers; sanitizer exports clean; the sandbox verbs,
+  all and doors self-tests pass; test_startup and the full data suite. Not
+  tested on an iPhone.
