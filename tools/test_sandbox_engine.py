@@ -1019,11 +1019,13 @@ if __name__ == '__main__':
         # as its game leaves it, its box picture its own; its answers whole:
         # pictures past the second, every line in turn by who says it in their
         # colour (Max's by Max following), the things given carried by their
-        # own inventory pictures (one kept through a save and a load).
+        # own inventory pictures (one kept through a save and a load). (From
+        # 0270 a line of someone not here, Max where he is not, told over the
+        # place in their colour, not said by the one played.)
         own = re.search(r"selftest Sam & Max: (\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                         r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry\), (\d+) taken with its pointer from the box", output)
         whole = re.search(r"selftest Sam & Max whole: (\d+) taken gone as things, the place as its game leaves it, their box pictures their own; (\d+) of (\d+) answers from or to a picture past the second \((\d+) in a picture their places have not\), (\d+) of (\d+) of several lines said in turn, "
-                          r"(\d+) of (\d+) lines by someone else \((\d+) by the one here its cast knows so, (\d+) told over the place, (\d+) by the one played as theirs is not here\), "
+                          r"(\d+) of (\d+) lines by someone else \((\d+) by the one here its cast knows so, (\d+) told over the place, (\d+) told over the place in their colour as they are not here\), "
                           r"(\d+) of (\d+) things given carried by their own inventory pictures \((\d+) kept through a save and a load; (\d+) with none, not carried\); (\d+) lines drawn in their speakers' colours; "
                           r"(\d+) of Max's lines said by him as he follows, over him in his colour, (\d+) answer of several lines played through as time passes "
                           r"\((\d+) let go by a line said meanwhile and by another place\)", output)
@@ -1039,7 +1041,7 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Sam & Max\'s things as its own sentences answer (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
         if snmNinth and (not whole or not own or whole.group(1) != own.group(7) or int(whole.group(3)) < 10 or int(whole.group(2)) + int(whole.group(4)) != int(whole.group(3))
                          or int(whole.group(6)) < 50 or whole.group(5) != whole.group(6) or int(whole.group(8)) < 100 or whole.group(7) != whole.group(8) or whole.group(9) == '0'
-                         or whole.group(10) == '0' or int(whole.group(13)) < 2 or whole.group(12) != whole.group(13) or whole.group(14) != '1' or whole.group(15) != '0'
+                         or whole.group(10) == '0' or whole.group(11) == '0' or int(whole.group(13)) < 2 or whole.group(12) != whole.group(13) or whole.group(14) != '1' or whole.group(15) != '0'
                          or int(whole.group(16)) < 1000 or whole.group(17) != '1' or whole.group(18) != '1' or whole.group(19) != '1'):
             raise SystemExit('FAIL: Sam & Max\'s answers whole: pictures past the second, its lines by who says them, things given by their own pictures (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
         if own and int(own.group(2)):
@@ -1048,7 +1050,7 @@ if __name__ == '__main__':
         if whole and snmNinth:
             print(f"PASS: Sam & Max's answers whole: {whole.group(1)} taken gone as things, the place as its game leaves it, their box pictures their own; {whole.group(2)} from or to a picture "
                   f"past the second; {whole.group(5)} of several lines said in turn; {whole.group(7)} lines by someone else ({whole.group(9)} by the one here its cast knows so, {whole.group(10)} told "
-                  f"over the place, {whole.group(11)} by the one played as theirs is not here), {whole.group(16)} drawn in their speakers' colours; {whole.group(12)} things given carried by their "
+                  f"over the place, {whole.group(11)} told over the place in their colour as they are not here), {whole.group(16)} drawn in their speakers' colours; {whole.group(12)} things given carried by their "
                   "own inventory pictures, kept through a save and a load; Max's line said by Max following, over him in his colour; an answer of several lines played through as time passes, "
                   "the rest let go by a line said meanwhile or another place")
         # (From 0256) Zak's likewise (its things file): every record of one
@@ -1070,6 +1072,17 @@ if __name__ == '__main__':
             print(f"PASS: {zak.group(1)} of {zak.group(2)} answers of Zak's {zak.group(3)} things as its own sentences give them ({zak.group(5)} lines, {zak.group(6)} pictures changed, "
                   f"{zak.group(7)} taken, each place entered again as left; {zak.group(4)} away); one taken with its panel's verb, in its slots; "
                   f"{zak.group(12)} of {zak.group(13)} Use of two as its sentences give them ({zak.group(15)} usual answers, {zak.group(16)} using up, {zak.group(17)} both carried; {zak.group(14)} not tried)")
+        # (From 0270) Who says a line, whatever the things files hold, in a
+        # place of a later game with someone of its own there: the one played
+        # their own, someone here over them, someone hidden, of a costume nobody
+        # here wears or of none told over the place in their colour, never by
+        # the one played; each drawn so.
+        ruled = re.search(r"selftest speakers: (\d+) places where who says a line is as its record has it", output)
+        later = any(not f.name.startswith(('maniac-', 'zak-')) for f in worlds.glob('*.svw'))
+        if later and (not ruled or ruled.group(1) == '0'):
+            raise SystemExit('FAIL: who says a line here (the one played, someone here, else told over the place in their colour)\n' + output[-2000:])
+        if ruled:
+            print(f"PASS: who says a line in {ruled.group(1)} place: someone not here, hidden or unknown told over the place in their colour, not by the one played")
         # (From 0251) The Dig's and Full Throttle's likewise (their things
         # files): every record replayed as a player uses that verb there (The
         # Dig's tap; Full Throttle's coin: eyes, teeth, hand, boot); one taken
@@ -1136,6 +1149,26 @@ if __name__ == '__main__':
             if touches:
                 print(f"PASS: what {title}'s answers make touchable or untouchable as its scripts leave it: {touches.group(1)} kept so; {touches.group(3)} made touchable things then, "
                       f"{touches.group(5)} made untouchable not things then; {touches.group(7)} answers of things it starts untouchable once made touchable")
+            # (From 0270 who says them: someone else's over them where they are
+            # here, else told over the place in their colour, never by the one
+            # played (Full Throttle's bartender in room 54, Day of the Tentacle's,
+            # The Dig's and The Curse's people its cast knows by another costume
+            # or places elsewhere); its two things' first lines likewise, by who
+            # says them as recorded (Day of the Tentacle's told over the place,
+            # Monkey Island 2's people given to answering over them, where its
+            # export is 0270's or later).)
+            speakers = re.search(re.escape(f"selftest {title} speakers: ") + r"(\d+) lines of one thing by someone else said over them here, (\d+) by someone not here told over the place in their colour, "
+                                 r"not by the one played; two things: (\d+) first lines by someone else as recorded \((\d+) over them here, (\d+) told over the place in their colour\)", output)
+            least_off = {'ft': 100, 'tentacle': 50, 'dig': 10, 'comi': 50}
+            spokenSince = {'tentacle': 30, 'monkey2': 32, 'atlantis': 29}
+            exported = [int(m.group(1)) for m in (re.fullmatch(re.escape(gameid) + r'-v(\d+)\.svx', f.name) for f in worlds.glob(f'{gameid}-v*.svx')) if m]
+            if own and int(own.group(2)) and (not speakers or (ninth and int(speakers.group(2)) < least_off.get(gameid, 0)) or int(speakers.group(3)) != int(speakers.group(4)) + int(speakers.group(5))
+                                              or (gameid in spokenSince and exported and max(exported) >= spokenSince[gameid] and speakers.group(3) == '0')):
+                raise SystemExit(f'FAIL: who says {title}\'s lines: someone not here told over the place in their colour, not by the one played; its two things\' by who says them '
+                                 f'(export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if speakers:
+                print(f"PASS: who says {title}'s lines: {speakers.group(1)} of someone else over them, {speakers.group(2)} of someone not here told over the place in their colour, not by the one played; "
+                      f"two things: {speakers.group(3)} first lines by someone else as recorded ({speakers.group(4)} over them, {speakers.group(5)} over the place)")
             if own and int(own.group(2)):
                 print(f"PASS: {own.group(1)} of {own.group(2)} answers of {title}'s {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                       f"{own.group(7)} taken, {own.group(8)} giving another; {own.group(10)}; {own.group(4)} away); one taken with its own controls, in its box; "
@@ -1210,6 +1243,16 @@ if __name__ == '__main__':
                     not held or int(held.group(2)) < least or int(held.group(1)) + int(held.group(3)) != int(held.group(2)) or 10 * int(held.group(1)) < 9 * int(held.group(2))
                     or held.group(8) == '0' or (given and held.group(9) == '0') or int(held.group(15)) != int(held.group(1)) + int(held.group(6)) or held.group(16) != '1'):
                 raise SystemExit(f'FAIL: {title}\'s two things through its own controls (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            # (From 0270 who says their lines: someone else's over them where
+            # they are here, else told over the place in their colour, not by
+            # the one played.)
+            heldSpeakers = re.search(re.escape(f"selftest {title} two things held speakers: ") + r"(\d+) lines by someone else said over them here, (\d+) by someone not here told over the place in their colour, "
+                                     r"not by the one played", output)
+            if held and int(held.group(2)) and (not heldSpeakers or int(heldSpeakers.group(1)) + int(heldSpeakers.group(2)) > int(held.group(12))
+                                                or (given and exported and max(exported) >= since and heldSpeakers.group(1) == '0')):
+                raise SystemExit(f'FAIL: who says {title}\'s two things\' lines through its own controls\n' + output[-2000:])
+            if heldSpeakers and held and int(held.group(2)):
+                print(f"PASS: who says {title}'s two things' lines: {heldSpeakers.group(1)} of someone else over them, {heldSpeakers.group(2)} of someone not here told over the place in their colour")
             if held and int(held.group(2)):
                 print(f"PASS: {held.group(1)} of {held.group(2)} answers of {title}'s two things through its own controls as its own sentences give them (a thing from its box held as "
                       f"the pointer, drawn as it, then a tap on a thing or someone: {held.group(8)} usual answers, {held.group(9)} given to someone, {held.group(10)} using up, {held.group(11)} "

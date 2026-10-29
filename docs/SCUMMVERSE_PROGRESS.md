@@ -7715,3 +7715,37 @@ their inventory used on another by the plain rules.
   mutations caught), all other self-tests, a fresh export (two identical),
   test_startup, test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0270 — who says an answer's line, in the new engine (tentacle export version 30, monkey 31, monkey2 32, atlantis 29, indy3 28)
+
+From the fifth round's reviews.
+- A line by someone not on the stage, or by someone the cast does not know
+  in that costume, was said by the one played, in their colour: Full
+  Throttle's bartender in room 54 (172 lines, all said as Ben's), and lines
+  in Day of the Tentacle, The Dig, The Curse of Monkey Island and Monkey
+  Island 2; Sam & Max's Max where he was not following. Such a line is now
+  told over the place in the speaker's own colour, as a line by no one is;
+  a line by someone here is said over them, as before; only the one
+  played's own lines are said by them.
+- Two-thing answers recorded every line as the one played's. Day of the
+  Tentacle's, both Monkey Islands', Fate of Atlantis's and the Last
+  Crusade's now record who says each line, as their one-thing answers do
+  (someone given a thing answers over themselves); 0269's held-thing
+  answers already did.
+- 1379 of Day of the Tentacle's two-thing answers whose only line the
+  original never shows (another kid's, not in the room: the game's own
+  speech skips an actor not in the room) are no longer recorded; the
+  target's usual answer is given there, as 0258's rule does for one-thing
+  answers.
+- Only those five games' things files change; every scene, character and
+  panel file is byte for byte as before.
+- Not done: the speaker's position as the original shows it; a table of
+  people the cast knows by another costume (a few in Day of the Tentacle,
+  The Curse of Monkey Island and Full Throttle).
+- Tests: the verbs self-test (new, per later game: lines by someone else
+  said over them or told over the place in their colour, never by the one
+  played; two-thing answers' speakers; a check of the rule not depending
+  on the data; undoing the rule fails in seven games), the all and doors
+  self-tests, fresh exports (two identical), test_panel, test_world,
+  test_startup and the full data suite (with 0268 and 0269). Not tested on
+  an iPhone.
