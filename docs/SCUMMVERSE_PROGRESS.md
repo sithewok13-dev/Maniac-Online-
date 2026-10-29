@@ -8057,3 +8057,34 @@ Fixes in the world export; no exported file changes in any game.
   cache (1117 files), and once under ASan with no errors (the old code
   shows the over-read on all five); test_startup and the full data suite.
   Not tested on an iPhone.
+
+## Patch 0280 — doors their games start shut stay shut in the new engine until the answer there opens them
+
+Of the 286 doors the exports record as untouchable at the start, 15 are
+read in their games' scripts as shut on arrival, with an answer in the
+same place that opens them (nothing copied): Fate of Atlantis's room 48
+metal door (until the ladder is used on the stairway) and room 52's
+passage; The Curse of Monkey Island's rooms 15, 28 and 65 (two doors); The
+Dig's way down under room 19's chest; the Last Crusade's room 53 door;
+Loom's rooms 18, 33 and 35 (two doors); Monkey Island's forest place 209;
+Zak's room 25 stairs (until the lever) and place 186's door (the plate).
+- In the new engine they are no door until that answer is given: a tap
+  walks there, with or without a verb, and there is no way through except
+  on the tour's. Once opened they are kept in the state (SVS8, unchanged),
+  and Atlantis room 48's door opens, shuts and opens again with 0276's
+  ladder loop.
+- Left as doors: two that Monkey Island's entry scripts open by the way one
+  arrives (room 48's path, forest place 207), Sam & Max's sky car (as
+  0272), Zak's place 188 door (its only way out; its opener is elsewhere)
+  and the mansion's pool ladder (its own rule).
+- The other 266 have no recorded opener the new engine can play (story
+  steps, entry-script conditions, or unclear), so they stay doors from the
+  start, rather than dead ends.
+- Not done: Zak's place 186 door stays open after the plate, where the
+  original shuts it again once the one who pushed walks off.
+- Tests: the doors and verbs self-tests (15 shut, opened, kept through a
+  save and load; those set aside or opened elsewhere stay doors; every door
+  still walked through), 8 of 11 mutations caught (the other three make no
+  difference with today's data); the other self-tests unchanged;
+  test_startup and the full data suite. No exported file changes. Not
+  tested on an iPhone.

@@ -740,6 +740,19 @@ if __name__ == '__main__':
         print(f'PASS: {td.group(1)} records of {td.group(2)} doors answers make untouchable or touchable: {td.group(3)} made untouchable no door then (no tap on it, '
               f'no way through it; {td.group(4)} kept so through a save and a load), {td.group(5)} a door again once another answer made it touchable; {td.group(6)} made touchable '
               f'a door then; {td.group(7)} a door all the same (their games make them so only in a state the new engine does not play)')
+        # (From 0280) Each door its game starts untouchable until an answer
+        # there opens it: no door at the start (a tap there no tap on it, no
+        # way through it), a door once that answer is given, kept so; those
+        # whose games open them otherwise (by the way one arrives, or on their
+        # own), those only answers elsewhere open and those their games start
+        # touchable, doors from the start.
+        ts = re.search(r'selftest doors start shut: (\d+) doors .*?; (\d+) a door once that answer is given \((\d+) kept so .*?\); (\d+) set aside .*? and (\d+) opened only by answers '
+                       r'elsewhere, doors from the start, as are (\d+) an answer makes touchable', output)
+        if not ts or ts.group(1) != ts.group(2) or ts.group(2) != ts.group(3) or ((worlds/'zak-25.svw').exists() and ts.group(1) == '0'):
+            raise SystemExit('FAIL: doors their games start untouchable\n' + output[-2000:])
+        print(f'PASS: {ts.group(1)} doors their games start untouchable until an answer there: no door at the start (no tap on it, no way through it), a door once it is '
+              f'given ({ts.group(3)} kept so through a save and a load); {ts.group(4)} set aside (their games open them otherwise), {ts.group(5)} opened only from elsewhere '
+              f'and {ts.group(6)} started touchable, doors from the start')
         output = sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # (From 0230) Never two of anyone (by name: another game's of the
@@ -768,6 +781,11 @@ if __name__ == '__main__':
         if not tv or tv.group(3) != '0' or ((worlds/'zak-25.svw').exists() and tv.group(2) == '0'):
             raise SystemExit('FAIL: a verb on a door an answer made untouchable\n' + output[-2000:])
         print(f'PASS: {tv.group(2)} taps with a verb chosen on doors answers made untouchable: the verb not used on them, not gone through, as their games leave them')
+        # (From 0280) So too a door its game starts untouchable until an answer there.
+        tz = re.search(r'selftest doors start shut: (\d+) doors .*?, (\d+) with a verb chosen not used on it either', output)
+        if not tz or ((worlds/'zak-25.svw').exists() and tz.group(2) == '0'):
+            raise SystemExit('FAIL: a verb on a door its game starts untouchable\n' + output[-2000:])
+        print(f'PASS: {tz.group(2)} taps with a verb chosen on doors their games start untouchable: the verb not used on them, not gone through')
         # (From 0276) A thing given back that an answer of two there uses up
         # (Fate of Atlantis's ladder: on room 48's broken stairway, in room
         # 18's hole): taken, used up (no thing where it lay: not taken
