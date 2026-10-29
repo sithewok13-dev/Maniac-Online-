@@ -7405,3 +7405,58 @@ From the fourth round, on 0251-0261's machinery.
   self-tests (COMI's places now among them; 9 fewer doors hidden under
   things), test_panel (ASan/UBSan), a fresh export (two identical) and the
   full data suite. Not tested on an iPhone.
+
+## Patch 0263 — the Meteor Police take the meteor, and the ending through the lab's switch, in the new engine (mansion export version 39)
+
+Continues 0257 (the radio calling the Meteor Police), the next dead end on
+the original's main ending route.
+- What the Meteor Police's visit leaves (script 43, with both dungeon doors
+  open at their time) is now kept: the meteor taken (0257's timed event done
+  for good; saved as before, no new state format). The lab (room 51) no
+  longer has the Purple Meteor among its people, and the wanderers bring it
+  nowhere (but it can still be played); its thing there (45) is untouchable;
+  the radio used on shows its keypad no more and says its own line instead
+  (as its script answers with variable 162 at 3), and the Meteor Police's
+  headquarters film is not shown again.
+- Once the meteor is taken, turning off the lab's switch (176; or pushing,
+  pulling, using it) plays Dr Fred's cut-scene as a film close-up (his lab,
+  room 30, after the switch's own wait of about five seconds; script 126,
+  the branch the original takes with the meteor gone), and its end starts
+  the ending's film at once (the front door, room 1; script 63), each with
+  its events on their recorded ticks; a tap skips each. Rooms 30 and 1 stay
+  places as well: a film's scene can now be a place too.
+- The ending: when the ending's film is over (seen or skipped), the new
+  engine does what it does after any film: back in the lab where the one
+  played stood, everyone as they stood. Nothing is restarted (the original
+  restarts the game after its credits); the switch stays off and the meteor
+  gone, so the ending is not played again. If the lab cannot be shown again
+  as Dr Fred's film ends, it ends once (someone else played, as 0252's
+  close-ups do) and the ending follows only if they are then in the lab.
+- Catalog (kWorldCloseUps' `timed`, `then`, `place`; kWorldTimed's `var`,
+  `value`, `takes`, `person`; the radio's reader played with 162 at 3). The
+  export plays the switch's films with variable 162 at 3 and refuses Dr
+  Fred's film unless its end starts the ending's script. The things file
+  stays "SVO8" (two more close-ups, one more answer); every other mansion
+  file and every other game's export is byte for byte as before (Zak and
+  Monkey Island checked).
+- Not modelled: the visit's own cut-scene (rooms 4, 31, 30 and 51; a film
+  holds one place and one person), Dr Fred's other cut-scene when the switch
+  is turned off with the meteor still there (and the meteor then picked up:
+  the switch off first leaves no way to this ending in the new engine), the
+  radio's line while the police are on their way, the badge given to the
+  Purple Tentacle (variable 151; nobody blocks the way in the new engine),
+  who speaks in the ending's film (one person per film: the kid's line is
+  said by Dr Fred, the kid and Sandy not shown), the credits and music, the
+  reply and the contract (a ninth mark). A Purple Meteor on the stage when
+  the meteor is taken stays until the place is left.
+- Tests: the verbs self-test (new: before and after the meteor is taken,
+  the dungeon shut, save and reload, the lab's people and the wanderers,
+  the radio's answers and no headquarters film after, both films as
+  recorded with their events, back where they stood, not again, skipped,
+  the place not shown again, never elsewhere; the radio's last step now its
+  line; 16 mutations caught: 14 of the new engine's code and catalog, 2 of
+  the export's), the all, doors, tour and cast self-tests, test_world and
+  test_panel (ASan/UBSan), a fresh mansion export (repeated: identical),
+  Zak's and Monkey Island's exports with and without it identical (239
+  files), test_startup, test_world_setup and the full data suite (with
+  0260-0262). Not tested on an iPhone.

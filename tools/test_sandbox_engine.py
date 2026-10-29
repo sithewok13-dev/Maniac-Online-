@@ -822,8 +822,12 @@ if __name__ == '__main__':
                          r"(\d+) left by a menu's choice, unanswered", output)
         # (From 0248 the TV's Turn on (room 17) shows its film: a record too.)
         film = (worlds/'maniac-40.svw').exists() and (worlds/'maniac-40.svw').stat().st_size > 0
+        # (From 0263 the lab's switch too, from the mansion's export version
+        # 39: three more records shown as its films.)
+        mansion = max([int(f.stem.split('-v')[1]) for f in worlds.glob('maniac-v*.svx')] or [0])
+        closeups = (2 if film else 1) + (3 if mansion >= 39 else 0)
         if (worlds/'maniac-9.svw').exists() and (worlds/'maniac-43.svw').exists() and (worlds/'maniac-43.svw').stat().st_size and \
-                (not safe or safe.group(1) != ('2' if film else '1') or safe.group(2) != '1' or safe.group(3) != '1' or safe.group(4) != '1'):
+                (not safe or safe.group(1) != str(closeups) or safe.group(2) != '1' or safe.group(3) != '1' or safe.group(4) != '1'):
             raise SystemExit('FAIL: the wall safe and its keypad (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if safe and safe.group(2) == '1':
             print('PASS: the wall safe behind the painting: Open shows its keypad (the close-up, nobody there, kept as the room it was opened from); '
@@ -943,14 +947,16 @@ if __name__ == '__main__':
         # their time (as the export measured it) with the dungeon shut nothing,
         # called again (the film skipped by a tap), kept through a save and
         # reload; with its doors open the badge left there (taken), never
-        # called again after; the tube taken out again (the radio off). As the
-        # wall safe's keypad (0252): where it was used from not shown again as
-        # the last key is pressed, over once, someone else played, called.
+        # called again after (from 0263 used on, its line, no keypad, as its
+        # script answers once they took the meteor); the tube taken out again
+        # (the radio off). As the wall safe's keypad (0252): where it was used
+        # from not shown again as the last key is pressed, over once, someone
+        # else played, called.
         radio = re.search(r"selftest radio: the tube (\d+) refused to another kid, (\d+) taken by Bernard; the socket (\d+) refused to another kid, (\d+) the tube put in by Bernard; "
                           r"the radio (\d+) refused on without the tube, (\d+) nothing with the main power off, (\d+) on, (\d+) off \(its lines off and used off\); (\d+) poster read with the "
                           r"keypad's number; (\d+) keypad shown on, (\d+) wrong number calling nothing, (\d+) right number calling the Meteor Police \((\d+) film played as recorded, (\d+) "
                           r"events, back where they stood\); their time (\d+) ticks: (\d+) with the dungeon shut \(nothing, called again\), (\d+) kept through a save and reload, (\d+) with its "
-                          r"doors open \(the badge left, taken\), (\d+) not called again after; (\d+) tube taken out again \(the radio off\); (\d+) keypad over once where its place "
+                          r"doors open \(the badge left, taken\), (\d+) not called again after \(its line, no keypad\); (\d+) tube taken out again \(the radio off\); (\d+) keypad over once where its place "
                           r"could not be shown again \(someone else played, called\)", output)
         if all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in (3, 4, 21, 32, 43)) and \
                 (not radio or any(radio.group(k) != '1' for k in list(range(1, 14)) + list(range(16, 22))) or int(radio.group(14)) < 1 or int(radio.group(15)) < 18000):
@@ -959,8 +965,33 @@ if __name__ == '__main__':
             print('PASS: the radio: its tube taken from the old radio and put in its socket only by Bernard (refused to another kid as recorded); on only with the tube in '
                   'and the main power on, off, its lines; the wanted poster\'s number the keypad\'s; on, its keypad: a wrong number calls nothing, the right one the Meteor '
                   f'Police: their film as recorded ({radio.group(14)} events), back where they stood; {radio.group(15)} ticks later with the dungeon shut nothing, called again, '
-                  'kept through a save and reload; with its doors open the badge left there, taken; not called again after; the tube taken out again, the radio off; '
+                  'kept through a save and reload; with its doors open the badge left there, taken; not called again after (its line, no keypad); the tube taken out again, the radio off; '
                   'where it was used from not shown again, the keypad over once, called all the same')
+        # (From 0263) The Meteor Police taking the meteor and the ending it
+        # opens, from afresh: before (no call, or their time with the dungeon
+        # shut) the Purple Meteor in the lab (room 51) and its thing there, the
+        # radio's keypad its answer used on, the lab's switch turned off as its
+        # own script answers; at their time with both doors open the meteor
+        # taken (kept through a save and reload): the lab without the Purple
+        # Meteor (nobody bringing it in, but played), its thing untouchable,
+        # the radio's line instead of its keypad, Dr Fred's lab (room 30) and
+        # the front door (room 1) places still; then the switch turned off:
+        # Dr Fred's film (his lab), then the ending's (the front door) at once,
+        # each as recorded, back where they stood, not again; each skipped by a
+        # tap; Dr Fred's film's place not shown again as it ends, over once.
+        ending = re.search(r"selftest ending: (\d+) before the Meteor Police took the meteor \(the Purple Meteor in the lab, its thing there, the radio's keypad its answer, the switch "
+                           r"as its own script answers\); (\d+) taken at their time with the dungeon's doors open \(not with them shut\), kept through a save and reload; (\d+) lab without "
+                           r"the Purple Meteor after \(its thing untouchable, the radio's line instead of its keypad, Dr Fred's lab and the front door places still\); the switch: (\d+) "
+                           r"played Dr Fred's film \((\d+) events\) then the ending's at once \((\d+) events\), back where they stood, not again; (\d+) skipped by a tap, the ending "
+                           r"following; (\d+) over once where the place it was shown from could not be shown again", output)
+        if all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in (1, 4, 21, 30, 51)) and \
+                (not ending or any(ending.group(k) != '1' for k in (1, 2, 3, 4, 7, 8)) or int(ending.group(5)) < 1 or int(ending.group(6)) < 1):
+            raise SystemExit('FAIL: the Meteor Police taking the meteor, and the ending through the lab\'s switch (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+        if ending and ending.group(4) == '1':
+            print('PASS: the Meteor Police take the meteor only with both dungeon doors open at their time, kept through a save and reload: the lab without the Purple Meteor '
+                  '(nobody bringing it in), its thing untouchable, the radio\'s line instead of its keypad; then the lab\'s switch plays Dr Fred\'s film '
+                  f'({ending.group(5)} events) and the ending\'s at once ({ending.group(6)} events), back where they stood, not again; each skipped by a tap; '
+                  'Dr Fred\'s film over once where the place it was shown from could not be shown again; before, the switch as its own script answers')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its
