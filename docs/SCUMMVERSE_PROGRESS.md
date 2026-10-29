@@ -7796,3 +7796,40 @@ empty, now places 39 places' 559 things and records their answers.
   before), test_startup, test_world_setup with Loom, and the full data
   suite. Mutations: 12 of 13 caught; the review's fix
   undone fails. Not tested on an iPhone.
+
+## Patch 0272 — doors an answer makes untouchable are shut in the new engine, as their games shut them
+
+From the fifth round's reviews (0268's "found, not fixed"): a door a
+recorded answer makes untouchable was still a door in the new engine. A tap
+there went through it, and with a verb chosen the tap walked through instead
+of using the verb.
+- What the originals do (read with their own scripts, nothing copied): an
+  untouchable door can't be tapped, and none of these has another way
+  through.
+  - The Dig: the way down under room 19's chest, shut with the chest; the
+    four light bridges to room 77, shut by any turn of their lens, which
+    also switches off their power elsewhere.
+  - Fate of Atlantis: room 48's metal door, once the ladder is taken back
+    (its walk box off too).
+  - Zak: room 25's stairs, put away with the lever (walk box locked).
+  - The mansion: the pool ladder, with the pool filled.
+- The new engine now does the same. Such a door is no door: a tap there,
+  with or without a verb, walks to that spot, and going through it is
+  refused except on the tour's way. It is a door again once another answer
+  makes it touchable, and it is kept in the state (SVS8, unchanged).
+- Three doors whose games shut them only in a state the new engine doesn't
+  play keep their records aside and stay doors: Full Throttle's room 54 way
+  out (while the toy car is driven), Monkey Island's room 48 path (from the
+  far side of the cable), Sam & Max's room 27 sky car (which comes and goes
+  on its own).
+- Doors their games start untouchable are doors from the start, as before.
+- Not done: Atlantis's record of the stairway picked up doesn't give the
+  ladder back, so the metal door stays shut until the ladder is picked up
+  again where it lay. The Dig's light bridges have no answer here that
+  opens them again.
+- Tests: the doors and verbs self-tests (235 records on 36 doors, each
+  before and after it, with a verb chosen, refused, kept through a save and
+  load, a door again once made touchable; the three set aside; 9 mutations
+  caught); all, tour, rides, follow, walk, moves, talk, cast and camera
+  unchanged; test_startup, test_sandbox_engine.py and the full data suite
+  (with 0271). No exported file changes. Not tested on an iPhone.

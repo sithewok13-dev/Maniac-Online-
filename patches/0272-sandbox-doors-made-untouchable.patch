@@ -1,0 +1,350 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 67df1eea..d8d3c34b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -369,6 +369,16 @@ bool SandboxEngine::isDoor(int object) const {
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
+ 	const WorldLink *link = worldLinkFrom(_game, _room, id);
++	// (From 0272 not one an answer has made untouchable since, as its game's
++	// scripts make it (touchOf): a tap there is no tap on it, with a verb
++	// chosen or not, and there is no way through it (each such door read
++	// with its game's own scripts: The Dig's way down under its hatch shut,
++	// its light bridges with their lenses turned; Fate of Atlantis's metal
++	// door with the ladder taken back; Zak's stairs put away; the mansion's
++	// pool ladder with the pool filled), until another answer makes it
++	// touchable again. On the tour's way still, as travel has those its
++	// game keeps shut.)
++	if (link && (!_touring.on || _touring.paused) && touchOf(_game, _room, id) == kTouchedUntouchable) return false;
+ 	// (A switched door works while it shows: as drawn now, where it has
+ 	// pictures; one its game only walks through (its script answers Walk to,
+ 	// not Open or Close) always.)
+@@ -726,6 +736,27 @@ static bool touchGuessed(int game) {
+ 	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft") ||
+ 		sameId(kWorldGames[game].gameid, "atlantis") || sameId(kWorldGames[game].gameid, "indy3") || sameId(kWorldGames[game].gameid, "comi"));
+ }
++// From 0272 doors whose games make them untouchable only in a state this
++// engine does not play (each read with its game's own scripts): their
++// answers' touches are left aside, a door and a thing (or not) as before.
++// Full Throttle's room 54, 284 (the way out while the toy car is driven by
++// the joystick: its script puts it back as the drive ends), Monkey Island's
++// room 48, 597 (the path, once the cable is ridden to its far side: the
++// place's entry script sets it by the side one arrives on) and Sam & Max's
++// room 27, 281 (the sky car, touchable while it stands there on its own
++// round, which the export's records caught midway).
++struct DoorTouchApart { const char *gameid; short room, object; };
++static const DoorTouchApart kDoorTouchApart[] = {{"ft", 54, 284}, {"monkey", 48, 597}, {"samnmax", 27, 281}};
++static bool doorTouchApart(int game, int room, int id) {
++	for (const DoorTouchApart &d : kDoorTouchApart)
++		if (game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, d.gameid) && d.room == room && d.object == id) return true;
++	return false;
++}
++
++int SandboxEngine::touchOf(int game, int room, int id) const {
++	const Common::HashMap<int, int>::const_iterator touched = _touched.find(thingKey(game, room, id));
++	return touched == _touched.end() || doorTouchApart(game, room, id) ? 0 : touched->_value;
++}
+ 
+ bool SandboxEngine::padlockOpen(int id) const {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+@@ -933,6 +964,8 @@ const char *SandboxEngine::openedOnlyBy(int room, int id) const {
+ }
+ 
+ bool SandboxEngine::doorAllowed(int room, int door) const {
++	// (From 0272 not one an answer has made untouchable since: see isDoor.)
++	if (_game >= 0 && touchOf(_game, room, door) == kTouchedUntouchable) return false;
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return true;
+ 	// (Not one inside another shut: the grating behind the bushes, the hole
+ 	// behind the blotch of paint, the door behind its padlock.)
+@@ -1325,8 +1358,9 @@ bool SandboxEngine::isThing(int object) const {
+ 	if (_game >= 0 && !strcmp(kWorldGames[_game].gameid, "maniac"))
+ 		for (const ManiacShownLater &l : kManiacShownLater)
+ 			if (l.room == _room && l.object == id) return !away || (pictureOf(_room, id) != picture && (!l.inside || pictureOf(_room, l.inside) == l.insidePicture));
+-	const Common::HashMap<int, int>::const_iterator touched = _touched.find(thingKey(_game, _room, id));
+-	const int touch = touched != _touched.end() ? touched->_value : 0;
++	// (From 0272 as touchOf reads it: nothing for a door whose game makes it
++	// so only in a state this engine does not play.)
++	const int touch = touchOf(_game, _room, id);
+ 	if (touch == kTouchedUntouchable) return false;
+ 	if (touch == kTouchedTouchable || !away) return true;
+ 	if (touchGuessed(_game) && (touch == kTouchedGuessed || !PanelBridge::thingsTouch(_game))) return pictureOf(_room, id) != picture && !keptUntouchable(_game, _room, id);
+@@ -5760,6 +5794,212 @@ Common::Error SandboxEngine::run() {
+ 	return Common::kNoError;
+ }
+ 
++// From 0272 (the "doors" and "verbs" checks): each door an answer of its
++// game's things file makes untouchable or touchable, in its place, the
++// touches as that answer leaves them (touchesAfter; the answers themselves
++// are the verbs check's). Before it, a door (as its game starts it; a
++// switched one shut aside), a walking tap where a tap takes it on its way
++// through it. After it, made untouchable: no door, a tap there not on its
++// way through it, nor (`verbs`) with a verb chosen used on it, no way
++// through it (travel refuses), on the tour's way still, kept so through a
++// save and a load, and a door again, a tap taking it, once another answer
++// makes it touchable (where one does); made touchable, a door, a tap
++// taking it. One kDoorTouchApart lists: a door all the same, a tap taking
++// it (with a verb chosen, used on it or on its way through it), a thing or
++// not as before. Each as it was again after.
++SandboxEngine::TouchedDoors SandboxEngine::touchedDoors(bool verbs) {
++	TouchedDoors c;
++	// (Those whose games make them so only in a state this engine does not
++	// play, as read with their games' scripts: kDoorTouchApart's, said here
++	// again so that the table is checked against them.)
++	struct Apart { const char *gameid; short room, object; };
++	static const Apart kApart[] = {{"ft", 54, 284}, {"monkey", 48, 597}, {"samnmax", 27, 281}};
++	Common::String problem;
++	const Common::HashMap<int, int> keptPictures = _pictures, keptTouched = _touched;
++	Common::HashMap<int, bool> doors, saved;
++	auto fail = [&](int g, int room, int id, const char *what) {
++		++c.failed;
++		warning("SCUMMVERSE sandbox door %s-%d object %d: %s", kWorldGames[g].gameid, room, id, what);
++	};
++	// (Where a walking tap takes it, as tap finds doors (a pointer over the
++	// scene taking things first: not under one): of the part the scene
++	// shows, the spot nearest its middle; false: none.)
++	auto spotOf = [&](int object, double &x, double &y) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++		Common::Array<int> candidates, over;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) {
++			int oid, x_, y_, w_, h_, wx_, wy_, state_;
++			const bool ride = StageBridge::object(i, oid, x_, y_, w_, h_, wx_, wy_, state_) && worldRideAt(_game, _room, oid);
++			if ((isDoor(i) && !insideShut(i)) || ride) candidates.push_back(i);
++			if (i != object && PanelBridge::over() && isThing(i) && !isDoor(i)) over.push_back(i);
++		}
++		const int x0 = MAX(0, ox), y0 = MAX(0, oy), x1 = MIN(StageBridge::sceneWidth(), ox + w), y1 = MIN(StageBridge::sceneHeight(), oy + h);
++		const double cx = (x0 + x1) / 2.0, cy = (y0 + y1) / 2.0;
++		const int bottom = PanelBridge::loaded() && !PanelBridge::over() ? PanelBridge::top() : _height;
++		double best = -1;
++		for (int a = 0; a <= 8 && x0 < x1 && y0 < y1; ++a)
++			for (int b = 0; b <= 8; ++b) {
++				const double px = x0 + (x1 - x0 - 1) * a / 8.0, py = y0 + (y1 - y0 - 1) * b / 8.0, d = (px - cx) * (px - cx) + (py - cy) * (py - cy);
++				int sx, sy;
++				double tx, ty;
++				StageBridge::lookAt(px);
++				StageBridge::toScreen(px, py, sx, sy);
++				if (sx < 0 || sx >= _width || sy < 0 || sy >= bottom || (best >= 0 && d >= best)) continue;
++				StageBridge::toScene(sx, sy, tx, ty);
++				if (StageBridge::objectAt(tx, ty, candidates.data(), candidates.size(), 4) == object && StageBridge::objectAt(tx, ty, over.data(), over.size(), 2) < 0) { best = d; x = px; y = py; }
++			}
++		return best >= 0;
++	};
++	auto tapAt = [&](double x, double y) {
++		int sx, sy;
++		StageBridge::lookAt(x);
++		StageBridge::toScreen(x, y, sx, sy);
++		tap(CLIP(sx, 0, _width - 1), CLIP(sy, 0, _height - 1));
++	};
++	// (After a tap: nothing under way, nothing chosen, in its place again.)
++	auto settleBack = [&](int g, int room) {
++		if (_holding.kind) letGo();
++		_door = -1; _doorGoalLink = -1; _opening = 0; _action = 0; _target = -1; _pairing = Pair();
++		PanelBridge::select(-1);
++		sentence("");
++		if (_player >= 0) StageBridge::stop(_player);
++		_wayBack = WayBack(); _noWayOn = false;
++		if (_game != g || _room != room) enter(g, room, 0, problem);
++	};
++	// (A verb chosen as a player chooses it, Open or else Look, else another
++	// that is no walk, nor named where it is, nor of two things; none in a
++	// coin game or Loom's. Its kind; 0: none.)
++	auto pickVerb = [&]() {
++		if (!PanelBridge::loaded() || PanelBridge::coin() || PanelBridge::distaff()) return 0;
++		for (int pass = 0; pass < 2; ++pass)
++			for (int v = 0; v < PanelBridge::verbCount(); ++v) {
++				const int kind = PanelBridge::verbKind(v);
++				if (pass ? kind == kWorldVerbWalk || kind == kWorldVerbWhatIs || twoThings(kind, false) : kind != kWorldVerbOpen && kind != kWorldVerbLook) continue;
++				if (!PanelBridge::verbShown(v) && !PanelBridge::over()) continue;
++				PanelBridge::select(v);
++				return kind;
++			}
++		return 0;
++	};
++	for (int g = 0; g < worldGameCount(); ++g) {
++		const WorldMap *map = worldMap(g);
++		if (!map) continue;
++		loadThings(g);
++		if (!PanelBridge::thingsTouch(g)) continue;
++		// (Each door's first record that makes it touchable: "again".)
++		Common::HashMap<int, int> makes;
++		for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++			int room, id, kind, from, with = 0, touched[3 * 64], count, self;
++			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !PanelBridge::answerTouches(g, room, id, kind, from, with, touched, count, 64, self)) continue;
++			for (int t = 0; t < count + (self ? 1 : 0); ++t) {
++				const int r = t < count ? touched[3 * t] : room, door = t < count ? touched[3 * t + 1] : id, touch = t < count ? touched[3 * t + 2] : self;
++				if (touch == kTouchedTouchable && worldLinkFrom(g, r, door) && !makes.contains(thingKey(g, r, door))) makes[thingKey(g, r, door)] = k;
++			}
++		}
++		for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++			int room, id, kind, from, with = 0, touched[3 * 64], count, self;
++			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !PanelBridge::answerTouches(g, room, id, kind, from, with, touched, count, 64, self)) continue;
++			for (int t = 0; t < count + (self ? 1 : 0); ++t) {
++				const int r = t < count ? touched[3 * t] : room, door = t < count ? touched[3 * t + 1] : id, touch = t < count ? touched[3 * t + 2] : self;
++				const WorldLink *link = worldLinkFrom(g, r, door);
++				if (!link || link->target == r || !installed(g, r) || !installed(g, link->target)) continue;
++				_pictures = keptPictures; _touched = keptTouched;
++				_touched.erase(thingKey(g, r, door));
++				if (!enter(g, r, 0, problem)) { fail(g, r, door, "its place not shown"); continue; }
++				_wayBack = WayBack(); _noWayOn = false;
++				int o = -1;
++				for (int i = 0; i < StageBridge::objectCount() && o < 0; ++i) {
++					int oid, ox, oy, w, h, wx, wy, state;
++					if (StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) && oid == door) o = i;
++				}
++				if (o < 0 || insideShut(o) || !isDoor(o)) continue;
++				++c.records;
++				doors[thingKey(g, r, door)] = true;
++				const int index = link - map->links;
++				bool apart = false;
++				for (const Apart &a : kApart) apart = apart || (sameId(kWorldGames[g].gameid, a.gameid) && a.room == r && a.object == door);
++				const bool blocks = touch == kTouchedUntouchable && !apart, thing = isThing(o);
++				auto toward = [&]() { return _door == index || _room == link->target; };
++				// Before: a walking tap where a tap takes it, on its way through it.
++				double x = 0, y = 0;
++				bool spot = spotOf(o, x, y);
++				if (spot) {
++					tapAt(x, y);
++					spot = toward(); // (someone in front of it here: no tap on it)
++					settleBack(g, r);
++				}
++				// After.
++				touchesAfter(g, room, id, kind, from, with);
++				if (isDoor(o) == blocks) {
++					fail(g, r, door, blocks ? "a door still once an answer made it untouchable" : apart && touch == kTouchedUntouchable ?
++						"no door once an answer made it untouchable in a state this engine does not play" : "no door once an answer made it touchable");
++					continue;
++				}
++				if (apart && isThing(o) != thing) fail(g, r, door, "a thing or not otherwise once an answer made it untouchable in a state this engine does not play");
++				if (spot) {
++					tapAt(x, y);
++					const bool went = toward();
++					settleBack(g, r);
++					if (went == blocks) fail(g, r, door, blocks ? "a tap there on its way through it once an answer made it untouchable" : "a tap there not on its way through it once an answer made it touchable");
++				}
++				if (verbs && spot && (blocks || apart) && pickVerb()) {
++					c.verbTaps += blocks;
++					tapAt(x, y);
++					const bool used = _target == o && _action, went = toward();
++					settleBack(g, r);
++					if (blocks && (used || went)) fail(g, r, door, "with a verb chosen, a tap there used it on it or went on its way through it once an answer made it untouchable");
++					if (!blocks && !used && !went) fail(g, r, door, "with a verb chosen, a tap there neither used it on it nor went on its way through it");
++				}
++				if (!blocks) { if (apart) ++c.apart; else ++c.opened; continue; }
++				++c.blocked;
++				// (No way through it: travel refuses; on the tour's way still.)
++				if (doorAllowed(r, door) || travel(index) || _room != r) { fail(g, r, door, "gone through once an answer made it untouchable"); settleBack(g, r); }
++				{
++					const bool on = _touring.on, paused = _touring.paused;
++					_touring.on = true; _touring.paused = false;
++					const bool onTheWay = isDoor(o);
++					_touring.on = on; _touring.paused = paused;
++					if (!onTheWay) fail(g, r, door, "off the tour's way once an answer made it untouchable");
++				}
++				// (Kept so through a save and a load: once a door.)
++				if (!saved.contains(thingKey(g, r, door))) {
++					saved[thingKey(g, r, door)] = true;
++					const Common::Array<Carried> carried = _carried, away = _carriedAway;
++					const Common::HashMap<int, int> now = _touched;
++					saveState();
++					_touched.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems();
++					int sg, sr;
++					double sx, sy;
++					if (!loadState(sg, sr, sx, sy) || isDoor(o) || !_touched.contains(thingKey(g, r, door))) fail(g, r, door, "not kept untouchable through a save and a load");
++					else ++c.kept;
++					// (Carried as before.)
++					_touched = now; _carried.clear(); PanelBridge::clearItems();
++					for (const Carried &a : carried) carry(a.game, a.room, a.id, a.name, a.picture, false);
++					_carriedAway = away;
++				}
++				// (A door again once another answer makes it touchable.)
++				if (makes.contains(thingKey(g, r, door))) {
++					int aRoom, aId, aKind, aFrom, aWith = 0;
++					PanelBridge::effectAt(g, makes[thingKey(g, r, door)], aRoom, aId, aKind, aFrom, &aWith);
++					touchesAfter(g, aRoom, aId, aKind, aFrom, aWith);
++					bool again = isDoor(o);
++					if (again && spot) {
++						tapAt(x, y);
++						again = toward();
++						settleBack(g, r);
++					}
++					if (again) ++c.restored;
++					else fail(g, r, door, "no door, or a tap there not on its way through it, once another answer made it touchable again");
++				}
++			}
++		}
++	}
++	c.doors = doors.size();
++	_pictures = keptPictures; _touched = keptTouched;
++	return c;
++}
++
+ // Every game's verb panel: under its first place at the scene's scale, each
+ // verb chosen by a tap (the sentence line naming it) and let go by another;
+ // then, on the things there, by a tap on the verb and one on the thing
+@@ -10331,6 +10571,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"not again (from off or on, through a save and reload); %d an older state (SVS6) read with none seen, damaged ones let go; %d skipped by a tap, the ending following; %d "
+ 		"over once where the place it was shown from could not be shown again; %d the ending's left before its end, the switch still on (Dr Fred's film again)",
+ 		endingBefore, endingOther, endingFirst, endingTaken, endingGone, endingPlayed, endingFred, endingEvents, endingOlder, endingSkipped, endingFellBack, endingLeft);
++	// (From 0272 each door an answer makes untouchable or touchable, before
++	// and after it, tapped with a verb chosen too: touchedDoors.)
++	const TouchedDoors doorsTouched = touchedDoors(true);
++	warning("SCUMMVERSE sandbox selftest doors touched: %d records of %d doors their games' answers make untouchable or touchable; %d made untouchable no door then "
++		"(a tap there not on its way through it, %d with a verb chosen not used on it either; no way through it, on the tour's way still; %d of them kept so through a save and a load), "
++		"%d made touchable again by another answer, a door again; %d made touchable a door then; %d whose games make them so only in a state this engine does not play, doors all the same; %d failed",
++		doorsTouched.records, doorsTouched.doors, doorsTouched.blocked, doorsTouched.verbTaps, doorsTouched.kept, doorsTouched.restored, doorsTouched.opened, doorsTouched.apart, doorsTouched.failed);
++	failed += doorsTouched.failed;
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+@@ -13625,6 +13873,14 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		}
+ 		forgetThings();
+ 		warning("SCUMMVERSE sandbox selftest doors switched: %d gone through open, %d with the door back open", switchedPairs, switchedBack);
++		// (From 0272 each door an answer makes untouchable or touchable,
++		// before and after it: touchedDoors.)
++		const TouchedDoors doorsTouched = touchedDoors(false);
++		warning("SCUMMVERSE sandbox selftest doors touched: %d records of %d doors their games' answers make untouchable or touchable; %d made untouchable no door then "
++			"(a tap there not on its way through it; no way through it, on the tour's way still; %d of them kept so through a save and a load), %d made touchable again by another answer, "
++			"a door again; %d made touchable a door then; %d whose games make them so only in a state this engine does not play, doors all the same; %d failed",
++			doorsTouched.records, doorsTouched.doors, doorsTouched.blocked, doorsTouched.kept, doorsTouched.restored, doorsTouched.opened, doorsTouched.apart, doorsTouched.failed);
++		failed += doorsTouched.failed;
+ 		const bool doorsOpen = seenOpening == opensCount && openBehind == opensCount && openBack == backCount && stays == staysCount;
+ 		if (!tried || failed || !doorsOpen || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index b2c0bc77..3fef4b14 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -74,7 +74,7 @@ private:
+ 	// Where a door (room object) is reached: its walk-to point, else the
+ 	// bottom middle of its rectangle (the later games keep it in scripts).
+ 	bool doorPoint(int object, double &x, double &y) const;
+-	bool isDoor(int object) const; // a door of this room, shown here
++	bool isDoor(int object) const; // a door of this room, shown here (from 0272 not one an answer has made untouchable)
+ 	bool someoneToPlay(int game); // the game's lead, else anyone installed
+ 	// At a launch, where it was kept (game, room) cannot be shown (a scene or
+ 	// the one played's file damaged): there as someone else, else the start
+@@ -563,6 +563,12 @@ private:
+ 	Common::Error tourTest();
+ 	Common::Error ridesTest();
+ 	Common::Error movesTest();
++	// (From 0272 the "doors" and "verbs" checks': each door an answer makes
++	// untouchable or touchable, before and after it; `verbs`: tapped with a
++	// verb chosen too. Counted; `failed` where one is not as its game leaves
++	// it.)
++	struct TouchedDoors { int records = 0, doors = 0, blocked = 0, kept = 0, restored = 0, opened = 0, apart = 0, verbTaps = 0, failed = 0; };
++	TouchedDoors touchedDoors(bool verbs);
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;
+@@ -710,6 +716,10 @@ private:
+ 	// (kTouchedGuessed: see isThing). Kept ("SVS8").
+ 	enum { kTouchedTouchable = 1, kTouchedUntouchable = 2, kTouchedGuessed = 3 };
+ 	Common::HashMap<int, int> _touched;
++	// From 0272 a thing's touch as answers left it, as isThing and the doors
++	// read it (0: none): none for a door whose game makes it so only in a
++	// state this engine does not play (kDoorTouchApart in sandbox.cpp).
++	int touchOf(int game, int room, int id) const;
+ 	// (The selftests': a thing as its game starts it again, its picture and
+ 	// touch; every thing so.)
+ 	void forgetThing(int key) { _pictures.erase(key); _touched.erase(key); }

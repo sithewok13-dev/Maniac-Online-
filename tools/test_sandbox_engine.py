@@ -728,6 +728,18 @@ if __name__ == '__main__':
         if not sw or sw.group(1) != sw.group(2) or ((worlds/'monkey-25.svw').exists() and sw.group(1) == '0'):
             raise SystemExit('FAIL: switched doors back\n' + output[-2000:])
         print(f'PASS: {sw.group(1)} switched doors gone through open, the door back open too')
+        # (From 0272) Each door an answer makes untouchable or touchable, before
+        # and after it: made untouchable no door (a tap there no tap on it, no
+        # way through it), kept so; a door again once another answer makes it
+        # touchable; those whose games make them so only in a state the new
+        # engine does not play, doors all the same.
+        td = re.search(r'selftest doors touched: (\d+) records of (\d+) doors .*?; (\d+) made untouchable no door then .*?(\d+) of them kept so .*?, (\d+) made touchable again .*?; '
+                       r'(\d+) made touchable a door then; (\d+) whose games .*?; (\d+) failed', output)
+        if not td or td.group(8) != '0' or ((worlds/'zak-25.svw').exists() and (td.group(3) == '0' or td.group(4) == '0' or td.group(5) == '0')):
+            raise SystemExit('FAIL: doors answers make untouchable or touchable\n' + output[-2000:])
+        print(f'PASS: {td.group(1)} records of {td.group(2)} doors answers make untouchable or touchable: {td.group(3)} made untouchable no door then (no tap on it, '
+              f'no way through it; {td.group(4)} kept so through a save and a load), {td.group(5)} a door again once another answer made it touchable; {td.group(6)} made touchable '
+              f'a door then; {td.group(7)} a door all the same (their games make them so only in a state the new engine does not play)')
         output = sandbox(exe, worlds, 'wander', shots, tmp, wanderers=True)
         print('PASS: everyone out; those coming in shown; where everyone is kept')
         # (From 0230) Never two of anyone (by name: another game's of the
@@ -750,6 +762,12 @@ if __name__ == '__main__':
         if panels != exported:
             raise SystemExit(f'FAIL: {panels} verb panels shown of {exported} exported')
         print(f'PASS: {panels} games\' own verb panels: each verb chosen; look, open, close, push, pick up; kept')
+        # (From 0272) With a verb chosen, a door an answer made untouchable is
+        # no tap on it either: the verb not used on it, not gone through.
+        tv = re.search(r'selftest doors touched: .*?; (\d+) made untouchable no door then \(a tap there not on its way through it, (\d+) with a verb chosen not used on it either.*?(\d+) failed', output)
+        if not tv or tv.group(3) != '0' or ((worlds/'zak-25.svw').exists() and tv.group(2) == '0'):
+            raise SystemExit('FAIL: a verb on a door an answer made untouchable\n' + output[-2000:])
+        print(f'PASS: {tv.group(2)} taps with a verb chosen on doors answers made untouchable: the verb not used on them, not gone through, as their games leave them')
         # (From 0202) The mansion's: a verb chosen on the way to a door, the walk goes on through it.
         w = re.search(r'(\d+) doors gone through with a verb chosen on the way', output)
         if (worlds/'maniac-ui.svi').exists() and (not w or w.group(1) != '1'):
