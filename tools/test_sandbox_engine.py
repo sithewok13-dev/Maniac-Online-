@@ -925,6 +925,25 @@ if __name__ == '__main__':
         if own and int(own.group(2)):
             print(f"PASS: {own.group(1)} of {own.group(2)} answers of Sam & Max's {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                   f"{own.group(7)} taken, {own.group(8)} giving another, {own.group(9)} of those with no picture to carry; {own.group(4)} away); one taken with its pointer from its box")
+        # (From 0251) The Dig's and Full Throttle's likewise (their things
+        # files): every record replayed as a player uses that verb there (The
+        # Dig's tap; Full Throttle's coin: eyes, teeth, hand, boot); one taken
+        # through the game's own controls (the tap; the coin's hand) and seen
+        # in its box; The Dig's way down kept untouchable under its hatch until
+        # the hatch's answer shows it, then gone through with a tap.
+        for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2)):
+            own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
+                            r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
+                            r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through", output)
+            answers = worlds/f'{gameid}-things.svo'
+            if answers.exists() and answers.stat().st_size and (not own or int(own.group(2)) < most or int(own.group(1)) + int(own.group(4)) != int(own.group(2))
+                                                              or int(own.group(7)) < least_taken or own.group(11) != '1' or own.group(12) != own.group(13)
+                                                              or (gameid == 'dig' and own.group(13) == '0')):
+                raise SystemExit(f'FAIL: {title}\'s things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if own and int(own.group(2)):
+                print(f"PASS: {own.group(1)} of {own.group(2)} answers of {title}'s {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
+                      f"{own.group(7)} taken, {own.group(8)} giving another; {own.group(10)}; {own.group(4)} away); one taken with its own controls, in its box; "
+                      f"{own.group(12)} door kept untouchable until another's answer shows it, then gone through")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)

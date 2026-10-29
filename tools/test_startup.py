@@ -9,6 +9,20 @@ import sys
 import tempfile
 import unittest
 
+
+def export_version(gameid):
+    """A game's export version, as worldExportVersion in
+    common/scummverse_world_catalog.h gives it: the base, the mansion's own
+    lead, one more for each game it names after that (from 0251 Full
+    Throttle among them)."""
+    catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
+    base = int(re.search(r"kWorldExportVersion = (\d+);", catalog).group(1))
+    body = re.search(r"inline int worldExportVersion\(const char \*gameid\) \{(.*?)\n\}", catalog, re.S).group(1)
+    lead = re.search(r'same\(gameid, "maniac"\) \? (\d+) :(.*?)\? 1 : 0', body, re.S)
+    if gameid == "maniac":
+        return base + int(lead.group(1))
+    return base + (1 if f'same(gameid, "{gameid}")' in lead.group(2) else 0)
+
 BINARY = Path(sys.argv.pop(1) if len(sys.argv) > 1 else "build/null/scummvm").resolve()
 
 
@@ -112,9 +126,7 @@ class StartupTests(unittest.TestCase):
         # (Already set up for the worlds: no export first, so the story is the
         # first run itself.)
         (self.root / "worlds").mkdir()
-        catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
-        version = re.search(r"kWorldExportVersion = (\d+);", catalog).group(1)
-        (self.root / "worlds" / f"monkey-v{version}.svx").write_bytes(b"")
+        (self.root / "worlds" / f"monkey-v{export_version('monkey')}.svx").write_bytes(b"")
         self.config.write_text("[scummvm]\nscummverse_mode=story\nscummverse_story_playing=scummverse-story-monkey\n\n"
                                "[scummverse-story-monkey]\nengineid=scumm\ngameid=monkey\ndescription=The Secret of Monkey Island\n"
                                f"path={self.root / 'monkey'}\nscummverse_story=true\n")
@@ -146,11 +158,9 @@ class StartupTests(unittest.TestCase):
         (self.root / "monkey").mkdir()
         (self.root / "ft").mkdir()
         # (Both already set up for the worlds: the list is the first thing.)
-        catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
-        version = int(re.search(r"kWorldExportVersion = (\d+);", catalog).group(1))
         (self.root / "worlds").mkdir()
         for name in ("monkey", "ft"):
-            (self.root / "worlds" / f"{name}-v{version}.svx").write_bytes(b"")
+            (self.root / "worlds" / f"{name}-v{export_version(name)}.svx").write_bytes(b"")
         self.config.write_text("[scummvm]\nscummverse_mode=story\nscummverse_story_choices=monkey,ft\n")
         result = self.run_game()
         self.assertNotIn("world export", result.stdout)

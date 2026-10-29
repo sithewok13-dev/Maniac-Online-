@@ -6999,3 +6999,41 @@ none of it is in a patch, and it has to be redone or restarted:
 - The keypad close-up retrying a failed way back on each key tap (0250's
   film-end fix, not yet applied to the keypad).
 - The mansion's next dead end in the new engine after the mail pickup.
+
+## Patch 0251 — The Dig's and Full Throttle's things answer as the original in the new engine (dig and ft export version 26)
+
+From the third round (the new engine's later games).
+- Neither game had a things file: every thing answered with the generic
+  rules only. The export now plays each game's own verbs on every
+  touchable, named thing (from its first two pictures) through the game's
+  own sentence script, and records the answer as Sam & Max's are (0247):
+  the first line, the picture after, taken, others set or given. The new
+  engine plays them the same way. The Dig's tap is its click (verb 3, by a
+  one-row table used by the export only); Full Throttle's coin: eyes, teeth,
+  hand and boot.
+- The Dig: 217 answers (195 with a line, 24 changing a picture, 31 taking
+  the thing, 12 setting other things). Full Throttle: 1038 (eyes 264, teeth
+  268, hand 261, boot 245). Runs that leave the place, end past the second
+  picture or call a Dig tram (the new engine shows trams itself) are not
+  recorded.
+- A thing these games start untouchable becomes touchable once another
+  thing's answer shows it (merged with 0250's mansion rule): The Dig's way
+  down in room 19 lies wholly under the hatch; a tap opens the hatch and a
+  second goes through, as in the original.
+- Export-only guards: films and Full Throttle's fights passed over; a walk
+  box left over from another room told and passed over instead of stopping;
+  animation waits ended by animating the actors each frame; the lead placed
+  at the thing's own walk point and dressed by each place's entry scripts;
+  arrays and the animation queue put back after each run; a step budget per
+  run (4,000,000; the most used was about 235,000). Normal play is
+  unchanged.
+- Every other game's exported files are byte for byte as before.
+- Not expressed by the record yet: pictures past the second, who speaks,
+  lines after the first (as for Sam & Max).
+- Tests: test_panel (ASan/UBSan; new: a Dig/Full Throttle-shaped record),
+  the verbs self-test (new: every record replayed, one thing taken through
+  each game's own controls, the hidden way down), the doors self-test (1923
+  of 1923 through), test_startup (its version markers now read from the
+  catalog), test_world_setup, a fresh export (two identical), the full
+  data suite with the story differential. Not tested on an iPhone, nor
+  with complete copies of these games (films and voices missing here).

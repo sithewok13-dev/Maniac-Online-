@@ -992,12 +992,43 @@ int main() {
 			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others, count, 2, said, sizeof(said), &taken) && !taken && count == 2 && others[5] == 2);
 			PanelBridge::clearThings();
 		}
+		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
+		// answers by their own verbs' kinds, The Dig's tap and Full Throttle's
+		// hand, look and kick; one taken from its picture 0 leaving it 0 (as
+		// The Dig's leaves it), one opening another. Each found by its own
+		// kind only, from its own picture only.)
+		{
+			std::vector<uint8_t> v7 = {'S', 'V', 'O', '7'};
+			put16(v7, 1); put16(v7, 23); put16(v7, 2);
+			put16(v7, 182); v7.push_back(0); put16(v7, 0);
+			put16(v7, 154); v7.push_back(0); put16(v7, 0);
+			put16(v7, 4);
+			put16(v7, 23); put16(v7, 182); put(v7, {kAct, 0}); put16(v7, 0); put(v7, {2, 0, 3, 'R', 'o', 'd'});
+			put16(v7, 23); put16(v7, 154); put(v7, {kAct, 0}); put16(v7, 0); put(v7, {1, 1}); put16(v7, 23); put16(v7, 155); v7.push_back(1); v7.push_back(0);
+			put16(v7, 23); put16(v7, 154); put(v7, {kHand, 1}); put16(v7, 0); put(v7, {0, 0, 2, 'N', 'o'});
+			put16(v7, 23); put16(v7, 154); put(v7, {kPush, 0}); put16(v7, 0); put(v7, {0, 0, 4, 'O', 'w', '!', '!'});
+			put16(v7, 0); // (no parents)
+			put16(v7, 0); put16(v7, 0); v7.push_back(0); put16(v7, 0); // (no main power)
+			v7.push_back(0); // (no close-ups)
+			assert(parseThings(v7.data(), v7.size(), things, error) && things.effects.size() == 4);
+			const ThingEffect *rod = things.effect(23, 182, kAct, 0), *lid = things.effect(23, 154, kAct, 0), *hand = things.effect(23, 154, kHand, 1), *kick = things.effect(23, 154, kPush, 0);
+			assert(rod && rod->taken && rod->after == 0 && rod->line == "Rod" && !things.effect(23, 182, kPickUp, 0) && !things.effect(23, 182, kAct, 1));
+			assert(lid && !lid->taken && lid->after == 1 && lid->others.size() == 1 && lid->others[0].id == 155 && lid->others[0].picture == 1 && lid->line.empty());
+			assert(hand && hand->line == "No" && !things.effect(23, 154, kHand, 0) && kick && kick->line == "Ow!!" && !things.effect(23, 154, kLook, 0));
+			for (size_t cut = 1; cut < v7.size() - 4; ++cut) assert(!parseThings(v7.data(), v7.size() - cut, things, error));
+			bool taken = false;
+			assert(PanelBridge::loadThings(8, v7.data(), v7.size(), problem, sizeof(problem)) && PanelBridge::effectCount(8) == 4);
+			assert(PanelBridge::thingEffect(8, 23, 182, kAct, 0, after, others, count, 2, said, sizeof(said), &taken) && taken && after == 0 && !count && std::string(said) == "Rod");
+			assert(PanelBridge::thingEffect(8, 23, 154, kAct, 0, after, others, count, 2, said, sizeof(said), &taken) && !taken && after == 1 && count == 1 && others[1] == 155 && others[2] == 1);
+			assert(!PanelBridge::thingEffect(8, 23, 154, kAct, 1, after, others, count, 2, said, sizeof(said), &taken));
+			PanelBridge::clearThings();
+		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and
