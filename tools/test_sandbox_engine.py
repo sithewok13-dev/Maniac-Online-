@@ -1162,6 +1162,44 @@ if __name__ == '__main__':
             if inside:
                 print(f"PASS: the radio and the package opened again where they gave what they keep inside, nothing given again ({inside.group(1)} of 2); a state kept before 0278 "
                       f"read back: the stamps and the batteries given once ({inside.group(2)}), the package refusing with the envelope stamped ({inside.group(3)})")
+        # (From 0282) What the mansion's cassette records and which record is
+        # on the Victrola, kept (its export version 44's things file, "SVOB",
+        # records the answers that read or leave them and what the scripts
+        # they start do later): record 32 recorded in either order and played
+        # in the living room, the vase, the windows and the chandelier broken
+        # in their time, the key in it picked up and unlocking the dungeon's
+        # door, the deck and the Victrola stopping on their own; the old record
+        # breaking nothing and never stopping itself; a blank cassette's line;
+        # turned off in time, nothing broken; on again, from the start; the
+        # main power off; room 9's light pulled as its place's lights are; a
+        # state kept before 0282 with its record on read so. Saved and loaded
+        # between steps.
+        if mansion >= 44 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            recorded = re.search(r"selftest recorded: (\d+) of 2 chains of record 32 recorded .*?\((\d+) of 2 unlocking the dungeon's door\).*?; (\d+) the old record recorded and played.*?; "
+                                 r"(\d+) a blank cassette's line in two decks; (\d+) turned off in time, nothing broken, (\d+) turned on again from the start; (\d+) the main power off.*?; "
+                                 r"(\d+) of 2 room 9's light pulled off and on as it is; (\d+) a state kept before 0282 read with its record on", output)
+            if there(3, 4, 5, 8, 9, 17, 20) and (not recorded or recorded.groups() != ('2', '2', '1', '1', '1', '1', '1', '2', '1')):
+                raise SystemExit('FAIL: what the mansion\'s cassette recorded, the record on the Victrola, or what playing them breaks, not as its scripts (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if recorded:
+                print(f"PASS: record 32 recorded on the cassette ({recorded.group(1)} of 2 orders) and played: the vase, the living room's windows and chandelier broken in their time, the key "
+                      f"in it picked up unlocking the dungeon's door ({recorded.group(2)}), the deck and the Victrola stopping on their own; the old record breaking nothing, never stopping; "
+                      f"a blank cassette's line; turned off in time, nothing broken; on again from the start; the main power off; room 9's light pulled as its lights are "
+                      f"({recorded.group(8)} of 2); a state kept before 0282 read with its record on; saved and loaded between steps")
+        # (From 0282) The tape played again once the old rusty key is
+        # carried: the key not drawn under the chandelier again; a record put
+        # on the Victrola while one is on refused, as its script refuses it
+        # (the mansion's export version 45 records the refusal), the first
+        # given back taken off.
+        if mansion >= 44 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            again = re.search(r"selftest recorded again: (\d+) the tape played again once the old rusty key is carried, the key not drawn where it lay; (\d+) of (\d+) a record put on "
+                              r"the Victrola while one is on refused, the first given back taken off", output)
+            if there(3, 4, 5, 8, 9, 17, 20) and (not again or again.group(1) != '1' or again.group(2) != again.group(3) or (mansion >= 45 and again.group(3) != '1')):
+                raise SystemExit('FAIL: the key drawn again once carried, or a second record put on the Victrola not refused (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if again:
+                print(f"PASS: the tape played again once the key is carried, the key not drawn where it lay ({again.group(1)}); a second record put on the Victrola refused, "
+                      f"the first given back ({again.group(2)} of {again.group(3)})")
         # (From 0277) A verb Zak's or a later game's thing does not answer, as
         # a player chooses it: from a picture its export played it from (a
         # record of another verb from there), each verb with no record from
@@ -1388,7 +1426,8 @@ if __name__ == '__main__':
         def svoa(gameid):
             f = worlds/f'{gameid}-things.svo'
             data = f.read_bytes() if f.exists() else b''
-            return (gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data)[:4] == b'SVOA'
+            # (From 0282 "SVOB" too: SVOA and more, the mansion's from 0282.)
+            return (gzip.decompress(data) if data[:2] == b'\x1f\x8b' else data)[:4] in (b'SVOA', b'SVOB')
         known = [g for g, room in (('dig', 19), ('dig', 20), ('dig', 31), ('dig', 34), ('dig', 49), ('dig', 56), ('dig', 61), ('dig', 65), ('dig', 68), ('dig', 75),
                                    ('ft', 50), ('ft', 54), ('ft', 54), ('ft', 115), ('ft', 131), ('atlantis', 1), ('samnmax', 25), ('samnmax', 25))
                  if svoa(g) and (worlds/f'{g}-{room}.svw').exists()]

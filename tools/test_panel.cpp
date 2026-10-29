@@ -4,7 +4,7 @@
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
 // the plain rules for each verb, things carried from a scene, what a
-// thing's own script answers (the things files, SVO1 to SVOA), controls
+// thing's own script answers (the things files, SVO1 to SVOB), controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
 // coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
@@ -1198,6 +1198,93 @@ int main() {
 			for (const std::vector<uint8_t> &refused : {tenth(8, {{20, 211, 0, 16}}), tenth(8, {{20, 211, 32, 16}}), tenth(8, {{0, 211, kOpen, 16}}), tenth(8, {{20, 211, kOpen, 16 | 1}}),
 				tenth(8, {{20, 211, kOpen, 16 | 4}}), tenth(8, {{20, 211, kOpen, 16 | 8}})})
 				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty());
+			// (From 0282, "SVOB": all SVOA has, then the answers played with a
+			// value kept. 205 turned on from 0 with nothing wanted, played with
+			// 25: it shows 209 in its picture 3, touchable, says a line, leaves
+			// 157 at 25 and has two later steps (300 ticks after: 209 in its
+			// picture 1; 72300, past a u16: 205 in 0, made untouchable); with
+			// 191 wanted, played with 0: nothing. Written out of order, read in
+			// order; through the bridge by its key (thingAnswer, answerLine,
+			// answerTouches, answerHands; valueLeaves and valueLater as many as
+			// asked); none for another key, another game or an SVOA; the usual
+			// answers as before. Cut short anywhere, read as an SVOA (bytes past
+			// its end), or out of range (more answers, values or steps than its
+			// limits, a variable 0, a step in no place or past kMostLaterTicks or
+			// before the one before it, a touch past 2, a kind 0, a key twice):
+			// refused whole; a step at kMostLaterTicks read.)
+			struct Step { int tick, room, id, picture, touch; };
+			struct Valued { int kind, from, need, value; std::vector<Other> others; const char *line; std::vector<std::pair<int, int> > leaves; std::vector<Step> later; };
+			auto eleventh = [&](const std::vector<Valued> &values, int valueCount = -1) {
+				std::vector<uint8_t> v = tenth(8, others10);
+				v[3] = 'B';
+				put16(v, valueCount >= 0 ? valueCount : (int)values.size());
+				for (const Valued &a : values) {
+					put16(v, 20); put16(v, 205); put(v, {a.kind, a.from}); put16(v, 0); put16(v, a.need); put16(v, a.value);
+					put(v, {1, 0, (int)a.others.size()});
+					for (const Other &o : a.others) { put16(v, o.room); put16(v, o.id); put(v, {o.picture, o.given}); }
+					v.push_back(*a.line ? 1 : 0);
+					if (*a.line) { v.push_back(0); text(v, a.line); }
+					v.push_back((uint8_t)a.leaves.size());
+					for (const std::pair<int, int> &l : a.leaves) { put16(v, l.first); put16(v, l.second); }
+					v.push_back((uint8_t)a.later.size());
+					for (const Step &st : a.later) { put16(v, st.tick & 0xFFFF); put16(v, st.tick >> 16); put16(v, st.room); put16(v, st.id); put(v, {st.picture, st.touch}); }
+				}
+				return v;
+			};
+			const Valued played = {kTurnOn, 0, 0, 25, {{20, 209, 3, 2}}, "Plays.", {{157, 25}}, {{300, 20, 209, 1, 0}, {72300, 20, 205, 0, 2}}};
+			const Valued quiet = {kTurnOn, 0, 191, 0, {}, "", {}, {}};
+			std::vector<uint8_t> valuing = eleventh({quiet, played});
+			assert(parseThings(valuing.data(), valuing.size(), things, error) && things.touches && things.effects.size() == 2 && things.icons.size() == 2 && things.valued.size() == 2);
+			const ValueAnswer *played11 = things.value(20, 205, kTurnOn, 0, 0, 0, 25);
+			assert(played11 && played11 == &things.valued[0] && played11->answer.after == 1 && played11->answer.others.size() == 1 && played11->answer.others[0].id == 209 &&
+				played11->answer.others[0].picture == 3 && played11->answer.others[0].touch == PanelBridge::kMadeTouchable && played11->answer.line == "Plays." &&
+				played11->leaves.size() == 1 && played11->leaves[0].first == 157 && played11->leaves[0].second == 25 && played11->later.size() == 2 && played11->later[0].tick == 300 &&
+				played11->later[0].id == 209 && played11->later[0].picture == 1 && !played11->later[0].touch && played11->later[1].tick == 72300 && played11->later[1].id == 205 &&
+				played11->later[1].touch == PanelBridge::kMadeUntouchable);
+			assert(things.value(20, 205, kTurnOn, 0, 0, 191, 0) && !things.value(20, 205, kTurnOn, 0, 0, 0, 0) && !things.value(20, 205, kTurnOn, 1, 0, 0, 25) &&
+				!things.value(20, 205, kPickUp, 0, 0, 0, 25) && things.effect(20, 205, kPickUp, 0)->others.size() == 4);
+			assert(PanelBridge::loadThings(6, valuing.data(), valuing.size(), problem, sizeof(problem)));
+			const int key11[2] = {0, 25};
+			int leaves11[2 * 4], later11[5 * 4], speaker11, costume11, color11;
+			assert(PanelBridge::valueAnswered(6, 20, 205, kTurnOn, 0, 0, 0, 25) && PanelBridge::valueAnswered(6, 20, 205, kTurnOn, 0, 0, 191, 0) &&
+				!PanelBridge::valueAnswered(6, 20, 205, kTurnOn, 0, 0, 0, 0) && !PanelBridge::valueAnswered(7, 20, 205, kTurnOn, 0, 0, 0, 25));
+			assert(PanelBridge::thingAnswer(6, 20, 205, kTurnOn, 0, 0, after9, flags9, others4, count9, 4, lines9, key11) && after9 == 1 && !flags9 && count9 == 1 && others4[1] == 209 &&
+				others4[2] == 3 && !others4[3] && lines9 == 1);
+			assert(PanelBridge::answerLine(6, 20, 205, kTurnOn, 0, 0, 0, speaker11, costume11, color11, said, sizeof(said), key11) && std::string(said) == "Plays." && speaker11 == kSpeakerPlayed);
+			assert(PanelBridge::answerTouches(6, 20, 205, kTurnOn, 0, 0, touched10, count10, 4, self, key11) && count10 == 1 && touched10[1] == 209 && touched10[2] == PanelBridge::kMadeTouchable && !self);
+			assert(!PanelBridge::answerHands(6, 20, 205, kTurnOn, 0, 0, hands11Out, 4, key11));
+			assert(PanelBridge::valueLeaves(6, 20, 205, kTurnOn, 0, 0, 0, 25, leaves11, 4) == 1 && leaves11[0] == 157 && leaves11[1] == 25 && !PanelBridge::valueLeaves(6, 20, 205, kTurnOn, 0, 0, 0, 25, leaves11, 0));
+			assert(PanelBridge::valueLater(6, 20, 205, kTurnOn, 0, 0, 0, 25, later11, 4) == 2 && later11[0] == 300 && later11[1] == 20 && later11[2] == 209 && later11[3] == 1 && !later11[4] &&
+				later11[5] == 72300 && later11[7] == 205 && !later11[8] && later11[9] == PanelBridge::kMadeUntouchable && PanelBridge::valueLater(6, 20, 205, kTurnOn, 0, 0, 0, 25, later11, 1) == 1);
+			assert(!PanelBridge::valueLeaves(6, 20, 205, kTurnOn, 0, 0, 191, 0, leaves11, 4) && !PanelBridge::valueLater(6, 20, 205, kTurnOn, 0, 0, 191, 0, later11, 4) &&
+				!PanelBridge::valueLater(6, 20, 205, kTurnOn, 0, 0, 0, 44, later11, 4));
+			assert(!PanelBridge::thingAnswer(6, 20, 205, kTurnOn, 0, 0, after9, flags9, others4, count9, 4, lines9) &&
+				PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 4, lines9) && count9 == 3); // (the usual answers as before)
+			assert(PanelBridge::loadThings(6, ten.data(), ten.size(), problem, sizeof(problem)) && !PanelBridge::valueAnswered(6, 20, 205, kTurnOn, 0, 0, 0, 25) &&
+				!PanelBridge::thingAnswer(6, 20, 205, kTurnOn, 0, 0, after9, flags9, others4, count9, 4, lines9, key11));
+			PanelBridge::clearThings();
+			for (size_t cut = 1; cut < valuing.size() - 4; ++cut) assert(!parseThings(valuing.data(), valuing.size() - cut, things, error) && things.valued.empty() && things.effects.empty());
+			std::vector<uint8_t> valuingA = valuing;
+			valuingA[3] = 'A';
+			assert(!parseThings(valuingA.data(), valuingA.size(), things, error) && error == "truncated things file" && things.effects.empty());
+			Valued manyLeaves = played, manySteps = played, noVar = played, noPlace = played, tooLate = played, backwards = played, touchy = played, noKind = played;
+			manyLeaves.leaves.assign(PanelBridge::kMostLeaves + 1, std::make_pair(157, 25));
+			manySteps.later.assign(PanelBridge::kMostLaterSteps + 1, Step{300, 20, 209, 1, 0});
+			noVar.leaves[0].first = 0;
+			noPlace.later[0].room = 0;
+			tooLate.later[1].tick = PanelBridge::kMostLaterTicks + 1;
+			backwards.later[1].tick = 299;
+			touchy.later[0].touch = 3;
+			noKind.kind = 0;
+			for (const std::vector<uint8_t> &refused : {eleventh({played}, PanelBridge::kMostValued + 1), eleventh({manyLeaves}), eleventh({manySteps}), eleventh({noVar}), eleventh({noPlace}),
+				eleventh({tooLate}), eleventh({backwards}), eleventh({touchy}), eleventh({noKind})})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad values" && things.valued.empty() && things.effects.empty());
+			std::vector<uint8_t> twice11 = eleventh({played, quiet, played});
+			assert(!parseThings(twice11.data(), twice11.size(), things, error) && error == "an answer twice" && things.valued.empty());
+			Valued latest = played;
+			latest.later[1].tick = PanelBridge::kMostLaterTicks;
+			std::vector<uint8_t> latestFile = eleventh({latest});
+			assert(parseThings(latestFile.data(), latestFile.size(), things, error) && things.valued.size() == 1 && things.valued[0].later[1].tick == PanelBridge::kMostLaterTicks);
 		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
@@ -1364,7 +1451,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused); from 0282 SVOB, the answers played with a value kept, what they leave of them and their later steps (by their key; read in order; cut short, as an SVOA or out of range: refused whole); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

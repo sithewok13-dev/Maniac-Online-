@@ -8126,3 +8126,50 @@ Zak's room 25 stairs (until the lever) and place 186's door (the plate).
   caught; ASan/UBSan clean for these changes; the all and doors self-tests
   unchanged; two exports identical; test_startup, test_world_setup and the
   full data suite. Not tested on an iPhone.
+
+## Patch 0282 — the mansion's cassette records what the Victrola plays, and playing it back breaks what it broke (mansion export version 45, things file "SVOB", state "SVS9")
+
+From 0278's "not done", against the original's scripts (read with descumm,
+nothing copied).
+- The new engine now keeps what the cassette recorded (the original's
+  variable 157) and which record is on the Victrola (94), in state "SVS9".
+  Every older state still loads; one with a record already on works out
+  which.
+- With the recorder and the Victrola both on, whichever goes on second,
+  the cassette records the record. A deck plays the tape as recorded; only
+  a blank tape says its line.
+- Record 32 on the Victrola breaks the vase 300 ticks later, and the
+  Victrola stops itself 72000 ticks after that; the old record breaks
+  nothing and plays until turned off.
+- The cassette with record 32 played in the living room: the windows break
+  at 240 and 300 ticks, and at 360 the chandelier falls and the old rusty
+  key in it can be picked up (it unlocks the dungeon door). The player
+  stops itself at 18420. Turned off in time, or with the main power off,
+  nothing breaks; turned on again, it starts over.
+- A record put on the Victrola while one is on is refused with its line,
+  as its script does; before (since 0274) it was used up, and taking the
+  record off gave only it back, so record 32 could be lost for good (from
+  the review).
+- What such a script does after its waits is recorded by the export with
+  its ticks and played on the new engine's clock (not while touring); it is
+  kept through saves and dropped when the deck or Victrola is turned off,
+  and leaves a carried thing alone (from the review: playing the tape again
+  once the key was taken drew it under the chandelier while carried).
+- Room 9's light pulled while the room is dark now turns it on. The
+  recorder and the decks turned on with the main power off do nothing.
+- Things file "SVOB" (the mansion's only: SVOA's records plus the answers
+  played with each kept value, the values each answer leaves, and its
+  later steps); catalog `kWorldKeptValues`, `kWorldValueReaders`.
+- Not done: the piano recording (Syd or Razor) and the demo tape; the
+  Green Tentacle hearing or being given a tape; a kid's line under the
+  falling chandelier; mailing the cassette; a verb passed on by an answer
+  of two things (the tape used on the stereo while it is on).
+- Tests: a new verbs self-test check (the chain end to end in both orders
+  with saves and loads between steps, the old record, a blank tape, turned
+  off in time, restart, power off, room 9's light both ways, an older
+  state); 19 of 19 mutations caught, and the
+  review's two; ASan/UBSan; test_panel (SVOB); every
+  other game's export byte for byte as before, two mansion exports
+  identical; the all, doors and keep/resume self-tests unchanged;
+  test_startup, test_world_setup and the full data suite. Not tested on an
+  iPhone.
