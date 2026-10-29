@@ -7678,3 +7678,40 @@ did nothing for answers that make a thing untouchable.
   rides, follow, talk, walk, moves and camera self-tests, test_panel,
   test_stage and test_world (ASan/UBSan), test_startup and the full data
   suite (with 0269). No exported file changes. Not tested on an iPhone.
+
+## Patch 0269 — a thing held from the inventory used on a thing or given to someone: Sam & Max, The Dig, Full Throttle and The Curse of Monkey Island (their export version 29)
+
+From the fifth round: the games without a verb panel answered a thing from
+their inventory used on another by the plain rules.
+- How each game makes that sentence (read with its own scripts): Sam &
+  Max's box, its use or pick-up pointer, then a tap; The Dig's grid, a tap
+  on the thing, then a tap; Full Throttle's skull, Curse of Monkey Island's
+  chest, the same. A new table names each game's held-thing variable and
+  verb. The export plays every carriable thing on every touchable thing and
+  person in their exported places through the game's own sentence, the
+  place restored before each, and files the answers as 0256 and 0260 do
+  (each target's usual answer once; for Full Throttle and Curse of Monkey
+  Island, whose held things mostly answer the same whatever they are used
+  on, each held thing's own usual answer too).
+- Sam & Max 499 answers (78 its own), The Dig 512 (236 own), Full Throttle
+  18, The Curse of Monkey Island 659 (488 own; carriable things with no
+  picture of their own in the scene are left out, as the new engine cannot
+  carry them).
+- The new engine: a tap on a thing in the box holds it, drawn as the
+  pointer, and the box shuts; the next tap on a thing or a person makes the
+  sentence and the recorded answer is given; a right click, a tap on the
+  floor, opening the box or another place lets it go. A press held while a
+  thing is held opens no coin.
+- Every other game's exported files are byte for byte as before; one-thing
+  answers are unchanged in these four.
+- Not done: things filed under ones the Curse of Monkey Island keeps
+  untouchable at its start (50 answers, reachable only once another answer
+  makes them touchable).
+- Tests: test_panel, test_world, test_stage (ASan/UBSan; new: the held
+  pointer), the verbs self-test (new: every two-thing record replayed
+  through each game's own controls, named when taken, drawn as the
+  pointer, answered as recorded; letting go each way; Sam & Max 498 of
+  499, The Dig 512 of 512, Full Throttle 18 of 18, COMI 609 of 659; 11
+  mutations caught), all other self-tests, a fresh export (two identical),
+  test_startup, test_world_setup and the full data suite. Not tested on an
+  iPhone.

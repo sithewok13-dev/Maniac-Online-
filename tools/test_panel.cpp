@@ -1317,6 +1317,20 @@ int main() {
 		// (The oldest games' way: picture 0, against the place without it, 1.)
 		assert(PanelBridge::addItem(scene.data(), scene.size(), 50, "key", 0, 1) && PanelBridge::itemCount() == 1);
 		PanelBridge::removeItem(0);
+		// (From 0269 one held as the pointer: held still as one before it
+		// goes, let go as it goes, as all go, past those carried none.)
+		for (int k = 0; k < 3; ++k) assert(PanelBridge::addItem(scene.data(), scene.size(), 50, "mug"));
+		PanelBridge::holdItem(3);
+		assert(PanelBridge::heldItem() == -1);
+		PanelBridge::holdItem(2);
+		assert(PanelBridge::heldItem() == 2);
+		PanelBridge::removeItem(0);
+		assert(PanelBridge::heldItem() == 1 && PanelBridge::itemCount() == 2);
+		PanelBridge::removeItem(1);
+		assert(PanelBridge::heldItem() == -1);
+		PanelBridge::holdItem(0);
+		PanelBridge::clearItems();
+		assert(PanelBridge::heldItem() == -1 && PanelBridge::itemCount() == 0);
 		// The rules through the bridge.
 		int picture; char say[64];
 		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, -1, "door", picture, say, sizeof(say)) == kShow && picture == 1);
@@ -1436,6 +1450,38 @@ int main() {
 		std::fill(screen.begin(), screen.end(), 7);
 		p.renderControls(screen.data(), 64, 64, 40, 20, 20, false);
 		assert(screen[18 * 64 + 20] == 7 && screen[33 * 64 + 1] == rgb(90));
+		// From 0269 a thing held: its picture the pointer (the rat, 2x2 at
+		// twice the size, centred on 20,20: 18,18 to 21,21), the button as
+		// before; none past the things carried; let go, the verb's again.
+		p.hold(0);
+		assert(p.held() == 0);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		assert(screen[18 * 64 + 18] == 0xFF00FF00u && screen[21 * 64 + 21] == 0xFF00FF00u && screen[17 * 64 + 18] == 7 && screen[18 * 64 + 22] == 7 && screen[22 * 64 + 21] == 7);
+		assert(screen[33 * 64 + 1] == rgb(90));
+		Rect held = p.controlsBounds(64, 40, 20, 20, true);
+		assert(held.contains(18, 18) && held.contains(21, 21) && held.contains(1, 33));
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, false);
+		assert(screen[18 * 64 + 18] == 7 && screen[33 * 64 + 1] == rgb(90));
+		p.hold(1);
+		assert(p.held() == -1);
+		p.hold(0); p.setItems(std::vector<Item>());
+		assert(p.held() == -1);
+		p.setItems(items); p.hold(-1);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		assert(screen[18 * 64 + 20] == rgb(61) && screen[21 * 64 + 21] != 0xFF00FF00u);
+		// (One larger than a slot (6x4): fitted to it, 6x3 at twice the size.)
+		std::vector<Item> big(1);
+		big[0].name = "pole"; big[0].width = 12; big[0].height = 6; big[0].picture.assign(72, 0xFF0000FFu);
+		p.setItems(big); p.hold(0);
+		std::fill(screen.begin(), screen.end(), 7);
+		p.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		int blue = 0;
+		for (uint32_t c : screen) blue += c == 0xFF0000FFu;
+		assert(blue == 12 * 6 && screen[17 * 64 + 14] == 0xFF0000FFu && screen[22 * 64 + 25] == 0xFF0000FFu && screen[16 * 64 + 14] == 7);
+		p.setItems(items); p.hold(-1);
 		// Under the scene: no button, nothing drawn, never open.
 		Panel::Panel under2;
 		assert(under2.load(under.data(), under.size(), error) && !under2.over());
@@ -1799,6 +1845,7 @@ int main() {
 				p.layout(W, H, p.over() ? 3 : H - p.rowsAt(scale), scale, scale / 1.2);
 				for (int state = 0; state < 4; ++state) {
 					p.select(state - 1);
+					p.hold(state == 3 ? 4 : -1); // (from 0269 a thing held as the pointer)
 					p.open(state & 1);
 					if (p.coin()) { if (state) p.openCoin(state * W / 3, state * H / 3, "AAAAAAAAAAAA"); else p.shutCoin(); p.lightCoin(state - 1); }
 					drew += inside(p.renderBounds(H), W, H, [&](uint32_t *s) { p.render(s, W, H); });

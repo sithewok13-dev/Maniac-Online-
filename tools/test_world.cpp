@@ -364,7 +364,25 @@ static void testCatalog() {
 		for (const char *c = site.label; *c; ++c) assert((*c >= 'A' && *c <= 'Z') || *c == ' ');
 	}
 	assert(kWorldVanRequest > worldPlaceRequest(worldGameCount() - 1, 1023) && kWorldVanRequest + kWorldVanSiteCount < kWorldAppearanceRequest);
-	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air, Dig tram, van sites\n", scenes, guests);
+	// From 0269, the games whose box's things are held as the pointer: each
+	// once, one of the games without a verb panel (Sam & Max, The Dig, Full
+	// Throttle, The Curse of Monkey Island), one of its own verbs its
+	// sentence's, held by some pointer verb of the catalog's kinds, its
+	// players given to first a range.
+	int heldGames = 0;
+	for (const auto &h : kWorldHeldThings) {
+		assert(h.game >= 0 && h.game < worldGameCount() && worldHeldThing(h.game) == &h && h.held >= 0 && h.firstFrom <= h.firstTo && h.firstFrom >= 0);
+		assert(h.holds && !(h.holds & ~((2 << kWorldVerbNote) - 2)));
+		const char *id = kWorldGames[h.game].gameid;
+		assert(sameId(id, "samnmax") || sameId(id, "dig") || sameId(id, "ft") || sameId(id, "comi"));
+		bool own = false;
+		for (const auto &v : kWorldVerbs) own = own || (v.game == h.game && v.verb == h.verb);
+		for (const auto &v : kWorldOwnVerbs) own = own || (v.game == h.game && v.verb == h.verb);
+		assert(own || sameId(id, "ft") || sameId(id, "comi"));
+		++heldGames;
+	}
+	assert(heldGames == 4 && !worldHeldThing(10) && !worldHeldThing(5) && !worldHeldThing(-1));
+	std::printf("PASS: %d named places, %d characters; place keys, cast slots, legacy places, costume variants, floating, presets, air, Dig tram, van sites, things held\n", scenes, guests);
 }
 
 // Door maps: doors join visitable rooms; every visitable room is reached
@@ -650,7 +668,15 @@ int main() {
 	assert(parseScene(v4.data(), v4.size(), full, error) && full.boxNext.empty() && full.cycles.empty() && full.objects[0].pictures.empty());
 	assert(parseScene(v5.data(), v5.size(), full, error));
 	SandboxScene fitted5; assert(fitScene(full, 32, 16, 240, fitted5, error, 320) && fitted5.objects.size() == 2 && fitted5.objects[0].state == 0);
-	std::printf("PASS: SVW5 box connections, colour cycles, object names and pictures (parse, truncation, older files, sandbox)\n");
+	// (From 0269 whether an object has pictures to be carried by, as the
+	// things export asks of a game whose things are held: the door, not the
+	// other, not one it lacks, nothing from a cut or older file.)
+	const int pictured = full.objects[0].id, other = full.objects[1].id;
+	assert(pictured != other && Scummverse::WorldBridge::objectPictured(v5.data(), v5.size(), pictured));
+	assert(!Scummverse::WorldBridge::objectPictured(v5.data(), v5.size(), other) && !Scummverse::WorldBridge::objectPictured(v5.data(), v5.size(), 999));
+	assert(!Scummverse::WorldBridge::objectPictured(v5.data(), v5.size() - 1, pictured) && !Scummverse::WorldBridge::objectPictured(v4.data(), v4.size(), pictured));
+	assert(!Scummverse::WorldBridge::objectPictured(nullptr, 0, pictured));
+	std::printf("PASS: SVW5 box connections, colour cycles, object names and pictures (parse, truncation, older files, sandbox, things with pictures)\n");
 	// A picture of the scene in another state (a parked car): a 12x8 block of
 	// color 120 at (60,20). Fitted at 2/3 scale into the scene's own colors
 	// (120 is not one of them: it snaps to the nearest), only where it differs.

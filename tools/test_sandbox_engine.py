@@ -1032,7 +1032,7 @@ if __name__ == '__main__':
         snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] in (b'SVO9', b'SVOA')  # (from 0267 "SVOA": SVO9 and more)
         # (Its export from 0258, version 27, writes "SVO9": one exported so
         # that is not, is not whole.)
-        if (worlds/'samnmax-v27.svx').exists() and snm.exists() and not snmNinth:
+        if any((worlds/f'samnmax-v{v}.svx').exists() for v in (27, 28, 29)) and snm.exists() and not snmNinth:
             raise SystemExit('FAIL: Sam & Max\'s things file not "SVO9" though exported as version 27 (export Sam & Max again: tools/export_worlds.py)')
         if snm.exists() and snm.stat().st_size and (not own or int(own.group(2)) < 1000 or int(own.group(1)) + int(own.group(4)) != int(own.group(2))
                                                     or int(own.group(7)) < 20 or own.group(10) != '1'):
@@ -1189,6 +1189,32 @@ if __name__ == '__main__':
                 print(f"PASS: {two.group(1)} of {two.group(2)} answers of {title}'s two things as its own sentences give them (Use with what it is used on, Give to someone: "
                       f"{two.group(7)} usual answers, {two.group(8)} given to someone, {two.group(9)} using up, {two.group(10)} with both carried; not tried: {two.group(4)} with a thing carried that has no picture to carry, "
                       f"{two.group(5)} away there, {two.group(6)} with nobody there)" + (f"; {more.group(1)} given where the cast puts them, {more.group(2)} setting another past its second picture" if more else ""))
+        # (From 0269) the two things of the games whose box's things are held
+        # as the pointer (Sam & Max's box, The Dig's grid, Full Throttle's
+        # skull, The Curse of Monkey Island's chest): each record of a thing
+        # held used on a thing here or given to someone, through its own
+        # controls as a player makes it (held from its box, the pointer its
+        # picture, then a tap on what it is used on, walked to), where its
+        # export is 0269's or later; the thing held let go by a right click,
+        # the floor, the box and another place. (Full Throttle's few: its
+        # things held answer alike whatever they are used on, each its usual
+        # answer once; none given to someone says anything.)
+        for title, gameid, since, least, given in (('Sam & Max Hit the Road', 'samnmax', 29, 400, True), ('The Dig', 'dig', 29, 400, True), ('Full Throttle', 'ft', 29, 10, False),
+                                                   ('The Curse of Monkey Island', 'comi', 29, 400, True)):
+            exported = [int(m.group(1)) for m in (re.fullmatch(re.escape(gameid) + r'-v(\d+)\.svx', f.name) for f in worlds.glob(f'{gameid}-v*.svx')) if m]
+            held = re.search(re.escape(f"selftest {title} two things: ") + r"(\d+) of (\d+) records of two things through its own controls as its own sentences answer \((\d+) not tried: "
+                             r"(\d+) with one carried that has no picture to carry, (\d+) away there, (\d+) where no tap finds it, (\d+) nobody there; (\d+) a usual answer, (\d+) given to someone, "
+                             r"(\d+) using up, (\d+) of several lines, (\d+) lines by someone else, (\d+) giving one, (\d+) of them with no picture to carry\); (\d+) held drawn as the pointer, "
+                             r"(\d+) let go by a right click, the floor, the box and another place", output)
+            if exported and max(exported) >= since and (worlds/f'{gameid}-things.svo').exists() and (
+                    not held or int(held.group(2)) < least or int(held.group(1)) + int(held.group(3)) != int(held.group(2)) or 10 * int(held.group(1)) < 9 * int(held.group(2))
+                    or held.group(8) == '0' or (given and held.group(9) == '0') or int(held.group(15)) != int(held.group(1)) + int(held.group(6)) or held.group(16) != '1'):
+                raise SystemExit(f'FAIL: {title}\'s two things through its own controls (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if held and int(held.group(2)):
+                print(f"PASS: {held.group(1)} of {held.group(2)} answers of {title}'s two things through its own controls as its own sentences give them (a thing from its box held as "
+                      f"the pointer, drawn as it, then a tap on a thing or someone: {held.group(8)} usual answers, {held.group(9)} given to someone, {held.group(10)} using up, {held.group(11)} "
+                      f"of several lines; not tried: {held.group(5)} away there, {held.group(6)} where no tap finds it, {held.group(7)} with nobody there); let go by a right click, the floor, "
+                      "the box and another place")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)
