@@ -8088,3 +8088,41 @@ Zak's room 25 stairs (until the lever) and place 186's door (the plate).
   difference with today's data); the other self-tests unchanged;
   test_startup and the full data suite. No exported file changes. Not
   tested on an iPhone.
+
+## Patch 0281 — things an answer reveals answered in every game; a thing given no longer drawn where it lay (zak, samnmax, dig, ft, comi export version 30, tentacle 31, monkey 32, monkey2 33)
+
+- A thing its game starts untouchable that an answer shows had no answers
+  of its own in Zak, Sam & Max, The Dig, Full Throttle, Day of the Tentacle
+  and both Monkey Islands, nor the five things The Curse of Monkey Island
+  shows by answers of two; the new engine's plain rules took them instead
+  (Monkey Island's room 41, 378; Monkey Island 2's room 12, 106; the
+  Curse's room 69, 1164). The export now plays them in every game, from the
+  picture the answer leaves them in, as for Fate of Atlantis (0261, 0276).
+  Samples checked against the original's scripts with descumm, nothing
+  copied.
+- Talking to the Curse's 1164 filled its engine's queue of texts to draw
+  and stopped the export; the export now lets those texts go each frame, as
+  the game's own frame does. Normal play is unchanged.
+- A thing an answer gave stayed drawn where it lay while carried, wherever
+  the answer set no picture for it: answers of two (Monkey Island 2's map
+  piece, room 48) and some answers of one (Fate of Atlantis's tube, room
+  73). Answers of two now record the picture their game leaves the thing
+  in, as answers of one do; where none is recorded, the new engine shows
+  the thing's place as its own pick-up leaves it. Answers that already set
+  the picture were right (126 of 126).
+- More records: Monkey Island 98 of one thing; Monkey Island 2 78 of one,
+  754 of two; Day of the Tentacle 146 of one; Zak 120; Sam & Max 8; The
+  Dig 4 of one, 43 of two; Full Throttle 20; the Curse 15. Revealed things
+  still with no answers are doors, nameless, or answered by nothing in
+  their games. Every scene, character and panel file, and every file of
+  the other four games, is byte for byte as before.
+- Not done: the mansion's room 6, 172 (revealed from room 29); The Dig's
+  pole (room 68, 466) is no longer used on where it lies, since it can now
+  be carried; Monkey Island 2's 868 can't be carried here; Sam & Max's sky
+  car's records depend on the order of the runs.
+- Tests: a new verbs self-test check plays each revealing answer as a
+  player would, then each answer of the revealed thing (523 of 523) and
+  each answer that gives a thing (154 played, 0 failed); 5 mutations
+  caught; ASan/UBSan clean for these changes; the all and doors self-tests
+  unchanged; two exports identical; test_startup, test_world_setup and the
+  full data suite. Not tested on an iPhone.

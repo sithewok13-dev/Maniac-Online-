@@ -798,6 +798,29 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: a thing given back that an answer uses up\n' + output[-2000:])
         print(f'PASS: {gb.group(1)} of {gb.group(2)} answers giving back a thing an answer of two uses up, played in turn: given back, used up again, '
               f'never a second one where it lay; kept through a save and a load')
+        # (From 0281) A thing its game starts untouchable that an answer makes
+        # touchable (one thing, or a thing carried used on one): the answer
+        # played as a player plays it, then each answer of the thing from the
+        # picture it is left in, as recorded; those its export plays from 0281
+        # (Monkey Island's room 41, 378; Monkey Island 2's room 12, 106; The
+        # Curse of Monkey Island's room 69, 1164; ...) with answers wherever
+        # their game's export is of this version. And a thing an answer
+        # gives: carried, its place as its game leaves it (the answer's own
+        # picture for it, else as its own pick up leaves it), not drawn where
+        # it lay (Monkey Island 2's map piece, room 48; Fate of Atlantis's
+        # tube, room 73).
+        rv = re.search(r'selftest revealed: (\d+) things .*?\((\d+) with answers .*?, (\d+) with none.*?then (\d+) of (\d+) of their answers as recorded '
+                       r'\((\d+) not playable here, (\d+) inside another shut\); (\d+) of (\d+) its exports play from 0281 so; (\d+) failed', output)
+        ga = re.search(r'selftest given away: (\d+) answers .*?\((\d+) setting its picture.*?played so: (\d+) carried.*?; (\d+) not playable.*?; (\d+) failed', output)
+        if not rv or rv.group(10) != '0' or rv.group(4) != rv.group(5) or rv.group(8) != rv.group(9) or \
+                ((worlds/'monkey-v32.svx').exists() and (worlds/'monkey-41.svw').exists() and int(rv.group(8)) == 0):
+            raise SystemExit('FAIL: things an answer reveals\n' + output[-2000:])
+        if not ga or ga.group(5) != '0' or int(ga.group(3)) + int(ga.group(4)) != int(ga.group(1)) or \
+                ((worlds/'monkey2-48.svw').exists() and (worlds/'monkey2-v33.svx').exists() and int(ga.group(3)) == 0):
+            raise SystemExit('FAIL: things an answer gives, drawn where they lay\n' + output[-2000:])
+        print(f'PASS: {rv.group(1)} things their games start untouchable made touchable by an answer, the answer played: {rv.group(4)} of {rv.group(5)} of their '
+              f'answers as recorded ({rv.group(3)} with none of their own); {rv.group(8)} of {rv.group(9)} its exports play from 0281 so; '
+              f'{ga.group(3)} of {ga.group(1)} answers giving a thing: carried, its place as its game leaves it ({ga.group(4)} not playable here)')
         # (From 0202) The mansion's: a verb chosen on the way to a door, the walk goes on through it.
         w = re.search(r'(\d+) doors gone through with a verb chosen on the way', output)
         if (worlds/'maniac-ui.svi').exists() and (not w or w.group(1) != '1'):
