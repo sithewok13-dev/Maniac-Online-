@@ -41,6 +41,9 @@ story play answers them for the player (scummverseStoryPassGuard), so they
 are in the default list. Sam & Max is held to the page a press alone gets
 wrong (--dolls-page) and to a doll (--dolls-doll), is never clicked by the
 probe there, and must leave with no wrong answer.
+Run with a debug level, for its log: from 0275 every game starts with its
+own debug mode off all the same (each start says so), as on a phone, which
+has none (a debug level is the log's, not the game's; its scripts read it).
 Game data and saves stay in a temporary folder under build/.
 
 Usage: tools/test_story_engine.py game-data/mm-dos monkey=game-data/monkey1-vga ...
@@ -143,7 +146,9 @@ PROBE = r'''
 					const int slot = ConfMan.hasKey("save_slot") ? ConfMan.getInt("save_slot") : -1;
 					// (None of the mansion's additions in any story.)
 					const int additions = _scummverseRoaming + _scummverseExplorationDoors + _scummverseExplorationSafety + _scummverseAuditedManiac;
-					warning("SCUMMVERSE_STORY_START %s v%d additions=%d room=%d ego=%d from=%d slot=%d", _targetName.c_str(), _game.version, additions, _currentRoom, ego, _scummverseStoryFrom, slot);
+					// (From 0275: the game's own debug mode, as its scripts read it.)
+					const int debugMode = _debugMode || (VAR_DEBUGMODE != 0xFF && VAR(VAR_DEBUGMODE));
+					warning("SCUMMVERSE_STORY_START %s v%d additions=%d room=%d ego=%d debug=%d from=%d slot=%d", _targetName.c_str(), _game.version, additions, _currentRoom, ego, debugMode, _scummverseStoryFrom, slot);
 					if (probePass >= 1) {
 						int differ = 0, firstDiff = -1;
 						const Common::Array<int32> &kept = g_probeVars[_targetName];
@@ -593,6 +598,8 @@ def main():
             if not begun[0].endswith('slot=-1'):
                 fail.append(f'{k}: first start not fresh ({begun[0]})')
             fail += [f'{k}: started with the mansion\'s additions ({b})' for b in begun if ' additions=0 ' not in b]
+            # (From 0275: run with a debug level, its own debug mode off, as on a phone.)
+            fail += [f'{k}: started in its own debug mode ({b})' for b in begun if ' debug=0 ' not in b]
             for b in begun[1:]:
                 if not b.endswith('slot=99'):
                     fail.append(f'{k}: not started from its story save ({b})')

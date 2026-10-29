@@ -7893,3 +7893,31 @@ scripts (read with descumm, nothing copied).
   before, two mansion exports identical; the other self-tests unchanged;
   test_startup, test_world_setup, test_panel, test_world and the full data
   suite. Not tested on an iPhone.
+
+## Patch 0275 — a debug level only logs; the games' own debug mode stays off, as on a phone
+
+ScummVM turns a debug level (`-d`) into the original game's own debug mode,
+which its scripts read. Our tests start the app with a debug level for its
+log, so Story-mode tests were not playing every game as a phone does
+(found with 0273).
+- What changed with it (read with descumm, nothing copied): Monkey Island
+  left out a script at boot that draws a random number each frame, so it
+  played differently from the first frame, and answered some things
+  otherwise (room 14 object 176, room 19 object 261); Day of the Tentacle,
+  Full Throttle and The Curse of Monkey Island took keys as debug keys and
+  dropped their usual ones. Monkey Island 2's checks need more than a
+  debug level; Fate of Atlantis, Sam & Max and The Dig don't read it;
+  Loom, the Last Crusade, Zak and the mansion have no such variable.
+- Now the game's debug mode stays off whatever the debug level, unless
+  `scummverse_game_debug_mode=true` asks for it (as stock); a boot param
+  still turns it on. A phone, which has no debug level, is unchanged.
+- test_story_engine.py shows each start's debug mode and fails any start
+  with it on; test_story_differential.py checks that neither our build nor
+  stock 2.9.1 is given a debug level.
+- Tests: test_story_engine.py (every game, every start with debug mode
+  off; the old engine fails it on Monkey Island); our build given a debug
+  level now matches stock 2.9.1 frame by frame for Monkey Island, Monkey
+  Island 2, Day of the Tentacle and The Curse of Monkey Island (with the
+  opt-in it differs again, as stock); every export byte for byte as
+  before; test_startup, test_world_setup and the full data suite. Not
+  tested on an iPhone.

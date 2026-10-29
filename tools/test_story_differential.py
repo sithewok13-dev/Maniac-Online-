@@ -267,6 +267,10 @@ def run(exe, stock, game, path, maniac, out, a, autosave, window=(-1, -1), start
         config.write_text(f'[scummvm]\n{keys}scummverse_mode=story\nscummverse_story_choices={game}\n'
                           'scummverse_roaming=false\nscummverse_wanderers=false\n')
         cmd, cwd = [str(exe), f'--config={config}', f'--path={maniac}', f'--savepath={saves}'], docs
+    # (Neither build is given a debug level, as a phone has none: stock
+    # ScummVM would make it the game's own debug mode, which its scripts
+    # read; ours, from 0275, keeps that off whatever the level.)
+    assert not any(c.startswith(('-d', '--debuglevel')) for c in cmd), cmd
     started = time.time()
     result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=a.timeout)
     (out/'output.log').write_text(result.stdout + result.stderr)

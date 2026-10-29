@@ -495,7 +495,10 @@ codes sit above the sandbox's games (a static_assert keeps them apart), so
 the sandbox ignores them. iOS: `scummverseStoryPlaying()` (the catalog index
 of the story playing, -1 none) switches the Worlds button to the story's
 menu (Go to <game> for each folder found, Back to Maniac Mansion).
-`tools/test_story_engine.py` walks it through the real engine.
+`tools/test_story_engine.py` walks it through the real engine. A debug
+level is the log's, never the game's own debug mode, which its scripts read
+(from 0275; `scummverse_game_debug_mode=true` gives it back, as stock), so
+the tests, which log with one, play each game as a phone does.
 
 Maniac Mansion's own story (0184) is `scummverse-story-maniac`: the folder
 the mansion itself plays from (main.cpp's `maniacPath`, refreshed at each
