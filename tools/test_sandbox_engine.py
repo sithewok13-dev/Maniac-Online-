@@ -1037,8 +1037,13 @@ if __name__ == '__main__':
         # (From 0255) What another's answer shows that the game keeps
         # untouchable all the same is no thing then: Full Throttle's room 131,
         # 573.
+        # (From 0261) Fate of Atlantis's and the Last Crusade's so too, each of
+        # their panels' verbs on a thing alone (not giving, using one their
+        # games want a second thing for, the Last Crusade's talking or what
+        # is), their answers whole.
         for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2), ('Day of the Tentacle', 'tentacle', 3000, 40),
-                                                 ('The Secret of Monkey Island', 'monkey', 6000, 40), ('Monkey Island 2', 'monkey2', 5000, 40)):
+                                                 ('The Secret of Monkey Island', 'monkey', 6000, 40), ('Monkey Island 2', 'monkey2', 5000, 40),
+                                                 ('Indiana Jones and the Fate of Atlantis', 'atlantis', 3000, 40), ('Indiana Jones and the Last Crusade', 'indy3', 3500, 30)):
             own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                             r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
                             r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through; (\d+) of (\d+) things it keeps untouchable all the same shown so, not things; "
@@ -1054,7 +1059,7 @@ if __name__ == '__main__':
             answers = worlds/f'{gameid}-things.svo'
             answerBytes = answers.read_bytes() if answers.exists() else b''
             ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] == b'SVO9'
-            ninthVersion = 28 if gameid == 'monkey2' else 27
+            ninthVersion = {'monkey2': 28, 'indy3': 26}.get(gameid, 27)
             if (worlds/f'{gameid}-v{ninthVersion}.svx').exists() and answers.exists() and not ninth:
                 raise SystemExit(f'FAIL: {title}\'s things file not "SVO9" though exported as version {ninthVersion} (export {title} again: tools/export_worlds.py)')
             if answers.exists() and answers.stat().st_size and (not own or int(own.group(2)) < most or int(own.group(1)) + int(own.group(4)) + int(own.group(19)) != int(own.group(2))
@@ -1073,13 +1078,16 @@ if __name__ == '__main__':
         # used with what it is used on (here, or carried too) and of one given
         # to someone here, as a player has it (most tried: not one whose first
         # has no picture to carry, one away there or someone not there), where
-        # its export is 0260's or later (its marker's version from then).
-        for title, gameid, since in (('Day of the Tentacle', 'tentacle', 28), ('The Secret of Monkey Island', 'monkey', 29), ('Monkey Island 2', 'monkey2', 30)):
+        # its export is 0260's or later (its marker's version from then). (From
+        # 0261) Fate of Atlantis's and the Last Crusade's too (the Last
+        # Crusade's fewer: fewer firsts its verb script asks "with" for).
+        for title, gameid, since, least in (('Day of the Tentacle', 'tentacle', 28, 1000), ('The Secret of Monkey Island', 'monkey', 29, 1000), ('Monkey Island 2', 'monkey2', 30, 1000),
+                                            ('Indiana Jones and the Fate of Atlantis', 'atlantis', 27, 1000), ('Indiana Jones and the Last Crusade', 'indy3', 26, 400)):
             exported = [int(m.group(1)) for m in (re.fullmatch(re.escape(gameid) + r'-v(\d+)\.svx', f.name) for f in worlds.glob(f'{gameid}-v*.svx')) if m]
             two = re.search(re.escape(f"selftest {title} two things: ") + r"(\d+) of (\d+) records of two things as its own sentences answer \((\d+) not tried: (\d+) with one carried that has no picture to carry, "
                             r"(\d+) away there, (\d+) nobody there; (\d+) a usual answer, (\d+) given to someone, (\d+) using up, (\d+) with both carried, (\d+) giving one with no picture to carry\)", output)
             if exported and max(exported) >= since and (worlds/f'{gameid}-things.svo').exists() and (
-                    not two or int(two.group(2)) < 1000 or int(two.group(1)) + int(two.group(3)) != int(two.group(2)) or 4 * int(two.group(1)) < 3 * int(two.group(2))
+                    not two or int(two.group(2)) < least or int(two.group(1)) + int(two.group(3)) != int(two.group(2)) or 4 * int(two.group(1)) < 3 * int(two.group(2))
                     or two.group(7) == '0' or two.group(8) == '0'):
                 raise SystemExit(f'FAIL: {title}\'s two things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
             if two and int(two.group(2)):

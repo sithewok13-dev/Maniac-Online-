@@ -7336,3 +7336,40 @@ and Monkey Island's "with" classes.
   places fails 38), the all, doors and tour self-tests, a fresh export
   (two identical), test_startup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0261 — Fate of Atlantis's and the Last Crusade's things answer as the original in the new engine (atlantis export version 27, indy3 26)
+
+From the fourth round, on 0251-0260's machinery.
+- The export plays each panel verb on every touchable thing in both
+  games' exported places, with Indy at the thing, through the game's own
+  sentence script and SVO9's whole answers (every line and who says it),
+  filed in the place played (0259). Not played: Give, Use on the things
+  their verb scripts ask "with" for (classes 1 to 3, found by tracing each
+  game's verb script), the Last Crusade's Talk (it names the one talked to
+  second) and What is.
+- Things the games start untouchable that an answer shows and makes
+  touchable are played too, from the picture the answer leaves them in
+  (Atlantis room 4 object 70 and room 73 object 1007; the Last Crusade's
+  room 29 object 448); the new engine makes them touchable when shown,
+  except those the games keep untouchable (a probe of each shown thing's
+  class: 5 in Atlantis, 7 in the Last Crusade).
+- Two things (0260's pass, switched on by their Give rows): Use of a
+  carried thing with another and Give to someone.
+- Fate of Atlantis: 3484 one-thing answers for 231 things (3376 with a
+  line, 33 with several, 58 lines by someone else, 105 changing a picture,
+  65 taking the thing), 2233 two-thing answers (most its use-with default,
+  which the game picks at random from several). The Last Crusade: 4251
+  one-thing answers for 247 things (4122 with a line, 155 with several, 153
+  changing a picture, 224 taking), 558 two-thing answers.
+- Every other game's exported files are byte for byte as before.
+- Not expressed yet: the Last Crusade's talk-to, a thing made touchable
+  with no picture change (Atlantis room 1 object 22), things inside a shut
+  thing (recorded with it shut), rooms with their own input scripts
+  (recorded as the sentence script answers).
+- Tests: the verbs self-test (new: Atlantis 3400 of 3484 one-thing records
+  replayed, the rest away; the Last Crusade 3490 of 4251, 761 inside
+  things shut at the start; kept untouchable 10 of 10 and 28 of 28; made
+  touchable 16 of 16 and 6 of 6; two-thing 1751 of 2233 and 547 of 558,
+  the rest not tried), the doors, all and tour self-tests, test_startup,
+  test_panel (ASan/UBSan), a fresh export (two identical) and the full data
+  suite. Not tested on an iPhone.

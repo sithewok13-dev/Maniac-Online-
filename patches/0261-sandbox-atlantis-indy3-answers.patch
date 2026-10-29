@@ -1,0 +1,267 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 56822a3e..93ac3d44 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -76,12 +76,15 @@ static const int kWorldExportVersion = 25;
+ // used in; the Monkey Islands' Use on a thing that asks "with" not answered
+ // alone: "zak-v28", "monkey-v28", "monkey2-v29"); from 0260 Day of the
+ // Tentacle's and both Monkey Islands' again (Use with a thing that can be
+-// carried, and Give to someone: "tentacle-v28", "monkey-v29", "monkey2-v30").
++// carried, and Give to someone: "tentacle-v28", "monkey-v29", "monkey2-v30");
++// from 0261 Fate of Atlantis's and Indiana Jones and the Last Crusade's
++// (what their panels' verbs on their things answer, whole, Use with a thing
++// that can be carried and Give to someone too: "atlantis-v27", "indy3-v26").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 13 : same(gameid, "monkey2") ? 5 : same(gameid, "monkey") ? 4 : same(gameid, "zak") || same(gameid, "tentacle") ? 3 :
+-		same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") ? 2 :
+-		same(gameid, "comi") || same(gameid, "loom") || same(gameid, "atlantis") ? 1 : 0);
++		same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "atlantis") ? 2 :
++		same(gameid, "comi") || same(gameid, "loom") || same(gameid, "indy3") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1159,9 +1162,15 @@ struct WorldWantsSecond { short game, kind, first, last; };
+ // classes then): Use asks "with" for any (1 to 7); giving, "to whom". From
+ // 0259 Monkey Island's and Monkey Island 2's Use: their verb scripts (4)
+ // ask "use ... with" for a thing of class 1 to 4 (their script 8 picks the
+-// preposition from them), as Day of the Tentacle's.
++// preposition from them), as Day of the Tentacle's. From 0261 Fate of
++// Atlantis's: its verb script (4) asks "use ... with" for a thing of class 1
++// to 3 (its script 9 picks the preposition), giving "to whom"; Indiana Jones
++// and the Last Crusade's likewise (its verb script 4, its script 11), and its
++// talking asks "to whom" (the one talked to is its sentence's second, one of
++// class 13: none runs on a thing alone).
+ static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}, {0, kWorldVerbGive, 0, 0}, {1, kWorldVerbGive, 0, 0},
+-	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}, {0, kWorldVerbUse, 1, 4}, {1, kWorldVerbUse, 1, 4}};
++	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}, {0, kWorldVerbUse, 1, 4}, {1, kWorldVerbUse, 1, 4},
++	{4, kWorldVerbUse, 1, 3}, {4, kWorldVerbGive, 0, 0}, {3, kWorldVerbUse, 1, 3}, {3, kWorldVerbGive, 0, 0}, {3, kWorldVerbTalk, 0, 0}};
+ // Someone given to, in a things file's answers (from 0260, Day of the
+ // Tentacle's and both Monkey Islands' Give: its export plays each thing that
+ // can be carried given to each of the game's people (kWorldCast) in a place
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 6f410f50..664a52e9 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -3074,14 +3074,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			ninth = ninth || e.from > 1 || e.after > 1 || e.lines.size() > 1 || (e.lines.size() == 1 && e.lines[0].speaker);
+ 			for (uint k = 0; k + 2 < e.others.size(); k += 3) ninth = ninth || (e.others[k + 2] > 1 && e.others[k + 2] != kGiven);
+ 		}
+-	} else if ((((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE || !strcmp(kWorldGames[gameIndex].gameid, "monkey") || !strcmp(kWorldGames[gameIndex].gameid, "monkey2")) &&
+-		VAR_SENTENCE_SCRIPT != 0xFF) || (_game.id == GID_ZAK && _game.version <= 2)) && VAR_EGO != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
++	} else if ((((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE || !strcmp(kWorldGames[gameIndex].gameid, "monkey") || !strcmp(kWorldGames[gameIndex].gameid, "monkey2") ||
++		_game.id == GID_INDY4 || _game.id == GID_INDY3) && VAR_SENTENCE_SCRIPT != 0xFF) || (_game.id == GID_ZAK && _game.version <= 2)) && VAR_EGO != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+ 		// (From 0251, The Dig's and Full Throttle's, "SVO7" with effects as
+ 		// Sam & Max's: what their own verbs answer, see
+ 		// scummverseExportOwnAnswers; from 0253 Day of the Tentacle's, its
+ 		// verb panel's; from 0254 Monkey Island's and Monkey Island 2's,
+ 		// theirs; from 0256 Zak's, with its two things; from 0258 "SVO9" where
+-		// they need it.)
++		// they need it; from 0261 Fate of Atlantis's and Indiana Jones and the
++		// Last Crusade's, their panels'.)
+ 		Common::Array<int> placeRooms;
+ 		Common::Array<Common::Array<int> > placeThings;
+ 		for (const Room &r : found) { placeRooms.push_back(r.room); placeThings.push_back(r.things); }
+@@ -3285,7 +3286,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ // things: Use with a thing that can be carried (below). From 0260 Day of
+ // the Tentacle's and both Monkey Islands' two things likewise (their Give
+ // waits for whom: kWorldWantsSecond), and each thing that can be carried
+-// given to each of their people in a place (kWorldPersonThing).
++// given to each of their people in a place (kWorldPersonThing). From 0261
++// Fate of Atlantis's and Indiana Jones and the Last Crusade's likewise,
++// their panels' verbs but walking, giving, using one of their "with" things
++// (kWorldWantsSecond: as their verb scripts hold those for a second thing,
++// then played with each thing that can be carried, as above), the Last
++// Crusade's talking (to whom: the one talked to second) and What is; and the
++// things their games start untouchable that an answer shows and makes
++// touchable (its class cleared), each from the picture it leaves them in, as
++// then (see run).
+ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<int> &rooms, const Common::Array<Common::Array<int> > &things, Common::Array<ScummverseAnswer> &answers) {
+ 	// (The one played: its start's, else the one of that place, from 0253.)
+ 	const int startEgo = VAR(VAR_EGO);
+@@ -3499,6 +3508,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if ((int)e.lines.size() >= Scummverse::PanelBridge::kMostLines) { ++cut; return; }
+ 		e.lines.push_back(l);
+ 	};
++	// (From 0261, Fate of Atlantis's and the Last Crusade's: a thing its game
++	// starts untouchable there that an answer shows and makes touchable (its
++	// class cleared after the run: what is under a pile picked up, inside a
++	// thing opened), played on from that picture, touchable then.)
++	const bool revealedToo = _game.id == GID_INDY4 || _game.id == GID_INDY3;
++	Common::HashMap<uint32, bool> revealed;
+ 	struct From { int room, obj, picture; };
+ 	Common::Array<From> todo;
+ 	Common::HashMap<Common::String, bool> tried, ran;
+@@ -3530,6 +3545,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if (!ranListed.contains(room << 16 | obj)) { ranListed[room << 16 | obj] = true; ranList.push_back(room); ranList.push_back(obj); }
+ 		if (wantsSecond(kinds[v], obj)) { ++seconds; _scummverseStepBudget = -1; return; }
+ 		++runs;
++		if (revealed.contains((uint32)room << 16 | (uint16)obj)) putClass(obj, kObjectClassUntouchable, false);
+ 		showAs(obj, from);
+ 		// (Where its game walks them to it: its picture's own point.)
+ 		int x = 0, y = 0, dir = 0;
+@@ -3609,6 +3625,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			listed[other] = true;
+ 			if (pictureOf(other) > 1) ++past;
+ 			e.others.push_back(placeIn(other, room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
++			if (revealedToo && !getClass(other, kObjectClassUntouchable)) revealed[(uint32)placeIn(other, room) << 16 | (uint16)other] = true;
+ 		}
+ 		for (int o = 1; o < (int)owned.size() && !gone && e.others.size() < 3 * 64; ++o)
+ 			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+@@ -3626,7 +3643,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				const uint32 filed = (uint32)e.others[k] << 16 | (uint16)other;
+ 				const uint entry = entryIn.contains(filed) ? entryIn[filed] : entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
+ 				const uint place = entry >> 16, index = entry & 0xFFFF;
+-				if (place < rooms.size() && place < things.size() && !worldLinkFrom(gameIndex, rooms[place], other) && !(things[place][index + 2] & Scummverse::PanelBridge::kThingAway))
++				if (place < rooms.size() && place < things.size() && !worldLinkFrom(gameIndex, rooms[place], other) &&
++					(!(things[place][index + 2] & Scummverse::PanelBridge::kThingAway) || revealed.contains((uint32)rooms[place] << 16 | (uint16)other)))
+ 					wanted(rooms[place], other, e.others[k + 2]);
+ 			}
+ 	};
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 3e821eee..64d01b67 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -111,18 +111,22 @@ static int screenWidthOf(int game) { return squarePixels(game) ? 640 : 320; }
+ // Dig's (its tap) and Full Throttle's (its coin's verbs) from 0251, Day of
+ // the Tentacle's (its verb panel's) from 0253, Monkey Island's and Monkey
+ // Island 2's (their panels') from 0254, Zak's (its panel's; Use with a thing
+-// carried: pairOwn) from 0256.
++// carried: pairOwn) from 0256, Fate of Atlantis's and Indiana Jones and the
++// Last Crusade's (their panels') from 0261.
+ static bool ownSentences(int game) {
+ 	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "samnmax") || sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft") ||
+-		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2") || sameId(kWorldGames[game].gameid, "zak"));
++		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2") || sameId(kWorldGames[game].gameid, "zak") ||
++		sameId(kWorldGames[game].gameid, "atlantis") || sameId(kWorldGames[game].gameid, "indy3"));
+ }
+ // A game whose two things answer as its own sentences do (its things file's
+ // effects of two, pairOwn): the mansion's from 0171, Zak's from 0256; from
+ // 0260 Day of the Tentacle's and both Monkey Islands' (Use with what it is
+-// used on, and Give to someone: pairPerson).
++// used on, and Give to someone: pairPerson); from 0261 Fate of Atlantis's
++// and Indiana Jones and the Last Crusade's.
+ static bool pairsAnswered(int game) {
+ 	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "maniac") || sameId(kWorldGames[game].gameid, "zak") ||
+-		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2"));
++		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2") ||
++		sameId(kWorldGames[game].gameid, "atlantis") || sameId(kWorldGames[game].gameid, "indy3"));
+ }
+ static bool walkable(int game, int room) {
+ 	const int kind = worldRoomKind(game, room);
+@@ -676,8 +680,16 @@ static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85,
+ // for those games, which takes the others so shown as made touchable;
+ // probed in the original: every other an answer of theirs shows, its class
+ // after): Full Throttle's room 131, 573 (the hand on 571 shows it moved aside).
++// From 0261 Fate of Atlantis's and the Last Crusade's likewise (the rule is
++// theirs too; probed so in their exports, every other their answers show):
++// an opened door's or a moved thing's picture. Fate of Atlantis's rooms 1
++// (28), 5 (81), 10 (146), 19 (208) and 65 (870); the Last Crusade's rooms 25
++// (364), 53 (680), 54 (682, 692), 58 (723) and its catacombs' 142 and 147
++// (356).
+ struct KeptUntouchable { const char *gameid; short room, object; };
+-static const KeptUntouchable kKeptUntouchable[] = {{"ft", 131, 573}};
++static const KeptUntouchable kKeptUntouchable[] = {{"ft", 131, 573},
++	{"atlantis", 1, 28}, {"atlantis", 5, 81}, {"atlantis", 10, 146}, {"atlantis", 19, 208}, {"atlantis", 65, 870},
++	{"indy3", 25, 364}, {"indy3", 53, 680}, {"indy3", 54, 682}, {"indy3", 54, 692}, {"indy3", 58, 723}, {"indy3", 142, 356}, {"indy3", 147, 356}};
+ static bool keptUntouchable(int game, int room, int id) {
+ 	for (const KeptUntouchable &k : kKeptUntouchable)
+ 		if (game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, k.gameid) && k.room == room && k.object == id) return true;
+@@ -1245,9 +1257,12 @@ bool SandboxEngine::isThing(int object) const {
+ 	// 0251, in The Dig and Full Throttle, any another's answer has shown in
+ 	// another picture since, as their scripts make what they so show
+ 	// touchable: The Dig's way down under its hatch, the hatch opened; from
+-	// 0255 not one their scripts keep untouchable all the same.)
++	// 0255 not one their scripts keep untouchable all the same; from 0261 so
++	// in Fate of Atlantis and the Last Crusade: what is under a pile picked
++	// up, inside a thing opened, behind one pushed.)
+ 	if (!PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway)) return true;
+-	if (sameId(kWorldGames[_game].gameid, "dig") || sameId(kWorldGames[_game].gameid, "ft")) return pictureOf(_room, id) != picture && !keptUntouchable(_game, _room, id);
++	if (sameId(kWorldGames[_game].gameid, "dig") || sameId(kWorldGames[_game].gameid, "ft") || sameId(kWorldGames[_game].gameid, "atlantis") || sameId(kWorldGames[_game].gameid, "indy3"))
++		return pictureOf(_room, id) != picture && !keptUntouchable(_game, _room, id);
+ 	if (strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+ 	for (const ManiacShownLater &l : kManiacShownLater)
+ 		if (l.room == _room && l.object == id) return pictureOf(_room, id) != picture && (!l.inside || pictureOf(_room, l.inside) == l.insidePicture);
+@@ -8268,18 +8283,25 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// Throttle's room 131, 573.)
+ 	// (From 0260 Day of the Tentacle's and both Monkey Islands' two things
+ 	// too, below: `all` its records of one thing, `count` every record.)
++	// (From 0261, in Fate of Atlantis and the Last Crusade, one another's
++	// answer shows that its game starts untouchable and does not keep so: a
++	// thing then (under the pile picked up, behind what is pushed); its own
++	// records answered from the picture so shown.)
+ 	struct OwnRecords {
+ 		int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0, keptAll = 0, kept = 0, several = 0, bySomeone = 0, past = 0, unshown = 0;
+ 		int count = 0, pairs = 0, pairsSeen = 0, pairsAway = 0, pairsUsual = 0, pairsPeople = 0, pairsUsedUp = 0, pairsBoth = 0, pairsUnpictured = 0, pairsNobody = 0, pairsThingAway = 0, pairsNoPicture = 0;
++		int madeAll = 0, made = 0, later = 0;
+ 		int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things;
+ 	};
+ 	// (From 0253 Day of the Tentacle's likewise, its verb panel's verbs; one
+ 	// taken with its verb chosen on the panel and a tap on it, seen among its
+-	// panel's things. From 0254 Monkey Island's and Monkey Island 2's so too.)
+-	OwnRecords ownDig, ownFt, ownDott, ownMonkey, ownMonkey2;
++	// panel's things. From 0254 Monkey Island's and Monkey Island 2's so too,
++	// from 0261 Fate of Atlantis's and the Last Crusade's.)
++	OwnRecords ownDig, ownFt, ownDott, ownMonkey, ownMonkey2, ownAtlantis, ownIndy3;
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+ 		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : sameId(kWorldGames[g].gameid, "tentacle") ? &ownDott :
+-			sameId(kWorldGames[g].gameid, "monkey") ? &ownMonkey : sameId(kWorldGames[g].gameid, "monkey2") ? &ownMonkey2 : nullptr;
++			sameId(kWorldGames[g].gameid, "monkey") ? &ownMonkey : sameId(kWorldGames[g].gameid, "monkey2") ? &ownMonkey2 :
++			sameId(kWorldGames[g].gameid, "atlantis") ? &ownAtlantis : sameId(kWorldGames[g].gameid, "indy3") ? &ownIndy3 : nullptr;
+ 		if (!c) continue;
+ 		loadThings(g);
+ 		c->game = g; c->count = PanelBridge::effectCount(g);
+@@ -8354,6 +8376,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (isThing(thingIn(other))) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, a thing then; its game keeps it untouchable", kWorldGames[g].gameid, other, r, picture); }
+ 				else ++c->kept;
+ 			}
++			for (int i = 0; i < count && !controls && (sameId(kWorldGames[g].gameid, "atlantis") || sameId(kWorldGames[g].gameid, "indy3")); ++i) {
++				const int r = others[4 * i], other = others[4 * i + 1], picture = others[4 * i + 2];
++				int found, answers;
++				if (r != room || others[4 * i + 3] || keptUntouchable(g, r, other) || thingIn(other) < 0 || !PanelBridge::gameThing(g, r, other, found, answers) ||
++					!(answers & PanelBridge::kThingAway) || found == picture) continue;
++				++c->madeAll;
++				if (isThing(thingIn(other))) ++c->made;
++				else { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, not a thing then; its game makes it touchable", kWorldGames[g].gameid, other, r, picture); }
++			}
+ 			if (!same) warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d: said %d letters by %d, shown %d%s (its record: %d lines, %d%s)", kWorldGames[g].gameid, id, room, kind, from, (int)(_speech.size() + _notice.size()), _speaker, pictureNow(o, id), isCarried(g, room, id) ? ", carried" : "", lines, after, took ? ", taken" : "");
+ 			if (same && !controls && noPicture) ++c->refused;
+ 			else if (same && !controls) {
+@@ -8372,7 +8403,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || !installed(g, room)) continue;
+ 			if ((_game != g || _room != room) && !enter(g, room, 0, problem)) { fail("a place not shown", g); continue; }
+ 			const int o = thingIn(id);
+-			if (o < 0 || !isThing(o)) { ++c->away; continue; }
++			// (From 0261 one Fate of Atlantis or the Last Crusade starts
++			// untouchable, answered once another's answer shows it: in the
++			// picture it is answered from first, a thing then (else away).)
++			int found = -1, answers = 0;
++			const bool shownLater = o >= 0 && (sameId(kWorldGames[g].gameid, "atlantis") || sameId(kWorldGames[g].gameid, "indy3")) && !isThing(o) &&
++				PanelBridge::gameThing(g, room, id, found, answers) && (answers & PanelBridge::kThingAway) && found != from;
++			if (shownLater) setPicture(room, id, from);
++			if (o < 0 || !isThing(o)) { if (shownLater) { setPicture(room, id, found); _pictures.erase(thingKey(g, room, id)); } ++c->away; continue; }
++			c->later += shownLater;
+ 			// (A picture its place has not: not tried.)
+ 			int after, flags, others[4], count, lines;
+ 			PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 1, lines);
+@@ -8530,6 +8569,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			"whole: %d of several lines said in turn, %d lines by someone else, %d from or to a picture past the second (%d in a picture their places have not)",
+ 			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden, c->kept, c->keptAll,
+ 			c->several, c->bySomeone, c->past, c->unshown);
++		if (c->madeAll) warning("SCUMMVERSE sandbox selftest %s: %d of %d things it starts untouchable made touchable by another's answer, things then; %d records of theirs answered so", title, c->made, c->madeAll, c->later);
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -8611,7 +8651,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 		(ownFt.all && (ownFt.seen + ownFt.away + ownFt.unshown != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1 || ownFt.kept != ownFt.keptAll)) ||
+ 		(ownDott.all && (ownDott.seen + ownDott.away + ownDott.unshown != ownDott.all || !ownDott.seen || !ownDott.taken || ownDott.controls != 1)) ||
+ 		(ownMonkey.all && (ownMonkey.seen + ownMonkey.away + ownMonkey.unshown != ownMonkey.all || !ownMonkey.seen || !ownMonkey.taken || ownMonkey.controls != 1)) ||
+-		(ownMonkey2.all && (ownMonkey2.seen + ownMonkey2.away + ownMonkey2.unshown != ownMonkey2.all || !ownMonkey2.seen || !ownMonkey2.taken || ownMonkey2.controls != 1)))
++		(ownMonkey2.all && (ownMonkey2.seen + ownMonkey2.away + ownMonkey2.unshown != ownMonkey2.all || !ownMonkey2.seen || !ownMonkey2.taken || ownMonkey2.controls != 1)) ||
++		(ownAtlantis.all && (ownAtlantis.seen + ownAtlantis.away + ownAtlantis.unshown != ownAtlantis.all || !ownAtlantis.seen || !ownAtlantis.taken || ownAtlantis.controls != 1 ||
++			ownAtlantis.kept != ownAtlantis.keptAll || !ownAtlantis.madeAll || ownAtlantis.made != ownAtlantis.madeAll || !ownAtlantis.later)) ||
++		(ownIndy3.all && (ownIndy3.seen + ownIndy3.away + ownIndy3.unshown != ownIndy3.all || !ownIndy3.seen || !ownIndy3.taken || ownIndy3.controls != 1 ||
++			ownIndy3.kept != ownIndy3.keptAll || !ownIndy3.madeAll || ownIndy3.made != ownIndy3.madeAll || !ownIndy3.later)))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
