@@ -1079,6 +1079,53 @@ if __name__ == '__main__':
             print(f"PASS: {given.group(1)} of {given.group(2)} answers of one mansion thing giving another, each carried ({given.group(3)} in a picture never touchable); the cassette back out of "
                   f"{given.group(4)} decks, not lost; the record off the Victrola the one put on ({given.group(5)} of 2); the package's stamps pulled off; the radio's batteries opened "
                   f"carried; {given.group(8)} of {given.group(9)} verbs a thing does not answer of its pair nothing changed ({given.group(10)} away); the lab's switch turned on: nothing")
+        # (From 0277) A verb Zak's or a later game's thing does not answer, as
+        # a player chooses it: from a picture its export played it from (a
+        # record of another verb from there), each verb with no record from
+        # there whose plain rules would change it (its game said nothing and
+        # changed nothing then, or took the one played elsewhere): nothing
+        # changed, a line said; where they change nothing, their own line. From
+        # the picture its place shows it in or one an answer leaves it in, one
+        # never played there (Zak's room 2; Fate of Atlantis's room 17, 183 to
+        # 185 past their second picture): the plain rules, but a verb of a pair
+        # its script has no entry for while it answers the other in a game
+        # whose own sentence changes nothing so (as 0274's mansion; its records
+        # counted again: none changing it), nothing changed; not Day of the
+        # Tentacle's, whose own sentence opens, closes and pulls so (recorded),
+        # by the plain rules. Full Throttle's door in room 56, answered with
+        # nothing at all, kicked: nothing.
+        unanswered = {m.group(1): [int(x) for x in m.groups()[1:]] for m in re.finditer(
+            r"selftest unanswered (.+?): (\d+) of (\d+) verbs a thing has no answer to from a picture it was played from \((\d+) away\) as its game, nothing changed, a line said; "
+            r"(\d+) of (\d+) of them whose plain rules change nothing, their line; from the picture its place shows it in or an answer leaves it in, never played there: (\d+) of (\d+) by the plain rules "
+            r"\((\d+) a verb of a pair its script has no entry for\), (\d+) of (\d+) a verb of a pair its script has no entry for, nothing changed; (\d+) of (\d+) records of a verb "
+            r"of a pair its script has no entry for changing it", output)}
+        nothing = re.search(r"selftest unanswered: (\d+) of (\d+) things answered with nothing at all kicked from their pictures 0 and 1, nothing changed", output)
+        # (Each game: its title; at least so many verbs it has no answer to from
+        # a picture played (with this export); whether its own sentence changes
+        # nothing for a verb of a pair its script has no entry for; at least so
+        # many such never played from where its place shows them, so many by
+        # the plain rules never played there, and so many whose plain rules
+        # change nothing.)
+        later = (('zak', 'Zak McKracken', 16, True, 2, 1, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 1, 1),
+                 ('indy3', 'Indiana Jones and the Last Crusade', 30, True, 3, 1, 1), ('atlantis', 'Indiana Jones and the Fate of Atlantis', 3, True, 0, 1, 1),
+                 ('tentacle', 'Day of the Tentacle', 5, False, 0, 1, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 1, 1),
+                 ('dig', 'The Dig', 0, False, 0, 0, 0), ('comi', 'The Curse of Monkey Island', 0, False, 0, 0, 1), ('loom', 'Loom', 0, False, 0, 0, 0))
+        for gameid, title, least, quiet, least_quiet, least_plain, least_lines in later:
+            answers = worlds/f'{gameid}-things.svo'
+            if not answers.exists() or not answers.stat().st_size:
+                continue
+            u = unanswered.get(title)
+            if not u or u[0] + u[2] != u[1] or u[3] != u[4] or u[5] != u[6] or u[8] != u[9] or u[1] < least or u[9] < least_quiet or u[6] < least_plain or u[4] < least_lines or \
+                    (quiet and u[10]) or (not quiet and u[9]) or (gameid == 'tentacle' and (not u[10] or not u[7])):
+                raise SystemExit(f'FAIL: {title}: a verb its thing does not answer, as its game (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if u[1] or u[4] or u[6] or u[9]:
+                print(f"PASS: {title}: {u[0]} of {u[1]} verbs a thing has no answer to from a picture it was played from nothing changed, a line said ({u[2]} away); {u[3]} whose plain "
+                      f"rules change nothing their line; never played from where its place or an answer shows it: {u[5]} by the plain rules ({u[7]} a verb of a pair it has no entry "
+                      f"for), {u[8]} a verb of a pair it has no entry for nothing changed; {u[10]} of {u[11]} records of such a verb changing it")
+        if (worlds/'ft-56.svw').exists() and (worlds/'ft-things.svo').exists() and (not nothing or nothing.group(1) != '2' or nothing.group(2) != '2'):
+            raise SystemExit('FAIL: Full Throttle\'s door in room 56, answered with nothing at all, changed when kicked\n' + output[-2000:])
+        if nothing and int(nothing.group(2)):
+            print(f"PASS: Full Throttle's door in room 56, answered with nothing at all: kicked from its pictures 0 and 1 ({nothing.group(1)} of {nothing.group(2)}), nothing changed")
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its

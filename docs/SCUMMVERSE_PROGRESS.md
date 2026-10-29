@@ -7958,3 +7958,36 @@ touch); the loop works. Two other bugs were found on the way.
   every other game's files byte for byte as before; test_panel, test_stage,
   test_world, test_startup, test_world_setup with Atlantis and the full
   data suite. Not tested on an iPhone.
+
+## Patch 0277 — a verb a Zak or later-game thing doesn't answer changes nothing in the new engine
+
+Zak's and the later games' things files keep every answer of their own
+sentences that says a line or changes something, and none that says and
+changes nothing or takes the player to another place. For those verbs the
+new engine used its plain rules, and so changed things the originals never
+change (read with descumm, nothing copied): 114 choices in Zak and seven
+later games, 74 where the original says nothing and 40 where it goes
+elsewhere. For example, Zak's shut drawers (room 1, objects 92 and 94)
+opened by Push; Monkey Island's 70/747 and 748 opened and turned on; Sam &
+Max's things in rooms 7, 35, 37, 48 and 61 taken by Pick up.
+- Now, where a thing has an answer of another verb from the picture it is
+  in and none for the verb used, and the plain rules would change it,
+  nothing changes and the plain refusal is said (where the original says
+  nothing at all). Full Throttle's 56/305, which its game answers with
+  nothing at all, is listed by name.
+- 0274's rule (a verb of a pair a thing's script doesn't answer changes
+  nothing) now also holds in Zak, both Monkey Islands, the Last Crusade and
+  Fate of Atlantis: none of their recorded answers to such a verb changed
+  anything. It doesn't hold in Day of the Tentacle, whose own script opens,
+  closes and pulls such things (15/107, 23/164, 41/421).
+- Things never played from a picture keep the plain rules. The Dig, The
+  Curse of Monkey Island and Loom needed nothing.
+- Not done: the 40 choices that take the player to another place in the
+  original now change nothing here; going there would need the export to
+  record it.
+- Tests: a new verbs self-test check per game (each case changes nothing
+  and says a line; the plain rules kept where they change nothing and
+  where the thing was never played; each game's records against the rule's
+  list), 10 mutations caught, ASan/UBSan; the all and doors self-tests
+  unchanged; test_startup and the full data suite. No exported file
+  changes. Not tested on an iPhone.
