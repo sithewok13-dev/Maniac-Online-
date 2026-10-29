@@ -7921,3 +7921,40 @@ log, so Story-mode tests were not playing every game as a phone does
   opt-in it differs again, as stock); every export byte for byte as
   before; test_startup, test_world_setup and the full data suite. Not
   tested on an iPhone.
+
+## Patch 0276 — things used up stay gone, and Fate of Atlantis's ladder comes back as itself (atlantis export version 30)
+
+Checking 0272's note on room 48: picking up the stairway already gives the
+ladder back (the tool that listed the record showed only things with a
+touch); the loop works. Two other bugs were found on the way.
+- In every game, a thing an answer used up could be picked up again where
+  it had lain: putting the ladder on room 48's stairway, then Pick up where
+  it was, gave a second, invisible ladder, the first staying on the
+  stairway. In the originals, picking a thing up makes it untouchable
+  there and using it up doesn't undo that. The new engine now does the
+  same; it is kept in the state (SVS8, unchanged), and an answer that makes
+  it touchable or gives it back still does. Things so: Atlantis 11, The
+  Curse of Monkey Island 6, The Dig 6, the Last Crusade 1, Monkey Island 6,
+  Monkey Island 2 7, Sam & Max 4, Day of the Tentacle 12, Zak 8 (the
+  mansion's plain rules already refused them).
+- Fate of Atlantis's room 18: the ladder put in the hole (object 200) had
+  no answers, so picking it up gave a ladder that worked nowhere. The
+  export now also plays the things an answer of two reveals, from the
+  picture it leaves them in (Atlantis and the Last Crusade; 106 more
+  Atlantis records), so picking it up gives the ladder back, as the
+  original does. No other game's export changes.
+- Correction to 0272's notes: room 48's metal door does open again; the
+  stairway picked up gives the ladder back.
+- Not done: The Curse of Monkey Island's things revealed by answers of two
+  (playing one overfills its engine's queue of texts and stops the
+  export); things revealed by any answer in Monkey Island, Monkey Island 2
+  and Day of the Tentacle; answers that both change a given thing's
+  picture and give it. Found, not fixed: the panel export reads one byte
+  past a verb name's end on Atlantis's panel (an older bug, its own patch).
+- Tests: the verbs self-test's new check plays every loop where a thing is
+  given back and used up again (8 of 10, 2 not loops, 0 failed; room 48's
+  door open, shut, open; a save and load after every step; with the fix
+  undone all 8 fail); all sandbox modes; two Atlantis exports identical,
+  every other game's files byte for byte as before; test_panel, test_stage,
+  test_world, test_startup, test_world_setup with Atlantis and the full
+  data suite. Not tested on an iPhone.

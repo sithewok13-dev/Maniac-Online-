@@ -768,6 +768,18 @@ if __name__ == '__main__':
         if not tv or tv.group(3) != '0' or ((worlds/'zak-25.svw').exists() and tv.group(2) == '0'):
             raise SystemExit('FAIL: a verb on a door an answer made untouchable\n' + output[-2000:])
         print(f'PASS: {tv.group(2)} taps with a verb chosen on doors answers made untouchable: the verb not used on them, not gone through, as their games leave them')
+        # (From 0276) A thing given back that an answer of two there uses up
+        # (Fate of Atlantis's ladder: on room 48's broken stairway, in room
+        # 18's hole): taken, used up (no thing where it lay: not taken
+        # twice), given back, used up again, each kept through a save and a
+        # load. Room 18's once its things file has the hole's ladder's
+        # answers (atlantis-v30).
+        gb = re.search(r'selftest given back: (\d+) of (\d+) answers .*?; (\d+) not tried .*?, (\d+) no loop .*?; (\d+) failed', output)
+        if not gb or gb.group(5) != '0' or int(gb.group(1)) + int(gb.group(3)) + int(gb.group(4)) != int(gb.group(2)) or ((worlds/'atlantis-48.svw').exists() and gb.group(1) == '0') or \
+                ((worlds/'atlantis-v30.svx').exists() and int(gb.group(1)) < 3):
+            raise SystemExit('FAIL: a thing given back that an answer uses up\n' + output[-2000:])
+        print(f'PASS: {gb.group(1)} of {gb.group(2)} answers giving back a thing an answer of two uses up, played in turn: given back, used up again, '
+              f'never a second one where it lay; kept through a save and a load')
         # (From 0202) The mansion's: a verb chosen on the way to a door, the walk goes on through it.
         w = re.search(r'(\d+) doors gone through with a verb chosen on the way', output)
         if (worlds/'maniac-ui.svi').exists() and (not w or w.group(1) != '1'):
