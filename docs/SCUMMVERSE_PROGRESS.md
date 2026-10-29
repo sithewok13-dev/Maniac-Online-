@@ -7102,3 +7102,39 @@ From the fourth round (the new engine's other games), on 0251's machinery.
   panel; leaving the game out fails 3446 records), the all, doors and tour
   self-tests, test_panel (ASan/UBSan), test_world, test_startup, a fresh
   export (two identical), the full data suite. Not tested on an iPhone.
+
+## Patch 0254 — Monkey Island 1 and 2: things answer as the original in the new engine (monkey export version 26, monkey2 27)
+
+From the fourth round, on 0251's and 0253's machinery.
+- The export plays every panel verb but Walk and Give on every touchable,
+  named thing in both games' exported places, with Guybrush at the thing
+  and the game's own sentence script answering, and records the answer as
+  0251 does; the new engine plays them from the panel. A taken thing's
+  place shows the picture without it, as the game does.
+- Monkey Island 1: 80 places, 6888 answers for 352 things (6656 with a
+  line, 153 changing a picture, 56 taken, 75 given, 437 setting others).
+  Monkey Island 2: 71 places, 5703 answers for 364 things (5575 with a
+  line, 102 changing a picture, 86 taken, 59 given, 211 setting others).
+- Export fixes: verb slots put back after each run (a talk stopped half
+  way left its verbs; room 17 then ran out of slots), and a disk-swap box
+  in Monkey Island 1's jungle passed over while exporting. For these two
+  games the line kept is the one played's first, else the first anyone
+  says (54 records in room 75 and a few in rooms 14 and 59 had kept a
+  sound effect's or a bystander's text instead).
+- Every other game's exported files are as before; both games' scenes,
+  characters and panels are unchanged (only their things files, now with
+  answers, and their markers).
+- Not expressed yet: who speaks (a shopkeeper's line is shown as the one
+  played's), lines after the first, dialogue choices, Give and using a
+  carried thing with another, pictures past the second, the story's
+  progress. A few things an answer shows stay untouchable (most such
+  things stay untouchable in the games too, so 0251's "shown means
+  touchable" rule is not used for them). Only these two editions were
+  exported.
+- Tests: the verbs self-test (new: Monkey Island 1 6768 of 6888 records
+  replayed, the rest inside closed containers; Monkey Island 2 all 5703;
+  one thing taken through the panel each), the all, doors and tour
+  self-tests, test_panel (ASan/UBSan; new: a Monkey-shaped record),
+  test_startup (its version helper reads monkey2's own branch), a fresh
+  export (two identical), the full data suite (with 0252 and 0253). Not
+  tested on an iPhone.

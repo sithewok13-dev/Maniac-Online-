@@ -1023,12 +1023,46 @@ int main() {
 			assert(!PanelBridge::thingEffect(8, 23, 154, kAct, 1, after, others, count, 2, said, sizeof(said), &taken));
 			PanelBridge::clearThings();
 		}
+		// (From 0254, Monkey Island's, the same "SVO7": the answers by its
+		// panel's verbs' kinds (turned on, opened, pulled, picked up; none for
+		// giving or walking), one taken from its picture 0 leaving it in 1 (its
+		// game's picture of the place without it), the same line from both
+		// pictures, one saying nothing but setting another. Each found by its
+		// kind and picture only.)
+		{
+			std::vector<uint8_t> mi = {'S', 'V', 'O', '7'};
+			put16(mi, 1); put16(mi, 29); put16(mi, 2);
+			put16(mi, 391); mi.push_back(0); put16(mi, 0);
+			put16(mi, 392); mi.push_back(0); put16(mi, 0);
+			put16(mi, 5);
+			put16(mi, 29); put16(mi, 391); put(mi, {kPickUp, 0}); put16(mi, 0); put(mi, {1 | 2, 0, 4, 'M', 'i', 'n', 'e'});
+			put16(mi, 29); put16(mi, 391); put(mi, {kTurnOn, 0}); put16(mi, 0); put(mi, {0, 0, 2, 'N', 'o'});
+			put16(mi, 29); put16(mi, 391); put(mi, {kTurnOn, 1}); put16(mi, 0); put(mi, {1, 0, 2, 'N', 'o'});
+			put16(mi, 29); put16(mi, 392); put(mi, {kOpen, 0}); put16(mi, 0); put(mi, {0, 0, 4, 'S', 't', 'u', 'b'});
+			put16(mi, 29); put16(mi, 392); put(mi, {kPull, 0}); put16(mi, 0); put(mi, {1, 1}); put16(mi, 29); put16(mi, 391); mi.push_back(1); mi.push_back(0);
+			put16(mi, 0); // (no parents)
+			put16(mi, 0); put16(mi, 0); mi.push_back(0); put16(mi, 0); // (no main power)
+			mi.push_back(0); // (no close-ups)
+			assert(parseThings(mi.data(), mi.size(), things, error) && things.effects.size() == 5);
+			const ThingEffect *chicken = things.effect(29, 391, kPickUp, 0), *on0 = things.effect(29, 391, kTurnOn, 0), *on1 = things.effect(29, 391, kTurnOn, 1);
+			const ThingEffect *opened = things.effect(29, 392, kOpen, 0), *pulled = things.effect(29, 392, kPull, 0);
+			assert(chicken && chicken->taken && chicken->after == 1 && chicken->line == "Mine" && !things.effect(29, 391, kPickUp, 1) && !things.effect(29, 391, kGive, 0));
+			assert(on0 && on1 && on0->line == "No" && on1->line == "No" && on0->after == 0 && on1->after == 1 && !things.effect(29, 391, kTurnOff, 0));
+			assert(opened && opened->line == "Stub" && !opened->taken && pulled && pulled->line.empty() && pulled->after == 1 && pulled->others.size() == 1 && pulled->others[0].id == 391);
+			for (size_t cut = 1; cut < mi.size() - 4; ++cut) assert(!parseThings(mi.data(), mi.size() - cut, things, error));
+			bool taken = false;
+			assert(PanelBridge::loadThings(0, mi.data(), mi.size(), problem, sizeof(problem)) && PanelBridge::effectCount(0) == 5);
+			assert(PanelBridge::thingEffect(0, 29, 391, kPickUp, 0, after, others, count, 2, said, sizeof(said), &taken) && taken && after == 1 && !count && std::string(said) == "Mine");
+			assert(PanelBridge::thingEffect(0, 29, 392, kPull, 0, after, others, count, 2, said, sizeof(said), &taken) && !taken && after == 1 && count == 1 && others[0] == 29 && others[1] == 391 && others[2] == 1 && !*said);
+			assert(!PanelBridge::thingEffect(0, 29, 392, kPush, 0, after, others, count, 2, said, sizeof(said), &taken));
+			PanelBridge::clearThings();
+		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

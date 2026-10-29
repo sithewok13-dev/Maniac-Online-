@@ -250,11 +250,13 @@ def cycles_of(path):
 
 def things_of(path):
     """A things file: {room: {object: (picture, answers)}} ("SVO1"; from
-    export version 23 "SVO3" with no effects, then what each is inside)."""
+    export version 23 "SVO3" with no effects, then what each is inside;
+    from 0254 a game's own answers after the same table, "SVO7" and on,
+    read by test_panel: only the table here)."""
     data = path.read_bytes()
     if data[:2] == b'\x1f\x8b':
         data = gzip.decompress(data)
-    if data[:4] not in (b'SVO1', b'SVO3'):
+    if data[:3] != b'SVO' or data[3:4] not in b'13456789':
         raise SystemExit(f'FAIL: {path.name}: not a things file')
     rooms, p, found = struct.unpack_from('<H', data, 4)[0], 6, {}
     for _ in range(rooms):
@@ -265,6 +267,8 @@ def things_of(path):
             obj, picture, answers = struct.unpack_from('<HBH', data, p)
             found[room][obj] = (picture, answers)
             p += 5
+    if data[:4] not in (b'SVO1', b'SVO3'):
+        return found
     if data[:4] == b'SVO3':
         effects, parents = struct.unpack_from('<HH', data, p)
         if effects:
@@ -951,7 +955,11 @@ if __name__ == '__main__':
         # 0253) Day of the Tentacle's likewise, each of its verb panel's verbs
         # but giving, each answer as the kid of that place's time gives it;
         # one taken with its verb chosen on the panel, seen among its things.
-        for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2), ('Day of the Tentacle', 'tentacle', 3000, 40)):
+        # (From 0254) Monkey Island's and Monkey Island 2's so too, each of
+        # their panels' verbs but giving (Monkey Island 2's drinks at its bar,
+        # taken by its game with no picture of their own, refused).
+        for title, gameid, most, least_taken in (('The Dig', 'dig', 150, 10), ('Full Throttle', 'ft', 800, 2), ('Day of the Tentacle', 'tentacle', 3000, 40),
+                                                 ('The Secret of Monkey Island', 'monkey', 6000, 40), ('Monkey Island 2', 'monkey2', 5000, 40)):
             own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                             r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
                             r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through", output)

@@ -13,14 +13,18 @@ import unittest
 def export_version(gameid):
     """A game's export version, as worldExportVersion in
     common/scummverse_world_catalog.h gives it: the base, the mansion's own
-    lead, one more for each game it names after that (from 0251 Full
-    Throttle among them)."""
+    lead, a game's own lead named after it (from 0254 Monkey Island 2's),
+    one more for each game it names after that (from 0251 Full Throttle
+    among them)."""
     catalog = (Path(__file__).resolve().parent.parent / "engine/common/scummverse_world_catalog.h").read_text()
     base = int(re.search(r"kWorldExportVersion = (\d+);", catalog).group(1))
     body = re.search(r"inline int worldExportVersion\(const char \*gameid\) \{(.*?)\n\}", catalog, re.S).group(1)
     lead = re.search(r'same\(gameid, "maniac"\) \? (\d+) :(.*?)\? 1 : 0', body, re.S)
     if gameid == "maniac":
         return base + int(lead.group(1))
+    own = re.search(r'same\(gameid, "%s"\) \? (\d+) :' % re.escape(gameid), body)
+    if own:
+        return base + int(own.group(1))
     return base + (1 if f'same(gameid, "{gameid}")' in lead.group(2) else 0)
 
 BINARY = Path(sys.argv.pop(1) if len(sys.argv) > 1 else "build/null/scummvm").resolve()
