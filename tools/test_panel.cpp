@@ -3,7 +3,8 @@
 // under the scene and what a tap is on, drawing (a verb lit, the sentence
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
-// the plain rules for each verb, things carried from a scene, controls
+// the plain rules for each verb, things carried from a scene, what a
+// thing's own script answers (the things files, SVO1 to SVO9), controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
 // coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
@@ -990,7 +991,126 @@ int main() {
 			assert(PanelBridge::loadThings(6, snm.data(), snm.size(), problem, sizeof(problem)) && PanelBridge::effectCount(6) == 2);
 			assert(PanelBridge::thingEffect(6, 20, 205, kUse, 0, after, others, count, 2, said, sizeof(said), &taken) && taken && after == 1 && !count && std::string(said) == "Mine.");
 			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others, count, 2, said, sizeof(said), &taken) && !taken && count == 2 && others[5] == 2);
+			// (From 0258: read whole through the newer reader too: given, its
+			// one line by the one played.)
+			int afterOld = -1, flagsOld = -1, othersOld[4 * 2], countOld = -1, linesOld = -1;
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, afterOld, flagsOld, othersOld, countOld, 2, linesOld) && countOld == 2 && linesOld == 1 && !flagsOld);
+			assert(othersOld[2] == 1 && !othersOld[3] && !othersOld[6] && othersOld[7] == 1);
+			assert(PanelBridge::thingAnswer(6, 20, 205, kUse, 0, 0, afterOld, flagsOld, othersOld, countOld, 2, linesOld) && flagsOld == 1 && afterOld == 1 && linesOld == 1);
 			PanelBridge::clearThings();
+		// (From 0258, "SVO9": SVO8 with its answers whole. Sam & Max-shaped:
+		// one answer from its thing's picture 3 to 4, taken, saying said3
+		// lines (the one played's, Max's in his costume and colour, no one's
+		// in its colour); another setting an other to its picture 3, giving
+		// one from a place and one in no place (room 0), its line the one
+		// played's; no marks; the two given's own inventory pictures. Every
+		// version's lines and given filled; the bridge's older readers as
+		// before (given: picture 2, one past 1 left out). Cut short anywhere,
+		// or anything out of range: refused whole.)
+		{
+			auto text = [](std::vector<uint8_t> &v, const char *s) { v.push_back((uint8_t)std::strlen(s)); for (const char *c = s; *c; ++c) v.push_back((uint8_t)*c); };
+			struct Said { int speaker, costume, color; const char *line; };
+			struct Other { int room, id, picture, given; };
+			struct Icon { int id; const char *name; int width, height, mask; };
+			auto nine = [&](int flags, const std::vector<Said> &lines, const std::vector<Other> &others9, const std::vector<Icon> &icons, int iconCount = -1) {
+				std::vector<uint8_t> v = {'S', 'V', 'O', '9'};
+				put16(v, 1); put16(v, 20); put16(v, 2);
+				put16(v, 205); v.push_back(3); put16(v, 1 << kUse | 1 << kPickUp);
+				put16(v, 209); v.push_back(0); put16(v, 0);
+				put16(v, 2);
+				put16(v, 20); put16(v, 205); put(v, {kUse, 3}); put16(v, 0); put(v, {4, flags, 0});
+				v.push_back((uint8_t)lines.size());
+				for (const Said &s : lines) {
+					v.push_back((uint8_t)s.speaker);
+					if (s.speaker != 0 && s.speaker != 255) put16(v, s.costume);
+					if (s.speaker != 0) v.push_back((uint8_t)s.color);
+					text(v, s.line);
+				}
+				put16(v, 20); put16(v, 205); put(v, {kPickUp, 0}); put16(v, 0); put(v, {0, 0, (int)others9.size()});
+				for (const Other &o : others9) { put16(v, o.room); put16(v, o.id); put(v, {o.picture, o.given}); }
+				put(v, {1, 0}); text(v, "Here.");
+				put16(v, 0);                                      // (no parents)
+				put16(v, 0); put16(v, 0); v.push_back(0); put16(v, 0); // (no main power)
+				v.push_back(0);                                   // (no close-ups)
+				v.push_back(0); put16(v, 0);                      // (no marks, no answers by them)
+				put16(v, iconCount >= 0 ? iconCount : (int)icons.size());
+				for (const Icon &c : icons) {
+					put16(v, c.id); text(v, c.name); put16(v, c.width); put16(v, c.height);
+					for (int k = 0; k < c.width * c.height; ++k) v.push_back(k ? (uint8_t)c.mask : 1);
+					for (int k = 0; k < c.width * c.height; ++k) put(v, {10 * k, 20, 30});
+				}
+				return v;
+			};
+			const std::vector<Said> said3 = {{0, 0, 0, "Mine."}, {3, 3, 15, "Me too!"}, {255, 0, 2, "Beep."}};
+			const std::vector<Other> others9 = {{20, 209, 3, 0}, {22, 221, 0, 1}, {0, 547, 0, 1}};
+			const std::vector<Icon> icons = {{547, "Plum", 3, 2, 1}, {221, "Torch", 2, 1, 0}};
+			std::vector<uint8_t> whole = nine(1, said3, others9, icons);
+			assert(parseThings(whole.data(), whole.size(), things, error) && things.effects.size() == 2 && things.icons.size() == 2 && !things.powerId);
+			const ThingEffect *took9 = things.effect(20, 205, kUse, 3), *gave9 = things.effect(20, 205, kPickUp, 0);
+			assert(took9 && took9->taken && !took9->firstGone && took9->after == 4 && took9->line == "Mine." && took9->lines.size() == 3);
+			assert(took9->lines[0].speaker == kSpeakerPlayed && took9->lines[0].color == -1 && took9->lines[1].speaker == 3 && took9->lines[1].costume == 3 && took9->lines[1].color == 15 &&
+				took9->lines[1].text == "Me too!" && took9->lines[2].speaker == kSpeakerNone && !took9->lines[2].costume && took9->lines[2].color == 2 && took9->lines[2].text == "Beep.");
+			assert(gave9 && !gave9->taken && gave9->others.size() == 3 && gave9->others[0].picture == 3 && !gave9->others[0].given && gave9->others[1].given && gave9->others[1].room == 22 &&
+				gave9->others[2].given && !gave9->others[2].room && gave9->lines.size() == 1 && gave9->line == "Here.");
+			const ThingIcon *plum = things.icon(547), *torch = things.icon(221);
+			assert(things.icons[0].id == 221 && plum && torch && !things.icon(209) && plum->name == "Plum" && plum->width == 3 && plum->height == 2 && plum->picture.size() == 6);
+			assert(plum->picture[0] == 0xFF00141Eu && plum->picture[1] == (0xFF000000u | 10u << 16 | 20u << 8 | 30u) && torch->picture[0] >> 24 == 0xFF && !torch->picture[1]);
+			// (Through the bridge: whole, its lines one by one, the given carried by
+			// their icons; the older readers as before.)
+			assert(PanelBridge::loadThings(6, whole.data(), whole.size(), problem, sizeof(problem)) && PanelBridge::effectCount(6) == 2);
+			int after9 = -1, flags9 = -1, others4[4 * 4], count9 = -1, lines9 = -1, speaker = -1, costume = -1, color = 0;
+			char line9[16];
+			assert(PanelBridge::thingAnswer(6, 20, 205, kUse, 3, 0, after9, flags9, others4, count9, 4, lines9) && after9 == 4 && flags9 == 1 && !count9 && lines9 == 3);
+			assert(PanelBridge::answerLine(6, 20, 205, kUse, 3, 0, 1, speaker, costume, color, line9, sizeof(line9)) && speaker == 3 && costume == 3 && color == 15 && std::string(line9) == "Me too!");
+			assert(PanelBridge::answerLine(6, 20, 205, kUse, 3, 0, 2, speaker, costume, color, line9, sizeof(line9)) && speaker == PanelBridge::kSpeakerNone && color == 2);
+			assert(!PanelBridge::answerLine(6, 20, 205, kUse, 3, 0, 3, speaker, costume, color, line9, sizeof(line9)) && !PanelBridge::thingAnswer(6, 20, 205, kUse, 1, 0, after9, flags9, others4, count9, 4, lines9));
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 4, lines9) && count9 == 3 && lines9 == 1 && !flags9);
+			assert(others4[2] == 3 && !others4[3] && others4[4] == 22 && others4[5] == 221 && !others4[6] && others4[7] == 1 && !others4[8] && others4[9] == 547 && others4[11] == 1);
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 1, lines9) && count9 == 1); // (as many as asked)
+			int others3[3 * 4];
+			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others3, count, 4, said, sizeof(said), &taken) && count == 2 && others3[2] == 2 && !others3[3] && others3[5] == 2 && std::string(said) == "Here.");
+			assert(PanelBridge::thingEffect(6, 20, 205, kUse, 3, after, others3, count, 4, said, sizeof(said), &taken) && taken && after == 4 && std::string(said) == "Mine.");
+			PanelBridge::clearItems();
+			char item[16];
+			assert(PanelBridge::addIcon(6, 547, nullptr) && PanelBridge::itemCount() == 1 && PanelBridge::itemName(0, item, sizeof(item)) == 4 && !std::strcmp(item, "Plum"));
+			assert(PanelBridge::addIcon(6, 221, "lamp") && PanelBridge::itemName(1, item, sizeof(item)) == 4 && !std::strcmp(item, "lamp"));
+			assert(!PanelBridge::addIcon(6, 209, nullptr) && !PanelBridge::addIcon(7, 547, nullptr) && PanelBridge::itemCount() == 2);
+			PanelBridge::clearItems();
+			PanelBridge::clearThings();
+			// (Every version fills lines and given: the SVO7 above, one line by
+			// the one played, its picture 2 given.)
+			assert(parseThings(snm.data(), snm.size(), things, error) && things.effect(20, 205, kUse, 0)->lines.size() == 1 && things.effect(20, 205, kUse, 0)->lines[0].speaker == kSpeakerPlayed &&
+				things.effect(20, 205, kPickUp, 0)->others[1].given && !things.effect(20, 205, kPickUp, 0)->others[0].given && things.icons.empty());
+			// (No lines, no others, no icons: read.)
+			std::vector<uint8_t> bare9 = nine(0, {}, {}, {});
+			assert(parseThings(bare9.data(), bare9.size(), things, error) && things.effect(20, 205, kUse, 3)->lines.empty() && things.effect(20, 205, kUse, 3)->line.empty() && things.icons.empty());
+			// (Cut short anywhere: refused whole; read as SVO8: refused.)
+			for (size_t cut = 1; cut < whole.size() - 4; ++cut) assert(!parseThings(whole.data(), whole.size() - cut, things, error) && things.effects.empty() && things.icons.empty());
+			std::vector<uint8_t> asEight = whole;
+			asEight[3] = '8';
+			assert(!parseThings(asEight.data(), asEight.size(), things, error));
+			// (Refused: lines past kMostLines, an empty line, flags past 7, a
+			// given past 1, one given in a picture, one in no place not given;
+			// an icon of no thing, none wide, wider than kMostIconSide, a mask
+			// past 1, icons past kMostIcons, an icon twice.)
+			std::vector<Said> many(PanelBridge::kMostLines + 1, Said{0, 0, 0, "x"});
+			std::vector<uint8_t> lots = nine(1, many, others9, icons);
+			assert(!parseThings(lots.data(), lots.size(), things, error) && error == "too many lines" && things.effects.empty());
+			many.pop_back();
+			lots = nine(1, many, others9, icons);
+			assert(parseThings(lots.data(), lots.size(), things, error) && things.effect(20, 205, kUse, 3)->lines.size() == (size_t)PanelBridge::kMostLines);
+			for (const std::vector<uint8_t> &refused : {nine(1, {{0, 0, 0, ""}}, others9, icons), nine(8, said3, others9, icons), nine(1, said3, {{22, 221, 0, 2}}, icons),
+				nine(1, said3, {{22, 221, 1, 1}}, icons), nine(1, said3, {{0, 209, 1, 0}}, icons)})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty());
+			for (const std::vector<uint8_t> &refused : {nine(1, said3, others9, {{0, "None", 1, 1, 0}}), nine(1, said3, others9, {{547, "Flat", 0, 1, 0}}),
+				nine(1, said3, others9, {{547, "Wide", PanelBridge::kMostIconSide + 1, 1, 0}}), nine(1, said3, others9, {{547, "Odd", 2, 2, 2}}),
+				nine(1, said3, others9, {}, PanelBridge::kMostIcons + 1)})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad icons" && things.icons.empty());
+			std::vector<uint8_t> twice9 = nine(1, said3, others9, {{547, "Plum", 1, 1, 0}, {547, "Plum", 1, 1, 0}});
+			assert(!parseThings(twice9.data(), twice9.size(), things, error) && error == "an icon twice");
+			std::vector<uint8_t> biggest = nine(1, said3, others9, {{547, "Big", PanelBridge::kMostIconSide, PanelBridge::kMostIconSide, 1}});
+			assert(parseThings(biggest.data(), biggest.size(), things, error) && things.icon(547)->picture.size() == (size_t)(PanelBridge::kMostIconSide * PanelBridge::kMostIconSide));
+		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
 		// answers by their own verbs' kinds, The Dig's tap and Full Throttle's
@@ -1062,7 +1182,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

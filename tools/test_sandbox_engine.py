@@ -967,15 +967,42 @@ if __name__ == '__main__':
         # things file, from its own start): every record replayed as a player
         # uses that verb there (the line, the picture after, taken, the others
         # it sets and gives); one taken with its pointer chosen in its box.
+        # From 0258 (its things file "SVO9"): taken, gone as a thing, the place
+        # as its game leaves it, its box picture its own; its answers whole:
+        # pictures past the second, every line in turn by who says it in their
+        # colour (Max's by Max following), the things given carried by their
+        # own inventory pictures (one kept through a save and a load).
         own = re.search(r"selftest Sam & Max: (\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                         r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry\), (\d+) taken with its pointer from the box", output)
+        whole = re.search(r"selftest Sam & Max whole: (\d+) taken gone as things, the place as its game leaves it, their box pictures their own; (\d+) of (\d+) answers from or to a picture past the second \((\d+) in a picture their places have not\), (\d+) of (\d+) of several lines said in turn, "
+                          r"(\d+) of (\d+) lines by someone else \((\d+) by the one here its cast knows so, (\d+) told over the place, (\d+) by the one played as theirs is not here\), "
+                          r"(\d+) of (\d+) things given carried by their own inventory pictures \((\d+) kept through a save and a load; (\d+) with none, not carried\); (\d+) lines drawn in their speakers' colours; "
+                          r"(\d+) of Max's lines said by him as he follows, over him in his colour, (\d+) answer of several lines played through as time passes "
+                          r"\((\d+) let go by a line said meanwhile and by another place\)", output)
         snm = worlds/'samnmax-things.svo'
+        snmBytes = snm.read_bytes() if snm.exists() else b''
+        snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] == b'SVO9'
+        # (Its export from 0258, version 27, writes "SVO9": one exported so
+        # that is not, is not whole.)
+        if (worlds/'samnmax-v27.svx').exists() and snm.exists() and not snmNinth:
+            raise SystemExit('FAIL: Sam & Max\'s things file not "SVO9" though exported as version 27 (export Sam & Max again: tools/export_worlds.py)')
         if snm.exists() and snm.stat().st_size and (not own or int(own.group(2)) < 1000 or int(own.group(1)) + int(own.group(4)) != int(own.group(2))
                                                     or int(own.group(7)) < 20 or own.group(10) != '1'):
             raise SystemExit('FAIL: Sam & Max\'s things as its own sentences answer (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
+        if snmNinth and (not whole or not own or whole.group(1) != own.group(7) or int(whole.group(3)) < 10 or int(whole.group(2)) + int(whole.group(4)) != int(whole.group(3))
+                         or int(whole.group(6)) < 50 or whole.group(5) != whole.group(6) or int(whole.group(8)) < 100 or whole.group(7) != whole.group(8) or whole.group(9) == '0'
+                         or whole.group(10) == '0' or int(whole.group(13)) < 2 or whole.group(12) != whole.group(13) or whole.group(14) != '1' or whole.group(15) != '0'
+                         or int(whole.group(16)) < 1000 or whole.group(17) != '1' or whole.group(18) != '1' or whole.group(19) != '1'):
+            raise SystemExit('FAIL: Sam & Max\'s answers whole: pictures past the second, its lines by who says them, things given by their own pictures (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
         if own and int(own.group(2)):
             print(f"PASS: {own.group(1)} of {own.group(2)} answers of Sam & Max's {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                   f"{own.group(7)} taken, {own.group(8)} giving another, {own.group(9)} of those with no picture to carry; {own.group(4)} away); one taken with its pointer from its box")
+        if whole and snmNinth:
+            print(f"PASS: Sam & Max's answers whole: {whole.group(1)} taken gone as things, the place as its game leaves it, their box pictures their own; {whole.group(2)} from or to a picture "
+                  f"past the second; {whole.group(5)} of several lines said in turn; {whole.group(7)} lines by someone else ({whole.group(9)} by the one here its cast knows so, {whole.group(10)} told "
+                  f"over the place, {whole.group(11)} by the one played as theirs is not here), {whole.group(16)} drawn in their speakers' colours; {whole.group(12)} things given carried by their "
+                  "own inventory pictures, kept through a save and a load; Max's line said by Max following, over him in his colour; an answer of several lines played through as time passes, "
+                  "the rest let go by a line said meanwhile or another place")
         # (From 0256) Zak's likewise (its things file): every record of one
         # thing replayed as a player uses that verb there (its panel's verbs
         # but What is and Give), its place entered again after each one
@@ -1014,17 +1041,33 @@ if __name__ == '__main__':
                                                  ('The Secret of Monkey Island', 'monkey', 6000, 40), ('Monkey Island 2', 'monkey2', 5000, 40)):
             own = re.search(re.escape(f"selftest {title}: ") + r"(\d+) of (\d+) records of (\d+) things as its own sentences answer \((\d+) away; (\d+) lines, (\d+) pictures changed, "
                             r"(\d+) taken, (\d+) given, (\d+) of them with no picture to carry; ([^)]*)\), (\d+) taken with its own controls, in its box; "
-                            r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through; (\d+) of (\d+) things it keeps untouchable all the same shown so, not things", output)
+                            r"(\d+) of (\d+) doors its game keeps untouchable shown by another's answer, then gone through; (\d+) of (\d+) things it keeps untouchable all the same shown so, not things; "
+                            r"whole: (\d+) of several lines said in turn, (\d+) lines by someone else, (\d+) from or to a picture past the second \((\d+) in a picture their places have not\)", output)
+            # (From 0258, its things file "SVO9" where its answers need it: its
+            # lines in turn by who says them, pictures past the second (The
+            # Dig's and Day of the Tentacle's, each also from the picture it
+            # is found in and those answers leave it in).)
+            least_past = {'dig': 8, 'tentacle': 40}
+            # (The Monkey Islands' one line, with who says it: not the place's
+            # own talk after it.)
+            least_several = most_several = {'monkey': 0, 'monkey2': 0}
             answers = worlds/f'{gameid}-things.svo'
-            if answers.exists() and answers.stat().st_size and (not own or int(own.group(2)) < most or int(own.group(1)) + int(own.group(4)) != int(own.group(2))
+            answerBytes = answers.read_bytes() if answers.exists() else b''
+            ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] == b'SVO9'
+            ninthVersion = 28 if gameid == 'monkey2' else 27
+            if (worlds/f'{gameid}-v{ninthVersion}.svx').exists() and answers.exists() and not ninth:
+                raise SystemExit(f'FAIL: {title}\'s things file not "SVO9" though exported as version {ninthVersion} (export {title} again: tools/export_worlds.py)')
+            if answers.exists() and answers.stat().st_size and (not own or int(own.group(2)) < most or int(own.group(1)) + int(own.group(4)) + int(own.group(19)) != int(own.group(2))
                                                               or int(own.group(7)) < least_taken or own.group(11) != '1' or own.group(12) != own.group(13)
                                                               or (gameid == 'dig' and own.group(13) == '0') or own.group(14) != own.group(15)
-                                                              or (gameid == 'ft' and (worlds/'ft-131.svw').exists() and own.group(15) == '0')):
+                                                              or (gameid == 'ft' and (worlds/'ft-131.svw').exists() and own.group(15) == '0')
+                                                              or (ninth and (int(own.group(16)) < least_several.get(gameid, 1) or int(own.group(16)) > most_several.get(gameid, int(own.group(16))) or own.group(17) == '0' or int(own.group(18)) < least_past.get(gameid, 0)))):
                 raise SystemExit(f'FAIL: {title}\'s things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
             if own and int(own.group(2)):
                 print(f"PASS: {own.group(1)} of {own.group(2)} answers of {title}'s {own.group(3)} things as its own sentences give them ({own.group(5)} lines, {own.group(6)} pictures changed, "
                       f"{own.group(7)} taken, {own.group(8)} giving another; {own.group(10)}; {own.group(4)} away); one taken with its own controls, in its box; "
-                      f"{own.group(12)} door kept untouchable until another's answer shows it, then gone through; {own.group(14)} shown by another's answer, kept untouchable")
+                      f"{own.group(12)} door kept untouchable until another's answer shows it, then gone through; {own.group(14)} shown by another's answer, kept untouchable; "
+                      f"whole: {own.group(16)} answers of several lines said in turn, {own.group(17)} lines by someone else, {own.group(18)} from or to a picture past the second ({own.group(19)} in a picture their places have not)")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)

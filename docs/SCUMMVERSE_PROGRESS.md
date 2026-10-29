@@ -7227,3 +7227,37 @@ From the sweep for the next dead end on the original's main ending route
   clean), the tour, all, doors, keep and cast self-tests, test_world,
   test_panel, a fresh export (two identical; the police delay measured as
   named), test_startup and the full data suite. Not tested on an iPhone.
+
+## Patch 0258 — things file SVO9: answers whole (who says each line, every line, pictures past the second, icons)
+
+From the fourth round.
+- A new things-file format, SVO9, written only where an answer needs it
+  (SVO1-8 still read; documented at the top of common/scummverse_panel.h):
+  the picture after as a full byte, the flags apart, each other thing's
+  picture and whether it is given, up to 16 lines each with who says it
+  (the one played, no one, or an actor, with their costume and talk
+  colour), and the inventory pictures of things given. Damaged files are
+  refused whole.
+- The new engine says an answer's lines in turn, each by who says it in
+  their colour (over the speaker when on stage, else by the one played; a
+  line by no one over the place); the lines stop when someone else speaks
+  or the place changes; pictures past the second are shown; things given
+  are carried by their own pictures (kept through save and load).
+- Exported so for Sam & Max (1447 answers: 92 with several lines, 142
+  lines by someone else, Max's said by Max following; 11 given things
+  carried by their pictures), The Dig (231), Full Throttle (1038), Day
+  of the Tentacle (3908). The Monkey Islands keep their one chosen line,
+  now with who says it (recording every line replays the place's own
+  background talk); Zak keeps its one line.
+- In Sam & Max's room 30, object 299 stays drawn and untouchable after it
+  is taken, as the original's scripts leave it.
+- Every scene, character and panel file is as before; only those games'
+  things files change. Not done: inventory pictures for the other games'
+  given things; an answer making a thing touchable or untouchable (the
+  record has room for it later).
+- Tests: test_panel (ASan/UBSan; SVO9 with every truncation), test_world,
+  test_stage, test_startup (its version reader handles a version shared by
+  several games), the verbs self-test (every old record reproduced, new
+  lines, speakers, pictures and icons; 14 + 23 + 9 mutations caught), the
+  other self-tests, a fresh export (two identical) and the full data suite
+  (with 0257 and 0259). Not tested on an iPhone.
