@@ -7527,3 +7527,81 @@ the original's main ending route.
   fix undone fails), the all, doors, talk and keep self-tests, test_panel
   (ASan/UBSan), test_startup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0266 — the lab's switch from either position, Dr Fred's other cut-scene, and the ending seen once (mansion export version 40, state "SVS7")
+
+Removes a dead end 0263 left that the original does not have: the lab's
+switch (room 51, object 176) turned off before the Meteor Police took the
+meteor left no way to the ending in the new engine (its film played only
+from "on").
+- What the original does (scripts 126 and 63, read with descumm, nothing
+  copied): the switch's script is the same for Push, Pull, Use and Turn
+  off and does not read its own state, so it runs each time, on or off,
+  and starts Dr Fred's cut-scene in his lab (script 126) after its wait.
+  With the meteor still there it is a cut-scene in his lab after which
+  nothing else follows; turning the switch again plays it again. Once the Meteor Police have taken the meteor
+  (variable 162 at 3, script 43, which does not read the switch), the same
+  script takes the other branch and starts the ending (script 63), from
+  either position. The original restarts the game after the ending.
+- The new engine now does the same. The switch's films are shown from
+  either picture (kWorldCloseUps' `from` -1). With the meteor still there
+  the switch plays Dr Fred's other cut-scene as a film (his lab, room 30;
+  a new close-up record, its events on their recorded ticks; a tap skips
+  it), then the player is back where they stood with the switch off and
+  nothing following. The film plays again each time the switch is used.
+  Once the meteor is taken, the switch, on or off, plays Dr Fred's film
+  and then the ending's, as in 0263. So the ending can be reached in
+  either order.
+- Never again once seen: the ending's film is marked `once`. When it ends
+  (seen through or skipped), the new engine keeps it as seen in its state
+  file, and from then on neither it nor Dr Fred's film that leads to it is
+  shown again, whatever the switch's picture. The switch then answers as
+  its own script does. An ending left before its end (another one played,
+  the app stopped) is not seen, so 0264's rule holds and both films play
+  again.
+- State file "SVS7" adds the films seen once for good after the timed
+  events (u16 count; s16 game, s16 room, u16 thing, s16 scene). Every older
+  version still loads; an older one has no films seen, so an ending seen
+  under 0263-0265 can be seen once more. Damaged entries are let go: one
+  that is not such a film, of no game, of no place, or listed twice.
+- Catalog: kWorldCloseUps gains `once` and `from` -1 and a third row for
+  the switch (Dr Fred's other cut-scene: `timed` -42, so it is shown only
+  until the meteor is taken). Two rows of the same thing and scene are
+  told apart by their order. The export records the later row only after
+  each earlier one, and the new engine reads the nth record as the nth
+  row. The export refuses a film without `then` whose end starts another
+  of its films' `then` script, so the other cut-scene cannot be recorded
+  as the ending's branch (checked: with its `timed` made 42 it is refused).
+  The things file stays "SVO8": one more close-up record (the count byte
+  and 426 bytes, nothing else changed). Every other mansion file and every
+  other game's export (1126 files of all eleven others) is byte for byte as
+  before.
+- Not modelled: the self-destruct countdown (script 123, started when the
+  kid meets Dr Fred in his lab, still running through his other cut-scene
+  in the original), Dr Fred pacing his lab after it, the meteor picked up
+  once the switch is off (and the endings that follow from it), and the
+  restart after the ending. 0263's other notes stand.
+- Tests:
+  - The verbs self-test, with these new checks:
+    - Before the meteor is taken, the switch plays Dr Fred's other film as
+      recorded (14 events), back where they stood, nothing following, and
+      again from off.
+    - The switch turned off first is kept through a save and reload. Once
+      the meteor is taken, from off, Dr Fred's film and then the ending's.
+    - The ending, once seen, is kept through a save and reload and never
+      plays again from off or on, in either order.
+    - An SVS6 state is read with none seen, and damaged entries are let go.
+    - The SVS4 and SVS5 older-state checks now cut an SVS7 file.
+  - Mutations: 17 of 17 caught (12 of the new engine's code, 5 of the
+    catalog). Two of the export's checks were also seen to fire: the other
+    film recorded as the ending's branch is refused, and a row after an
+    unrecorded one of its thing and scene is left out.
+  - The verbs self-test with sandbox.cpp and scumm.cpp under ASan/UBSan:
+    clean.
+  - The all, doors, tour, cast and keep self-tests, and keep then resume
+    (an SVS7 state).
+  - test_world, test_panel and test_stage (ASan/UBSan).
+  - A fresh mansion export, and every other game's export with and without
+    the change: all eleven others identical, 1126 files.
+  - test_startup, test_world_setup and the full data suite (with 0267).
+  - Not tested on an iPhone.

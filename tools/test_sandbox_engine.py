@@ -981,21 +981,30 @@ if __name__ == '__main__':
         # tap; Dr Fred's film's place not shown again as it ends, over once.
         # (From 0264) The ending's film left before its end (another played,
         # the app stopped meanwhile): the switch still on, both films again.
+        # (From 0266) The switch's script runs alike on or off: before, Dr
+        # Fred's other film (the meteor still there), nothing following, again
+        # from off; turned off first (kept through a save and reload), then
+        # once they took the meteor, from off, Dr Fred's film and the ending's;
+        # the ending seen once for good, kept (the state's "SVS7"): never
+        # again, from off or on; an older state (SVS6) read with none seen.
         ending = re.search(r"selftest ending: (\d+) before the Meteor Police took the meteor \(the Purple Meteor in the lab, its thing there, the radio's keypad its answer, the switch "
-                           r"as its own script answers\); (\d+) taken at their time with the dungeon's doors open \(not with them shut\), kept through a save and reload; (\d+) lab without "
-                           r"the Purple Meteor after \(its thing untouchable, the radio's line instead of its keypad, Dr Fred's lab and the front door places still\); the switch: (\d+) "
-                           r"played Dr Fred's film \((\d+) events\) then the ending's at once \((\d+) events\), back where they stood, not again; (\d+) skipped by a tap, the ending "
-                           r"following; (\d+) over once where the place it was shown from could not be shown again; (\d+) the ending's left before its end, the switch still on "
-                           r"\(Dr Fred's film again\)", output)
+                           r"Dr Fred's other film \((\d+) events\), back where they stood, nothing following, again from off\); (\d+) turned off first, kept through a save and reload, "
+                           r"then once they took the meteor Dr Fred's film and the ending's from off, seen kept through a save and reload, never again; (\d+) taken at their time with the "
+                           r"dungeon's doors open \(not with them shut\), kept through a save and reload; (\d+) lab without the Purple Meteor after \(its thing untouchable, the radio's line "
+                           r"instead of its keypad, Dr Fred's lab and the front door places still\); the switch: (\d+) played Dr Fred's film \((\d+) events\) then the ending's at once "
+                           r"\((\d+) events\), back where they stood, not again \(from off or on, through a save and reload\); (\d+) an older state \(SVS6\) read with none seen, damaged "
+                           r"ones let go; (\d+) skipped by a tap, the ending following; (\d+) over once where the place it was shown from could not be shown again; (\d+) the ending's left "
+                           r"before its end, the switch still on \(Dr Fred's film again\)", output)
         if all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in (1, 4, 21, 30, 51)) and \
-                (not ending or any(ending.group(k) != '1' for k in (1, 2, 3, 4, 7, 8, 9)) or int(ending.group(5)) < 1 or int(ending.group(6)) < 1):
+                (not ending or any(ending.group(k) != '1' for k in (1, 3, 4, 5, 6, 9, 10, 11, 12)) or any(int(ending.group(k)) < 1 for k in (2, 7, 8))):
             raise SystemExit('FAIL: the Meteor Police taking the meteor, and the ending through the lab\'s switch (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
-        if ending and ending.group(4) == '1':
+        if ending and ending.group(6) == '1':
             print('PASS: the Meteor Police take the meteor only with both dungeon doors open at their time, kept through a save and reload: the lab without the Purple Meteor '
                   '(nobody bringing it in), its thing untouchable, the radio\'s line instead of its keypad; then the lab\'s switch plays Dr Fred\'s film '
-                  f'({ending.group(5)} events) and the ending\'s at once ({ending.group(6)} events), back where they stood, not again; each skipped by a tap; '
+                  f'({ending.group(7)} events) and the ending\'s at once ({ending.group(8)} events), back where they stood, never again (seen once, kept); each skipped by a tap; '
                   'Dr Fred\'s film over once where the place it was shown from could not be shown again; the ending\'s left before its end, the switch still on, '
-                  'both films again; before, the switch as its own script answers')
+                  f'both films again; before, the switch Dr Fred\'s other film ({ending.group(2)} events), again from off; turned off first, the ending all the same once '
+                  'they took the meteor; an older state read with none seen')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its
