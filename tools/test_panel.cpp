@@ -1177,12 +1177,55 @@ int main() {
 			assert(!PanelBridge::thingEffect(0, 29, 392, kPush, 0, after, others, count, 2, said, sizeof(said), &taken));
 			PanelBridge::clearThings();
 		}
+		// (From 0260, Day of the Tentacle's and both Monkey Islands' two
+		// things, the same "SVO7": Use of a thing carried (210) with one here
+		// (392, from each picture: its own answer to 210, its usual one to any
+		// other; one using the thing carried up and setting another), and Give
+		// to someone, filed under kWorldPersonThing and their costume (24): their
+		// own answer to 210 (used up: given), their usual one to any other. Each
+		// found by its key and second only; none by a lookup of one thing.)
+		{
+			const int person = WorldCatalog::kWorldPersonThing + 24;
+			std::vector<uint8_t> two = {'S', 'V', 'O', '7'};
+			put16(two, 1); put16(two, 29); put16(two, 2);
+			put16(two, 392); two.push_back(0); put16(two, 0);
+			put16(two, 210); two.push_back(0); put16(two, 0);
+			put16(two, 6);
+			put16(two, 29); put16(two, 392); put(two, {kUse, 0}); put16(two, 210); put(two, {1 | 8, 1}); put16(two, 29); put16(two, 391); two.push_back(1); put(two, {3, 'Y', 'e', 's'});
+			put16(two, 29); put16(two, 392); put(two, {kUse, 0}); put16(two, 0xFFFF); put(two, {0, 0, 2, 'N', 'o'});
+			put16(two, 29); put16(two, 392); put(two, {kUse, 1}); put16(two, 0xFFFF); put(two, {1, 0, 4, 'N', 'o', 'p', 'e'});
+			put16(two, 29); put16(two, 392); put(two, {kOpen, 0}); put16(two, 0); put(two, {1, 0, 0});
+			put16(two, 29); put16(two, person); put(two, {kGive, 0}); put16(two, 210); put(two, {8, 0, 6, 'T', 'h', 'a', 'n', 'k', 's'});
+			put16(two, 29); put16(two, person); put(two, {kGive, 0}); put16(two, 0xFFFF); put(two, {0, 0, 7, 'N', 'o', ' ', 't', 'h', 'x', '.'});
+			put16(two, 0); // (no parents)
+			put16(two, 0); put16(two, 0); two.push_back(0); put16(two, 0); // (no main power)
+			two.push_back(0); // (no close-ups)
+			assert(parseThings(two.data(), two.size(), things, error) && things.effects.size() == 6);
+			const ThingEffect *used = things.effect(29, 392, kUse, 0, 210), *usual0 = things.effect(29, 392, kUse, 0, kAnyOther), *usual1 = things.effect(29, 392, kUse, 1, kAnyOther);
+			const ThingEffect *given = things.effect(29, person, kGive, 0, 210), *refused = things.effect(29, person, kGive, 0, kAnyOther);
+			assert(used && used->secondGone && !used->firstGone && !used->taken && used->after == 1 && used->others.size() == 1 && used->others[0].id == 391 && used->line == "Yes");
+			assert(usual0 && usual0->line == "No" && usual0->after == 0 && usual1 && usual1->line == "Nope" && usual1->after == 1 && !things.effect(29, 392, kUse, 1, 210));
+			assert(given && given->secondGone && given->line == "Thanks" && refused && !refused->secondGone && refused->line == "No thx.");
+			assert(!things.effect(29, 392, kUse, 0) && !things.effect(29, person, kGive, 0) && !things.effect(29, 210, kGive, 0, person) && things.effect(29, 392, kOpen, 0));
+			for (size_t cut = 1; cut < two.size() - 4; ++cut) assert(!parseThings(two.data(), two.size() - cut, things, error));
+			int flags = 0;
+			bool alone = false;
+			assert(PanelBridge::loadThings(5, two.data(), two.size(), problem, sizeof(problem)) && PanelBridge::effectCount(5) == 6);
+			assert(PanelBridge::pairEffect(5, 29, 392, kUse, 0, 210, after, others, count, 2, said, sizeof(said), flags) && flags == (4 | 8) && after == 1 && count == 1 && others[1] == 391 && std::string(said) == "Yes");
+			assert(PanelBridge::pairEffect(5, 29, 392, kUse, 0, 211, after, others, count, 2, said, sizeof(said), flags) && flags == 0 && after == 0 && !count && std::string(said) == "No");
+			assert(PanelBridge::pairEffect(5, 29, 392, kUse, 1, 210, after, others, count, 2, said, sizeof(said), flags) && flags == 0 && after == 1 && std::string(said) == "Nope");
+			assert(PanelBridge::pairEffect(5, 29, person, kGive, 0, 210, after, others, count, 2, said, sizeof(said), flags) && flags == (4 | 8) && std::string(said) == "Thanks");
+			assert(PanelBridge::pairEffect(5, 29, person, kGive, 0, 391, after, others, count, 2, said, sizeof(said), flags) && flags == 0 && std::string(said) == "No thx.");
+			assert(!PanelBridge::pairEffect(5, 29, WorldCatalog::kWorldPersonThing + 25, kGive, 0, 210, after, others, count, 2, said, sizeof(said), flags));
+			assert(!PanelBridge::thingEffect(5, 29, 392, kUse, 0, after, others, count, 2, said, sizeof(said), &alone) && PanelBridge::thingEffect(5, 29, 392, kOpen, 0, after, others, count, 2, said, sizeof(said), &alone) && after == 1);
+			PanelBridge::clearThings();
+		}
 		std::vector<uint8_t> plain = {'S', 'V', 'O', '1'};
 		put16(plain, 0);
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); two things of the later games (Use with one here, Give to someone, own and usual answers)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

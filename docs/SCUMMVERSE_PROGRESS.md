@@ -7292,3 +7292,47 @@ From the fourth round.
   ASan/UBSan), test_panel, a fresh export (two identical), test_startup,
   test_world_setup (its version reader reads a version over several
   lines) and the full data suite. Not tested on an iPhone.
+
+## Patch 0260 — Day of the Tentacle's and both Monkey Islands' two things answer as the original in the new engine (tentacle export version 28, monkey 29, monkey2 30)
+
+From the fourth round, on 0256's two-thing pass (Zak's), with 0259's places
+and Monkey Island's "with" classes.
+- 0253 and 0254 left Give and Use with a carried thing to the new engine's
+  plain rules. The export now plays, for these three games, each thing a
+  kid can carry (one a recorded answer takes or gives) used with each
+  touchable thing of each exported place, through the game's own sentence
+  script, the carried thing in the inventory of the one played there as
+  the game's own pick-up leaves it (only things of the classes their verb
+  scripts ask "with" for). Filed as Zak's are: under what it is used on,
+  each target's usual answer kept once; what an answer changes filed in
+  the place used in.
+- Give: each such thing given to each of the game's people the game puts
+  in a place as it sets it up (but its players), filed under the person's
+  costume (the record layout is unchanged), each person's usual answer
+  kept once.
+- Day of the Tentacle: 5504 answers (5017 its own; its Give answers are
+  all the game's own out-of-reach check at its start). Monkey Island 4098
+  (3403 own; the monkey takes the bananas, the Fettucini brothers' answers).
+  Monkey Island 2 3130 (2393 own). Things files 52, 50 and 46 KB (were 28,
+  33 and 33).
+- The new engine: Use of a carried thing with one here as filed, from the
+  picture it is in now; Give to someone: their own answer to that thing,
+  else their usual one, looked up where they are, else where the cast puts
+  them; the line said by the one played, the thing given used up as
+  recorded, the others changed.
+- Every other game's exported files are byte for byte as before.
+- Follow-up: most own answers are a carried thing's own line whatever it is
+  used with; a usual answer per carried thing would make these files much
+  smaller (not in the layout yet).
+- Not expressed yet: who speaks in a two-thing answer (said by the one
+  played), lines after the first, Use with a person, Give to a thing, a
+  carried thing used alone where the game does not ask "with".
+- Tests: test_panel (ASan/UBSan; new: a two-thing record, Use and Give,
+  own and usual, none found by a one-thing lookup), the verbs self-test
+  (new: every two-thing record replayed as a player makes it and filed
+  where used: Day of the Tentacle 4953 of 5504, Monkey Island 4006 of
+  4098, Monkey Island 2 3028 of 3130; the rest a carried thing with no
+  picture of its own, one away, or nobody there; the pass without 0259's
+  places fails 38), the all, doors and tour self-tests, a fresh export
+  (two identical), test_startup and the full data suite. Not tested on an
+  iPhone.

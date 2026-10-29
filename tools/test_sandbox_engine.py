@@ -1068,6 +1068,24 @@ if __name__ == '__main__':
                       f"{own.group(7)} taken, {own.group(8)} giving another; {own.group(10)}; {own.group(4)} away); one taken with its own controls, in its box; "
                       f"{own.group(12)} door kept untouchable until another's answer shows it, then gone through; {own.group(14)} shown by another's answer, kept untouchable; "
                       f"whole: {own.group(16)} answers of several lines said in turn, {own.group(17)} lines by someone else, {own.group(18)} from or to a picture past the second ({own.group(19)} in a picture their places have not)")
+        # (From 0260) Day of the Tentacle's and both Monkey Islands' two
+        # things as their own sentences answer: each record of a thing carried
+        # used with what it is used on (here, or carried too) and of one given
+        # to someone here, as a player has it (most tried: not one whose first
+        # has no picture to carry, one away there or someone not there), where
+        # its export is 0260's or later (its marker's version from then).
+        for title, gameid, since in (('Day of the Tentacle', 'tentacle', 28), ('The Secret of Monkey Island', 'monkey', 29), ('Monkey Island 2', 'monkey2', 30)):
+            exported = [int(m.group(1)) for m in (re.fullmatch(re.escape(gameid) + r'-v(\d+)\.svx', f.name) for f in worlds.glob(f'{gameid}-v*.svx')) if m]
+            two = re.search(re.escape(f"selftest {title} two things: ") + r"(\d+) of (\d+) records of two things as its own sentences answer \((\d+) not tried: (\d+) with one carried that has no picture to carry, "
+                            r"(\d+) away there, (\d+) nobody there; (\d+) a usual answer, (\d+) given to someone, (\d+) using up, (\d+) with both carried, (\d+) giving one with no picture to carry\)", output)
+            if exported and max(exported) >= since and (worlds/f'{gameid}-things.svo').exists() and (
+                    not two or int(two.group(2)) < 1000 or int(two.group(1)) + int(two.group(3)) != int(two.group(2)) or 4 * int(two.group(1)) < 3 * int(two.group(2))
+                    or two.group(7) == '0' or two.group(8) == '0'):
+                raise SystemExit(f'FAIL: {title}\'s two things as its own sentences answer (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
+            if two and int(two.group(2)):
+                print(f"PASS: {two.group(1)} of {two.group(2)} answers of {title}'s two things as its own sentences give them (Use with what it is used on, Give to someone: "
+                      f"{two.group(7)} usual answers, {two.group(8)} given to someone, {two.group(9)} using up, {two.group(10)} with both carried; not tried: {two.group(4)} with a thing carried that has no picture to carry, "
+                      f"{two.group(5)} away there, {two.group(6)} with nobody there)")
         # The iPhone's chat (a stand-in for it: the desktop has none), in a
         # place of each game with someone there.
         output = sandbox(exe, worlds, 'talk', shots, tmp)
