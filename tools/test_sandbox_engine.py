@@ -838,8 +838,11 @@ if __name__ == '__main__':
         # same) are taken as their game gives them; from export version 23
         # their pictures leave out the garage door over them: none the same.)
         # (From 0204 nearer what the mansion gives: 849 answered, 74 away, 63
-        # to the plain rules when pinned.)
-        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 840 or int(effects.group(2)) > 80 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
+        # to the plain rules when pinned. From 0274, its export version 42,
+        # 16 of those silent picked up give a thing: away now, as their things
+        # start hidden (the quarters of room 18, the demo tape, the hamster);
+        # each played by the given check below.)
+        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 840 or int(effects.group(2)) > 96 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
                                                  or int(effects.group(5)) > 70 or effects.group(6) != '4'
                                                  or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '0')):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
@@ -1040,6 +1043,30 @@ if __name__ == '__main__':
                   'Dr Fred\'s film over once where the place it was shown from could not be shown again; the ending\'s left before its end, the switch still on, '
                   f'both films again; before, the switch Dr Fred\'s other film ({ending.group(2)} events), nothing from off (as the original\'s script); turned off first, '
                   'nothing from off once they took the meteor; an older state read with none seen')
+        # (From 0274) What one thing's answer gives the kid, as the mansion's
+        # own scripts give it (its export version 42 records it): each such
+        # record played, the thing given carried; the cassette taken back out
+        # of each of the three decks (not lost), the record taken off the
+        # Victrola the one put on, the package's stamps pulled off, the radio's
+        # batteries given once it is picked up and opened carried. Each verb
+        # of a pair a thing does not answer while it answers the other
+        # (open and close, on and off, push and pull): nothing changed, as its
+        # game; the lab's switch turned on, from on and off: nothing.
+        given = re.search(r"selftest given: (\d+) of (\d+) records of one thing of the mansion's giving another as its own scripts give it, each carried \((\d+) in a picture its game "
+                          r"never has it touchable in\); the cassette taken back out of (\d+) of 3 decks, not lost; the record taken off the Victrola (\d+) of 2 as the one put on; "
+                          r"the package's stamps (\d+) pulled off; the radio's batteries (\d+) given opened carried; (\d+) of (\d+) verbs a thing does not answer of its pair "
+                          r"\((\d+) things away\) as its game, nothing changed; "
+                          r"the lab's switch turned on (\d+), from on and off, nothing", output)
+        if mansion >= 42 and (worlds/'maniac-1.svw').exists():
+            exported = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            if not given or int(given.group(2)) < 20 or int(given.group(1)) + int(given.group(3)) != int(given.group(2)) or \
+                    (exported(3, 5, 17, 20) and given.group(4) != '3') or (exported(17, 20) and given.group(5) != '2') or (exported(1) and given.group(6) != '1') or \
+                    (exported(2) and given.group(7) != '1') or int(given.group(9)) < 20 or int(given.group(8)) + int(given.group(10)) != int(given.group(9)) or \
+                    (exported(30, 51) and given.group(11) != '1'):
+                raise SystemExit('FAIL: what one thing\'s answer gives as the mansion\'s own scripts give it, or a verb a thing does not answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            print(f"PASS: {given.group(1)} of {given.group(2)} answers of one mansion thing giving another, each carried ({given.group(3)} in a picture never touchable); the cassette back out of "
+                  f"{given.group(4)} decks, not lost; the record off the Victrola the one put on ({given.group(5)} of 2); the package's stamps pulled off; the radio's batteries opened "
+                  f"carried; {given.group(8)} of {given.group(9)} verbs a thing does not answer of its pair nothing changed ({given.group(10)} away); the lab's switch turned on: nothing")
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its

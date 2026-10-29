@@ -7853,3 +7853,43 @@ export. That was the "stale" pair noted in 0271's work, not machine load.
   Loom 125); a full `-d1` export of the eleven other games matches the
   cache file for file; test_startup and the full data suite. Not tested
   on an iPhone.
+
+## Patch 0274 — what the mansion's one-thing answers give, and verbs a thing does not answer (mansion export version 42)
+
+Two dead ends and a wrong answer in the new engine, against the original's
+scripts (read with descumm, nothing copied).
+- Things a one-thing answer gives were never recorded. Picking the tape up
+  out of a deck (rooms 3, 17 and 20) took it away and gave nothing, so the
+  cassette was lost for good; the same for the record off the Victrola,
+  the stamps pulled off the package and the radio's batteries. The export
+  now records what the kid has after an answer that it did not have
+  before, as the two-thing answers already did (22 records).
+- The Victrola gives back the record that was put on it (32 or 188): where
+  an answer gives one of several things that could have been put in, the
+  new engine gives the one put in now (gone from its place, carried by
+  nobody).
+- The radio opened while carried gives its batteries: a new reader (room
+  2, object 142, Open) is recorded with the thing played as its own
+  pick-up leaves it (catalog: `picked`).
+- A verb of a pair (open and close, on and off, push and pull) that a
+  mansion thing's script does not answer, where it answers the other,
+  changes nothing and says the plain refusal, as the original's own
+  default does. Before, Turn on turned the lab's switch off; 61 such pairs
+  (paintings closed, buttons pulled, bushes and the grate pushed, breakers
+  opened).
+- Not done: answers that hand the action to another thing (turning the
+  tapes or the record on should turn the deck or Victrola on; opening the
+  radio where it lies should pick it up) still do nothing; repeats the
+  original refuses (pulling the package again gives the stamps again);
+  verbs on carried things other than Read; doors that answer only one
+  side; Zak and the later games may still flip a picture for a verb they
+  don't answer. The hamster, the quarters and the demo tape are recorded
+  as given but start hidden, and no recorded answer shows them yet.
+- Tests: the verbs self-test (new: 29 of 37 giving records replayed with
+  the given thing carried, the cassette back out of all three decks, the
+  Victrola's two records, the stamps, the radio's batteries, 56 of 61
+  unanswered verbs change nothing, the switch's Turn on plays no film);
+  mutations; ASan/UBSan; every other game's export byte for byte as
+  before, two mansion exports identical; the other self-tests unchanged;
+  test_startup, test_world_setup, test_panel, test_world and the full data
+  suite. Not tested on an iPhone.
