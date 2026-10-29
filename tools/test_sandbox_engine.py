@@ -825,6 +825,15 @@ if __name__ == '__main__':
             print('PASS: the wall safe behind the painting: Open shows its keypad (the close-up, nobody there, kept as the room it was opened from); '
                   'the code its own start chose, tapped key by key, opens it back where they stood, the envelope inside taken; Use and a wrong code: '
                   'the keypad closes, its line said, the safe still shut; a menu\'s choice there leaves it unanswered')
+        # (From 0252) The safe's room not shown again as the code's last key
+        # is pressed (the one played's file not read then): over once all the
+        # same, the safe open, somewhere else as a launch starts (not tried
+        # again at each key tapped).
+        safe_fell = re.search(r"left by a menu's choice, unanswered; (\d+) over once where the place it was shown from could not be shown again \(elsewhere, open\)", output)
+        if safe and safe.group(2) == '1' and (not safe_fell or safe_fell.group(1) != '1'):
+            raise SystemExit('FAIL: the wall safe\'s keypad not over once where its room could not be shown again\n' + output[-2000:])
+        if safe_fell and safe_fell.group(1) == '1':
+            print('PASS: the wall safe\'s keypad over once where its room cannot be shown again as the last key is pressed: elsewhere, the safe open')
         # (From 0242) The telescope (room 28): Use shows its view (room 34, or
         # 35 at its left end; a close-up, no place), what it is turned to as
         # the export recorded each turn both ways the painting can be, for the
@@ -847,6 +856,14 @@ if __name__ == '__main__':
                   f'as the export recorded them, for the game\'s own time, everyone back; its buttons turned it {scope.group(4)} steps a coin at a time '
                   f'(unpaid, its own line), to the code\'s part with the painting moved, its things as that start marked them ({scope.group(8)} drawn); '
                   'a tap leaves it; a custom character chosen and the Shuttle Bug boarded from the Worlds menu there leave it first')
+        # (From 0252) Its room not shown again as a tap or its time ends the
+        # view (the one played's file not read then): over once all the same,
+        # somewhere else as a launch starts.
+        scope_fell = re.search(r'Shuttle Bug boarded from the Worlds menu; (\d+) over once where the place it was shown from could not be shown again \(elsewhere\)', output)
+        if scope and scope.group(7) == '1' and (not scope_fell or scope_fell.group(1) != '2'):
+            raise SystemExit('FAIL: the telescope\'s view not over once where its room could not be shown again\n' + output[-2000:])
+        if scope_fell and scope_fell.group(1) == '2':
+            print('PASS: the telescope\'s view over once where its room cannot be shown again, by a tap and by its time: elsewhere')
         # (From 0248) The TV (room 17) and the typewriter (room 27): with the
         # main power off, Turn on says its line, no film; Turn off as its
         # script answers; with it on, its film (room 40, a close-up: the TV on
@@ -1088,6 +1105,12 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: tour: {unreached} doors not reached, {across} from as near as the walk allows, for {foot} on foot')
         print(f'PASS: tour: {stops} stops ({foot} on foot, {warped} warped, {refused} not shown, {unreached} doors not reached, '
               f'{across} through from as near as the walk boxes allow); its controls; back where it began')
+        # (From 0252) Begun upstairs in the mansion (room 38) and stopped at
+        # its hall (room 12): the way home starts no timed event (the package).
+        if all((worlds/f'maniac-{r}.svw').exists() for r in (12, 38)):
+            if "stopped at the mansion's hall, begun upstairs: home, no timed event started" not in output:
+                raise SystemExit('FAIL: tour: a timed event started by the way home\n' + output[-2000:])
+            print('PASS: tour stopped at the mansion\'s hall, begun upstairs: home, no timed event started')
         # (From 0204) Begun past a door with no way back: the arrow back again
         # once it ends; a sentence half made while paused let go on Play; the
         # van asked for where it isn't, the tour on.

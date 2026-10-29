@@ -66,8 +66,9 @@ static Box stageBox(int l, int t, int r, int b) {
 
 struct Frame { int dir, kind, index, dx, dy, w, h; uint8_t color; };
 // An "SVC1" character: palette c = (c, c, 255-c); each frame one colour, its
-// top row transparent.
-static std::vector<uint8_t> spriteBytes(const std::vector<Frame> &frames) {
+// top row transparent. (From 0252, `glows`: some of its pixels a glow (mask
+// 2, added to what is behind) and some lit (3, shown in the dark).)
+static std::vector<uint8_t> spriteBytes(const std::vector<Frame> &frames, bool glows = false) {
 	std::vector<uint8_t> d = {'S', 'V', 'C', '1'};
 	put16(d, 5); put16(d, (int)frames.size());
 	for (int c = 0; c < 256; ++c) { d.push_back((uint8_t)c); d.push_back((uint8_t)c); d.push_back((uint8_t)(255 - c)); }
@@ -75,7 +76,7 @@ static std::vector<uint8_t> spriteBytes(const std::vector<Frame> &frames) {
 		d.push_back((uint8_t)f.dir); d.push_back((uint8_t)f.kind); d.push_back((uint8_t)f.index); d.push_back(0);
 		put16(d, f.dx); put16(d, f.dy); put16(d, f.w); put16(d, f.h);
 		for (int y = 0; y < f.h; ++y) for (int x = 0; x < f.w; ++x) d.push_back(f.color);
-		for (int y = 0; y < f.h; ++y) for (int x = 0; x < f.w; ++x) d.push_back(y > 0);
+		for (int y = 0; y < f.h; ++y) for (int x = 0; x < f.w; ++x) d.push_back(y == 0 ? 0 : !glows ? 1 : (x + y) % 9 == 0 ? 2 : (x * y) % 11 == 0 ? 3 : 1);
 	}
 	return d;
 }
@@ -1419,15 +1420,22 @@ int main() {
 		for (int y = 60; y < 90; ++y) for (int x = 100; x < 160; ++x) parked[(size_t)y * w + x] = 130;
 		const std::vector<uint8_t> parkedData = scene5Bytes(w, h, parked, {box(10, 100, 320, 140, 0, 128, 255), box(320, 100, 630, 140)}, {door}, next, {water});
 		std::vector<Frame> glowing = {{2, 0, 0, -10, -40, 20, 40, 30}, {0, 1, 0, -8, -40, 16, 40, 50}, {1, 1, 0, -8, -40, 16, 40, 70}, {0, 0, 0, -8, -40, 16, 40, 40}};
-		const std::vector<uint8_t> sprite = spriteBytes(glowing);
+		const std::vector<uint8_t> sprite = spriteBytes(glowing), lit = spriteBytes(glowing, true);
 		uint32_t seed = 12345;
 		auto roll = [&](int n) { seed = seed * 1103515245u + 12345u; return (int)((seed >> 8) % (uint32_t)std::max(1, n)); };
-		for (const int screen : {0, 1}) {
-			const int sw = screen ? 1280 : 400, sh = screen ? 600 : 150;
+		// (From 0252 also a screen taller than wide, the place with bars above
+		// and below; some people lit and glowing; frames not drawn every tick;
+		// another dark colour.)
+		for (const int screen : {0, 1, 2}) {
+			const int sw = screen == 1 ? 1280 : screen == 2 ? 300 : 400, sh = screen == 1 ? 600 : screen == 2 ? 400 : 150;
 			Scene s;
 			std::string problem;
 			assert(s.load(data.data(), data.size(), 1.2, 320, sw, sh, problem) && s.mountPicture(parkedData.data(), parkedData.size(), problem));
-			for (int k = 0; k < 6; ++k) { const int n = s.addActor(sprite.data(), sprite.size(), 0.6 + 0.1 * k, 1.2, problem); s.place(n, {40.0 + 90 * k, 120}); }
+			for (int k = 0; k < 6; ++k) {
+				const std::vector<uint8_t> &art = k % 2 ? lit : sprite;
+				const int n = s.addActor(art.data(), art.size(), 0.6 + 0.1 * k, 1.2, problem);
+				s.place(n, {40.0 + 90 * k, 120});
+			}
 			s.follow(0);
 			std::vector<uint32_t> whole((size_t)sw * sh), kept((size_t)sw * sh, 0x55AA55AAu);
 			std::vector<Rect> rects;
@@ -1449,11 +1457,12 @@ int main() {
 					prop[5] = 0;
 					s.addProp(prop.data(), 12, 10, 0, palette.data(), {50.0 + roll(500), 130}, 30, 1.2);
 				} else if (what < 43 && s.propCount() < 6) s.addPiece(roll(300), roll(60), 30, 30, roll(300), roll(60), roll(2) ? -1 : 120);
-				else if (what < 44) s.setDark(!s.dark());
+				else if (what < 44) s.setDark(!s.dark(), roll(2) ? Scene::kDarkColor : 0xFF203040u);
 				else if (what < 48 && s.dark()) s.setFlashlight(roll(4) != 0, {(double)roll(640), (double)roll(144)});
 				else if (what < 49) s.lookAt(roll(640));
 				else if (what < 50) s.follow(n);
 				s.update(1 + (roll(8) == 0 ? roll(30) : 0));
+				if (roll(4) == 0) continue; // (not drawn this tick: changes since the last drawn)
 				s.render(whole.data(), sw);
 				s.changes(rects);
 				s.render(kept.data(), sw, rects);

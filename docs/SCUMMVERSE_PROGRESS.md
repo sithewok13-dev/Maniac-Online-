@@ -7037,3 +7037,38 @@ From the third round (the new engine's later games).
   catalog), test_world_setup, a fresh export (two identical), the full
   data suite with the story differential. Not tested on an iPhone, nor
   with complete copies of these games (films and voices missing here).
+
+## Patch 0252 — fixes from reviews of 0242-0250: close-ups' way back, saved timed events, the tour
+
+- The safe's keypad: when the place it was opened from could not be shown
+  again, the close-up stayed open with the player hidden and every key
+  retried. It now finishes once, as the TV's film does (0250): the safe
+  shows the picture the code leaves, the player goes on elsewhere and the
+  line is said there.
+- The telescope's view had the same pattern (a tap, or its time running
+  out); it now ends once the same way.
+- Saved timed events: a "done for good" record was accepted for the mail
+  pickup, which can come more than once, blocking it for ever; a second
+  record for the same event was accepted too, so it could fire twice. Now
+  "done for good" is kept only for one-time events and repeats are dropped.
+- Stopping the tour at the hall (begun upstairs) started the package's
+  timer though nobody had climbed the stairs; the way home from the tour
+  now starts no timed event.
+- Checked against the original and found right: the pickup's and the
+  package's delays and conditions, the 100 recorded mark answers, Sam &
+  Max's answers and what taking leaves.
+- Not fixed: the package gives stamps again each time it is opened once
+  the old ones are used (the original says another line; it needs a ninth
+  mark or a new kept flag); two Sam & Max things in room 37 (352, 353) are
+  taken by the general rules, unconfirmed against the original; filling
+  the jar at the pool is not modelled.
+- A review of 0242-0245 (the telescope, the mansion kept on stopping,
+  cheaper frames, drawing in parts) found no bug a player can hit. Its
+  one change is to test_stage: glowing and lit pixels, a screen with bars
+  above and below, ticks left undrawn so changes pile up, two dark
+  colours; a renderer that drew a glow twice where parts overlap passed
+  the old test and fails the new one.
+- Tests: test_stage (ASan/UBSan, -Werror), the sandbox self-tests (new: the keypad and the view with the
+  character file broken, damaged timed-event records, the tour stopped at
+  the hall; each fix undone makes its test fail), test_startup and the full
+  data suite. Not tested on an iPhone.
