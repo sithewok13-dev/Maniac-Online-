@@ -979,19 +979,23 @@ if __name__ == '__main__':
         # Dr Fred's film (his lab), then the ending's (the front door) at once,
         # each as recorded, back where they stood, not again; each skipped by a
         # tap; Dr Fred's film's place not shown again as it ends, over once.
+        # (From 0264) The ending's film left before its end (another played,
+        # the app stopped meanwhile): the switch still on, both films again.
         ending = re.search(r"selftest ending: (\d+) before the Meteor Police took the meteor \(the Purple Meteor in the lab, its thing there, the radio's keypad its answer, the switch "
                            r"as its own script answers\); (\d+) taken at their time with the dungeon's doors open \(not with them shut\), kept through a save and reload; (\d+) lab without "
                            r"the Purple Meteor after \(its thing untouchable, the radio's line instead of its keypad, Dr Fred's lab and the front door places still\); the switch: (\d+) "
                            r"played Dr Fred's film \((\d+) events\) then the ending's at once \((\d+) events\), back where they stood, not again; (\d+) skipped by a tap, the ending "
-                           r"following; (\d+) over once where the place it was shown from could not be shown again", output)
+                           r"following; (\d+) over once where the place it was shown from could not be shown again; (\d+) the ending's left before its end, the switch still on "
+                           r"\(Dr Fred's film again\)", output)
         if all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in (1, 4, 21, 30, 51)) and \
-                (not ending or any(ending.group(k) != '1' for k in (1, 2, 3, 4, 7, 8)) or int(ending.group(5)) < 1 or int(ending.group(6)) < 1):
+                (not ending or any(ending.group(k) != '1' for k in (1, 2, 3, 4, 7, 8, 9)) or int(ending.group(5)) < 1 or int(ending.group(6)) < 1):
             raise SystemExit('FAIL: the Meteor Police taking the meteor, and the ending through the lab\'s switch (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
         if ending and ending.group(4) == '1':
             print('PASS: the Meteor Police take the meteor only with both dungeon doors open at their time, kept through a save and reload: the lab without the Purple Meteor '
                   '(nobody bringing it in), its thing untouchable, the radio\'s line instead of its keypad; then the lab\'s switch plays Dr Fred\'s film '
                   f'({ending.group(5)} events) and the ending\'s at once ({ending.group(6)} events), back where they stood, not again; each skipped by a tap; '
-                  'Dr Fred\'s film over once where the place it was shown from could not be shown again; before, the switch as its own script answers')
+                  'Dr Fred\'s film over once where the place it was shown from could not be shown again; the ending\'s left before its end, the switch still on, '
+                  'both films again; before, the switch as its own script answers')
         if effects:
             print(f"PASS: {effects.group(1)} uses of the mansion's things as their own scripts answer them (the line, the picture after, the others it sets; {effects.group(3)} of them taken, {effects.group(4)} of those read as carried; {effects.group(2)} out of reach or in a picture the game never has, {effects.group(5)} left to the plain rules: silent, or taken where not there or with no picture of its own; {effects.group(7)} taken whose pictures are the same); the fridge's food and the key under the mat inside them: untouched while shut, taken once open, gone when opened again")
         # (From 0247) Sam & Max's things as its own sentences answer (its

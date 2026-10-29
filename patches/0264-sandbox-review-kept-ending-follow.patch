@@ -1,0 +1,197 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0f2999cf..20ec560b 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -1185,13 +1185,14 @@ struct WorldWantsSecond { short game, kind, first, last; };
+ // ask "use ... with" for a thing of class 1 to 4 (their script 8 picks the
+ // preposition from them), as Day of the Tentacle's. From 0261 Fate of
+ // Atlantis's: its verb script (4) asks "use ... with" for a thing of class 1
+-// to 3 (its script 9 picks the preposition), giving "to whom"; Indiana Jones
+-// and the Last Crusade's likewise (its verb script 4, its script 11), and its
+-// talking asks "to whom" (the one talked to is its sentence's second, one of
+-// class 13: none runs on a thing alone).
++// to 4 (from 0264, 1 to 3 before: its script 9 picks the preposition from
++// each of the four, as Monkey Island's script 8 does), giving "to whom";
++// Indiana Jones and the Last Crusade's likewise (its verb script 4, its
++// script 11), and its talking asks "to whom" (the one talked to is its
++// sentence's second, one of class 13: none runs on a thing alone).
+ static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}, {0, kWorldVerbGive, 0, 0}, {1, kWorldVerbGive, 0, 0},
+ 	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}, {0, kWorldVerbUse, 1, 4}, {1, kWorldVerbUse, 1, 4},
+-	{4, kWorldVerbUse, 1, 3}, {4, kWorldVerbGive, 0, 0}, {3, kWorldVerbUse, 1, 3}, {3, kWorldVerbGive, 0, 0}, {3, kWorldVerbTalk, 0, 0}};
++	{4, kWorldVerbUse, 1, 4}, {4, kWorldVerbGive, 0, 0}, {3, kWorldVerbUse, 1, 4}, {3, kWorldVerbGive, 0, 0}, {3, kWorldVerbTalk, 0, 0}};
+ // Someone given to, in a things file's answers (from 0260, Day of the
+ // Tentacle's and both Monkey Islands' Give: its export plays each thing that
+ // can be carried given to each of the game's people (kWorldCast) in a place
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 7747b6a2..ee18e086 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -694,10 +694,14 @@ static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85,
+ // (356). From 0262 The Curse of Monkey Island's likewise (probed in its
+ // export: of the eight others its answers show that its start keeps
+ // untouchable, these four stay so): room 18, 473; room 54, 889; room 65,
+-// 1041 and 1051.
++// 1041 and 1051. From 0264 Fate of Atlantis's three shown in a picture past
++// its second (probed so, its class after each answer that shows them: the
++// 0261 table had only those shown in 0 and 1): room 42, 495 and 498 (pulled
++// or used, 492), and room 97, 1245 (1254 opened or picked up).
+ struct KeptUntouchable { const char *gameid; short room, object; };
+ static const KeptUntouchable kKeptUntouchable[] = {{"ft", 131, 573},
+ 	{"atlantis", 1, 28}, {"atlantis", 5, 81}, {"atlantis", 10, 146}, {"atlantis", 19, 208}, {"atlantis", 65, 870},
++	{"atlantis", 42, 495}, {"atlantis", 42, 498}, {"atlantis", 97, 1245},
+ 	{"indy3", 25, 364}, {"indy3", 53, 680}, {"indy3", 54, 682}, {"indy3", 54, 692}, {"indy3", 58, 723}, {"indy3", 142, 356}, {"indy3", 147, 356},
+ 	{"comi", 18, 473}, {"comi", 54, 889}, {"comi", 65, 1041}, {"comi", 65, 1051}};
+ static bool keptUntouchable(int game, int room, int id) {
+@@ -2813,10 +2817,19 @@ void SandboxEngine::filmEnd() {
+ 	if (!PanelBridge::closeUpFilm(c.game, c.index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off))) after = mark = -1;
+ 	const bool back = closeUpBack();
+ 	if (!back) _closeUp = CloseUp();
+-	if (after >= 0) {
++	// (From 0264 one whose end starts another film (`then`, below): its
++	// thing's picture after left to that film's end where that film is shown,
++	// so one left before its end (another played, the app stopped: the state
++	// is saved as it starts) is not over for good. Dr Fred's switch stays on
++	// until the ending's film ends, seen or skipped; before, both again.)
++	const WorldCloseUp *row = closeUpRow(c.game, c.index);
++	const bool follows = row && row->then;
++	auto putAfter = [&]() {
++		if (after < 0) return;
+ 		if (c.game == _game) setPicture(c.room, c.id, after);
+ 		else _pictures[thingKey(c.game, c.room, c.id)] = after;
+-	}
++	};
++	if (!follows) putAfter();
+ 	if (mark >= 0) leaveMarks(c.game, 1 << mark);
+ 	Common::String problem;
+ 	if (!back && !startElsewhere(c.game, c.room, problem)) warning("SCUMMVERSE sandbox: nowhere to be after the film %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
+@@ -2824,8 +2837,10 @@ void SandboxEngine::filmEnd() {
+ 	// the ending): that script's film follows at once, back there. The last
+ 	// over (the ending's too), back where the one played stood, as after any
+ 	// film: nothing started again, what was done kept.)
+-	const WorldCloseUp *row = closeUpRow(c.game, c.index);
+-	if (row && row->then) closeUpFollow(c, row->then);
++	if (follows) {
++		closeUpFollow(c, row->then);
++		if (_closeUp.index < 0) putAfter();
++	}
+ 	if (!_testing) saveState();
+ }
+ 
+@@ -2953,6 +2968,11 @@ void SandboxEngine::timedStep(int ticks) {
+ 			else _pictures[thingKey(w.game, w.room, set[0])] = set[1];
+ 		}
+ 		if (w.once == 2) t.phase = 2;
++		// (From 0264 one of the cast it takes away (`person`: the Purple Meteor)
++		// following the one played follows no more: shown where it is until
++		// that place is left, as one there, not brought along everywhere.)
++		const int taken = w.once == 2 && w.person ? worldAppearanceKey(w.game, w.person) : 0;
++		if (taken && following(taken)) follow(taken, false);
+ 		changed = true;
+ 	}
+ 	for (uint i = _timed.size(); i-- > 0;) if (_timed[i].phase == 0) _timed.remove_at(i);
+@@ -6237,7 +6257,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int radioTubeRefused = 0, radioTube = 0, radioSocketRefused = 0, radioSocket = 0, radioRefused = 0, radioUnpowered = 0, radioOn = 0, radioOff = 0, radioPoster = 0;
+ 	int radioKeypadShown = 0, radioWrong = 0, radioCalled = 0, radioFilms = 0, radioFilmEvents = 0, radioShut = 0, radioTicks = 0, radioKept = 0, radioBadge = 0, radioOnce = 0, radioTubeOut = 0;
+ 	int radioFellBack = 0;
+-	int endingBefore = 0, endingTaken = 0, endingGone = 0, endingFred = 0, endingEvents = 0, endingPlayed = 0, endingSkipped = 0, endingFellBack = 0;
++	int endingBefore = 0, endingTaken = 0, endingGone = 0, endingFred = 0, endingEvents = 0, endingPlayed = 0, endingSkipped = 0, endingFellBack = 0, endingLeft = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -7974,12 +7994,19 @@ Common::Error SandboxEngine::verbsTest() {
+ 				Timed t;
+ 				t.event = takenEvent; t.phase = 1; t.left = 1;
+ 				_timed.push_back(t);
++				// (From 0264 the Purple Meteor following the one played as they
++				// come: following no more, not brought along to the next place.)
++				const Common::Array<int> followersWere = _followers;
++				const int leaderWas = _leader;
++				follow(meteorKey, true);
+ 				step(1);
++				const bool unfollowed = !following(meteorKey) && go(4) && !onStage(meteorKey);
++				_followers = followersWere; _leader = leaderWas;
+ 				int g, r;
+ 				double kx, ky;
+-				ok = timedHappened(maniac, 42) && pictureIn(maniac, 4, 214) == 0 && takenAway(meteorKey) && !takenAway(_playerKey) && !takenAway(meteorPoliceKey);
++				ok = unfollowed && timedHappened(maniac, 42) && pictureIn(maniac, 4, 214) == 0 && takenAway(meteorKey) && !takenAway(_playerKey) && !takenAway(meteorPoliceKey);
+ 				if (ok) { saveState(); _timed.clear(); ok = !timedHappened(maniac, 42) && loadState(g, r, kx, ky) && timedHappened(maniac, 42); }
+-				if (ok) ++endingTaken; else fail("the meteor not taken at their time with the dungeon's doors open, or that not kept through a save and reload", maniac);
++				if (ok) ++endingTaken; else fail("the meteor not taken at their time with the dungeon's doors open (the Purple Meteor following still), or that not kept through a save and reload", maniac);
+ 			}
+ 			// (The lab without the Purple Meteor, its thing untouchable; the
+ 			// radio's answer for its keypad given now; Dr Fred's lab and the front
+@@ -8073,6 +8100,23 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index < 0 && _room == 51 && pictureOf(51, 176) == 1; }
+ 				if (ok) ++endingSkipped; else fail("Dr Fred's film or the ending's not skipped by a tap, the ending not following", maniac);
+ 			}
++			// (From 0264 the ending's film left in its scene, before its end, as
++			// another played or the Worlds menu leaves it (the app stopped then
++			// keeps what was saved as it started): the switch still on, Dr Fred's
++			// film shown again from it.)
++			if (ok) {
++				ok = go(51) && thingIn(176) >= 0;
++				if (ok) setPicture(51, 176, 0);
++				ok = ok && doAt(kWorldVerbTurnOff, thingIn(176)) && _closeUp.index == fredFilm;
++				if (ok) { stepFor(fredLead); ok = _closeUp.inScene && _room == 30; }
++				if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index == endFilm; }
++				if (ok && endLead) { stepFor(endLead); ok = _closeUp.inScene && _room == 1; }
++				ok = ok && pictureIn(maniac, 51, 176) == 0;
++				if (ok) { closeUpLeave(); ok = _closeUp.index < 0 && _game == maniac && _room == 51 && pictureOf(51, 176) == 0; }
++				ok = ok && thingIn(176) >= 0 && doAt(kWorldVerbTurnOff, thingIn(176)) && _closeUp.index == fredFilm;
++				if (_closeUp.index >= 0) closeUpLeave();
++				if (ok) ++endingLeft; else fail("the ending's film left before its end: the switch off for good, Dr Fred's film not shown again", maniac);
++			}
+ 			// (Dr Fred's film's place not shown again as it ends: over once,
+ 			// someone else played; the ending only if they are in the lab.)
+ 			if (ok) {
+@@ -8674,6 +8718,18 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (_carried[k].game == g && _carried[k].room == room && _carried[k].id == id) { PanelBridge::removeItem(k); _carried.remove_at(k); break; }
+ 			_pictures.erase(thingKey(g, room, id));
+ 		};
++		// (From 0264: a thing its game starts untouchable that another's answer
++		// shows, not a door, answered from the picture shown by an answer of its
++		// own: the export plays each one its game makes touchable so from there;
++		// one with none was kept untouchable by its game, to be among
++		// kKeptUntouchable; one kept has none there.)
++		auto answeredFrom = [&](int room, int id, int picture) {
++			for (int v = 1; v <= kWorldVerbNote; ++v) {
++				int vAfter, vFlags, vOthers[4 * 64], vCount, vLines;
++				if (PanelBridge::thingAnswer(g, room, id, v, picture, 0, vAfter, vFlags, vOthers, vCount, 64, vLines)) return true;
++			}
++			return false;
++		};
+ 		auto answered = [&](int o, int room, int id, int kind, int from, bool controls) {
+ 			int after, flags, others[4 * 64], count, lines;
+ 			if (!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 64, lines)) return false;
+@@ -8715,6 +8771,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (r != room || others[4 * i + 3] || !keptUntouchable(g, r, other) || thingIn(other) < 0) continue;
+ 				++c->keptAll;
+ 				if (isThing(thingIn(other))) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, a thing then; its game keeps it untouchable", kWorldGames[g].gameid, other, r, picture); }
++				else if (answeredFrom(r, other, picture)) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, kept untouchable; answered from there by its export (its game makes it touchable)", kWorldGames[g].gameid, other, r, picture); }
+ 				else ++c->kept;
+ 			}
+ 			for (int i = 0; i < count && !controls && (sameId(kWorldGames[g].gameid, "atlantis") || sameId(kWorldGames[g].gameid, "indy3") || sameId(kWorldGames[g].gameid, "comi")); ++i) {
+@@ -8723,8 +8780,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (r != room || others[4 * i + 3] || keptUntouchable(g, r, other) || thingIn(other) < 0 || !PanelBridge::gameThing(g, r, other, found, answers) ||
+ 					!(answers & PanelBridge::kThingAway) || found == picture) continue;
+ 				++c->madeAll;
+-				if (isThing(thingIn(other))) ++c->made;
+-				else { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, not a thing then; its game makes it touchable", kWorldGames[g].gameid, other, r, picture); }
++				if (!isThing(thingIn(other))) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, not a thing then; its game makes it touchable", kWorldGames[g].gameid, other, r, picture); }
++				else if (!worldLinkFrom(g, r, other) && !answeredFrom(r, other, picture)) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, a thing then; no answer of its own from there (its game keeps it untouchable: kKeptUntouchable)", kWorldGames[g].gameid, other, r, picture); }
++				else ++c->made;
+ 			}
+ 			if (!same) warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d: said %d letters by %d, shown %d%s (its record: %d lines, %d%s)", kWorldGames[g].gameid, id, room, kind, from, (int)(_speech.size() + _notice.size()), _speaker, pictureNow(o, id), isCarried(g, room, id) ? ", carried" : "", lines, after, took ? ", taken" : "");
+ 			if (same && !controls && noPicture) ++c->refused;
+@@ -8987,8 +9045,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest ending: %d before the Meteor Police took the meteor (the Purple Meteor in the lab, its thing there, the radio's keypad its answer, the switch as its "
+ 		"own script answers); %d taken at their time with the dungeon's doors open (not with them shut), kept through a save and reload; %d lab without the Purple Meteor after (its thing "
+ 		"untouchable, the radio's line instead of its keypad, Dr Fred's lab and the front door places still); the switch: %d played Dr Fred's film (%d events) then the ending's at once "
+-		"(%d events), back where they stood, not again; %d skipped by a tap, the ending following; %d over once where the place it was shown from could not be shown again",
+-		endingBefore, endingTaken, endingGone, endingPlayed, endingFred, endingEvents, endingSkipped, endingFellBack);
++		"(%d events), back where they stood, not again; %d skipped by a tap, the ending following; %d over once where the place it was shown from could not be shown again; "
++		"%d the ending's left before its end, the switch still on (Dr Fred's film again)",
++		endingBefore, endingTaken, endingGone, endingPlayed, endingFred, endingEvents, endingSkipped, endingFellBack, endingLeft);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)

@@ -7460,3 +7460,40 @@ the original's main ending route.
   Zak's and Monkey Island's exports with and without it identical (239
   files), test_startup, test_world_setup and the full data suite (with
   0260-0262). Not tested on an iPhone.
+
+## Patch 0264 — fixes from a review of 0257 and 0261-0263: Atlantis things kept untouchable, the ending kept when its film is cut short, the meteor no longer following
+
+- Fate of Atlantis: pulling or using 492 in room 42, or opening or picking
+  up 1254 in room 97, showed 495, 498 and 1245 in a later picture, and the
+  rule that a thing shown so becomes touchable made them touchable; the
+  original keeps them untouchable (a probe of each thing's class after
+  every answer). They join the table of things kept untouchable. A new
+  self-test check holds the table to the game: a thing the new engine makes
+  touchable must have answers of its own from the picture shown (the
+  export records answers only for things the game makes touchable), and a
+  kept one none; leaving the rows out fails, naming all three.
+- The ending (0263): the lab switch was set off and saved before the
+  ending's film started, so a film cut short (another character chosen, a
+  menu, the app stopped) lost the ending for good (the film plays only with
+  the switch on). When a film's end starts another, its thing's picture is
+  now left to the second film's end (or set at once if that film cannot be
+  shown); seen or skipped, the switch ends off and the ending is not played
+  again.
+- A Purple Meteor asked along by the chat kept following, and appeared in
+  every place entered, after the police took the meteor; a cast member a
+  timed event takes now stops following.
+- Fate of Atlantis's and the Last Crusade's Use waits for a second thing on
+  classes 1 to 4, not 1 to 3, as their verb scripts' helpers try (no
+  exported thing has class 4 alone, so no file changes).
+- Checked and found right: 0262's export-only guards (the array read cost,
+  the never-made array) only while exporting; the radio and police states
+  saved and not fired twice; the tube and socket rules.
+- Not changed: turning the lab switch off before the police come still
+  leaves no way to the ending (it needs a kept "ending seen" flag).
+- Tests: the verbs self-test (new: the kept-untouchable table against the
+  answers, the ending's film cut short, the meteor no longer following;
+  each fix undone fails), all, doors, tour, cast, follow, talk, camera and
+  wander self-tests, test_panel and test_world (ASan/UBSan), a fresh export
+  of the mansion, Atlantis, the Last Crusade and The Curse of Monkey Island
+  (identical to before), test_startup and the full data suite. Not tested
+  on an iPhone.
