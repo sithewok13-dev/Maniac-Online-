@@ -8252,3 +8252,35 @@ nothing here) and 0271's (Loom's runs that leave the place).
   requires the same answers; sanitizer exports clean; the sandbox verbs,
   all and doors self-tests pass; test_startup and the full data suite. Not
   tested on an iPhone.
+
+## Patch 0285 — the export has the one played in the place as it starts (export versions monkey2 35, monkey and tentacle 34, zak, dig and ft 32, indy3 30)
+
+From the review of 0283 and 0284.
+- Putting the whole game back before each run (0284) also put the one
+  played back in the start's place, so a place's own scripts read them from
+  elsewhere as it started: Monkey Island 2's room 60 read another place's
+  walk box and took every verb on its planks for a climb (55 answers fewer
+  than 0283's).
+- Older, from the same cause: a place whose scripts have the camera follow
+  the one played (the Last Crusade's 7 and 179-183, Day of the Tentacle's
+  30, Monkey Island 2's 50 and 51, Zak's 220 and 12, Monkey Island's 32,
+  Full Throttle's 66) had no answers at all.
+- Now each run arrives with the one played standing at the thing it uses,
+  and the camera ends where the place's scripts sent it (the SCUMM Bar's
+  important-looking pirates keep their lines). Where the place's own
+  scripts take them away standing there (Zak's 4 at 152, Monkey Island's 3
+  at 44), the place is arrived at as 0284 does.
+- The put-back now leaves no cut-scene running (none, not slot 0) and
+  keeps the screen's scroll with the camera.
+- Result: 7 things files change: Monkey Island 2 +308/-28 (room 60 back to
+  0283's answers), Zak +245, Monkey Island +62, Day of the Tentacle
+  +630/-16, the Last Crusade +5174/-432 (usual answers now filed per
+  second thing), Full Throttle +20, The Dig +1. Loom, Fate of Atlantis, Sam
+  & Max, the Curse and the mansion are as before; every other file byte for
+  byte the same.
+- Tests: exports forwards and backwards identical; a sanitizer export of
+  every game clean (ASan, UBSan, LSan); the sandbox self-tests (verbs, all,
+  doors, tour, follow, keep then resume); test_sandbox_engine.py's new
+  check that records needing the one played in the place are there, and
+  lower minimums for answers left to the plain rules; test_startup,
+  test_world_setup and the full data suite. Not tested on an iPhone.

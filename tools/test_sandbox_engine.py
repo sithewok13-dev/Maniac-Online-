@@ -306,6 +306,61 @@ def check_things(worlds):
     return len(bar)
 
 
+def answer_keys(path):
+    """From 0285, a things file's answers ("SVO9" and on, see
+    common/scummverse_panel.h) as a set of (room, object, verb kind, the
+    picture played from, the thing with it), read as
+    tools/test_world_setup.py reads them; none from an older file."""
+    data = path.read_bytes() if path.exists() else b''
+    if data[:2] == b'\x1f\x8b':
+        data = gzip.decompress(data)
+    if data[:4] not in (b'SVO9', b'SVOA', b'SVOB'):
+        return set()
+    p = 6
+    for _ in range(struct.unpack_from('<H', data, 4)[0]):
+        p += 4 + 5 * struct.unpack_from('<H', data, p + 2)[0]
+    count, p, keys = struct.unpack_from('<H', data, p)[0], p + 2, set()
+    for _ in range(count):
+        keys.add(struct.unpack_from('<HHBBH', data, p))
+        p += 10  # (room, object, kind, from, with, its picture after, flags)
+        p += 1 + 6 * data[p]  # (its others)
+        lines, p = data[p], p + 1
+        for _ in range(lines):
+            speaker, p = data[p], p + 1
+            p += (2 if speaker not in (0, 255) else 0) + (1 if speaker else 0)
+            p += 1 + data[p]
+    return keys
+
+
+PUSH = 6
+
+
+def check_arrivals(worlds):
+    # (From 0285) Where a place's own scripts read the one played as it
+    # starts, its export has them there, standing at the thing used, as a
+    # player stands: Monkey Island 2's room 60 (a walk box read each frame:
+    # at the foot of its tree, a plank pushed answers as its game answers,
+    # not as a climb), places whose scripts have the camera follow them
+    # (Monkey Island 2's 50, the Last Crusade's 7, Day of the Tentacle's 30:
+    # before, no answers at all), the SCUMM Bar's important-looking pirates
+    # talked to (their pan done) and, where their scripts take them away
+    # standing there, a thing still answered as before (Zak's room 4, 152;
+    # Monkey Island's room 3, 44). Each wherever its game's export is of
+    # 0285's version (its marker).
+    cases = (('monkey2', 35, (60, 670, PUSH, 0, 0)), ('monkey2', 35, (50, 574, LOOK, 0, 0)), ('indy3', 30, (7, 148, LOOK, 0, 0)),
+             ('tentacle', 34, (30, 248, LOOK, 0, 0)), ('monkey', 34, (28, 332, TALK, 0, 0)), ('monkey', 34, (3, 44, LOOK, 0, 0)),
+             ('zak', 32, (4, 152, OPEN, 0, 0)))
+    checked = 0
+    for game, version, key in cases:
+        if not (worlds/f'{game}-v{version}.svx').exists() or not (worlds/f'{game}-{key[0]}.svw').exists():
+            continue
+        if key not in answer_keys(worlds/f'{game}-things.svo'):
+            raise SystemExit(f'FAIL: {game} room {key[0]}: object {key[1]} not answered (verb {key[2]} from {key[3]}) with the one played there as it starts '
+                             f'(export {game} again: tools/export_worlds.py)')
+        checked += 1
+    return checked
+
+
 def colours_of(path):
     """A character file's colours drawn (palette indices), over all its frames."""
     data = path.read_bytes()
@@ -689,6 +744,9 @@ if __name__ == '__main__':
         bar = check_things(worlds)
         if bar is not None:
             print(f'PASS: the SCUMM Bar as its scripts answer ({bar} objects: a pirate talked to, not taken; a door opened; no mug out yet)')
+        arrived = check_arrivals(worlds)
+        if arrived:
+            print(f'PASS: {arrived} answers of places whose scripts read the one played as they start, recorded with them there (from 0285)')
         lit = check_lit_people(worlds)
         if lit:
             print(f"PASS: the mansion's and Zak's {lit} people in their colours (not the lights-off grey)")
@@ -1242,10 +1300,14 @@ if __name__ == '__main__':
         # nothing for a verb of a pair its script has no entry for; at least so
         # many such never played from where its place shows them, so many by
         # the plain rules never played there, and so many whose plain rules
-        # change nothing.)
-        later = (('zak', 'Zak McKracken', 16, True, 2, 1, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 1, 1),
-                 ('indy3', 'Indiana Jones and the Last Crusade', 30, True, 3, 1, 1), ('atlantis', 'Indiana Jones and the Fate of Atlantis', 3, True, 0, 1, 1),
-                 ('tentacle', 'Day of the Tentacle', 5, False, 0, 1, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 1, 1),
+        # change nothing. From 0285 fewer of those never played: the export
+        # has the one played in the place as it starts, and answers there
+        # what it did not (Zak's, Monkey Island 2's, the Last Crusade's, Day of
+        # the Tentacle's); a verb of a pair Day of the Tentacle's script has
+        # no entry for, by the plain rules, only in an export before 0285's.)
+        later = (('zak', 'Zak McKracken', 16, True, 1, 1, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 0, 1),
+                 ('indy3', 'Indiana Jones and the Last Crusade', 30, True, 0, 0, 1), ('atlantis', 'Indiana Jones and the Fate of Atlantis', 3, True, 0, 1, 1),
+                 ('tentacle', 'Day of the Tentacle', 5, False, 0, 0, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 1, 1),
                  ('dig', 'The Dig', 0, False, 0, 0, 0), ('comi', 'The Curse of Monkey Island', 0, False, 0, 0, 1), ('loom', 'Loom', 0, False, 0, 0, 0))
         for gameid, title, least, quiet, least_quiet, least_plain, least_lines in later:
             answers = worlds/f'{gameid}-things.svo'
@@ -1253,7 +1315,7 @@ if __name__ == '__main__':
                 continue
             u = unanswered.get(title)
             if not u or u[0] + u[2] != u[1] or u[3] != u[4] or u[5] != u[6] or u[8] != u[9] or u[1] < least or u[9] < least_quiet or u[6] < least_plain or u[4] < least_lines or \
-                    (quiet and u[10]) or (not quiet and u[9]) or (gameid == 'tentacle' and (not u[10] or not u[7])):
+                    (quiet and u[10]) or (not quiet and u[9]) or (gameid == 'tentacle' and (not u[10] or (not u[7] and not (worlds/'tentacle-v34.svx').exists()))):
                 raise SystemExit(f'FAIL: {title}: a verb its thing does not answer, as its game (export {title} again: tools/export_worlds.py)\n' + output[-2000:])
             if u[1] or u[4] or u[6] or u[9]:
                 print(f"PASS: {title}: {u[0]} of {u[1]} verbs a thing has no answer to from a picture it was played from nothing changed, a line said ({u[2]} away); {u[3]} whose plain "
