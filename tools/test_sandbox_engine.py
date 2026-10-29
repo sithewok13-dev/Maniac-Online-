@@ -853,8 +853,17 @@ if __name__ == '__main__':
         # to the plain rules when pinned. From 0274, its export version 42,
         # 16 of those silent picked up give a thing: away now, as their things
         # start hidden (the quarters of room 18, the demo tape, the hamster);
-        # each played by the given check below.)
-        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) < 840 or int(effects.group(2)) > 96 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
+        # each played by the given check below. From 0278, its export version
+        # 43, those that hand a verb on to another thing (a thing lying there
+        # picked up first among them) are the hand-off check's, below: counted
+        # with these.)
+        handed = re.search(r"selftest handed: (\d+) of (\d+) records of one thing of the mansion's handing a verb on to another as its sentence script runs it next, as those verbs "
+                           r"used there by a player \((\d+) away, (\d+) doing nothing there either; (\d+) of the effects' records\); the tape in (\d+) of 3 decks turning it on and off, "
+                           r"its line the deck's with the tape in \((\d+) from across the place\), (\d+) of 2 refused taken out while on; the Victrola (\d+) played and stopped by its record, refused taken off while it plays; "
+                           r"the radio (\d+) picked up and its batteries given opened where it lies, not again; the package (\d+) picked up and its stamps given pulled at the front door, "
+                           r"refused pulled or opened again carried, (\d+) its stamps picked off first; (\d+) of 2 carried answered as their scripts", output)
+        handedEffects = int(handed.group(5)) if handed else 0
+        if (worlds/'maniac-1.svw').exists() and (not effects or int(effects.group(1)) + handedEffects < 840 or int(effects.group(2)) > 96 or int(effects.group(3)) < 35 or int(effects.group(4)) < 3
                                                  or int(effects.group(5)) > 70 or effects.group(6) != '4'
                                                  or ((worlds/'maniac-16.svw').exists() and effects.group(7) != '0')):
             raise SystemExit('FAIL: the mansion\'s things as their own scripts answer (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
@@ -1079,6 +1088,39 @@ if __name__ == '__main__':
             print(f"PASS: {given.group(1)} of {given.group(2)} answers of one mansion thing giving another, each carried ({given.group(3)} in a picture never touchable); the cassette back out of "
                   f"{given.group(4)} decks, not lost; the record off the Victrola the one put on ({given.group(5)} of 2); the package's stamps pulled off; the radio's batteries opened "
                   f"carried; {given.group(8)} of {given.group(9)} verbs a thing does not answer of its pair nothing changed ({given.group(10)} away); the lab's switch turned on: nothing")
+        # (From 0278) What an answer hands on to another thing, as the
+        # mansion's sentence script runs it next (its export version 43
+        # records it): every such record played as those verbs used there by
+        # a player; the tape in each deck turning it on and off (its line the
+        # deck's with the tape in), taken out refused while on (but room
+        # 20's); the record on the Victrola playing and stopped, refused taken
+        # off while it plays; the radio opened where it lies picked up, its
+        # batteries given, not again; the package pulled at the front door
+        # picked up, its stamps given, refused again, and with them picked off
+        # first; the film and the chainsaw carried answered as their scripts.
+        if mansion >= 43 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            if not handed or int(handed.group(2)) < 40 or int(handed.group(1)) + int(handed.group(3)) != int(handed.group(2)) or int(handed.group(4)) > 4 or \
+                    int(handed.group(5)) < int(handed.group(1)) or (there(3, 5, 17, 20) and (handed.group(6) != '3' or handed.group(7) != '1' or handed.group(8) != '2')) or \
+                    (there(17, 20) and handed.group(9) != '1') or (there(1, 2) and (handed.group(10) != '1' or handed.group(11) != '1' or handed.group(12) != '1')) or \
+                    (there(1, 2, 7) and handed.group(13) != '2'):
+                raise SystemExit('FAIL: what an answer hands on to another thing, or what the mansion\'s scripts read of what was done (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            print(f"PASS: {handed.group(1)} of {handed.group(2)} answers of the mansion's handing a verb on to another as its sentence script runs it, as those verbs used there ({handed.group(3)} away, "
+                  f"{handed.group(4)} doing nothing there either); the tape in {handed.group(6)} decks turning it on and off (from across the place too), {handed.group(8)} refused taken out while on; the Victrola played and "
+                  f"stopped by its record, its record refused while it plays; the radio picked up opened where it lies, its batteries not given again; the package picked up pulled, its stamps "
+                  f"not given again ({handed.group(12)} picked off first); {handed.group(13)} carried answered as their scripts")
+            # (From 0278) What the package and the radio keep inside them:
+            # opened again where they gave it, not given again; a state kept
+            # before 0278 (the stamps and the batteries shown taken out by
+            # the pick-up then, neither given) read back: given once; with
+            # the envelope stamped, the package refusing still.
+            inside = re.search(r"selftest inside: (\d+) of 2 opened again where they gave what they keep inside \(the radio nothing, the package its refusal\); a state kept before 0278: "
+                               r"(\d+) the package's stamps and the radio's batteries given once, (\d+) the package refusing with the envelope stamped", output)
+            if there(1, 2) and (not inside or inside.group(1) != '2' or inside.group(2) != '1' or inside.group(3) != '1'):
+                raise SystemExit('FAIL: what the package or the radio keeps inside it given again, or not given from a state kept before 0278\n' + output[-2000:])
+            if inside:
+                print(f"PASS: the radio and the package opened again where they gave what they keep inside, nothing given again ({inside.group(1)} of 2); a state kept before 0278 "
+                      f"read back: the stamps and the batteries given once ({inside.group(2)}), the package refusing with the envelope stamped ({inside.group(3)})")
         # (From 0277) A verb Zak's or a later game's thing does not answer, as
         # a player chooses it: from a picture its export played it from (a
         # record of another verb from there), each verb with no record from

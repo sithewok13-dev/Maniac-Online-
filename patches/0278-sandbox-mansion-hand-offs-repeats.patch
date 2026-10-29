@@ -1,0 +1,971 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index d347c9e7..273329da 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -235,11 +235,15 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			part.room = r.u16(); part.id = r.u16(); part.picture = r.u8();
+ 			// (Given: SVO9 says so, picture 0, room 0 where it is in no place;
+ 			// before, an other's picture 2. SVOA's touch with it, never with
+-			// given; only that, with one.)
++			// given; only that, with one. From 0278 SVOA's 16 alone: a verb
++			// handed on to it, its kind the picture byte, in a place.)
+ 			if (ninth) {
+ 				const int given = r.u8();
++				const bool handed = tenth && given == 16;
+ 				part.given = (given & 1) != 0; part.touch = given & 2 ? 1 : given & 4 ? 2 : 0; part.touchOnly = (given & 8) != 0;
+-				good = good && (!r.ok || ((tenth ? given < 16 && (given & 6) != 6 && (!part.given || given == 1) && (!part.touchOnly || part.touch) : given < 2) &&
++				if (handed) part.handed = part.picture;
++				good = good && (!r.ok || (handed ? part.picture >= 1 && part.picture < 32 && part.room :
++					(tenth ? given < 16 && (given & 6) != 6 && (!part.given || given == 1) && (!part.touchOnly || part.touch) : given < 2) &&
+ 					(!part.given || !part.picture) && (part.given || part.room)));
+ 			}
+ 			else part.given = pairs && part.picture == 2;
+@@ -1312,8 +1316,9 @@ bool thingEffect(int game, int room, int id, int kind, int from, int &after, int
+ 		for (const Panel::ThingPart &part : e->others) {
+ 			if (count >= capacity) break;
+ 			// (As before 0258: given, picture 2; one past 1 left out. From 0267
+-			// one only made touchable or untouchable: answerTouches.)
+-			if ((!part.given && part.picture > 1) || part.touchOnly) continue;
++			// one only made touchable or untouchable: answerTouches. From 0278
++			// a verb handed on: answerHands.)
++			if ((!part.given && part.picture > 1) || part.touchOnly || part.handed) continue;
+ 			others[count * 3] = part.room; others[count * 3 + 1] = part.id; others[count * 3 + 2] = part.given ? 2 : part.picture;
+ 			++count;
+ 		}
+@@ -1334,7 +1339,7 @@ bool pairEffect(int game, int room, int id, int kind, int from, int with, int &a
+ 		flags = (e->taken ? 1 : 0) | (e->firstGone ? 2 : 0) | (e->secondGone ? 4 : 0) | (e->with == with ? 8 : 0);
+ 		for (const Panel::ThingPart &part : e->others) {
+ 			if (count >= capacity) break;
+-			if ((!part.given && part.picture > 1) || part.touchOnly) continue;
++			if ((!part.given && part.picture > 1) || part.touchOnly || part.handed) continue;
+ 			others[count * 3] = part.room; others[count * 3 + 1] = part.id; others[count * 3 + 2] = part.given ? 2 : part.picture;
+ 			++count;
+ 		}
+@@ -1361,7 +1366,7 @@ bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &
+ 	flags = (e->taken ? 1 : 0) | (e->firstGone ? 2 : 0) | (e->secondGone ? 4 : 0) | (with && e->with == with ? 8 : 0);
+ 	for (const Panel::ThingPart &part : e->others) {
+ 		if (count >= capacity) break;
+-		if (part.touchOnly) continue; // (from 0267: answerTouches)
++		if (part.touchOnly || part.handed) continue; // (from 0267: answerTouches; from 0278: answerHands)
+ 		others[count * 4] = part.room; others[count * 4 + 1] = part.id; others[count * 4 + 2] = part.given ? 0 : part.picture; others[count * 4 + 3] = part.given;
+ 		++count;
+ 	}
+@@ -1382,6 +1387,18 @@ bool answerTouches(int game, int room, int id, int kind, int from, int with, int
+ 	}
+ 	return true;
+ }
++// (From 0278.)
++int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity) {
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with);
++	int count = 0;
++	for (size_t k = 0; e && k < e->others.size() && count < capacity; ++k) {
++		const Panel::ThingPart &part = e->others[k];
++		if (!part.handed) continue;
++		hands[count * 3] = part.room; hands[count * 3 + 1] = part.id; hands[count * 3 + 2] = part.handed;
++		++count;
++	}
++	return count;
++}
+ bool thingsTouch(int game) {
+ 	for (const auto &g : gameThings()) if (g.first == game) return g.second.touches;
+ 	return false;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 9b0c1bf4..c62d8265 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -176,8 +176,11 @@ struct GameThing { int id = 0, picture = 0, answers = 0; };
+ // inside another (u16 room, u16 object, u16 the one it is in, u8 the picture
+ // that one shows it in: drawn and touched only then).
+ // (From 0267, "SVOA": touch, what the answer made of it: 1 touchable, 2
+-// untouchable, 0 neither; touchOnly: only that, its picture not set by it.)
+-struct ThingPart { int room = 0, id = 0, picture = 0; bool given = false; int touch = 0; bool touchOnly = false; }; // (given: an SVO4 to SVO8 picture 2, or SVO9's own)
++// untouchable, 0 neither; touchOnly: only that, its picture not set by it.
++// From 0278 handed: a verb kind the answer hands on to it, its game's
++// sentence script running it next; its picture then that kind, nothing
++// else of it said.)
++struct ThingPart { int room = 0, id = 0, picture = 0; bool given = false; int touch = 0; bool touchOnly = false; int handed = 0; }; // (given: an SVO4 to SVO8 picture 2, or SVO9's own)
+ // (A line an answer says and who says it: see "SVO9" below.)
+ struct ThingLine { int speaker = 0, costume = 0, color = -1; std::string text; };
+ // "SVO4" (from 0171): each effect has, after its picture from, u16 the
+@@ -262,7 +265,11 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // both; neither with bit 0, given) and 3 only that: its picture not set by
+ // it (one of bits 1 and 2 then; its picture the one it was in). An answer
+ // says nothing of a thing whose touch it leaves alone. A file with a value
+-// out of range is refused whole.
++// out of range is refused whole. From 0278 (the same "SVOA") an other's
++// byte after its picture may be 16 alone: a verb the answer hands on to
++// that thing (its game's sentence script runs them next, in the order
++// listed), its picture byte then the verb's kind (1 to 31); see
++// PanelBridge::answerHands.
+ struct ThingIcon { int id = 0, width = 0, height = 0; std::string name; std::vector<uint32_t> picture; };
+ struct FilmEvent { int tick = 0, id = 0, picture = 0; std::string line; };
+ struct CloseUpFilm {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index ed880e6a..e2fb4dbc 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -182,6 +182,12 @@ bool answerLine(int game, int room, int id, int kind, int from, int with, int li
+ static const int kMadeTouchable = 1, kMadeUntouchable = 2;
+ bool answerTouches(int game, int room, int id, int kind, int from, int with, int *touched, int &count, int capacity, int &self);
+ bool thingsTouch(int game);
++// From 0278 ("SVOA"; a file of before says nothing): what an answer (as
++// thingAnswer finds it) hands on, as its game's sentence script runs it
++// next: up to `capacity` verbs as (room, object, verb kind) in `hands`,
++// three each, in the order run. Left out of thingEffect, pairEffect,
++// thingAnswer and answerTouches. Returns how many.
++int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity);
+ // A thing given carried by its own inventory picture (from 0258, "SVO9";
+ // one its place has no picture of): added as addItem adds one, named `name`
+ // (null: its own name); false: none.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 6dd2f159..cd665a7b 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -105,10 +105,14 @@ static const int kWorldExportVersion = 25;
+ // kWorldMarkReaders' `picked`: "maniac-v42"); from 0276 Fate of Atlantis's
+ // again (a thing its game starts untouchable that an answer of two reveals
+ // played on too, as one an answer of one reveals: room 18's ladder taken
+-// back as the ladder: "atlantis-v30").
++// back as the ladder: "atlantis-v30"); from 0278 the mansion's again (what
++// an answer hands on to another thing, a thing lying there picked up first,
++// as its sentence script runs them; what its game keeps inside another left
++// where it is; the answers that read the decks, the Victrola
++// (kWorldVarThings) and what was taken: "maniac-v43").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 17 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 18 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 :
+ 		same(gameid, "tentacle") || same(gameid, "atlantis") ? 5 :
+ 		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 4 :
+ 		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
+@@ -699,9 +703,11 @@ inline const WorldCloseUp *worldCloseUpOf(int game, int room, int object, int cl
+ // picture of its own whose script keeps its state in `var` (0 off, else on),
+ // not in its own. The export plays its answers with the variable as its
+ // picture (put so first, read after), so the new engine keeps it as any
+-// thing's picture. The hidden room's radio (room 21, 399): on (172).
++// thing's picture. The hidden room's radio (room 21, 399): on (172). From
++// 0278 the Victrola (room 17, 366): playing (167; its record can't be
++// taken off then, kWorldMarkReaders).
+ struct WorldVarThing { short game, room, object, var; };
+-static const WorldVarThing kWorldVarThings[] = {{10, 21, 399, 172}};
++static const WorldVarThing kWorldVarThings[] = {{10, 21, 399, 172}, {10, 17, 366, 167}};
+ inline int worldVarThing(int game, int object) {
+ 	for (const WorldVarThing &v : kWorldVarThings) if (v.game == game && v.object == object) return v.var;
+ 	return 0;
+@@ -1323,6 +1329,16 @@ enum {
+ // script reads what that pick-up did. The portable radio (room 2, 142)
+ // opened carried gives the batteries (167) its pick-up put inside it; its
+ // one thing's answer, played from the game's start, never has them inside.
++// From 0278 what the mansion's scripts read of other things, so: the package
++// (1, 57) pulled or opened carried once its stamps are off (100 at 1; 165,
++// in picture 1 once taken) refuses; the radio opened carried gives its
++// batteries only while they are in it (167 in its picture 0: never given);
++// the tape in a deck taken out (17, 192; 3, 80) refused while the deck is
++// on (191, 228 in picture 1), the record off the Victrola (17, 30) while it
++// plays (366 at 1, kWorldVarThings); each deck turned on with its tape in
++// (192, 80, 216 in picture 0) and the Victrola with its record on (30).
++// The new engine reads `need`, `also` and `bare` where it is (a thing
++// carried used elsewhere too).
+ struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads, kid, bare, powered, picked; };
+ static const WorldMarkReader kWorldMarkReaders[] = {
+ 	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed, 0, 0, 0, 0},
+@@ -1336,14 +1352,18 @@ static const WorldMarkReader kWorldMarkReaders[] = {
+ 	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+ 	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0},
+ 	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0},
+-	{10, 1, 57, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 1, 57, kWorldVerbOpen, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0}, {10, 1, 57, kWorldVerbPull, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0},
+ 	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed, 0, 0, 0, 0},
+ 	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+ 	{10, 3, 73, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0},
+ 	{10, 21, 398, kWorldVerbUse, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0}, {10, 21, 398, kWorldVerbFix, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0},
+ 	{10, 21, 399, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 212, 1, 0}, {10, 21, 399, kWorldVerbUse, 0, 0, 0, 162, 3, 0, 0, 0, 0, 0},
+ 	{10, 21, 397, kWorldVerbRead, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 21, 212, kWorldVerbPickUp, 0, 0, 0, 172, 1, 0, 0, 0, 0, 0},
+-	{10, 2, 142, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
++	{10, 2, 142, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 167, 0, 1},
++	{10, 17, 192, kWorldVerbPickUp, 0, 191, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 3, 80, kWorldVerbPickUp, 0, 228, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 17, 30, kWorldVerbPickUp, 0, 366, 0, 167, 1, 0, 0, 0, 0, 0},
++	{10, 17, 191, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 192, 0, 0}, {10, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0},
++	{10, 20, 164, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 216, 0, 0}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0}};
+ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, int kind, int with) {
+ 	for (const WorldMarkReader &r : kWorldMarkReaders)
+ 		if (r.game == game && r.room == room && r.object == object && r.kind == kind && r.with == with) return &r;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index bf9d3160..376acd9e 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -47,6 +47,11 @@ static const int kScummverseMadeTouchable = 0x200, kScummverseMadeUntouchable =
+ static const int kScummverseTouchBits = kScummverseMadeTouchable | kScummverseMadeUntouchable | kScummverseTouchOnly;
+ // (While exporting: one set or cleared as it was, see scummverseSettleTouches.)
+ static const int kScummverseTouchAsWas = 0x1000;
++// From 0278, an other that is a verb the answer hands on to that thing (its
++// game's sentence script runs it next): the verb's kind with this, written
++// as the kind and bit 4 of its byte after (Scummverse::Panel::ThingPart's
++// `handed`), alone; never with a touch, never given.
++static const int kScummverseHanded = 0x2000;
+ 
+ // From 0267, an answer's touches settled once every run is done: one set or
+ // cleared as it was kept only for a thing some answer changes (`changed`, by
+@@ -1867,6 +1872,28 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		};
+ 		static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull,
+ 			kWorldVerbRead, kWorldVerbPickUp};
++		// (From 0278 what an answer hands on: the sentences its script left
++		// queued, which its game's sentence script (2) runs next, the last
++		// first; each a verb of those above on one thing of the places, the
++		// verb's kind with kScummverseHanded (see the writer). Not its own
++		// verb on itself again: its game goes round it, nothing changing.
++		// Read before the queue is let go.)
++		auto hands = [&](Effect &e, int room, const Common::Array<int> &here, int self, int selfKind) {
++			for (int s = _sentenceNum; s-- > 0;) {
++				const SentenceTab &st = _sentence[s];
++				int handed = 0;
++				for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.verb == st.verb) handed = v.kind;
++				bool known = false;
++				for (int k : kinds) known = known || k == handed;
++				if (!known || st.objectB || !placeOf.contains(st.objectA) || (st.objectA == self && handed == selfKind) || e.others.size() >= 3 * 64) continue;
++				bool inHere = false;
++				for (uint i = 0; i + 4 < here.size(); i += 5) inHere = inHere || here[i] == st.objectA;
++				e.others.push_back(inHere ? room : placeOf[st.objectA]); e.others.push_back(st.objectA); e.others.push_back(handed | kScummverseHanded);
++				debug(1, "SCUMMVERSE world things: %s room %d: %d's answer to %d hands %d to %d", kWorldGames[gameIndex].gameid, room, self, selfKind, handed, st.objectA);
++			}
++		};
++		int pickUpVerb = 0, pickedFirst = 0, putInside = 0;
++		for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kWorldVerbPickUp) pickUpVerb = v.verb;
+ 		for (const Room &r : found) {
+ 			// (What answers which verb: the room set up once to look.)
+ 			Common::Array<int> runs;
+@@ -1889,6 +1916,21 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					_rnd.setSeed(0x5C0BE + r.room);
+ 					if (!arrive(r.room) || !getVerbEntrypoint(obj, verb)) break;
+ 					putPicture(obj, from);
++					// (From 0278 one lying in its place that can be picked up, used
++					// with a verb but read or pick up: its game's sentence script
++					// picks it up first (its own pick-up, its owner the room's then),
++					// then uses the verb on it carried; that is the answer, its
++					// script not run here (its record from 1 is as carried).)
++					if (from == 0 && kind != kWorldVerbRead && kind != kWorldVerbPickUp && (getState(obj) & kObjectStatePickupable) && getOwner(obj) == OF_OWNER_ROOM &&
++						pickUpVerb && getVerbEntrypoint(obj, pickUpVerb)) {
++						Effect e;
++						e.room = r.room; e.id = obj; e.kind = kind; e.from = from; e.after = from; e.taken = false;
++						const int picked[] = {r.room, obj, kWorldVerbPickUp | kScummverseHanded, r.room, obj, kind | kScummverseHanded};
++						for (int value : picked) e.others.push_back(value);
++						effects.push_back(e);
++						++pickedFirst;
++						continue;
++					}
+ 					const int owner = getOwner(obj);
+ 					const Common::Array<byte> ownersWere(_objectOwnerTable, _numGlobalObjects);
+ 					const Common::Array<bool> was = untouchables(); // (from 0267: see touches)
+@@ -1927,6 +1969,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					for (int other : set) {
+ 						if (other == obj || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64) continue;
+ 						listed[other] = true;
++						// (From 0278 not one it put inside another (its game's owner
++						// 14: the radio's batteries in it, the stamps in the package,
++						// the quarter in the envelope, each taken): its picture where
++						// it is kept until it is given; what it made of its touch
++						// still said, see touches.)
++						if (getOwner(other) == 14 && ownersWere[other] != 14) { ++putInside; continue; }
+ 						e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(_objectStateTable[other] & kObjectStateIntrinsic ? 1 : 0);
+ 					}
+ 					// (From 0274 what the kid has then that it had not, as the two
+@@ -1937,10 +1985,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 						if (o != obj && ownersWere[o] != VAR(VAR_EGO) && getOwner(o) == VAR(VAR_EGO) && placeOf.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(2); }
+ 					// (From 0267 what it makes touchable or untouchable, itself too.)
+ 					touches(e, r.room, obj, Common::Array<int>(), was, set, ownersWere, VAR(VAR_EGO));
++					hands(e, r.room, r.things, obj, kind);
+ 					effects.push_back(e);
+ 				}
+ 			}
+ 		}
++		debug(1, "SCUMMVERSE world things: %s %d answers picked up first, %d things put inside another left where they are", kWorldGames[gameIndex].gameid, pickedFirst, putInside);
+ 		// (From 0171 two things, as the mansion's own scripts answer: Use on a
+ 		// thing that can be carried with another (each thing of the places,
+ 		// each that can be carried), Unlock and Fix on a thing here with one
+@@ -2136,7 +2186,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				if (!arrive(r.room) || !isLightOn()) continue;
+ 				putBack();
+ 				memcpy(_scummVars, offVars.data(), offVars.size() * sizeof(int32));
+-				if (_roomVars) memcpy(_roomVars, offRoomVars.data(), offRoomVars.size() * sizeof(int32));
++				if (_roomVars && !offRoomVars.empty()) memcpy(_roomVars, offRoomVars.data(), offRoomVars.size() * sizeof(int32)); // (from 0278: the mansion has none)
+ 				memcpy(_bitVars, offBits.data(), offBits.size());
+ 				memcpy(_objectStateTable, offStates.data(), offStates.size());
+ 				memcpy(_objectOwnerTable, offOwners.data(), offOwners.size());
+@@ -2725,6 +2775,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					const bool there = arrive(m.room);
+ 					arriving = 3;
+ 					if (!there || !getVerbEntrypoint(m.object, verb)) break;
++					// (From 0278 not from 0 one lying there that can be picked up,
++					// with a verb of one thing but read or pick up: its game's
++					// sentence script picks it up first, as its one thing's answer
++					// from 0 hands on (the package opened at the front door, the
++					// radio where it lies).)
++					bool alone = false;
++					for (int k : kinds) alone = alone || (k == m.kind && k != kWorldVerbRead && k != kWorldVerbPickUp);
++					if (!from && alone && !m.with && (getState(m.object) & kObjectStatePickupable) && getOwner(m.object) == OF_OWNER_ROOM && pickUpVerb &&
++						getVerbEntrypoint(m.object, pickUpVerb)) break;
+ 					const int ego = VAR(VAR_EGO);
+ 					if (m.need) putState(m.need, getState(m.need) | kObjectStateIntrinsic);
+ 					if (m.also) putState(m.also, getState(m.also) | kObjectStateIntrinsic);
+@@ -2838,14 +2897,19 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// (From 0267 every answer's touches settled (scummverseSettleTouches);
+ 		// "SVOA" where one is left, a thing given then marked so (kGiven) as
+ 		// its writer has it.)
+-		int touching = 0;
++		int touching = 0, handing = 0;
+ 		for (Effect &e : effects) {
+ 			scummverseSettleTouches(e.others, changedTouch, 2);
+-			bool touched = false;
+-			for (uint k = 0; k + 2 < e.others.size(); k += 3) touched = touched || (e.others[k + 2] != 2 && (e.others[k + 2] & kScummverseTouchBits));
+-			touching += touched;
++			bool touched = false, handed = false;
++			for (uint k = 0; k + 2 < e.others.size(); k += 3) {
++				touched = touched || (e.others[k + 2] != 2 && (e.others[k + 2] & kScummverseTouchBits));
++				handed = handed || (e.others[k + 2] != 2 && (e.others[k + 2] & kScummverseHanded));
++			}
++			touching += touched; handing += handed;
+ 		}
+-		ninth = touching > 0;
++		// (From 0278 "SVOA" where one hands on too.)
++		ninth = touching > 0 || handing > 0;
++		debug(1, "SCUMMVERSE world things: %s %d answers hand a verb on to a thing", kWorldGames[gameIndex].gameid, handing);
+ 		for (Effect &e : effects)
+ 			for (uint k = 0; ninth && k + 2 < e.others.size(); k += 3) if (e.others[k + 2] == 2) e.others[k + 2] = kGiven;
+ 		debug(1, "SCUMMVERSE world things: %s %d made touchable, %d untouchable (%d others only that, %d things themselves; %d as they were); %d answers make things touchable or untouchable (%d things changed so)",
+@@ -3581,7 +3645,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (e.others[i + 1] == e.id && value != kGiven && (value & kScummverseTouchBits)) continue;
+ 			scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]);
+ 			out.writeByte(value == kGiven ? 0 : value & 0xFF);
+-			out.writeByte(value == kGiven ? 1 : (value & kScummverseMadeTouchable ? 2 : 0) | (value & kScummverseMadeUntouchable ? 4 : 0) | (value & kScummverseTouchOnly ? 8 : 0));
++			out.writeByte(value == kGiven ? 1 : (value & kScummverseMadeTouchable ? 2 : 0) | (value & kScummverseMadeUntouchable ? 4 : 0) | (value & kScummverseTouchOnly ? 8 : 0) |
++				(value & kScummverseHanded ? 16 : 0));
+ 		}
+ 		Common::Array<Line> lines = e.lines;
+ 		if (lines.empty() && !e.line.empty()) { Line l; l.text = e.line; lines.push_back(l); }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 9a3fc184..7fe4dd0b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -698,6 +698,17 @@ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69,
+ // Meteor Police leave in the dungeon (room 4, 214).
+ struct ManiacShownLater { short room, object, inside, insidePicture; };
+ static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85, 1}, {1, 58, 0, 0}, {1, 57, 0, 0}, {21, 212, 0, 0}, {4, 214, 0, 0}};
++// From 0278: what a thing of the mansion's that can be carried keeps inside
++// it until an answer gives it (its game's owner 14), which the readers since
++// 0278 read by its picture (kWorldMarkReaders' `need` and `bare`: out once
++// it is 1): the stamps on the package (room 1, 57 and 165; used up only on
++// the envelope, which leaves it stamped) and the batteries in the radio
++// (room 2, 142 and 167; never used up). A things file of before 0278 showed
++// it taken out (1) as the pick-up put it inside, so a state kept then has
++// it so, neither given nor used up: read so, the package refused its stamps
++// and the radio its batteries for good. loadState puts it back in (0).
++struct ManiacInside { short room, thing, inside; int usedMark; };
++static const ManiacInside kManiacInside[] = {{1, 57, 165, kManiacMarkStamped}, {2, 142, 167, 0}};
+ // From 0255: things The Dig's and Full Throttle's answers show in another
+ // picture that their scripts keep untouchable all the same (isThing's rule
+ // for those games, which takes the others so shown as made touchable;
+@@ -812,12 +823,14 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	const bool marked = markedEffect(_game, _room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), flags, sets);
+ 	if (marked) taken = (flags & 1) != 0;
+ 	else if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
+-	// (From 0267 what it makes touchable or untouchable is a change too.)
+-	int touched[3 * 64], touchedCount = 0, self = 0;
++	// (From 0267 what it makes touchable or untouchable is a change too; from
++	// 0278 what it hands on.)
++	int touched[3 * 64], touchedCount = 0, self = 0, hands[3 * 8];
+ 	if (!marked) PanelBridge::answerTouches(_game, _room, id, kind, from, 0, touched, touchedCount, 64, self);
++	const int handed = marked ? 0 : PanelBridge::answerHands(_game, _room, id, kind, from, 0, hands, 8);
+ 	// (Read or picked up, saying nothing and changing nothing, or taken
+ 	// from the picture without it: the plain rules, as before 0161.)
+-	if (plainAnswer(kind, from, after, taken, count + touchedCount + (self ? 1 : 0), said) || (taken && isCarried(_game, _room, id))) return false;
++	if (plainAnswer(kind, from, after, taken, count + touchedCount + (self ? 1 : 0) + handed, said) || (taken && isCarried(_game, _room, id))) return false;
+ 	// (Taken where its two pictures are the same (the garage's, room 16,
+ 	// before export version 23: no picture without it): carried all the
+ 	// same, as its game gives it, the place as it was.)
+@@ -840,6 +853,9 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	othersAfter(_game, others, count, _room, id);
+ 	if (!marked) touchesAfter(_game, _room, id, kind, from, 0);
+ 	leaveMarks(_game, sets);
++	// (From 0278 what it hands on, after it: the tape's turned on turning on
++	// its deck; one lying there picked up first, then used carried.)
++	if (handed) handsAfter(_game, _room, id, kind, from);
+ 	return true;
+ }
+ 
+@@ -853,7 +869,12 @@ void SandboxEngine::othersAfter(int game, const int *others, int count, int room
+ 		const int picture = others[3 * k + 2];
+ 		if (picture == 2) givenBack(game, room, id, r, o);
+ 		if (isCarried(game, r, o)) continue;
+-		if (picture == 2) { if (carry(game, r, o, "", 0)) _pictures[thingKey(game, r, o)] = 1; }
++		// (From 0278 one given from the place shown gone from it there too,
++		// as that place shows it when come to again: before, it stayed shown
++		// there until then, and a reader read it there as not given (the
++		// package opened again at the front door gave its stamps again, the
++		// radio in its place its batteries).)
++		if (picture == 2) { if (carry(game, r, o, "", 0)) { if (game == _game) setPicture(r, o, 1); else _pictures[thingKey(game, r, o)] = 1; } }
+ 		else if (game == _game) setPicture(r, o, picture);
+ 		else _pictures[thingKey(game, r, o)] = picture;
+ 	}
+@@ -889,6 +910,32 @@ void SandboxEngine::givenBack(int game, int room, int id, int &givenRoom, int &g
+ 	if (ins == 1) { given = in; givenRoom = inRoom; }
+ }
+ 
++// From 0278: each verb an answer hands on, in the order its game's sentence
++// script runs them (the last queued first), as a player uses it: one
++// carried as carried, one here as reached (act: its answer, by the marks,
++// its close-up, the plain rules); one elsewhere, nothing. Not deeper than
++// kMostHanded.
++void SandboxEngine::handsAfter(int game, int room, int id, int kind, int from, int with) {
++	int hands[3 * 8];
++	const int count = _handing < kMostHanded ? PanelBridge::answerHands(game, room, id, kind, from, with, hands, 8) : 0;
++	++_handing;
++	for (int k = 0; k < count; ++k) {
++		const int r = hands[3 * k], o = hands[3 * k + 1], verb = hands[3 * k + 2];
++		int item = -1;
++		for (uint c = 0; c < _carried.size() && item < 0; ++c) if (_carried[c].game == game && _carried[c].room == r && _carried[c].id == o) item = c;
++		if (item >= 0) { useItem(item, verb); continue; }
++		int target = -1;
++		for (int i = 0; game == _game && r == _room && _closeUp.index < 0 && target < 0 && i < StageBridge::objectCount(); ++i) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) && oid == o) target = i;
++		}
++		if (target < 0) continue;
++		_action = verb; _target = target;
++		act();
++	}
++	--_handing;
++}
++
+ void SandboxEngine::touchesAfter(int game, int room, int id, int kind, int from, int with) {
+ 	int touched[3 * 64], count, self;
+ 	if (!PanelBridge::answerTouches(game, room, id, kind, from, with, touched, count, 64, self)) return;
+@@ -1012,6 +1059,36 @@ bool SandboxEngine::unanswered(int kind, int answers) const {
+ 	return false;
+ }
+ 
++// (From 0278, the checks': what an answer by the marks reads of other things
++// of its place (`need`, `also`, `bare`) as its game starts them, as its one
++// thing's record was played (the deck off, its tape out, the record off).)
++void SandboxEngine::readsAsStarted(int game, int room, int id, int kind) {
++	const WorldMarkReader *m = game == _game && room == _room ? worldMarkReader(game, room, id, kind, 0) : nullptr;
++	for (int read : {m ? (int)m->need : 0, m ? (int)m->also : 0, m ? (int)m->bare : 0}) {
++		int start, answers;
++		if (read && PanelBridge::gameThing(game, room, read, start, answers)) setPicture(room, read, start);
++	}
++}
++
++bool SandboxEngine::carriedAnswer(int item, int kind) {
++	static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull};
++	if (item < 0 || item >= (int)_carried.size() || Common::find(kinds, kinds + ARRAYSIZE(kinds), kind) == kinds + ARRAYSIZE(kinds)) return false;
++	const Carried c = _carried[item];
++	if (c.game < 0 || c.game >= worldGameCount() || strcmp(kWorldGames[c.game].gameid, "maniac")) return false;
++	loadThings(c.game);
++	int after, others[3 * 64], count, flags = 0, sets = 0;
++	char said[256];
++	const bool marked = markedEffect(c.game, c.room, c.id, kind, 1, 0, after, others, count, 64, said, sizeof(said), flags, sets);
++	if (!marked && !PanelBridge::thingEffect(c.game, c.room, c.id, kind, 1, after, others, count, 64, said, sizeof(said))) return false;
++	// (Carried: not its own picture after, nor taken again.)
++	if (*said) say(said);
++	othersAfter(c.game, others, count, c.room, c.id);
++	if (!marked) touchesAfter(c.game, c.room, c.id, kind, 1, 0);
++	leaveMarks(c.game, sets);
++	if (!marked) handsAfter(c.game, c.room, c.id, kind, 1);
++	return true;
++}
++
+ // From 0277 the games whose own sentence changes nothing for a verb a
+ // thing's script has no entry for (nor a catch-all one), where a player
+ // chooses a verb of a pair: the mansion's (0274), Zak's, both Monkey
+@@ -2138,19 +2215,12 @@ void SandboxEngine::useItem(int item, int kind) {
+ 		}
+ 	}
+ 	// (From 0250 the mansion's, opened carried (the envelope, the package):
+-	// as its script answers by the marks, where it reads them, as carried.)
+-	if (kind == kWorldVerbOpen && item >= 0 && item < (int)_carried.size()) {
+-		const Carried c = _carried[item];
+-		loadThings(c.game);
+-		int after, others[3 * 64], count, flags, sets;
+-		char said[256];
+-		if (markedEffect(c.game, c.room, c.id, kWorldVerbOpen, 1, 0, after, others, count, 64, said, sizeof(said), flags, sets)) {
+-			if (*said) say(said);
+-			othersAfter(c.game, others, count, c.room, c.id);
+-			leaveMarks(c.game, sets);
+-			if (!_testing) saveState();
+-			return;
+-		}
++	// as its script answers by the marks, where it reads them, as carried.
++	// From 0278 any verb of one thing but read (pulled, turned on): its
++	// record from picture 1 where none reads the marks: carriedAnswer.)
++	if (carriedAnswer(item, kind)) {
++		if (!_testing) saveState();
++		return;
+ 	}
+ 	int picture;
+ 	char line[160];
+@@ -2732,7 +2802,7 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ void SandboxEngine::act() {
+ 	const int kind = _action, target = _target;
+ 	_action = 0; _target = -1;
+-	if (_pairing.kind) {
++	if (_pairing.kind && !_handing) {
+ 		const Pair p = _pairing;
+ 		_pairing = Pair();
+ 		if (p.kind == kind && (p.person >= 0 ? target < 0 : p.thing == target || p.withThing == target)) { pairUp(p); return; }
+@@ -2754,7 +2824,9 @@ void SandboxEngine::act() {
+ 	doorPoint(target, tx, ty);
+ 	StageBridge::walkable(tx, ty);
+ 	const double reach = 2 * kDoorReach * screenWidthOf(_game) / 320.0;
+-	const bool near = (px - tx) * (px - tx) + (py - ty) * (py - ty) <= reach * reach ||
++	// (From 0278 one an answer hands on to: its game's sentence script walks
++	// there first.)
++	const bool near = _handing || (px - tx) * (px - tx) + (py - ty) * (py - ty) <= reach * reach ||
+ 		(px >= ox - reach && px <= ox + w + reach && py >= oy - reach && py <= oy + h + reach);
+ 	// (The Dig's tap needs a hand only for what it takes or opens: looking does not.)
+ 	const bool acting = kind == kWorldVerbAct;
+@@ -3300,14 +3372,16 @@ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from,
+ 	// script reads, those its answers were played with.)
+ 	const WorldMarkReader *reader = worldMarkReader(game, room, id, kind, with);
+ 	if (!reader) return false;
+-	// (The things it wants first so, as a player has them: else its answer as before.)
+-	if (need && (game != _game || _room != room || pictureOf(room, need) != 1)) return false;
+-	if (reader->also && (game != _game || _room != room || pictureOf(room, reader->also) != 1)) return false;
++	// (The things it wants first so, as a player has them: else its answer as
++	// before. From 0278 where they are: the package or the radio carried
++	// elsewhere reads its own place's.)
++	if (need && pictureIn(game, room, need) != 1) return false;
++	if (reader->also && pictureIn(game, room, reader->also) != 1) return false;
+ 	// (From 0257 one kid's answer: only the one played who is them, else the
+ 	// thing's own; its `bare` thing in its picture 0 first; with the main
+ 	// power off, as its script checks, nothing.)
+ 	if (reader->kid && playedKid(game) != reader->kid) return false;
+-	if (reader->bare && (game != _game || _room != room || pictureOf(room, reader->bare) != 0)) return false;
++	if (reader->bare && pictureIn(game, room, reader->bare) != 0) return false;
+ 	// (From 0263 one played as after a timed event, its `var` at its `value`
+ 	// (kWorldTimed's): from the picture a close-up of its thing shows for
+ 	// this verb only until that event (the radio's keypad), only once it has
+@@ -5757,6 +5831,19 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			_timed = timed;
+ 			_seen = seen;
+ 			_touched = touchedNow;
++			// (From 0278 a state kept before 0278: what the mansion's package
++			// and radio keep inside them, shown taken out by their pick-up then,
++			// in them again where the one it is in is carried, it is not, and
++			// its use's mark is not set (kManiacInside).)
++			for (int g = 0; g < worldGameCount(); ++g) {
++				if (!sameId(kWorldGames[g].gameid, "maniac")) continue;
++				for (const ManiacInside &m : kManiacInside) {
++					const int inside = thingKey(g, m.room, m.inside);
++					bool used = false;
++					for (const Mark &k : _marks) used = used || (k.game == g && k.mark >= 0 && k.mark < 31 && (m.usedMark & 1 << k.mark));
++					if (isCarried(g, m.room, m.thing) && !isCarried(g, m.room, m.inside) && !used && _pictures.contains(inside) && _pictures[inside] == 1) _pictures[inside] = 0;
++				}
++			}
+ 		}
+ 	}
+ 	return usable;
+@@ -7153,7 +7240,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0, effectsHanded = 0;
+ 	int safes = 0, safesWrong = 0, safesLeft = 0, safesFellBack = 0, effectsCloseUp = 0;
+ 	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0, scopeFellBack = 0;
+ 	int tvPowerOff = 0, tvOff = 0, tvFilms = 0, tvEvents = 0, tvEventCount = 0, tvLines = 0, tvMarked = 0, tvSkipped = 0, tvLeft = 0;
+@@ -7167,6 +7254,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int endingBefore = 0, endingTaken = 0, endingGone = 0, endingFred = 0, endingEvents = 0, endingPlayed = 0, endingSkipped = 0, endingFellBack = 0, endingLeft = 0;
+ 	int endingOther = 0, endingFirst = 0, endingOlder = 0;
+ 	int givenAll = 0, givenSeen = 0, givenAway = 0, givenCassettes = 0, givenRecords = 0, givenStamps = 0, givenRadio = 0, unansweredAll = 0, unansweredSeen = 0, unansweredAway = 0, unansweredSwitch = 0;
++	int handAll = 0, handSeen = 0, handAway = 0, handQuiet = 0, handDecks = 0, handTapesRefused = 0, handVictrola = 0, handRadio = 0, handPackage = 0, handStampsFirst = 0, handCarriedLines = 0, handAfar = 0;
++	int insideHere = 0, insideOlder = 0, insideStamped = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -7463,6 +7552,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int with = 0;
+ 			if (!PanelBridge::effectAt(maniac, k, room, id, kind, from, &with) || !installed(maniac, room)) continue;
+ 			if (with) { ++effectsPairs; continue; }
++			// (From 0278 one that hands a verb on: the check of those, below.)
++			int handedOn[3 * 8];
++			if (PanelBridge::answerHands(maniac, room, id, kind, from, 0, handedOn, 8)) { ++effectsHanded; continue; }
+ 			// (One whose script shows a close-up from there (from 0240, the wall
+ 			// safe's keypad): the safe's check below.)
+ 			bool shows = false;
+@@ -8384,7 +8476,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (chain) { step(1); chain = pictureIn(maniac, 1, 57) == package.sets[0][1] && _timed.size() == 1 && _timed[0].phase == 2; }
+ 				if (chain && go(1) && isThing(thingIn(57)) && isThing(thingIn(165))) { ++mailPackage; mailPackageTicks = package.first; }
+ 				else { chain = false; fail("the package not at the front door its time after the stairs", maniac); }
+-				if (chain && doAt(kWorldVerbOpen, thingIn(57)) && carriedAt(1, 165) >= 0 && _speech == said(1, 57, kWorldVerbOpen, 0, 0, 0)) ++mailStampsGiven;
++				// (From 0278 picked up first, as its game's sentence script picks
++				// up a thing lying there, then opened carried: its own answer so.)
++				int packageAfter, packageOthers[3 * 64], packageCount;
++				char packageLine[256];
++				if (chain && doAt(kWorldVerbOpen, thingIn(57)) && carriedAt(1, 165) >= 0 && carriedAt(1, 57) >= 0 &&
++					PanelBridge::thingEffect(maniac, 1, 57, kWorldVerbOpen, 1, packageAfter, packageOthers, packageCount, 64, packageLine, sizeof(packageLine)) && _speech == packageLine) ++mailStampsGiven;
+ 				else { chain = false; fail("the package's stamps not given when it is opened", maniac); }
+ 				// (Climbed again: no second package.)
+ 				chain = chain && go(12) && go(38) && _timed.size() == 1 && _timed[0].event == 0 && _timed[0].phase == 2 && go(1);
+@@ -9287,6 +9384,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (o < 0) { fail("a thing that gives another not in its place", maniac); continue; }
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from); else _pictures[thingKey(maniac, room, id)] = from;
+ 			_touched[thingKey(maniac, room, id)] = kTouchedTouchable;
++			readsAsStarted(maniac, room, id, kind);
+ 			// (Not one its game never has touchable in that picture: those it
+ 			// shows later (kManiacShownLater) in their start's picture.)
+ 			if (!isThing(o)) { ++givenAway; forgetThing(thingKey(maniac, room, id)); _touched = givenKept.was; continue; }
+@@ -9347,9 +9445,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 			dropAll(1, 165); forgetThing(thingKey(maniac, 1, 57));
+ 			bool ok = enter(maniac, 1, 0, problem) && thingIn(57) >= 0 && !isThing(thingIn(57));
+ 			if (ok) setPicture(1, 57, 0); // (come to the front door: kWorldTimed)
+-			ok = ok && isThing(thingIn(57)) && doAt(kWorldVerbPull, thingIn(57)) && !_speech.empty() && isCarried(maniac, 1, 165) && !isCarried(maniac, 1, 57);
++			// (From 0278 the package picked up first, as its game's sentence
++			// script picks up a thing lying there before pulling it.)
++			ok = ok && isThing(thingIn(57)) && doAt(kWorldVerbPull, thingIn(57)) && !_speech.empty() && isCarried(maniac, 1, 165) && isCarried(maniac, 1, 57);
+ 			if (ok) ++givenStamps; else fail("the package's stamps not given when it is pulled", maniac);
+-			dropAll(1, 165); forgetThing(thingKey(maniac, 1, 57));
++			dropAll(1, 165); dropAll(1, 57);
+ 		}
+ 		// The portable radio (room 2, 142) picked up, its batteries (167) put
+ 		// inside it, not carried; opened carried: they are given (a line said).
+@@ -9422,6 +9522,293 @@ Common::Error SandboxEngine::verbsTest() {
+ 			forgetThing(thingKey(maniac, 51, 176));
+ 			_seen = seenHad; _timed = timedHad;
+ 		}
++		// (From 0278) What an answer hands on to another thing, as the
++		// mansion's sentence script runs it next (its things file's verbs
++		// handed on, in the order run): every such record, its thing in the
++		// picture it starts from, used as a player uses it there, leaves all
++		// (what is said last, every picture kept and what is touchable, what
++		// is carried, the lights) as those verbs used there by a player on
++		// their things do (one carried as carried); one lying there that can
++		// be picked up, picked up first. Then by name, as the mansion's
++		// scripts read what was done before: the tape in each deck (rooms 17,
++		// 3 and 20) turned on and off turns its deck on and off, its line the
++		// deck's with the tape in (the deck itself so too; from across the
++		// place too, as its game's sentence script walks there); taken out
++		// while on, refused (room 20's script stops the music and gives it);
++		// the record on the Victrola turned on and off: playing and not,
++		// taken off refused while it plays; the radio opened where it lies:
++		// picked up, its batteries given; they used up, opened again
++		// elsewhere: nothing; picked up, then opened first elsewhere: given;
++		// the package pulled at the front door: picked up, its stamps given;
++		// they used up, pulled or opened again elsewhere: its refusal, nothing
++		// given; its stamps picked off first, the package opened: picked up,
++		// the refusal; the film opened and the chainsaw turned on carried:
++		// their own lines.
++		{
++			const uint handBase = _carried.size();
++			const Common::HashMap<int, bool> darkHad = _dark;
++			const bool flashlightHad = _flashlight;
++			const Common::Array<Mark> marksHad = _marks;
++			auto handReset = [&]() {
++				for (uint c = _carried.size(); c-- > handBase;) { PanelBridge::removeItem(c); _carried.remove_at(c); }
++				_pictures = givenPictures; _touched = givenKept.was; _marks = marksHad; _dark = darkHad; _flashlight = flashlightHad;
++				_speech.clear();
++			};
++			auto carriedIndex = [&](int room, int id) {
++				for (uint c = 0; c < _carried.size(); ++c) if (_carried[c].game == maniac && _carried[c].room == room && _carried[c].id == id) return (int)c;
++				return -1;
++			};
++			// (Used up: no longer carried, given all the same.)
++			auto usedUp = [&](int room, int id) {
++				const int c = carriedIndex(room, id);
++				if (c >= 0) { PanelBridge::removeItem(c); _carried.remove_at(c); }
++			};
++			auto useCarried = [&](int room, int id, int kind) {
++				const int c = carriedIndex(room, id);
++				_speech.clear();
++				if (c >= 0) useItem(c, kind);
++				return c >= 0;
++			};
++			// (As a player reaches it, what was said before kept.)
++			auto reachAt = [&](int kind, int o) {
++				double x, y;
++				if (o < 0 || !doorPoint(o, x, y)) return false;
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				_action = kind; _target = o;
++				act();
++				return true;
++			};
++			auto state = [&]() {
++				Common::String s = Common::String::format("said '%s' carried", _speech.c_str());
++				for (const Carried &c : _carried) s += Common::String::format(" %d/%d", c.room, c.id);
++				Common::Array<int> kept;
++				for (Common::HashMap<int, int>::const_iterator p = _pictures.begin(); p != _pictures.end(); ++p) kept.push_back(p->_key);
++				Common::sort(kept.begin(), kept.end());
++				s += " pictures";
++				for (int key : kept) s += Common::String::format(" %d=%d", key, _pictures[key]);
++				Common::Array<int> dark;
++				for (Common::HashMap<int, bool>::const_iterator p = _dark.begin(); p != _dark.end(); ++p) dark.push_back(p->_key);
++				Common::sort(dark.begin(), dark.end());
++				s += " dark";
++				for (int key : dark) s += Common::String::format(" %d", key);
++				Common::Array<int> touches;
++				for (Common::HashMap<int, int>::const_iterator p = _touched.begin(); p != _touched.end(); ++p) touches.push_back(p->_key);
++				Common::sort(touches.begin(), touches.end());
++				s += " touched";
++				for (int key : touches) s += Common::String::format(" %d=%d", key, _touched[key]);
++				return s + Common::String::format(" flashlight %d", _flashlight ? 1 : 0);
++			};
++			for (int k = 0, n = maniac >= 0 ? PanelBridge::effectCount(maniac) : 0; k < n; ++k) {
++				int room, id, kind, from, with = 0, hands[3 * 8], after, others[3 * 64], count;
++				char said[256];
++				if (!PanelBridge::effectAt(maniac, k, room, id, kind, from, &with) || with) continue;
++				const int handCount = PanelBridge::answerHands(maniac, room, id, kind, from, 0, hands, 8);
++				if (!handCount) continue;
++				++handAll;
++				// (Its own part none but what it hands on, as every such record of
++				// the mansion's.)
++				if (!PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said)) || *said || after != from || count) {
++					fail("a record handing a verb on that does more itself", maniac);
++					continue;
++				}
++				if (!installed(maniac, room)) { ++handAway; continue; }
++				Common::String runs[2];
++				bool reached = true;
++				for (int run = 0; run < 2 && reached; ++run) {
++					handReset();
++					if (!enter(maniac, room, 0, problem)) { reached = false; break; }
++					for (int up = id, depth = 0, parent, picture; depth < 8 && PanelBridge::thingParent(maniac, room, up, parent, picture); up = parent, ++depth) setPicture(room, parent, picture);
++					const int o = thingIn(id);
++					if (o < 0) { reached = false; break; }
++					setPicture(room, id, from);
++					_touched[thingKey(maniac, room, id)] = kTouchedTouchable;
++					_speech.clear();
++					if (!run) { reached = reachAt(kind, o); runs[run] = state(); continue; }
++					// (The verbs it hands on, each used by a player there.)
++					for (int h = 0; h < handCount && reached; ++h) {
++						const int c = carriedIndex(hands[3 * h], hands[3 * h + 1]);
++						if (c >= 0) useItem(c, hands[3 * h + 2]);
++						else reached = _room == hands[3 * h] && reachAt(hands[3 * h + 2], thingIn(hands[3 * h + 1]));
++					}
++					runs[run] = state();
++				}
++				if (!reached) { ++handAway; continue; }
++				if (runs[0] == runs[1]) ++handSeen;
++				else {
++					warning("SCUMMVERSE sandbox: %d in room %d, verb %d from %d, handed on: %s; its verbs used there: %s", id, room, kind, from, runs[0].c_str(), runs[1].c_str());
++					fail("a verb an answer hands on not as a player using it there", maniac);
++				}
++				// (One whose verbs handed on do nothing there either.)
++				handReset();
++				if (enter(maniac, room, 0, problem) && runs[1] == state()) ++handQuiet;
++			}
++			handReset();
++			auto lineOf = [&](int room, int id, int kind, int from, bool byMarks) {
++				int after, others[3 * 64], count, flags, sets;
++				char said[256] = "";
++				const bool found = byMarks ? markedEffect(maniac, room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), flags, sets) :
++					PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said));
++				return found ? Common::String(said) : Common::String("(none)");
++			};
++			static const int tapeDecks[][3] = {{17, 192, 191}, {3, 80, 228}, {20, 216, 164}};
++			for (const int (&d)[3] : tapeDecks) {
++				if (maniac < 0 || !installed(maniac, 5) || !installed(maniac, d[0])) continue;
++				for (int direct = 0; direct < 2; ++direct) {
++					handReset();
++					dropAll(5, 189); forgetThing(thingKey(maniac, d[0], d[1])); forgetThing(thingKey(maniac, d[0], d[2]));
++					bool ok = enter(maniac, d[0], 0, problem) && thingIn(d[1]) >= 0 && thingIn(d[2]) >= 0 && pictureOf(d[0], d[1]) == 1 && pictureOf(d[0], d[2]) == 0;
++					// (No tape: its line without one.)
++					const Common::String without = lineOf(d[0], d[2], kWorldVerbTurnOn, 0, false);
++					ok = ok && useOn(carryFrom(5, 189), thingIn(d[2])) && pictureOf(d[0], d[1]) == 0 && !isCarried(maniac, 5, 189);
++					const Common::String with = ok ? lineOf(d[0], d[2], kWorldVerbTurnOn, 0, true) : Common::String("(none)");
++					ok = ok && with != "(none)" && with != without && doAt(kWorldVerbTurnOn, thingIn(direct ? d[2] : d[1])) && pictureOf(d[0], d[2]) == 1 && _speech == with;
++					if (!direct) {
++						const bool refuses = d[0] != 20;
++						ok = ok && doAt(kWorldVerbPickUp, thingIn(d[1])) &&
++							(refuses ? !_speech.empty() && !isCarried(maniac, 5, 189) && pictureOf(d[0], d[1]) == 0 : isCarried(maniac, 5, 189) && pictureOf(d[0], d[1]) == 1);
++						if (ok && refuses) ++handTapesRefused;
++						if (refuses) {
++							ok = ok && doAt(kWorldVerbTurnOff, thingIn(d[1])) && pictureOf(d[0], d[2]) == 0;
++							ok = ok && doAt(kWorldVerbPickUp, thingIn(d[1])) && isCarried(maniac, 5, 189) && pictureOf(d[0], d[1]) == 1;
++						}
++					}
++					if (ok && !direct) ++handDecks;
++					if (!ok) fail(direct ? "a deck turned on with its tape in not as its script answers" : "a deck's tape turned on, off or taken out not as its script hands it on or refuses it", maniac);
++				}
++			}
++			dropAll(5, 189);
++			// (Handed on from afar: the one played across the place from the
++			// deck, the tape's answer handed on still turns it on, as its
++			// game's sentence script walks there first.)
++			if (maniac >= 0 && installed(maniac, 5) && installed(maniac, 17)) {
++				handReset();
++				forgetThing(thingKey(maniac, 17, 192)); forgetThing(thingKey(maniac, 17, 191));
++				bool ok = enter(maniac, 17, 0, problem) && thingIn(191) >= 0 && useOn(carryFrom(5, 189), thingIn(191)) && pictureOf(17, 192) == 0;
++				const Common::String with = ok ? lineOf(17, 191, kWorldVerbTurnOn, 0, true) : Common::String();
++				double x, y;
++				ok = ok && doorPoint(thingIn(191), x, y);
++				if (ok) {
++					double far = x < StageBridge::sceneWidth() / 2.0 ? StageBridge::sceneWidth() - 1.0 : 0.0;
++					StageBridge::walkable(far, y);
++					StageBridge::place(_player, far, y);
++					_speech.clear();
++					handsAfter(maniac, 17, 192, kWorldVerbTurnOn, 0);
++				}
++				ok = ok && pictureOf(17, 191) == 1 && _speech == with;
++				if (ok) ++handAfar; else fail("a deck's tape turned on from across the place not turning it on, as its game's sentence script walks there", maniac);
++				dropAll(5, 189);
++			}
++			if (maniac >= 0 && installed(maniac, 17) && installed(maniac, 20)) {
++				handReset();
++				dropAll(20, 32); dropAll(17, 188); forgetThing(thingKey(maniac, 17, 30)); forgetThing(thingKey(maniac, 17, 366));
++				bool ok = enter(maniac, 17, 0, problem) && thingIn(30) >= 0 && thingIn(366) >= 0 && pictureOf(17, 30) == 1;
++				ok = ok && useOn(carryFrom(20, 32), thingIn(366)) && pictureOf(17, 30) == 0 && !isCarried(maniac, 20, 32);
++				ok = ok && doAt(kWorldVerbTurnOn, thingIn(30)) && pictureOf(17, 366) == 1;
++				ok = ok && doAt(kWorldVerbPickUp, thingIn(30)) && !_speech.empty() && pictureOf(17, 30) == 0 && !isCarried(maniac, 20, 32);
++				ok = ok && doAt(kWorldVerbTurnOff, thingIn(30)) && pictureOf(17, 366) == 0;
++				ok = ok && doAt(kWorldVerbPickUp, thingIn(30)) && isCarried(maniac, 20, 32) && pictureOf(17, 30) == 1;
++				if (ok) ++handVictrola; else fail("the record on the Victrola turned on, off or taken off while it plays not as its scripts answer", maniac);
++				dropAll(20, 32);
++			}
++			if (maniac >= 0 && installed(maniac, 2) && installed(maniac, 1)) {
++				handReset();
++				dropAll(2, 142); dropAll(2, 167); forgetThing(thingKey(maniac, 6, 140));
++				bool ok = enter(maniac, 2, 0, problem) && thingIn(142) >= 0 && isThing(thingIn(142)) && doAt(kWorldVerbOpen, thingIn(142)) && !_speech.empty() &&
++					isCarried(maniac, 2, 142) && isCarried(maniac, 2, 167) && pictureOf(2, 142) == 1;
++				usedUp(2, 167);
++				ok = ok && enter(maniac, 1, 0, problem) && useCarried(2, 142, kWorldVerbOpen) && _speech.empty() && !isCarried(maniac, 2, 167);
++				// (Picked up, then opened first elsewhere: its batteries given.)
++				handReset();
++				dropAll(2, 142); dropAll(2, 167); forgetThing(thingKey(maniac, 6, 140));
++				ok = ok && enter(maniac, 2, 0, problem) && thingIn(142) >= 0 && doAt(kWorldVerbPickUp, thingIn(142)) && isCarried(maniac, 2, 142) && !isCarried(maniac, 2, 167);
++				ok = ok && enter(maniac, 1, 0, problem) && useCarried(2, 142, kWorldVerbOpen) && !_speech.empty() && isCarried(maniac, 2, 167);
++				if (ok) ++handRadio; else fail("the radio opened where it lies not picked up with its batteries given, or they given again", maniac);
++				dropAll(2, 142); dropAll(2, 167);
++			}
++			if (maniac >= 0 && installed(maniac, 1) && installed(maniac, 2)) {
++				handReset();
++				dropAll(1, 57); dropAll(1, 165);
++				bool ok = enter(maniac, 1, 0, problem) && thingIn(57) >= 0;
++				if (ok) setPicture(1, 57, 0); // (come to the front door: kWorldTimed)
++				ok = ok && isThing(thingIn(57)) && doAt(kWorldVerbPull, thingIn(57)) && !_speech.empty() && isCarried(maniac, 1, 57) && isCarried(maniac, 1, 165);
++				const Common::String gave = _speech;
++				usedUp(1, 165);
++				ok = ok && enter(maniac, 2, 0, problem) && useCarried(1, 57, kWorldVerbPull) && !_speech.empty() && _speech != gave && !isCarried(maniac, 1, 165);
++				const Common::String refusal = _speech;
++				ok = ok && useCarried(1, 57, kWorldVerbOpen) && _speech == refusal && !isCarried(maniac, 1, 165);
++				if (ok) ++handPackage; else fail("the package pulled at the front door not picked up with its stamps given, or they given again", maniac);
++				handReset();
++				dropAll(1, 57); dropAll(1, 165);
++				ok = ok && enter(maniac, 1, 0, problem) && thingIn(57) >= 0 && thingIn(165) >= 0;
++				if (ok) setPicture(1, 57, 0);
++				ok = ok && isThing(thingIn(165)) && doAt(kWorldVerbPickUp, thingIn(165)) && isCarried(maniac, 1, 165) && doAt(kWorldVerbOpen, thingIn(57)) &&
++					isCarried(maniac, 1, 57) && _speech == refusal;
++				int stamps = 0;
++				for (const Carried &c : _carried) stamps += c.game == maniac && c.room == 1 && c.id == 165;
++				if (ok && stamps == 1) ++handStampsFirst; else fail("the package opened once its stamps were picked off not refused as its script answers", maniac);
++				dropAll(1, 57); dropAll(1, 165);
++			}
++			// (From 0278) The radio opened where it lies, then again there, and
++			// the package pulled at the front door, then opened again there:
++			// nothing, and its refusal, as opened again elsewhere (what they
++			// gave shown gone from their place there at once). A state kept
++			// before 0278 (the stamps and the batteries shown taken out by the
++			// package's and the radio's pick-up, untouchable, neither given),
++			// read back: the package gives its stamps and the radio its
++			// batteries, once; with the envelope stamped (its stamps used up),
++			// the package refuses still.
++			if (maniac >= 0 && installed(maniac, 1) && installed(maniac, 2)) {
++				handReset();
++				dropAll(2, 142); dropAll(2, 167); forgetThing(thingKey(maniac, 6, 140));
++				bool ok = enter(maniac, 2, 0, problem) && thingIn(142) >= 0 && doAt(kWorldVerbOpen, thingIn(142)) && isCarried(maniac, 2, 167) && pictureOf(2, 167) == 1;
++				ok = ok && useCarried(2, 142, kWorldVerbOpen) && _speech.empty();
++				int batteries = 0;
++				for (const Carried &c : _carried) batteries += c.game == maniac && c.room == 2 && c.id == 167;
++				if (ok && batteries == 1) ++insideHere; else fail("the radio opened again where it gave its batteries giving them again", maniac);
++				handReset();
++				dropAll(1, 57); dropAll(1, 165);
++				ok = enter(maniac, 1, 0, problem) && thingIn(57) >= 0;
++				if (ok) setPicture(1, 57, 0); // (come to the front door: kWorldTimed)
++				ok = ok && doAt(kWorldVerbPull, thingIn(57)) && isCarried(maniac, 1, 165) && pictureOf(1, 165) == 1;
++				const Common::String gave = _speech;
++				ok = ok && useCarried(1, 57, kWorldVerbOpen) && !_speech.empty() && _speech != gave;
++				if (ok) ++insideHere; else fail("the package opened again at the front door where it gave its stamps giving them again", maniac);
++				auto older = [&](bool stamped) {
++					handReset();
++					dropAll(1, 57); dropAll(1, 165); dropAll(2, 142); dropAll(2, 167); forgetThing(thingKey(maniac, 6, 140));
++					if (!enter(maniac, 2, 0, problem) || carryFrom(1, 57) < 0 || carryFrom(2, 142) < 0) return false;
++					static const int inside[][2] = {{1, 165}, {2, 167}};
++					for (const int (&t)[2] : inside) { _pictures[thingKey(maniac, t[0], t[1])] = 1; _touched[thingKey(maniac, t[0], t[1])] = kTouchedUntouchable; }
++					if (stamped) leaveMarks(maniac, kManiacMarkStamped);
++					int g, r;
++					double kx, ky;
++					saveState();
++					_carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); forgetThings(); _marks.clear();
++					return loadState(g, r, kx, ky) && enter(g, r, 0, problem);
++				};
++				ok = older(false) && useCarried(1, 57, kWorldVerbOpen) && !_speech.empty() && isCarried(maniac, 1, 165);
++				const Common::String stamps = _speech;
++				ok = ok && useCarried(1, 57, kWorldVerbPull) && !_speech.empty() && _speech != stamps;
++				ok = ok && useCarried(2, 142, kWorldVerbOpen) && !_speech.empty() && isCarried(maniac, 2, 167) && useCarried(2, 142, kWorldVerbOpen) && _speech.empty();
++				if (ok) ++insideOlder; else fail("a state kept before 0278 with the package and the radio picked up: their stamps and batteries not given once", maniac);
++				ok = older(true) && useCarried(1, 57, kWorldVerbOpen) && !_speech.empty() && _speech != stamps && _speech == lineOf(1, 57, kWorldVerbOpen, 1, true) && !isCarried(maniac, 1, 165);
++				if (ok) ++insideStamped; else fail("a state kept before 0278 with the envelope stamped: the package giving its stamps again", maniac);
++				handReset();
++				dropAll(1, 57); dropAll(1, 165); dropAll(2, 142); dropAll(2, 167); forgetThing(thingKey(maniac, 6, 140));
++			}
++			static const int handCarried[][3] = {{1, 56, kWorldVerbOpen}, {7, 94, kWorldVerbTurnOn}};
++			for (const int (&t)[3] : handCarried) {
++				if (maniac < 0 || !installed(maniac, t[0])) continue;
++				handReset();
++				dropAll(t[0], t[1]);
++				const Common::String line = lineOf(t[0], t[1], t[2], 1, false);
++				if (enter(maniac, 2, 0, problem) && carryFrom(t[0], t[1]) >= 0 && useCarried(t[0], t[1], t[2]) && line != "(none)" && !line.empty() && _speech == line) ++handCarriedLines;
++				else fail("a thing carried with a verb of one thing not answered as its script answers it carried", maniac);
++				dropAll(t[0], t[1]);
++			}
++			handReset();
++		}
+ 		_touched = givenKept.was; _marks = givenMarks; _pictures = givenPictures;
+ 		_random.setSeed(givenRandom); _strollClock = givenStroll;
+ 	}
+@@ -10867,6 +11254,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if ((_game != g || _room != room) && !enter(g, room, 0, problem)) { fail("a place not shown", g); continue; }
+ 				const int o = thingIn(id);
+ 				int markedAfter, markedOthers[3 * 64], markedCount, markedFlags;
++				readsAsStarted(g, room, id, kind);
+ 				if (o < 0 || markedEffect(g, room, id, kind, from, 0, markedAfter, markedOthers, markedCount, 64, said, sizeof(said), markedFlags, sets) || !ready(g, room, id, from, o)) { ++touchAway; putBack(g, room, id); continue; }
+ 				_speech.clear(); _notice.clear();
+ 				if (!effectOf(id, kind, from, o)) ++touchPlain;
+@@ -11074,6 +11462,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"the record taken off the Victrola %d of 2 as the one put on; the package's stamps %d pulled off; the radio's batteries %d given opened carried; %d of %d verbs a thing does not answer of its pair (%d things away) as its game, nothing changed; "
+ 		"the lab's switch turned on %d, from on and off, nothing",
+ 		givenSeen, givenAll, givenAway, givenCassettes, givenRecords, givenStamps, givenRadio, unansweredSeen, unansweredAll, unansweredAway, unansweredSwitch);
++	warning("SCUMMVERSE sandbox selftest handed: %d of %d records of one thing of the mansion's handing a verb on to another as its sentence script runs it next, as those verbs used there by a player "
++		"(%d away, %d doing nothing there either; %d of the effects' records); the tape in %d of 3 decks turning it on and off, its line the deck's with the tape in (%d from across the place), %d of 2 refused taken out while on; "
++		"the Victrola %d played and stopped by its record, refused taken off while it plays; the radio %d picked up and its batteries given opened where it lies, not again; "
++		"the package %d picked up and its stamps given pulled at the front door, refused pulled or opened again carried, %d its stamps picked off first; %d of 2 carried answered as their scripts",
++		handSeen, handAll, handAway, handQuiet, effectsHanded, handDecks, handAfar, handTapesRefused, handVictrola, handRadio, handPackage, handStampsFirst, handCarriedLines);
++	// (From 0278 what the package and the radio keep inside them, given once.)
++	warning("SCUMMVERSE sandbox selftest inside: %d of 2 opened again where they gave what they keep inside (the radio nothing, the package its refusal); a state kept before 0278: "
++		"%d the package's stamps and the radio's batteries given once, %d the package refusing with the envelope stamped", insideHere, insideOlder, insideStamped);
+ 	// (From 0277) A verb Zak's or a later game's thing does not answer, as a
+ 	// player chooses it (its panel's verbs, its pointer's, its coin's parts;
+ 	// not Loom's distaff: its own answers, else nothing happens), in each of
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 5d5ff146..dc6472ea 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -347,6 +347,19 @@ private:
+ 	int playedKid(int game) const; // (from 0257: the mansion's kid played, its actor's number; 0: someone else)
+ 	void othersAfter(int game, const int *others, int count, int room = 0, int id = 0); // (an answer's others: shown so, or carried; from 0274 its own thing's)
+ 	void givenBack(int game, int room, int id, int &givenRoom, int &given) const; // (from 0274: one of several put in for it, given back)
++	// From 0278 what an answer (its record as thingAnswer finds it) hands on
++	// to other things, as its game's sentence script runs them next: each
++	// verb on its thing as a player uses it, one carried as carried
++	// (useItem), one here as act() does on reaching it (no walk), one
++	// elsewhere nothing. `_handing`: how deep (at most kMostHanded).
++	void handsAfter(int game, int room, int id, int kind, int from, int with = 0);
++	static const int kMostHanded = 4;
++	int _handing = 0;
++	// From 0278 a thing of the mansion's carried, with a verb of one thing
++	// but read: as its script answers it carried (its record from picture 1,
++	// by the marks where it reads them); false: none (the plain rules).
++	bool carriedAnswer(int item, int kind);
++	void readsAsStarted(int game, int room, int id, int kind); // (the checks')
+ 	// From 0267 what an answer (its record as thingAnswer finds it: `with`
+ 	// 0 none, else that second's own, else its usual one) makes touchable or
+ 	// untouchable, the thing itself too: kept (_touched).

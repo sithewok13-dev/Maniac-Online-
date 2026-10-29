@@ -7991,3 +7991,50 @@ Max's things in rooms 7, 35, 37, 48 and 61 taken by Pick up.
   list), 10 mutations caught, ASan/UBSan; the all and doors self-tests
   unchanged; test_startup and the full data suite. No exported file
   changes. Not tested on an iPhone.
+
+## Patch 0278 — what the mansion's answers hand on, things picked up first, repeats refused, verbs on carried things (mansion export version 43)
+
+From 0274's "not done", against the original's scripts (read with descumm,
+nothing copied).
+- Some of the mansion's answers pass the action on to another thing, which
+  the original's sentence script runs next; the export never ran it, so
+  they did nothing. Now the tape in a deck turned on or off turns the deck
+  on or off, the record on the Victrola does the same for the Victrola,
+  the toilet opens its lid, the garage door's parts open the garage door,
+  and room 10's inner front door opens its other half (56 records).
+- A thing that can be carried, lying in its place, is picked up first when
+  any verb but Read or Pick up is used on it, as in the original: opening
+  the radio where it lies picks it up and gives its batteries; pulling the
+  package at the front door picks it up and gives its stamps.
+- Answers now depend on what was done before, as the original's scripts
+  check: a deck turned on with its tape in, and the Victrola with a record
+  on, play (not "no tape"); the tape can't be taken out while its deck is
+  on (rooms 17 and 3), nor the record off the Victrola while it plays; the
+  package refuses once its stamps are off, and the radio gives its
+  batteries only once.
+- Verbs on carried things (pull, open, turn on) answer as their own
+  scripts do, not by the plain rules.
+- From its review: a state kept before this patch with the package or the
+  radio picked up but not opened refused the stamps and the batteries for
+  good (the older pick-up showed the thing inside as taken out, which the
+  new readers read as given); on loading, such a thing is put back inside
+  when the thing it's in is carried, it isn't, and the envelope isn't
+  stamped. And opened again where it gave, before leaving, the package and
+  the radio repeated their giving line: a thing given from the place being
+  played is now shown gone from it at once.
+- Things file "SVOA": an answer can list a verb it hands on (an other's
+  byte 16 alone, its kind in the picture byte); older readers leave these
+  parts out.
+- Not done: room 9's light pulled while the room is dark stays dark; what a
+  tape records and which record plays aren't kept (a deck plays every tape
+  as blank, record 32 doesn't break the vase, the Victrola never stops on
+  its own); hand-offs that depend on another thing's picture are as at the
+  game's start; hand-offs to doors use the new engine's door rules.
+- Tests: the verbs self-test's new hand-off check (all 56 records play as
+  the handed verbs would; decks, tapes, the Victrola, the radio, the
+  package, carried things; opened again where they gave; an older state
+  read back), 22 of 23 mutations caught, ASan/UBSan;
+  test_panel (a new hand-off case) and test_world; every other game's
+  export byte for byte as before, two mansion exports identical;
+  test_startup, test_world_setup and the full data suite. Not tested on an
+  iPhone.

@@ -1164,6 +1164,40 @@ int main() {
 			for (const std::vector<uint8_t> &refused : {tenth(24, others10), tenth(8 | 1, others10), tenth(16 | 1, others10), tenth(32, others10), tenth(8, {{20, 209, 3, 2 | 4}}),
 				tenth(8, {{22, 221, 0, 1 | 2}}), tenth(8, {{22, 221, 0, 1 | 4 | 8}}), tenth(8, {{20, 209, 3, 8}}), tenth(8, {{20, 209, 3, 16 | 2}}), tenth(8, {{0, 209, 3, 2}})})
 				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty() && !things.touches);
+			// (From 0278, the same "SVOA": an other's byte 16 alone, a verb the
+			// answer hands on to that thing, its picture byte the verb's kind.
+			// The second answer hands Open on to 211, then Pick up to 209, after
+			// what it shows, touches and gives: read whole; answerHands has them
+			// in order (as many as asked; none for an answer handing nothing on,
+			// nor for one not there); the older readers and answerTouches leave
+			// them out. In an SVO9, or out of range (kind 0 or past 31, in no
+			// place, with another bit): refused whole.)
+			const std::vector<Other> others11 = {{20, 209, 3, 2}, {22, 221, 0, 1}, {20, 211, kOpen, 16}, {20, 209, kPickUp, 16}};
+			std::vector<uint8_t> handing = tenth(8, others11);
+			assert(parseThings(handing.data(), handing.size(), things, error) && things.touches && things.effects.size() == 2);
+			const ThingEffect *hands11 = things.effect(20, 205, kPickUp, 0);
+			assert(hands11 && hands11->others.size() == 4 && hands11->others[2].handed == kOpen && hands11->others[2].id == 211 && hands11->others[2].room == 20 &&
+				!hands11->others[2].touch && !hands11->others[2].given && !hands11->others[2].touchOnly && hands11->others[3].handed == kPickUp && hands11->others[3].id == 209 &&
+				!hands11->others[0].handed && !hands11->others[1].handed);
+			assert(PanelBridge::loadThings(6, handing.data(), handing.size(), problem, sizeof(problem)));
+			int hands11Out[3 * 4];
+			assert(PanelBridge::answerHands(6, 20, 205, kPickUp, 0, 0, hands11Out, 4) == 2 && hands11Out[0] == 20 && hands11Out[1] == 211 && hands11Out[2] == kOpen &&
+				hands11Out[3] == 20 && hands11Out[4] == 209 && hands11Out[5] == kPickUp);
+			assert(PanelBridge::answerHands(6, 20, 205, kPickUp, 0, 0, hands11Out, 1) == 1 && hands11Out[1] == 211); // (as many as asked)
+			assert(!PanelBridge::answerHands(6, 20, 205, kUse, 3, 0, hands11Out, 4) && !PanelBridge::answerHands(6, 20, 205, kUse, 0, 0, hands11Out, 4) &&
+				!PanelBridge::answerHands(7, 20, 205, kPickUp, 0, 0, hands11Out, 4));
+			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others3, count, 4, said, sizeof(said), &taken) && count == 1 && others3[1] == 221 && others3[2] == 2);
+			assert(PanelBridge::pairEffect(6, 20, 205, kPickUp, 0, 0, after, others3, count, 4, said, sizeof(said), flags10) && count == 1 && others3[1] == 221);
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 4, lines9) && count9 == 2 && others4[1] == 209 && others4[2] == 3 && others4[5] == 221);
+			assert(PanelBridge::answerTouches(6, 20, 205, kPickUp, 0, 0, touched10, count10, 4, self) && count10 == 1 && touched10[1] == 209 && touched10[2] == PanelBridge::kMadeTouchable);
+			PanelBridge::clearThings();
+			std::vector<uint8_t> handingNine = handing;
+			handingNine[3] = '9';
+			assert(!parseThings(handingNine.data(), handingNine.size(), things, error) && error == "bad effect" && things.effects.empty());
+			for (size_t cut = 1; cut < handing.size() - 4; ++cut) assert(!parseThings(handing.data(), handing.size() - cut, things, error) && things.effects.empty());
+			for (const std::vector<uint8_t> &refused : {tenth(8, {{20, 211, 0, 16}}), tenth(8, {{20, 211, 32, 16}}), tenth(8, {{0, 211, kOpen, 16}}), tenth(8, {{20, 211, kOpen, 16 | 1}}),
+				tenth(8, {{20, 211, kOpen, 16 | 4}}), tenth(8, {{20, 211, kOpen, 16 | 8}})})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty());
 		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
@@ -1330,7 +1364,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and
