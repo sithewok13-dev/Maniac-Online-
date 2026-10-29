@@ -936,9 +936,9 @@ int main() {
 			for (const std::vector<uint8_t> &refused : {eight(film, 1308, 2, 2, 1, 2, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, PanelBridge::kMostMarks + 1, {0, 1, 2}, false), eight(film, 1308, 0, 2, 1, 1, {0, 1, 2}, false),
 				eight(film, 1308, 0, 2, 1, 2, {0, 4, 2}, false)})
 				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad marks");
-			// (From a review of 0248: its lead past its length, or past
-			// kMostFilmLead (its thing shown, taps waiting, meanwhile): refused;
-			// at the most, read.)
+			// (From a review of 0248: its lead past kMostFilmLead (its thing
+			// shown, taps waiting, meanwhile): refused; at the most, read. From
+			// 0287 its length no bound on it: below.)
 			for (int tooLong : {1309, PanelBridge::kMostFilmLead + 1, 65535}) {
 				leadTicks = tooLong;
 				std::vector<uint8_t> refused = eight(film, 2000, 0, 2, 1, 2, {0, 1, 2}, false);
@@ -952,6 +952,12 @@ int main() {
 			leadTicks = 1308;
 			longest = eight(film, 1308, 0, 2, 1, 2, {0, 1, 2}, false);
 			assert(!parseThings(longest.data(), longest.size(), things, error) && error == "bad close-up");
+			// (From 0287 a lead longer than a short film, within kMostFilmLead:
+			// read, as Meteor Mess's high score shows a while after it is played.)
+			leadTicks = 432;
+			const std::vector<Ev> brief = {{66, 0, 1, "Hi"}, {300, 0, 0, ""}};
+			std::vector<uint8_t> shortFilm = eight(brief, 300, 0, 2, 1, 2, {0, 1, 2}, false);
+			assert(parseThings(shortFilm.data(), shortFilm.size(), things, error) && things.closeUps[2].film.lead == 432 && things.closeUps[2].film.length == 300);
 			leadTicks = 126;
 			std::vector<uint8_t> twice = eight(film, 1308, 0, 2, 1, 2, {0, 0, 2}, false);
 			assert(!parseThings(twice.data(), twice.size(), things, error) && error == "an answer twice");

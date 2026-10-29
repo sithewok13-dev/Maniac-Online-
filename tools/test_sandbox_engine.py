@@ -1306,22 +1306,68 @@ if __name__ == '__main__':
         # (From 0286) The original's endings (its script 63), each its main way
         # as a player has it from afresh, as far as this engine plays it: the
         # Meteor Police's reached (the radio's tube by Bernard, the radio on, its
-        # call, the key down the drained pool and the dungeon's doors, the
-        # meteor taken, the switch's films, the ending seen); the book
-        # contract's as far as its reply (the manuscript retyped by Wendy not
-        # kept: none posted back); the Edsel's as far as the meteor in the lab
-        # (refused: Dr Fred's cut-scene's value not kept).
-        if mansion >= 47 and (worlds/'maniac-1.svw').exists():
+        # call, the key down the drained pool and the dungeon's outer door; from
+        # 0287 the arcade's wires fixed in the dark, Dr Fred's high score seen,
+        # the inner door's code; the meteor taken; from 0287 the badge given to
+        # the Purple Tentacle and the lab's door by its card key, walked through;
+        # the switch's films, the ending seen); the book contract's as far as
+        # its reply (the manuscript retyped by Wendy not kept: none posted
+        # back); the Edsel's as far as the meteor in the lab (from 0287 walked
+        # up: the Green Tentacle's friend saved from the Purple Tentacle, the
+        # code, the card key; refused: Dr Fred's cut-scene's value not kept).
+        if mansion >= 48 and (worlds/'maniac-1.svw').exists():
             there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
-            endings = re.search(r"selftest endings: the Meteor Police's (\d+) reached \((\d+) of 6 steps.*?; the book contract's (\d+) as far as its reply \((\d+) of 3 steps.*?; "
-                                r"the Edsel's (\d+) as far as the meteor in the lab \((\d+) of 1 step", output)
-            if there(1, 2, 3, 4, 6, 9, 21, 22, 27, 29, 51) and (not endings or endings.groups() != ('1', '6', '1', '3', '1', '1')):
-                raise SystemExit('FAIL: the endings\' ways not as far as this engine plays them (the Meteor Police\'s ending, the book contract\'s reply, the meteor in the lab; '
-                                 'export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            endings = re.search(r"selftest endings: the Meteor Police's (\d+) reached \((\d+) of 11 steps.*?; the book contract's (\d+) as far as its reply \((\d+) of 3 steps.*?; "
+                                r"the Edsel's (\d+) as far as the meteor in the lab \((\d+) of 7 steps", output)
+            if there(1, 2, 3, 4, 6, 7, 8, 9, 15, 16, 18, 20, 21, 22, 26, 27, 29, 30, 31, 39, 51) and (not endings or endings.groups() != ('1', '11', '1', '3', '1', '7')):
+                raise SystemExit('FAIL: the endings\' ways not as far as this engine plays them (the Meteor Police\'s ending, the book contract\'s reply, the meteor in the lab, each '
+                                 'up through the inner door\'s code, past the Purple Tentacle and the lab\'s door; export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
             if endings:
-                print("PASS: the endings as a player plays them from afresh: the Meteor Police's reached (the radio's tube, its call, the pool's key, the dungeon's doors, the meteor taken, "
-                      "the switch's films, the ending seen); the book contract's as far as its reply (none posted back: the retyped manuscript not kept); the Edsel's as far "
-                      "as the meteor in the lab (refused: Dr Fred's cut-scene's value not kept)")
+                print("PASS: the endings as a player plays them from afresh: the Meteor Police's reached (the radio's tube, its call, the pool's key, the dungeon's doors, the wires, "
+                      "the high score, the inner door's code, the meteor taken, the badge to the Purple Tentacle, the card key, the switch's films, the ending seen); the book "
+                      "contract's as far as its reply (none posted back: the retyped manuscript not kept); the Edsel's as far as the meteor in the lab (the Green Tentacle's "
+                      "friend saved, the code, the card key; refused: Dr Fred's cut-scene's value not kept)")
+        # (From 0287) The way up to the lab, as the original's scripts keep it
+        # (its export version 48): the dungeon's inner door locked (its keypad,
+        # its code none before Dr Fred has played Meteor Mess), the arcade's
+        # wires fixed only in the dark with the flashlight on, Dr Fred's time
+        # (waiting with the power off or the one played in the arcade), his
+        # high score seen with the quarter, the keypad right and wrong (both
+        # sides, shut again, opened from room 31), the Purple Tentacle guarding
+        # his door (barred; the badge or a book contract sending him off for
+        # good; the Green Tentacle's friend saved), the lab's door by its card
+        # key only, the garage's slab only from the lab. Saved and loaded
+        # between steps.
+        if mansion >= 48 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            lab = re.search(r"selftest lab: (\d+) the dungeon's inner door .*?; (\d+) the arcade's wires .*?; (\d+) his time .*?; (\d+) his high score .*?; (\d+) the inner door's keypad "
+                            r".*?; (\d+) the Purple Tentacle guarding .*?; (\d+) the badge .*?; (\d+) a book contract likewise; (\d+) the Green Tentacle's friend .*?; (\d+) the lab's door "
+                            r".*?; (\d+) the garage's cement slab", output)
+            if there(4, 7, 8, 9, 15, 16, 18, 20, 26, 30, 31, 39, 51) and (not lab or lab.groups() != ('1',) * 11):
+                raise SystemExit('FAIL: the way up to the lab not as its scripts keep it (the inner door\'s keypad and code, the wires, Dr Fred\'s time and high score, the Purple '
+                                 'Tentacle, the lab\'s door, the slab; export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if lab:
+                print("PASS: the way up to the lab as its scripts keep it: the inner door locked (its keypad, no code before Dr Fred has played), the wires fixed in the dark, "
+                      "his time and his high score, the keypad right and wrong (both sides, shut again, opened from room 31), the Purple Tentacle guarding (the badge, a book "
+                      "contract, the Green Tentacle's friend), the lab's door by its card key, the garage's slab from the lab only; saved and loaded between steps")
+        # (From 0287) The same with everyone out (its export version 49): the
+        # Purple Tentacle at his post though the wanderers sent him away, one of
+        # his name they have there (Day of the Tentacle's, where installed)
+        # stepping aside for him, the badge given there, no guard for that one
+        # played; no guard where he cannot be shown (his door not barred for
+        # good); the Green Tentacle met away from his room given his contract
+        # (his friend made, then saved); the arcade's wires fixed with the tools
+        # used on them in the dark, as with Fix.
+        if mansion >= 49 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            more = re.search(r"selftest lab more: (\d+) the Purple Tentacle at his post .*?; (\d+) no guard where he cannot be shown .*?; (\d+) the Green Tentacle given his contract "
+                             r".*?; (\d+) the arcade's wires fixed with the tools", output)
+            if there(4, 7, 8, 9, 12, 13, 15, 16, 18, 20, 26, 30, 31, 39, 51) and (not more or more.groups() != ('1',) * 4):
+                raise SystemExit('FAIL: the way up to the lab not as its scripts keep it with everyone out (the Purple Tentacle at his post, one of his name standing aside; no guard '
+                                 'not to be shown; the Green Tentacle away from his room; the wires by Use; export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if more:
+                print("PASS: the way up to the lab with everyone out: the Purple Tentacle at his post (one of his name the wanderers had there stepping aside), the badge given "
+                      "there; no guard where he cannot be shown; the Green Tentacle given his contract away from his room, his friend saved; the wires fixed by Use as by Fix")
         # (From 0277) A verb Zak's or a later game's thing does not answer, as
         # a player chooses it: from a picture its export played it from (a
         # record of another verb from there), each verb with no record from
@@ -1758,8 +1804,9 @@ if __name__ == '__main__':
         # kWorldRideScenes, Zak's plane cabin and van cockpit; nor, from 0240,
         # the close-ups, kWorldCloseUps: the mansion's wall safe's keypad, from
         # 0242 its telescope's views, from 0248 its TV's film, from 0257 the
-        # police headquarters' film after the radio's call.)
-        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw', 'maniac-40.svw', 'maniac-32.svw'}
+        # police headquarters' film after the radio's call, from 0287 Dr
+        # Fred's high score on Meteor Mess.)
+        insides = {'zak-11.svw', 'zak-30.svw', 'maniac-43.svw', 'maniac-34.svw', 'maniac-35.svw', 'maniac-40.svw', 'maniac-32.svw', 'maniac-39.svw'}
         svw = len([f for f in worlds.glob('*.svw') if f.stat().st_size and re.fullmatch(r'[a-z0-9]+-\d+\.svw', f.name) and f.name not in insides])
         if stops != svw or foot * 2 < stops:
             raise SystemExit(f'FAIL: tour: {stops} stops of {svw} places, {foot} on foot')

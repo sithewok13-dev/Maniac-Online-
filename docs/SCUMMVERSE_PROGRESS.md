@@ -8326,3 +8326,61 @@ descumm, nothing copied).
   (SVOC); every export identical except the mansion's things file; the
   other self-tests as before; test_startup, test_world_setup and the full
   data suite. Not tested on an iPhone.
+
+## Patch 0287 — the way up to the mansion's lab in the new engine: the dungeon's inner door's code, the Purple Tentacle at his post, the lab's card-key door (mansion export version 49)
+
+From 0286's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- The dungeon's inner door starts locked. Its keypad takes Dr Fred's high
+  score: right opens both sides, wrong gets its line, Close locks it
+  again; from the other side it opens freely.
+- Dr Fred plays Meteor Mess once the arcade's wires are fixed (the tools,
+  the flashlight on, the main power off), waiting as the original does
+  while the power is off or the kid is in rooms 18, 13, 19 or 26. After
+  that, the quarter in Meteor Mess shows his score; until then no code is
+  right. The export draws his score once, so the keypad and the high score
+  agree.
+- The Purple Tentacle bars the way to the lab with a line written for the
+  new engine; nobody is caught or sent to the dungeon (Explore has no
+  catches). The badge, a book contract, or the Green Tentacle's friend
+  trying the door sends him away for good (kept in saves); the kid's own
+  contract is refused.
+- The lab's door opens only with the card key (in its slot or on the
+  door) and locks again when shut; the garage's slab opens only from the
+  lab's side.
+- Catalog: close-ups `with` and `drawn`; timed events with `away` rooms,
+  `powered` and `draw`; mark readers `holds` and `unpowered`; kept values
+  151 and 2960; the badge's value reader. A film's lead can be longer than
+  the film.
+- From its review: the Purple Tentacle is put first on the stage at his
+  post, so a wanderer of his name (Day of the Tentacle's) steps aside for
+  him (before, that one stood there refusing the badge and the way to the
+  lab stayed barred); nobody of his name is barred while being played; and
+  there is no guard when he can't be shown (his character missing or
+  damaged), where before his door was barred for good. A thing given to one
+  of the mansion's people is answered as his own room's script answers it,
+  wherever he is met in the mansion: with wanderers on the Green Tentacle
+  is hardly ever home, and his tape and contract got "No, thanks." The
+  arcade's wires are fixed with the tools used on them, as with Fix.
+- Endings in the verbs self-test now go through the code, the Purple
+  Tentacle and the lab's door: the Meteor Police's route in 11 steps.
+- Older states (SVS9, unchanged) read the new values as the original's
+  start; doors already open stay open, and a kid saved past the Purple
+  Tentacle or in the lab can always walk back.
+- The classic engine's Explore mode is unchanged: it still lets kids past
+  the Purple Tentacle and through the lab's door.
+- Not done: Weird Ed's friendship; the catch and the new code after each;
+  Dr Fred's other plays; one code per export (the original draws one per
+  game); the quarter not used up; the Green Tentacle's rescue as a film;
+  the Purple Tentacle's other lines and patrol; Unlock on the inner
+  door doesn't show its keypad; the quarter before Dr Fred has played shows
+  no score screen.
+- Tests: new verbs self-test lines "lab" (11 checks, saves and loads
+  between steps) and "lab more" (the review's four, each caught when
+  undone); the endings line extended; 16 mutations caught;
+  ASan/UBSan verbs and mansion export; test_panel and test_world; every
+  other game's export byte for byte as before, two mansion exports
+  identical; the all, doors, tour and keep then resume self-tests as
+  before (fewer doors opened on the way through, the locked ones);
+  test_startup, test_world_setup and the full data suite. Not tested on an
+  iPhone.
