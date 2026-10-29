@@ -25,6 +25,8 @@ using namespace Scummverse::Panel;
 static_assert((int)kWalk == (int)WorldCatalog::kWorldVerbWalk && (int)kWhatIs == (int)WorldCatalog::kWorldVerbWhatIs &&
 	(int)kTakeOff == (int)WorldCatalog::kWorldVerbTakeOff && (int)kAct == (int)WorldCatalog::kWorldVerbAct &&
 	(int)kHand == (int)WorldCatalog::kWorldVerbHand && (int)kNote == (int)WorldCatalog::kWorldVerbNote, "verb kinds");
+// (From 0271 Loom's drafts' answer kinds: past every verb's, each in a byte.)
+static_assert(WorldCatalog::kWorldVerbDraft > (int)kNote && WorldCatalog::kWorldVerbDraft + 31 < 256, "draft kinds");
 
 static void put16(std::vector<uint8_t> &v, int x) { v.push_back((uint8_t)(x & 255)); v.push_back((uint8_t)((x >> 8) & 255)); }
 static void put(std::vector<uint8_t> &v, std::initializer_list<int> bytes) { for (int b : bytes) v.push_back((uint8_t)b); }
@@ -1195,6 +1197,57 @@ int main() {
 			assert(!PanelBridge::thingEffect(8, 23, 154, kAct, 1, after, others, count, 2, said, sizeof(said), &taken));
 			PanelBridge::clearThings();
 		}
+		// (From 0271, Loom's "SVOA": the answers by its controls' kinds, a tap
+		// (kWalk), a second tap (kLook) and a draft spun on the thing chosen
+		// (kWorldVerbDraft and the draft's index: Opening 32, backwards 48;
+		// Unmaking backwards 62), each found by its own kind and picture only;
+		// one by someone else (255, no one), one a draft leaves untouchable
+		// (itself, flags bit 3) and another shown; through the bridge whole,
+		// effectAt telling each kind; cut short anywhere: refused.)
+		{
+			const int opening = WorldCatalog::kWorldVerbDraft + WorldCatalog::kWorldDraftOpening, closing = opening + 16, unmaking = WorldCatalog::kWorldVerbDraft + 16 + 14;
+			std::vector<uint8_t> va = {'S', 'V', 'O', 'A'};
+			put16(va, 1); put16(va, 24); put16(va, 2);
+			put16(va, 431); va.push_back(0); put16(va, PanelBridge::kThingAnswersAny);
+			put16(va, 432); va.push_back(1); put16(va, 0);
+			put16(va, 5);
+			put16(va, 24); put16(va, 431); put(va, {kWalk, 0}); put16(va, 0); put(va, {0, 0, 0, 1, 0}); va.push_back(3); va.insert(va.end(), {'S', 'o', '.'});
+			put16(va, 24); put16(va, 431); put(va, {kLook, 0}); put16(va, 0); put(va, {0, 0, 0, 1, 255, 7}); va.push_back(4); va.insert(va.end(), {'H', 'u', 'm', '.'});
+			put16(va, 24); put16(va, 431); put(va, {opening, 0}); put16(va, 0); put(va, {1, 0, 1}); put16(va, 24); put16(va, 432); put(va, {0, 0});
+			va.push_back(1); va.push_back(0); va.push_back(5); va.insert(va.end(), {'O', 'p', 'e', 'n', '!'});
+			put16(va, 24); put16(va, 431); put(va, {closing, 1}); put16(va, 0); put(va, {0, 8, 0, 1, 0}); va.push_back(4); va.insert(va.end(), {'S', 'h', 'u', 't'});
+			put16(va, 24); put16(va, 431); put(va, {unmaking, 0}); put16(va, 0); put(va, {0, 0, 0, 1, 0}); va.push_back(2); va.insert(va.end(), {'N', 'o'});
+			put16(va, 0); // (no parents)
+			put16(va, 0); put16(va, 0); va.push_back(0); put16(va, 0); // (no main power)
+			va.push_back(0); // (no close-ups)
+			va.push_back(0); put16(va, 0); // (no marks, no answers by them)
+			put16(va, 0); // (no icons)
+			assert(parseThings(va.data(), va.size(), things, error) && things.touches && things.effects.size() == 5);
+			const ThingEffect *tapped = things.effect(24, 431, kWalk, 0), *looked = things.effect(24, 431, kLook, 0), *opened = things.effect(24, 431, opening, 0),
+				*closed = things.effect(24, 431, closing, 1), *unmade = things.effect(24, 431, unmaking, 0);
+			assert(tapped && tapped->line == "So." && looked && looked->lines.size() == 1 && looked->lines[0].speaker == kSpeakerNone && looked->lines[0].color == 7 && looked->line == "Hum.");
+			assert(opened && opened->after == 1 && opened->others.size() == 1 && opened->others[0].id == 432 && opened->others[0].picture == 0 && opened->line == "Open!" && !opened->touch);
+			assert(closed && closed->touch == PanelBridge::kMadeUntouchable && closed->after == 0 && unmade && unmade->line == "No");
+			assert(!things.effect(24, 431, opening, 1) && !things.effect(24, 431, closing, 0) && !things.effect(24, 431, opening + 1, 0) && !things.effect(24, 431, kOpen, 0) &&
+				!things.effect(24, 431, kWalk, 1) && !things.effect(24, 432, opening, 0));
+			for (size_t cut = 1; cut < va.size() - 4; ++cut) assert(!parseThings(va.data(), va.size() - cut, things, error));
+			assert(PanelBridge::loadThings(2, va.data(), va.size(), problem, sizeof(problem)) && PanelBridge::effectCount(2) == 5 && PanelBridge::thingsTouch(2));
+			int afterA, flagsA, othersA[4 * 2], countA, linesA, speakerA, costumeA, colorA, room, id, kind, from;
+			char textA[16];
+			assert(PanelBridge::thingAnswer(2, 24, 431, opening, 0, 0, afterA, flagsA, othersA, countA, 2, linesA) && afterA == 1 && countA == 1 && othersA[1] == 432 && linesA == 1);
+			assert(PanelBridge::answerLine(2, 24, 431, kLook, 0, 0, 0, speakerA, costumeA, colorA, textA, sizeof(textA)) && speakerA == kSpeakerNone && colorA == 7 && std::string(textA) == "Hum.");
+			int touchedA[3 * 2], touchesA = -1, selfA = -1;
+			assert(PanelBridge::answerTouches(2, 24, 431, closing, 1, 0, touchedA, touchesA, 2, selfA) && !touchesA && selfA == PanelBridge::kMadeUntouchable);
+			assert(!PanelBridge::thingAnswer(2, 24, 431, closing, 0, 0, afterA, flagsA, othersA, countA, 2, linesA));
+			bool kinds[5] = {};
+			for (int k = 0; k < PanelBridge::effectCount(2); ++k) {
+				assert(PanelBridge::effectAt(2, k, room, id, kind, from) && room == 24 && id == 431);
+				kinds[0] = kinds[0] || kind == kWalk; kinds[1] = kinds[1] || kind == kLook; kinds[2] = kinds[2] || (kind == opening && !from);
+				kinds[3] = kinds[3] || (kind == closing && from == 1); kinds[4] = kinds[4] || kind == unmaking;
+			}
+			assert(kinds[0] && kinds[1] && kinds[2] && kinds[3] && kinds[4]);
+			PanelBridge::clearThings();
+		}
 		// (From 0254, Monkey Island's, the same "SVO7": the answers by its
 		// panel's verbs' kinds (turned on, opened, pulled, picked up; none for
 		// giving or walking), one taken from its picture 0 leaving it in 1 (its
@@ -1277,7 +1330,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that); two things of the later games (Use with one here, Give to someone, own and usual answers)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

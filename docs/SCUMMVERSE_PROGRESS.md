@@ -7749,3 +7749,50 @@ From the fifth round's reviews.
   self-tests, fresh exports (two identical), test_panel, test_world,
   test_startup and the full data suite (with 0268 and 0269). Not tested on
   an iPhone.
+
+## Patch 0271 — Loom's things answer as the original's, in the new engine (loom export version 27)
+
+The last of the twelve games: Loom's things file, which used to be left
+empty, now places 39 places' 559 things and records their answers.
+- The export plays each thing through Loom's own input script, with Bobbin
+  holding the distaff as the game gives it: a tap on the thing (where the
+  game itself finds it), a second tap at once (the look), and each draft's
+  four notes on a thing a tap has chosen, forwards and backwards. The
+  first tap runs to its end first and is not part of the draft's answer.
+- 4060 runs gave 3537 answers for 66 things in 28 places: 6 taps, 108
+  second taps, 2028 drafts forwards and 1395 backwards. 637 lines are
+  someone else's, 5 answers change a picture, 137 set other things and 101
+  make things touchable or untouchable. Not recorded: runs where no tap
+  finds the thing, drafts on things a tap does not choose, runs that leave
+  the place, and those that say and change nothing.
+- The things file is "SVOA" as the others' (kinds 1 tap, 2 second tap,
+  32-63 drafts, backwards adding 16). Catalog: Loom's distaff rows gain
+  what a tap finds, chooses and holds.
+- The new engine plays a tap's answer on arriving at the thing, a second
+  tap's record (or the plain name as before), and a draft's record; with
+  none it says "Nothing happens." (the new engine's own words; the
+  original shows nothing), and "I can't reach that." out of reach. Older
+  caches without answers keep the old Opening and Closing.
+- From its review: a draft played while the one played is still walking
+  to a thing just tapped took the place of that tap's answer (in room 18,
+  object 374's long exchange and what it opens were lost). As Loom's own
+  distaff, which plays nothing short of the thing chosen, the draft now
+  plays nothing there ("I can't reach that."), and the walk and the tap's
+  answer go on.
+- A sanitizer fix: an empty copy of room variables, reached first by Loom,
+  is guarded in the export's two shared put-backs; nothing changes for the
+  other games.
+- Not done: drafts are all playable from the start (learning them is not
+  modelled); things the game would not choose can still be chosen and
+  answer "Nothing happens."; a second tap made before arriving skips the
+  first tap's answer; any new input cuts a long answer short, as in every
+  game here, where Loom's original plays it as a cut-scene; answers are as
+  at the export's start.
+- Tests: the verbs self-test (all 3537 Loom records replayed through its
+  own controls, 287 touches kept, speakers, a draft played on the way to a
+  thing tapped), the other self-tests,
+  test_panel (a new Loom case) and test_world under ASan/UBSan, fresh
+  exports (two identical; every other game's files byte for byte as
+  before), test_startup, test_world_setup with Loom, and the full data
+  suite. Mutations: 12 of 13 caught; the review's fix
+  undone fails. Not tested on an iPhone.

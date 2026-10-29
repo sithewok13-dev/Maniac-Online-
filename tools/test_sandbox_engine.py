@@ -14,7 +14,9 @@ the mansion, Zak McKracken; Sam & Max's box over the scene, opened from its
 button, its pointer brought round by right clicks; The Dig's grid from its
 button, its one tap doing what fits; Full Throttle's coin, held over a thing
 and let go on a part, and its skull of things from a right click; Loom's
-distaff, its notes lit, its Opening draft spun forwards and backwards)
+distaff, its notes lit, its Opening draft spun forwards and backwards, or,
+with its things file's own answers, every record played through it: a tap
+on a thing, a second, each draft spun on it both ways)
 is shown under its first place, every verb chosen and used on the things
 there (and on their other places' for pushing and picking up, by what each
 thing's own script answers), what was taken kept; the things are where
@@ -772,6 +774,17 @@ if __name__ == '__main__':
             raise SystemExit(f'FAIL: {spun} distaffs played of {distaffs} exported')
         if distaffs:
             print(f'PASS: {distaffs} distaff: each note lit; its drafts spun (Opening forwards and backwards); notes that are no draft do nothing')
+        # (From 0271 Loom's things as its game's scripts answer its controls:
+        # every record through the distaff, the self-test's own checks.)
+        lr = re.search(r'selftest Loom: (\d+) of (\d+) records of (\d+) things .*?(\d+) taps, (\d+) second taps, (\d+) drafts \((\d+) backwards\) through its distaff', output)
+        if lr and int(lr.group(2)):
+            print(f'PASS: Loom: {lr.group(1)} of {lr.group(2)} records of {lr.group(3)} things through its own controls ({lr.group(4)} taps, {lr.group(5)} second taps, '
+                  f'{lr.group(6)} drafts, {lr.group(7)} of them backwards)')
+        # (From 0271 a draft spun on the way to a thing just tapped spins
+        # nothing there; its tap's answer is given on arriving, not lost.)
+        kept = re.search(r'selftest Loom: .*?; (\d+) drafts spun on the way to a thing tapped', output)
+        if kept and int(kept.group(1)):
+            print(f'PASS: Loom: {kept.group(1)} draft spun on the way to a thing tapped, its tap\'s answer kept')
         # (The mansion's lights: each off, the place dark, kept; on again.)
         lights = re.search(r'(\d+) lights off and (\d+) on again \((\d+) flashlight, (\d+) pool, (\d+) links\)', output)
         if (worlds/'maniac-1.svw').exists() and (not lights or int(lights.group(1)) < 5 or lights.group(1) != lights.group(2) or lights.group(3) != '1' or lights.group(4) != '1' or lights.group(5) != '4'):
