@@ -1285,6 +1285,62 @@ int main() {
 			latest.later[1].tick = PanelBridge::kMostLaterTicks;
 			std::vector<uint8_t> latestFile = eleventh({latest});
 			assert(parseThings(latestFile.data(), latestFile.size(), things, error) && things.valued.size() == 1 && things.valued[0].later[1].tick == PanelBridge::kMostLaterTicks);
+			// (From 0283, the same "SVOA": an other's byte 32 alone, the place
+			// the answer takes the one played to (its room), their x there (its
+			// object) and the way they face (its picture, 0 to 3); 64 alone, the
+			// same place and their y. The second answer goes to room 31, at 140,
+			// 118, facing right, after what it shows and gives (the two in any
+			// order among its others): read into the effect, never its others;
+			// answerGoes has it (none for an answer going nowhere, nor one not
+			// there); the older readers, answerTouches and answerHands leave it
+			// out. In an SVO9, cut short, or out of range (one without the
+			// other, either twice, two places, no place, a way past 3, a y with
+			// a picture, with another bit): refused whole.)
+			const std::vector<Other> others12 = {{20, 209, 3, 2}, {31, 140, 1, 32}, {22, 221, 0, 1}, {31, 118, 0, 64}};
+			std::vector<uint8_t> going = tenth(8, others12);
+			assert(parseThings(going.data(), going.size(), things, error) && things.effects.size() == 2);
+			const ThingEffect *goes12 = things.effect(20, 205, kPickUp, 0), *stays12 = things.effect(20, 205, kUse, 3);
+			assert(goes12 && goes12->goes == 31 && goes12->goesX == 140 && goes12->goesY == 118 && goes12->goesFacing == 1 && goes12->others.size() == 2 &&
+				goes12->others[0].id == 209 && goes12->others[1].id == 221 && goes12->others[1].given);
+			assert(stays12 && !stays12->goes && !stays12->goesX && !stays12->goesY && !stays12->goesFacing);
+			assert(PanelBridge::loadThings(6, going.data(), going.size(), problem, sizeof(problem)));
+			int place12 = -1, x12 = -1, y12 = -1, facing12 = -1;
+			assert(PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 0, place12, x12, y12, facing12) && place12 == 31 && x12 == 140 && y12 == 118 && facing12 == 1);
+			assert(!PanelBridge::answerGoes(6, 20, 205, kUse, 3, 0, place12, x12, y12, facing12) && !PanelBridge::answerGoes(6, 20, 205, kUse, 0, 0, place12, x12, y12, facing12) &&
+				!PanelBridge::answerGoes(7, 20, 205, kPickUp, 0, 0, place12, x12, y12, facing12));
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 0, after9, flags9, others4, count9, 4, lines9) && count9 == 2 && others4[1] == 209 && others4[5] == 221);
+			assert(PanelBridge::thingEffect(6, 20, 205, kPickUp, 0, after, others3, count, 4, said, sizeof(said), &taken) && count == 1 && others3[1] == 221 && others3[2] == 2);
+			assert(PanelBridge::pairEffect(6, 20, 205, kPickUp, 0, 0, after, others3, count, 4, said, sizeof(said), flags10) && count == 1 && others3[1] == 221);
+			assert(PanelBridge::answerTouches(6, 20, 205, kPickUp, 0, 0, touched10, count10, 4, self) && count10 == 1 && touched10[1] == 209);
+			assert(!PanelBridge::answerHands(6, 20, 205, kPickUp, 0, 0, hands11Out, 4));
+			PanelBridge::clearThings();
+			assert(!PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 0, place12, x12, y12, facing12));
+			std::vector<uint8_t> goingNine = going;
+			goingNine[3] = '9';
+			assert(!parseThings(goingNine.data(), goingNine.size(), things, error) && error == "bad effect" && things.effects.empty());
+			for (size_t cut = 1; cut < going.size() - 4; ++cut) assert(!parseThings(going.data(), going.size() - cut, things, error) && things.effects.empty());
+			for (const std::vector<uint8_t> &refused : {tenth(8, {{31, 140, 1, 32}}), tenth(8, {{31, 118, 0, 64}}), tenth(8, {{31, 140, 1, 32}, {31, 141, 1, 32}, {31, 118, 0, 64}}),
+				tenth(8, {{31, 140, 1, 32}, {31, 118, 0, 64}, {31, 119, 0, 64}}), tenth(8, {{31, 140, 1, 32}, {32, 118, 0, 64}}), tenth(8, {{0, 140, 1, 32}, {0, 118, 0, 64}}),
+				tenth(8, {{31, 140, 4, 32}, {31, 118, 0, 64}}), tenth(8, {{31, 140, 1, 32}, {31, 118, 1, 64}}), tenth(8, {{31, 140, 1, 32 | 1}, {31, 118, 0, 64}}),
+				tenth(8, {{31, 140, 1, 32}, {31, 118, 0, 64 | 2}}), tenth(8, {{31, 140, 1, 32 | 64}, {31, 118, 0, 64}})})
+				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty());
+			// (From 0283 in an "SVOB" likewise: an answer played with a value
+			// kept read with where it takes the one played, through the bridge
+			// by its key only; one without its y refused whole.)
+			Valued goesValued = played;
+			goesValued.others = {{20, 209, 3, 2}, {31, 140, 1, 32}, {31, 118, 0, 64}};
+			std::vector<uint8_t> goingValued = eleventh({goesValued});
+			assert(parseThings(goingValued.data(), goingValued.size(), things, error) && things.valued.size() == 1 && things.valued[0].answer.goes == 31 &&
+				things.valued[0].answer.goesX == 140 && things.valued[0].answer.goesY == 118 && things.valued[0].answer.goesFacing == 1 && things.valued[0].answer.others.size() == 1);
+			assert(PanelBridge::loadThings(6, goingValued.data(), goingValued.size(), problem, sizeof(problem)));
+			place12 = x12 = y12 = facing12 = -1;
+			assert(PanelBridge::answerGoes(6, 20, 205, kTurnOn, 0, 0, place12, x12, y12, facing12, key11) && place12 == 31 && x12 == 140 && y12 == 118 && facing12 == 1);
+			assert(!PanelBridge::answerGoes(6, 20, 205, kTurnOn, 0, 0, place12, x12, y12, facing12) && !PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 0, place12, x12, y12, facing12, key11));
+			assert(PanelBridge::thingAnswer(6, 20, 205, kTurnOn, 0, 0, after9, flags9, others4, count9, 4, lines9, key11) && count9 == 1 && others4[1] == 209);
+			PanelBridge::clearThings();
+			goesValued.others.pop_back();
+			std::vector<uint8_t> halfValued = eleventh({goesValued});
+			assert(!parseThings(halfValued.data(), halfValued.size(), things, error) && error == "bad effect" && things.valued.empty() && things.effects.empty());
 		}
 		}
 		// (From 0251, The Dig's and Full Throttle's, the same "SVO7": the
@@ -1451,7 +1507,7 @@ int main() {
 		assert(PanelBridge::loadThings(3, plain.data(), plain.size(), problem, sizeof(problem)) && PanelBridge::effectCount(3) == 0);
 		PanelBridge::clearThings();
 	}
-	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused); from 0282 SVOB, the answers played with a value kept, what they leave of them and their later steps (by their key; read in order; cut short, as an SVOA or out of range: refused whole); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
+	std::puts("PASS: what a thing's own script does to a verb (from a picture: its picture after, the others, its line; any order; whole or not at all); a close-up's keypad, view (its turns, buttons, coins) or film (its lead, the one there, its events on their ticks, its mark); the marks and the answers that read them; Sam & Max's (taken, a thing given; no power, no close-ups); The Dig's and Full Throttle's (by their own verbs' kinds); Monkey Island's (by its panel's verbs' kinds); from 0258 SVO9, its answers whole (pictures past the second, flags apart, each line with who says it, the things given with their own pictures; cut short or out of range: refused whole; older readers as before); from 0267 SVOA, what its answers make touchable or untouchable (the thing itself, each other, one only that; refused in an SVO9, cut short or out of range; older readers leave out one only that; from 0278 the verbs an answer hands on, in order, left out by the older readers; in an SVO9 or out of range: refused; from 0283 where an answer takes the one played, read into the answer (an SVOB one's too), left out by the older readers; in an SVO9, half or out of range: refused); from 0282 SVOB, the answers played with a value kept, what they leave of them and their later steps (by their key; read in order; cut short, as an SVOA or out of range: refused whole); two things of the later games (Use with one here, Give to someone, own and usual answers); from 0271 Loom's (by its controls' kinds: a tap, a second tap, each draft forwards or backwards)");
 
 	// Things carried from a scene (the bridge; its picture below): only what differs from the
 	// place without it, through the scene's palette; kept panel to panel and

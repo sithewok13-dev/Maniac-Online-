@@ -1,0 +1,606 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 08da64c6..ce10418a 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -239,9 +239,20 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		const int others = r.u8();
+ 		if (others > kMostEffectParts) return "too many others";
+ 		bool good = true;
++		int goesParts = 0, goesRoom = 0; // (from 0283: bit 0 the place and x, 1 the y)
+ 		for (int k = 0; k < others && r.ok; ++k) {
+ 			ThingPart part;
+ 			part.room = r.u16(); part.id = r.u16(); part.picture = r.u8();
++			// (From 0283 SVOA's 32 alone: where it takes the one played, its x
++			// and way; 64 alone: its y. Into the effect, not its others.)
++			if (tenth && r.ok && r.p < r.end && (*r.p == 32 || *r.p == 64)) {
++				const int which = r.u8() == 32 ? 1 : 2;
++				good = good && !(goesParts & which) && part.room && (!goesRoom || goesRoom == part.room) && (which == 1 ? part.picture < 4 : !part.picture);
++				goesParts |= which; goesRoom = part.room;
++				if (which == 1) { e.goes = part.room; e.goesX = part.id; e.goesFacing = part.picture; }
++				else e.goesY = part.id;
++				continue;
++			}
+ 			// (Given: SVO9 says so, picture 0, room 0 where it is in no place;
+ 			// before, an other's picture 2. SVOA's touch with it, never with
+ 			// given; only that, with one. From 0278 SVOA's 16 alone: a verb
+@@ -258,6 +269,8 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			else part.given = pairs && part.picture == 2;
+ 			e.others.push_back(part);
+ 		}
++		good = good && (!goesParts || goesParts == 3);
++		if (goesParts != 3) e.goes = e.goesX = e.goesY = e.goesFacing = 0;
+ 		if (ninth) {
+ 			// (Its lines, each with who says it.)
+ 			const int lines = r.u8();
+@@ -1480,6 +1493,13 @@ bool thingsTouch(int game) {
+ 	for (const auto &g : gameThings()) if (g.first == game) return g.second.touches;
+ 	return false;
+ }
++// (From 0283.)
++bool answerGoes(int game, int room, int id, int kind, int from, int with, int &place, int &x, int &y, int &facing, const int *valued) {
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
++	if (!e || !e->goes) return false;
++	place = e->goes; x = e->goesX; y = e->goesY; facing = e->goesFacing;
++	return true;
++}
+ bool answerLine(int game, int room, int id, int kind, int from, int with, int line, int &speaker, int &costume, int &color, char *text, int capacity, const int *valued) {
+ 	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
+ 	if (!e || line < 0 || line >= (int)e->lines.size()) return false;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 650fe41b..7f53899b 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -49,6 +49,12 @@
+ // mansion's); SVO1 to SVOA are read as before (none). Bridge: valueAnswered,
+ // valueLeaves, valueLater; thingAnswer, answerTouches, answerHands and
+ // answerLine read one given its key.
++//
++// From 0283 an "SVOA" answer (an "SVOB" one too) may take the one played to
++// another place, as its game's script does (ThingEffect::goes; see "SVOA"
++// below). Its two parts are read into the effect, never into its others, so
++// every reader of before leaves them out; a file without them reads as
++// before.
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+@@ -197,8 +203,11 @@ struct ThingLine { int speaker = 0, costume = 0, color = -1; std::string text; }
+ // second was used up; an other's picture 2 is one the user has then.
+ // (line: the first said; lines: every one, with who says it: one by the one
+ // played before SVO9.)
+-// (From 0267, "SVOA": touch, what it made of the thing itself, as a part's.)
+-struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0, with = 0; bool taken = false, firstGone = false, secondGone = false; std::vector<ThingPart> others; std::string line; std::vector<ThingLine> lines; int touch = 0; };
++// (From 0267, "SVOA": touch, what it made of the thing itself, as a part's.
++// From 0283 goes: the place it takes the one played to (0: none), where
++// their feet are then (goesX, goesY, source pixels of that place's scene)
++// and the way they face (0 left, 1 right, 2 front, 3 back).)
++struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0, with = 0; bool taken = false, firstGone = false, secondGone = false; std::vector<ThingPart> others; std::string line; std::vector<ThingLine> lines; int touch = 0; int goes = 0, goesX = 0, goesY = 0, goesFacing = 0; };
+ static const int kAnyOther = 0xFFFF;
+ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // "SVO5" (from 0195) goes on after the parents: the main power (u16 room, u16
+@@ -277,7 +286,13 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // byte after its picture may be 16 alone: a verb the answer hands on to
+ // that thing (its game's sentence script runs them next, in the order
+ // listed), its picture byte then the verb's kind (1 to 31); see
+-// PanelBridge::answerHands.
++// PanelBridge::answerHands. From 0283 (the same "SVOA") an other's byte
++// after its picture may be 32 alone: the answer takes the one played to
++// another place of its game once said and done (its room the place, its
++// object the x of their feet there, its picture the way they face: 0 to
++// 3), with one other 64 alone (its room the same place, its object the y,
++// its picture 0); both or neither, each once, the place not 0 (ThingEffect::
++// goes, never among its others; PanelBridge::answerGoes).
+ // "SVOB" (from 0282): all SVOA has, then after the icons the answers played
+ // with a value kept (kWorldValueReaders): u16 count (at most kMostValued),
+ // each u16 room, u16 object, u8 verb kind, u8 the picture it was in, u16
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index e6eaf5e5..2aadd541 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -206,6 +206,14 @@ static const int kMostValued = 256, kMostLeaves = 8, kMostLaterSteps = 32, kMost
+ bool valueAnswered(int game, int room, int id, int kind, int from, int with, int need, int value);
+ int valueLeaves(int game, int room, int id, int kind, int from, int with, int need, int value, int *leaves, int capacity);
+ int valueLater(int game, int room, int id, int kind, int from, int with, int need, int value, int *steps, int capacity);
++// From 0283 ("SVOA"; a file of before says nothing): where an answer (as
++// thingAnswer finds it, a value reader's given {need, value} likewise)
++// takes the one played once said and done, as its game's script does: the
++// place (a room of that game), where their feet are then (source pixels of
++// its scene) and the way they face (0 left, 1 right, 2 front, 3 back).
++// False: it takes them nowhere. Left out of thingEffect, pairEffect,
++// thingAnswer, answerTouches and answerHands.
++bool answerGoes(int game, int room, int id, int kind, int from, int with, int &place, int &x, int &y, int &facing, const int *valued = nullptr);
+ // A thing given carried by its own inventory picture (from 0258, "SVO9";
+ // one its place has no picture of): added as addItem adds one, named `name`
+ // (null: its own name); false: none.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index b7a01941..f9f7fa8a 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -121,10 +121,13 @@ static const int kWorldExportVersion = 25;
+ // them, and what a script they start does after its waits, its things file
+ // "SVOB", kWorldKeptValues and kWorldValueReaders: "maniac-v44"); from 0282
+ // the mansion's again (a record put on the Victrola with one on refused, as
+-// its script refuses it, kWorldValueReaders: "maniac-v45").
++// its script refuses it, kWorldValueReaders: "maniac-v45"); from 0283 Day
++// of the Tentacle's again (an answer that takes the one played to another
++// place recorded with where it takes them, its things file's "SVOA":
++// "tentacle-v32").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 20 : same(gameid, "monkey2") ? 8 : same(gameid, "monkey") ? 7 : same(gameid, "tentacle") ? 6 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 20 : same(gameid, "monkey2") ? 8 : same(gameid, "monkey") || same(gameid, "tentacle") ? 7 :
+ 		same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 5 :
+ 		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
+ }
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index dcad8aff..1feb3290 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -52,6 +52,14 @@ static const int kScummverseTouchAsWas = 0x1000;
+ // as the kind and bit 4 of its byte after (Scummverse::Panel::ThingPart's
+ // `handed`), alone; never with a touch, never given.
+ static const int kScummverseHanded = 0x2000;
++// From 0283, the two others of an answer that takes the one played to
++// another place (Scummverse::Panel::ThingEffect's `goes`): the place, the x
++// of their feet and the way they face then (0 left, 1 right, 2 front, 3
++// back) with kScummverseGoes; the place again and the y with
++// kScummverseGoesY. Written as bits 5 and 6 of their byte after, alone;
++// never given, touched or handed on, never run on from.
++static const int kScummverseGoes = 0x4000, kScummverseGoesY = 0x8000;
++static bool scummverseGoesPart(int value) { return (value & (kScummverseGoes | kScummverseGoesY)) != 0; } // (a thing given is 0x100: none of these)
+ 
+ // From 0267, an answer's touches settled once every run is done: one set or
+ // cleared as it was kept only for a thing some answer changes (`changed`, by
+@@ -83,7 +91,7 @@ static void scummverseUngiven(Common::Array<int> &others, int given) {
+ 	for (uint k = 0; k + 2 < others.size(); k += 3) {
+ 		bool gone = others[k + 2] == given;
+ 		for (uint g = 0; g + 2 < others.size() && !gone; g += 3)
+-			gone = g != k && others[g + 2] == given && others[g] == others[k] && others[g + 1] == others[k + 1] && !(others[k + 2] & kScummverseTouchBits);
++			gone = g != k && others[g + 2] == given && others[g] == others[k] && others[g + 1] == others[k + 1] && !(others[k + 2] & kScummverseTouchBits) && !scummverseGoesPart(others[k + 2]);
+ 		if (!gone) { kept.push_back(others[k]); kept.push_back(others[k + 1]); kept.push_back(others[k + 2]); }
+ 	}
+ 	others = kept;
+@@ -3792,7 +3800,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	// itself's in its flags (bit 3 made untouchable, 4 touchable), an
+ 	// other's with whether it is given (bit 1 made touchable, 2 untouchable,
+ 	// 3 only that: its picture not set by it). From 0282 an "SVOB" answer
+-	// played with a value kept likewise.)
++	// played with a value kept likewise. From 0283 bits 5 and 6 alone: where
++	// it takes the one played, see kScummverseGoes.)
+ 	auto writeAnswer = [&](const Effect &e) {
+ 		int flags = (e.taken ? 1 : 0) | (e.firstGone ? 2 : 0) | (e.secondGone ? 4 : 0), parts = 0;
+ 		for (uint i = 0; i + 2 < e.others.size(); i += 3) {
+@@ -3807,7 +3816,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]);
+ 			out.writeByte(value == kGiven ? 0 : value & 0xFF);
+ 			out.writeByte(value == kGiven ? 1 : (value & kScummverseMadeTouchable ? 2 : 0) | (value & kScummverseMadeUntouchable ? 4 : 0) | (value & kScummverseTouchOnly ? 8 : 0) |
+-				(value & kScummverseHanded ? 16 : 0));
++				(value & kScummverseHanded ? 16 : 0) | (value & kScummverseGoes ? 32 : 0) | (value & kScummverseGoesY ? 64 : 0));
+ 		}
+ 		Common::Array<Line> lines = e.lines;
+ 		if (lines.empty() && !e.line.empty()) { Line l; l.text = e.line; lines.push_back(l); }
+@@ -4402,6 +4411,67 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		}
+ 		stopTalk();
+ 	};
++	// (From 0283, a run that leaves the place: where it takes the one played.
++	// As it leaves (nothing run since, `whyNot` 0): no cut-scene on and their
++	// game's hold on the player no less than at the run's start (else 2); the
++	// same one played, in the room shown now, shown, with a costume, standing
++	// inside it (else 1); that room a place of this game exported (not a ride's
++	// inside, a close-up's room or a part of a room the oldest games make
++	// several places of), played by the same one as where it began (else 3).
++	// Then (`arrives`) played on until it settles (no cut-scene, the hold
++	// back, no sentence, them standing in the room shown, ten frames on end;
++	// at most 600, with a run's steps): still so, somewhere else than where
++	// it began, where they stand (the oldest games' in pixels, as their
++	// scenes are) and the way they face (0 left, 1 right, 2 front, 3 back).
++	// Else none, as before: a cut-scene or a story's turn the new engine
++	// can't play (a close-up, a talk's own room, a film, someone else played,
++	// a room not exported). Counted by why.)
++	int goneTo = 0, goneCut = 0, goneAway = 0, goneOther = 0, goneBack = 0, goneUnsettled = 0, goneFirst = 0;
++	auto feet = [&](const Actor *a) { const Common::Point at = a->getRealPos(); return old ? Common::Point(at.x * V12_X_MULTIPLIER, at.y * V12_Y_MULTIPLIER) : at; };
++	auto whyNot = [&](int room, const Actor *a) {
++		const int place = _currentRoom;
++		const Common::Point at = feet(a);
++		if (vm.cutSceneStackPointer > 0 || _userPut < userPut) return 2;
++		if (VAR(VAR_EGO) != ego || a->_room != place || place == room || !a->_visible || !a->_costume || at.x < 0 || at.y < 0 || at.x >= _roomWidth || at.y >= _roomHeight) return 1;
++		if (Common::find(rooms.begin(), rooms.end(), place) == rooms.end() || worldRideScene(gameIndex, place) || worldCloseUpScene(gameIndex, place) || (old && place >= 0x80) ||
++			worldPlayedIn(gameIndex, place) != worldPlayedIn(gameIndex, room)) return 3;
++		return 0;
++	};
++	auto countWhy = [&](int why) { goneOther += why == 1; goneCut += why == 2; goneAway += why == 3; };
++	auto arrives = [&](int room, int obj, int kind, int from, Actor *a, int &place, int &x, int &y, int &facing) {
++		const int leftFor = _currentRoom;
++		_scummverseStepBudget = kRunSteps;
++		int stable = 0;
++		for (int frame = 0; frame < 600 && stable < 10 && _scummverseStepBudget && !shouldQuit(); ++frame) {
++			checkAndRunSentenceScript();
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++			_talkDelay = 0; _drawObjectQueNr = 0;
++			runAllScripts(); walkActors(); _sound->stopAllSounds();
++			for (int n = 1; n < _numActors; ++n)
++				if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
++			scummverseDropAnimCommands(); dropTexts();
++			const bool settled = !vm.cutSceneStackPointer && _userPut >= userPut && !_sentenceNum && VAR(VAR_EGO) == ego && a->_room == _currentRoom && !a->_moving;
++			stable = settled ? stable + 1 : 0;
++		}
++		const bool spentHere = _scummverseStepBudget == 0;
++		_scummverseStepBudget = -1;
++		auto none = [&](const char *what) {
++			debug(2, "SCUMMVERSE world things: %s room %d: %d's verb %d from %d leaves for room %d, then %d, not recorded (%s)", kWorldGames[gameIndex].gameid, room, obj, kind, from, leftFor, (int)_currentRoom, what);
++			return false;
++		};
++		if (stable < 10 || spentHere) { ++goneUnsettled; return none("not settling"); }
++		if (_currentRoom == room) { ++goneBack; return none("back where it began"); }
++		const int why = whyNot(room, a);
++		if (why) { countWhy(why); return none(why == 2 ? "a cut-scene" : why == 1 ? "someone else played or the one played out of view" : "a room not exported"); }
++		place = _currentRoom;
++		const Common::Point at = feet(a);
++		x = at.x; y = at.y;
++		const int dir = a->getFacing();
++		facing = dir >= 225 && dir < 315 ? 0 : dir >= 45 && dir < 135 ? 1 : dir >= 135 && dir < 225 ? 2 : 3;
++		++goneTo;
++		return true;
++	};
+ 	// (One run: the verb (its index in kinds) on the thing from that picture.)
+ 	auto run = [&](int room, int obj, int from, uint v) {
+ 		// (From 0256, not the inside of a ride: see below.)
+@@ -4442,7 +4512,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			click(cx, cy);
+ 			settle(room);
+ 			if (_scummverseStepBudget == 0) { ++overran; quiet(); _scummverseStepBudget = -1; return; }
+-			if (_currentRoom != room || a->_room != room) { ++left; quiet(); _scummverseStepBudget = -1; return; }
++			if (_currentRoom != room || a->_room != room) { ++left; ++goneFirst; quiet(); _scummverseStepBudget = -1; return; } // (from 0283 counted apart: its tap's own run)
+ 			if (pictureOf(obj) != from) { ++retapped; quiet(); _scummverseStepBudget = -1; return; }
+ 			if (kinds[v] >= kWorldVerbDraft && VAR(distaff->chosen) != obj) { ++unchosen; quiet(); _scummverseStepBudget = -1; return; }
+ 			// (From 0279 the second tap only where a click still finds it:
+@@ -4520,27 +4590,58 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		e.after = after;
+ 		e.taken = getOwner(obj) != owned[obj] && getOwner(obj) == ego;
+ 		const bool gone = _currentRoom != room || a->_room != room;
++		// (From 0283 one that leaves the place for another exported, as it
++		// leaves (whyNot): what it did before, as one that stays, but to the
++		// things of the room it arrives in (that room's entry script's; its
++		// own place's scene has them so), then where it takes them (arrives).
++		// Its others at most 62 then: the two of where it goes after them.)
++		const int why = gone && !spent ? whyNot(room, a) : -1;
++		const bool going = !why;
++		if (why > 0) countWhy(why);
++		if (why > 0)
++			debug(2, "SCUMMVERSE world things: %s room %d: %d's verb %d from %d leaves for room %d, not recorded (%s)", kWorldGames[gameIndex].gameid, room, obj, e.kind, from, (int)_currentRoom,
++				why == 2 ? "a cut-scene" : why == 1 ? "someone else played or the one played out of view" : "a room not exported");
++		auto there = [&](int o) { return going && o != obj && whereIsObject(o) == WIO_ROOM; };
++		Common::Array<int> before;
++		Common::Array<bool> wasBefore = was;
++		for (int s : set) if (!there(s < 0 ? -s : s)) before.push_back(s);
++		for (int o : placeObjects) if (there(o)) wasBefore[o] = untouchable(o);
++		const uint most = 3 * (going ? 62 : 64);
++		// (What listing them marks, put back where it goes nowhere played.)
++		const Common::HashMap<uint32, bool> revealedWas = going ? revealed : Common::HashMap<uint32, bool>();
++		const Common::HashMap<int, bool> changedWas = going ? changedTouch : Common::HashMap<int, bool>();
++		const int marked[] = {past, madeTouchable, madeUntouchable, touchedOnly, touchedSelf, touchedAsWas, touchCut};
+ 		Common::HashMap<int, bool> listed;
+-		for (int other : set) {
+-			if (gone || other == obj || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
++		for (int other : before) {
++			if ((gone && !going) || other == obj || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= most) continue;
+ 			listed[other] = true;
+ 			if (pictureOf(other) > 1) ++past;
+ 			e.others.push_back(placeIn(other, room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 			if (!untouchable(other)) revealed[(uint32)placeIn(other, room) << 16 | (uint16)other] = true; // (from 0281 Zak's by its state's bit)
+ 		}
+-		for (int o = 1; o < (int)owned.size() && !gone && e.others.size() < 3 * 64; ++o)
++		for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+ 			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+ 		// (From 0267 what it makes touchable or untouchable, itself too.)
+-		if (!gone && !spent) touches(e.others, room, obj, e.taken, Common::Array<int>(), was, set, owned);
++		if ((!gone || going) && !spent) touches(e.others, room, obj, e.taken, Common::Array<int>(), wasBefore, before, owned);
++		while (e.others.size() > most) e.others.resize(e.others.size() - 3);
++		int goesRoom = 0, goesX = 0, goesY = 0, goesFacing = 0;
++		if (going && arrives(room, obj, e.kind, from, a, goesRoom, goesX, goesY, goesFacing)) {
++			e.others.push_back(goesRoom); e.others.push_back(goesX); e.others.push_back(kScummverseGoes | goesFacing);
++			e.others.push_back(goesRoom); e.others.push_back(goesY); e.others.push_back(kScummverseGoesY);
++			debug(2, "SCUMMVERSE world things: %s room %d: %d's verb %d from %d goes to %d, at %d,%d facing %d", kWorldGames[gameIndex].gameid, room, obj, e.kind, from, goesRoom, goesX, goesY, goesFacing);
++		} else if (going) {
++			revealed = revealedWas; changedTouch = changedWas;
++			past = marked[0]; madeTouchable = marked[1]; madeUntouchable = marked[2]; touchedOnly = marked[3]; touchedSelf = marked[4]; touchedAsWas = marked[5]; touchCut = marked[6];
++		}
+ 		quiet();
+ 		if (spent) { ++overran; return; }
+-		if (gone) { ++left; return; }
++		if (gone && !goesRoom) { ++left; return; }
+ 		if (e.lines.empty() && e.after == from && !e.taken && e.others.empty()) { ++silent; return; }
+ 		answers.push_back(e); byKind[e.kind] = (byKind.contains(e.kind) ? byKind[e.kind] : 0) + 1;
+ 		// (On from where it leaves it, and the others.)
+ 		if (!e.taken) wanted(room, obj, after);
+ 		for (uint k = 0; k + 2 < e.others.size(); k += 3)
+-			if (e.others[k + 2] != ScummverseAnswer::kGiven && e.others[k + 1] != obj && !(e.others[k + 2] & kScummverseTouchAsWas)) {
++			if (e.others[k + 2] != ScummverseAnswer::kGiven && e.others[k + 1] != obj && !(e.others[k + 2] & kScummverseTouchAsWas) && !scummverseGoesPart(e.others[k + 2])) {
+ 				const int other = e.others[k + 1];
+ 				// (From 0259 in the place it is filed under: placeIn.)
+ 				const uint32 filed = (uint32)e.others[k] << 16 | (uint16)other;
+@@ -4586,6 +4687,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	for (int kind : kinds) counts += Common::String::format(" %d:%d", kind, byKind.contains(kind) ? byKind[kind] : 0);
+ 	debug(1, "SCUMMVERSE world things: %s %d runs, %d answers (by verb kind:%s; %d leaving the place, %d things found in a picture past 1, %d saying and changing nothing, %d running on past their steps; %d others in a picture past 1; %d not run, unnamed; %d first lines of someone not there, %d come round again, %d lines past %d; %d not run, wanting a second thing; %d outside the part of its room shown)",
+ 		kWorldGames[gameIndex].gameid, runs, (int)answers.size(), counts.c_str(), left, beyond, silent, overran, past, unnamed, unshown, rounds, cut, Scummverse::PanelBridge::kMostLines, seconds, outside);
++	// (From 0283, the runs that leave the place, by where they take the one
++	// played: see whyNot and arrives.)
++	debug(1, "SCUMMVERSE world things: %s one thing: %d runs leave the place: %d recorded going to another place exported; not: %d in a cut-scene or without the player's hold as they leave, %d to a room not exported (a close-up, a talk's room, a ride, a part of a room, another's time), %d someone else played or the one played out of view, %d back where they began, %d not settling; %d of Loom's second taps and drafts whose tap leaves first (that tap's own run)",
++		kWorldGames[gameIndex].gameid, left + goneTo, goneTo, goneCut, goneAway, goneOther, goneBack, goneUnsettled, goneFirst);
+ 	// (From 0267, so far.)
+ 	debug(1, "SCUMMVERSE world things: %s one thing: %d made touchable, %d untouchable (%d others only that, %d things themselves; %d as they were), %d not listed (others full)",
+ 		kWorldGames[gameIndex].gameid, madeTouchable, madeUntouchable, touchedOnly, touchedSelf, touchedAsWas, touchCut);
+@@ -5130,7 +5235,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				bool given = false;
+ 				for (uint g = 0; g + 2 < others.size() && !given; g += 3)
+ 					given = g != k && others[g + 2] == ScummverseAnswer::kGiven && others[g] == others[k] && others[g + 1] == others[k + 1];
+-				if (given && others[k + 2] != ScummverseAnswer::kGiven && !(others[k + 2] & kScummverseTouchBits)) continue;
++				if (given && others[k + 2] != ScummverseAnswer::kGiven && !(others[k + 2] & kScummverseTouchBits) && !scummverseGoesPart(others[k + 2])) continue;
+ 				kept.push_back(others[k]); kept.push_back(others[k + 1]); kept.push_back(others[k + 2]);
+ 			}
+ 			others = kept;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 719fb2a4..1c6a17a2 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -522,6 +522,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		wayBackKeep();
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
++	_going = Going(); // (from 0283: somewhere else now, an answer's way let go)
+ 	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+ 	_cabinLeft = _cabinRight = 0;
+@@ -1125,6 +1126,13 @@ bool SandboxEngine::ownAnswer(int id, int kind, int target) {
+ 	}
+ 	// (From 0267 what it makes touchable or untouchable, itself too.)
+ 	touchesAfter(_game, _room, id, kind, from, 0);
++	// (From 0283 one that takes the one played to another place, as its
++	// game's script does: there once its lines are said (step, goThere).)
++	int place, x, y, facing;
++	if (PanelBridge::answerGoes(_game, _room, id, kind, from, 0, place, x, y, facing)) {
++		_going.game = _game; _going.from = _room; _going.id = id; _going.room = place;
++		_going.x = x; _going.y = y; _going.facing = facing;
++	}
+ 	return true;
+ }
+ 
+@@ -3913,6 +3921,45 @@ bool SandboxEngine::travel(int index) {
+ 	return false;
+ }
+ 
++// From 0283 an answer that takes the one played to another place of its game
++// (its things file's "SVOA", as its game's script does: Day of the Tentacle's
++// room 23, the door 164 used, open, handing the walk on to its way out, 166,
++// which leads to room 21), once its lines are said: there as a door takes
++// them (travel: the place entered, those following brought along, kept), at
++// the spot its game leaves them (as near as the walk boxes allow), facing
++// its way; no way back by doors from there: the arrow back to the thing they
++// used. Not where it began any longer (another place, or another game), or
++// not installed: nowhere, as a door to there (its line).
++bool SandboxEngine::goThere() {
++	const Going g = _going;
++	_going = Going();
++	if (g.game < 0 || g.game != _game || g.from != _room || !g.room || _player < 0) return false;
++	if (!installed(g.game, g.room)) {
++		if (!_testing) g_system->displayMessageOnOSD(Common::U32String("That way isn't installed yet."));
++		return false;
++	}
++	Common::String problem;
++	if (!enter(g.game, g.room, 0, problem)) {
++		warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[g.game].gameid, g.room, problem.c_str());
++		enter(g.game, g.from, 0, problem);
++		return false;
++	}
++	double x = g.x, y = g.y;
++	StageBridge::walkable(x, y);
++	placePlayer(x, y);
++	static const int kWays[4][2] = {{-1, 0}, {1, 0}, {0, 1}, {0, -1}};
++	const int way = g.facing >= 0 && g.facing < 4 ? g.facing : 2;
++	StageBridge::face(_player, x + 8 * kWays[way][0], y + 8 * kWays[way][1]);
++	if (_wayBack.game < 0 && !reaches(g.game, g.room, g.from)) {
++		_wayBack.game = g.game; _wayBack.room = g.from; _wayBack.door = g.id; _wayBack.atGame = g.game; _wayBack.atRoom = g.room;
++		_noWayOn = true;
++		if (!_touring.on) announce("No way back from here: tap the arrow at the left to go back.");
++		wayBackKeep();
++	}
++	if (!_testing) saveState();
++	return true;
++}
++
+ void SandboxEngine::reachDoor() {
+ 	const WorldMap *map = worldMap(_game);
+ 	if (_door < 0 || !map || StageBridge::moving(_player)) return;
+@@ -4029,6 +4076,7 @@ void SandboxEngine::step(int ticks) {
+ 	tramStep(ticks);
+ 	rideStep(ticks);
+ 	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext(); // (an answer's next line, from 0258)
++	if (_going.room && _saying.empty() && _speechClock <= 0 && _noticeClock <= 0) goThere(); // (from 0283, its lines said)
+ 	if (!_touring.on) timedStep(ticks);
+ 	if (!_touring.on) laterStep(ticks); // (from 0282)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+@@ -6902,6 +6950,7 @@ SandboxEngine::Revealed SandboxEngine::revealedPlayed() {
+ 	auto reset = [&]() {
+ 		_carried.clear(); PanelBridge::clearItems(); forgetThings();
+ 		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		_going = Going(); // (from 0283)
+ 	};
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+ 		if (!ownSentences(g) || sameId(kWorldGames[g].gameid, "loom")) continue;
+@@ -11815,6 +11864,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (kind >= 0 && kind <= kWorldVerbNote) ++c->byKind[kind];
+ 			}
+ 			_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++			_going = Going(); // (from 0283 where it takes them: the "goes" check's)
+ 			for (int i = 0; i < count; ++i) putBack(others[4 * i], others[4 * i + 1]);
+ 			for (int i = 0; i < touchedCount; ++i) putBack(touched[3 * i], touched[3 * i + 1]);
+ 			putBack(room, id);
+@@ -12621,6 +12671,147 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"%d carried, its place as its game leaves it (the answer's own picture for it, else as its own pick up leaves it); %d not playable here or with no picture to carry it by; %d failed",
+ 		revealed.gives, revealed.givesSet, revealed.givesSeen, revealed.givesAway, revealed.givesFailed);
+ 	failed += revealed.failed + revealed.givesFailed;
++	// (From 0283) Each answer of one thing that takes the one played to
++	// another place of its game (its things file's "SVOA", answerGoes),
++	// played as a player plays it: in its place as its game starts it,
++	// nothing carried, the game's lead played and someone of its cast
++	// following, the thing in the picture it is played from, its verb chosen
++	// and the thing tapped (its own controls: use), walked to and answered,
++	// its first line said there (one with lines); then time on until its
++	// lines are said: in the place it goes to, standing where its game leaves
++	// them (as near as the walk boxes allow), the one following beside them,
++	// the arrow back to the thing used where no door leads back (none where
++	// one does); kept through a save and a load (that place, that spot). And
++	// first, played so, then another way taken before it goes (the place
++	// entered again): let go, nowhere after. One whose place or the place it
++	// goes to is not installed, or whose thing is not a thing there as its
++	// game starts it, is counted apart. Those its export records from 0283
++	// (Day of the Tentacle's room 23, its door 164 used open: room 21) must be
++	// there wherever their game's export is of this version (its marker).
++	struct GoesKnown { const char *gameid; short room, object, kind, from, place; };
++	static const GoesKnown kGoesKnown[] = {{"tentacle", 23, 164, kWorldVerbUse, 1, 21}};
++	int goesAll = 0, goesSeen = 0, goesAway = 0, goesBack = 0, goesFollowed = 0, goesLines = 0, goesLetGo = 0, goesKnown = 0, goesKnownSeen = 0, goesFailed = 0;
++	for (const GoesKnown &known : kGoesKnown)
++		for (int g = 0; g < worldGameCount(); ++g) {
++			int place, x, y, facing;
++			if (!sameId(kWorldGames[g].gameid, known.gameid) || !installed(g, known.room) || !installed(g, known.place) ||
++				!_folder.getChild(Common::String::format("%s-v%d.svx", kWorldGames[g].gameid, worldExportVersion(kWorldGames[g].gameid))).exists()) continue;
++			loadThings(g);
++			++goesKnown;
++			if (PanelBridge::answerGoes(g, known.room, known.object, known.kind, known.from, 0, place, x, y, facing) && place == known.place) ++goesKnownSeen;
++			else { ++goesFailed; warning("SCUMMVERSE sandbox goes %s-%d object %d (verb %d from %d): not recorded going to %d (its export records it)", known.gameid, known.room, known.object, known.kind, known.from, known.place); }
++		}
++	{
++		const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++		const Common::Array<Carried> carriedKept = _carried;
++		const int playerKept = _playerKey, wasGame = _game, wasRoom = _room;
++		const WayBack wayBackKept = _wayBack;
++		const Common::Array<int> followersBefore = _followers;
++		const int leaderKept = _leader;
++		Common::String problem;
++		for (int g = 0; g < worldGameCount(); ++g) {
++			if (!ownSentences(g)) continue;
++			loadThings(g);
++			for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++				int room, id, kind, from, with = 0, place, x, y, facing, after, flags, others[4], count, lines;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || !PanelBridge::answerGoes(g, room, id, kind, from, 0, place, x, y, facing) ||
++					!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 1, lines)) continue;
++				++goesAll;
++				for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
++				_carried.clear(); PanelBridge::clearItems(); forgetThings();
++				_wayBack = WayBack(); _followers.clear(); _leader = _playerKey;
++				_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++				int o = -1;
++				if (installed(g, room) && installed(g, place) && enter(g, room, 0, problem))
++					for (int i = 0; i < StageBridge::objectCount() && o < 0; ++i) {
++						int oid, ox, oy, w, h, wx, wy, state;
++						if (StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) && oid == id) o = i;
++					}
++				if (o < 0 || !isThing(o)) { ++goesAway; continue; }
++				int follower = 0;
++				for (const WorldCastGuest &cast : kWorldCast) {
++					const int key = worldAppearanceKey(g, cast.guest.costume);
++					if (!follower && cast.game == g && key != _playerKey && hasCharacter(key) && !_broken.contains(key) && !samePersonKeys(key, _playerKey)) follower = key;
++				}
++				if (follower) { follow(follower, true); bringFollowers(); }
++				auto shown = [&]() {
++					if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from);
++					else _pictures[thingKey(g, room, id)] = from;
++				};
++				// (Answered at the thing, then another way taken before it goes
++				// (the place entered again): let go, nowhere after.)
++				shown();
++				const char *how = "let go by another way taken first";
++				double tx, ty;
++				bool ok = doorPoint(o, tx, ty);
++				if (ok) {
++					StageBridge::walkable(tx, ty);
++					StageBridge::place(_player, tx, ty);
++					_action = kind; _target = o;
++					act();
++					ok = _game == g && _room == room && _going.room == place && enter(g, room, 0, problem) && !_going.room;
++					for (int t = 0; ok && t < 600; ++t) step(1);
++					ok = ok && _game == g && _room == room;
++					goesLetGo += ok;
++				}
++				for (int i = 0; ok && i < StageBridge::objectCount(); ++i) {
++					int oid, ox, oy, w, h, wx, wy, state;
++					if (StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) && oid == id) o = i;
++				}
++				forgetThings(); _carried.clear(); PanelBridge::clearItems(); _wayBack = WayBack();
++				_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++				if (ok) { shown(); how = "used"; }
++				ok = ok && use(kind, o) && _game == g && (_room == room ? _going.room == place : _room == place);
++				if (ok && lines) {
++					int speaker, costume, color;
++					char text[256];
++					how = "its first line said where it began";
++					ok = _room == room && PanelBridge::answerLine(g, room, id, kind, from, 0, 0, speaker, costume, color, text, sizeof(text)) && (_speech == text || _notice == text);
++					goesLines += ok;
++				}
++				if (ok) { how = "gone there once its lines are said"; for (int t = 0; t < 36000 && _going.room; ++t) step(1); ok = _game == g && _room == place && !_going.room; }
++				double px = 0, py = 0, wx = x, wy = y;
++				if (ok) { how = "standing where its game leaves them"; StageBridge::walkable(wx, wy); StageBridge::position(_player, px, py); ok = fabs(px - wx) < 1 && fabs(py - wy) < 1; }
++				if (ok && follower) {
++					how = "the one following brought along";
++					int n = -1;
++					for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == follower) n = i;
++					double fx = 0, fy = 0, bx = px + followOffset(follower), by = py;
++					if (n >= 0) StageBridge::position(n, fx, fy);
++					StageBridge::walkable(bx, by);
++					ok = n >= 0 && fabs(fx - bx) < 1 && fabs(fy - by) < 1; // (beside them, as bringFollowers puts them)
++					goesFollowed += ok;
++				}
++				const bool noWay = !reaches(g, place, room);
++				if (ok) { how = "the way back"; ok = noWay ? _wayBack.game == g && _wayBack.room == room && _wayBack.door == id && _wayBack.atRoom == place : _wayBack.game < 0; }
++				if (ok) {
++					how = "kept through a save and a load";
++					saveState();
++					_carried.clear(); PanelBridge::clearItems(); forgetThings();
++					int sg, sr;
++					double sx, sy;
++					ok = loadState(sg, sr, sx, sy) && sg == g && sr == place && fabs(sx - px) < 1 && fabs(sy - py) < 1 && enter(sg, sr, 0, problem);
++				}
++				if (ok) { ++goesSeen; goesBack += noWay; }
++				else {
++					++goesFailed;
++					warning("SCUMMVERSE sandbox goes %s-%d object %d (verb %d from %d) to %d at %d,%d: not as its game takes them once %s (now %d-%d)", kWorldGames[g].gameid, room, id, kind, from, place, x, y, how, _game, _room);
++				}
++				if (follower) follow(follower, false);
++				_going = Going();
++				_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++			}
++		}
++		_carried.clear(); PanelBridge::clearItems();
++		for (const Carried &kept : carriedKept) carry(kept.game, kept.room, kept.id, kept.name, kept.picture, false);
++		_pictures = picturesKept; _touched = touchedKept; _playerKey = playerKept; _wayBack = wayBackKept; _followers = followersBefore; _leader = leaderKept;
++		if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	}
++	warning("SCUMMVERSE sandbox selftest goes: %d of %d answers taking the one played to another place of their game played as a player plays them, there once their lines are said "
++		"(%d saying their first line where they began), standing where their game leaves them, %d with the one following brought along, %d with the arrow back where no door leads back; "
++		"each kept through a save and a load, %d let go by another way taken first; %d of %d its export records from 0283 so; %d not playable here; %d failed",
++		goesSeen, goesAll, goesLines, goesFollowed, goesBack, goesLetGo, goesKnownSeen, goesKnown, goesAway, goesFailed);
++	failed += goesFailed;
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index c11f3fbf..40e54ee4 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -736,6 +736,15 @@ private:
+ 	double _doorTapX = 0, _doorTapY = 0;    // where it was tapped
+ 	double _doorGoalX = 0, _doorGoalY = 0;  // where the walk to it ends (as near as the walk boxes allow)
+ 	int _opening = 0;                       // ticks left of a door seen opening before it is gone through
++	// From 0283 where an answer takes the one played once its lines are said
++	// (its things file's "SVOA", PanelBridge::answerGoes): its game, the place
++	// it began in, its thing and the place it goes to (0: none), where their
++	// feet are there and the way they face (0 left, 1 right, 2 front, 3
++	// back). Let go by any other way to another place (enter). goThere: there
++	// now, as a door takes them (travel).
++	struct Going { int game = -1, from = 0, id = 0, room = 0, facing = 2; double x = 0, y = 0; };
++	Going _going;
++	bool goThere();
+ 	bool openDoor(int id);                  // the mansion's: shown open as one goes through (true: it was shut, and is open)
+ 	bool doorOpens(int index, int &picture, bool shut) const; // (whether it would, and to which picture; `shut`: as if it were)
+ 	int _doorGoalLink = -1;                 // the door (map link) that end is for; -1: none

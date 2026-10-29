@@ -8173,3 +8173,40 @@ nothing copied).
   identical; the all, doors and keep/resume self-tests unchanged;
   test_startup, test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0283 — answers that take the one played to another place, in the new engine (tentacle export version 32)
+
+From 0277's "not done" (choices that go elsewhere in the original changed
+nothing here) and 0271's (Loom's runs that leave the place).
+- The export now follows each run of one thing that leaves its place (Zak
+  and the ten later games). A plain room change (no cut-scene on, the
+  player's hold kept, the same one played standing in the room shown, a
+  place of the game exported) keeps its lines and what it did before
+  leaving, plus where the one played ends up and the way they face, found
+  by playing the run on until it settles there. Every other run is left
+  out, as before.
+- Of 362 such runs, one is plain: Day of the Tentacle's room 23, the door
+  164 used once open, whose game hands the walk on to its way out 166, to
+  room 21 (read with descumm, nothing copied). By game: Zak 28, Monkey
+  Island 14, Monkey Island 2 21, Loom 124, the Last Crusade 60, Fate of
+  Atlantis 0, Day of the Tentacle 11, Full Throttle 18, The Dig 56, the
+  Curse 30; the rest are cut-scenes, close-ups, views of another room with
+  the one played left behind, or rooms the export doesn't have.
+- Things file "SVOA"/"SVOB": an answer may end with an other whose byte
+  after is 32 alone (the place, x, facing) and one with 64 alone (the y);
+  they are read into the answer, not its others, so older readers leave
+  them out.
+- The new engine plays such an answer, then, once its lines are said,
+  takes the one played there as a door does: those following come along,
+  it is kept, the one played stands at the spot recorded facing its way,
+  and where no door leads back the arrow back appears. Any other way taken
+  first lets it go. 0277's refusal stays for the rest.
+- Not done: two-thing answers that leave; Sam & Max's and the mansion's
+  exporters; runs that come back where they began; room 23's way out
+  (166) is still no door in its map (adding it would make the door a map
+  door and drop its own answers, this one included).
+- Tests: test_panel (new cases, SVOA and SVOB, 4 mutations caught) and
+  test_world under ASan/UBSan; a new verbs self-test check (1 of 1, 7
+  mutations caught); the all, doors, tour and follow self-tests unchanged;
+  two exports identical, every other file byte for byte as before;
+  test_startup and the full data suite. Not tested on an iPhone.

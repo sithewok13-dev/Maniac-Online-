@@ -821,6 +821,22 @@ if __name__ == '__main__':
         print(f'PASS: {rv.group(1)} things their games start untouchable made touchable by an answer, the answer played: {rv.group(4)} of {rv.group(5)} of their '
               f'answers as recorded ({rv.group(3)} with none of their own); {rv.group(8)} of {rv.group(9)} its exports play from 0281 so; '
               f'{ga.group(3)} of {ga.group(1)} answers giving a thing: carried, its place as its game leaves it ({ga.group(4)} not playable here)')
+        # (From 0283) An answer that takes the one played to another place of
+        # its game, as its export records it (Day of the Tentacle's room 23,
+        # its open door 164 used: room 21), played as a player plays it: its
+        # first line said where it began, then there once its lines are said,
+        # standing where its game leaves them, the one following brought
+        # along, the arrow back where no door leads back; kept through a save
+        # and a load; let go by another way taken first. Each one whose places
+        # are installed; Day of the Tentacle's once its export is of this
+        # version (tentacle-v32).
+        gs = re.search(r'selftest goes: (\d+) of (\d+) answers .*?, (\d+) let go by another way taken first; (\d+) of (\d+) its export records from 0283 so; '
+                       r'(\d+) not playable here; (\d+) failed', output)
+        if not gs or gs.group(7) != '0' or int(gs.group(1)) + int(gs.group(6)) != int(gs.group(2)) or gs.group(3) != gs.group(1) or gs.group(4) != gs.group(5) or \
+                ((worlds/'tentacle-v32.svx').exists() and (worlds/'tentacle-23.svw').exists() and (worlds/'tentacle-21.svw').exists() and (gs.group(1) == '0' or gs.group(5) == '0')):
+            raise SystemExit('FAIL: an answer taking the one played to another place\n' + output[-2000:])
+        print(f'PASS: {gs.group(1)} of {gs.group(2)} answers taking the one played to another place of their game: there once said, where their game leaves them, '
+              f'those following along, kept through a save and a load, let go by another way taken first ({gs.group(6)} not playable here)')
         # (From 0202) The mansion's: a verb chosen on the way to a door, the walk goes on through it.
         w = re.search(r'(\d+) doors gone through with a verb chosen on the way', output)
         if (worlds/'maniac-ui.svi').exists() and (not w or w.group(1) != '1'):
