@@ -25,7 +25,7 @@ VERSION = int(re.search(r'kWorldExportVersion = (\d+);', CATALOG).group(1))
 # worldExportVersion's games ahead of the rest: ("maniac",) -> 7, ...
 AHEAD = [(re.findall(r'same\(gameid, "(\w+)"\)', games), int(n)) for games, n in
          re.findall(r'((?:same\(gameid, "\w+"\)(?: \|\| )?)+) \? (\d+)',
-                    re.search(r'return kWorldExportVersion \+ \((.*?)\);', CATALOG).group(1))]
+                    re.search(r'return kWorldExportVersion \+ \((.*?)\);', CATALOG, re.S).group(1))]
 
 
 def version(game):

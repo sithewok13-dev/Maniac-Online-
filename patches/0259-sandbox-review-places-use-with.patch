@@ -1,0 +1,165 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0cdb39dc..2bd30939 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -71,11 +71,14 @@ static const int kWorldExportVersion = 25;
+ // says each line, every line (the Monkey Islands' one line); Sam & Max's
+ // things given with their inventory pictures; kWorldSpeakers:
+ // "samnmax-v27", "dig-v27", "ft-v27", "tentacle-v27", "monkey-v27",
+-// "monkey2-v28").
++// "monkey2-v28"); from 0259 Zak's and both Monkey Islands' again (what an
++// answer shows in a room made several places filed under the place it is
++// used in; the Monkey Islands' Use on a thing that asks "with" not answered
++// alone: "zak-v28", "monkey-v28", "monkey2-v29").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 13 : same(gameid, "monkey2") ? 3 :
+-		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") || same(gameid, "monkey") ? 2 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 13 : same(gameid, "monkey2") ? 4 : same(gameid, "zak") || same(gameid, "monkey") ? 3 :
++		same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 2 :
+ 		same(gameid, "comi") || same(gameid, "loom") || same(gameid, "atlantis") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+@@ -1149,13 +1152,14 @@ inline int worldPlayedIn(int game, int room) {
+ // 1 to 4 (its prepositions); giving always asks "to whom".
+ struct WorldWantsSecond { short game, kind, first, last; };
+ // From 0254 Monkey Island's and Monkey Island 2's giving, which asks "to
+-// whom" (their verb scripts' "use ... with" is not known: their Use on one
+-// thing is played as their sentence scripts answer it). From 0256 the
+-// oldest games' (Zak's) by the thing's own preposition, `first` to `last`,
+-// as their input scripts read it (its object code's; no classes then): Use
+-// asks "with" for any (1 to 7); giving, "to whom".
++// whom". From 0256 the oldest games' (Zak's) by the thing's own preposition,
++// `first` to `last`, as their input scripts read it (its object code's; no
++// classes then): Use asks "with" for any (1 to 7); giving, "to whom". From
++// 0259 Monkey Island's and Monkey Island 2's Use: their verb scripts (4)
++// ask "use ... with" for a thing of class 1 to 4 (their script 8 picks the
++// preposition from them), as Day of the Tentacle's.
+ static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}, {0, kWorldVerbGive, 0, 0}, {1, kWorldVerbGive, 0, 0},
+-	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}};
++	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}, {0, kWorldVerbUse, 1, 4}, {1, kWorldVerbUse, 1, 4}};
+ // Marks (from 0248): what a game's script leaves for others' to read later,
+ // which the new engine keeps: the kid's own (`bit`, plus the kid's number,
+ // of its game's bit variables: the mansion's TV's film watched, by that kid
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 530adaf1..9716cbcc 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -3406,6 +3406,24 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	Common::HashMap<int, int> placeOf;
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+ 		for (uint i = 0; i + 4 < things[k].size(); i += 5) if (!placeOf.contains(things[k][i])) placeOf[things[k][i]] = rooms[k];
++	// (From 0259, an other an answer sets or gives, filed under the place
++	// played where that place has it too (one room made several places:
++	// Zak's Mars and Earth twins of a room, its airports, Monkey Island's
++	// forest), as the player sees it change there; else the first place
++	// that has it where the same one is played (Zak's Mars, its Earth), else
++	// the first. The first alone filed what Mars's buttons show under its
++	// Earth twin, and Monkey Island's forest's under its first part. Each
++	// place's things: its entry, k << 16 | i, for those run on from an
++	// answer below.)
++	Common::HashMap<uint32, uint> entryIn;
++	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
++		for (uint i = 0; i + 4 < things[k].size(); i += 5) entryIn[(uint32)rooms[k] << 16 | (uint16)things[k][i]] = k << 16 | i;
++	auto placeIn = [&](int other, int room) {
++		if (entryIn.contains((uint32)room << 16 | (uint16)other)) return room;
++		for (uint k = 0; k < rooms.size(); ++k)
++			if (entryIn.contains((uint32)rooms[k] << 16 | (uint16)other) && worldPlayedIn(gameIndex, rooms[k]) == worldPlayedIn(gameIndex, room)) return rooms[k];
++		return placeOf[other];
++	};
+ 	// (A tram's car and its pictures are the new engine's to show, as it
+ 	// rides: an answer that calls one (The Dig's platforms) is not theirs.)
+ 	Common::HashMap<int, bool> ridden;
+@@ -3587,10 +3605,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (gone || other == obj || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
+ 			listed[other] = true;
+ 			if (pictureOf(other) > 1) ++past;
+-			e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(pictureOf(other));
++			e.others.push_back(placeIn(other, room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 		}
+ 		for (int o = 1; o < (int)owned.size() && !gone && e.others.size() < 3 * 64; ++o)
+-			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
++			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+ 		quiet();
+ 		if (spent) { ++overran; return; }
+ 		if (gone) { ++left; return; }
+@@ -3601,7 +3619,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		for (uint k = 0; k + 2 < e.others.size(); k += 3)
+ 			if (e.others[k + 2] != ScummverseAnswer::kGiven) {
+ 				const int other = e.others[k + 1];
+-				const uint entry = entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
++				// (From 0259 in the place it is filed under: placeIn.)
++				const uint32 filed = (uint32)e.others[k] << 16 | (uint16)other;
++				const uint entry = entryIn.contains(filed) ? entryIn[filed] : entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
+ 				const uint place = entry >> 16, index = entry & 0xFFFF;
+ 				if (place < rooms.size() && place < things.size() && !worldLinkFrom(gameIndex, rooms[place], other) && !(things[place][index + 2] & Scummverse::PanelBridge::kThingAway))
+ 					wanted(rooms[place], other, e.others[k + 2]);
+@@ -3745,10 +3765,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (int other : set) {
+ 				if (gone || other == target.id || other == first || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
+ 				listed[other] = true;
+-				e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(pictureOf(other));
++				e.others.push_back(placeIn(other, target.room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 			}
+ 			for (int o = 1; o < (int)owned.size() && !gone && e.others.size() < 3 * 64; ++o)
+-				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
++				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, target.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+ 			quiet();
+ 			pairLeft += gone;
+ 			Common::String key = gone ? Common::String("left") : Common::String::format("%d %d %d %d|%s|", e.after, e.taken, e.firstGone, e.secondGone, e.line.c_str());
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 2f09a9b4..e5682abf 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -7967,6 +7967,23 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// One taken also with its panel's verb and a tap on it, as a player takes
+ 	// it, and seen in the panel's slots. (Not one away there, or not a thing
+ 	// on the stage.)
++	// (From 0259, here and for the games below: what an answer sets or gives
++	// in a place that has it too is that place's, filed under it, as its game
++	// shows it change there; else, from another place, one where the same one
++	// is played where there is one (Zak's Mars, its Earth). One filed under
++	// the first place that has its number (a room made several places: Zak's
++	// Mars and Earth twins of a room, Monkey Island's forest) changed what is
++	// shown there, not where it was used.)
++	auto filedElsewhere = [&](int g, int room, int r, int other) {
++		int found, answers;
++		if (r == room) return false;
++		if (PanelBridge::gameThing(g, room, other, found, answers)) return true;
++		if (worldPlayedIn(g, r) == worldPlayedIn(g, room)) return false;
++		const WorldMap *map = worldMap(g);
++		for (int i = 0; map && i < map->roomCount; ++i)
++			if (worldPlayedIn(g, map->rooms[i].room) == worldPlayedIn(g, room) && PanelBridge::gameThing(g, map->rooms[i].room, other, found, answers)) return true;
++		return false;
++	};
+ 	int zakSingles = 0, zakSeen = 0, zakAway = 0, zakLines = 0, zakPictures = 0, zakTaken = 0, zakGiven = 0, zakUnpictured = 0, zakPanel = 0;
+ 	int zakPairs = 0, zakPairsSeen = 0, zakPairsAway = 0, zakUsual = 0, zakUsedUp = 0, zakBothCarried = 0, zakKept = 0;
+ 	Common::HashMap<int, bool> zakThings;
+@@ -8016,6 +8033,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 					putBack(r, other);
+ 				} else same = same && (picture == 2 || isCarried(zak, r, other) || pictureOf(r, other) == picture);
+ 			}
++			for (int i = 0; i < count; ++i)
++				if (filedElsewhere(zak, room, others[3 * i], others[3 * i + 1])) { same = false; warning("SCUMMVERSE sandbox: zak %d in room %d, verb %d: %d set in room %d, not where it is used", id, room, kind, others[3 * i + 1], others[3 * i]); }
+ 			// (Taken: its place entered again as its game leaves it without it.)
+ 			if (same && took && !panel) {
+ 				const Common::String said0 = _speech;
+@@ -8086,7 +8105,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			bool same = (*said ? _speech == said : _speech.empty()) && (carried || thingBit(o, id) == after) &&
+ 				isCarried(zak, carryable[first], first) == !(own && (flags & 4)) && (!carried || isCarried(zak, room, id) == !(own && (flags & 2)));
+ 			for (int i = 0; i < count; ++i)
+-				same = same && (others[3 * i + 2] == 2 ? isCarried(zak, others[3 * i], others[3 * i + 1]) : isCarried(zak, others[3 * i], others[3 * i + 1]) || pictureOf(others[3 * i], others[3 * i + 1]) == others[3 * i + 2]);
++				same = same && (others[3 * i + 2] == 2 ? isCarried(zak, others[3 * i], others[3 * i + 1]) : isCarried(zak, others[3 * i], others[3 * i + 1]) || pictureOf(others[3 * i], others[3 * i + 1]) == others[3 * i + 2]) &&
++					!filedElsewhere(zak, room, others[3 * i], others[3 * i + 1]);
+ 			if (same) { ++zakPairsSeen; zakUsual += !own; zakUsedUp += own && (flags & 6); zakBothCarried += carried; }
+ 			else {
+ 				warning("SCUMMVERSE sandbox: zak %d in room %d, Use from %d with %d: said %d letters (its sentence: %d letters, %d, flags %d)", id, room, from, first, (int)_speech.size(), (int)strlen(said), after, flags);
+@@ -8214,6 +8234,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 				by += speaker != PanelBridge::kSpeakerPlayed;
+ 			}
+ 			same = noPicture || (same && (lines || (_speech.empty() && _notice.empty())));
++			for (int i = 0; i < count && !controls; ++i)
++				if (filedElsewhere(g, room, others[4 * i], others[4 * i + 1])) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d: %d set in room %d, not where it is used", kWorldGames[g].gameid, id, room, kind, others[4 * i + 1], others[4 * i]); }
+ 			for (int i = 0; i < count && !controls; ++i) {
+ 				const int r = others[4 * i], other = others[4 * i + 1], picture = others[4 * i + 2];
+ 				if (r != room || others[4 * i + 3] || !keptUntouchable(g, r, other) || thingIn(other) < 0) continue;

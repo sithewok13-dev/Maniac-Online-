@@ -7261,3 +7261,34 @@ From the fourth round.
   lines, speakers, pictures and icons; 14 + 23 + 9 mutations caught), the
   other self-tests, a fresh export (two identical) and the full data suite
   (with 0257 and 0259). Not tested on an iPhone.
+
+## Patch 0259 — fixes from a review of 0253-0256: changes filed in the place played; Monkey Island's "use with"
+
+- What an answer changes was filed under the first place listing that
+  thing, not the place being played: every part of a room made into
+  several places lists all its things (Zak's Earth and Mars twins, its
+  airports, Monkey Island's forest). So on Mars the ankh did not switch
+  the force field off (the change went elsewhere), the button in 188
+  opened the containment device in the Earth half of room 15, and pushing
+  the sarcophagus moved things in Egypt's twin pyramid; in Monkey Island's
+  forest the sign's change went to place 201 (44 Zak records, 152 Monkey
+  Island ones). The export now files a change in the place played, else in
+  a place where the same character is played, else as before; both the
+  one-thing and Use-with passes.
+- Both Monkey Islands' verb scripts ask "with" for Use on things of
+  classes 1-4, as Day of the Tentacle's do, so Use alone was recorded
+  where the game waits for a second thing (128 records, 40 of them
+  taking the thing, e.g. the knife in Monkey Island 2's room 11 carried
+  off where the original asks what to use it with). Those are no longer
+  recorded.
+- Checked against the originals and found right: Day of the Tentacle's
+  kid per room, Zak's Mars rooms, the export-only changes only running
+  while exporting, Zak's "with" rule and pick-up bits, the verb-slot
+  restore.
+- Export versions: zak 28, monkey 28, monkey2 29.
+- Tests: the verbs self-test (new: a change filed elsewhere than the
+  place played fails, for every game with its own answers; it fails on
+  the old files), all and doors self-tests, test_world (-Werror,
+  ASan/UBSan), test_panel, a fresh export (two identical), test_startup,
+  test_world_setup (its version reader reads a version over several
+  lines) and the full data suite. Not tested on an iPhone.
