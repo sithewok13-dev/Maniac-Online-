@@ -8384,3 +8384,40 @@ descumm, nothing copied).
   before (fewer doors opened on the way through, the locked ones);
   test_startup, test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0288 — the mansion's book-contract and Edsel endings, end to end in the new engine (mansion export version 50)
+
+From 0286's endings check, against the original's scripts (read with
+descumm, nothing copied). All three of the mansion's endings now play from
+a fresh start to the end in the new engine.
+- Book contract: the meteor's manuscript retyped at the typewriter
+  remembers who typed it, and only Wendy's earns the publisher's contract;
+  the publisher's reply comes on its own, shorter wait. The contract sends
+  the Purple Tentacle away by 0287's rule, and the kid keeps it. Given to
+  the Purple Meteor in the lab, it plays his film and then the talk show's
+  ending, and the contract is used up.
+- Edsel: the meteor refuses to be taken until Dr Fred's other film has
+  played (the lab's switch turned off); once taken, the Purple Meteor is
+  gone at once. The yellow key opens the Edsel's trunk and the meteor goes
+  in. The Edsel used with the key plays the flight, space and the
+  front-door ending.
+- Catalog: kept values 160, 108 and 162; value readers that tell the kids
+  apart; `kWorldTimedValues`' `also` a mark and its own `first` wait;
+  close-ups' `var`, `sets` and `takes`, and films given to one of the
+  cast; `kWorldCastThings` (the Purple Meteor is the meteor). Three film
+  scenes are added (rooms 42, 46 and 48), not places (the tour leaves them
+  out, as the other close-ups).
+- The verbs self-test's endings line: the Meteor Police's route 11 steps,
+  the book contract's 7 and the Edsel's 11, each from afresh with saves and
+  loads between steps; nothing plays again once seen.
+- Older states (SVS9, unchanged) load as before. Every other game's export
+  is byte for byte as before.
+- Not done: radiation and the suit; a launch with the trunk open; the
+  Edsel launched empty (its general refusal line, no film); one person per
+  film (the Purple Meteor says the host's lines on the talk show); the
+  credits and restart; the publisher's cut-scene room.
+- Tests: 26 mutations caught; ASan/UBSan verbs and mansion export;
+  test_panel and test_world; the all, doors, tour, cast and keep then
+  resume self-tests as before (three more film scenes skipped); two mansion
+  exports identical, one reversed; test_startup, test_world_setup and the
+  full data suite. Not tested on an iPhone.
