@@ -8421,3 +8421,19 @@ a fresh start to the end in the new engine.
   resume self-tests as before (three more film scenes skipped); two mansion
   exports identical, one reversed; test_startup, test_world_setup and the
   full data suite. Not tested on an iPhone.
+
+## Paused after 0288 (work in flight, not in any patch)
+
+Paused at the user's request. Started and stopped before delivery, so
+none of it is in a patch, and it has to be redone or restarted:
+- Three small leftovers: Unlock on the dungeon's inner door showing its
+  keypad (as Open does), the quarter in Meteor Mess before Dr Fred has
+  played showing the score screen, and Zak's place 186 door shutting again
+  once the one on the plate walks off.
+- A bug hunt in the new engine through the eleven games other than the
+  mansion, after the export changes of 0281-0285.
+Known, not started: the mansion's radiation and the suit, Weird Ed's
+friendship, the catch and the dungeon, the credits after an ending; two-
+thing answers that go elsewhere; Story mode for Full Throttle, The Dig and
+The Curse of Monkey Island still needs their films, voices and music
+copied from the game discs.
