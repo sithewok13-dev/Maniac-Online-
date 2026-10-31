@@ -8645,3 +8645,26 @@ the original's scripts (read with descumm, nothing copied).
   self-tests; 7 mutations caught; test_panel (two new cases) and
   test_stage; test_startup, test_world_setup and the full data suite. Not
   tested on an iPhone.
+
+## Patch 0295 — things carried by name drawn readably in every game's slots
+
+From the review of 0290 to 0294.
+- A thing carried by its name (0290, 0294) was shrunk to fit its slot or
+  the pointer whatever its size, and came out unreadable: Sam & Max's room
+  20, 209 at 0.29 of its size; Full Throttle's fertilizer (room 130, 553)
+  at 0.53; Day of the Tentacle's hammer (room 22, 149) at 0.56; The Dig's
+  names in its grid. Now a name is never smaller than 0.85 of its
+  lettering (15 rows for The Curse's): words are broken after a hyphen,
+  else between letters, and lines past the slot's height are left out, the
+  last ending "...". Names that fitted before draw as before. Each name
+  keeps its game's own sentence colour.
+- Checked and sound: the herring's gull across saves, the tour and
+  followers; every Give through an object filed under the right person;
+  0293's new places give nothing and touch no doors they shouldn't.
+- Not done: Monkey Island's meat given to the poodles is lost, where its
+  game puts it back in the kitchen (not a dead end yet); walking to the
+  troll's object crosses the bridge without the herring; Monkey Island 2's
+  Captain Dread keeps his pose after any verb.
+- Tests: test_panel (a new case, failing without the fix; ASan/UBSan);
+  the verbs, all and doors self-tests on a fresh export; test_startup and
+  the full data suite. Not tested on an iPhone.

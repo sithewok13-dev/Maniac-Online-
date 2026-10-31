@@ -1,0 +1,64 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 84628fcd..e8534da8 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -914,8 +914,57 @@ void Panel::scroll(int by) {
+ Item Panel::lettered(const Item &item) const {
+ 	if (!item.picture.empty() || item.name.empty()) return item;
+ 	const int font = textWidth(0, item.name) > 0 ? 0 : 1, rows = _source.fonts[font].height;
+-	const int slot = !_source.slots.empty() ? _source.slots[0].width : 0;
+-	const std::vector<std::string> lines = slot > 0 ? wrap(font, item.name, slot) : std::vector<std::string>(1, item.name);
++	const int slot = !_source.slots.empty() ? _source.slots[0].width : 0, slotRows = !_source.slots.empty() ? _source.slots[0].height : 0;
++	// (From 0295 never drawn smaller than its lettering reads: a slot fits it
++	// shrunk at most to 0.85 of its size, or lettering taller than 18 rows
++	// (The Curse's 30) down to 15 rows. At the largest such scale its words
++	// fit the slot at (broken after a hyphen where one is too wide); else a
++	// word wider than a line broken between letters too, and lines past the
++	// slot's height left out, the last kept ending "..." where it fits.
++	// Before, only words were wrapped and the whole was shrunk to fit whatever
++	// it came to, unreadable: Sam & Max's room 20, 209 to 0.29 of its size,
++	// Full Throttle's fertilizer (room 130, 553) to 0.53, Day of the
++	// Tentacle's hammer (room 22, 149) to 0.56.)
++	auto broken = [&](int width, bool letters) {
++		std::vector<std::string> out;
++		for (std::string line : wrap(font, item.name, width)) {
++			while (textWidth(font, line) > width && line.size() > 1) {
++				size_t fits = 1;
++				while (fits < line.size() && textWidth(font, line.substr(0, fits + 1)) <= width) ++fits;
++				const size_t hyphen = line.rfind('-', fits - 1);
++				if ((hyphen == std::string::npos || hyphen == 0) && !letters) break;
++				const size_t at = hyphen != std::string::npos && hyphen > 0 ? hyphen + 1 : fits;
++				out.push_back(line.substr(0, at));
++				line = line.substr(at);
++			}
++			if (!line.empty()) out.push_back(line);
++		}
++		return out;
++	};
++	std::vector<std::string> lines(1, item.name);
++	if (slot > 0 && slotRows > 0 && rows > 0) {
++		const double least = rows > 18 ? 15.0 / rows : 0.85;
++		bool placed = false;
++		for (int letters = 0; letters < 2 && !placed; ++letters)
++			for (double scale = 1.0;; scale = std::max(least, scale - 0.05)) {
++				const int width = (int)(slot / scale), most = std::max(1, (int)(slotRows / scale) / rows);
++				lines = broken(width, letters != 0);
++				int widest = 0;
++				for (const std::string &line : lines) widest = std::max(widest, textWidth(font, line));
++				placed = (int)lines.size() <= most && widest <= width;
++				if (placed || (letters && scale <= least)) {
++					if ((int)lines.size() > most) {
++						lines.resize(most);
++						std::string &last = lines.back();
++						while (!last.empty() && textWidth(font, last + "...") > width) last.pop_back();
++						if (textWidth(font, last + "...") <= width) last += "...";
++					}
++					placed = true;
++					break;
++				}
++				if (scale <= least) break;
++			}
++	} else if (slot > 0) lines = wrap(font, item.name, slot);
+ 	int width = 0;
+ 	for (const std::string &line : lines) width = std::max(width, textWidth(font, line));
+ 	Item out = item;

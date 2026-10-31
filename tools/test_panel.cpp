@@ -1686,6 +1686,37 @@ int main() {
 		const Item same = p.lettered(pictured), named = p.lettered(byName("AB"));
 		assert(same.picture == pictured.picture && named.width == 7 && named.height == 5 && named.picture.size() == 35 && named.name == "AB");
 		assert(p.lettered(byName("")).picture.empty());
+		// (From 0295 never shrunk past what its lettering reads, 0.85 of its
+		// size for lettering of 18 rows or fewer: slots 8 wide and 5 tall, a
+		// line of 5. A word that fits at that scale stays whole (11 wide in
+		// slots 10 wide); one too wide even so broken between its letters, and
+		// lines past the slot's height left out ("AAAAAA", 24 wide: its first
+		// two letters; "AB AB": its first word), drawn at its own size. Before,
+		// "AAAAAA" was a line 24 wide drawn at a third of its size, "AB AB"
+		// two lines at half.)
+		{
+			Spec small; small.slotKind = 2; small.slotW = 8; small.slotH = 5;
+			const std::vector<uint8_t> smallBytes = panelBytes(small);
+			Panel::Panel s;
+			assert(s.load(smallBytes.data(), smallBytes.size(), error));
+			const Item words = s.lettered(byName("AB AB")), letters = s.lettered(byName("AAAAAA"));
+			assert(words.width == 7 && words.height == 5);
+			assert(letters.width == 8 && letters.height == 5 && letters.picture.size() == 40);
+			Spec wider = small; wider.slotW = 10;
+			const std::vector<uint8_t> widerBytes = panelBytes(wider);
+			Panel::Panel w;
+			assert(w.load(widerBytes.data(), widerBytes.size(), error));
+			const Item whole = w.lettered(byName("AAB"));
+			assert(whole.width == 11 && whole.height == 5);
+			// (In its slot: drawn at its own size, every pixel of its letters.)
+			s.setItems(std::vector<Item>(1, byName("AAAAAA")));
+			std::vector<uint32_t> canvas;
+			s.compose(canvas);
+			int inked = 0, expected = 0;
+			for (int y = 6; y < 11; ++y) for (int x = 40; x < 48; ++x) inked += canvas[y * 64 + x] == rgb(9);
+			for (uint32_t c : letters.picture) expected += c == rgb(9);
+			assert(inked == expected && expected > 0);
+		}
 		// (From 0294 an icon of a things file drawn nowhere, its mask empty
 		// (a thing given that its place's scene lists not, as its export
 		// writes it, 1 by 1): read as any icon (an older reader's too);
