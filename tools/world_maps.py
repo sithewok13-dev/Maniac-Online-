@@ -71,6 +71,15 @@ STORY_PLACES = {('monkey', 83): (42, {862: 33, 863: 33})}
 # engine plays them where she stands, kWorldDuels; room 44 a story area of
 # its own now, AREA_NAMES).
 TALKS = {('monkey', 61, 720)}
+# From 0300 no door out of the thing a game's sentence gives to by its own
+# entry (catalog kWorldGivesThrough: 80, its people's objects among them):
+# the analysis's link from that entry is where giving one thing takes the
+# one played, an answer the new engine plays as such (its things file's
+# "goes"), not a way a tap or a walk goes through. Monkey Island's troll
+# (room 57, 637: given the red herring, across the bridge; walked to, his
+# challenge, global script 55, and nobody across) and Monkey Island 2's
+# cartographer (room 8, 65: given 200, room 7; walked to, nothing).
+GIVES_THROUGH = {'monkey': 80, 'monkey2': 80, 'atlantis': 80, 'tentacle': 80}
 # Travel the player starts with a tap: doors, exits, map hotspots, vehicles
 # and actions on objects (story, cutscene and debug transitions are left out).
 TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
@@ -286,6 +295,7 @@ def load(game):
             continue
         travel.append(dict(l, room=physical.get(int(l['room']), int(l['room'])), target=physical.get(int(l['target']), int(l['target']))))
     travel = [l for l in travel if (game, int(l['room']), int(l['object'])) not in TALKS]  # (from 0298)
+    travel = [l for l in travel if l.get('source') != 'object' or int(l.get('verb') or 0) != GIVES_THROUGH.get(game, -1)]  # (from 0300)
     resolved, replaced = template_doors(game, rooms, travel)
     travel = resolved + [l for l in travel if (int(l['room']), int(l['object'])) not in replaced]
     travel = fixed_doors(game, travel)

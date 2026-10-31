@@ -1032,6 +1032,23 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Monkey Island\'s insult sword fighting as a player plays it (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {sf.group(1)} steps of Monkey Island\'s insult sword fighting played as a player plays them ({sf.group(4)} fights, {sf.group(5)} won, '
               f'{sf.group(6)} comebacks learned from pirates; the Sword Master beaten, the three trials counted), kept')
+        # (From 0300) Leftovers as a player meets them, where Monkey Island's
+        # export is 0300's (monkey-v41): the poodles' meat put back in the
+        # kitchen (taken again there), the troll no door (walked to, nobody
+        # across), no arrow back into the water from the dock nor onto it, the
+        # jail's cells and locks answered by Otis and the rat freed (grog on
+        # Otis himself frees him; a second mug at his lock does not free him
+        # again; a mug put back mid-sentence lets the sentence go; a damaged
+        # holder let go); Monkey Island 2's Captain Dread asleep again each
+        # time his place is entered. Before: the meat lost, the troll a door
+        # across the bridge, the arrow into the water, the cells locked.
+        lo = re.search(r"selftest put back and answered so: (\d+) of (\d+) played as their games play them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        leftCases = (4 if exported_since(worlds, 'monkey', 41) and all((worlds/f'monkey-{room}.svw').exists() for room in (36, 41, 57, 42, 83, 33, 31, 28)) else 0) + \
+            (1 if all((worlds/f'monkey2-{room}.svw').exists() for room in (22, 23)) else 0)
+        if not lo or lo.group(4) != '0' or lo.group(1) != lo.group(2) or int(lo.group(2)) < leftCases:
+            raise SystemExit('FAIL: Monkey Island\'s meat, troll, dock or jail, or Monkey Island 2\'s Captain Dread, not as their games play them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {lo.group(1)} leftovers played as their games play them (Monkey Island\'s meat put back in the kitchen, its troll no door, no way back into the water, '
+              f'its jail\'s cells by their prisoners freed; Monkey Island 2\'s Captain Dread asleep again), {lo.group(3)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

@@ -8885,3 +8885,107 @@ Asked for by the user (the app is "Near-Grog" on their phone).
   the engine's own nanosvg and by Chromium alike; each theme zip the same
   files in the same order; test_startup, the bootstrap check (a binary
   patch: applied, reversed and reapplied). Not tested on an iPhone.
+
+## Patch 0300 — Monkey Island's leftovers in the new engine: the poodles' meat put back in the kitchen, the troll no door, no way back into the water from the dock, the jail's cells and locks once Otis and the rat are freed; Monkey Island 2's Captain Dread asleep again (export versions monkey 41, monkey2 37)
+
+From 0295's and 0297's "not done" and the review of 0296 and 0297,
+against the original's scripts (read with descumm, nothing copied).
+- The meat (room 41, 331) given to the poodles (room 36, 475), or used with
+  them, was lost: the new engine used it up, untouchable in the kitchen. The
+  poodles' local script 201 puts it back in the kitchen whatever they do
+  with it (its owner the room again, its picture 0, its untouchable class
+  and the petal's, 6, cleared); put in the stew it is gone for good (owner
+  13), as before. Now a thing kWorldPutBacks names is listed, where an
+  answer of two puts it back, in its place in the picture it leaves it in,
+  touchable or not as it is then, and the new engine, using it up, shows it
+  there to be taken again. The export warns where no answer puts a row's
+  thing back (tools/export_worlds.py fails).
+- Walking to the troll (room 57, 637) crossed the bridge without the red
+  herring: the door maps took the link out of his Give (entry 80, the
+  herring's crossing, local 204) for a door. His game's verb script (201)
+  plays his challenge (global 55) for any walk past him, and nobody crosses
+  until he has the herring. tools/world_maps.py now leaves out every link
+  of a game's give-through entry (GIVES_THROUGH, as kWorldGivesThrough);
+  the troll is a thing of the bridge (his own answers), and the herring
+  still takes the one played across (its answer's "goes", from 0292).
+  Monkey Island 2's cartographer (room 8, 65), the same: any tap on him went
+  to room 7; now his own answers.
+- The arrow back from the dock (room 83, a story place since 0297): the
+  idol's climb kept a way back into the water under the harbour (42), which
+  no door reaches, so the one played was told there was no way back though
+  the dock's two ends lead to the harbour street (33), and the arrow showed
+  in every place of the game (none reaches 42); tapped, it put them in 42,
+  which has no doors, the arrow gone: stranded. The dock's ends then set an
+  arrow back onto the dock on every place of Melee Island. Now no way back
+  is kept into a story place or the place it is reached from
+  (worldNoWayBackInto, kWorldStoryPlaces, declared by 0297 and unused till
+  now: by the climb, nor by the dock's ends), and one kept from before is
+  let go on entering any place of the game; the doors self-test expects no
+  arrow from a story place's doors. A player on the dock always has its two ends to 33.
+- The jail's cells and locks (room 31) answered after Otis was freed as
+  they do with him locked in: Otis's cell (414) looked at or opened answers
+  by its own class 12, and its lock (416) hands both to it; global 67, the
+  grog drunk at a lock, clears that class on both as it sets bit 76; the
+  rat's (415, 417) likewise with 134. New kWorldValueClasses (the classes a
+  value kept comes with) and kWorldValueReaders rows for their Look and
+  Open: the export plays each with the value and the classes so (checked
+  against the runs that free them: a mismatch, or none run, fails
+  tools/export_worlds.py). The locks' holder uses read the prisoner freed
+  (kWorldHolderUses' `reads`): once freed, a mug there is the cell's own
+  Use (its line, the mug kept, still holding it); before, a second mug of
+  grog freed Otis again.
+- Monkey Island 2's Captain Dread (room 22) stayed awake for good once any
+  verb was used on him (239: his answers draw 235 in its picture 3, 236 and
+  237 in 1). His place's entry starts local 200 each time, which draws him
+  asleep (235 in 1, 236 and 237 in 0) and clears bit 129. New
+  kWorldEntryPictures: the new engine shows those things so each time the
+  place is entered; the export arrives there twice, each set to another
+  picture between, and checks them (a mismatch fails
+  tools/export_worlds.py).
+- From the review of 0296 and 0297: grog used on Otis himself (31, 418) did
+  nothing; the mug's Use hands any thing of class 12 to global 66, which
+  hands 414, 416 and 418 to 67 as 414: now a holder use too (Otis freed,
+  untouchable then). A mug whose clock ended while a sentence with it was
+  half made or on its way let only one held first go: a walk to the lock
+  then used the next thing carried, and a thing held after it was held by
+  its old number (holderBack: the sentence with it let go, the walk
+  stopped; the others' numbers one lower). A state's holder that is none
+  of the holders is let go, and its clock is kept within its length (a
+  damaged state could hold it for good or overflow it). The export left
+  room for seven values changed and then two of the holder's, nine, which
+  the reader refuses with the whole things file: now six at most (not
+  reachable today). The trials' check asserts no way back after the climb.
+- Results: Monkey Island's things file (13516 answers, was 13510: the
+  poodles' four with the meat put back, the troll's own six; 793 answers
+  by a value kept, was 561: the cells' 32, the locks once freed 160, Otis's
+  40); Monkey Island 2's (+32: the cartographer's thing); their door maps
+  one door fewer each; every other file of every game byte for byte as
+  before (1075 files); two exports identical; the reversed order the same
+  answers.
+- Not done: the troll's challenge (global 55, its choices) and the
+  herring used on him (his sentence makes it a Give) not played; Dread's
+  talk on every entry once given the monocle (bit 125), and a state saved
+  with him awake read back asleep; the same putting back in other games
+  (Monkey Island 2's monocle and mixed drinks, a few of Fate of Atlantis's,
+  Day of the Tentacle's, the Curse's and Zak's: found, not listed); the
+  meat with the petal (the poodles asleep) and the petal put back where it
+  grows.
+- Tests: a new verbs self-test line "put back and answered so" (5 of 5:
+  the meat given and used, put back, taken again, through a save and a
+  load; the troll tapped and walked to, nobody across; the idol's climb
+  with no way back, the dock's end to 33 with none, one kept from before
+  let go; the cells looked at and opened before and after, grog on Otis
+  himself, a second mug at his lock, the rat, a mug put back mid-sentence
+  and while another is held, damaged holders; Dread looked at, awake, his
+  place left and entered again, asleep) and tools/test_sandbox_engine.py's
+  check of it; the trials' line asserts no way back; test_world (no door
+  out of a thing given to by its own entry, no way back into a story
+  place, the new rows each read; ASan/UBSan, 2 mutations caught);
+  test_panel and test_stage as before; every other verbs line as before but
+  Monkey Island's and Monkey Island 2's counts of their new answers, the
+  doors touched one fewer (the troll), the sword fighting's fights (its
+  seed the engine's random, drawn more before it); the doors self-test two
+  fewer doors and two fewer with no way on (the dock's ends); the all,
+  keep then resume as before; 13 more mutations caught (10 of the new
+  engine's, 3 of the export's checks); test_startup, test_world_setup
+  (both games) and the full data suite. Not tested on an iPhone.

@@ -437,6 +437,26 @@ static void testMaps() {
 		doors += map->linkCount;
 	}
 	std::printf("PASS: door maps (%d rooms, %d doors, %d story areas; every room reachable)\n", rooms, doors, areas);
+	// (From 0300) No door out of a thing its game gives to by its own entry
+	// (tools/world_maps.py's GIVES_THROUGH: the troll, the cartographer); no
+	// way back into a story place or the place it is reached from; the rows
+	// of what a place's entry draws each time and of the classes a value kept
+	// comes with name places of the maps, values kept, and answers that read them.
+	for (const WorldGivenAs &a : kWorldGivenAs) assert(!worldLinkFrom(a.game, a.room, a.object));
+	assert(!worldLinkFrom(0, 57, 637) && !worldLinkFrom(1, 8, 65) && worldLinkFrom(0, 57, 636) && worldLinkFrom(0, 57, 635));
+	assert(worldNoWayBackInto(0, 83) && worldNoWayBackInto(0, 42) && !worldNoWayBackInto(0, 33) && !worldNoWayBackInto(1, 83) && !worldNoWayBackInto(-1, 83));
+	int entryRows = 0, classRows = 0;
+	for (const WorldEntryPicture &e : kWorldEntryPictures) { assert(worldRoomKind(e.game, e.room) >= 0 && e.object > 0 && e.picture >= 0); ++entryRows; }
+	for (const WorldValueClass &c : kWorldValueClasses) {
+		assert(worldRoomKind(c.game, c.room) >= 0 && worldKeptValue(c.game, c.var) && c.cls >= 1 && c.cls <= 32 && c.cls != 24 && c.cls != 32);
+		int readers = 0, uses = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) readers += v.game == c.game && v.room == c.room && v.object == c.object && v.reads == c.var;
+		for (const WorldHolderUse &u : kWorldHolderUses) uses += u.game == c.game && u.room == c.room && u.object == c.object && u.reads == c.var;
+		assert(readers >= 2 && uses == 1);
+		++classRows;
+	}
+	assert(entryRows == 3 && classRows == 4);
+	std::printf("PASS: no door out of a thing given to by its own entry; no way back into a story place; %d entry pictures, %d classes with a value kept, each read\n", entryRows, classRows);
 	// Castle Brunwald (Last Crusade, game 3) on foot: its three floors are
 	// floor plans; every hall, room, corridor and tower room is reached from
 	// the entrance hall (22) through doors and leads back to it. Only the

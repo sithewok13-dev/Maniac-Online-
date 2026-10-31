@@ -77,6 +77,15 @@ def main():
         if duels:
             print('\n'.join(duels) + '\nFAIL: insult sword fighting not as its scripts have it (common/scummverse_world_catalog.h, kWorldDuels)')
             return 1
+        # (From 0300: a thing a place's entry draws each time, or a class a
+        # value kept comes with, not as its scripts have them, told by the
+        # export.)
+        rows = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world things' in line and
+                ('(kWorldEntryPictures)' in line or '(kWorldValueClasses)' in line or '(kWorldPutBacks)' in line)]
+        if rows:
+            print('\n'.join(rows) + '\nFAIL: a place\'s entry, a freeing or a thing put back not as its scripts have it (common/scummverse_world_catalog.h, '
+                  'kWorldEntryPictures, kWorldValueClasses, kWorldPutBacks)')
+            return 1
         return 0 if exported else 1
 
 
