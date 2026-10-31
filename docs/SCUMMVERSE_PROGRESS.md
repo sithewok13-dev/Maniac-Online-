@@ -9259,3 +9259,20 @@ descumm, nothing copied).
   output as it is, and changed (a failure, no talks read, few choices):
   each caught; test_startup, test_world_setup and the full data suite.
   Not tested on an iPhone.
+
+## Paused after 0302 (work in flight, not in any patch)
+
+Paused at the user's word. Everything through 0302 is committed and
+pushed; the engine tree is exactly 0001-0302.
+- 0302's full data suite was stopped after 45 of 50 had passed (the sandbox
+  test among them, and the bootstrap check): test_story_engine,
+  test_story_differential, test_playthrough_engine, test_playthrough_zak and
+  test_scene_authenticity were not run on it. 0301 passed all 50.
+- Two agents were stopped mid-work; their drafts were in the session's
+  scratch folder only and are not kept: Day of the Tentacle's things shown
+  only by story state (planned as 0303) and Monkey Island 2's money (the
+  Bloody Lip job once the cook is fired, bit 567; the peg leg's polishing,
+  up to 19; planned as 0304, so the saw can be bought in play).
+- Next: run the five suites above on 0302; then those two again from the
+  start, and Monkey Island 2's other talks (Mad Marty's, over 256 menus
+  as exported), the rest of the bra's way, and the woodsmith's return (362).
