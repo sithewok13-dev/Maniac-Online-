@@ -8,7 +8,8 @@
 // one with no picture of its own carried by its name, from 0292 an answer
 // of two going elsewhere read by its second, controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
-// coin and box, and Loom's distaff.
+// coin and box, and Loom's distaff; from 0298 a talk's or a fight's
+// choices over the panel.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
 //   tools/test_panel.cpp engine/common/scummverse_panel.cpp engine/common/scummverse_world.cpp
 #include "common/scummverse_panel.h"
@@ -2431,5 +2432,127 @@ int main() {
 		assert(dock && ways == 2);
 	}
 	std::puts("PASS: Monkey Island's trials and grog in the catalog (a value only added to, the trials' rows, its holders and their uses, the cast gone so, the dock)");
+	// (From 0298) A talk's or a fight's choices over the panel: from the
+	// screen's bottom over the panel, each row at least a ninth of the
+	// screen tall, in the sentence's lettering at the panel's scale, the one
+	// lit in the talk's colour; taps on a row, on the box elsewhere, off it;
+	// more than half the screen: arrows at its right turning its page a row
+	// at a time, each only where there is more that way; a long one on two
+	// lines, cut; its stamp changing with what is drawn; cleared, none.
+	// And Monkey Island's insult sword fighting in the catalog: its values
+	// kept (each learned insult and comeback, the fights, the talks' own),
+	// none of another game's; the Sword Master no door now.
+	{
+		const std::vector<uint8_t> data = panelBytes();
+		Panel::Panel p;
+		assert(p.load(data.data(), data.size(), error));
+		const int sw = 640, sh = 360, top = 300;
+		p.layout(sw, sh, top, 3.75, 10.0);
+		assert(p.choicesOnScreen(sw, sh).width == 0 && p.choiceAt(10, 350, sw, sh) == Panel::Panel::kChoiceOff);
+		const unsigned stamp0 = p.choiceStamp();
+		p.setChoices({"A", "AB", "B"});
+		assert(p.choiceStamp() != stamp0);
+		const Rect box = p.choicesOnScreen(sw, sh);
+		assert(box.x == 0 && box.width == sw && box.y + box.height == sh && box.height >= sh - top && box.height <= sh / 2);
+		Rect rows[3];
+		for (int k = 0; k < 3; ++k) {
+			rows[k] = p.choiceOnScreen(k, sw, sh);
+			assert(rows[k].height >= sh / 9 && rows[k].width == sw && (k == 0 ? rows[k].y == box.y : rows[k].y == rows[k - 1].y + rows[k - 1].height));
+			assert(p.choiceAt(5, rows[k].y + rows[k].height / 2, sw, sh) == k);
+		}
+		assert(p.choiceAt(5, box.y - 1, sw, sh) == Panel::Panel::kChoiceOff);
+		const unsigned stamp1 = p.choiceStamp();
+		p.lightChoice(1);
+		assert(p.litChoice() == 1 && p.choiceStamp() != stamp1);
+		p.lightChoice(1);
+		assert(p.choiceStamp() == stamp1 + 1);
+		std::vector<uint32_t> screen((size_t)sw * sh, 0x12345678u);
+		p.renderChoices(screen.data(), sw, sw, sh);
+		int ink[3] = {0, 0, 0}, lit[3] = {0, 0, 0};
+		for (int y = 0; y < sh; ++y)
+			for (int x = 0; x < sw; ++x) {
+				const uint32_t c = screen[(size_t)y * sw + x];
+				if (y < box.y) { assert(c == 0x12345678u); continue; }
+				assert(c != 0x12345678u);
+				for (int k = 0; k < 3; ++k) if (rows[k].contains(x, y)) { ink[k] += c == p.color(9); lit[k] += c == p.color(11); }
+			}
+		assert(ink[0] && !lit[0] && lit[1] && !ink[1] && ink[2] && !lit[2]);
+		// (Twelve: arrows, their page turned.)
+		std::vector<std::string> many;
+		for (int k = 0; k < 12; ++k) many.push_back(k % 2 ? "AB" : "BA");
+		p.setChoices(many);
+		const Rect mbox = p.choicesOnScreen(sw, sh);
+		assert(mbox.height <= sh / 2 && p.firstChoice() == 0 && p.choiceOnScreen(0, sw, sh).width < sw && p.choiceOnScreen(11, sw, sh).width == 0);
+		assert(p.choiceAt(sw - 2, mbox.y + 2, sw, sh) == Panel::Panel::kChoiceNone && p.choiceAt(sw - 2, mbox.y + mbox.height - 2, sw, sh) == Panel::Panel::kChoiceDown);
+		const unsigned stamp2 = p.choiceStamp();
+		p.scrollChoices(1, sw, sh);
+		assert(p.firstChoice() == 1 && p.choiceStamp() != stamp2 && p.choiceAt(sw - 2, mbox.y + 2, sw, sh) == Panel::Panel::kChoiceUp && p.choiceOnScreen(0, sw, sh).width == 0);
+		for (int k = 0; k < 20; ++k) p.scrollChoices(1, sw, sh);
+		assert(p.choiceOnScreen(11, sw, sh).width > 0 && p.choiceAt(sw - 2, mbox.y + mbox.height - 2, sw, sh) == Panel::Panel::kChoiceNone);
+		for (int k = 0; k < 20; ++k) p.scrollChoices(-1, sw, sh);
+		assert(p.firstChoice() == 0);
+		// (A long one: two lines, cut; its row taller.)
+		std::string longOne;
+		for (int k = 0; k < 60; ++k) longOne += k ? " AB" : "AB";
+		p.setChoices({longOne, "A"});
+		assert(p.choiceOnScreen(0, sw, sh).height > p.choiceOnScreen(1, sw, sh).height || p.choiceOnScreen(1, sw, sh).height > sh / 9);
+		p.clearChoices();
+		assert(p.choices().empty() && p.choicesOnScreen(sw, sh).width == 0);
+		std::vector<uint32_t> untouched((size_t)sw * sh, 0x12345678u);
+		p.renderChoices(untouched.data(), sw, sw, sh);
+		for (uint32_t c : untouched) assert(c == 0x12345678u);
+		// (A screen wider than the panel's columns (a phone in landscape, its
+		// notch at a side): the box, its rows and arrows within the panel's
+		// columns, nothing drawn or hit beside them.)
+		{
+			const int ww = 800, wh = 360;
+			p.layout(ww, wh, 300, 3.75, 10.0); // (640 columns from 80)
+			p.setChoices(many);
+			const Rect wbox = p.choicesOnScreen(ww, wh);
+			assert(wbox.x == 80 && wbox.width == 640 && wbox.y + wbox.height == wh && wbox.height <= wh / 2);
+			for (int k = 0; k < 12; ++k) {
+				const Rect r = p.choiceOnScreen(k, ww, wh);
+				assert(r.width == 0 || (r.x >= 80 && r.x + r.width <= 720 && r.height >= wh / 9));
+			}
+			assert(p.choiceAt(40, wh - 10, ww, wh) == Panel::Panel::kChoiceOff && p.choiceAt(760, wh - 10, ww, wh) == Panel::Panel::kChoiceOff);
+			assert(p.choiceAt(718, wh - 2, ww, wh) == Panel::Panel::kChoiceDown && p.choiceAt(82, wbox.y + 2, ww, wh) == 0);
+			std::vector<uint32_t> wide((size_t)ww * wh, 0x12345678u);
+			p.renderChoices(wide.data(), ww, ww, wh);
+			int inside = 0;
+			for (int y = 0; y < wh; ++y)
+				for (int x = 0; x < ww; ++x) {
+					const uint32_t c = wide[(size_t)y * ww + x];
+					if (x < 80 || x >= 720 || y < wbox.y) assert(c == 0x12345678u);
+					else inside += c != 0x12345678u;
+				}
+			assert(inside == 640 * wbox.height);
+			p.layout(sw, sh, top, 3.75, 10.0);
+			p.clearChoices();
+		}
+		// (The bridge's.)
+		PanelBridge::clear();
+		assert(PanelBridge::load(data.data(), data.size(), nullptr, 0));
+		PanelBridge::layout(sw, sh, top, 3.75, 10.0);
+		const char *texts[] = {"A", "B"};
+		PanelBridge::setChoices(texts, 2);
+		int cx, cy, cw, ch;
+		assert(PanelBridge::choiceCount() == 2 && PanelBridge::choiceRect(1, sw, sh, cx, cy, cw, ch) && PanelBridge::choiceAt(cx + 1, cy + 1, sw, sh) == 1);
+		PanelBridge::clearChoices();
+		assert(!PanelBridge::choiceCount() && !PanelBridge::choicesBounds(sw, sh, cx, cy, cw, ch));
+		PanelBridge::clear();
+	}
+	{
+		using namespace WorldCatalog;
+		const WorldDuel *duel = worldDuel(0);
+		assert(duel && !worldDuel(10) && duel->ownLast < duel->masterFirst && duel->masterLast < duel->fallbackFrom && duel->loseFrom <= duel->repeat && duel->repeat < duel->giveUp);
+		for (int n = 1; n < duel->fallbackFrom; ++n) assert(worldDuelValue(0, 0x8000 + duel->insultBits + n) && !worldDuelValue(10, 0x8000 + duel->insultBits + n));
+		for (int n = 1; n < duel->loseFrom; ++n) assert(worldDuelValue(0, 0x8000 + duel->comebackBits + n));
+		assert(!worldDuelValue(0, 0x8000 + duel->insultBits + duel->fallbackFrom) && !worldDuelValue(0, 0x8000 + duel->comebackBits + duel->loseFrom) && !worldDuelValue(0, 0x8000 + duel->insultBits));
+		for (int v : {duel->trained, duel->won, 0x8000 + duel->trialBit, duel->wins, duel->losses, duel->fought, duel->visits, duel->introSeen, duel->heardLong, duel->lostOnce, duel->met, duel->secondAsked, duel->lastType})
+			assert(worldDuelValue(0, v) && !worldKeptValue(0, v));
+		assert(worldKeptCount(0, duel->trialsVar) && 0x8000 + duel->trialBit == 0x8000 + 83 + duel->trial);
+		assert(!worldLinkFrom(0, duel->masterRoom, duel->masterObject));
+	}
+	std::puts("PASS: a talk's or a fight's choices over the panel (rows a finger can tap, its page turned by arrows, lit, long ones cut), Monkey Island's sword fighting in the catalog");
 	return 0;
 }

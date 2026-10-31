@@ -1018,6 +1018,20 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Monkey Island\'s trials and its grog as a player plays them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {tr.group(1)} orders of Monkey Island\'s trials played as a player plays them (the treasure dug, the idol brought up onto the dock, each counted once; '
               f'the SCUMM Bar\'s mugs, the grog filled, melting, poured and drunk at Otis\'s lock), kept')
+        # (From 0298) Monkey Island's insult sword fighting as a player plays
+        # it, where its export is 0298's (monkey-v40, its fight file): the
+        # trainer's training, the Sword Master's talk and her refusals,
+        # pirates met on the map and fought, by its rules, until every
+        # comeback is known and three are won, her fight lost and won (the
+        # T-shirt, the first trial counted), with the other two all three
+        # trials and the SCUMM Bar's mugs; through saves and loads. Before,
+        # she was a door to room 44 and no fight could be played.
+        sf = re.search(r"selftest Monkey Island's sword fighting: (\d+) of (\d+) steps played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) fights \((\d+) won\), (\d+) comebacks learned; (\d+) failed", output)
+        fightCases = 5 if exported_since(worlds, 'monkey', 40) and (worlds/'monkey-duel.svd').exists() and all((worlds/f'monkey-{room}.svw').exists() for room in (43, 61, 85, 44, 64, 42, 83, 28)) else 0
+        if not sf or sf.group(7) != '0' or sf.group(1) != sf.group(2) or sf.group(3) != sf.group(1) or int(sf.group(2)) < fightCases or (fightCases and sf.group(6) != '16'):
+            raise SystemExit('FAIL: Monkey Island\'s insult sword fighting as a player plays it (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {sf.group(1)} steps of Monkey Island\'s insult sword fighting played as a player plays them ({sf.group(4)} fights, {sf.group(5)} won, '
+              f'{sf.group(6)} comebacks learned from pirates; the Sword Master beaten, the three trials counted), kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

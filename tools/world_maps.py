@@ -63,6 +63,14 @@ TEMPLATE_DOORS = {
 # and the ladder climbed; its two ends lead back to the harbour street (33)
 # while its last part is not begun (bit 453 clear).
 STORY_PLACES = {('monkey', 83): (42, {862: 33, 863: 33})}
+# From 0298 people's objects whose verbs play their talk where they stand,
+# not doors: the analysis's link out of them is the place their game's
+# script plays the talk in, and the one played is back where they were after
+# it. Monkey Island's Sword Master (room 61, 720: global script 113 takes
+# the one played to room 44 for her talk and fight and back to 61; the new
+# engine plays them where she stands, kWorldDuels; room 44 a story area of
+# its own now, AREA_NAMES).
+TALKS = {('monkey', 61, 720)}
 # Travel the player starts with a tap: doors, exits, map hotspots, vehicles
 # and actions on objects (story, cutscene and debug transitions are left out).
 TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
@@ -277,6 +285,7 @@ def load(game):
         if kind not in TRAVEL or int(l.get('object') or 0) <= 0 or l.get('room') is None or l.get('target') is None:
             continue
         travel.append(dict(l, room=physical.get(int(l['room']), int(l['room'])), target=physical.get(int(l['target']), int(l['target']))))
+    travel = [l for l in travel if (game, int(l['room']), int(l['object'])) not in TALKS]  # (from 0298)
     resolved, replaced = template_doors(game, rooms, travel)
     travel = resolved + [l for l in travel if (int(l['room']), int(l['object'])) not in replaced]
     travel = fixed_doors(game, travel)
@@ -327,7 +336,7 @@ AREA_NAMES = {
     ('monkey', 70): 'Catacombs and the ghost ship', ('monkey', 21): 'Monkey Island jungle', ('monkey', 1): 'Monkey Island beach',
     ('monkey', 30): 'Melee Island shop', ('monkey', 31): 'Melee Island jail',
     ('monkey', 32): 'Melee Island back alley', ('monkey', 42): 'Under the harbor',
-    ('monkey', 60): 'Gym', ('monkey', 80): 'Fort',
+    ('monkey', 60): 'Gym', ('monkey', 80): 'Fort', ('monkey', 44): "Sword Master's clearing",
     ('monkey2', 73): "LeChuck's fortress", ('monkey2', 24): "Captain Dread's deck",
     ('monkey2', 40): 'Basement', ('monkey2', 66): 'Galleon', ('monkey2', 75): "LeChuck's dungeon",
     ('monkey2', 90): 'Storage room', ('monkey2', 96): 'Jungle', ('monkey2', 61): 'Up the great tree', ('monkey2', 82): 'Sea map',

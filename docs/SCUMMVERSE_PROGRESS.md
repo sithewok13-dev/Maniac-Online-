@@ -8774,3 +8774,87 @@ descumm, nothing copied).
   doors (+2), keep then resume self-tests; 14 mutations caught;
   test_startup, test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0298 — Monkey Island's insult sword fighting played by its own rules in the new engine: Captain Smirk's training, pirates met on the map, the Sword Master's talk and fight, the first trial won (monkey export version 40)
+
+From 0297's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- What the original does. Captain Smirk's door (room 43, 592, Open:
+  global 57) trains the one played once paid with the sword carried: its
+  long cut-scene, skippable, ends teaching two insults and two comebacks
+  (bits 140 + n, 222 + n) and setting bit 19. From the map's fourth visit
+  (room 85's entry, variable 289) while the trials are not all done, one
+  pirate wanders it (local 202), three once trained; met (111), one of six
+  types at random (110: skill 4 to 8), its talk (room 49's local 200): a
+  greeting, then options as it builds them (the fight only once trained;
+  leaving). The Sword Master (61/720, Walk or Talk: 113) talks in room 44
+  (58): her start, three choices the first time, then her answer by the
+  sword carried, the training, her long answer heard (518) and the pirate
+  fights won (281); with three won, the fight (283 counts them; after the
+  first, at once). The fight (87): first to 5 against her (she insults each
+  exchange, 17..33, one not used this fight, 20 draws), first to 3 against a
+  pirate (the one played first, then the exchange's winner); insults heard
+  are learned (not usable until the next fight), comebacks are learned when
+  a pirate answers an insult right (skill in 11), an insult takes up to
+  three comebacks (string 29 as 87 sets it up), comebacks 17..21 always
+  listed (17-19 lose, 20 asks again, 21 gives up), insults 34..37 too (they
+  lose, 37 gives up), one of hers used on a pirate wins the exchange; won
+  or lost, lines (71); against her, won: her lines, bit 20, the T-shirt
+  (721), trial 1 (68: 195 one more, bit 84); either way she walks into her
+  house.
+- New portable module common/scummverse_duel.{h,cpp} (and the plain-types
+  bridge scummverse_duel_engine.h): the fight file read and written
+  ("SVD1") and the fight by scripts 71, 76-81, 84, 87, 157, 158 (and 97's
+  pause), seeded; tools/test_duel.cpp (ASan/UBSan, TSan).
+- Export: "monkey-duel.svd" from the game's own scripts: the insults' and
+  comebacks' lines (82, 83), the comebacks each insult takes, the targets,
+  each type's skill, colour and costume, every line of the fights, her talk
+  (each choice in each of her seven states, once fought), a pirate's talk
+  (greetings, options, answers), Smirk's; checked against the scripts (80's
+  draws, 157/158's lists, 84 on every pair, 79's skill, the pirate's menus,
+  57's teaching, 68's trial, the map's pirates): a mismatch fails
+  tools/export_worlds.py (which now copies *.svd).
+- Map: 61/720 is no door now (tools/world_maps.py TALKS), so room 44 is a
+  story area of its own ("Sword Master's clearing").
+- New engine: a choice list over the panel in the game's lettering, across
+  the panel's own columns (clear of a phone's notch), rows a ninth of the
+  screen at least (a finger's), at most half the screen, its
+  page turned by arrows, lit under the pointer (Panel::setChoices,
+  PanelBridge). Walk or Talk on her (or her object) plays her talk and fight
+  where she stands (her game plays them in room 44); Smirk's door with the
+  sword and the pieces of eight carried trains (his conversation and
+  payment not played: no purse here); pirates stand on the way between two
+  of the map's places, covering none of them (a tap on a place still goes
+  there), drawn as the cast's townsfolk pirates (costume 18, a stand-in for
+  the map figure); walked or talked to: their talk and fight; met, gone
+  until the map is entered again; neither strolls off meanwhile. A fight
+  file that cannot be read is not read again until the worlds are scanned. Won: the T-shirt carried (by
+  its name: room 44 lists no thing), trial 1 counted (kWorldKeptCounts),
+  bit 20; she walks to her door and is gone until her place is entered
+  again. Learned insults and comebacks, 19, 20, 84, 280, 281, 283, 289,
+  270, 359, 21, 518, 501, 506 are kept values (worldDuelValue; "SVS9";
+  older states load with none).
+- Results: Monkey Island's files: monkey-duel.svd new, its things file +40
+  answers of 61/720 (no door now), the map's door and story area; every
+  other file of every game byte for byte as before; two exports identical;
+  the reversed order the same answers.
+- Not done: the talks' cut-scenes and staging (her start's close-up, room
+  62, its lines told over the place; the fight's swordplay, 97/98, as a
+  pause; the fights in room 44 and 49); Smirk's conversation, its payment
+  and the pieces of eight's count (194); the pirates' walks across the map
+  and their own figure (costume 3, recoloured); the troll's insult (55,
+  bit 145); her talk after the trial (61); the important-looking pirates'
+  report (198 = 2 not kept); with wanderers on she may be elsewhere.
+- Tests: a new verbs self-test line "Monkey Island's sword fighting" (5 of
+  5: the training, her refusals and her walk home, the map's pirates
+  (none before the fourth visit, one untrained with no fight, three
+  trained), 43 fights (25 won) as a player learning plays them until all
+  16 comebacks are known, one given up, her fight lost (an insult asked
+  again first) then won 5-0, the T-shirt and the trial, the three trials and
+  the bar's mugs; saves and loads between; choices chosen by taps on them);
+  test_duel (ASan/UBSan, TSan), test_panel (a new case); every other verbs
+  line as before but Monkey Island's +1 thing; the all, doors and keep then
+  resume self-tests; 21 mutations caught (11 of the new engine's, 2 of the
+  export's, 8 of the module's; one equivalent set aside); test_startup,
+  test_world_setup and the full data suite. Not tested on an
+  iPhone.
