@@ -2351,5 +2351,34 @@ int main() {
 		}
 	}
 	std::puts("PASS: who is given to through a thing (the one standing under it, by how far; the games and their rows)");
+	// (From 0296) A later game's values kept (kWorldKeptValues): each value
+	// reader of one reads a value its game keeps, or none, and asks nothing
+	// the export does not play for one (its people, kids, marks, power, later
+	// steps); each place whose entry reads one (kWorldValueArrivals) reads a
+	// kept value, from `first` to `last` among the values it holds, a place
+	// once, found by its game and room; its answer's object none of a thing
+	// nor of the cast. Monkey Island's: the ghost crew (236), the trials (195)
+	// and the SCUMM Bar at 3.
+	{
+		using namespace WorldCatalog;
+		auto holds = [](int game, int var, int value) {
+			for (const WorldKeptValue &k : kWorldKeptValues) for (short x : k.values) if (k.game == game && k.var == var && x == value && x) return true;
+			return false;
+		};
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (!strcmp(kWorldGames[v.game].gameid, "maniac")) continue;
+			assert(!v.reads || worldKeptValue(v.game, v.reads));
+			assert(!worldValueNeedsPerson(v) && v.object < kWorldPersonThing && !v.kids && !v.marks && !v.powered && !v.later);
+		}
+		for (const WorldValueArrival &w : kWorldValueArrivals) {
+			assert(w.game >= 0 && w.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && worldKeptValue(w.game, w.var) && w.first > 0 && w.first <= w.last);
+			for (int x = w.first; x <= w.last; ++x) assert(holds(w.game, w.var, x));
+			assert(worldValueArrival(w.game, w.room) == &w);
+		}
+		assert(kWorldArrivalAnswer > kWorldPersonThing && kWorldArrivalAnswer < 0xFFFF);
+		assert(worldKeptValue(0, 236) && worldKeptValue(0, 195) && holds(0, 195, 3) && !holds(0, 195, 4) && !worldKeptValue(1, 195));
+		assert(worldValueArrival(0, 28) && worldValueArrival(0, 28)->var == 195 && !worldValueArrival(0, 29) && !worldValueArrival(10, 28));
+	}
+	std::puts("PASS: a later game's values kept (its value readers, the places whose entries read one; Monkey Island's rows)");
 	return 0;
 }

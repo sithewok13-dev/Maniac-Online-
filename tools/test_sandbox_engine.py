@@ -255,11 +255,12 @@ def things_of(path):
     """A things file: {room: {object: (picture, answers)}} ("SVO1"; from
     export version 23 "SVO3" with no effects, then what each is inside;
     from 0254 a game's own answers after the same table, "SVO7" and on,
-    read by test_panel: only the table here; from 0267 "SVOA" too)."""
+    read by test_panel: only the table here; from 0267 "SVOA" too; from
+    0296 "SVOB" and "SVOC", whose kept values follow the same table)."""
     data = path.read_bytes()
     if data[:2] == b'\x1f\x8b':
         data = gzip.decompress(data)
-    if data[:3] != b'SVO' or data[3:4] not in b'13456789A':
+    if data[:3] != b'SVO' or data[3:4] not in b'13456789ABC':
         raise SystemExit(f'FAIL: {path.name}: not a things file')
     rooms, p, found = struct.unpack_from('<H', data, 4)[0], 6, {}
     for _ in range(rooms):
@@ -984,6 +985,22 @@ if __name__ == '__main__':
         if not gt or gt.group(6) != '0' or gt.group(3) != gt.group(4) or gt.group(5) != gt.group(3) or int(gt.group(4)) < throughCases:
             raise SystemExit('FAIL: people given to as their games give to them, through a thing (export again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {gt.group(1)} own answers of Give to a thing of a place and {gt.group(2)} to one of the cast as their games give to their people; {gt.group(3)} played as a player gives, kept')
+        # (From 0296) A later game's values kept, as a player plays them
+        # (kWorldValueReaders, kWorldValueArrivals), where Monkey Island's
+        # export is 0296's (monkey-v38): its ghost crew (room 73) tickled with
+        # the ghost feather (room 75) twice, the jug of grog shown the second
+        # time and picked up; its captain's chest (room 7) opened with the
+        # small key (room 14) through its cabinet, looked in: the piece of
+        # paper and the cinnamon sticks given only with its lid open; its
+        # SCUMM Bar's mugs (room 28) there only with the trials done, one
+        # picked up; each kept through a save and a load. Before, none of
+        # these was ever given or shown.
+        kv = re.search(r'selftest kept values: (\d+) of (\d+) later games\' answers .*?, (\d+) kept through a save and a load; (\d+) failed', output)
+        keptCases = sum(exported_since(worlds, 'monkey', 38) and all((worlds/f'monkey-{room}.svw').exists() for room in rooms) for rooms in ((73, 75), (7, 14), (28,)))
+        if not kv or kv.group(4) != '0' or kv.group(1) != kv.group(2) or kv.group(3) != kv.group(1) or int(kv.group(2)) < keptCases:
+            raise SystemExit('FAIL: a later game\'s values kept as a player plays them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {kv.group(1)} of a later game\'s answers and places by a value kept played as a player plays them (Monkey Island\'s ghost crew\'s jug, '
+              f'captain\'s chest, SCUMM Bar\'s mugs with the trials done), kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \
@@ -1618,7 +1635,7 @@ if __name__ == '__main__':
                           r"\((\d+) let go by a line said meanwhile and by another place\)", output)
         snm = worlds/'samnmax-things.svo'
         snmBytes = snm.read_bytes() if snm.exists() else b''
-        snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] in (b'SVO9', b'SVOA')  # (from 0267 "SVOA": SVO9 and more)
+        snmNinth = (gzip.decompress(snmBytes) if snmBytes[:2] == b'\x1f\x8b' else snmBytes)[:4] in (b'SVO9', b'SVOA', b'SVOB', b'SVOC')  # (from 0267 "SVOA", from 0296 "SVOB" and "SVOC": SVO9 and more)
         # (Its export from 0258, version 27, writes "SVO9": one exported so
         # that is not, is not whole.)
         if any((worlds/f'samnmax-v{v}.svx').exists() for v in (27, 28, 29)) and snm.exists() and not snmNinth:
@@ -1710,7 +1727,7 @@ if __name__ == '__main__':
             least_several = most_several = {'monkey': 0, 'monkey2': 0}
             answers = worlds/f'{gameid}-things.svo'
             answerBytes = answers.read_bytes() if answers.exists() else b''
-            ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] in (b'SVO9', b'SVOA')  # (from 0267 "SVOA": SVO9 and more)
+            ninth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] in (b'SVO9', b'SVOA', b'SVOB', b'SVOC')  # (from 0267 "SVOA", from 0296 "SVOB" and "SVOC": SVO9 and more)
             ninthVersion = {'monkey2': 28, 'indy3': 26}.get(gameid, 27)
             if (worlds/f'{gameid}-v{ninthVersion}.svx').exists() and answers.exists() and not ninth:
                 raise SystemExit(f'FAIL: {title}\'s things file not "SVO9" though exported as version {ninthVersion} (export {title} again: tools/export_worlds.py)')
@@ -1727,7 +1744,7 @@ if __name__ == '__main__':
             # kept so, each a thing then or not (the thing itself too).)
             touches = re.search(re.escape(f"selftest {title} touches: ") + r"(\d+) of (\d+) made touchable or untouchable by its answers kept so; (\d+) of (\d+) made touchable things then, "
                                 r"(\d+) of (\d+) made untouchable not things then; (\d+) records of things it starts untouchable answered once made touchable", output)
-            tenth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] == b'SVOA'
+            tenth = (gzip.decompress(answerBytes) if answerBytes[:2] == b'\x1f\x8b' else answerBytes)[:4] in (b'SVOA', b'SVOB', b'SVOC')
             tenthVersion = {'monkey': 30, 'monkey2': 31, 'tentacle': 29, 'indy3': 27}.get(gameid, 28)
             if (worlds/f'{gameid}-v{tenthVersion}.svx').exists() and answers.exists() and not tenth:
                 raise SystemExit(f'FAIL: {title}\'s things file not "SVOA" though exported as version {tenthVersion} (export {title} again: tools/export_worlds.py)')

@@ -8668,3 +8668,36 @@ From the review of 0290 to 0294.
 - Tests: test_panel (a new case, failing without the fix; ASan/UBSan);
   the verbs, all and doors self-tests on a fresh export; test_startup and
   the full data suite. Not tested on an iPhone.
+
+## Patch 0296 — a later game's story values kept in the new engine: Monkey Island's ghost crew's jug, its captain's chest, its SCUMM Bar by its trials (monkey export version 38)
+
+From 0294's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- The mansion's kept values (kWorldKeptValues, kWorldValueReaders) now
+  work for a later game too: the export plays each row's answer at each
+  value its variable can hold and files it with the values it leaves, and
+  the new engine answers by the kept value and keeps what the answer
+  leaves. Monkey Island's ghost crew (room 73), tickled with the ghost
+  feather a second time, shows the jug of grog, which can then be picked up
+  (before, a dead end). Its captain's chest (room 7), looked at with its
+  lid open, gives the piece of paper and the cinnamon sticks.
+- New kWorldValueArrivals: a place whose entry reads a kept value is
+  exported arrived at with it, both what that changes and its changed
+  things' answers, and the new engine shows the place so each time it is
+  entered. The SCUMM Bar with the three trials done has its mugs full of
+  grog and its tables as they are then.
+- Kept values may be bit variables. The state stays "SVS9"; older states
+  load with the values as the game starts.
+- Not done: the three trials themselves (the Sword Master's fight isn't
+  played, the harbour's ladder leads to a room not exported, the dig's
+  cut-scene stops waiting on its camera), so the mugs can't be reached in
+  play yet; a mug's grog and Otis's lock; the rope (the dam's cut-scene);
+  the root beer (the last part's opening); the bookmark (a carried thing's
+  own verbs).
+- Tests: a new verbs self-test line "kept values" (the jug, the chest,
+  the mugs at each value, each through a save and load); 15 mutations
+  caught; test_panel (a new case) and test_world under ASan/UBSan; every
+  other file byte for byte as before, two exports identical, the reversed
+  order the same answers; the all, doors and keep then resume self-tests
+  as before; test_startup and the full data suite. Not tested on an
+  iPhone.
