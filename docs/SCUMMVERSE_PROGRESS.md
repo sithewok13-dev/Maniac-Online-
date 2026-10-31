@@ -9086,3 +9086,14 @@ descumm, nothing copied).
   answered so" among them, passing); 15 mutations caught (3 of the
   export's, 6 of the catalog's, 6 of the new engine's); test_startup,
   test_world_setup and the full data suite. Not tested on an iPhone.
+
+## Tools after 0301 — the bootstrap's patch check without needless copies
+
+tools/bootstrap.py's applied_prefix made a fresh copy of every file the
+patches touch (176 files, about 13 MB) for each count of patches it tried,
+though a patch that does not reverse leaves the copy as it was (git apply
+is all or nothing); tools/test_bootstrap.py, which asks it at every prefix,
+took 75 minutes with 301 patches. Now the copy is made again only after a
+patch did reverse, and each patch's file list is read once per run. The
+same answers: test_bootstrap passes in 8.5 minutes; with the copy kept after
+a reversal (a mutant), it fails at prefix 165.

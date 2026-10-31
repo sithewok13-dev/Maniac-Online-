@@ -14,31 +14,52 @@ def run(*args, cwd=ROOT, capture=False):
                           stdout=subprocess.PIPE if capture else None).stdout
 
 
-def applied_prefix(source, patches):
-    """Recognize dependent patches by reversing them in a disposable copy.
+_touched = {}
 
-    Checking each patch against the final tree fails when a later patch changes
-    its context. Never reverse patches in the user's working checkout.
-    """
-    paths = set()
-    for patch in patches:
+
+def patch_paths(patch, source):
+    """The files a patch touches (read once per patch file as it stands)."""
+    stat = patch.stat()
+    key = (str(patch), stat.st_mtime_ns, stat.st_size)
+    if key not in _touched:
+        paths = set()
         for line in run("git", "apply", "--numstat", str(patch),
                         cwd=source, capture=True).splitlines():
             path = Path(line.split("\t", 2)[2])
             if path.is_absolute() or ".." in path.parts:
                 raise SystemExit(f"Unsafe patch path: {path}")
             paths.add(path)
-    for count in range(len(patches), 0, -1):
-        with tempfile.TemporaryDirectory(prefix="scummverse-patch-check-") as tmp:
-            shadow = Path(tmp)
-            for path in paths:
-                if (source / path).exists():
-                    (shadow / path).parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source / path, shadow / path)
-            for patch in reversed(patches[:count]):
+        _touched[key] = paths
+    return _touched[key]
+
+
+def applied_prefix(source, patches):
+    """Recognize dependent patches by reversing them in a disposable copy.
+
+    Checking each patch against the final tree fails when a later patch changes
+    its context. Never reverse patches in the user's working checkout. A patch
+    that does not reverse leaves the copy as it was (git apply is all or
+    nothing), so the copy is made again only after one did.
+    """
+    paths = set()
+    for patch in patches:
+        paths |= patch_paths(patch, source)
+    with tempfile.TemporaryDirectory(prefix="scummverse-patch-check-") as tmp:
+        shadow = None
+        for count in range(len(patches), 0, -1):
+            if shadow is None:
+                shadow = Path(tmp) / str(count)
+                for path in paths:
+                    if (source / path).exists():
+                        (shadow / path).parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source / path, shadow / path)
+            for reversed_count, patch in enumerate(reversed(patches[:count])):
                 result = subprocess.run(["git", "apply", "--reverse", str(patch)],
                                         cwd=shadow, capture_output=True)
                 if result.returncode:
+                    if reversed_count:
+                        shutil.rmtree(shadow)
+                        shadow = None
                     break
             else:
                 return count
