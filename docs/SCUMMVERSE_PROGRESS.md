@@ -8576,3 +8576,37 @@ end at the troll bridge.
   doors, tour and follow self-tests as before but for the troll's two
   doors; test_startup, test_world_setup and the full data suite. Not
   tested on an iPhone.
+
+## Patch 0293 — places no run arrived at, arrived at as a player arrives (export versions monkey 36, atlantis 32, ft 33)
+
+From 0290's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- Found: Monkey Island's deck (19) plays the crew's meeting until a story
+  value says it's over, and its end leaves Guybrush in the cabin; its
+  catacombs (39) blank a cell with no way on and draw it again, in a
+  cut-scene no player can skip. Fate of Atlantis's 35 and Full Throttle's
+  27 have the camera follow the one played, who was still in the start's
+  place. Atlantis's labyrinth (50) is a template room. Full Throttle's 65
+  plays a cut-scene until two story bits are set; its 70, 129 and 174
+  start a one-minute wait that ends in a death and the retry. Every run
+  there found itself elsewhere, and the places kept the plain rules.
+- Now a place no run arrives at (found once before the runs) is arrived
+  at, where the usual ways fail, as a player arrives: with its story state
+  (kWorldArrivalVars), the one played in the place before its entry runs,
+  a template room as its instance (Atlantis 50 as cell 161), a cut-scene
+  no player can skip played on until it comes back, and its game's clock
+  not waited.
+- Result: Monkey Island +723 (19: 153, 39: 570), Fate of Atlantis +104 (35
+  and 50), Full Throttle +94 (27, 65, 70, 129, 174). Every other game's
+  files byte for byte as before; two exports identical; the reversed order
+  the same answers.
+- Fate of Atlantis's sub (66) is left without answers: it is played as the
+  sub with its own controls, so no object verb there is a player's.
+- Not done: the start's scroll script left set (Atlantis, Monkey Island 2);
+  arrivals with no thing in places whose camera follows the one played;
+  The Dig's room 8.
+- Tests: check_arrivals (9 new places, the sub with none; 6 of 6 mutations
+  caught; the herring's checks now run on any later export); the sandbox
+  verbs, all and doors self-tests (every new record replays); test_panel,
+  test_stage and test_world under ASan/UBSan; test_startup,
+  test_world_setup and the full data suite. Not tested on an iPhone.

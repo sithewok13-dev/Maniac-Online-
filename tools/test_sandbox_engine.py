@@ -337,6 +337,12 @@ def answer_keys(path):
 PUSH = 6
 
 
+def exported_since(worlds, game, version):
+    """(From 0293) A game's export of that version or a later one (its
+    marker): one exported afresh has only its own."""
+    return any(int(m.group(1)) >= version for m in (re.match(rf'{game}-v(\d+)\.svx$', p.name) for p in worlds.glob(f'{game}-v*.svx')) if m)
+
+
 def check_arrivals(worlds):
     # (From 0285) Where a place's own scripts read the one played as it
     # starts, its export has them there, standing at the thing used, as a
@@ -352,16 +358,33 @@ def check_arrivals(worlds):
     # cut-scene that shows another room first, the first time, answered
     # past it, as a player skips it (Zak's living room, room 2: its cabinet
     # opened, the box of crayons in it picked up; before, no answers at all).
+    # (From 0293) Places no run arrived at, arrived at as a player arrives
+    # (before, no answers at all): Monkey Island's ship's deck (room 19, the
+    # crew met: 260 by the cannon picked up) and catacombs (39, a cell
+    # with no way on blanked and drawn again: a wall looked at); Fate of
+    # Atlantis's room 35 (the one played there first, the camera on them) and
+    # its labyrinth (50, as its cell 161); Full Throttle's room 27 (its camera
+    # on Ben), 65 (both its cut-scenes seen), and 70, 129 and 174 (each a
+    # minute's wait before a death, not waited). And none of Fate of
+    # Atlantis's sub (room 66, played as the sub with its own controls):
+    # none of its things' answers is a player's.
     cases = (('monkey2', 35, (60, 670, PUSH, 0, 0)), ('monkey2', 35, (50, 574, LOOK, 0, 0)), ('indy3', 30, (7, 148, LOOK, 0, 0)),
              ('tentacle', 34, (30, 248, LOOK, 0, 0)), ('monkey', 34, (28, 332, TALK, 0, 0)), ('monkey', 34, (3, 44, LOOK, 0, 0)),
-             ('zak', 32, (4, 152, OPEN, 0, 0)), ('zak', 33, (2, 121, OPEN, 0, 0)), ('zak', 33, (2, 25, PICK_UP, 0, 0)))
+             ('zak', 32, (4, 152, OPEN, 0, 0)), ('zak', 33, (2, 121, OPEN, 0, 0)), ('zak', 33, (2, 25, PICK_UP, 0, 0)),
+             ('monkey', 36, (19, 260, PICK_UP, 0, 0)), ('monkey', 36, (39, 526, LOOK, 0, 0)), ('atlantis', 32, (35, 383, LOOK, 0, 0)),
+             ('atlantis', 32, (50, 602, LOOK, 0, 0)), ('ft', 33, (27, 183, LOOK, 0, 0)), ('ft', 33, (65, 361, LOOK, 0, 0)),
+             ('ft', 33, (70, 379, LOOK, 0, 0)), ('ft', 33, (129, 542, LOOK, 0, 0)), ('ft', 33, (174, 666, LOOK, 0, 0)))
     checked = 0
     for game, version, key in cases:
-        if not (worlds/f'{game}-v{version}.svx').exists() or not (worlds/f'{game}-{key[0]}.svw').exists():
+        if not exported_since(worlds, game, version) or not (worlds/f'{game}-{key[0]}.svw').exists():
             continue
         if key not in answer_keys(worlds/f'{game}-things.svo'):
             raise SystemExit(f'FAIL: {game} room {key[0]}: object {key[1]} not answered (verb {key[2]} from {key[3]}) with the one played there as it starts '
                              f'(export {game} again: tools/export_worlds.py)')
+        checked += 1
+    if exported_since(worlds, 'atlantis', 32) and (worlds/'atlantis-66.svw').exists():
+        if any(key[0] == 66 for key in answer_keys(worlds/'atlantis-things.svo')):
+            raise SystemExit("FAIL: atlantis room 66 (the sub, played as it with its own controls): its things answered as the one played's")
         checked += 1
     return checked
 
@@ -377,7 +400,7 @@ def check_herring(worlds):
     # given it as its game gives to him (kWorldPersonThing + 20,
     # kWorldGivenAs), wherever its game's export is of this version
     # (monkey-v35). Before, nothing gave the herring.
-    if not (worlds/'monkey-v35.svx').exists() or not (worlds/'monkey-41.svw').exists():
+    if not exported_since(worlds, 'monkey', 35) or not (worlds/'monkey-41.svw').exists():
         return 0
     keys = answer_keys(worlds/'monkey-things.svo')
     wanted = [(41, 378, PICK_UP, 0, 902)] + ([(57, 0x8000 + 20, GIVE, 0, 378)] if (worlds/'monkey-57.svw').exists() else [])
@@ -773,7 +796,8 @@ if __name__ == '__main__':
             print(f'PASS: the SCUMM Bar as its scripts answer ({bar} objects: a pirate talked to, not taken; a door opened; no mug out yet)')
         arrived = check_arrivals(worlds)
         if arrived:
-            print(f'PASS: {arrived} answers of places whose scripts read the one played as they start, recorded with them there (from 0285)')
+            print(f'PASS: {arrived} answers of places whose scripts read the one played as they start, recorded with them there (from 0285), '
+                  f'and of places arrived at as a player arrives (from 0293)')
         herring = check_herring(worlds)
         if herring:
             print(f'PASS: {herring} answers of the red herring\'s way recorded: picked up while the seagull is away, given to the troll (from 0292)')
@@ -908,7 +932,7 @@ if __name__ == '__main__':
         # export is of 0292's version (monkey-v35); before, nothing gave it.
         hr = re.search(r'selftest herring: (\d+) of (\d+) red herrings .*?\((\d+) times sent off .*?; taken while the gull is away (\d+), kept (\d+); '
                        r'given to the troll (\d+)\); (\d+) failed', output)
-        monkey35 = (worlds/'monkey-v35.svx').exists() and (worlds/'monkey-41.svw').exists()
+        monkey35 = exported_since(worlds, 'monkey', 35) and (worlds/'monkey-41.svw').exists()
         if not hr or hr.group(7) != '0' or (monkey35 and (hr.group(1) != '1' or hr.group(2) != '1' or hr.group(3) != '3' or hr.group(5) != '1' or
                                                           ((worlds/'monkey-57.svw').exists() and (worlds/'monkey-85.svw').exists() and hr.group(6) != '1'))):
             raise SystemExit('FAIL: Monkey Island\'s red herring as a player gets it (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
@@ -1509,10 +1533,11 @@ if __name__ == '__main__':
         # the Tentacle's); a verb of a pair Day of the Tentacle's script has
         # no entry for, by the plain rules, only in an export before 0285's.
         # From 0290 none of Zak's: its room 2, the last never played, is
-        # arrived at past its cut-scene and answered.)
+        # arrived at past its cut-scene and answered; from 0293 none of Full
+        # Throttle's, its places arrived at as a player arrives.)
         later = (('zak', 'Zak McKracken', 16, True, 0, 0, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 0, 1),
                  ('indy3', 'Indiana Jones and the Last Crusade', 30, True, 0, 0, 1), ('atlantis', 'Indiana Jones and the Fate of Atlantis', 3, True, 0, 1, 1),
-                 ('tentacle', 'Day of the Tentacle', 5, False, 0, 0, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 1, 1),
+                 ('tentacle', 'Day of the Tentacle', 5, False, 0, 0, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 0, 1),
                  ('dig', 'The Dig', 0, False, 0, 0, 0), ('comi', 'The Curse of Monkey Island', 0, False, 0, 0, 1), ('loom', 'Loom', 0, False, 0, 0, 0))
         for gameid, title, least, quiet, least_quiet, least_plain, least_lines in later:
             answers = worlds/f'{gameid}-things.svo'
