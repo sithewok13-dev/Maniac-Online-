@@ -8437,3 +8437,34 @@ friendship, the catch and the dungeon, the credits after an ending; two-
 thing answers that go elsewhere; Story mode for Full Throttle, The Dig and
 The Curse of Monkey Island still needs their films, voices and music
 copied from the game discs.
+
+## Patch 0289 — Unlock on the dungeon's inner door shows its keypad, and Meteor Mess's score screen before Dr Fred has played, in the new engine (mansion export version 51)
+
+From 0287's "not done" and 0280's, against the original's scripts (read
+with descumm, nothing copied).
+- The inner door (room 4, 163): its script answers Unlock as it answers
+  Open, Push, Pull and Use, with its keypad, whatever it is unlocked with.
+  The export now plays a keypad's Unlock too, and the new engine shows it
+  for Unlock with anything carried, as Open shows it (the door shut).
+  Before: "That doesn't seem to work."
+- Meteor Mess (room 18, 442) with the quarter, the arcade's wires fixed,
+  before Dr Fred has played: the same score screen with none of its four
+  high scores, as the original shows it; with the power off, its line. A
+  second film of it (kWorldCloseUps `timed` -101), shown only until he has
+  played and only with the wires fixed; the export records a close-up
+  scene's things that differ from the first film's at its first tick.
+  Before: nothing.
+- Not changed: Zak's place 186 door stays open after the plate. In the
+  original only a second kid standing on the plate keeps it open, and in
+  the new engine nobody but the one played can stand there, so shutting it
+  would leave place 188 reachable only on the tour.
+- Not done: the keypad with the inner door open; the quarter used up; the
+  original's line for the quarter with the wires not fixed.
+- Tests: a new verbs self-test line "lab keypad and score" (Unlock before
+  and after Dr Fred has played and with the door open; the quarter before
+  the wires, with the power off, then the score screen with no high score
+  and the quarter kept); 7 of 8 mutations caught (the eighth makes no
+  difference with today's data); ASan/UBSan; test_panel and test_world;
+  every other export file byte for byte as before, two mansion exports
+  identical; the all, doors and keep then resume self-tests as before;
+  test_startup and the full data suite. Not tested on an iPhone.

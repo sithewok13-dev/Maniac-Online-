@@ -1378,6 +1378,21 @@ if __name__ == '__main__':
             if more:
                 print("PASS: the way up to the lab with everyone out: the Purple Tentacle at his post (one of his name the wanderers had there stepping aside), the badge given "
                       "there; no guard where he cannot be shown; the Green Tentacle given his contract away from his room, his friend saved; the wires fixed by Use as by Fix")
+        # (From 0289) The dungeon's inner door's Unlock shows its keypad as its
+        # Open does, with any thing, shut (its export version 51: before, "That
+        # doesn't seem to work."), and the quarter in Meteor Mess before Dr Fred
+        # has played shows its score screen with none of its high scores (before,
+        # nothing), only with the arcade's wires fixed, its line with the power
+        # off, as their scripts.
+        if mansion >= 51 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            score = re.search(r"selftest lab keypad and score: (\d+) Unlock on the dungeon's inner door .*?; (\d+) the quarter in Meteor Mess before he has played", output)
+            if there(4, 7, 8, 9, 15, 16, 18, 20, 26, 30, 31, 39, 51) and (not score or score.groups() != ('1', '1')):
+                raise SystemExit('FAIL: the inner door\'s Unlock not showing its keypad as its Open does, or Meteor Mess before Dr Fred has played not showing its score screen '
+                                 'with no high score (export the mansion again: tools/export_worlds.py)\n' + output[-2000:])
+            if score:
+                print("PASS: Unlock on the dungeon's inner door shows its keypad as Open does (with any thing, shut; wrong before Dr Fred has played, right after); the quarter "
+                      "in Meteor Mess before he has played shows its score screen with no high score, only with the arcade's wires fixed, its line with the power off")
         # (From 0277) A verb Zak's or a later game's thing does not answer, as
         # a player chooses it: from a picture its export played it from (a
         # record of another verb from there), each verb with no record from
