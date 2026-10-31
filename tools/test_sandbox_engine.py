@@ -366,6 +366,28 @@ def check_arrivals(worlds):
     return checked
 
 
+GIVE = 9
+
+
+def check_herring(worlds):
+    # (From 0292) Monkey Island's red herring (room 41, 378): its Pick up as
+    # its game answers while the seagull is away, sent off by a step on the
+    # dock's loose plank (filed as an answer of two, the plank 902 its
+    # second: kWorldStepAways), and the bridge's troll (room 57, costume 20)
+    # given it as its game gives to him (kWorldPersonThing + 20,
+    # kWorldGivenAs), wherever its game's export is of this version
+    # (monkey-v35). Before, nothing gave the herring.
+    if not (worlds/'monkey-v35.svx').exists() or not (worlds/'monkey-41.svw').exists():
+        return 0
+    keys = answer_keys(worlds/'monkey-things.svo')
+    wanted = [(41, 378, PICK_UP, 0, 902)] + ([(57, 0x8000 + 20, GIVE, 0, 378)] if (worlds/'monkey-57.svw').exists() else [])
+    for key in wanted:
+        if key not in keys:
+            raise SystemExit(f'FAIL: monkey room {key[0]}: object {key[1]} not answered (verb {key[2]} from {key[3]} with {key[4]}): the red herring\'s way '
+                             f'(export monkey again: tools/export_worlds.py)')
+    return len(wanted)
+
+
 def colours_of(path):
     """A character file's colours drawn (palette indices), over all its frames."""
     data = path.read_bytes()
@@ -752,6 +774,9 @@ if __name__ == '__main__':
         arrived = check_arrivals(worlds)
         if arrived:
             print(f'PASS: {arrived} answers of places whose scripts read the one played as they start, recorded with them there (from 0285)')
+        herring = check_herring(worlds)
+        if herring:
+            print(f'PASS: {herring} answers of the red herring\'s way recorded: picked up while the seagull is away, given to the troll (from 0292)')
         lit = check_lit_people(worlds)
         if lit:
             print(f"PASS: the mansion's and Zak's {lit} people in their colours (not the lights-off grey)")
@@ -870,6 +895,26 @@ if __name__ == '__main__':
         # read back (before, drawn there again, carried); and its living room
         # (room 2) answered past its first cut-scene, where its export is
         # 0290's (zak-v33).
+        # (From 0292) Monkey Island's red herring as a player gets it: the
+        # dock's door shut, a step on the plank sends nothing off; opened,
+        # the herring refused while the seagull sits on it; each step sends
+        # the gull away (out of sight) for its game's while (72, 102, then 246
+        # ticks), refused again once it is back, nothing more until stepped
+        # off and on again; the third time taken while the gull is away,
+        # walked to from the plank: carried, the gull gone for good; kept
+        # through a save and a load. Then given to the bridge's troll: his
+        # line, the herring gone for good, the path across touchable, the one
+        # played across the bridge on the map; kept. Wherever Monkey Island's
+        # export is of 0292's version (monkey-v35); before, nothing gave it.
+        hr = re.search(r'selftest herring: (\d+) of (\d+) red herrings .*?\((\d+) times sent off .*?; taken while the gull is away (\d+), kept (\d+); '
+                       r'given to the troll (\d+)\); (\d+) failed', output)
+        monkey35 = (worlds/'monkey-v35.svx').exists() and (worlds/'monkey-41.svw').exists()
+        if not hr or hr.group(7) != '0' or (monkey35 and (hr.group(1) != '1' or hr.group(2) != '1' or hr.group(3) != '3' or hr.group(5) != '1' or
+                                                          ((worlds/'monkey-57.svw').exists() and (worlds/'monkey-85.svw').exists() and hr.group(6) != '1'))):
+            raise SystemExit('FAIL: Monkey Island\'s red herring as a player gets it (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
+        if hr.group(2) != '0':
+            print(f'PASS: Monkey Island\'s red herring: refused while the seagull sits on it, the gull sent off by {hr.group(3)} steps on the dock\'s plank, each its '
+                  f'game\'s while, taken while it is away, kept; given to the troll {hr.group(6)}: across his bridge')
         nm = re.search(r'selftest named: (\d+) of (\d+) things .*?, (\d+) kept through a save and a load; (\d+) failed', output)
         if not nm or nm.group(4) != '0' or nm.group(1) != nm.group(2) or nm.group(3) != nm.group(1) or ((worlds/'tentacle-42.svw').exists() and nm.group(1) == '0'):
             raise SystemExit('FAIL: things with no picture of their own carried by their names\n' + output[-2000:])

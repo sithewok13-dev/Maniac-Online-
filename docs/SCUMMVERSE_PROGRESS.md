@@ -8534,3 +8534,45 @@ descumm, nothing copied).
   tour, cast, follow, moves, talk, walk, camera, rides and wander
   self-tests, and keep then resume, as before; test_startup and the full
   data suite. No exported file changes. Not tested on an iPhone.
+
+## Patch 0292 — Monkey Island's red herring as a player gets it, and the bridge's troll given it, in the new engine (monkey export version 35)
+
+From 0290's "not done", against the original's scripts (read with
+descumm, nothing copied). Before, the herring could never be taken, a dead
+end at the troll bridge.
+- The herring (room 41, 378) is refused while the seagull sits on it. With
+  the dock's door open, stepping on the loose plank (902) flips it and
+  sends the gull up, and the herring can be taken until it lands; its
+  flights last as long as the game's count says (72, 102, 246, 378 and 510
+  ticks, then the last three over again). Nothing else gives the herring.
+- The export plays this as a player does (kWorldStepAways): the door open,
+  the room's scripts started again, the plank stepped on, then Pick up;
+  the answer is filed as one of two, the plank its second, so the file
+  stays "SVOA". The export checks each flight's length against the
+  scripts, and a mismatch fails the export.
+- In the new engine, a step on the plank hides the seagull for its flight;
+  Pick up meanwhile takes the herring, and the gull is then gone for good.
+  Standing still does nothing more until stepped off and on again; leaving
+  lets it land.
+- The troll (room 57) is given to as his object (637), as his game gives
+  to him (kWorldGivenAs); before, nothing he does was recorded and giving
+  him anything got "No, thanks." The herring is taken for good, and the one
+  played crosses the bridge to the map (room 85); anything else gets his
+  line.
+- Monkey Island's things file only: the herring's answer, 242 more with it
+  carried, the troll's two, 4 obsolete ones gone. Every other file of
+  every game byte for byte as before; two exports identical; the reversed
+  order the same answers.
+- Not done: the gull's flights and the plank's flip aren't drawn; the
+  flight count isn't kept in saves; the troll stays on his bridge; the
+  herring put in the stew is used up for good, as the meat already is; the
+  ghost ship's jug of grog (room 73), shown only after a timer; Monkey
+  Island's ten other people given to through their objects.
+- Tests: a new verbs self-test line "herring" (the door shut then open,
+  refused while the gull sits on it, three steps each with its flight,
+  taken while the gull is away, kept through a save and load, given to the
+  troll, across the bridge); 12 sandbox and 5 export mutations caught;
+  test_panel (a new case); ASan/UBSan export and verbs clean; the all,
+  doors, tour and follow self-tests as before but for the troll's two
+  doors; test_startup, test_world_setup and the full data suite. Not
+  tested on an iPhone.

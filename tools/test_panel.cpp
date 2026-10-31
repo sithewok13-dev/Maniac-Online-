@@ -5,7 +5,8 @@
 // the game's lettering (widths, wrapping, speech at the scene's scale),
 // the plain rules for each verb, things carried from a scene, what a
 // thing's own script answers (the things files, SVO1 to SVOB), from 0290
-// one with no picture of its own carried by its name, controls
+// one with no picture of its own carried by its name, from 0292 an answer
+// of two going elsewhere read by its second, controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
 // coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
@@ -1331,6 +1332,25 @@ int main() {
 				tenth(8, {{31, 140, 4, 32}, {31, 118, 0, 64}}), tenth(8, {{31, 140, 1, 32}, {31, 118, 1, 64}}), tenth(8, {{31, 140, 1, 32 | 1}, {31, 118, 0, 64}}),
 				tenth(8, {{31, 140, 1, 32}, {31, 118, 0, 64 | 2}}), tenth(8, {{31, 140, 1, 32 | 64}, {31, 118, 0, 64}})})
 				assert(!parseThings(refused.data(), refused.size(), things, error) && error == "bad effect" && things.effects.empty());
+			// (From 0292 an answer of two that takes the one played elsewhere,
+			// its second a thing (Monkey Island's troll given the red herring;
+			// the herring picked up while the seagull is away is one of two
+			// likewise, the plank its second): read with where it goes, found
+			// by its second only, the answer of one without it going nowhere.)
+			std::vector<uint8_t> goingWith = going;
+			const uint8_t second12[] = {20, 0, 205, 0, (uint8_t)kPickUp, 0, 0, 0};
+			size_t at12 = 0;
+			while (at12 + sizeof(second12) <= goingWith.size() && memcmp(&goingWith[at12], second12, sizeof(second12))) ++at12;
+			assert(at12 + sizeof(second12) <= goingWith.size());
+			goingWith[at12 + 6] = 902 & 0xFF; goingWith[at12 + 7] = 902 >> 8;
+			assert(parseThings(goingWith.data(), goingWith.size(), things, error) && things.effects.size() == 2 && things.effect(20, 205, kPickUp, 0, 902) &&
+				things.effect(20, 205, kPickUp, 0, 902)->goes == 31 && !things.effect(20, 205, kPickUp, 0, 0));
+			assert(PanelBridge::loadThings(6, goingWith.data(), goingWith.size(), problem, sizeof(problem)));
+			place12 = x12 = y12 = facing12 = -1;
+			assert(PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 902, place12, x12, y12, facing12) && place12 == 31 && x12 == 140 && y12 == 118 && facing12 == 1);
+			assert(!PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 0, place12, x12, y12, facing12) && !PanelBridge::answerGoes(6, 20, 205, kPickUp, 0, 901, place12, x12, y12, facing12));
+			assert(PanelBridge::thingAnswer(6, 20, 205, kPickUp, 0, 902, after9, flags9, others4, count9, 4, lines9) && count9 == 2 && others4[1] == 209);
+			PanelBridge::clearThings();
 			// (From 0283 in an "SVOB" likewise: an answer played with a value
 			// kept read with where it takes the one played, through the bridge
 			// by its key only; one without its y refused whole.)
