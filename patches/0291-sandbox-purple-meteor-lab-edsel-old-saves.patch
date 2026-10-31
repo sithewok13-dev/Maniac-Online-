@@ -1,0 +1,225 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index b219a16f..701e944f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -558,6 +558,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	// (From 0287 the Purple Tentacle at his post while he guards it, as the
+ 	// inner door's walk puts him there, wherever the wanderers had him.)
+ 	if (!_enteringCloseUp) guardPosted(game, room, keys);
++	// (From 0291 the Purple Meteor in the lab while the meteor lies there,
++	// likewise: castThingPosted.)
++	if (!_enteringCloseUp) castThingPosted(game, room, keys);
+ 	for (int key : keys) {
+ 		// (The same person as someone here already, by name, or as one
+ 		// following the one played (come along after them, bringFollowers:
+@@ -565,8 +568,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		bool followed = false;
+ 		for (int k : _followers) followed = followed || (following(k) && samePersonKeys(k, key));
+ 		// (From 0263 nor one a timed event that has happened took away: the
+-		// Purple Meteor, once the Meteor Police took it.)
+-		if (key == _playerKey || twinOnStage(key) || followed || takenAway(key)) continue;
++		// Purple Meteor, once the Meteor Police took it. From 0291 nor he
++		// anywhere but the lab while the meteor lies there: castThingAway.)
++		if (key == _playerKey || twinOnStage(key) || followed || takenAway(key) || castThingAway(key)) continue;
+ 		const int n = addPerson(key);
+ 		if (n >= 0) _onStage.push_back(key);
+ 	}
+@@ -2452,6 +2456,20 @@ bool SandboxEngine::pairPersonValued(const Pair &p) {
+ 	}
+ 	if (dead) return true;
+ 	if (!reader || !PanelBridge::thingAnswer(_game, room, id, kWorldVerbGive, 0, c.id, after, flags, others, count, 64, lines, valued)) return false;
++	// (From 0291 one that only takes the thing given, saying, showing and
++	// leaving nothing: its game's script goes on there to the kid's death
++	// (the Green Tentacle given a contract not his own, the book contract or
++	// the kid's: script 61), which this engine never plays; refused as by
++	// anyone who does not want it, the thing kept. Before, the book contract
++	// given to him was gone without a word, and its ending with it.)
++	if (flags & 4) {
++		int touched[3 * 64], touchedCount = 0, self = 0, leaves[2 * PanelBridge::kMostLeaves];
++		PanelBridge::answerTouches(_game, room, id, kWorldVerbGive, 0, c.id, touched, touchedCount, 64, self, valued);
++		const int left = PanelBridge::valueLeaves(_game, room, id, kWorldVerbGive, 0, c.id, valued[0], valued[1], leaves, PanelBridge::kMostLeaves);
++		bool leavesKept = false;
++		for (const ManiacGivenLeaves &g : kManiacGivenLeaves) leavesKept = leavesKept || (g.room == room && g.costume == costume && g.with == c.id && (!g.reads || g.value == (valued[1] & 0xFF)));
++		if (!lines && !count && !touchedCount && !self && !left && !reader->later && !leavesKept) return false;
++	}
+ 	sayAnswer(_game, room, id, kWorldVerbGive, 0, c.id, lines, valued);
+ 	if (flags & 4) useUp(p.item);
+ 	for (int k = 0; k < count; ++k) {
+@@ -3570,6 +3588,30 @@ bool SandboxEngine::castThingGone(int key) const {
+ 	return false;
+ }
+ 
++// From 0291 one of the cast who is a thing of a place (kWorldCastThings)
++// there while that thing lies there (not gone, nor taken away: takenAway),
++// as its game keeps them (the Purple Meteor never leaves the lab): put
++// first on the stage there, wherever the wanderers had them, as the Purple
++// Tentacle at his post (guardPosted), and on no other stage (castThingAway).
++// Before, with everyone out he was hardly ever in the lab, and the book
++// contract, whose film is given to him there only, had nobody to go to.
++void SandboxEngine::castThingPosted(int game, int room, Common::Array<int> &keys) const {
++	for (const WorldCastThing &t : kWorldCastThings) {
++		const int key = t.game >= 0 && t.game < worldGameCount() ? worldAppearanceKey(t.game, t.costume) : 0;
++		if (!key || t.game != game || t.room != room || !hasCharacter(key) || takenAway(key)) continue;
++		const Common::Array<int>::iterator at = Common::find(keys.begin(), keys.end(), key);
++		if (at != keys.end()) keys.erase(at);
++		keys.insert_at(0, key);
++	}
++}
++
++bool SandboxEngine::castThingAway(int key) const {
++	if (!key || key == _playerKey) return false;
++	for (const WorldCastThing &t : kWorldCastThings)
++		if (t.game >= 0 && t.game < worldGameCount() && worldAppearanceKey(t.game, t.costume) == key && !(_game == t.game && _room == t.room) && !takenAway(key)) return true;
++	return false;
++}
++
+ bool SandboxEngine::timedHappened(int game, int script) const {
+ 	const int event = worldTimedOf(game, script);
+ 	for (const Timed &t : _timed) if (event >= 0 && t.event == event && t.phase == 2) return true;
+@@ -4164,6 +4206,34 @@ void SandboxEngine::keptFromOlder() {
+ 	}
+ }
+ 
++// From 0291 a value a film's end leaves (kWorldCloseUps' `sets`) not kept,
++// where its thing is in the picture that film's end leaves it in (not the
++// one its game starts it in): as it then was. A state of before 0288 kept
++// none: Dr Fred's other cut-scene seen there, the lab's switch off, 108 was
++// not at 2, and the meteor, never let be taken, kept the Edsel's ending out
++// of reach for good (the switch turns off once). Its script (126) leaves it
++// so whichever way the switch was turned off. Read from what the state
++// keeps (the place not shown yet).
++void SandboxEngine::keptFromFilms() {
++	for (int g = 0; g < worldGameCount(); ++g) {
++		bool wanted = false;
++		for (const WorldCloseUp &c : kWorldCloseUps) wanted = wanted || (c.game == g && c.sets && worldKeptValue(g, c.sets) && !_kept.contains(g * 65536 + c.sets));
++		if (!wanted) continue;
++		loadThings(g);
++		for (int i = 0; i < PanelBridge::closeUpCount(g); ++i) {
++			const WorldCloseUp *c = closeUpRow(g, i);
++			int length, lead, leadPicture, costume, fx, fy, facing, color, events, after = -1, mark, start = 0, answers;
++			bool powered;
++			char off[8];
++			if (!c || !c->sets || c->object >= kWorldPersonThing || !worldKeptValue(g, c->sets) || _kept.contains(g * 65536 + c->sets) ||
++				!PanelBridge::closeUpFilm(g, i, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off)) || after < 0 ||
++				!PanelBridge::gameThing(g, c->room, c->object, start, answers) || start == after) continue;
++			const Common::HashMap<int, int>::const_iterator kept = _pictures.find(thingKey(g, c->room, c->object));
++			if (kept != _pictures.end() && kept->_value == after) _kept[g * 65536 + c->sets] = c->setsValue;
++		}
++	}
++}
++
+ int SandboxEngine::playedKid(int game) const {
+ 	const int g = worldAppearanceGame(_playerKey), costume = worldAppearanceCostume(_playerKey);
+ 	return worldManiacKid(game, costume) && (g == game || g == kWorldManiacLooks) ? costume : 0;
+@@ -4585,7 +4655,7 @@ void SandboxEngine::arrivals() {
+ 		bool here = false;
+ 		for (int key : _onStage) here = here || key == found[i];
+ 		// (Nor the same person as someone here, by name: steps aside.)
+-		if (here || found[i] == _playerKey || _broken.contains(found[i]) || twinOnStage(found[i]) || takenAway(found[i])) continue;
++		if (here || found[i] == _playerKey || _broken.contains(found[i]) || twinOnStage(found[i]) || takenAway(found[i]) || castThingAway(found[i])) continue; // (from 0291 castThingAway)
+ 		const int n = addPerson(found[i]);
+ 		if (n < 0) continue;
+ 		_onStage.push_back(found[i]);
+@@ -6735,6 +6805,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			_kept = keptNow;
+ 			_later = later;
+ 			if (tag != MKTAG('S', 'V', 'S', '9')) keptFromOlder();
++			keptFromFilms(); // (from 0291: a state of before 0288, its tag the same)
+ 			// (From 0278 a state kept before 0278: what the mansion's package
+ 			// and radio keep inside them, shown taken out by their pick-up then,
+ 			// in them again where the one it is in is carried, it is not, and
+@@ -8549,6 +8620,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int labInner = 0, labWires = 0, labFred = 0, labScore = 0, labCode = 0, labGuard = 0, labBadge = 0, labContract = 0, labFriend = 0, labCard = 0, labSlab = 0; // (from 0287)
+ 	int labTwin = 0, labNamesake = 0, labUnshown = 0, labAway = 0, labUse = 0; // (from 0287)
+ 	int labUnlock = 0, labBlank = 0; // (from 0289)
++	int endMeteorPosted = 0, endGreenRefused = 0, endOlderSwitch = 0; // (from 0291)
+ 	int insideHere = 0, insideOlder = 0, insideStamped = 0;
+ 	{
+ 		int maniac = -1;
+@@ -11146,6 +11218,51 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (ok) ++routeSpace;
+ 				else fail("the Edsel's ending not reached as a player plays it from afresh (the way up, Dr Fred's other film, the meteor taken, the key, the trunk, the launch's films)", maniac);
+ 			}
++			// (5) From 0291 (a review of 0288): (a) with everyone out (the
++			// wanderers, as a launch has them) the Purple Meteor in the lab all
++			// the same while the meteor lies there, sent elsewhere by them, and
++			// nowhere else (before: hardly ever there, the book contract given to
++			// nobody); the book contract given there: his film; once the meteor is
++			// taken, neither there nor anywhere. (b) The Green Tentacle given the
++			// book contract or the kid's own: refused, kept (before: gone without
++			// a word, its script's death not played, the book's ending lost); his
++			// own still taken. (c) A state of before 0288 with the lab's switch
++			// off (Dr Fred's other film seen, 108 not kept): loaded, the meteor
++			// let be taken (before: never, the Edsel's ending out of reach); with
++			// the switch on, refused still.
++			if (endingsThere) {
++				routeStart();
++				const bool wanderersWere = _wanderers;
++				_wanderers = true;
++				buildWanderers();
++				bool ok = WanderBridge::send(meteorKey, place(maniac, 2)) && enter(maniac, 2, 0, problem) && person(meteorKey) < 0 && go(51) && person(meteorKey) >= 0;
++				if (ok) { _kept[maniac * 65536 + 101] = 1; arrivals(); }
++				ok = ok && person(meteorKey) >= 0 && giveTo(meteorKey, take(1, 60)) && _closeUp.index == bookFilm && go(2) && _closeUp.index < 0 && carriedAt(1, 60) >= 0 && person(meteorKey) < 0;
++				if (ok) _kept[maniac * 65536 + 108] = 2;
++				ok = ok && go(51) && person(meteorKey) >= 0 && doAt(kWorldVerbPickUp, thingIn(45)) && carriedAt(51, 45) >= 0 && person(meteorKey) < 0 &&
++					WanderBridge::send(meteorKey, place(maniac, 2)) && go(2) && person(meteorKey) < 0;
++				if (ok) arrivals();
++				ok = ok && person(meteorKey) < 0 && WanderBridge::send(meteorKey, place(maniac, 51)) && go(51) && person(meteorKey) < 0;
++				_wanderers = wanderersWere;
++				if (ok) ++endMeteorPosted; else fail("the Purple Meteor not in the lab with everyone out while the meteor lies there (or met elsewhere, or there once it is taken)", maniac);
++				routeStart();
++				ok = as(bernard);
++				for (int value = 1; value <= 3; ++value) {
++					_kept[maniac * 65536 + 101] = value;
++					_kept.erase(maniac * 65536 + 2960);
++					ok = ok && go(20) && person(greenKey) >= 0 && giveTo(greenKey, take(1, 60)) && (value == 3 ? carriedAt(1, 60) < 0 && (keptValue(maniac, 2960) & 1 << 5) :
++						carriedAt(1, 60) >= 0 && _speech == "No, thanks.");
++				}
++				if (ok) ++endGreenRefused; else fail("the Green Tentacle given the book contract or the kid's own taking it without a word (or his own not taken)", maniac);
++				routeStart();
++				ok = go(51) && thingIn(176) >= 0 && pictureOf(51, 176) == 0;
++				if (ok) setPicture(51, 176, 1);
++				_kept.erase(maniac * 65536 + 108);
++				ok = ok && reload() && _room == 51 && keptValue(maniac, 108) == 2 && thingIn(45) >= 0 && doAt(kWorldVerbPickUp, thingIn(45)) && carriedAt(51, 45) >= 0;
++				routeStart();
++				ok = ok && go(51) && pictureOf(51, 176) == 0 && reload() && !keptValue(maniac, 108) && thingIn(45) >= 0 && doAt(kWorldVerbPickUp, thingIn(45)) && carriedAt(51, 45) < 0;
++				if (ok) ++endOlderSwitch; else fail("a state of before 0288 with the lab's switch off not letting the meteor be taken (or one with it on letting it)", maniac);
++			}
+ 			// (4) From 0287 the way up to the lab, step by step.
+ 			if (routesThere) {
+ 				routeFresh();
+@@ -14094,6 +14211,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"Meteor (cut short, kept; then his film and the ending's seen, the contract used up), not again); the Edsel's %d reached (%d of 11 steps: the Green Tentacle's friend, "
+ 		"the arcade's wires, Dr Fred's high score, the inner door's code, saved from the Purple Tentacle, the lab's door, the meteor refused and Dr Fred's other film, the meteor "
+ 		"picked up, the key and the trunk, the launch's films and the ending seen, not again)", routePolice, routePoliceSteps, routeBook, routeBookSteps, routeSpace, routeSpaceSteps);
++	// (From 0291 a review of 0288's endings.)
++	warning("SCUMMVERSE sandbox selftest endings more: %d the Purple Meteor in the lab with everyone out while the meteor lies there (sent elsewhere, met nowhere else; the book "
++		"contract's film given there; once it is taken, neither there nor elsewhere); %d the Green Tentacle given the book contract or the kid's own refusing it, kept (his own "
++		"taken); %d a state of before 0288 with the lab's switch off letting the meteor be taken (with it on, refused)", endMeteorPosted, endGreenRefused, endOlderSwitch);
+ 	// (From 0287 the way up to the lab.)
+ 	warning("SCUMMVERSE sandbox selftest lab: %d the dungeon's inner door shut and locked as its game starts it (no way through, its keypad, its code wrong before Dr Fred has played); "
+ 		"%d the arcade's wires fixed only in the dark with the flashlight on (his time started); %d his time waiting with the power off, in the arcade and Weird Ed's room, kept, then come; "
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index e40bef0f..907f6741 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -412,6 +412,7 @@ private:
+ 	Common::Array<Later> _later;
+ 	void laterStep(int ticks);
+ 	void keptFromOlder(); // (a state of before 0282: the record on the Victrola, as givenBack finds it)
++	void keptFromFilms(); // (from 0291, a state of before 0288: a value a film's end leaves, by the picture it left its thing in)
+ 	// From 0276 a thing carried an answer uses up: no longer carried, and
+ 	// untouchable where it was taken from (_touched), as its game's taking
+ 	// leaves it.
+@@ -446,6 +447,11 @@ private:
+ 	bool timedTook(int game, int room, int id) const;
+ 	bool takenAway(int key) const;
+ 	bool castThingGone(int key) const; // (from 0288: one of the cast who is a thing gone from its place, kWorldCastThings)
++	// From 0291 one of the cast who is a thing of a place while it lies there:
++	// put first on that place's stage (enter's keys, as guardPosted), and on
++	// no other (away from it: true; the one played never).
++	void castThingPosted(int game, int room, Common::Array<int> &keys) const;
++	bool castThingAway(int key) const;
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;

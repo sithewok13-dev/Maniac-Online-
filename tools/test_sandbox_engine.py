@@ -1360,6 +1360,22 @@ if __name__ == '__main__':
                       "the ending seen); the book contract's (the manuscript retyped by Wendy, posted, the publisher's reply read and taken, the Purple Tentacle sent away by it, "
                       "given to the Purple Meteor: his film and the ending's, the contract used up); the Edsel's (the way up, Dr Fred's other film, the meteor picked up, the key "
                       "and the trunk, the launch's films and the ending); none again once seen")
+        # (From 0291, a review of 0288) With everyone out the Purple Meteor in
+        # the lab while the meteor lies there (sent elsewhere by the wanderers,
+        # met nowhere else; the book contract's film given there), neither there
+        # nor elsewhere once it is taken; the Green Tentacle given the book
+        # contract or the kid's own refusing it, kept (his own taken); a state
+        # of before 0288 with the lab's switch off letting the meteor be taken.
+        if mansion >= 50 and (worlds/'maniac-1.svw').exists():
+            there = lambda *rooms: all((worlds/f'maniac-{r}.svw').exists() and (worlds/f'maniac-{r}.svw').stat().st_size > 0 for r in rooms)
+            more = re.search(r"selftest endings more: (\d+) the Purple Meteor in the lab .*?; (\d+) the Green Tentacle given the book contract .*?; (\d+) a state of before 0288", output)
+            if there(1, 2, 3, 4, 6, 7, 8, 9, 15, 16, 18, 20, 21, 22, 26, 27, 29, 30, 31, 39, 42, 46, 48, 51) and (not more or more.groups() != ('1',) * 3):
+                raise SystemExit('FAIL: the endings\' ways not kept open (the Purple Meteor in the lab with everyone out, the book contract kept from the Green Tentacle, '
+                                 'the meteor let be taken in a state of before 0288 with the lab\'s switch off)\n' + output[-2000:])
+            if more and more.groups() == ('1',) * 3:
+                print("PASS: the endings' ways kept open: with everyone out the Purple Meteor in the lab while the meteor lies there (met nowhere else; the book contract's film "
+                      "given there; gone once it is taken); the Green Tentacle refusing the book contract and the kid's own, kept; a state of before 0288 with the lab's switch "
+                      "off letting the meteor be taken")
         # (From 0287) The way up to the lab, as the original's scripts keep it
         # (its export version 48): the dungeon's inner door locked (its keypad,
         # its code none before Dr Fred has played Meteor Mess), the arcade's

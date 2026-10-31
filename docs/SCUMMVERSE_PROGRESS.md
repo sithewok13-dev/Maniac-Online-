@@ -8506,3 +8506,31 @@ From a bug hunt in the eleven later games, against the original's scripts
   mutations caught; ASan/UBSan clean); the all, doors, tour and follow
   self-tests as before; test_startup, test_world_setup and the full data
   suite. Not tested on an iPhone.
+
+## Patch 0291 — the Purple Meteor kept in the lab, the Edsel's way from an older save, the book contract kept from the Green Tentacle
+
+From the review of 0288, against the original's scripts (read with
+descumm, nothing copied).
+- With everyone out (the default), the Purple Meteor stays in the lab
+  while the meteor lies there and is met nowhere else, as in the original.
+  Before, he was hardly ever there, and the book contract, whose film is
+  given only there, had nobody to go to. Once the meteor is taken he is gone
+  everywhere, as before.
+- A state from before 0288 with the lab's switch already off now lets the
+  meteor be taken: the value Dr Fred's other film leaves (108) was never
+  saved, and the switch turns off only once, so the Edsel's ending was out
+  of reach for good. On loading, a film's value is set when its thing
+  stands as the film's end leaves it.
+- The Green Tentacle given the book contract or the kid's own contract
+  refuses it and the kid keeps it. Before, it was gone without a word (the
+  original's script takes it just before the kid's death, which this
+  engine never plays), and the book's ending was lost.
+- Not done: states from before 0288 that already posted the manuscript
+  (who retyped it was never saved); the lab's switch turned off before the
+  Meteor Police take the meteor (the original's meltdown would end the game
+  first; there's none here).
+- Tests: a new verbs self-test line "endings more" (3 checks, each failing
+  with its fix undone; 4 mutations); ASan/UBSan verbs; the all, doors,
+  tour, cast, follow, moves, talk, walk, camera, rides and wander
+  self-tests, and keep then resume, as before; test_startup and the full
+  data suite. No exported file changes. Not tested on an iPhone.
