@@ -1049,6 +1049,19 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Monkey Island\'s meat, troll, dock or jail, or Monkey Island 2\'s Captain Dread, not as their games play them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {lo.group(1)} leftovers played as their games play them (Monkey Island\'s meat put back in the kitchen, its troll no door, no way back into the water, '
               f'its jail\'s cells by their prisoners freed; Monkey Island 2\'s Captain Dread asleep again), {lo.group(3)} kept')
+        # (From 0301) Monkey Island 2's things shown by a value its game keeps,
+        # as a player plays them, where its export is 0301's (monkey2-v38):
+        # the skull of room 92 (Pick up on 864 gives 864 its class, then
+        # Pick up on 865 the skull, once), the woodsmith's hammer and nails
+        # of room 15 refused with him in and taken with him away (bit 361;
+        # his shop as its entry leaves it then); through saves and loads.
+        # Before, none of the three was ever taken.
+        mt = re.search(r"selftest Monkey Island 2's things: (\d+) of (\d+) played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        mi2Cases = sum(exported_since(worlds, 'monkey2', 38) and (worlds/f'monkey2-{room}.svw').exists() for room in (92, 15))
+        if not mt or mt.group(4) != '0' or mt.group(1) != mt.group(2) or mt.group(3) != mt.group(1) or int(mt.group(2)) < mi2Cases:
+            raise SystemExit('FAIL: Monkey Island 2\'s things shown by a value its game keeps, as a player plays them (export Monkey Island 2 again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {mt.group(1)} of Monkey Island 2\'s things shown by a value its game keeps played as a player plays them (the skull of room 92 by its 864\'s class, '
+              f'the woodsmith\'s hammer and nails with him away), kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

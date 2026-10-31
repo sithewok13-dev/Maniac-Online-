@@ -8861,7 +8861,8 @@ descumm, nothing copied).
 
 ## Patch 0299 — the app's own name in its pictures: "NearGROG" at the top of the launcher, an N on its icon
 
-Asked for by the user (the app is "Near-Grog" on their phone).
+Asked for by the user (meant for another app of theirs, "Near-Grog"; kept
+here at their word).
 - The launcher's logo reads "NearGROG": "Near" green as "Scumm" was (its
   outline, its darker depth below, its shadow), "GROG" gray stones with
   cracks as "VM" was (outlined, each letter tilted, behind the green
@@ -8989,3 +8990,99 @@ against the original's scripts (read with descumm, nothing copied).
   keep then resume as before; 13 more mutations caught (10 of the new
   engine's, 3 of the export's checks); test_startup, test_world_setup
   (both games) and the full data suite. Not tested on an iPhone.
+
+## Patch 0301 — Monkey Island 2's skull, and its woodsmith's hammer and nails with him away, by the values its game keeps in the new engine; its bra's way traced (monkey2 export version 38)
+
+From 0294's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- What the original does. The skull (room 92, 866) is untouchable from its
+  game's start: any verb on 864 or 865 there while 864 is without class 19
+  runs the room's local script 201 (864 given class 19, both named anew,
+  the one played's line); with it, Pick up on either hands on to the
+  skull's own Pick up, which reads the same class: the skull taken. The
+  hammer (room 15, 140) and nails (141): Pick up is the woodsmith's refusal
+  (local script 202, his line) unless bit 361 is set (he is away); his
+  shop's entry with it set takes him out, shows its sign (144) touchable,
+  makes his own thing (143) untouchable and sets 362. Bit 361 is set only by
+  room 14's local script 222, as the one played leaves by its street (126)
+  with its peg leg (130) sawn (the well-polished saw, room 48's 540, used on
+  it: verb 28, local 221, 130's class 6 and variable 166); room 14's entry
+  (with 362) and global script 77 (18000 ticks away from rooms 7, 14 and 15)
+  clear it. The saw is sold by room 48's antique dealer (its local 211: the
+  pieces of eight, 76, carried, global variable 305 at its price, then a
+  choice of two). The bra (room 14, 128) is given by room 14's local 203 (a
+  cut-scene) when the laundry claim ticket (111) is given to Mad Marty
+  (127), or chosen in his talk with it carried; the ticket lies in room 13,
+  touchable only once bit 369 is set (room 13's entry and local 213, its door
+  not open); room 14's entry sets 369 once 368 is (local 201); 368 is set by
+  room 13's local 209 (its occupant under the bucket of mud over his door:
+  the bucket, 124, filled, bit 367, used on the door, 123: local 207, then
+  208's 7200 ticks or the one played at the room's left); the bucket is got
+  in room 14 only through a choice (local 211, two of its three choices).
+- New engine, before. 864 and 865 answered every verb with 201's line (the
+  export played them from the game's start only, their class not kept), the
+  skull never touchable: never taken. The hammer and nails: only the
+  woodsmith's refusal (played only with him in). Dead ends.
+- Now a later game's value kept may be a thing's class (kWorldKeptClasses,
+  kept as kWorldClassValue + its row: the export's runs of
+  kWorldValueReaders and kWorldValueArrivals read and write the class for
+  it). Monkey Island 2's rows: 864's class 19 (864's and 865's Pick up,
+  Look, Use, Push, Pull and Talk at 0 and 1: 201's line leaving 1; at 1
+  their own lines, Pick up giving the skull); bit 361 (the hammer's and
+  nails' Pick up: at 1 taken); room 15 arrived at with 361 at 1 (the sign
+  shown and touchable, 143 untouchable); the woodsmith (costume 25) off the
+  stage while it is set (kWorldCastGones, read as the value is now). The
+  verbs self-test's one-thing check puts back the values a record's rows
+  read (0, as its record is played from its game's start) before each.
+  (Not 0300's kWorldValueClasses: those classes go with a variable kept,
+  its script setting both, and the export sets them with the value it
+  plays; here the class is itself the value, no variable with it, read back
+  after each answer for what it leaves. A class of kWorldValueClasses is
+  never one kept as a value, test_panel checks.)
+- From the review of 0300 and 0301: a value kept read back from a state is
+  kept only as an answer leaves it (worldKeptValueAs: 0 or one its row
+  lists; one only added to within 0 and its largest; a row listing none,
+  any), a holder's and a fight's as before. Before, a damaged state's at
+  another value (864's class or bit 361 at 2) had no answer of its things,
+  so the skull could never be taken and the woodsmith's shop was shown as
+  with him in while he was gone. Captain Dread's place (0300's
+  kWorldEntryPictures) puts him to sleep only arriving there, not shown
+  again (another played there, a door not gone through, a way not taken)
+  nor back from a close-up; before, choosing another to play there put him
+  to sleep. The export's holder runs read a class kept as the rest do (no
+  game with holders has one yet; none is a class of kWorldValueClasses).
+- Results: Monkey Island 2's things file ("SVOB": 56 answers with a value
+  kept, and its shop's arrival with 16 answers of its things so; was
+  "SVOA", none); its scenes and characters byte for byte as 0300 left them;
+  every other file of every game byte for byte as before (1136 files, the
+  mansion's included); two exports identical; the reversed order the same
+  answers.
+- Not done: in play the woodsmith is never away yet (the saw's purchase:
+  the dealer's choices and the pieces of eight, not played; the peg leg
+  sawn and the way out of room 14 not modelled, nor his return: once set,
+  the bit stays); the bra: none of its way can be played (the bucket's
+  choice, the mud, the bucket over the door and its wait, the laundry, the
+  ticket by bit 369, the ticket given: a thing taken only in a place arrived
+  at with a value is not among those its export gives people); room 15's
+  other things that read 361 (its stools, workbench, peg legs, chair, fish
+  plaque, calendar) still answered as with him in; 864 and 865 used
+  with a second thing; their new names; Pick up on them with the skull
+  carried says the line for it still there; the other Monkey Island 2
+  things away from its start that their own Pick up takes once a story
+  value shows them (room 29's bottle, room 39's mug, room 93's ticket, room
+  97's dynamite and rope; 93 and 97 template rooms): not traced to their
+  ends.
+- Tests: a new verbs self-test line "Monkey Island 2's things" (2 of 2: the
+  skull, 864's class kept through a save and a load, given by 865 once; the
+  hammer refused with him in, then with him away his shop as its entry
+  leaves it, the hammer and nails taken, through a save and a load; each
+  value from a damaged state at 2 let go first; on the export before it,
+  both fail); 0300's Captain Dread case with another played in his place
+  (still awake); test_panel (a new case: the classes kept, the values read
+  back) under ASan/UBSan,
+  test_world and test_stage; every other verbs line as before (the one-thing
+  check's put back: without it, 864's and 865's records fail); the all,
+  doors, keep then resume self-tests as before (0300's "put back and
+  answered so" among them, passing); 15 mutations caught (3 of the
+  export's, 6 of the catalog's, 6 of the new engine's); test_startup,
+  test_world_setup and the full data suite. Not tested on an iPhone.

@@ -2554,5 +2554,57 @@ int main() {
 		assert(!worldLinkFrom(0, duel->masterRoom, duel->masterObject));
 	}
 	std::puts("PASS: a talk's or a fight's choices over the panel (rows a finger can tap, its page turned by arrows, lit, long ones cut), Monkey Island's sword fighting in the catalog");
+	// (From 0301) A value kept that is a thing's class (kWorldKeptClasses):
+	// each row a thing of its game and a class of its 32, kept as
+	// kWorldClassValue and its row (a kept value of that game alone, found
+	// by worldKeptClass; none past the rows), a number no variable of a game
+	// is (under the bit variables, 0x8000 on) nor a holder's value. Monkey
+	// Island 2's rows: the skull's (room 92: 864's and 865's Pick up read
+	// 864's class 19), the woodsmith's hammer and nails (room 15: Pick up
+	// reads bit 361), his shop arrived at with it, he gone while it is set,
+	// his cast's place that shop; its export's version 38 on. A class that
+	// goes with a variable (kWorldValueClasses) is never one kept as a value.
+	{
+		using namespace WorldCatalog;
+		const int classes = (int)(sizeof(kWorldKeptClasses) / sizeof(kWorldKeptClasses[0]));
+		for (int k = 0; k < classes; ++k) {
+			const WorldKeptClass &c = kWorldKeptClasses[k];
+			assert(c.game >= 0 && c.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && !worldHome(c.game) && c.object > 0 && c.cls >= 1 && c.cls <= 32);
+			assert(worldKeptClass(c.game, kWorldClassValue + k) == &c && worldKeptValue(c.game, kWorldClassValue + k) && !worldKeptClass(c.game + 1, kWorldClassValue + k));
+		}
+		assert(!worldKeptClass(1, kWorldClassValue - 1) && !worldKeptClass(1, kWorldClassValue + classes) && !worldKeptClass(1, 0x8000 + 361));
+		assert(kWorldClassValue > kWorldHeldFor && kWorldClassValue + classes < 0x8000 && kWorldClassValue != kWorldArrivalAnswer);
+		int skull = 0, tools = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (v.game != 1) continue;
+			skull += v.room == 92 && (v.object == 864 || v.object == 865) && v.kind == kWorldVerbPickUp && !v.with && worldKeptClass(1, v.reads) && worldKeptClass(1, v.reads)->object == 864 && worldKeptClass(1, v.reads)->cls == 19;
+			tools += v.room == 15 && (v.object == 140 || v.object == 141) && v.kind == kWorldVerbPickUp && !v.with && v.reads == 0x8000 + 361;
+		}
+		assert(skull == 2 && tools == 2 && worldKeptValue(1, 0x8000 + 361) && !worldKeptValue(0, 0x8000 + 361));
+		assert(worldValueArrival(1, 15) && worldValueArrival(1, 15)->var == 0x8000 + 361 && worldValueArrival(1, 15)->first == 1 && !worldValueArrival(1, 14));
+		bool gone = false, smith = false;
+		for (const WorldCastGone &c : kWorldCastGones) gone = gone || (c.game == 1 && c.costume == 25 && c.var == 0x8000 + 361);
+		for (const WorldCastGuest &c : kWorldCast) smith = smith || (c.game == 1 && c.room == 15 && c.guest.costume == 25);
+		assert(gone && smith && worldExportVersion("monkey2") >= 38);
+		for (const WorldValueClass &c : kWorldValueClasses) assert(!worldKeptClass(c.game, c.var)); // (0300's: each with a variable of its game)
+		// (No game with holders has one yet,
+		// nor is one a class 0300's kWorldValueClasses sets with a variable.)
+		for (const WorldKeptClass &k : kWorldKeptClasses) {
+			assert(!worldHolderOf(k.game));
+			for (const WorldValueClass &c : kWorldValueClasses) assert(!(c.game == k.game && c.object == k.object && c.cls == k.cls));
+		}
+		// (A value kept read back from a state, as an answer
+		// leaves it, worldKeptValueAs: 0 or one its row lists, else let go
+		// (864's class at 2, bit 361 at 2, the mansion's cassette at 30); one
+		// only added to within 0 and its largest (the trials, 195); a row
+		// listing none, any (the Green Tentacle's friends, bits); none kept,
+		// let go.)
+		assert(worldKeptValueAs(1, kWorldClassValue, 0) == 0 && worldKeptValueAs(1, kWorldClassValue, 1) == 1 && worldKeptValueAs(1, kWorldClassValue, 2) == -1);
+		assert(worldKeptValueAs(1, 0x8000 + 361, 1) == 1 && worldKeptValueAs(1, 0x8000 + 361, 2) == -1 && worldKeptValueAs(1, 0x8000 + 361, -1) == -1);
+		assert(worldKeptValueAs(10, 157, 44) == 44 && worldKeptValueAs(10, 157, 30) == -1 && worldKeptValueAs(10, 2960, 6) == 6);
+		assert(worldKeptCount(0, 195) && worldKeptValueAs(0, 195, 2) == 2 && worldKeptValueAs(0, 195, 7) == 3 && worldKeptValueAs(0, 195, -2) == 0);
+		assert(worldKeptValueAs(1, 195, 1) == -1 && worldKeptValueAs(0, 0x8000 + 361, 1) == -1);
+	}
+	std::puts("PASS: a value kept that is a thing's class (kept as its row's, of its game alone; no game's variable), Monkey Island 2's skull, hammer and nails in the catalog; a value kept read back only as an answer leaves it");
 	return 0;
 }
