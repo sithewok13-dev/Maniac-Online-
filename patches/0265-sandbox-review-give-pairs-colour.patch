@@ -1,0 +1,328 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index ee18e086..50e5f98e 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -504,7 +504,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+ 	_cabinLeft = _cabinRight = 0;
+-	_notice.clear(); _noticeClock = 0; // (what was told at the place before)
++	// (From 0265 its colour too: one an answer's line told by no one left
++	// would colour what is told next, a close-up's keys typed.)
++	_notice.clear(); _noticeClock = 0; _noticeColor = -1; // (what was told at the place before)
+ 	// (What is inside another over it where that one is open, else under it.)
+ 	layInside();
+ 	showStains();
+@@ -1509,19 +1511,34 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		const bool later = !worldHome(game);
+ 		if (later && p.kind == kWorldVerbUse && &t != &tries[0]) continue;
+ 		loadThings(game);
+-		int after, others[3 * 64], count, flags, sets = 0;
+-		char said[256];
++		int after, others[4 * 64], count, flags, sets = 0, lines = 0;
++		char said[256] = "";
+ 		// (From the picture it is in now; a thing carried, from 0. From 0248
+ 		// as its script answers by the marks, where it reads them: its own.)
+ 		const int from = t.thing >= 0 ? (later ? pictureNow(t.thing, id) : thingBit(t.thing, id)) : 0;
+ 		if (from < 0 || from > 1) continue;
+-		if (!markedEffect(game, room, id, p.kind, from, with, after, others, count, 64, said, sizeof(said), flags, sets) &&
+-			!PanelBridge::pairEffect(game, room, id, p.kind, from, with, after, others, count, 64, said, sizeof(said), flags)) continue;
++		// (From 0265 a later game's answer whole, as its one thing's are read
++		// (thingAnswer, its things file's "SVO9"): an other in a picture past
++		// 1 too, which the older reader leaves out (Monkey Island 2's room 22,
++		// a thing used with 239: 235 then in its picture 3), its lines in turn.
++		// Each other as (room, object, picture, given).)
++		if (later) {
++			if (!PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines)) continue;
++		} else {
++			int three[3 * 64];
++			if (!markedEffect(game, room, id, p.kind, from, with, after, three, count, 64, said, sizeof(said), flags, sets) &&
++				!PanelBridge::pairEffect(game, room, id, p.kind, from, with, after, three, count, 64, said, sizeof(said), flags)) continue;
++			for (int k = 0; k < count; ++k) {
++				others[4 * k] = three[3 * k]; others[4 * k + 1] = three[3 * k + 1];
++				others[4 * k + 2] = three[3 * k + 2] == 2 ? 0 : three[3 * k + 2]; others[4 * k + 3] = three[3 * k + 2] == 2;
++			}
++			lines = *said ? 1 : 0;
++		}
+ 		// (Only an own answer uses up; the usual one never does. A usual one
+ 		// that says nothing and changes nothing: the next, else the plain
+ 		// rules, as for one thing.)
+ 		if (!(flags & 8)) flags &= ~6;
+-		if (!(flags & 8) && !*said && !count && !(flags & 1) && (t.thing < 0 || after == from)) continue;
++		if (!(flags & 8) && !lines && !count && !(flags & 1) && (t.thing < 0 || after == from)) continue;
+ 		// (From 0260 a later game's one here taken: carried, as its one-thing
+ 		// answers take one.)
+ 		if (later && (flags & 1) && t.thing >= 0 && game == _game && room == _room && !isCarried(game, room, id)) {
+@@ -1529,7 +1546,8 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			StageBridge::objectName(t.thing, name, sizeof(name));
+ 			if (!carry(game, room, id, name, from)) { say("I can't pick that up."); return true; }
+ 		}
+-		if (*said) say(said);
++		if (later) sayAnswer(game, room, id, p.kind, from, with, lines);
++		else if (*said) say(said);
+ 		// (The one here: its picture after, as its script leaves it.)
+ 		if (t.thing >= 0 && game == _game && room == _room) {
+ 			if (StageBridge::objectPictures(t.thing) > 1) { if (StageBridge::objectShown(t.thing) != after) showPicture(t.thing, id, after); }
+@@ -1545,10 +1563,11 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			PanelBridge::removeItem(gone[k]); _carried.remove_at(gone[k]);
+ 		}
+ 		for (int k = 0; k < count; ++k) {
+-			const int r = others[3 * k], o = others[3 * k + 1], picture = others[3 * k + 2];
++			const int r = others[4 * k], o = others[4 * k + 1], picture = others[4 * k + 2];
++			const bool given = others[4 * k + 3] != 0;
+ 			if (isCarried(game, r, o)) continue;
+-			if (picture == 2 && later) carry(game, r, o, "", pictureOf(r, o));
+-			else if (picture == 2) {
++			if (given && later) carry(game, r, o, "", pictureOf(r, o));
++			else if (given) {
+ 				// (One the kid has then: carried, gone from its place.)
+ 				if (carry(game, r, o, "", 0)) _pictures[thingKey(game, r, o)] = 1;
+ 			} else if (game == _game) setPicture(r, o, picture);
+@@ -1562,6 +1581,32 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 	return false;
+ }
+ 
++// From 0265, the place whose records answer a thing given to someone (Give,
++// filed under kWorldPersonThing and their costume): where they are, where
++// their game has them there (their own answer to it, else their usual one);
++// else (the export files someone where their game has them on arriving,
++// which need not be where its cast puts them: Monkey Island's monkey, filed
++// at room 21, the cast's at 20) where the cast puts them, then any place
++// they are filed in, their own answer to it first, else the first usual one.
++// -1: none.
++static int personAnswerRoom(int game, int room, int costume, int thing) {
++	const int id = kWorldPersonThing + costume;
++	int after, others[3], count, flags;
++	char said[2];
++	auto answers = [&](int r) { return PanelBridge::pairEffect(game, r, id, kWorldVerbGive, 0, thing, after, others, count, 1, said, sizeof(said), flags); };
++	if (answers(room)) return room;
++	Common::Array<int> rooms;
++	for (const WorldCastGuest &g : kWorldCast)
++		if (g.game == game && g.guest.costume == costume && g.room != room && Common::find(rooms.begin(), rooms.end(), (int)g.room) == rooms.end()) rooms.push_back(g.room);
++	for (int k = 0, n = PanelBridge::effectCount(game); k < n; ++k) {
++		int r, i, kind, from;
++		if (PanelBridge::effectAt(game, k, r, i, kind, from) && i == id && kind == kWorldVerbGive && r != room && Common::find(rooms.begin(), rooms.end(), r) == rooms.end()) rooms.push_back(r);
++	}
++	for (int own = 1; own >= 0; --own)
++		for (int r : rooms) if (answers(r) && (!own || (flags & 8))) return r;
++	return -1;
++}
++
+ // From 0260, a thing carried given to someone of the game played, as its own
+ // sentence answers (Day of the Tentacle's and both Monkey Islands' things
+ // files: filed under kWorldPersonThing and their costume, in the place its
+@@ -1569,33 +1614,29 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ // their own answer to it, else their usual one): its line (said as the one
+ // played's, as every record's line is), the thing given used up (no longer
+ // carried; an own answer only), the others it sets and gives. A usual answer
+-// that says and changes nothing: none (the plain answer).
++// that says and changes nothing: none (the plain answer). From 0265 read
++// from the place personAnswerRoom finds, and whole, as pairOwn reads a later
++// game's (an other in a picture past 1 too, its lines in turn).
+ bool SandboxEngine::pairPerson(const Pair &p) {
+ 	if (p.item < 0 || p.item >= (int)_carried.size() || p.person < 0 || p.person >= (int)_onStage.size() || !pairsAnswered(_game) || worldHome(_game)) return false;
+ 	const Carried c = _carried[p.item];
+ 	const int key = _onStage[p.person], costume = worldAppearanceCostume(key);
+ 	if (c.game != _game || worldAppearanceGame(key) != _game || costume < 0 || kWorldPersonThing + costume >= 0xFFFF) return false;
+ 	loadThings(_game);
+-	Common::Array<int> rooms;
+-	rooms.push_back(_room);
+-	for (const WorldCastGuest &g : kWorldCast) if (g.game == _game && g.guest.costume == costume && g.room != _room) rooms.push_back(g.room);
+-	for (int room : rooms) {
+-		int after, others[3 * 64], count, flags;
+-		char said[256];
+-		if (!PanelBridge::pairEffect(_game, room, kWorldPersonThing + costume, kWorldVerbGive, 0, c.id, after, others, count, 64, said, sizeof(said), flags)) continue;
+-		if (!(flags & 8)) flags &= ~6;
+-		if (!(flags & 8) && !*said && !count) return false;
+-		if (*said) say(said);
+-		if (flags & 4) { PanelBridge::removeItem(p.item); _carried.remove_at(p.item); }
+-		for (int k = 0; k < count; ++k) {
+-			const int r = others[3 * k], o = others[3 * k + 1], picture = others[3 * k + 2];
+-			if (isCarried(_game, r, o)) continue;
+-			if (picture == 2) carry(_game, r, o, "", pictureOf(r, o));
+-			else setPicture(r, o, picture);
+-		}
+-		return true;
++	const int room = personAnswerRoom(_game, _room, costume, c.id), id = kWorldPersonThing + costume;
++	int after, others[4 * 64], count, flags, lines;
++	if (room < 0 || !PanelBridge::thingAnswer(_game, room, id, kWorldVerbGive, 0, c.id, after, flags, others, count, 64, lines)) return false;
++	if (!(flags & 8)) flags &= ~6;
++	if (!(flags & 8) && !lines && !count) return false;
++	sayAnswer(_game, room, id, kWorldVerbGive, 0, c.id, lines);
++	if (flags & 4) { PanelBridge::removeItem(p.item); _carried.remove_at(p.item); }
++	for (int k = 0; k < count; ++k) {
++		const int r = others[4 * k], o = others[4 * k + 1], picture = others[4 * k + 2];
++		if (isCarried(_game, r, o)) continue;
++		if (others[4 * k + 3]) carry(_game, r, o, "", pictureOf(r, o));
++		else setPicture(r, o, picture);
+ 	}
+-	return false;
++	return true;
+ }
+ 
+ // When a walk ends: the first of two still held, else a verb chosen on the
+@@ -2648,7 +2689,7 @@ void SandboxEngine::closeUpPress(int key) {
+ 		!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
+ 	_closeUp.right = _closeUp.right && PanelBridge::closeUpCode(_closeUp.game, _closeUp.index, _closeUp.presses) == value;
+ 	_closeUp.typed += line;
+-	_notice = _closeUp.typed; _noticeClock = 1 << 30; _dirty = true;
++	_notice = _closeUp.typed; _noticeClock = 1 << 30; _noticeColor = -1; _dirty = true;
+ 	if (++_closeUp.presses < presses) return;
+ 	const CloseUp c = _closeUp;
+ 	int picture;
+@@ -6112,13 +6153,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 					// the one carried up or takes the one here.)
+ 					auto pairLine = [&](int thing, bool &usesUp) {
+ 						Common::String line = "That doesn't seem to work.";
+-						int on, ox, oy, ow, oh, wx, wy, st, after, others[3], count, flags;
+-						char said[256];
++						int on, ox, oy, ow, oh, wx, wy, st, after, others[4], count, flags, lines, speaker, costume, color;
++						char said[256] = "";
+ 						const int item = PanelBridge::itemCount() - 1;
+ 						usesUp = false;
+ 						if (!pairsAnswered(g) || worldHome(g) || item < 0 || item >= (int)_carried.size() || _carried[item].game != g || !StageBridge::object(thing, on, ox, oy, ow, oh, wx, wy, st)) return line;
+ 						const int from = pictureNow(thing, on);
+-						if (from < 0 || from > 1 || !PanelBridge::pairEffect(g, _room, on, kWorldVerbUse, from, _carried[item].id, after, others, count, 1, said, sizeof(said), flags)) return line;
++						// (From 0265 read whole, as pairOwn reads it: its first line.)
++						if (from < 0 || from > 1 || !PanelBridge::thingAnswer(g, _room, on, kWorldVerbUse, from, _carried[item].id, after, flags, others, count, 1, lines)) return line;
++						if (lines) PanelBridge::answerLine(g, _room, on, kWorldVerbUse, from, _carried[item].id, 0, speaker, costume, color, said, sizeof(said));
+ 						if (!(flags & 8)) flags &= ~6;
+ 						if ((flags & 8) || *said || count || (flags & 1) || after != from) line = said;
+ 						usesUp = (flags & 5) != 0;
+@@ -6185,16 +6228,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 					int speaker = person;
+ 					const int item = PanelBridge::itemCount() - 1, key = _onStage[person], costume = worldAppearanceCostume(key);
+ 					if (pairsAnswered(g) && !worldHome(g) && item < (int)_carried.size() && _carried[item].game == g && worldAppearanceGame(key) == g) {
+-						int after, others[3], count, flags;
+-						char said[256];
+-						Common::Array<int> homes;
+-						homes.push_back(_room);
+-						for (const WorldCastGuest &cast : kWorldCast) if (cast.game == g && cast.guest.costume == costume && cast.room != _room) homes.push_back(cast.room);
+-						for (uint r = 0; r < homes.size(); ++r)
+-							if (PanelBridge::pairEffect(g, homes[r], kWorldPersonThing + costume, kWorldVerbGive, 0, _carried[item].id, after, others, count, 1, said, sizeof(said), flags)) {
+-								if ((flags & 8) || *said || count) { expected = said; speaker = _player; }
+-								break;
+-							}
++						int after, others[4], count, flags, lines, by, costumeBy, color;
++						char said[256] = "";
++						// (From 0265 read where and as pairPerson reads it: personAnswerRoom, whole.)
++						const int home = personAnswerRoom(g, _room, costume, _carried[item].id), them = kWorldPersonThing + costume;
++						if (home >= 0 && PanelBridge::thingAnswer(g, home, them, kWorldVerbGive, 0, _carried[item].id, after, flags, others, count, 1, lines) &&
++							(!lines || PanelBridge::answerLine(g, home, them, kWorldVerbGive, 0, _carried[item].id, 0, by, costumeBy, color, said, sizeof(said))) &&
++							((flags & 8) || lines || count)) { expected = said; speaker = _player; }
+ 					}
+ 					tapRect(x, y, w, h);
+ 					bool ok = _holding.kind == kWorldVerbGive;
+@@ -6819,9 +6859,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 				char line[8];
+ 				if (PanelBridge::closeUpKey(maniac, safe, k, key, value, line, sizeof(line)) && value != PanelBridge::closeUpCode(maniac, safe, 0)) wrongFirst = value;
+ 			}
+-			ok = wrongFirst >= 0 && PanelBridge::closeUpAnswer(maniac, safe, false, wrongPicture, wrongLine, sizeof(wrongLine)) && *wrongLine && keypadShown(kWorldVerbUse, x, y);
++			// (From 0265 a colour an answer's line told by no one left (another
++			// game's) let go, as the place changes and as a key is pressed: the
++			// keys typed in the panel's own.)
++			_noticeColor = 5;
++			ok = wrongFirst >= 0 && PanelBridge::closeUpAnswer(maniac, safe, false, wrongPicture, wrongLine, sizeof(wrongLine)) && *wrongLine && keypadShown(kWorldVerbUse, x, y) && _noticeColor == -1;
++			_noticeColor = 5;
+ 			for (int i = 0; ok && i < presses; ++i)
+-				ok = tapKey(i ? PanelBridge::closeUpCode(maniac, safe, i) : wrongFirst) && (i + 1 < presses ? _room == keypad : backAt(x, y));
++				ok = tapKey(i ? PanelBridge::closeUpCode(maniac, safe, i) : wrongFirst) && (i + 1 < presses ? _room == keypad && _noticeColor == -1 : backAt(x, y));
+ 			ok = ok && pictureOf(9, 219) == 0 && pictureOf(9, 219) == wrongPicture && _speech == wrongLine && !isThing(thingIn(222));
+ 			if (!ok) fail("the wall safe opened with a wrong code, or its keypad not closed so", maniac); else ++safesWrong;
+ 			// (A menu's choice there, the mansion's first place: left unanswered,
+@@ -8672,6 +8717,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	struct OwnRecords {
+ 		int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0, keptAll = 0, kept = 0, several = 0, bySomeone = 0, past = 0, unshown = 0;
+ 		int count = 0, pairs = 0, pairsSeen = 0, pairsAway = 0, pairsUsual = 0, pairsPeople = 0, pairsUsedUp = 0, pairsBoth = 0, pairsUnpictured = 0, pairsNobody = 0, pairsThingAway = 0, pairsNoPicture = 0;
++		int pairsCast = 0, pairsPast = 0; // (from 0265)
+ 		int madeAll = 0, made = 0, later = 0;
+ 		int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things;
+ 	};
+@@ -8857,7 +8903,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// only), the others it sets and gives; then put back for the next.
+ 		// Not tried: someone not on the stage there (the new engine's cast),
+ 		// a thing away there, or one carried already. Every record of two
+-		// of its things file, whether or not the new engine plays them.)
++		// of its things file, whether or not the new engine plays them. From
++		// 0265 read whole (an other in a picture past 1 too), and someone not
++		// there given to where the cast puts them, where the new engine reads
++		// that record from there.)
+ 		{
+ 			Common::HashMap<int, int> carryable;
+ 			Common::Array<int> carriedOnes;
+@@ -8875,17 +8924,31 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !with || !installed(g, room)) continue;
+ 				++c->pairs;
+ 				const bool person = kind == kWorldVerbGive && id >= kWorldPersonThing;
+-				int first = with == 0xFFFF ? -1 : with, after, others[3 * 64], count, flags;
+-				char said[256];
++				int first = with == 0xFFFF ? -1 : with, after, others[4 * 64], count, flags, lines = 0, speaker, costume, color;
++				char said[256] = "";
+ 				for (uint a = 0; first < 0 && a < carriedOnes.size(); ++a)
+ 					if (carriedOnes[a] != id && PanelBridge::pairEffect(g, room, id, kind, from, carriedOnes[a], after, others, count, 1, said, sizeof(said), flags) && !(flags & 8)) first = carriedOnes[a];
+ 				const bool carried = !person && carryable.contains(id);
++				// (From 0265 read whole, as pairOwn and pairPerson read it: an
++				// other in a picture past 1 too; its first line.)
++				*said = 0;
+ 				if (first < 0 || !carryable.contains(first) || isCarried(g, carryable[first], first) || (carried && isCarried(g, room, id)) ||
+-					!PanelBridge::pairEffect(g, room, id, kind, from, first, after, others, count, 64, said, sizeof(said), flags)) { ++c->pairsAway; continue; }
++					!PanelBridge::thingAnswer(g, room, id, kind, from, first, after, flags, others, count, 64, lines) ||
++					(lines && !PanelBridge::answerLine(g, room, id, kind, from, first, 0, speaker, costume, color, said, sizeof(said)))) { ++c->pairsAway; continue; }
+ 				if ((_game != g || _room != room) && !enter(g, room, 0, problem)) { fail("a place not shown", g); continue; }
+ 				int o = -1, n = -1;
+ 				if (person) {
+-					for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == worldAppearanceKey(g, id - kWorldPersonThing)) n = i;
++					auto findPerson = [&]() { for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == worldAppearanceKey(g, id - kWorldPersonThing)) n = i; };
++					findPerson();
++					// (From 0265 nobody there (filed where their game has them
++					// on arriving): where the cast puts them, where pairPerson reads
++					// this record from there (personAnswerRoom).)
++					for (const WorldCastGuest &cast : kWorldCast) {
++						if (n >= 0 || cast.game != g || cast.guest.costume != id - kWorldPersonThing || cast.room == room || !installed(g, cast.room) ||
++							personAnswerRoom(g, cast.room, cast.guest.costume, first) != room || !enter(g, cast.room, 0, problem)) continue;
++						findPerson();
++						c->pairsCast += n >= 0;
++					}
+ 					if (n < 0) { ++c->pairsAway; ++c->pairsNobody; continue; }
+ 				} else if (!carried && ((o = thingIn(id)) < 0 || !isThing(o))) { ++c->pairsAway; ++c->pairsThingAway; continue; }
+ 				if (!carry(g, carryable[first], first, "", 0)) { ++c->pairsAway; ++c->pairsNoPicture; continue; }
+@@ -8906,28 +8969,32 @@ Common::Error SandboxEngine::verbsTest() {
+ 					isCarried(g, carryable[first], first) == !(own && (flags & 4)) && (!carried || isCarried(g, room, id) == !(own && (flags & 2)));
+ 				// (One given that has no picture of its own in its place cannot be
+ 				// carried here: not given, as for one thing.)
++				bool past = false;
+ 				for (int i = 0; i < count; ++i) {
+-					const int r = others[3 * i], other = others[3 * i + 1], picture = others[3 * i + 2];
+-					if (picture == 2 && !isCarried(g, r, other) && same) {
++					const int r = others[4 * i], other = others[4 * i + 1], picture = others[4 * i + 2];
++					const bool gives = others[4 * i + 3] != 0;
++					past = past || (!gives && picture > 1);
++					if (gives && !isCarried(g, r, other) && same) {
+ 						if (carry(g, r, other, "", 0)) same = false; else ++c->pairsUnpictured;
+ 						putBack(r, other);
+-					} else same = same && (picture == 2 || isCarried(g, r, other) || pictureOf(r, other) == picture);
++					} else same = same && (gives || isCarried(g, r, other) || pictureOf(r, other) == picture);
+ 					// (From 0259's placeIn: each filed under the place it is used in.)
+ 					if (filedElsewhere(g, room, r, other)) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d with %d: %d set in room %d, not where it is used", kWorldGames[g].gameid, id, room, kind, first, other, r); }
+ 				}
+-				if (same) { ++c->pairsSeen; c->pairsUsual += !own; c->pairsPeople += person; c->pairsUsedUp += own && (flags & 6); c->pairsBoth += carried; }
++				if (same) { ++c->pairsSeen; c->pairsUsual += !own; c->pairsPeople += person; c->pairsUsedUp += own && (flags & 6); c->pairsBoth += carried; c->pairsPast += past; }
+ 				else {
+ 					warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d with %d: said %d letters (its sentence: %d letters, %d, flags %d)", kWorldGames[g].gameid, id, room, kind, from, first, (int)_speech.size(), (int)strlen(said), after, flags);
+ 					fail("two things not as its game's own sentence answers", g);
+ 				}
+ 				putBack(carryable[first], first);
+ 				if (carried) putBack(room, id); else if (!person) _pictures.erase(thingKey(g, room, id));
+-				for (int i = 0; i < count; ++i) { putBack(others[3 * i], others[3 * i + 1]); _pictures.erase(thingKey(g, others[3 * i], others[3 * i + 1])); }
++				for (int i = 0; i < count; ++i) { putBack(others[4 * i], others[4 * i + 1]); _pictures.erase(thingKey(g, others[4 * i], others[4 * i + 1])); }
+ 				if (count || (!carried && !person && after != from)) enter(g, room, 0, problem);
+ 			}
+ 			if (c->pairs && (c->pairsSeen + c->pairsAway != c->pairs || !c->pairsSeen)) fail("its two things not tried", g);
+-			if (c->pairs || pairsAnswered(g)) warning("SCUMMVERSE sandbox selftest %s two things: %d of %d records of two things as its own sentences answer (%d not tried: %d with one carried that has no picture to carry, %d away there, %d nobody there; %d a usual answer, %d given to someone, %d using up, %d with both carried, %d giving one with no picture to carry)",
+-				title, c->pairsSeen, c->pairs, c->pairsAway, c->pairsNoPicture, c->pairsThingAway, c->pairsNobody, c->pairsUsual, c->pairsPeople, c->pairsUsedUp, c->pairsBoth, c->pairsUnpictured);
++			if (c->pairs || pairsAnswered(g)) warning("SCUMMVERSE sandbox selftest %s two things: %d of %d records of two things as its own sentences answer (%d not tried: %d with one carried that has no picture to carry, %d away there, %d nobody there; %d a usual answer, %d given to someone, %d using up, %d with both carried, %d giving one with no picture to carry); "
++				"%d given to someone where the cast puts them, filed where their game has them; %d setting another to a picture past the second",
++				title, c->pairsSeen, c->pairs, c->pairsAway, c->pairsNoPicture, c->pairsThingAway, c->pairsNobody, c->pairsUsual, c->pairsPeople, c->pairsUsedUp, c->pairsBoth, c->pairsUnpictured, c->pairsCast, c->pairsPast);
+ 		}
+ 		for (int k = 0; k < c->count && sameId(kWorldGames[g].gameid, "dig"); ++k) {
+ 			int room, id, kind, from, after, others[3 * 64], count, found, answers;

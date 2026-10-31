@@ -1,0 +1,287 @@
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index c1f5d7de..09b50b4a 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -116,5 +116,10 @@ TouchMode iOS7_getCurrentTouchMode();
+ // thread whenever it reads its settings: the UI's thread does not read
+ // ConfMan.
+ void iOS7_setKeyboardFnBar(bool on);
++// onscreen_control for the view's touch-mode and menu buttons
++// (ios7_video.mm), set from the game's thread whenever it has them updated:
++// the view also updates them itself on the UI's thread (turning, suspending,
++// a pinch), which does not read ConfMan.
++void iOS7_setOnscreenControl(bool on);
+ 
+ #endif
+diff --git a/backends/platform/ios7/ios7_osys_main.cpp b/backends/platform/ios7/ios7_osys_main.cpp
+index fdd2e0ad..1848ad76 100644
+--- a/backends/platform/ios7/ios7_osys_main.cpp
++++ b/backends/platform/ios7/ios7_osys_main.cpp
+@@ -145,6 +145,11 @@ void OSystem_iOS7::initBackend() {
+ 	ConfMan.registerDefault("iconspath", Common::Path("/"));
+ 	// (Before the keyboard first shows: a hardware keyboard takes it at once.)
+ 	iOS7_setKeyboardFnBar(ConfMan.getBool("keyboard_fn_bar"));
++#if TARGET_OS_IOS
++	// (Before the view first turns or lets the keyboard go, which updates
++	// its buttons.)
++	iOS7_setOnscreenControl(ConfMan.getBool("onscreen_control"));
++#endif
+ 
+ 	EventsBaseBackend::initBackend();
+ }
+diff --git a/backends/platform/ios7/ios7_osys_video.mm b/backends/platform/ios7/ios7_osys_video.mm
+index 4f386938..bc44985a 100644
+--- a/backends/platform/ios7/ios7_osys_video.mm
++++ b/backends/platform/ios7/ios7_osys_video.mm
+@@ -24,6 +24,7 @@
+ 
+ #include "backends/platform/ios7/ios7_osys_main.h"
+ #include "backends/platform/ios7/ios7_video.h"
++#include "common/config-manager.h"
+ 
+ #include "backends/platform/ios7/ios7_app_delegate.h"
+ 
+@@ -158,6 +159,9 @@ void OSystem_iOS7::updateOutputSurface() {
+ 
+ void OSystem_iOS7::updateTouchMode() {
+ #if TARGET_OS_IOS
++	// (Read here, on the game's thread, for the view: it updates its buttons
++	// on the UI's thread too.)
++	iOS7_setOnscreenControl(ConfMan.getBool("onscreen_control"));
+ 	execute_on_main_thread(^ {
+ 		[[iOS7AppDelegate iPhoneView] updateTouchMode];
+ 	});
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index bdb5a634..63014ba2 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -22,6 +22,7 @@
+ // Disable symbol overrides so that we can use system headers.
+ #define FORBIDDEN_SYMBOL_ALLOW_ALL
+ 
++#include <atomic>
+ #include "common/events.h"
+ #include "common/config-manager.h"
+ #include "common/scummverse_net.h"
+@@ -60,6 +61,15 @@ void printOglError(const char *file, int line) {
+ 	}
+ }
+ 
++// onscreen_control as the game's thread last read it (iOS7_setOnscreenControl):
++// updateTouchMode also runs on the UI's thread by itself, which does not read
++// ConfMan while the game's may be writing it. (The iOS default until it is
++// read.)
++static std::atomic<bool> onscreenControl(true);
++void iOS7_setOnscreenControl(bool on) {
++	onscreenControl.store(on);
++}
++
+ bool iOS7_isBigDevice() {
+ #if TARGET_OS_IOS
+ 	return UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad;
+@@ -509,7 +519,7 @@ static void scummverseNetNotice() {
+ - (void)updateTouchMode {
+ 	UIImage *btnImage;
+ 	TouchMode currentTouchMode = iOS7_getCurrentTouchMode();
+-	bool isEnabled = ConfMan.getBool("onscreen_control");
++	bool isEnabled = onscreenControl.load();
+ 
+ 	if (currentTouchMode == kTouchModeDirect) {
+ 		btnImage = [UIImage imageNamed:@"ic_action_mouse"];
+diff --git a/backends/platform/ios7/scummverse_ai_ui.inc b/backends/platform/ios7/scummverse_ai_ui.inc
+index 692f7132..be02cfce 100644
+--- a/backends/platform/ios7/scummverse_ai_ui.inc
++++ b/backends/platform/ios7/scummverse_ai_ui.inc
+@@ -3,6 +3,9 @@
+ #include <os/proc.h>
+ #include "backends/platform/ios7/scummverse_ai_models.inc"
+ #include "backends/platform/ios7/scummverse_ai_runtime.inc"
++// (A hardware keyboard's keys back to the game as the screen closes:
++// scummverse_roster_ui.inc, included after this file.)
++static void scummverseGameKeysBack();
+ 
+ @interface ScummverseAISettings : NSObject {
+ 	NSURLSession *_session;
+@@ -36,9 +39,17 @@
+ 
+ @interface ScummverseAISettingsController : UITableViewController {
+ 	NSTimer *_refresh;
++	// (What the rows show: the status, whether the phone was too warm, which
++	// models can be chosen; rows 1-3.)
++	NSString *_status;
++	BOOL _warm;
++	BOOL _available[4];
+ }
+ - (void)done;
+ - (void)refreshStatus;
++- (void)workOut;
++- (void)showState;
++- (void)showModel:(UITableViewCell *)cell row:(NSInteger)row;
+ @end
+ 
+ @implementation ScummverseAISettings
+@@ -267,28 +278,56 @@
+ @end
+ 
+ @implementation ScummverseAISettingsController
++- (void)dealloc { [_status release]; [super dealloc]; }
+ - (void)viewDidLoad {
+ 	[super viewDidLoad]; self.title = @"Local dialogue";
+ 	self.navigationItem.rightBarButtonItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)] autorelease];
+ 	self.tableView.rowHeight = UITableViewAutomaticDimension; self.tableView.estimatedRowHeight = 70;
+-	_refresh = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(refreshStatus) userInfo:nil repeats:YES];
++}
++// What the rows show is worked out as the screen appears, then again only
++// when something changes (refreshStatus) or a row is chosen, and shown in
++// the cells already there: not the whole table rebuilt each second, which
++// lost VoiceOver's place, nor each model's row turned on and off as free
++// memory hovers near its limit.
++- (void)viewWillAppear:(BOOL)animated {
++	[self workOut];
++	[super viewWillAppear:animated];
++	[self.tableView reloadData];
++	if (!_refresh) _refresh = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(refreshStatus) userInfo:nil repeats:YES];
++}
++- (void)workOut {
++	ScummverseAISettings *settings = [ScummverseAISettings shared];
++	[_status release]; _status = [[settings statusText] copy];
++	_warm = [NSProcessInfo processInfo].thermalState >= NSProcessInfoThermalStateSerious;
++	for (NSInteger row = 1; row <= 3; ++row) _available[row] = [settings hasCapacity:row] && ![settings isDownloading];
++}
++- (void)showState {
++	[self workOut];
++	UITableView *table = self.tableView;
++	[table cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]].textLabel.text = _status;
++	for (NSInteger row = 1; row <= 3; ++row) [self showModel:[table cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]] row:row];
++	// (Heights again, for a text now on more or fewer lines; no cell rebuilt.)
++	[table beginUpdates]; [table endUpdates];
++}
++// (A model's row. No cell, a row not on screen: made from the same once shown.)
++- (void)showModel:(UITableViewCell *)cell row:(NSInteger)row {
++	const BOOL available = _available[row];
++	cell.userInteractionEnabled = available; cell.textLabel.enabled = available;
++	cell.detailTextLabel.text = available ? @"Tap to use or download over Wi-Fi" : ![[ScummverseAISettings shared] fits:row] ? @"Needs a phone with more memory" :
++		@"Unavailable while downloading, low on free memory, or too warm";
+ }
+ - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 6; }
+ - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+ 	UITableViewCell *cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil] autorelease];
+ 	cell.textLabel.numberOfLines = 0; cell.detailTextLabel.numberOfLines = 0;
+-	ScummverseAISettings *settings = [ScummverseAISettings shared];
+ 	NSInteger row = indexPath.row;
+ 	if (!row) {
+-		cell.textLabel.text = [settings statusText]; cell.selectionStyle = UITableViewCellSelectionStyleNone;
++		cell.textLabel.text = _status; cell.selectionStyle = UITableViewCellSelectionStyleNone;
+ 		cell.detailTextLabel.text = @"Offline after download. Tap Talk in the game to chat. Messages stay on this phone. Movement stays game-controlled.";
+ 	} else if (row <= 3) {
+ 		NSArray *names = @[@"Small - 491 MB", @"Larger - 1,117 MB", @"Qwen3 4B - 2,497 MB (experimental)"];
+ 		cell.textLabel.text = names[row - 1];
+-		BOOL available = [settings hasCapacity:row] && ![settings isDownloading];
+-		cell.userInteractionEnabled = available; cell.textLabel.enabled = available;
+-		cell.detailTextLabel.text = available ? @"Tap to use or download over Wi-Fi" : ![settings fits:row] ? @"Needs a phone with more memory" :
+-			@"Unavailable while downloading, low on free memory, or too warm";
++		[self showModel:cell row:row];
+ 	} else if (row == 4) { cell.textLabel.text = @"Classic / cancel download"; }
+ 	else { cell.textLabel.text = @"Delete downloaded models"; cell.textLabel.textColor = UIColor.systemRedColor; }
+ 	return cell;
+@@ -297,9 +336,17 @@
+ 	ScummverseAISettings *settings = [ScummverseAISettings shared]; NSInteger row = indexPath.row;
+ 	if (row >= 1 && row <= 3) [settings download:row];
+ 	else if (row == 4) [settings disable]; else if (row == 5) [settings deleteModels];
+-	[tableView deselectRowAtIndexPath:indexPath animated:YES]; [tableView reloadData];
++	[tableView deselectRowAtIndexPath:indexPath animated:YES]; [self showState];
++}
++// (Each second: shown again only when the status says something new, or the
++// phone grew too warm or cooled down: a download's progress, a model checked,
++// loading, ready or paused.)
++- (void)refreshStatus {
++	if (self.tableView.dragging || self.tableView.decelerating) return;
++	const BOOL warm = [NSProcessInfo processInfo].thermalState >= NSProcessInfoThermalStateSerious;
++	if (warm == _warm && [[[ScummverseAISettings shared] statusText] isEqualToString:_status]) return;
++	[self showState];
+ }
+-- (void)refreshStatus { if (!self.tableView.dragging && !self.tableView.decelerating) [self.tableView reloadData]; }
+-- (void)done { [self dismissViewControllerAnimated:YES completion:nil]; }
++- (void)done { [self dismissViewControllerAnimated:YES completion:^{ scummverseGameKeysBack(); }]; }
+ - (void)viewDidDisappear:(BOOL)animated { [super viewDidDisappear:animated]; [_refresh invalidate]; _refresh = nil; }
+ @end
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index dbd642df..bcc94a77 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -136,6 +136,7 @@ typedef std::chrono::steady_clock Clock;
+ const auto kHandshakeTimeout = std::chrono::seconds(5);
+ const auto kPingAfter = std::chrono::milliseconds(kPingMs);
+ const auto kSilentLimit = std::chrono::milliseconds(kSilentMs);
++const auto kAddressRefresh = std::chrono::milliseconds(kAddressRefreshMs);
+ const size_t kMaxBuffered = 64 * 1024;
+ 
+ // (Session time: the steady clock, plus whatever tests moved it on.)
+@@ -239,6 +240,15 @@ struct Session::Impl {
+ 	std::vector<int> remoteActor = std::vector<int>(kMaxPeers + 1, 0); // Client: peer -> actor.
+ 	std::string target;
+ 	Clock::time_point started;
++	// (Host: the addresses describe() names, as last looked up; empty until
++	// the first look once hosting starts.)
++	mutable std::string addresses;
++	mutable Clock::time_point addressesAt;
++
++	const std::string &hostAddresses() const {
++		if (addresses.empty() || now() - addressesAt >= kAddressRefresh) { addresses = localAddresses(); addressesAt = now(); }
++		return addresses;
++	}
+ 
+ 	int welcomedCount() const { int n = 0; for (const auto &l : links) if (l.welcomed && !l.dead) ++n; return n; }
+ 	bool actorTaken(int actor, int except) const {
+@@ -435,6 +445,7 @@ bool Session::host(uint16_t port, int content, int actor, std::string &error) {
+ 	const int fd = openListener(port, error);
+ 	if (fd < 0) { error = "Cannot host: " + error; return false; }
+ 	s.listener = fd; s.mode = Impl::Hosting; s.content = content; s.localActor = actor; s.port = port;
++	s.addresses.clear(); // (Looked up afresh: the device may be on another network now.)
+ 	return true;
+ }
+ 
+@@ -507,7 +518,7 @@ std::string Session::describe() const {
+ 	const int others = remoteCount();
+ 	const std::string count = others == 1 ? "1 other player" : std::to_string(others) + " other players";
+ 	switch (s.mode) {
+-	case Impl::Hosting: return "Hosting on " + localAddresses() + " port " + std::to_string(s.port) + " - " + count;
++	case Impl::Hosting: return "Hosting on " + s.hostAddresses() + " port " + std::to_string(s.port) + " - " + count;
+ 	case Impl::Connecting: return "Connecting to " + s.target + "...";
+ 	case Impl::Joined: return connected() ? "Playing with " + s.target + " - " + count : "Joining " + s.target + "...";
+ 	default: return "Local WiFi play is off";
+@@ -530,7 +541,11 @@ std::vector<std::string> reachableAddresses(const std::vector<Interface> &interf
+ 	return out;
+ }
+ 
++static std::atomic<int> addressLookups(0);
++int addressLookupsForTests() { return addressLookups.load(); }
++
+ std::string localAddresses() {
++	++addressLookups;
+ 	ifaddrs *list = nullptr;
+ 	if (getifaddrs(&list) != 0) return "this device";
+ 	std::vector<Interface> interfaces;
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index ac69bcd4..634dfdb5 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -95,6 +95,9 @@ private:
+ // (reachableAddresses of the system's list, joined by ", "; "this device"
+ // when there is none).
+ std::string localAddresses();
++// A host's describe() looks them up when it starts hosting, then at most
++// this often (it is asked on every engine update).
++const int kAddressRefreshMs = 5000;
+ 
+ // One IPv4 interface as the system lists it (getifaddrs).
+ struct Interface {
+@@ -110,6 +113,8 @@ std::vector<std::string> reachableAddresses(const std::vector<Interface> &interf
+ 
+ // Tests only: session time moves on by this much (silences without waiting).
+ void advanceClockForTests(int milliseconds);
++// Tests only: how many times the system's list was read (localAddresses).
++int addressLookupsForTests();
+ 
+ // Cross-thread control: the UI posts requests; the engine applies them and
+ // publishes status. Safe from any thread.

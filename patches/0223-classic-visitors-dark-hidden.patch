@@ -1,0 +1,67 @@
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 69e7b7fa..0600b5b6 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -328,8 +328,9 @@ void ScummEngine::scummverseUpdateVisitors(int delta, uint64 chatting) {
+ 		int index;
+ 		const int kind = worldGuestPose(a, s == _scummverseVisitorTalking, v.tick, index);
+ 		if ((worldGuestDirection(a->getFacing()) * 3 + kind) * 64 + index % 64 != v.shown) a->_needRedraw = true;
+-		// (Arriving or chatting, no greeting.)
+-		const bool near = player->_room == _currentRoom && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32 &&
++		// (Arriving or chatting, no greeting; nor for a player out of sight,
++		// aboard Zak's bus or a tram at the stop: nobody is there to greet.)
++		const bool near = player->_room == _currentRoom && player->_visible && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32 &&
+ 			!(chatting & ((uint64)1 << (kScummverseTalkVisitor + s)));
+ 		const WorldGuest *who = worldAppearance(v.who);
+ 		if (near && !v.greeted && who && !_scummverseVisitorQuiet && !VAR(VAR_HAVE_MSG) && !_scummverseAIActor && delta) {
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 9b6da9a0..66f2bf65 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -614,6 +614,16 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	// In the dark (a mansion room's light off) its own people are grey
++	// shapes, their black lines kept (the V1 renderer: colour 11 and black);
++	// so is anyone drawn from frames (visitors, someone played as another):
++	// near-black stays black, the rest grey.
++	const bool colors = (getCurrentLights() & LIGHTMODE_actor_use_colors) != 0;
++	byte shade[256];
++	for (int c = 0; c < 256; ++c) {
++		const byte *rgb = _currentPalette + 3 * c;
++		shade[c] = colors ? (byte)c : _gdi->remapColorToRenderMode(rgb[0] * 3 + rgb[1] * 6 + rgb[2] < 120 ? 0 : 11);
++	}
+ 	// In a plane seat (scummverseSeatAt) a character sits as Maniac's own
+ 	// do: behind the seat's front, which hides their legs, centred in the
+ 	// chair; the small ones up on its cushion, where they show. Nobody
+@@ -670,7 +680,7 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 				for (int x = from; x < right; ++x, ++dst) {
+ 					if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
+ 					const int col = MIN(width - 1, (int)((x - bx) / sx));
+-					if (src[col]) *dst = src[col];
++					if (src[col]) *dst = shade[src[col]];
+ 				}
+ 			}
+ 			bottom = MAX(bottom, end);
+@@ -717,8 +727,8 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 		for (int x = left; x < right; ++x, ++dst) {
+ 			if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
+ 			const int col = MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale));
+-			if (between) { if (src[col] && src[col - width]) *dst = mouth; continue; }
+-			if (src[col]) *dst = src[col];
++			if (between) { if (src[col] && src[col - width]) *dst = shade[mouth]; continue; }
++			if (src[col]) *dst = shade[src[col]];
+ 		}
+ 	}
+ 	a->_top = top; a->_bottom = bottom;
+@@ -758,7 +768,8 @@ void ScummEngine::scummverseDrawDressUp(Actor *a, const byte *frame, int width,
+ 		if (mirror) { const int m0 = 2 * ax - sx1 + 1; sx1 = 2 * ax - sx0 + 1; sx0 = m0; }
+ 		const int sy0 = y0 + (int)floor(fy * scale), sy1 = MAX(sy0 + 1, y0 + (int)floor((fy + 1) * scale));
+ 		for (int y = MAX(0, sy0); y < MIN<int>(vs.h, sy1); ++y) for (int x = MAX(0, sx0); x < MIN<int>(_screenWidth, sx1); ++x) {
+-			*(byte *)vs.getPixels(x, y) = c;
++			// (In the dark grey, as he is.)
++			*(byte *)vs.getPixels(x, y) = getCurrentLights() & LIGHTMODE_actor_use_colors ? c : _gdi->remapColorToRenderMode(11);
+ 			gl = MIN(gl, x); gr = MAX(gr, x); gt = MIN(gt, y); gb = MAX(gb, y);
+ 		}
+ 	};

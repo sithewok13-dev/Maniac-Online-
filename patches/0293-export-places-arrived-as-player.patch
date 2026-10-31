@@ -1,0 +1,357 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 00338f10..272a52e0 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -165,11 +165,16 @@ static const int kWorldExportVersion = 25;
+ // seagull is away, sent off by a step on the dock's loose plank, played as a
+ // player gets it, kWorldStepAways: before, nothing gave the herring; the
+ // bridge's troll given to as its game gives to him, kWorldGivenAs, the
+-// herring taking the one played across: "monkey-v35").
++// herring taking the one played across: "monkey-v35"); from 0293 Monkey
++// Island's, Fate of Atlantis's and Full Throttle's again (places no run
++// arrived at arrived at as a player arrives: the story state their scripts
++// read there, kWorldArrivalVars, the one played in the place first, a
++// template room as its instance, a cut-scene no player can skip played on,
++// its game's clock not waited: "monkey-v36", "atlantis-v32", "ft-v33").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey2") || same(gameid, "monkey") ? 10 : same(gameid, "tentacle") ? 9 :
+-		same(gameid, "zak") ? 8 : same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 11 : same(gameid, "monkey2") ? 10 : same(gameid, "tentacle") ? 9 :
++		same(gameid, "zak") || same(gameid, "ft") ? 8 : same(gameid, "dig") || same(gameid, "atlantis") ? 7 : same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+ 		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+@@ -1363,6 +1368,18 @@ inline int worldPlayedIn(int game, int room) {
+ 	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == game && room >= p.first && room <= p.last) return p.actor;
+ 	return 0;
+ }
++// From 0293 a place's story state as a player has it standing there in
++// control, set as the things export arrives there where it can't be arrived
++// at otherwise (scummverseExportOwnAnswers' `asPlayer`): a variable (as
++// writeVar numbers them, 0x8000 + n a bit) and its value, from the original's
++// scripts. Monkey Island's ship's deck (room 19): its entry plays the crew's
++// meeting while 243 is 0, which ends with Guybrush in his cabin (room 7),
++// whose entry sets 2; at 2 the deck's entry has the crew at their ease (3).
++// Full Throttle's room 65: its entry plays a cut-scene until both bits 56
++// (the first, ending in room 62) and 58 (the second) are set; its things'
++// answers read 58.
++struct WorldArrivalVar { short game, room; int var, value; };
++static const WorldArrivalVar kWorldArrivalVars[] = {{0, 19, 243, 2}, {7, 65, 0x8000 + 56, 1}, {7, 65, 0x8000 + 58, 1}};
+ // A verb its game wants a second thing for (from 0253, for its things'
+ // export: no sentence runs until one is chosen, so none is recorded): on a
+ // thing of one of its classes `first` to `last` (0 0: on any thing). Day of
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 49c5814c..84d0c7d6 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4775,23 +4775,69 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if (someone.empty() && talker > 0 && talker < _numActors) someone = line;
+ 		if (anything.empty()) anything = line;
+ 	};
++	// (From 0293 a template room exported as one of its instances
++	// (kWorldPresetInstances) whose own room is no place (its entry furnishes
++	// only the instances its VAR_ROOM names, else leaves: Fate of Atlantis's
++	// labyrinth, room 50, for room 2): arrived at as that instance, as its
++	// scene is exported (see asPlayer below); that instance's room is the
++	// place's own then, `here`.)
++	Common::HashMap<int, int> instanced;
++	auto here = [&](int room) { return instanced.contains(room) ? instanced[room] : room; };
+ 	// (From 0285 `at`, a thing of the place (0: none): the one played
+-	// standing at it as the place's scripts go on, see below.)
+-	auto arriveOnce = [&](int room, int at) {
++	// standing at it as the place's scripts go on, see below. From 0293
++	// `asPlayer`: arrived at as a player arrives, where it can't be arrived
++	// at so far (see arrive below).)
++	auto arriveOnce = [&](int room, int at, bool asPlayer) {
+ 		quiet();
+ 		// (In the clothes they had; the place's entry scripts dress them for
+ 		// it, as on arriving: The Dig's space suit. From 0253 the one played
+ 		// there.)
+ 		if (_actors[ego]->_costume != clothes[ego]) _actors[ego]->setActorCostume(clothes[ego]);
+ 		VAR(VAR_EGO) = ego;
++		// (From 0293, as a player arrives: the story state its scripts read
++		// that a player has standing there in control (kWorldArrivalVars:
++		// Monkey Island's ship's deck, room 19, the crew met and Guybrush woken
++		// in his cabin; Full Throttle's room 65, both its cut-scenes seen);
++		// the one played already in the place, as a door leaves them before
++		// its entry runs (an entry whose camera follows them, Full Throttle's
++		// room 27, Fate of Atlantis's 35, otherwise went to the start's room
++		// with them); a template room as its instance (see `here` above), with
++		// its settings first.)
++		int logical = room;
++		if (asPlayer) {
++			for (const WorldArrivalVar &v : kWorldArrivalVars) if (v.game == gameIndex && v.room == room) writeVar(v.var, v.value);
++			const int instance = _game.version >= 5 && _game.version < 7 ? worldPresetInstance(gameIndex, room) : 0;
++			if (instance >= 0x80) {
++				logical = instance;
++				_resourceMapper[instance & 0x7F] = room;
++				for (const auto &p : kWorldPresetInstanceVars) if (p.game == gameIndex && p.room == room) writeVar(p.var, p.value);
++				for (const auto &p : kWorldPresetInstanceClassesOn) if (p.game == gameIndex && p.room == room) putClass(p.object, p.cls, true);
++			}
++			_actors[ego]->putActor(logical);
++		}
+ 		// (From no place: no exit scripts.)
+ 		_EXCD_offs = 0;
+ 		const int exitScript = VAR_EXIT_SCRIPT != 0xFF ? VAR(VAR_EXIT_SCRIPT) : 0, exitScript2 = VAR_EXIT_SCRIPT2 != 0xFF ? VAR(VAR_EXIT_SCRIPT2) : 0;
+ 		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = 0;
+ 		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = 0;
+-		startScene(room, nullptr, 0);
++		startScene(logical, nullptr, 0);
+ 		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = exitScript;
+ 		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = exitScript2;
++		// (From 0293, as a player arrives, a cut-scene no player can skip (no
++		// override) that leaves the place played on as a player watches it, so
++		// far as it comes back there: Monkey Island's catacombs, room 39, a
++		// cell with no way on blanked (global script 106) and drawn again;
++		// its short waits passed over, not its game's clock (below).)
++		auto playedOn = [&]() {
++			for (int more = 0; more < 16 && asPlayer && _currentRoom != logical && vm.cutSceneStackPointer > 0 && !vm.cutScenePtr[vm.cutSceneStackPointer]; ++more) {
++				for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s)
++					if (vm.slot[s].status == ssPaused && vm.slot[s].delay < kScummverseClockWait) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++				if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++				_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
++				runAllScripts(); _sound->stopAllSounds(); dropTexts();
++			}
++		};
++		playedOn();
+ 		// (From 0285 the one played in the place as its scripts go on, at
+ 		// the thing used (where the run puts them after), as a player stands
+ 		// there: what the place's own scripts read of them (Monkey Island 2's
+@@ -4801,21 +4847,26 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		// room 60 took them for up its tree, and every verb on its planks
+ 		// played its climb, 55 answers fewer than 0283's, which had them
+ 		// where the run before left them.)
+-		if (at > 0 && _currentRoom == room && getObjectIndex(at) > 0) {
++		if (at > 0 && _currentRoom == logical && getObjectIndex(at) > 0) {
+ 			int x = 0, y = 0, dir = 0;
+ 			getObjectXYPos(at, x, y, dir);
+-			_actors[ego]->putActor(x, y, room);
++			_actors[ego]->putActor(x, y, logical);
+ 		}
+ 		// (From 0290 a cut-scene its entry starts that shows another room
+ 		// first (Zak's living room, room 2, the first time: its "meanwhile"):
+ 		// skipped as a player skips it, the one played in the place as a door
+ 		// leaves them, so that its end comes back there. Before, every run of
+ 		// the place found itself elsewhere, and the place had no answers.)
++		// (From 0293, as a player arrives, a wait of its game's clock
++		// (kScummverseClockWait, a minute or more) not waited: a player stands
++		// there in control while it lasts. Full Throttle's rooms 70, 129 and 174
++		// start such a wait whose end is a death and its retry (global script
++		// 235, in room 1): every run there found itself elsewhere.)
+ 		bool skippedAway = false;
+-		for (int cycle = 0; cycle < 16 && _currentRoom == room; ++cycle) {
++		for (int cycle = 0; cycle < 16 && _currentRoom == logical; ++cycle) {
+ 			bool running = false;
+ 			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+-				if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++				if (vm.slot[s].status == ssPaused && (!asPlayer || vm.slot[s].delay < kScummverseClockWait)) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
+ 				running = running || vm.slot[s].status == ssRunning;
+ 			}
+ 			if (!running) break;
+@@ -4823,37 +4874,52 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+ 			_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
+ 			runAllScripts(); _sound->stopAllSounds(); dropTexts();
+-			if (_currentRoom != room && !skippedAway && vm.cutScenePtr[vm.cutSceneStackPointer]) {
++			if (_currentRoom != logical && !skippedAway && vm.cutScenePtr[vm.cutSceneStackPointer]) {
+ 				skippedAway = true;
+-				_actors[ego]->putActor(room);
+-				for (int more = 0; more < 16 && _currentRoom != room; ++more) {
++				_actors[ego]->putActor(logical);
++				for (int more = 0; more < 16 && _currentRoom != logical; ++more) {
+ 					scummverseSkipCutscene();
+ 					if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+ 					_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
+ 					runAllScripts(); _sound->stopAllSounds(); dropTexts();
+ 				}
+ 			}
++			playedOn();
+ 		}
+ 		// (From 0285, there at the thing, the camera where the place's scripts
+ 		// sent it, as by the time a player has walked up to the thing: a pan
+ 		// they start for where the one played stands (Monkey Island's room
+ 		// 28, by its important-looking pirates) done. Nothing here moves it
+ 		// on, and a script waiting for it waits for ever.)
+-		if (at > 0 && _currentRoom == room && camera._cur.x != camera._dest.x) { camera._cur.x = camera._dest.x; cameraMoved(); }
++		if (at > 0 && _currentRoom == logical && camera._cur.x != camera._dest.x) { camera._cur.x = camera._dest.x; cameraMoved(); }
+ 		quiet();
+-		return _currentRoom == room;
++		if (_currentRoom == logical && logical != room) instanced[room] = logical;
++		return _currentRoom == logical;
+ 	};
+ 	// (From 0285 where the place's own scripts take the one played standing
+ 	// at the thing elsewhere as it starts (a way out where they stand: Zak's
+ 	// room 4 at 152 to room 16, Monkey Island's room 3 at 44 to room 80),
+ 	// arrived again as before 0285, without them there: the game put back
+ 	// again, the same random numbers and steps.)
++	// (From 0293 in a place that can't be arrived at so (`playerPlaces`,
++	// below), where neither way arrives, arrived at as a player arrives
++	// (arriveOnce's `asPlayer`), at the thing and, as above, without them
++	// there. Every other place as before, without a thing too: Monkey
++	// Island 2's room 50, whose camera follows the one played, still has no
++	// Give to its people.)
++	Common::HashMap<int, bool> playerPlaces;
+ 	auto arrive = [&](int room, int at) {
+ 		const uint32 seed = _rnd.getSeed();
+ 		const int32 budget = _scummverseStepBudget;
+-		if (arriveOnce(room, at) || !at) return _currentRoom == room;
+-		putBack(); _rnd.setSeed(seed); _scummverseStepBudget = budget;
+-		return arriveOnce(room, 0);
++		auto again = [&]() { putBack(); _rnd.setSeed(seed); _scummverseStepBudget = budget; };
++		if (arriveOnce(room, at, false)) return true;
++		if (at) { again(); if (arriveOnce(room, 0, false)) return true; }
++		if (!playerPlaces.contains(room)) return false;
++		again();
++		if (arriveOnce(room, at, true)) return true;
++		if (!at) return false;
++		again();
++		return arriveOnce(room, 0, true);
+ 	};
+ 	// (Each kind of the game's controls, its own verb for it.)
+ 	Common::Array<int> kinds, verbs;
+@@ -5185,7 +5251,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		const int place = _currentRoom;
+ 		const Common::Point at = feet(a);
+ 		if (vm.cutSceneStackPointer > 0 || _userPut < userPut) return 2;
+-		if (VAR(VAR_EGO) != ego || a->_room != place || place == room || !a->_visible || !a->_costume || at.x < 0 || at.y < 0 || at.x >= _roomWidth || at.y >= _roomHeight) return 1;
++		if (VAR(VAR_EGO) != ego || a->_room != place || place == here(room) || !a->_visible || !a->_costume || at.x < 0 || at.y < 0 || at.x >= _roomWidth || at.y >= _roomHeight) return 1;
+ 		if (Common::find(rooms.begin(), rooms.end(), place) == rooms.end() || worldRideScene(gameIndex, place) || worldCloseUpScene(gameIndex, place) || (old && place >= 0x80) ||
+ 			worldPlayedIn(gameIndex, place) != worldPlayedIn(gameIndex, room)) return 3;
+ 		return 0;
+@@ -5214,7 +5280,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			return false;
+ 		};
+ 		if (stable < 10 || spentHere) { ++goneUnsettled; return none("not settling"); }
+-		if (_currentRoom == room) { ++goneBack; return none("back where it began"); }
++		if (_currentRoom == here(room)) { ++goneBack; return none("back where it began"); }
+ 		const int why = whyNot(room, a);
+ 		if (why) { countWhy(why); return none(why == 2 ? "a cut-scene" : why == 1 ? "someone else played or the one played out of view" : "a room not exported"); }
+ 		place = _currentRoom;
+@@ -5265,11 +5331,13 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			quiet();
+ 			if (!s.sent || _currentRoom != room || getObjectIndex(obj) <= 0 || !_scummverseStepBudget) { _scummverseStepBudget = -1; return; }
+ 		}
+-		// (Where its game walks them to it: its picture's own point.)
++		// (Where its game walks them to it: its picture's own point. From
++		// 0293 in the room shown there, `here`.)
++		const int shownRoom = here(room);
+ 		int x = 0, y = 0, dir = 0;
+ 		getObjectXYPos(obj, x, y, dir);
+ 		Actor *a = _actors[ego];
+-		a->putActor(x, y, room);
++		a->putActor(x, y, shownRoom);
+ 		for (int n = 1; n < _numActors; ++n) costumes[n] = _actors[n]->isInCurrentRoom() ? _actors[n]->_costume : 0;
+ 		// (From 0271 Loom's: where its click finds it, else none. Its double
+ 		// click and a draft: chosen first by a click, as a player does, what
+@@ -5281,9 +5349,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if (distaff && !clickPoint(obj, cx, cy)) { ++hidden; _scummverseStepBudget = -1; return; }
+ 		if (distaff && kinds[v] != kWorldVerbWalk) {
+ 			click(cx, cy);
+-			settle(room);
++			settle(shownRoom);
+ 			if (_scummverseStepBudget == 0) { ++overran; quiet(); _scummverseStepBudget = -1; return; }
+-			if (_currentRoom != room || a->_room != room) { ++left; ++goneFirst; quiet(); _scummverseStepBudget = -1; return; } // (from 0283 counted apart: its tap's own run)
++			if (_currentRoom != shownRoom || a->_room != shownRoom) { ++left; ++goneFirst; quiet(); _scummverseStepBudget = -1; return; } // (from 0283 counted apart: its tap's own run)
+ 			if (pictureOf(obj) != from) { ++retapped; quiet(); _scummverseStepBudget = -1; return; }
+ 			if (kinds[v] >= kWorldVerbDraft && VAR(distaff->chosen) != obj) { ++unchosen; quiet(); _scummverseStepBudget = -1; return; }
+ 			// (From 0279 the second tap only where a click still finds it:
+@@ -5305,7 +5373,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		round = false;
+ 		Common::String first; // (the first line as before 0258: shown or not)
+ 		Common::String theirs, someone, anything; // (Monkey Island's as before 0258: see ownLines)
+-		for (int frame = 0; frame < 600 && _currentRoom == room && !shouldQuit(); ++frame) {
++		for (int frame = 0; frame < 600 && _currentRoom == shownRoom && !shouldQuit(); ++frame) {
+ 			checkAndRunSentenceScript();
+ 			if (distaff) clickDone(); // (from 0271)
+ 			bool running = _sentenceNum > 0;
+@@ -5360,7 +5428,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		const int after = old ? pictureOf(obj) : getState(obj);
+ 		e.after = after;
+ 		e.taken = getOwner(obj) != owned[obj] && getOwner(obj) == ego;
+-		const bool gone = _currentRoom != room || a->_room != room;
++		const bool gone = _currentRoom != shownRoom || a->_room != shownRoom;
+ 		// (From 0283 one that leaves the place for another exported, as it
+ 		// leaves (whyNot): what it did before, as one that stays, but to the
+ 		// things of the room it arrives in (that room's entry script's; its
+@@ -5427,6 +5495,36 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				}
+ 			}
+ 	};
++	// (From 0293 the places that can't be arrived at so, found once before
++	// the runs: each arrived at as a run arrives at its first thing a run
++	// plays (not a door, nor one away), the game put back whole before and
++	// after; where that doesn't arrive, none of its things was answered.
++	// Told, with whether each is arrived at as a player arrives.)
++	{
++		const uint32 seed = _rnd.getSeed();
++		const int32 budget = _scummverseStepBudget;
++		Common::String told;
++		for (int pass = 0; pass < 2; ++pass)
++			for (uint k = 0; k < rooms.size() && k < things.size() && !shouldQuit(); ++k) {
++				const int room = rooms[k];
++				int first = 0;
++				for (uint i = 0; i + 4 < things[k].size() && !first; i += 5)
++					if (!worldLinkFrom(gameIndex, room, things[k][i]) && !(things[k][i + 2] & Scummverse::PanelBridge::kThingAway) && things[k][i + 1] <= 1) first = things[k][i];
++				if (!first || worldRideScene(gameIndex, room) || (pass && !playerPlaces.contains(room))) continue;
++				putBack();
++				const int played = worldPlayedIn(gameIndex, room);
++				ego = played > 0 && played < _numActors ? played : startEgo;
++				_rnd.setSeed(0x5C0BE + room);
++				_scummverseStepBudget = kRunSteps;
++				const bool there = arrive(room, first);
++				if (!pass && !there) playerPlaces[room] = true;
++				if (pass) told += Common::String::format(" %d%s", room, there ? "" : " (not)");
++			}
++		putBack();
++		ego = startEgo;
++		_rnd.setSeed(seed); _scummverseStepBudget = budget;
++		debug(1, "SCUMMVERSE world things: %s %d places no run arrived at, arrived at as a player arrives:%s", kWorldGames[gameIndex].gameid, (int)playerPlaces.size(), told.c_str());
++	}
+ 	// (Each thing from its pictures 0 and 1, as before 0258; then those found
+ 	// in a picture past 1 and the pictures answers leave things in, each from
+ 	// that picture.)
+@@ -5721,7 +5819,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			// (From 0260 Day of the Tentacle's Use only with a first its verb
+ 			// script asks "with" for, as a player can make it.)
+ 			if (!old && !target.actor && useListed && !wantsSecond(kWorldVerbUse, first)) continue;
+-			if (heldThing && arrival.room == target.room && _currentRoom == target.room) backToArrival();
++			if (heldThing && arrival.room == target.room && _currentRoom == here(target.room)) backToArrival(); // (from 0293 `here`: see run)
+ 			else {
+ 				putBack();
+ 				_rnd.setSeed(0x5C0BE + target.room);
+@@ -5730,6 +5828,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				if (heldThing) keepArrival(target.room);
+ 			}
+ 			++pairRuns;
++			const int shownRoom = here(target.room);
+ 			if (target.carried) carry(target.id, ego); else if (!target.actor) showAs(target.id, target.from);
+ 			carry(first, ego);
+ 			int x = 0, y = 0, dir = 0;
+@@ -5739,7 +5838,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				x = at.x + (at.x < _roomWidth / 2 ? 40 : -40); y = at.y;
+ 			} else getObjectXYPos(target.id, x, y, dir);
+ 			Actor *a = _actors[ego];
+-			a->putActor(x, y, target.room);
++			a->putActor(x, y, shownRoom);
+ 			// (There on its walk boxes, so its game's walk up to them goes.)
+ 			if (target.actor) a->adjustActorPos();
+ 			const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
+@@ -5778,7 +5877,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			// a later game's whole, each with who says it, as for one thing
+ 			// (heard); the oldest games' (Zak's) its one line as before.)
+ 			Common::String theirs, someone, anything;
+-			for (int frame = 0; frame < 600 && _currentRoom == target.room && !shouldQuit(); ++frame) {
++			for (int frame = 0; frame < 600 && _currentRoom == shownRoom && !shouldQuit(); ++frame) {
+ 				checkAndRunSentenceScript();
+ 				bool running = _sentenceNum > 0;
+ 				for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+@@ -5826,7 +5925,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			e.taken = !target.carried && !target.actor && getOwner(target.id) != owned[target.id] && getOwner(target.id) == ego;
+ 			e.firstGone = target.carried && getOwner(target.id) != ego;
+ 			e.secondGone = getOwner(first) != ego;
+-			const bool gone = spent || _currentRoom != target.room || a->_room != target.room;
++			const bool gone = spent || _currentRoom != shownRoom || a->_room != shownRoom;
+ 			// (From 0292 one given to as a thing of the place (kWorldGivenAs)
+ 			// whose answer takes the one played to another place exported, as
+ 			// it leaves (whyNot): recorded as an answer of one thing that leaves

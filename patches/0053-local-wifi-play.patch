@@ -1,0 +1,1134 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 0e18e45c..a703b325 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -24,6 +24,7 @@
+ 
+ #include "common/events.h"
+ #include "common/config-manager.h"
++#include "common/scummverse_net.h"
+ #include "backends/platform/ios7/ios7_video.h"
+ #include "backends/platform/ios7/ios7_touch_controller.h"
+ #include "backends/platform/ios7/ios7_mouse_controller.h"
+@@ -525,12 +526,47 @@ void scummverseAirportOffer(int actor) {
+ 	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Choose character" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 63); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Crystal teleport pads" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 62); }]; }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to airport" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(3); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(1); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Return to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(2); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 	[controller presentViewController:menu animated:YES completion:nil];
+ }
++// Local WiFi play: one device hosts, the others join by its address. The
++// engine applies requests on its own thread (common/scummverse_net.h).
++- (void)showScummverseNetworkFrom:(UIViewController *)controller {
++	static NSString *lastAddress = nil;
++	NSString *state = [NSString stringWithUTF8String:Scummverse::Net::status().c_str()];
++	NSString *message = [NSString stringWithFormat:@"%@\n\nThis device: %s\n\nEveryone needs this app version and their own Maniac Mansion and Zak files, on the same WiFi. One person hosts; the others enter the host's address. Each person plays a different character.", state, Scummverse::Net::localAddresses().c_str()];
++	__block UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play together on WiFi" message:message preferredStyle:UIAlertControllerStyleAlert];
++	[menu addTextFieldWithConfigurationHandler:^(UITextField *field) {
++		field.placeholder = @"Host address, like 192.168.1.20";
++		field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
++		field.autocorrectionType = UITextAutocorrectionTypeNo;
++		field.accessibilityLabel = @"Host address";
++		field.text = lastAddress;
++	}];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Host a game" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		Scummverse::Net::Request request; request.kind = Scummverse::Net::Request::Host; Scummverse::Net::postRequest(request);
++	}]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Join" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		NSString *address = [menu.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
++		if (!address.length) return;
++		[lastAddress release]; lastAddress = [address copy];
++		Scummverse::Net::Request request; request.kind = Scummverse::Net::Request::Join; request.text = address.UTF8String;
++		Scummverse::Net::postRequest(request);
++	}]];
++	if (![state isEqualToString:@"Local WiFi play is off"]) {
++		[menu addAction:[UIAlertAction actionWithTitle:@"Leave" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *) {
++			Scummverse::Net::Request request; request.kind = Scummverse::Net::Request::Leave; Scummverse::Net::postRequest(request);
++		}]];
++	}
++	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
+ - (void)showScummverseTalk { scummverseShowTalk(self); }
+ - (void)showScummverseAI { [[ScummverseAISettings shared] showFrom:self]; }
+ #endif
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 45e013e4..364ac118 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -91,7 +91,12 @@ static BOOL scummverseSystemMenu=NO;
+ 	auto &r=ScummverseLocalAI::runtime();
+ 	// Messages are accepted while replies are pending; they wait in order.
+ 	// With nobody chosen, the message goes to everyone nearby.
+-	const int sent=r.talkingWith() ? (r.sendTalk(text.UTF8String) ? 1 : -1) : r.sendNearby(text.UTF8String);
++	int sent=r.talkingWith() ? (r.sendTalk(text.UTF8String) ? 1 : -1) : r.sendNearby(text.UTF8String);
++	if(sent==0 && Scummverse::Net::online()) {
++		// No characters here, but people on WiFi may be: say it aloud.
++		Scummverse::Net::Request say; say.kind=Scummverse::Net::Request::Say; say.text=ScummverseLocalAI::speechText(text.UTF8String);
++		Scummverse::Net::postRequest(say); sent=1;
++	}
+ 	if(sent<=0) {
+ 		_error=[(sent==0 ? @"Nobody is nearby to hear you. Your draft is kept." : @"Not sent: three messages are already waiting. Your draft is kept.") retain];
+ 		[self refresh]; return;
+@@ -172,10 +177,11 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	[self rebuildChips:here talking:mask];
+ 	NSMutableArray *names=[NSMutableArray array];
+ 	for(int id=1;id<25;++id) if(mask & (1u<<id)) [names addObject:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)]];
++	const BOOL online=Scummverse::Net::online();
+ 	_input.placeholder=mask ? [NSString stringWithFormat:@"Message %@…",[names componentsJoinedByString:@", "]] :
+-		!here ? @"Nobody nearby to talk to" :
++		!here ? (online ? @"Say something to players nearby…" : @"Nobody nearby to talk to") :
+ 		(here & (here-1)) ? @"Say something to everyone nearby…" : [NSString stringWithFormat:@"Say something to %@…",[NSString stringWithUTF8String:ScummverseLocalAI::actorName(__builtin_ctz(here))]];
+-	_input.enabled=here || mask; _send.enabled=_input.enabled;
++	_input.enabled=here || mask || online; _send.enabled=_input.enabled;
+ 	_status.text=_error ? _error : r.waitingForTalk() ? @"Replying… you can keep typing." :
+ 		mask && !r.modelReady() ? @"Classic replies. Choose a model in AI for generated dialogue." :
+ 		!mask && here ? @"Tap a name to talk privately, or just type." : @"";
+diff --git a/common/module.mk b/common/module.mk
+index 315ef171..171d8f41 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -28,6 +28,7 @@ MODULE_OBJS := \
+ 	platform.o \
+ 	punycode.o \
+ 	random.o \
++	scummverse_net.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+new file mode 100644
+index 00000000..f6402949
+--- /dev/null
++++ b/common/scummverse_net.cpp
+@@ -0,0 +1,573 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse local network play: codec and non-blocking POSIX TCP sessions.
++// See common/scummverse_net.h. Built for every backend; only used by the
++// SCUMM sandbox when the player hosts or joins.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_net.h"
++#include "common/scummverse_net_engine.h"
++
++#include <algorithm>
++#include <arpa/inet.h>
++#include <cerrno>
++#include <chrono>
++#include <cstring>
++#include <fcntl.h>
++#include <ifaddrs.h>
++#include <mutex>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <poll.h>
++#include <sys/socket.h>
++#include <sys/types.h>
++#include <unistd.h>
++
++namespace Scummverse {
++namespace Net {
++
++// ---- Codec ---------------------------------------------------------------
++
++static void put8(std::string &s, int v) { s.push_back((char)(uint8_t)v); }
++static void put16(std::string &s, int v) { put8(s, v & 0xFF); put8(s, (v >> 8) & 0xFF); }
++static int get8(const unsigned char *p) { return p[0]; }
++static int getU16(const unsigned char *p) { return p[0] | (p[1] << 8); }
++static int getS16(const unsigned char *p) { return (int16_t)(uint16_t)getU16(p); }
++
++bool validSay(const std::string &text) {
++	if (text.empty() || text.size() > kMaxSay) return false;
++	bool visible = false;
++	for (unsigned char c : text) {
++		if (c < 32 || c > 126) return false;
++		if (c != ' ') visible = true;
++	}
++	return visible;
++}
++
++static bool validActor(int actor) { return actor >= 1 && actor <= 24; }
++static bool validAvatar(const Avatar &a) {
++	return validActor(a.actor) && a.room >= 1 && a.room <= 255 && a.x >= -1024 && a.x <= 1024 && a.y >= -256 && a.y <= 256;
++}
++
++bool encode(const Frame &f, std::string &out) {
++	if (f.peer < 0 || f.peer > kMaxPeers) return false;
++	std::string body;
++	put8(body, (int)f.type); put8(body, f.peer);
++	switch (f.type) {
++	case FrameType::Hello:
++		if (f.protocol < 0 || f.protocol > 255 || f.content < 0 || f.content > 0xFFFF || !validActor(f.actor)) return false;
++		put8(body, f.protocol); put16(body, f.content); put8(body, f.actor); break;
++	case FrameType::Welcome:
++		if (!validActor(f.actor)) return false;
++		put8(body, f.actor); break;
++	case FrameType::Reject:
++		if (f.reason < 1 || f.reason > 3) return false;
++		put8(body, f.reason); break;
++	case FrameType::Avatar:
++		if (!validAvatar(f.avatar)) return false;
++		put8(body, f.avatar.actor); put16(body, f.avatar.room); put16(body, f.avatar.x); put16(body, f.avatar.y); break;
++	case FrameType::Say:
++		if (!validActor(f.actor) || !validSay(f.text)) return false;
++		put8(body, f.actor); body += f.text; break;
++	case FrameType::Bye:
++		break;
++	default:
++		return false;
++	}
++	if (body.size() > kMaxBody) return false;
++	put16(out, (int)body.size()); out += body;
++	return true;
++}
++
++int decode(const char *data, size_t size, Frame &f) {
++	if (size < 2) return 0;
++	const unsigned char *p = (const unsigned char *)data;
++	const size_t length = getU16(p);
++	if (length < 2 || length > kMaxBody) return -1;
++	if (size < 2 + length) return 0;
++	const unsigned char *b = p + 2;
++	f = Frame();
++	f.type = (FrameType)get8(b); f.peer = get8(b + 1);
++	if (f.peer > kMaxPeers) return -1;
++	const unsigned char *q = b + 2; const size_t n = length - 2;
++	switch (f.type) {
++	case FrameType::Hello:
++		if (n != 4) return -1;
++		f.protocol = get8(q); f.content = getU16(q + 1); f.actor = get8(q + 3);
++		if (!validActor(f.actor)) return -1;
++		break;
++	case FrameType::Welcome:
++		if (n != 1) return -1;
++		f.actor = get8(q); if (!validActor(f.actor)) return -1;
++		break;
++	case FrameType::Reject:
++		if (n != 1) return -1;
++		f.reason = get8(q); if (f.reason < 1 || f.reason > 3) return -1;
++		break;
++	case FrameType::Avatar:
++		if (n != 7) return -1;
++		f.avatar.actor = get8(q); f.avatar.room = getU16(q + 1); f.avatar.x = getS16(q + 3); f.avatar.y = getS16(q + 5);
++		if (!validAvatar(f.avatar)) return -1;
++		break;
++	case FrameType::Say:
++		if (n < 2) return -1;
++		f.actor = get8(q); f.text.assign((const char *)q + 1, n - 1);
++		if (!validActor(f.actor) || !validSay(f.text)) return -1;
++		break;
++	case FrameType::Bye:
++		if (n != 0) return -1;
++		break;
++	default:
++		return -1;
++	}
++	return (int)(2 + length);
++}
++
++// ---- Sessions ------------------------------------------------------------
++
++namespace {
++typedef std::chrono::steady_clock Clock;
++const auto kHandshakeTimeout = std::chrono::seconds(5);
++const size_t kMaxBuffered = 64 * 1024;
++
++struct Link {
++	int fd = -1, id = 0, actor = 0;
++	bool welcomed = false, closing = false, dead = false, hasAvatar = false;
++	std::string in, out;
++	Avatar last;
++	Clock::time_point opened = Clock::now();
++};
++
++void quietSocket(int fd) {
++	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
++	int one = 1;
++	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
++#ifdef SO_NOSIGPIPE
++	setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
++#endif
++}
++
++#ifdef MSG_NOSIGNAL
++const int kSendFlags = MSG_NOSIGNAL;
++#else
++const int kSendFlags = 0;
++#endif
++
++void flush(Link &l) {
++	while (!l.dead && !l.out.empty()) {
++		const ssize_t sent = ::send(l.fd, l.out.data(), l.out.size(), kSendFlags);
++		if (sent > 0) { l.out.erase(0, (size_t)sent); continue; }
++		if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
++		l.dead = true;
++	}
++	if (l.out.size() > kMaxBuffered) l.dead = true; // Peer stopped reading.
++	if (l.closing && l.out.empty()) l.dead = true;
++}
++
++void receive(Link &l) {
++	char buffer[2048];
++	while (!l.dead) {
++		const ssize_t got = ::recv(l.fd, buffer, sizeof(buffer), 0);
++		if (got > 0) { l.in.append(buffer, (size_t)got); if (l.in.size() > kMaxBuffered) l.dead = true; continue; }
++		if (got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
++		l.dead = true; // Orderly close or error.
++	}
++}
++
++void send(Link &l, const Frame &f) {
++	if (l.dead || l.closing) return;
++	if (!encode(f, l.out)) return;
++}
++
++bool parseAddress(const std::string &text, sockaddr_in &address) {
++	std::string host = text; int port = kDefaultPort;
++	const size_t colon = text.find(':');
++	if (colon != std::string::npos) {
++		host = text.substr(0, colon);
++		const std::string digits = text.substr(colon + 1);
++		if (digits.empty() || digits.size() > 5) return false;
++		port = 0;
++		for (char c : digits) { if (c < '0' || c > '9') return false; port = port * 10 + (c - '0'); }
++		if (port < 1 || port > 65535) return false;
++	}
++	std::memset(&address, 0, sizeof(address));
++	address.sin_family = AF_INET; address.sin_port = htons((uint16_t)port);
++	return inet_pton(AF_INET, host.c_str(), &address.sin_addr) == 1;
++}
++} // End of anonymous namespace
++
++struct Session::Impl {
++	enum Mode { Off, Hosting, Connecting, Joined } mode = Off;
++	int listener = -1, content = 0, port = 0, localActor = 0;
++	std::vector<Link> links;        // Host: joined devices. Client: the host.
++	Avatar local; bool localSent = false;
++	int welcomedAs = 0;             // Client: peer id from Welcome.
++	std::vector<int> remoteActor = std::vector<int>(kMaxPeers + 1, 0); // Client: peer -> actor.
++	std::string target;
++	Clock::time_point started;
++
++	int welcomedCount() const { int n = 0; for (const auto &l : links) if (l.welcomed && !l.dead) ++n; return n; }
++	bool actorTaken(int actor, int except) const {
++		if (actor == localActor) return true;
++		for (const auto &l : links) if (l.welcomed && !l.dead && l.id != except && l.actor == actor) return true;
++		return false;
++	}
++	void broadcast(const Frame &f, int except) {
++		for (auto &l : links) if (l.welcomed && l.id != except) send(l, f);
++	}
++	void reset() {
++		for (auto &l : links) if (l.fd >= 0) ::close(l.fd);
++		links.clear();
++		if (listener >= 0) ::close(listener);
++		listener = -1; mode = Off; localSent = false; welcomedAs = 0;
++		std::fill(remoteActor.begin(), remoteActor.end(), 0);
++	}
++
++	void hostPoll(std::vector<Event> &events) {
++		for (;;) {
++			const int fd = ::accept(listener, nullptr, nullptr);
++			if (fd < 0) break;
++			quietSocket(fd);
++			Link l; l.fd = fd;
++			if (links.size() >= (size_t)kMaxPeers + 2) { // Bounded, even before handshakes.
++				Frame r; r.type = FrameType::Reject; r.reason = (int)RejectReason::Full;
++				encode(r, l.out); l.closing = true;
++			}
++			l.id = 0; links.push_back(l);
++		}
++		for (auto &l : links) {
++			flush(l); receive(l);
++			while (!l.closing) {
++				Frame f; const int used = decode(l.in.data(), l.in.size(), f);
++				if (used == 0) break;
++				if (used < 0) { l.dead = true; break; }
++				l.in.erase(0, (size_t)used);
++				hostFrame(l, f, events);
++				if (l.dead) break;
++			}
++			if (!l.welcomed && !l.closing && Clock::now() - l.opened > kHandshakeTimeout) l.dead = true;
++			flush(l);
++		}
++		for (size_t i = 0; i < links.size();) {
++			if (!links[i].dead) { ++i; continue; }
++			Link gone = links[i];
++			::close(gone.fd); links.erase(links.begin() + (long)i);
++			if (gone.welcomed) {
++				Event e; e.kind = Event::Left; e.peer = gone.id; e.avatar.actor = gone.actor; events.push_back(e);
++				Frame bye; bye.type = FrameType::Bye; bye.peer = gone.id; broadcast(bye, gone.id);
++			}
++		}
++	}
++
++	void hostFrame(Link &l, const Frame &f, std::vector<Event> &events) {
++		if (!l.welcomed) {
++			if (f.type != FrameType::Hello) { l.dead = true; return; }
++			Frame r; r.type = FrameType::Reject;
++			if (f.protocol != kProtocol || f.content != content) r.reason = (int)RejectReason::Version;
++			else if (welcomedCount() >= kMaxPeers) r.reason = (int)RejectReason::Full;
++			else if (actorTaken(f.actor, -1)) r.reason = (int)RejectReason::ActorTaken;
++			if (r.reason) { send(l, r); l.closing = true; return; }
++			int id = 1;
++			while (id <= kMaxPeers) { bool used = false; for (const auto &o : links) if (o.welcomed && o.id == id) used = true; if (!used) break; ++id; }
++			l.id = id; l.actor = f.actor; l.welcomed = true;
++			Frame w; w.type = FrameType::Welcome; w.peer = id; w.actor = f.actor; send(l, w);
++			// Bring the newcomer up to date with everyone already here.
++			if (localSent) { Frame a; a.type = FrameType::Avatar; a.peer = 0; a.avatar = local; send(l, a); }
++			for (const auto &o : links) if (o.welcomed && o.id != id && o.hasAvatar) {
++				Frame a; a.type = FrameType::Avatar; a.peer = o.id; a.avatar = o.last; send(l, a);
++			}
++			return;
++		}
++		switch (f.type) {
++		case FrameType::Avatar: {
++			// Each device controls one character no one else controls.
++			if (actorTaken(f.avatar.actor, l.id)) return;
++			l.actor = f.avatar.actor; l.last = f.avatar; l.hasAvatar = true;
++			Event e; e.kind = Event::Moved; e.peer = l.id; e.avatar = f.avatar; events.push_back(e);
++			Frame a = f; a.peer = l.id; broadcast(a, l.id);
++			break;
++		}
++		case FrameType::Say: {
++			Event e; e.kind = Event::Said; e.peer = l.id; e.avatar.actor = l.actor; e.text = f.text; events.push_back(e);
++			Frame s = f; s.peer = l.id; s.actor = l.actor; broadcast(s, l.id);
++			break;
++		}
++		case FrameType::Bye:
++			l.dead = true; break;
++		default:
++			l.dead = true; break; // Hello twice, or host-only frames from a client.
++		}
++	}
++
++	void clientPoll(std::vector<Event> &events) {
++		Link &l = links[0];
++		if (mode == Connecting) {
++			pollfd p; p.fd = l.fd; p.events = POLLOUT; p.revents = 0;
++			if (::poll(&p, 1, 0) > 0) {
++				int error = 0; socklen_t size = sizeof(error);
++				getsockopt(l.fd, SOL_SOCKET, SO_ERROR, &error, &size);
++				if (error) { fail(events, std::string("Could not reach ") + target + ": " + std::strerror(error)); return; }
++				mode = Joined;
++			} else if (Clock::now() - started > kHandshakeTimeout) {
++				fail(events, "No game found at " + target + ". Check the address and that both devices share a WiFi network."); return;
++			} else return;
++		}
++		flush(l); receive(l);
++		// Frames that arrived before a close (a Reject, a final Bye) still count.
++		for (;;) {
++			Frame f; const int used = decode(l.in.data(), l.in.size(), f);
++			if (used == 0) break;
++			if (used < 0) { fail(events, "The host sent invalid data."); return; }
++			l.in.erase(0, (size_t)used);
++			switch (f.type) {
++			case FrameType::Welcome:
++				welcomedAs = f.peer; l.welcomed = true;
++				if (local.actor) { Frame a; a.type = FrameType::Avatar; a.avatar = local; send(l, a); localSent = true; }
++				break;
++			case FrameType::Reject:
++				fail(events, f.reason == (int)RejectReason::Version ? "The host runs a different game version." :
++					f.reason == (int)RejectReason::Full ? "That game is full." :
++					"Someone there already plays this character. Switch character and join again.");
++				return;
++			case FrameType::Avatar:
++				if (f.peer == welcomedAs || !l.welcomed) break;
++				remoteActor[f.peer] = f.avatar.actor;
++				{ Event e; e.kind = Event::Moved; e.peer = f.peer; e.avatar = f.avatar; events.push_back(e); }
++				break;
++			case FrameType::Say:
++				if (f.peer == welcomedAs || !l.welcomed) break;
++				{ Event e; e.kind = Event::Said; e.peer = f.peer; e.avatar.actor = f.actor; e.text = f.text; events.push_back(e); }
++				break;
++			case FrameType::Bye:
++				if (f.peer == 0 || f.peer == welcomedAs) { fail(events, "The host closed the game."); return; }
++				{ Event e; e.kind = Event::Left; e.peer = f.peer; e.avatar.actor = remoteActor[f.peer]; events.push_back(e); remoteActor[f.peer] = 0; }
++				break;
++			default:
++				fail(events, "The host sent invalid data."); return;
++			}
++		}
++		if (!l.welcomed && Clock::now() - started > kHandshakeTimeout * 2) { fail(events, "The host did not answer."); return; }
++		flush(l);
++		if (l.dead) fail(events, "Connection to the host was lost.");
++	}
++
++	void fail(std::vector<Event> &events, const std::string &why) {
++		// Remote characters return to the local world before the failure.
++		for (int peer = 0; peer <= kMaxPeers; ++peer) if (remoteActor[peer]) {
++			Event e; e.kind = Event::Left; e.peer = peer; e.avatar.actor = remoteActor[peer]; events.push_back(e);
++		}
++		Event e; e.kind = Event::Failed; e.text = why; events.push_back(e);
++		reset();
++	}
++};
++
++Session::Session() : _impl(new Impl) {}
++Session::~Session() { close(); }
++
++bool Session::host(uint16_t port, int content, int actor, std::string &error) {
++	close();
++	Impl &s = *_impl;
++	const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) { error = "Networking is unavailable."; return false; }
++	int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
++	sockaddr_in address; std::memset(&address, 0, sizeof(address));
++	address.sin_family = AF_INET; address.sin_port = htons(port); address.sin_addr.s_addr = htonl(INADDR_ANY);
++	if (::bind(fd, (sockaddr *)&address, sizeof(address)) < 0 || ::listen(fd, kMaxPeers) < 0) {
++		error = std::string("Cannot host: ") + std::strerror(errno); ::close(fd); return false;
++	}
++	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
++	s.listener = fd; s.mode = Impl::Hosting; s.content = content; s.localActor = actor; s.port = port;
++	return true;
++}
++
++bool Session::join(const std::string &text, int content, int actor, std::string &error) {
++	close();
++	Impl &s = *_impl;
++	sockaddr_in address;
++	if (!parseAddress(text, address)) { error = "Enter the host's address, like 192.168.1.20"; return false; }
++	if (!validActor(actor)) { error = "Choose a character first."; return false; }
++	const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) { error = "Networking is unavailable."; return false; }
++	quietSocket(fd);
++	if (::connect(fd, (sockaddr *)&address, sizeof(address)) < 0 && errno != EINPROGRESS) {
++		error = std::string("Could not reach ") + text + ": " + std::strerror(errno); ::close(fd); return false;
++	}
++	Link l; l.fd = fd;
++	Frame hello; hello.type = FrameType::Hello; hello.protocol = kProtocol; hello.content = content; hello.actor = actor;
++	encode(hello, l.out);
++	s.links.push_back(l); s.mode = Impl::Connecting; s.content = content; s.localActor = actor;
++	s.local = Avatar(); s.local.actor = actor; s.target = text; s.started = Clock::now();
++	return true;
++}
++
++void Session::close() {
++	Impl &s = *_impl;
++	if (s.mode == Impl::Off) return;
++	Frame bye; bye.type = FrameType::Bye; bye.peer = s.mode == Impl::Hosting ? 0 : s.welcomedAs;
++	for (auto &l : s.links) if (l.welcomed) { send(l, bye); flush(l); }
++	s.reset();
++}
++
++bool Session::active() const { return _impl->mode != Impl::Off; }
++bool Session::hosting() const { return _impl->mode == Impl::Hosting; }
++bool Session::connected() const {
++	return _impl->mode == Impl::Hosting || (_impl->mode == Impl::Joined && !_impl->links.empty() && _impl->links[0].welcomed);
++}
++int Session::remoteCount() const {
++	const Impl &s = *_impl;
++	if (s.mode == Impl::Hosting) return s.welcomedCount();
++	int n = 0; for (int actor : s.remoteActor) if (actor) ++n;
++	return n;
++}
++
++void Session::setLocal(const Avatar &avatar) {
++	Impl &s = *_impl;
++	if (!validAvatar(avatar) || (s.localSent && avatar == s.local)) return;
++	s.local = avatar; s.localActor = avatar.actor;
++	Frame f; f.type = FrameType::Avatar; f.avatar = avatar;
++	if (s.mode == Impl::Hosting) { s.broadcast(f, -1); s.localSent = true; }
++	else if (connected()) { f.peer = s.welcomedAs; send(s.links[0], f); s.localSent = true; }
++}
++
++bool Session::say(const std::string &text) {
++	Impl &s = *_impl;
++	if (!validSay(text) || !validActor(s.localActor) || !connected()) return false;
++	Frame f; f.type = FrameType::Say; f.actor = s.localActor; f.text = text;
++	if (s.mode == Impl::Hosting) s.broadcast(f, -1);
++	else { f.peer = s.welcomedAs; send(s.links[0], f); }
++	return true;
++}
++
++void Session::poll(std::vector<Event> &events) {
++	Impl &s = *_impl;
++	if (s.mode == Impl::Hosting) s.hostPoll(events);
++	else if (s.mode != Impl::Off && !s.links.empty()) s.clientPoll(events);
++}
++
++std::string Session::describe() const {
++	const Impl &s = *_impl;
++	const int others = remoteCount();
++	const std::string count = others == 1 ? "1 other player" : std::to_string(others) + " other players";
++	switch (s.mode) {
++	case Impl::Hosting: return "Hosting on " + localAddresses() + " port " + std::to_string(s.port) + " - " + count;
++	case Impl::Connecting: return "Connecting to " + s.target + "...";
++	case Impl::Joined: return connected() ? "Playing with " + s.target + " - " + count : "Joining " + s.target + "...";
++	default: return "Local WiFi play is off";
++	}
++}
++
++std::string localAddresses() {
++	std::string out;
++	ifaddrs *list = nullptr;
++	if (getifaddrs(&list) != 0) return "this device";
++	for (ifaddrs *i = list; i; i = i->ifa_next) {
++		if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET) continue;
++		const sockaddr_in *a = (const sockaddr_in *)i->ifa_addr;
++		if ((ntohl(a->sin_addr.s_addr) >> 24) == 127) continue;
++		char text[INET_ADDRSTRLEN];
++		if (!inet_ntop(AF_INET, &a->sin_addr, text, sizeof(text))) continue;
++		if (out.find(text) != std::string::npos) continue;
++		if (!out.empty()) out += ", ";
++		out += text;
++	}
++	freeifaddrs(list);
++	return out.empty() ? "this device" : out;
++}
++
++// ---- Cross-thread control -------------------------------------------------
++
++namespace {
++struct Control {
++	std::mutex mutex;
++	std::vector<Request> requests;
++	std::string status = "Local WiFi play is off";
++	bool online = false;
++	int players = 0;
++};
++Control &control() { static Control c; return c; }
++}
++
++void postRequest(const Request &request) {
++	Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex);
++	if (c.requests.size() < 8) c.requests.push_back(request);
++}
++bool takeRequest(Request &request) {
++	Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex);
++	if (c.requests.empty()) return false;
++	request = c.requests.front(); c.requests.erase(c.requests.begin());
++	return true;
++}
++void publishStatus(const std::string &status, bool online, int players) {
++	Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex);
++	c.status = status; c.online = online; c.players = players;
++}
++std::string status() { Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex); return c.status; }
++bool online() { Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex); return c.online; }
++int players() { Control &c = control(); std::lock_guard<std::mutex> guard(c.mutex); return c.players; }
++
++} // End of namespace Net
++} // End of namespace Scummverse
++
++// ---- Engine bridge ---------------------------------------------------------
++
++namespace Scummverse {
++namespace NetBridge {
++
++static_assert(kMaxPeers == Net::kMaxPeers && kMaxSay == (int)Net::kMaxSay && kDefaultPort == Net::kDefaultPort, "bridge constants");
++static Net::Session &session() { static Net::Session s; return s; }
++static void copy(const std::string &from, char *out, int capacity) {
++	if (!out || capacity < 1) return;
++	const size_t n = std::min(from.size(), (size_t)capacity - 1);
++	std::memcpy(out, from.data(), n); out[n] = 0;
++}
++
++bool host(int content, int actor, char *message, int capacity) {
++	std::string error;
++	const bool ok = session().host(kDefaultPort, content, actor, error);
++	copy(ok ? session().describe() : error, message, capacity);
++	return ok;
++}
++bool join(const char *address, int content, int actor, char *message, int capacity) {
++	std::string error;
++	const bool ok = session().join(address ? address : "", content, actor, error);
++	copy(ok ? session().describe() : error, message, capacity);
++	return ok;
++}
++void close() { session().close(); }
++bool active() { return session().active(); }
++bool connected() { return session().connected(); }
++int remoteCount() { return session().remoteCount(); }
++void describe(char *out, int capacity) { copy(session().describe(), out, capacity); }
++void setLocal(int actor, int room, int x, int y) {
++	Net::Avatar a; a.actor = actor; a.room = room; a.x = x; a.y = y; session().setLocal(a);
++}
++bool say(const char *text) {
++	std::string line(text ? text : "");
++	if (line.size() > Net::kMaxSay) line.resize(Net::kMaxSay);
++	return session().say(line);
++}
++int poll(Event *events, int capacity) {
++	static std::vector<Net::Event> pending;
++	if (pending.empty()) session().poll(pending);
++	int n = 0;
++	while (n < capacity && !pending.empty()) {
++		const Net::Event &e = pending.front();
++		Event &out = events[n++];
++		out.kind = e.kind == Net::Event::Moved ? EventMoved : e.kind == Net::Event::Said ? EventSaid :
++			e.kind == Net::Event::Left ? EventLeft : EventFailed;
++		out.peer = e.peer; out.actor = e.avatar.actor; out.room = e.avatar.room; out.x = e.avatar.x; out.y = e.avatar.y;
++		copy(e.text, out.text, sizeof(out.text));
++		pending.erase(pending.begin());
++	}
++	return n;
++}
++int takeRequest(char *text, int capacity) {
++	Net::Request request;
++	if (!Net::takeRequest(request)) return RequestNone;
++	copy(request.text, text, capacity);
++	return request.kind == Net::Request::Host ? RequestHost : request.kind == Net::Request::Join ? RequestJoin :
++		request.kind == Net::Request::Leave ? RequestLeave : request.kind == Net::Request::Say ? RequestSay : RequestNone;
++}
++void publish(const char *status, bool online, int players) { Net::publishStatus(status ? status : "", online, players); }
++
++} // End of namespace NetBridge
++} // End of namespace Scummverse
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+new file mode 100644
+index 00000000..e9750d6d
+--- /dev/null
++++ b/common/scummverse_net.h
+@@ -0,0 +1,103 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse local network play (same WiFi / LAN). One device hosts, others
++// join by IP address. Every device runs the same build and the same cast, so
++// each player controls one character; the host validates and relays avatar
++// positions and speech. No internet service, accounts or persistence.
++//
++// Frames: [u16 body length][u8 type][u8 peer][payload], little endian.
++// Peer 0 is the host; joined devices are 1..kMaxPeers.
++#ifndef COMMON_SCUMMVERSE_NET_H
++#define COMMON_SCUMMVERSE_NET_H
++
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++namespace Net {
++
++const uint16_t kDefaultPort = 47913;
++const int kProtocol = 1;
++const int kMaxPeers = 4;          // Remote players one host accepts.
++const size_t kMaxBody = 200;      // Largest valid frame body.
++const size_t kMaxSay = 160;       // Printable ASCII characters per line.
++
++enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6 };
++enum class RejectReason : uint8_t { Version = 1, Full = 2, ActorTaken = 3 };
++
++struct Avatar {
++	int actor = 0, room = 0, x = 0, y = 0;
++	bool operator==(const Avatar &o) const { return actor == o.actor && room == o.room && x == o.x && y == o.y; }
++	bool operator!=(const Avatar &o) const { return !(*this == o); }
++};
++
++struct Frame {
++	FrameType type = FrameType::Bye;
++	int peer = 0;
++	int protocol = 0, content = 0, actor = 0, reason = 0; // Hello / Welcome / Reject
++	Avatar avatar;                                        // Avatar
++	std::string text;                                     // Say
++};
++
++// Pure codec. encode() appends one frame; false for out-of-range fields.
++bool encode(const Frame &frame, std::string &out);
++// Parses the first frame: bytes consumed, 0 when incomplete, -1 when malformed.
++int decode(const char *data, size_t size, Frame &frame);
++// Speech is printable ASCII (the V1 font); anything else is rejected.
++bool validSay(const std::string &text);
++
++struct Event {
++	enum Kind { Moved, Said, Left, Failed } kind = Moved;
++	int peer = 0;
++	Avatar avatar;      // Moved (actor/room/x/y), Said and Left (actor)
++	std::string text;   // Said text, or the Failed reason
++};
++
++class Session {
++public:
++	Session();
++	~Session();
++	// Listen on all IPv4 interfaces. content identifies the game build.
++	bool host(uint16_t port, int content, int actor, std::string &error);
++	// address is "a.b.c.d" or "a.b.c.d:port".
++	bool join(const std::string &address, int content, int actor, std::string &error);
++	void close();
++	bool active() const;
++	bool hosting() const;
++	bool connected() const;   // Host listening, or client welcomed.
++	int remoteCount() const;
++	// The local player's avatar; sent when it changes.
++	void setLocal(const Avatar &avatar);
++	bool say(const std::string &text);
++	// Non-blocking: accepts, reads, validates, relays and reports.
++	void poll(std::vector<Event> &events);
++	std::string describe() const;
++private:
++	struct Impl;
++	std::unique_ptr<Impl> _impl;
++	Session(const Session &) = delete;
++	Session &operator=(const Session &) = delete;
++};
++
++// IPv4 addresses of this device's network interfaces, for the host to share.
++std::string localAddresses();
++
++// Cross-thread control: the UI posts requests; the engine applies them and
++// publishes status. Safe from any thread.
++struct Request {
++	enum Kind { None, Host, Join, Leave, Say } kind = None;
++	std::string text;   // Join address or Say text
++};
++void postRequest(const Request &request);
++bool takeRequest(Request &request);
++void publishStatus(const std::string &status, bool online, int players);
++std::string status();
++bool online();
++int players();
++
++} // End of namespace Net
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_net_engine.h b/common/scummverse_net_engine.h
+new file mode 100644
+index 00000000..7d0395f2
+--- /dev/null
++++ b/common/scummverse_net_engine.h
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse local WiFi play: the engine-facing bridge. Plain types only, so
++// engine code can include it after ScummVM's forbidden-symbol macros. One
++// session per process, owned by common/scummverse_net.cpp.
++#ifndef COMMON_SCUMMVERSE_NET_ENGINE_H
++#define COMMON_SCUMMVERSE_NET_ENGINE_H
++
++namespace Scummverse {
++namespace NetBridge {
++
++enum { kMaxPeers = 4, kMaxSay = 160, kDefaultPort = 47913 };
++enum RequestKind { RequestNone = 0, RequestHost, RequestJoin, RequestLeave, RequestSay };
++enum EventKind { EventMoved = 0, EventSaid, EventLeft, EventFailed };
++
++struct Event {
++	int kind, peer, actor, room, x, y;
++	char text[200];
++};
++
++// Session control (engine thread). Messages are NUL-terminated and bounded.
++bool host(int content, int actor, char *message, int capacity);
++bool join(const char *address, int content, int actor, char *message, int capacity);
++void close();
++bool active();
++bool connected();
++int remoteCount();
++void describe(char *out, int capacity);
++void setLocal(int actor, int room, int x, int y);
++bool say(const char *text);
++// Fills up to capacity events; returns how many.
++int poll(Event *events, int capacity);
++
++// Requests posted by the UI thread; returns the kind (RequestNone when empty).
++int takeRequest(char *text, int capacity);
++void publish(const char *status, bool online, int players);
++
++} // End of namespace NetBridge
++} // End of namespace Scummverse
++
++#endif
+diff --git a/dists/ios7/Info.plist b/dists/ios7/Info.plist
+index d51a69a0..e8855669 100644
+--- a/dists/ios7/Info.plist
++++ b/dists/ios7/Info.plist
+@@ -52,6 +52,8 @@
+ 	<string>LaunchScreen_ios</string>
+ 	<key>UIPrerenderedIcon</key>
+ 	<true/>
++	<key>NSLocalNetworkUsageDescription</key>
++	<string>Play together with friends on the same WiFi network.</string>
+ 	<key>UIRequiresFullScreen</key>
+ 	<false/>
+ 	<key>UIStatusBarHidden</key>
+diff --git a/dists/ios7/Info.plist.in b/dists/ios7/Info.plist.in
+index 108d74d7..f026aadd 100644
+--- a/dists/ios7/Info.plist.in
++++ b/dists/ios7/Info.plist.in
+@@ -52,6 +52,8 @@
+ 	<string>LaunchScreen_ios</string>
+ 	<key>UIPrerenderedIcon</key>
+ 	<true/>
++	<key>NSLocalNetworkUsageDescription</key>
++	<string>Play together with friends on the same WiFi network.</string>
+ 	<key>UIRequiresFullScreen</key>
+ 	<false/>
+ 	<key>UIStatusBarHidden</key>
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 85bdaf99..e45155bd 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -22,6 +22,7 @@
+ #include "common/config-manager.h"
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_seats.h"
++#include "common/scummverse_net_engine.h"
+ #ifdef IPHONE
+ #include "backends/fs/abstract-fs.h"
+ #include "backends/fs/posix/posix-fs.h"
+@@ -467,6 +468,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 
+ 
+ ScummEngine::~ScummEngine() {
++	if (_scummverseNetOn) Scummverse::NetBridge::close();
+ 	delete _musicEngine;
+ 
+ 	// Delete the sound object earlier than the actors
+@@ -4221,5 +4223,6 @@ void ScummEngine::errorString(const char *buf1, char *buf2, int buf2Size) {
+ #include "common/scummverse_text.h"
+ #include "scumm/scummverse_worlds.inc"
+ #include "scumm/scummverse_roaming.inc"
++#include "scumm/scummverse_net.inc"
+ 
+ } // End of namespace Scumm
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 918ce0e0..810c8a7f 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1591,6 +1591,18 @@ protected:
+ 	bool scummverseMountZakCast();
+ 	Common::Array<byte> _scummverseZakCastCostumes[9];
+ 	void scummverseUpdateResident();
++	// Local WiFi play (scummverse_net.inc): remote players' characters.
++	bool _scummverseNetOn = false;
++	unsigned _scummverseRemoteMask = 0;
++	int _scummversePeerActor[5] = {};
++	int _scummverseNetClock = 0;
++	void scummverseUpdateNet(int delta);
++	void scummverseReleaseRemote(int peer);
++	void scummverseNetSay(const char *line);
++public:
++	bool scummverseRemoteActor(int id) const;
++	int scummverseNetContent() const;
++protected:
+ 	bool scummverseNpcBoard(int id, int origin, int destination);
+ 	bool scummverseLandUnattendedFlight(bool npcOnly);
+ 	void scummverseAirportOffer();
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+new file mode 100644
+index 00000000..fbc94227
+--- /dev/null
++++ b/engines/scumm/scummverse_net.inc
+@@ -0,0 +1,130 @@
++// SCUMMVERSE local WiFi play: engine adapter. GPL-3.0-or-later.
++// The session (common/scummverse_net.*) moves bytes and validates frames;
++// this adapter maps each remote player to the cast member they control,
++// validates rooms and positions against this build, and keeps local systems
++// (NPC roaming, chat, vehicles) away from characters that people control.
++// Nothing here is saved: remote characters are ordinary actors in a save.
++
++namespace NetBridge = ::Scummverse::NetBridge;
++
++// Build identity sent in the handshake: devices must share room content and
++// patch level. Bump the low byte with patches that change shared state.
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 53;
++
++int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
++
++bool ScummEngine::scummverseRemoteActor(int id) const {
++	return id > 0 && id < 25 && (_scummverseRemoteMask & (1u << id)) != 0;
++}
++
++static bool scummverseNetRoom(int room) {
++	return (room >= 1 && room <= 55) || zakSceneSlotRoom(room) != 0;
++}
++
++void ScummEngine::scummverseReleaseRemote(int peer) {
++	if (peer < 0 || peer > NetBridge::kMaxPeers) return;
++	const int id = _scummversePeerActor[peer];
++	_scummversePeerActor[peer] = 0;
++	if (!scummverseRemoteActor(id)) return;
++	_scummverseRemoteMask &= ~(1u << id);
++	// The character stays where its player left it and resumes local life.
++	Actor *a = derefActor(id, "released remote");
++	a->stopActorMoving(); _scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++}
++
++void ScummEngine::scummverseNetSay(const char *line) {
++	if (_scummverseNetOn && line && NetBridge::connected()) NetBridge::say(line);
++}
++
++void ScummEngine::scummverseUpdateNet(int delta) {
++	if (!_scummverseRoaming || !_scummverseRoamingReady) return;
++	char text[256], message[256];
++	const int ego = VAR(VAR_EGO);
++	for (int kind; (kind = NetBridge::takeRequest(text, sizeof(text))) != NetBridge::RequestNone;) {
++		if (kind == NetBridge::RequestLeave) {
++			NetBridge::close(); _scummverseNetOn = false;
++			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) scummverseReleaseRemote(peer);
++			NetBridge::publish("Local WiFi play is off", false, 0);
++			scummverseWorldReport("Left the local WiFi game.");
++		} else if (kind == NetBridge::RequestSay) {
++			if (ego > 0 && ego < 25 && derefActor(ego, "network speaker")->_room == _currentRoom && !VAR(VAR_HAVE_MSG)) {
++				scummverseSay(ego, text); scummverseNetSay(text);
++			}
++		} else {
++			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) scummverseReleaseRemote(peer);
++			_scummverseNetOn = kind == NetBridge::RequestHost ?
++				NetBridge::host(kScummverseNetContent, ego, message, sizeof(message)) :
++				NetBridge::join(text, kScummverseNetContent, ego, message, sizeof(message));
++			NetBridge::publish(message, false, 0);
++			scummverseWorldReport(message);
++			_scummverseNetClock = 0;
++		}
++	}
++	if (!_scummverseNetOn) return;
++
++	// The local player's character, at most ten times a second.
++	_scummverseNetClock -= delta;
++	if (_scummverseNetClock <= 0 && ego > 0 && ego < 25 && !scummverseRemoteActor(ego)) {
++		_scummverseNetClock = 6;
++		Actor *me = derefActor(ego, "network avatar");
++		if (scummverseNetRoom(me->_room)) NetBridge::setLocal(ego, me->_room, me->getRealPos().x, me->getRealPos().y);
++	}
++
++	NetBridge::Event events[16];
++	const int count = NetBridge::poll(events, ARRAYSIZE(events));
++	for (int i = 0; i < count; ++i) {
++		const NetBridge::Event &event = events[i];
++		if (event.peer < 0 || event.peer > NetBridge::kMaxPeers) continue;
++		switch (event.kind) {
++		case NetBridge::EventMoved: {
++			bool cast = false; for (int id : mansionCast) if (id == event.actor) cast = true;
++			// Deterministic validation: a cast member this build has, not the
++			// local player's, in a room this build can show.
++			if (!cast || event.actor == ego || !scummverseNetRoom(event.room)) break;
++			if ((event.actor == 24 && !_scummVars[760]) || (scummverseZakGuest(event.actor) && !_scummVars[763])) break;
++			if (event.room >= 56 && !scummverseMountExtra(event.room)) break;
++			if (_scummversePeerActor[event.peer] != event.actor) {
++				scummverseReleaseRemote(event.peer);
++				for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) if (_scummversePeerActor[peer] == event.actor) scummverseReleaseRemote(peer);
++				_scummversePeerActor[event.peer] = event.actor;
++				_scummverseRemoteMask |= 1u << event.actor;
++				// People are never NPC companions, passengers or chat partners.
++				_scummVars[770 + event.actor] = 0; _scummVars[766] &= ~(1u << event.actor);
++				_scummverseNpcDestination[event.actor] = 0; _scummverseNpcBoarding[event.actor] = 0;
++			}
++			Actor *a = derefActor(event.actor, "remote player");
++			a->setElevation(0);
++			if (a->_room != event.room || event.room != _currentRoom) {
++				const bool arriving = a->_room != event.room;
++				a->stopActorMoving(); a->putActor(event.x, event.y, event.room);
++				if (arriving && event.room == _currentRoom) a->startAnimActor(a->_standFrame);
++			} else {
++				const Common::Point now = a->getRealPos();
++				if (ABS(now.x - event.x) > 1 || ABS(now.y - event.y) > 1) {
++					AdjustBoxResult target = a->adjustXYToBeInBox(event.x, event.y);
++					a->startWalkActor(target.x, target.y, -1);
++				}
++			}
++			break;
++		}
++		case NetBridge::EventSaid:
++			if (_scummversePeerActor[event.peer] == event.actor && scummverseRemoteActor(event.actor) &&
++				derefActor(event.actor, "remote speaker")->_room == _currentRoom)
++				scummverseSay(event.actor, event.text);
++			break;
++		case NetBridge::EventLeft:
++			scummverseReleaseRemote(event.peer);
++			break;
++		case NetBridge::EventFailed:
++			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) scummverseReleaseRemote(peer);
++			_scummverseNetOn = false;
++			NetBridge::publish(event.text, false, 0);
++			scummverseWorldReport(event.text);
++			break;
++		}
++	}
++	if (_scummverseNetOn && NetBridge::active()) {
++		NetBridge::describe(message, sizeof(message));
++		NetBridge::publish(message, NetBridge::connected(), NetBridge::remoteCount());
++	}
++}
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 3648dcbd..1cdc82e0 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -256,6 +256,7 @@ void ScummEngine::scummverseUpdateDialogue(int delta) {
+ }
+ 
+ void ScummEngine::scummverseUpdateRoaming(int delta) {
++	scummverseUpdateNet(delta); // Network play continues through cutscenes.
+ 	if (!_scummverseRoaming || !_scummverseRoamingReady || !_userPut ||
+ 		_currentScript != 0xFF || _currentRoom == 0 || _currentRoom == 45) return;
+ 	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseRosterOffer(); }
+@@ -281,15 +282,19 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	scummverseUpdateCompanions();
+ 	unsigned talkMask = 0;
+ 	for (int id : mansionCast)
+-		if (id != VAR(VAR_EGO) && (!scummverseZakGuest(id) || _scummVars[763]) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
+-	if (_scummVars[760] && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
++		if (id != VAR(VAR_EGO) && !scummverseRemoteActor(id) && (!scummverseZakGuest(id) || _scummVars[763]) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
++	if (_scummVars[760] && !scummverseRemoteActor(24) && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
+ 	if (_scummVars[768] == _currentRoom && derefActor(kZakResidentActor, "resident talk roster")->_room == _currentRoom) talkMask |= 1u << kZakResidentActor;
+ 	char talkLine[600];
+ 	int talkSpeaker = 0;
+ 	unsigned chatting = scummverseTalkScene(_currentRoom, VAR(VAR_EGO), talkMask, !VAR(VAR_HAVE_MSG), talkSpeaker, talkLine, sizeof(talkLine));
+ 	if (chatting) {
+ 		_scummverseAIActor = 0;
+-		if (talkSpeaker && talkLine[0]) scummverseSay(talkSpeaker, talkLine);
++		if (talkSpeaker && talkLine[0]) {
++			scummverseSay(talkSpeaker, talkLine);
++			// Players nearby on other devices hear what this player says.
++			if (talkSpeaker == VAR(VAR_EGO)) scummverseNetSay(talkLine);
++		}
+ 	} else scummverseUpdateDialogue(delta);
+ 	Actor *player = derefActor(VAR(VAR_EGO), "sandbox player");
+ 	if (_scummverseLastEgo != VAR(VAR_EGO)) {
+@@ -298,7 +303,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		_scummverseLastEgo = VAR(VAR_EGO);
+ 	}
+ 	for (int id : mansionCast) {
+-		if (id == VAR(VAR_EGO) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
++		if (id == VAR(VAR_EGO) || scummverseRemoteActor(id) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "sandbox roamer");
+ 		if(_scummVars[766] & (1u<<id)) continue;
+ 		Roamer &r = _scummverseRoamers[id];
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index b013ff60..434e6ca4 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -567,7 +567,7 @@ void ScummEngine::scummverseBoard() {
+ 	unsigned passengers=0;
+ 	int origin=_currentRoom, ego=VAR(VAR_EGO);
+ 	for (int id : mansionCast) {
+-		if (id==ego || ((id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
++		if (id==ego || scummverseRemoteActor(id) || ((id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a=derefActor(id,"boarding passenger");
+   const int booking=_scummVars[travellerDestinationKey(id)];
+   const int destination=booking ? booking : _scummverseNpcDestination[id];
+@@ -627,7 +627,7 @@ bool ScummEngine::scummverseLandUnattendedFlight(bool npcOnly) {
+ 	const int room=flightRoom(_scummVars[724]);
+ 	if(room>=56 && !scummverseMountExtra(room)) return false;
+ 	for(int id : mansionCast) {
+-		Actor *a=derefActor(id,"landing passenger"); if(a->_room!=56) continue;
++		Actor *a=derefActor(id,"landing passenger"); if(a->_room!=56 || scummverseRemoteActor(id)) continue;
+ 		a->stopActorMoving(); a->setElevation(0); a->putActor(20+id%5*2,60,room);
+ 		a->startAnimActor(a->_standFrame);
+ 		_scummverseRoamers[id]=Roamer(); _scummverseRoamers[id].wait=600;
+@@ -724,7 +724,7 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ void ScummEngine::scummverseCompanionCommand(int command) {
+ 	int id = command >= 96 ? command - 96 : command - 64;
+ 	bool allowed = scummverseZakGuest(id) || id == 24 || id == 23 || id == 14 || id == 13 || id == 11 || id == 10 || id == 9 || (id >= 1 && id <= 7);
+-	if (!allowed || id == VAR(VAR_EGO) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) return;
++	if (!allowed || id == VAR(VAR_EGO) || scummverseRemoteActor(id) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) return;
+ 	Actor *a = derefActor(id, "companion request");
+ 	if (a->_room != _currentRoom) return;
+ 	_scummVars[770 + id] = command >= 96 ? 0 : VAR(VAR_EGO);
+@@ -823,7 +823,7 @@ void ScummEngine::scummverseRosterOffer() {
+ 
+ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	bool allowed=false; for(int actor : mansionCast) if(id==actor) allowed=true;
+-	if(!allowed || !_userPut || scummverseOnBus() || (id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) return false;
++	if(!allowed || scummverseRemoteActor(id) || !_userPut || scummverseOnBus() || (id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) return false;
+ 	Actor *a=derefActor(id,"new player"); if(!a->_room || !a->_costume) return false;
+ 	int room=a->_room, x=a->getRealPos().x, y=a->getRealPos().y;
+ 	// Validate before changing the active actor or leaving the current scene.

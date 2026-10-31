@@ -1,0 +1,628 @@
+diff --git a/common/scummverse_wander.cpp b/common/scummverse_wander.cpp
+index fe39e008..a04dc60c 100644
+--- a/common/scummverse_wander.cpp
++++ b/common/scummverse_wander.cpp
+@@ -12,6 +12,7 @@ int Map::add(int code, int weight, int group) {
+ 	const int known = find(code);
+ 	if (known >= 0) return known;
+ 	places.push_back(code);
++	indices[code] = (int)places.size() - 1;
+ 	doors.push_back(std::vector<int>());
+ 	weights.push_back(std::max(1, weight)); total += weights.back();
+ 	groups.push_back(std::max(0, group));
+@@ -28,6 +29,11 @@ void Map::link(int from, int to) {
+ }
+ 
+ int Map::find(int code) const {
++	// (By the index add keeps; places set some other way are searched.)
++	if (indices.size() == places.size()) {
++		const auto known = indices.find(code);
++		return known == indices.end() ? -1 : known->second;
++	}
+ 	for (size_t i = 0; i < places.size(); ++i) if (places[i] == code) return (int)i;
+ 	return -1;
+ }
+@@ -81,6 +87,7 @@ bool samePerson(const char *a, const char *b) { return samePerson(Name(a), Name(
+ void Cast::add(int character, int home, int game, int weight, bool tiny, bool elsewhere, const char *name) {
+ 	if (character <= 0 || find(character) >= 0) return;
+ 	who.push_back(character); homes.push_back(home); games.push_back(std::max(0, game));
++	indices[character] = (int)who.size() - 1;
+ 	weights.push_back(std::max(1, weight)); small.push_back(tiny); away.push_back(elsewhere);
+ 	names.push_back(Name(name)); twins.push_back(std::vector<int>());
+ 	const int at = (int)who.size() - 1;
+@@ -89,6 +96,11 @@ void Cast::add(int character, int home, int game, int weight, bool tiny, bool el
+ }
+ 
+ int Cast::find(int character) const {
++	// (By the index add keeps; a cast set some other way is searched.)
++	if (indices.size() == who.size()) {
++		const auto known = indices.find(character);
++		return known == indices.end() ? -1 : known->second;
++	}
+ 	for (size_t i = 0; i < who.size(); ++i) if (who[i] == character) return (int)i;
+ 	return -1;
+ }
+@@ -220,6 +232,7 @@ struct Bridge {
+ 	Wander::Random random;
+ 	Wander::Rules rules;
+ 	Wander::Wanderers wanderers;
++	uint32_t signature = 0; // the cast's, once worked out (0: not yet; never 0 itself)
+ };
+ Bridge &bridge() { static Bridge b; return b; }
+ } // End of anonymous namespace
+@@ -227,11 +240,14 @@ Bridge &bridge() { static Bridge b; return b; }
+ void reset(unsigned seed) {
+ 	Bridge &b = bridge();
+ 	b.map = Wander::Map(); b.cast = Wander::Cast(); b.wanderers = Wander::Wanderers();
+-	b.random = Wander::Random(seed); b.rules = Wander::Rules();
++	b.random = Wander::Random(seed); b.rules = Wander::Rules(); b.signature = 0;
+ }
+ void addPlace(int code, int weight, int group) { if (code > 0 && code < 65536) bridge().map.add(code, weight, group); }
+ void addDoor(int from, int to) { bridge().map.link(from, to); }
+-void addCast(int character, int home, int group, int weight, bool small, bool away, const char *name) { bridge().cast.add(character, home, group, weight, small, away, name); }
++void addCast(int character, int home, int group, int weight, bool small, bool away, const char *name) {
++	Bridge &b = bridge();
++	b.cast.add(character, home, group, weight, small, away, name); b.signature = 0;
++}
+ int places() { return (int)bridge().map.places.size(); }
+ int cast() { return (int)bridge().cast.size(); }
+ void start() {
+@@ -277,7 +293,12 @@ bool taken(int character, int place) {
+ 	Bridge &b = bridge();
+ 	return b.wanderers.taken(b.cast.find(character), place, b.cast);
+ }
+-unsigned signature() { return bridge().cast.signature(); }
++unsigned signature() {
++	// (Asked every frame; the cast changes only as it is added to.)
++	Bridge &b = bridge();
++	if (!b.signature) b.signature = b.cast.signature();
++	return b.signature;
++}
+ int packed(int index) {
+ 	Bridge &b = bridge();
+ 	return (int)(((uint32_t)b.wanderers.where(2 * index) & 0xFFFF) | ((uint32_t)b.wanderers.where(2 * index + 1) & 0xFFFF) << 16);
+diff --git a/common/scummverse_wander.h b/common/scummverse_wander.h
+index baa55574..18fb0a7a 100644
+--- a/common/scummverse_wander.h
++++ b/common/scummverse_wander.h
+@@ -22,6 +22,7 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace Scummverse {
+@@ -46,6 +47,7 @@ struct Map {
+ 	std::vector<std::vector<int>> members; // per game, its places (indices)
+ 	std::vector<long> sums;              // per game, its places' weights
+ 	long total = 0;                      // of the weights
++	std::unordered_map<int, int> indices; // per place code, its index (kept by add: find is asked often)
+ 	int add(int code, int weight = 1, int group = 0); // its index (added if new; a known place stays as it was)
+ 	void link(int from, int to);         // a door between two added places (codes), once
+ 	int find(int code) const;            // its index, or -1
+@@ -95,6 +97,7 @@ struct Cast {
+ 	std::vector<bool> small, away;
+ 	std::vector<Name> names;
+ 	std::vector<std::vector<int>> twins; // per index, the others who are the same person
++	std::unordered_map<int, int> indices; // per character, its index (kept by add: find is asked often)
+ 	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false, bool elsewhere = false, const char *name = nullptr); // once each; nobody 0
+ 	int find(int character) const;     // its index, or -1
+ 	size_t size() const { return who.size(); }
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 8e4e623d..db628c28 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -250,6 +250,9 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	std::stable_sort(used.begin(), used.end(), [&](int a, int b) { return frequency[a] > frequency[b]; });
+ 	if ((int)used.size() > slotCount) used.resize(slotCount);
+ 	auto rgb = [&](int c, int k) { return (int)src.palette[c * 3 + k]; };
++	// (The colours kept, as RGB in a row: searched for every new colour.)
++	std::vector<int> usedRgb(used.size() * 3);
++	for (size_t i = 0; i < used.size(); ++i) for (int k = 0; k < 3; ++k) usedRgb[i * 3 + k] = rgb(used[i], k);
+ 	std::unordered_map<int, int> nearestCache;
+ 	auto nearest = [&](int r, int g, int b) {
+ 		const int key = (r << 16) | (g << 8) | b;
+@@ -257,7 +260,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 		if (hit != nearestCache.end()) return hit->second;
+ 		int best = 0; long bestDistance = -1;
+ 		for (int i = 0; i < (int)used.size(); ++i) {
+-			const long dr = r - rgb(used[i], 0), dg = g - rgb(used[i], 1), db = b - rgb(used[i], 2);
++			const long dr = r - usedRgb[i * 3], dg = g - usedRgb[i * 3 + 1], db = b - usedRgb[i * 3 + 2];
+ 			const long d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+ 			if (bestDistance < 0 || d < bestDistance) { best = i; bestDistance = d; }
+ 		}
+@@ -498,11 +501,14 @@ bool fitSprites(const std::vector<SourceSprite> &sources, const std::vector<doub
+ 			const int x1 = (int)std::ceil((f.dx + f.width) * scaleX), y1 = (int)std::ceil((f.dy + f.height) * scale);
+ 			o.dx = x0; o.dy = y0; o.width = std::max(1, x1 - x0); o.height = std::max(1, y1 - y0);
+ 			o.pixels.assign((size_t)o.width * o.height, 0);
++			// (Each column's source column, worked out once for every row.)
++			std::vector<int> columns(o.width);
++			for (int x = 0; x < o.width; ++x) columns[x] = (int)std::floor((x0 + x + 0.5) / scaleX) - f.dx;
+ 			for (int y = 0; y < o.height; ++y) {
+ 				const int sy = (int)std::floor((y0 + y + 0.5) / scale) - f.dy;
+ 				if (sy < 0 || sy >= f.height) continue;
+ 				for (int x = 0; x < o.width; ++x) {
+-					const int sx = (int)std::floor((x0 + x + 0.5) / scaleX) - f.dx;
++					const int sx = columns[x];
+ 					if (sx < 0 || sx >= f.width) continue;
+ 					const size_t i = (size_t)sy * f.width + sx;
+ 					if (!f.mask[i]) continue;
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index c519f17a..cba38b6e 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -346,6 +346,11 @@ void GdiV1::scummverseEmptyChairs(unsigned slots) {
+ void GdiV1::scummverseBusImage(const byte *room, int shift, bool awake) {
+ 	const int cols=room[4], rows=room[5];
+ 	if(cols!=120 || rows!=16) return; // audited DOS street only
++	byte *maps[]={_V1.picMap,_V1.colorMap,_V1.maskMap};
++	// (Every frame in the street: the same bus where it was, still in the
++	// maps, needs no painting.)
++	if(room==_busRoom && shift==_busShift && awake==_busAwake && !memcmp(maps[0],_busShown[0],cols*rows) &&
++	   !memcmp(maps[1],_busShown[1],cols*rows) && !memcmp(maps[2],_busShown[2],cols*rows)) return;
+ 	byte original[3][4096], pavement[22*13*3];
+ 	for(int layer=0;layer<3;++layer) decodeV1Gfx(room+READ_LE_UINT16(room+12+layer*2),original[layer],cols*rows);
+ 	decodeV1Gfx(room+READ_LE_UINT16(room+28+12*2),pavement,sizeof(pavement));
+@@ -364,7 +369,6 @@ void GdiV1::scummverseBusImage(const byte *room, int shift, bool awake) {
+ 				for (int x = 0; x < driverWidth; ++x)
+ 					original[layer][(driverX + x) * rows + driverY + y] = driver[layer * 20 + y * driverWidth + x];
+ 	}
+-	byte *maps[]={_V1.picMap,_V1.colorMap,_V1.maskMap};
+ 	for(int layer=0;layer<3;++layer) {
+ 		memcpy(maps[layer],original[layer],cols*rows);
+ 		for(int x=0;x<22;++x) for(int y=0;y<13;++y)
+@@ -374,7 +378,9 @@ void GdiV1::scummverseBusImage(const byte *room, int shift, bool awake) {
+ 			int targetY=3+y+shift/8;
+ 			if(targetY>=0 && targetY<rows) maps[layer][(97+x)*rows+targetY]=original[layer][(97+x)*rows+3+y];
+ 		}
++		memcpy(_busShown[layer],maps[layer],cols*rows);
+ 	}
++	_busRoom=room; _busShift=shift; _busAwake=awake;
+ }
+ 
+ void GdiV2::roomChanged(byte *roomptr) {
+diff --git a/engines/scumm/gfx.h b/engines/scumm/gfx.h
+index 626eb574..796de612 100644
+--- a/engines/scumm/gfx.h
++++ b/engines/scumm/gfx.h
+@@ -505,6 +505,12 @@ protected:
+  // The cabin's maps as decoded, so emptied chairs can be painted back.
+  byte _cabinPic[4096], _cabinColor[4096], _cabinMask[4096];
+  int _cabinColumns = 0;
++ // Zak's bus as last painted into the street's maps (scummverseBusImage):
++ // painted again only when it moves or the maps were painted over.
++ const byte *_busRoom = nullptr;
++ int _busShift = 0;
++ bool _busAwake = false;
++ byte _busShown[3][120 * 16];
+  bool foreignScene() const;
+ 
+ protected:
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index 4ae77b3a..30bef4e7 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -556,7 +556,11 @@ int ScummEngine::findObject(int x, int y) {
+ 		// The smallest overlapping hotspot wins (e.g. a door within a hut).
+ 		int hit=0, area=0x7fffffff;
+ 		for(int i=1;i<_numLocalObjects;++i) {
+-			const ObjectData &o=_objs[i]; bool travel=zakPadObject(_currentRoom,o.obj_nr) ||
++			const ObjectData &o=_objs[i];
++			// (Under the tap and smaller than the one found first: telling a
++			// travel hotspot is the costly part.)
++			if(x<o.x_pos || y<o.y_pos || x>=o.x_pos+o.width || y>=o.y_pos+o.height || o.width*o.height>=area) continue;
++			bool travel=zakPadObject(_currentRoom,o.obj_nr) ||
+ 				(zakAirport(_currentRoom) && zakAirportRole(scummverseOriginalObject(_currentRoom,o.obj_nr))!=kZakNoRole);
+ 			for(const auto &link:zakLinks) if(link.room==_currentRoom && link.object==o.obj_nr) travel=true;
+ 			if(zakTramStation(_currentRoom)>=0) {
+@@ -566,7 +570,7 @@ int ScummEngine::findObject(int x, int y) {
+ 			for(const auto &way:zakTraversals) if(way.room==_currentRoom && way.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+ 			if(zakVanControl(_currentRoom,scummverseOriginalObject(_currentRoom,o.obj_nr))) travel=true;
+ 			for(const auto &refusal:zakRefusals) if(refusal.room==_currentRoom && refusal.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+-			if(travel && x>=o.x_pos && y>=o.y_pos && x<o.x_pos+o.width && y<o.y_pos+o.height && o.width*o.height<area) { hit=o.obj_nr;area=o.width*o.height; }
++			if(travel) { hit=o.obj_nr;area=o.width*o.height; }
+ 		}
+ 		if(hit) return hit;
+ 	}
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 9c18ec05..865c3876 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -121,11 +121,17 @@ static const ZakLogicalScene zakLogicalScenes[] = {
+ };
+ // Imported physical room backing a scene (itself for rooms 56..126), or 0.
+ static bool zakPhysicalRoom(int room) { return room >= 56 && room < 56 + (int)(sizeof(zakPlaces) / sizeof(zakPlaces[0])); }
+-static int zakSceneSlotRoom(int room) {
++static int zakSceneSlotRoomOf(int room) {
+ 	if (zakPhysicalRoom(room)) return room;
+ 	for (const auto &scene : zakLogicalScenes) if (scene.room == room) return scene.physical;
+ 	return 0;
+ }
++// (Worked out once for every room: asked many times a frame.)
++static int zakSceneSlotRoom(int room) {
++	struct Slots { short of[256]; Slots() { for (int r = 0; r < 256; ++r) of[r] = (short)zakSceneSlotRoomOf(r); } };
++	static const Slots slots;
++	return room >= 0 && room < 256 ? slots.of[room] : zakSceneSlotRoomOf(room);
++}
+ static bool zakLogicalRoom(int room) { return room >= 128 && zakSceneSlotRoom(room) != 0; }
+ static const char *zakSceneName(int room) {
+ 	if (zakPhysicalRoom(room)) return zakPlaces[room-56].name;
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 2cdfd8c9..de5007ec 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -130,14 +130,28 @@ void ScummEngine::scummverseWanderBuild() {
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 
++// Whether a room is one of Zak's places (1), the mansion's (2) or neither
++// (0); worked out once for every room (asked for everyone, every frame).
++static int wanderHomeKind(int room) {
++	if (wanderZakRoom(room)) return 1;
++	for (const auto &r : kTourManiacRooms) if (r.room == room) return 2;
++	return 0;
++}
++static int wanderHomeRoom(int room) {
++	struct Kinds { byte of[256]; Kinds() { for (int r = 0; r < 256; ++r) of[r] = (byte)wanderHomeKind(r); } };
++	static const Kinds kinds;
++	return room >= 0 && room < 256 ? kinds.of[room] : wanderHomeKind(room);
++}
++
+ // The place a room shows (0: none: the plane, the van's cockpit or the van
+ // in flight, a map).
+ int ScummEngine::scummverseWanderPlace(int room) const {
+ 	int source;
+ 	const int game = scummverseWorldGameOf(room, source);
+ 	if (game >= 0) return wanderWorldRoom(game, source) ? Wander::placeCode(Wander::kWorld, game, source) : 0;
+-	if (wanderZakRoom(room)) return _scummverseZakMounted ? Wander::placeCode(Wander::kZak, 0, room) : 0;
+-	for (const auto &r : kTourManiacRooms) if (r.room == room) return Wander::placeCode(Wander::kManiac, 0, room);
++	const int home = wanderHomeRoom(room);
++	if (home == 1) return _scummverseZakMounted ? Wander::placeCode(Wander::kZak, 0, room) : 0;
++	if (home == 2) return Wander::placeCode(Wander::kManiac, 0, room);
+ 	return 0;
+ }
+ 
+@@ -222,7 +236,7 @@ void ScummEngine::scummverseUpdateWanderers(int delta) {
+ 		int residents = 0;
+ 		for (int id = 1; id < kScummverseManiacActors; ++id) residents += _actors[id]->_room == _currentRoom && _actors[id]->_visible;
+ 		for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+-			const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++			const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 			residents += guest && !scummverseWandering(worldAppearanceKey(gameIndex, guest->costume));
+ 		}
+ 		const int floor = inWorld ? WorldBridge::contentRight() - WorldBridge::contentLeft() : _roomWidth;
+@@ -362,7 +376,7 @@ void ScummEngine::scummverseUpdateVisitors(int delta, uint64 chatting) {
+ 		// aboard Zak's bus or a tram at the stop: nobody is there to greet.)
+ 		const bool near = player->_room == _currentRoom && player->_visible && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32 &&
+ 			!(chatting & ((uint64)1 << (kScummverseTalkVisitor + s)));
+-		const WorldGuest *who = worldAppearance(v.who);
++		const WorldGuest *who = keptAppearance(v.who);
+ 		if (near && !v.greeted && who && !_scummverseVisitorQuiet && !VAR(VAR_HAVE_MSG) && !_scummverseAIActor && delta) {
+ 			v.greeted = true;
+ 			a->stopActorMoving();
+@@ -391,7 +405,7 @@ void ScummEngine::scummverseUpdateVisitors(int delta, uint64 chatting) {
+ // actor of the game's).
+ void ScummEngine::scummverseVisitorSay(int slot, const char *line) {
+ 	ScummverseVisitor &v = _scummverseVisitors[slot];
+-	const WorldGuest *who = worldAppearance(v.who);
++	const WorldGuest *who = keptAppearance(v.who);
+ 	if (!v.actor || !line) return;
+ 	const int color = _string[0].color;
+ 	_string[0].color = who ? who->talkColor : 15;
+@@ -458,6 +472,15 @@ void ScummEngine::scummverseResetVisitorBgs() {
+ 		if (!v.actor) continue;
+ 		if (shown(v) && (_fullRedraw || cameraMoved)) v.actor->_needRedraw = true;
+ 	}
++	// Which actors drew in each strip, as testGfxUsageBit reads it (actor j
++	// is bit j - 1): read once, as nothing here changes it. (So each pass
++	// below goes over the strips once, not once for every actor.)
++	assert(_screenStartStrip >= 0 && _screenStartStrip + strips <= ARRAYSIZE(gfxUsageBits) / 3);
++	const int actors = MIN<int>(_numActors, 97);
++	uint32 usage[200][3];
++	for (int i = 0; i < strips; ++i) for (int w = 0; w < 3; ++w) usage[i][w] = gfxUsageBits[3 * (_screenStartStrip + i) + w];
++	auto actorBit = [](int j, uint32 *words) { words[(j - 1) / 32] |= 1u << ((j - 1) % 32); };
++	auto hasActor = [](int j, const uint32 *words) { return (words[(j - 1) / 32] & (1u << ((j - 1) % 32))) != 0; };
+ 	for (bool changed = true; changed;) {
+ 		changed = false;
+ 		for (const ScummverseVisitor &v : _scummverseVisitors) {
+@@ -467,21 +490,27 @@ void ScummEngine::scummverseResetVisitorBgs() {
+ 			// over.)
+ 			for (int i = MAX(0, from - 1); i <= MIN(strips - 1, to + 1); ++i) restored[i] = true;
+ 		}
+-		for (int j = 1; j < _numActors; ++j) {
++		// Every strip of an actor whose background is put back.
++		uint32 resetting[3] = {};
++		for (int j = 1; j < actors; ++j) {
+ 			const Actor *b = _actors[j];
+-			if (!((b->_top != 0x7fffffff && b->_needRedraw) || b->_needBgReset)) continue;
+-			for (int i = 0; i < strips; ++i) if (testGfxUsageBit(_screenStartStrip + i, j)) restored[i] = true;
++			if ((b->_top != 0x7fffffff && b->_needRedraw) || b->_needBgReset) actorBit(j, resetting);
+ 		}
++		for (int i = 0; i < strips; ++i)
++			if ((usage[i][0] & resetting[0]) || (usage[i][1] & resetting[1]) || (usage[i][2] & resetting[2])) restored[i] = true;
+ 		for (ScummverseVisitor &v : _scummverseVisitors) {
+ 			if (!v.actor || !shown(v) || v.actor->_needRedraw || v.drawn.isEmpty()) continue;
+ 			int from, to; span(v.drawn, from, to);
+ 			for (int i = from; i <= to; ++i) if (restored[i]) { v.actor->_needRedraw = true; changed = true; break; }
+ 		}
+-		for (int j = 1; j < _numActors; ++j) {
++		// Whoever drew in a strip put back.
++		uint32 under[3] = {};
++		for (int i = 0; i < strips; ++i)
++			if (restored[i]) for (int w = 0; w < 3; ++w) under[w] |= usage[i][w];
++		for (int j = 1; j < actors; ++j) {
+ 			Actor *b = _actors[j];
+ 			if (b->_needRedraw || !b->isInCurrentRoom()) continue;
+-			for (int i = 0; i < strips; ++i)
+-				if (restored[i] && testGfxUsageBit(_screenStartStrip + i, j)) { b->_needRedraw = true; changed = true; break; }
++			if (hasActor(j, under)) { b->_needRedraw = true; changed = true; }
+ 		}
+ 	}
+ 	for (ScummverseVisitor &v : _scummverseVisitors) {
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 4cdfa896..a050e841 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -18,6 +18,28 @@ static const int kWorldFirstColor = 16, kWorldColors = 176, kWorldCharacterColor
+ static const int kWorldSlotRoom = 192, kWorldRoomSlots = 8, kWorldSlotVar = 600, kWorldLayoutVar = 608;
+ static const int kWorldLegacyRoom = 200; // Patches 0057..0060: 200 + catalog position.
+ 
++// The catalog's characters at a place, and who a look is: each a search of
++// the whole cast, asked every frame for the place in view and those in it,
++// so the answers are kept (the catalog never changes).
++static const WorldGuest *keptGuestAt(int key, int slot) {
++	if (slot < 0 || slot >= kWorldMaxGuests) return nullptr;
++	struct Known { int key; bool set; const WorldGuest *guests[kWorldMaxGuests]; };
++	static Known known[16];
++	Known &k = known[(uint32)key % ARRAYSIZE(known)];
++	if (!k.set || k.key != key) {
++		for (int s = 0; s < kWorldMaxGuests; ++s) k.guests[s] = worldGuestAt(key, s);
++		k.key = key; k.set = true;
++	}
++	return k.guests[slot];
++}
++static const WorldGuest *keptAppearance(int key) {
++	struct Known { int key; bool set; const WorldGuest *who; };
++	static Known known[64];
++	Known &k = known[(uint32)key % ARRAYSIZE(known)];
++	if (!k.set || k.key != key) { k.who = worldAppearance(key); k.key = key; k.set = true; }
++	return k.who;
++}
++
+ static int worldSceneTotal() {
+ 	int total = 0;
+ 	for (const auto &game : kWorldGames) if (!worldHomeGame(game)) total += game.sceneCount;
+@@ -161,7 +183,7 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	// here: its own at home, wanderers visiting, anyone playing someone.
+ 	int expected = 0;
+ 	for (int k = 0; k < kWorldMaxGuests; ++k) {
+-		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		expected += guest && !scummverseWandering(worldAppearanceKey(gameIndex, guest->costume));
+ 	}
+ 	if (_scummverseWanderBuilt && _scummverseWanderersOn)
+@@ -182,7 +204,7 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	// scummverseMountCharacters, before they are placed).
+ 	for (int k = 0; k < kWorldMaxGuests; ++k) {
+ 		_scummverseGuestSprite[k] = -1;
+-		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		_scummverseGuestData[k] = guest ? scummverseCharacterFrames(gameIndex, guest->costume) : Common::Array<byte>();
+ 		if (guest && _scummverseGuestData[k].empty()) warning("SCUMMVERSE world: %s is not shown (export the game again)", guest->name);
+ 	}
+@@ -551,7 +573,7 @@ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	if (k < 0) return false;
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+-	const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++	const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 	ScummverseSpriteStyle style;
+ 	if (guest) {
+ 		const WorldGlider *glider = worldGlider(gameIndex, guest->costume);
+@@ -729,6 +751,9 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + w);
+ 	const int top = MAX(0, y0 - gap), bottom = MIN<int>(seated ? kWorldSeatCushion : vs.h, y0 + h);
+ 	if (left >= right || top >= bottom) return true;
++	// (Each screen column's frame column, worked out once for every row.)
++	Common::Array<int> columns(right - left);
++	for (int x = left; x < right; ++x) columns[x - left] = MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale));
+ 	for (int y = top; y < bottom; ++y) {
+ 		const bool between = y >= jawY - gap && y < jawY;
+ 		const int row = MIN(height - 1, between ? jawRow : (int)((y < jawY ? y + gap - y0 : y - y0) / scale));
+@@ -737,7 +762,7 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 		byte *dst = (byte *)vs.getPixels(left, y);
+ 		for (int x = left; x < right; ++x, ++dst) {
+ 			if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
+-			const int col = MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale));
++			const int col = columns[x - left];
+ 			if (between) { if (src[col] && src[col - width]) *dst = shade[mouth]; continue; }
+ 			if (src[col]) *dst = shade[src[col]];
+ 		}
+@@ -839,19 +864,32 @@ bool ScummEngine::scummverseDrawScaledActor(Actor *a, double scale) {
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	// Feet: (ax, ay) in the canvas, (ax, ay - kAbove) on the screen.
+ 	const int ax = renderer._actorX, ay = renderer._actorY, sy = ay - kAbove;
++	// What was drawn: the first and last column drawn in each row (255 is
++	// the empty canvas), eight pixels at a time where none is.
+ 	int left = canvas.w, right = -1, top = canvas.h, bottom = -1;
+-	for (int y = 0; y < canvas.h; ++y) for (int x = 0; x < canvas.w; ++x)
+-		if (*(const byte *)canvas.getBasePtr(x, y) != 255) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
++	for (int y = 0; y < canvas.h; ++y) {
++		const byte *row = (const byte *)canvas.getBasePtr(0, y);
++		int first = 0;
++		for (uint64 eight; first + 8 <= canvas.w; first += 8) { memcpy(&eight, row + first, 8); if (eight != ~(uint64)0) break; }
++		while (first < canvas.w && row[first] == 255) ++first;
++		if (first == canvas.w) continue;
++		int last = canvas.w - 1;
++		while (row[last] == 255) --last;
++		left = MIN(left, first); right = MAX(right, last); top = MIN(top, y); bottom = MAX(bottom, y);
++	}
+ 	if (right < 0) return true;
+ 	const int x0 = ax + (int)floor((left - ax) * scale), y0 = sy + (int)floor((top - ay) * scale);
+ 	const int x1 = ax + (int)ceil((right + 1 - ax) * scale), y1 = sy + (int)ceil((bottom + 1 - ay) * scale);
+ 	const int dl = MAX(0, x0), dr = MIN<int>(_screenWidth, x1), dt = MAX(0, y0), db = MIN<int>(vs.h, y1);
++	// (Each screen column's canvas column, worked out once for every row.)
++	Common::Array<int> columns(MAX(0, dr - dl));
++	for (int x = dl; x < dr; ++x) columns[x - dl] = CLIP(ax + (int)floor((x + 0.5 - ax) / scale), 0, canvas.w - 1);
+ 	for (int y = dt; y < db; ++y) {
+ 		const int cy = CLIP(ay + (int)floor((y + 0.5 - sy) / scale), 0, canvas.h - 1);
++		const byte *src = (const byte *)canvas.getBasePtr(0, cy);
+ 		byte *dst = (byte *)vs.getPixels(dl, y);
+ 		for (int x = dl; x < dr; ++x, ++dst) {
+-			const int cx = CLIP(ax + (int)floor((x + 0.5 - ax) / scale), 0, canvas.w - 1);
+-			const byte c = *(const byte *)canvas.getBasePtr(cx, cy);
++			const byte c = src[columns[x - dl]];
+ 			if (c != 255) *dst = c;
+ 		}
+ 	}
+@@ -867,7 +905,7 @@ bool ScummEngine::scummverseDrawScaledActor(Actor *a, double scale) {
+ int ScummEngine::scummverseAppearance(int id) const {
+ 	if (!_scummverseRoaming || !_scummVars || id <= 0 || id >= kScummverseManiacActors) return 0;
+ 	const int key = _scummVars[kScummverseAppearanceVar + id];
+-	return worldAppearance(key) ? key : 0;
++	return keptAppearance(key) ? key : 0;
+ }
+ 
+ // Maniac's own costumes are numbered like their actors (the Meteor is 16).
+@@ -979,7 +1017,7 @@ bool ScummEngine::scummverseAppearancePortrait(int id, byte *rgba) {
+ // from another game, else by the costume they wear, the mansion's own by
+ // its number, Zak's by Zak's own (the mansion's and Zak's own looks wear
+ // theirs). Null: nobody known. Small: an animal or a critter, one of a kind.
+-static const WorldGuest *scummverseWhoWears(int look, int worn, bool &small) {
++static const WorldGuest *scummverseFindWearer(int look, int worn, bool &small) {
+ 	small = false;
+ 	if (look && !worldNativeLook(look)) {
+ 		small = worldSmall(worldAppearanceGame(look), worldAppearanceCostume(look));
+@@ -996,9 +1034,43 @@ static const WorldGuest *scummverseWhoWears(int look, int worn, bool &small) {
+ 	return nullptr;
+ }
+ 
++// (Asked for the same few many times a frame, each a search of the catalog:
++// the answers are kept, the catalog never changing.)
++static const WorldGuest *scummverseWhoWears(int look, int worn, bool &small) {
++	struct Known { int look, worn; const WorldGuest *who; bool small, set; };
++	static Known known[64];
++	Known &k = known[((uint32)look * 2654435761u ^ (uint32)worn * 40503u) % ARRAYSIZE(known)];
++	if (!k.set || k.look != look || k.worn != worn) {
++		k.who = scummverseFindWearer(look, worn, k.small);
++		k.look = look; k.worn = worn; k.set = true;
++	}
++	small = k.small;
++	return k.who;
++}
++
+ // The same person (by name), neither of them small: two parrots are two birds.
++// (The answers kept by the catalog's names, which never change: telling
++// takes splitting both into words.)
+ static bool scummverseSamePerson(const WorldGuest *a, bool smallA, const WorldGuest *b, bool smallB) {
+-	return a && b && !smallA && !smallB && ::Scummverse::Wander::samePerson(a->name, b->name);
++	if (!a || !b || smallA || smallB) return false;
++	struct Known { const char *a, *b; bool same, set; };
++	static Known known[256];
++	Known &k = known[(((uintptr)a->name >> 3) * 31u + ((uintptr)b->name >> 3)) % ARRAYSIZE(known)];
++	if (!k.set || k.a != a->name || k.b != b->name) { k.a = a->name; k.b = b->name; k.same = ::Scummverse::Wander::samePerson(a->name, b->name); k.set = true; }
++	return k.same;
++}
++
++// A number added to a key made every frame (as "%d" writes it, without the
++// cost of formatting).
++static void keyNumber(Common::String &key, const char *before, int value, const char *after = "") {
++	char digits[12];
++	int n = 0;
++	uint32 rest = value < 0 ? 0u - (uint32)value : (uint32)value;
++	do { digits[n++] = (char)('0' + rest % 10); rest /= 10; } while (rest);
++	key += before;
++	if (value < 0) key += '-';
++	while (n) key += digits[--n];
++	key += after;
+ }
+ 
+ void ScummEngine::scummverseMountCharacters() {
+@@ -1008,10 +1080,11 @@ void ScummEngine::scummverseMountCharacters() {
+ 	// Characters take every colour the room leaves: all but the V1 sixteen in
+ 	// the mansion and Zak's places, those after the scene's own elsewhere.
+ 	const int first = inWorld ? WorldBridge::firstSlot() + WorldBridge::slotCount() : kWorldFirstColor;
+-	Common::String key = Common::String::format("%d:%d:%d", _currentRoom, inWorld ? 1 : 0, first);
++	Common::String key;
++	keyNumber(key, "", _currentRoom, ":"); keyNumber(key, "", inWorld ? 1 : 0, ":"); keyNumber(key, "", first);
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) {
+ 		const int look = scummverseAppearance(id);
+-		if (look && _actors[id]->_room == _currentRoom) key += Common::String::format(" %d=%d", id, look);
++		if (look && _actors[id]->_room == _currentRoom) { keyNumber(key, " ", id, "="); keyNumber(key, "", look); }
+ 	}
+ 	// One of the mansion's or Zak's people visiting whose own actor, or
+ 	// someone playing them, is here already steps aside. Who stands here is
+@@ -1035,17 +1108,17 @@ void ScummEngine::scummverseMountCharacters() {
+ 	};
+ 	bool guestAside[kScummverseGuestSlots] = {};
+ 	for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+-		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		guestAside[k] = guest && actorTwin(guest, worldSmall(gameIndex, guest->costume));
+ 	}
+ 	auto twinHere = [&](int who) {
+ 		const int game = worldAppearanceGame(who), costume = worldAppearanceCostume(who);
+-		const WorldGuest *visitor = worldAppearance(who);
++		const WorldGuest *visitor = keptAppearance(who);
+ 		if (!visitor) return false;
+ 		const bool small = worldSmall(game, costume);
+ 		if (actorTwin(visitor, small)) return true;
+ 		for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+-			const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++			const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 			if (guest && !guestAside[k] && !_scummverseGuestData[k].empty() && !scummverseWandering(worldAppearanceKey(gameIndex, guest->costume)) &&
+ 				scummverseSamePerson(visitor, small, guest, worldSmall(gameIndex, guest->costume))) return true;
+ 		}
+@@ -1075,11 +1148,11 @@ void ScummEngine::scummverseMountCharacters() {
+ 	// Wanderers visiting, and the scene's own characters out wandering or
+ 	// stepping aside.
+ 	for (int s = 0; s < kScummverseVisitorSlots; ++s)
+-		if (_scummverseVisitors[s].who) key += Common::String::format(" v%d:%d%s", s, _scummverseVisitors[s].who, aside[s] ? "t" : "");
++		if (_scummverseVisitors[s].who) { keyNumber(key, " v", s, ":"); keyNumber(key, "", _scummverseVisitors[s].who, aside[s] ? "t" : ""); }
+ 	for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+-		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+-		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) key += Common::String::format(" out%d", k);
+-		if (guestAside[k]) key += Common::String::format(" aside%d", k);
++		const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
++		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) keyNumber(key, " out", k);
++		if (guestAside[k]) keyNumber(key, " aside", k);
+ 	}
+ 	if (key == _scummverseCharactersKey) return;
+ 	_scummverseCharactersKey = key;
+@@ -1092,7 +1165,7 @@ void ScummEngine::scummverseMountCharacters() {
+ 		if (!inWorld || _scummverseGuestData[k].empty()) continue;
+ 		// Someone here already plays this character, or is the same person:
+ 		// it steps aside.
+-		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		const WorldGuest *guest = keptGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		if (guest && ((key + " ").contains(Common::String::format("=%d ", worldAppearanceKey(gameIndex, guest->costume))) || guestAside[k])) continue;
+ 		// Out wandering: not at home.
+ 		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) continue;
+@@ -1148,7 +1221,7 @@ void ScummEngine::scummverseMountCharacters() {
+ // standing still while chatting.
+ // Places guest slot k of the viewed place near the arrival point.
+ void ScummEngine::scummversePlaceGuest(int k, int place) {
+-	const WorldGuest *guest = worldGuestAt(place, k);
++	const WorldGuest *guest = keptGuestAt(place, k);
+ 	if (!guest || _scummverseGuestSprite[k] < 0) return;
+ 	Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
+ 	// Any V1 costume keeps the actor in the draw list; the frames replace it.
+@@ -1270,7 +1343,7 @@ void ScummEngine::scummverseUpdateGuests(int delta, uint64 chatting) {
+ 	// A guest steps aside while someone here plays them, and comes back after.
+ 	for (int k = 0; k < kScummverseGuestSlots; ++k) {
+ 		Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
+-		const bool wanted = worldGuestAt(place, k) && _scummverseGuestSprite[k] >= 0;
++		const bool wanted = keptGuestAt(place, k) && _scummverseGuestSprite[k] >= 0;
+ 		if (!wanted && a->_room == _currentRoom) { a->stopActorMoving(); a->putActor(0, 0, 0); a->hideActor(); }
+ 		else if (wanted && a->_room != _currentRoom) scummversePlaceGuest(k, place);
+ 	}
+@@ -1278,7 +1351,7 @@ void ScummEngine::scummverseUpdateGuests(int delta, uint64 chatting) {
+ 	for (int k = 0; k < kScummverseGuestSlots; ++k) {
+ 		Actor *a = derefActor(kScummverseGuestActor + k, "world guest");
+ 		if (scummverseGuestSlot(a) < 0) continue;
+-		const WorldGuest *guest = worldGuestAt(place, k);
++		const WorldGuest *guest = keptGuestAt(place, k);
+ 		_scummverseGuestTick[k] += delta;
+ 		const bool bouncer = worldBouncer(gameIndex, guest->costume) != nullptr;
+ 		if (bouncer && worldHop(_scummverseGuestHop[k], a->_moving, delta)) a->_needRedraw = true;

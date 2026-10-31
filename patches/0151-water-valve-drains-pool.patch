@@ -1,0 +1,158 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 44b4ecca..0271e34c 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -407,6 +407,55 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	return true;
+ }
+ 
++// The mansion's things one of its things changes, as its game's script does
++// (the original's: turning the basement's water valve, object 66 in room 29,
++// open or on drains the pool, 139 on the pool deck, room 6, to its second
++// picture, and closed or off fills it), and the doors its game keeps shut
++// until one is so (the pool's ladder, 172, goes down to the pit, room 2, only
++// with the pool drained). Maniac's own rooms and object numbers.
++struct ManiacFollows { short room, object, otherRoom, other; };
++static const ManiacFollows kManiacFollows[] = {{29, 66, 6, 139}};
++struct ManiacDoorNeeds { short room, door, needRoom, needObject, needPicture; };
++static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}};
++
++int SandboxEngine::pictureOf(int room, int id) const {
++	if (room == _room)
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return StageBridge::objectShown(o);
++		}
++	const Common::HashMap<int, int>::const_iterator kept = _pictures.find(thingKey(_game, room, id));
++	if (kept != _pictures.end()) return kept->_value;
++	int picture, answers;
++	return PanelBridge::gameThing(_game, room, id, picture, answers) ? picture : 0;
++}
++
++void SandboxEngine::setPicture(int room, int id, int picture) {
++	if (room == _room)
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) { showPicture(o, id, picture); return; }
++		}
++	_pictures[thingKey(_game, room, id)] = picture;
++}
++
++void SandboxEngine::thingFollows(int id, int picture) {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return;
++	for (const ManiacFollows &f : kManiacFollows) if (f.room == _room && f.object == id) setPicture(f.otherRoom, f.other, picture);
++}
++
++bool SandboxEngine::doorAllowed(int room, int door) const {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return true;
++	for (const ManiacDoorNeeds &n : kManiacDoorNeeds) if (n.room == room && n.door == door && pictureOf(n.needRoom, n.needObject) != n.needPicture) return false;
++	return true;
++}
++
++bool SandboxEngine::meetDoorNeed(int room, int door) {
++	if (doorAllowed(room, door)) return false;
++	for (const ManiacDoorNeeds &n : kManiacDoorNeeds) if (n.room == room && n.door == door) setPicture(n.needRoom, n.needObject, n.needPicture);
++	return true;
++}
++
+ // The mansion's lights (its lamps, lights and light switches: what its
+ // script turns on and off, not a flashlight), as Maniac's own engine: off,
+ // the place is dark (black, everyone in grey), until turned on again; kept.
+@@ -1202,7 +1251,7 @@ void SandboxEngine::act() {
+ 	}
+ 	switch (result) {
+ 	case 1: say(line); break;
+-	case 2: showPicture(target, id, picture); break;
++	case 2: showPicture(target, id, picture); thingFollows(id, picture); break;
+ 	case 3:
+ 		if (carry(_game, _room, id, name, shown)) showPicture(target, id, picture);
+ 		else say("I can't pick that up.");
+@@ -1217,6 +1266,9 @@ bool SandboxEngine::travel(int index) {
+ 	if (!map || index < 0 || index >= map->linkCount) return false;
+ 	const WorldLink link = map->links[index];
+ 	_door = -1;
++	// (Kept shut by its game until something is so: not gone through, but
++	// on the tour's way.)
++	if (!_touring.on && !doorAllowed(link.room, link.object)) return false;
+ 	if (!installed(_game, link.target)) {
+ 		if (!_testing) g_system->displayMessageOnOSD(Common::U32String("That way isn't installed yet."));
+ 		return false;
+@@ -3110,7 +3162,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -3218,6 +3270,29 @@ Common::Error SandboxEngine::verbsTest() {
+ 			}
+ 			if (lamp >= 0 && StageBridge::dark()) use(kWorldVerbTurnOn, lamp);
+ 		}
++		// The basement's water valve, as a player does: opened, the pool on the
++		// deck drained and its ladder down to the pit; closed, the pool full
++		// again and its ladder going nowhere.
++		const WorldMap *mansionMap = maniac >= 0 ? worldMap(maniac) : nullptr;
++		int ladder = -1;
++		for (int i = 0; mansionMap && i < mansionMap->linkCount; ++i) if (mansionMap->links[i].room == 6 && mansionMap->links[i].object == 172) ladder = i;
++		auto thingIn = [&](int id) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, w, h, wx, wy, state;
++				if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++			}
++			return -1;
++		};
++		if (maniac >= 0 && ladder >= 0 && installed(maniac, 29) && installed(maniac, 6) && installed(maniac, 2)) {
++			_pictures.erase(thingKey(maniac, 6, 139));
++			int valve = -1;
++			if (!enter(maniac, 29, 0, problem) || (valve = thingIn(66)) < 0 || !use(kWorldVerbOpen, valve) || StageBridge::objectShown(valve) != 1 || pictureOf(6, 139) != 1) fail("the valve not opened, or the pool not drained", maniac);
++			else if (!enter(maniac, 6, 0, problem) || thingIn(139) < 0 || StageBridge::objectShown(thingIn(139)) != 1) fail("the pool not shown drained", maniac);
++			else if ((ConfMan.hasKey("scummverse_shots") && (present(), !shot("pool-drained.png"))) || !travel(ladder) || _room != 2) fail("not down the drained pool's ladder", maniac);
++			else if (!enter(maniac, 29, 0, problem) || (valve = thingIn(66)) < 0 || !use(kWorldVerbClose, valve) || StageBridge::objectShown(valve) != 0 || pictureOf(6, 139) != 0) fail("the valve not closed, or the pool not filled", maniac);
++			else if (!enter(maniac, 6, 0, problem) || thingIn(139) < 0 || StageBridge::objectShown(thingIn(139)) != 0 || travel(ladder) || _room != 6) fail("down the full pool's ladder", maniac);
++			else ++pools;
++		}
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -3240,8 +3315,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight), %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool), %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+@@ -4668,6 +4743,9 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 					for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
+ 					if (!enter(g, link.room, 0, problem)) { ++failed; warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[g].gameid, (int)link.room, problem.c_str()); continue; }
+ 				}
++				// (A door its game keeps shut until something is so: made so first,
++				// as the game would; the pool drained for its ladder.)
++				if (mansion) meetDoorNeed(link.room, link.object);
+ 				int object = -1, ox = 0, oy = 0, w = 0, h = 0;
+ 				for (int o = 0; o < StageBridge::objectCount() && object < 0; ++o) {
+ 					int id, wx, wy, state;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a2d41d7b..7a2e9e7e 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -116,6 +116,14 @@ private:
+ 	// per game (the mansion, Zak, then the others) with its lead's face, its
+ 	// people installed (the lead first); a choice plays them where they live.
+ 	bool isLight(int object) const;         // one of the mansion's lights, turned on and off
++	// What one of the mansion's things changes elsewhere (its game's script:
++	// the water valve drains or fills the pool), and doors its game keeps shut
++	// until something is so (the pool's ladder, only once it is drained).
++	int pictureOf(int room, int id) const;  // a thing's picture now, here or kept (else where its game puts it)
++	void setPicture(int room, int id, int picture);
++	void thingFollows(int id, int picture);
++	bool doorAllowed(int room, int door) const;
++	bool meetDoorNeed(int room, int door);  // (the checks': as the game would)
+ 	void lights(bool on);                   // here lit, or dark (kept)
+ 	void lightsSave(bool flush) const;      // (into the settings)
+ 	bool flashlightLit() const;             // the mansion's flashlight carried, on, in the dark

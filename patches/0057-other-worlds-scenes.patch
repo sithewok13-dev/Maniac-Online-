@@ -1,0 +1,1165 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 61cd0c93..628236c3 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -25,6 +25,7 @@
+ #include "common/events.h"
+ #include "common/config-manager.h"
+ #include "common/scummverse_net.h"
++#include "common/scummverse_world_catalog.h"
+ #include "backends/platform/ios7/ios7_video.h"
+ #include "backends/platform/ios7/ios7_touch_controller.h"
+ #include "backends/platform/ios7/ios7_mouse_controller.h"
+@@ -526,6 +527,9 @@ void scummverseAirportOffer(int actor) {
+ 	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Choose character" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 63); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Crystal teleport pads" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 62); }]; }]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Visit other worlds" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseOtherWorldsFrom:controller]; }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
+ 	}]];
+@@ -535,6 +539,43 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 	[controller presentViewController:menu animated:YES completion:nil];
+ }
++// Other worlds: scenes from the player's own copies of other SCUMM games.
++// A game folder in Documents (e.g. Documents/monkey2) is exported to the
++// private worlds/ cache on the next launch; installed scenes can be visited.
++static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &game) {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSString *file = [NSString stringWithFormat:@"%@/worlds/%s-%d.svw", documents, game.gameid, game.scenes[0].room];
++	return [[NSFileManager defaultManager] fileExistsAtPath:file];
++}
++- (void)showScummverseOtherWorldsFrom:(UIViewController *)controller {
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Other worlds" message:@"Scenes from your own copies of other SCUMM games. To add one, copy its files into a folder in Documents named as shown, then restart the app." preferredStyle:UIAlertControllerStyleAlert];
++	int first = 0;
++	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		const BOOL installed = scummverseWorldInstalled(game);
++		NSString *title = installed ? [NSString stringWithUTF8String:game.title] : [NSString stringWithFormat:@"%s (add Documents/%s)", game.title, game.folder];
++		const Scummverse::WorldCatalog::WorldGame *chosen = &game; const int base = first;
++		UIAlertAction *action = [UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseScenes:chosen base:base from:controller]; }];
++		}];
++		action.enabled = installed;
++		[menu addAction:action];
++		first += game.sceneCount;
++	}
++	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
++- (void)showScummverseScenes:(const Scummverse::WorldCatalog::WorldGame *)game base:(int)base from:(UIViewController *)controller {
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose a place. Walk off the sides to reach neighboring places." preferredStyle:UIAlertControllerStyleAlert];
++	for (int i = 0; i < game->sceneCount; ++i) {
++		const int command = 160 + base + i;
++		[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithUTF8String:game->scenes[i].name] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			scummverseWorldRequest(ScummverseLocalAI::sceneToken() | command);
++		}]];
++	}
++	[menu addAction:[UIAlertAction actionWithTitle:@"Back" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
++
+ // Local WiFi play: one device hosts, the others join by its address. The
+ // engine applies requests on its own thread (common/scummverse_net.h).
+ - (void)showScummverseNetworkFrom:(UIViewController *)controller {
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 448a59ad..04cc56cf 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -4,6 +4,7 @@
+ #include "ggml-backend.h"
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_conversation.h"
++#include "common/scummverse_world_catalog.h"
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -100,6 +101,12 @@ static std::string classicReply(int id, unsigned turn) {
+ 
+ static const char *roomName(int room) {
+ 	if(const char *scene=zakSceneName(room)) return scene;
++	// Other worlds: logical rooms 200+ in catalog order.
++	int index = room - 200;
++	if (index >= 0) for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		if (index < game.sceneCount) return game.scenes[index].name;
++		index -= game.sceneCount;
++	}
+ 	switch (room) {
+ 	case 53: return "San Francisco airport, with free travel to Maniac Mansion and a free bus to Zak's street";
+ 	case 55: return "Zak's San Francisco street, with stairs to his apartment and a free bus to the airport";
+diff --git a/base/main.cpp b/base/main.cpp
+index 39ef80aa..36c3f9e9 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -97,6 +97,7 @@
+ #endif
+ 
+ #include "gui/dump-all-dialogs.h"
++#include "common/scummverse_world_catalog.h"
+ 
+ static bool launcherDialog() {
+ 	// SCUMMVERSE is standalone, including on error paths.
+@@ -104,6 +105,42 @@ static bool launcherDialog() {
+ 	return false;
+ }
+ 
++// SCUMMVERSE other worlds: before Maniac starts, run each newly added
++// supported game (a catalog folder next to maniac/, e.g. Documents/monkey2)
++// once in export mode. Its own engine renders the catalog scenes into the
++// private worlds/ cache; then Maniac starts. Returns the targets queued.
++static const char *const kScummverseExportPrefix = "scummverse-export-";
++static int scummverseQueueWorldExports(const Common::String &maniacTarget) {
++	const Common::FSNode cache(Common::Path("worlds"));
++	Common::StringArray targets;
++	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		const Common::FSNode folder(Common::Path(game.folder));
++		if (!folder.exists() || !folder.isDirectory()) continue;
++		if (cache.getChild(Common::String::format("%s-%d.svw", game.gameid, game.scenes[0].room)).exists()) continue;
++		if (!cache.exists() && !cache.createDirectory()) { warning("SCUMMVERSE: cannot create the worlds cache"); return 0; }
++		const Common::String target = Common::String(kScummverseExportPrefix) + game.gameid;
++		ConfMan.addGameDomain(target);
++		ConfMan.set("gameid", game.gameid, target);
++		ConfMan.set("engineid", "scumm", target);
++		ConfMan.setPath("path", folder.getPath(), target);
++		ConfMan.setPath("scummverse_world_export", cache.getPath(), target);
++		targets.push_back(target);
++	}
++	if (targets.empty()) return 0;
++	ConfMan.setActiveDomain(targets[0]);
++	for (uint i = 1; i < targets.size(); ++i) ChainedGamesMan.push(targets[i]);
++	ChainedGamesMan.push(maniacTarget);
++	return targets.size();
++}
++static bool scummverseExportTarget() {
++	return ConfMan.getActiveDomainName().hasPrefix(kScummverseExportPrefix);
++}
++static void scummverseForgetExportTargets() {
++	Common::StringArray old;
++	for (const auto &domain : ConfMan.getGameDomains()) if (domain._key.hasPrefix(kScummverseExportPrefix)) old.push_back(domain._key);
++	for (const auto &target : old) ConfMan.removeGameDomain(target);
++}
++
+ static void reportStandaloneError(const Common::Error &result) {
+ 	warning("SCUMMVERSE: could not start Maniac Mansion (original DOS V1): %s", result.getDesc().c_str());
+ #ifndef USE_NULL_DRIVER
+@@ -539,6 +576,11 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	ConfMan.set("orientation_menus", "landscape", Common::ConfigManager::kTransientDomain);
+ 	ConfMan.set("touch_mode_2d_games", "direct", Common::ConfigManager::kTransientDomain);
+ 	int standaloneExitCode = Common::kNoError;
++	// Exports run with Maniac's command-line settings set aside (they would
++	// override each game's own path); Maniac gets them back afterwards.
++	const Common::String maniacTarget = ConfMan.getActiveDomainName();
++	const Common::ConfigManager::Domain maniacTransient = *ConfMan.getDomain(Common::ConfigManager::kTransientDomain);
++	if (scummverseQueueWorldExports(maniacTarget)) ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+ 
+ 	if (settings.contains("dump-midi")) {
+ 		// Store this command line setting in ConfMan, since all transient settings are destroyed
+@@ -752,6 +794,13 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	// work as well as it should. In theory everything should be destroyed
+ 	// cleanly, so this is now enabled to encourage people to fix bits :)
+ 	while (nullptr != ConfMan.getActiveDomain()) {
++		const bool exportRun = scummverseExportTarget();
++		if (!exportRun) {
++			// Back to Maniac after any exports: its settings return.
++			*ConfMan.getDomain(Common::ConfigManager::kTransientDomain) = maniacTransient;
++			scummverseForgetExportTargets();
++		}
++		if (!exportRun)
+ 		saveLastLaunchedTarget(ConfMan.getActiveDomainName());
+ 
+ 		EngineMan.upgradeTargetIfNecessary(ConfMan.getActiveDomainName());
+@@ -837,11 +886,12 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 
+ 			// Did an error occur ?
+ 			if (result.getCode() != Common::kNoError && result.getCode() != Common::kUserCanceled) {
+-				reportStandaloneError(result);
++				if (exportRun) warning("SCUMMVERSE: world export %s failed: %s", ConfMan.getActiveDomainName().c_str(), result.getDesc().c_str());
++				else reportStandaloneError(result);
+ 			}
+ 
+ 			// Quit unless an error occurred, or Return to launcher was requested
+-			if (result.getCode() == Common::kNoError && !g_system->getEventManager()->shouldReturnToLauncher() &&
++			if (!exportRun && result.getCode() == Common::kNoError && !g_system->getEventManager()->shouldReturnToLauncher() &&
+ 			    !g_system->hasFeature(OSystem::kFeatureNoQuit) && !ConfMan.getBool("gui_return_to_launcher_at_exit"))
+ 				break;
+ 
+@@ -886,14 +936,23 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		} else {
+ 			DebugMan.removeAllDebugChannels();
+ 
++			if (exportRun) {
++				// An export that cannot start never blocks Maniac.
++				warning("SCUMMVERSE: world export %s could not start: %s", ConfMan.getActiveDomainName().c_str(), result.getDesc().c_str());
++				Common::String next; int slot = -1;
++				ConfMan.setActiveDomain(ChainedGamesMan.pop(next, slot) ? next : Common::String());
++				continue;
++			}
+ 			reportStandaloneError(result);
+ 
+ 			// Clear the active domain
+ 			ConfMan.setActiveDomain("");
+ 		}
+ 
+-		// SCUMMVERSE: failure or return-to-launcher ends this session.
++		// SCUMMVERSE: failure or return-to-launcher ends this session, except
++		// along the world-export chain that ends with Maniac.
+ 		// Preserve normal manager teardown below; never open a library.
++		if (exportRun && ConfMan.getActiveDomain()) continue;
+ 		break;
+ 	}
+ #ifdef USE_CLOUD
+diff --git a/common/module.mk b/common/module.mk
+index 171d8f41..c382cc9b 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -29,6 +29,7 @@ MODULE_OBJS := \
+ 	punycode.o \
+ 	random.o \
+ 	scummverse_net.o \
++	scummverse_world.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+new file mode 100644
+index 00000000..cc1a8d8c
+--- /dev/null
++++ b/common/scummverse_world.cpp
+@@ -0,0 +1,276 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse other worlds: portable scene loader. See scummverse_world.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_world.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++#include <deque>
++#include <unordered_map>
++
++namespace Scummverse {
++namespace World {
++
++static int read16(const uint8_t *p) { return p[0] | (p[1] << 8); }
++static int readS16(const uint8_t *p) { return (int16_t)(uint16_t)read16(p); }
++
++bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error) {
++	scene = SourceScene();
++	if (!data || size < 12 + 768 || std::memcmp(data, "SVW1", 4)) { error = "not a scene file"; return false; }
++	scene.room = read16(data + 4); scene.width = read16(data + 6); scene.height = read16(data + 8);
++	const int boxes = data[10];
++	if (scene.width < 8 || scene.width > 4096 || scene.height < 8 || scene.height > 480) { error = "bad scene size"; return false; }
++	const size_t pixels = (size_t)scene.width * scene.height;
++	if (size != 12 + 768 + pixels + (size_t)boxes * 18) { error = "truncated scene"; return false; }
++	std::memcpy(scene.palette, data + 12, 768);
++	scene.pixels.assign(data + 12 + 768, data + 12 + 768 + pixels);
++	const uint8_t *p = data + 12 + 768 + pixels;
++	for (int i = 0; i < boxes; ++i, p += 18) {
++		SourceBox box;
++		for (int c = 0; c < 4; ++c) { box.x[c] = readS16(p + c * 4); box.y[c] = readS16(p + c * 4 + 2); }
++		box.flags = p[16]; box.mask = p[17];
++		scene.boxes.push_back(box);
++	}
++	return true;
++}
++
++// ---- Box geometry (V2 units) ---------------------------------------------
++
++struct Pt { double x, y; };
++static void polygon(const V2Box &b, Pt out[4]) {
++	out[0] = {(double)b.ulx, (double)b.uy}; out[1] = {(double)b.urx, (double)b.uy};
++	out[2] = {(double)b.lrx, (double)b.ly}; out[3] = {(double)b.llx, (double)b.ly};
++}
++static double segmentDistance(Pt p, Pt a, Pt b) {
++	const double dx = b.x - a.x, dy = b.y - a.y, len = dx * dx + dy * dy;
++	double t = len > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len : 0;
++	t = std::max(0.0, std::min(1.0, t));
++	const double ex = a.x + t * dx - p.x, ey = a.y + t * dy - p.y;
++	return std::sqrt(ex * ex + ey * ey);
++}
++static bool inside(Pt p, const V2Box &b) {
++	if (p.y < b.uy || p.y > b.ly) return false;
++	const double t = b.ly == b.uy ? 0 : (p.y - b.uy) / (double)(b.ly - b.uy);
++	const double left = b.ulx + (b.llx - b.ulx) * t, right = b.urx + (b.lrx - b.urx) * t;
++	return p.x >= left - 1e-9 && p.x <= right + 1e-9;
++}
++static bool touching(const V2Box &a, const V2Box &b) {
++	Pt pa[4], pb[4]; polygon(a, pa); polygon(b, pb);
++	for (int i = 0; i < 4; ++i) if (inside(pa[i], b) || inside(pb[i], a)) return true;
++	double best = 1e9;
++	for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) {
++		best = std::min(best, segmentDistance(pa[i], pb[j], pb[(j + 1) % 4]));
++		best = std::min(best, segmentDistance(pb[i], pa[j], pa[(j + 1) % 4]));
++	}
++	return best <= 1.0;
++}
++
++std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes) {
++	const int n = (int)boxes.size();
++	std::vector<int8_t> next((size_t)n * n, -1);
++	std::vector<std::vector<int>> links(n);
++	for (int i = 0; i < n; ++i) for (int j = i + 1; j < n; ++j)
++		if (touching(boxes[i], boxes[j])) { links[i].push_back(j); links[j].push_back(i); }
++	for (int from = 0; from < n; ++from) {
++		std::vector<int> first(n, -1); first[from] = from;
++		std::deque<int> queue; queue.push_back(from);
++		while (!queue.empty()) {
++			const int at = queue.front(); queue.pop_front();
++			for (int to : links[at]) if (first[to] < 0) { first[to] = at == from ? to : first[at]; queue.push_back(to); }
++		}
++		for (int to = 0; to < n; ++to) next[(size_t)from * n + to] = (int8_t)(to == from ? from : first[to]);
++	}
++	return next;
++}
++
++// ---- Fitting ------------------------------------------------------------
++
++bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotCount, SandboxScene &out, std::string &error, int minWidth) {
++	out = SandboxScene();
++	if (src.width <= 0 || src.height <= 0 || (int)src.pixels.size() != src.width * src.height) { error = "empty scene"; return false; }
++	if (targetHeight < 8 || targetHeight % 8 || firstSlot < 0 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
++	const double scale = (double)targetHeight / src.height;
++	const int scaledWidth = std::max(8, (int)std::lround(src.width * scale));
++	const int fitted = (scaledWidth + 7) & ~7;
++	const int width = std::max(fitted, (minWidth + 7) & ~7);
++	// Narrow scenes are centered on whole 8-pixel columns.
++	const int pad = ((width - fitted) / 2) & ~7;
++	if (width / 8 > 255) { error = "scene too wide"; return false; }
++
++	// Colors in use, most common first; they keep their exact RGB values.
++	std::vector<long> frequency(256, 0);
++	for (uint8_t c : src.pixels) ++frequency[c];
++	std::vector<int> used;
++	for (int c = 0; c < 256; ++c) if (frequency[c]) used.push_back(c);
++	std::stable_sort(used.begin(), used.end(), [&](int a, int b) { return frequency[a] > frequency[b]; });
++	if ((int)used.size() > slotCount) used.resize(slotCount);
++	auto rgb = [&](int c, int k) { return (int)src.palette[c * 3 + k]; };
++	std::unordered_map<int, int> nearestCache;
++	auto nearest = [&](int r, int g, int b) {
++		const int key = (r << 16) | (g << 8) | b;
++		auto hit = nearestCache.find(key);
++		if (hit != nearestCache.end()) return hit->second;
++		int best = 0; long bestDistance = -1;
++		for (int i = 0; i < (int)used.size(); ++i) {
++			const long dr = r - rgb(used[i], 0), dg = g - rgb(used[i], 1), db = b - rgb(used[i], 2);
++			const long d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
++			if (bestDistance < 0 || d < bestDistance) { best = i; bestDistance = d; }
++		}
++		nearestCache[key] = best;
++		return best;
++	};
++	std::vector<int> slotOf(256, -1);
++	for (int i = 0; i < (int)used.size(); ++i) slotOf[used[i]] = i;
++
++	out.width = width; out.height = targetHeight; out.firstSlot = firstSlot; out.slotCount = (int)used.size();
++	out.pixels.assign((size_t)width * targetHeight, 0);
++	out.palette.resize(used.size() * 3);
++	for (int i = 0; i < (int)used.size(); ++i) for (int k = 0; k < 3; ++k) out.palette[i * 3 + k] = src.palette[used[i] * 3 + k];
++	// 16-color art (dithered EGA) keeps its pattern with point sampling;
++	// richer art is area-averaged and snapped back to its own colors.
++	const bool pointSample = frequency.size() && std::count_if(frequency.begin(), frequency.end(), [](long f) { return f > 0; }) <= 16;
++	out.padLeft = pad;
++	int darkest = 0;
++	for (int i = 1; i < (int)used.size(); ++i)
++		if (rgb(used[i], 0) + rgb(used[i], 1) + rgb(used[i], 2) < rgb(used[darkest], 0) + rgb(used[darkest], 1) + rgb(used[darkest], 2)) darkest = i;
++	std::fill(out.pixels.begin(), out.pixels.end(), (uint8_t)(firstSlot + darkest));
++	for (int oy = 0; oy < targetHeight; ++oy) {
++		const double y0 = oy / scale, y1 = (oy + 1) / scale;
++		for (int ox = 0; ox < fitted; ++ox) {
++			const int sx = std::min(ox, scaledWidth - 1);
++			const double x0 = sx / scale, x1 = (sx + 1) / scale;
++			int slot;
++			if (pointSample) {
++				const int px = std::min(src.width - 1, (int)((x0 + x1) / 2)), py = std::min(src.height - 1, (int)((y0 + y1) / 2));
++				const int c = src.pixels[(size_t)py * src.width + px];
++				slot = slotOf[c] >= 0 ? slotOf[c] : nearest(rgb(c, 0), rgb(c, 1), rgb(c, 2));
++			} else {
++				double r = 0, g = 0, b = 0, area = 0;
++				for (int y = (int)y0; y < (int)std::ceil(y1) && y < src.height; ++y) {
++					const double wy = std::min(y1, y + 1.0) - std::max(y0, (double)y);
++					if (wy <= 0) continue;
++					for (int x = (int)x0; x < (int)std::ceil(x1) && x < src.width; ++x) {
++						const double wx = std::min(x1, x + 1.0) - std::max(x0, (double)x);
++						if (wx <= 0) continue;
++						const int c = src.pixels[(size_t)y * src.width + x];
++						r += rgb(c, 0) * wx * wy; g += rgb(c, 1) * wx * wy; b += rgb(c, 2) * wx * wy; area += wx * wy;
++					}
++				}
++				if (area <= 0) area = 1;
++				slot = nearest((int)std::lround(r / area), (int)std::lround(g / area), (int)std::lround(b / area));
++			}
++			out.pixels[(size_t)oy * width + pad + ox] = (uint8_t)(firstSlot + slot);
++		}
++	}
++
++	// Boxes: scale, then V1 units (x/8, y/2). Disabled boxes are dropped.
++	auto ux = [&](int x) { return std::max(0, std::min(255, (int)std::lround((x * scale + pad) / 8))); };
++	auto uy = [&](int y) { return std::max(0, std::min(targetHeight / 2, (int)std::lround(y * scale / 2))); };
++	for (const SourceBox &b : src.boxes) {
++		if (b.flags & 0x80) continue;
++		V2Box v;
++		v.uy = uy(std::min(b.y[0], b.y[1])); v.ly = uy(std::max(b.y[2], b.y[3]));
++		v.ulx = ux(b.x[0]); v.urx = ux(b.x[1]); v.lrx = ux(b.x[2]); v.llx = ux(b.x[3]);
++		if (v.ulx > v.urx) std::swap(v.ulx, v.urx);
++		if (v.llx > v.lrx) std::swap(v.llx, v.lrx);
++		if (v.uy > v.ly) { std::swap(v.uy, v.ly); std::swap(v.ulx, v.llx); std::swap(v.urx, v.lrx); }
++		v.mask = 0; v.flags = 0;
++		out.boxes.push_back(v);
++		if ((int)out.boxes.size() == 120) break; // Fits the one-byte box offset layout.
++	}
++	out.next = routeBoxes(out.boxes);
++	// Spawn in the biggest box; edges where walking reaches the room sides.
++	double bestArea = -1;
++	for (const V2Box &v : out.boxes) {
++		const double area = ((v.urx - v.ulx) + (v.lrx - v.llx) + 2) * (v.ly - v.uy + 1) / 2.0;
++		if (area > bestArea) { bestArea = area; out.spawnX = (v.ulx + v.urx + v.llx + v.lrx) / 4; out.spawnY = (v.uy + v.ly) / 2; }
++		const int left = std::min(v.ulx, v.llx), right = std::max(v.urx, v.lrx);
++		if (left <= pad / 8 + 1 && (out.leftX < 0 || left < out.leftX)) { out.leftX = left; out.leftY = left == v.ulx ? v.uy : v.ly; }
++		if (right >= (pad + fitted) / 8 - 2 && right > out.rightX) { out.rightX = right; out.rightY = right == v.urx ? v.uy : v.ly; }
++	}
++	if (out.boxes.empty()) { out.spawnX = width / 16; out.spawnY = targetHeight / 2 - 4; }
++	return true;
++}
++
++// ---- V1 room resource ------------------------------------------------------
++
++static void put16(std::vector<uint8_t> &v, size_t at, int value) { v[at] = (uint8_t)(value & 0xFF); v[at + 1] = (uint8_t)((value >> 8) & 0xFF); }
++// V1 tile stream of `count` zero bytes (four common colors, runs of 32).
++static void zeroStream(std::vector<uint8_t> &v, int count) {
++	for (int i = 0; i < 4; ++i) v.push_back(0);
++	while (count > 0) { const int run = std::min(32, count); v.push_back((uint8_t)(0x80 | (run - 1))); count -= run; }
++}
++
++std::vector<uint8_t> buildV1Room(const SandboxScene &scene) {
++	const int cols = scene.width / 8, rows = scene.height / 8, n = (int)scene.boxes.size();
++	std::vector<uint8_t> room(28, 0);
++	room[4] = (uint8_t)cols; room[5] = (uint8_t)rows;
++	room[20] = 0;      // objects
++	room[21] = 28;     // boxes follow the header (one-byte offset)
++	room.push_back((uint8_t)n);
++	for (const V2Box &b : scene.boxes) {
++		const int fields[8] = {b.uy, b.ly, b.ulx, b.urx, b.llx, b.lrx, b.mask, b.flags};
++		for (int f : fields) room.push_back((uint8_t)f);
++	}
++	for (int i = 0; i < n; ++i) room.push_back((uint8_t)(i * n));
++	for (int8_t hop : scene.next) room.push_back((uint8_t)hop);
++	const int offsets[5] = {10, 12, 14, 16, 18};
++	const int sizes[4] = {2048, cols * rows, cols * rows, cols * rows};
++	for (int s = 0; s < 4; ++s) { put16(room, offsets[s], (int)room.size()); zeroStream(room, sizes[s]); }
++	put16(room, offsets[4], (int)room.size());
++	room.push_back(8); room.push_back(0); zeroStream(room, 0); // Empty mask characters.
++	put16(room, 0, (int)room.size());
++	return room;
++}
++
++} // End of namespace World
++} // End of namespace Scummverse
++
++// ---- Engine bridge ---------------------------------------------------------
++
++#include "common/scummverse_world_engine.h"
++
++namespace Scummverse {
++namespace WorldBridge {
++
++struct Mounted { bool ok = false; World::SandboxScene scene; std::vector<uint8_t> room; };
++static Mounted &current() { static Mounted m; return m; }
++
++bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity) {
++	World::SourceScene source; World::SandboxScene scene; std::string problem;
++	const bool ok = World::parseScene(data, size, source, problem) &&
++		World::fitScene(source, targetHeight, firstSlot, slotCount, scene, problem, 320);
++	if (!ok) {
++		if (error && capacity > 0) { std::strncpy(error, problem.c_str(), capacity - 1); error[capacity - 1] = 0; }
++		return false;
++	}
++	Mounted &m = current();
++	m.scene = scene; m.room = World::buildV1Room(m.scene); m.ok = true;
++	return true;
++}
++bool mounted() { return current().ok; }
++int width() { return current().scene.width; }
++int height() { return current().scene.height; }
++const unsigned char *pixels() { return current().scene.pixels.data(); }
++int firstSlot() { return current().scene.firstSlot; }
++int slotCount() { return current().scene.slotCount; }
++const unsigned char *palette() { return current().scene.palette.data(); }
++const unsigned char *room() { return current().room.data(); }
++int roomSize() { return (int)current().room.size(); }
++int spawnX() { return current().scene.spawnX; }
++int spawnY() { return current().scene.spawnY; }
++int leftX() { return current().scene.leftX; }
++int leftY() { return current().scene.leftY; }
++int rightX() { return current().scene.rightX; }
++int rightY() { return current().scene.rightY; }
++const unsigned char *blankRoom(int &size) {
++	static std::vector<uint8_t> room;
++	if (room.empty()) { World::SandboxScene empty; empty.width = 320; empty.height = 128; room = World::buildV1Room(empty); }
++	size = (int)room.size();
++	return room.data();
++}
++
++} // End of namespace WorldBridge
++} // End of namespace Scummverse
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+new file mode 100644
+index 00000000..9d37eb7f
+--- /dev/null
++++ b/common/scummverse_world.h
+@@ -0,0 +1,66 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse other worlds: portable scene loader. Reads a scene exported from
++// the player's own copy of another SCUMM game (see the engine exporter) and
++// fits it to the V1 sandbox: height scaled to the sandbox view, colors moved
++// into palette slots the 16-color V1 art never uses, and walk boxes turned
++// into V1/V2 trapezoids with a next-box routing table. No game data inside.
++#ifndef COMMON_SCUMMVERSE_WORLD_H
++#define COMMON_SCUMMVERSE_WORLD_H
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++namespace World {
++
++struct SourceBox {
++	int x[4], y[4];   // ul, ur, lr, ll (pixels)
++	int flags = 0, mask = 0;
++};
++
++struct SourceScene {
++	int room = 0, width = 0, height = 0;
++	uint8_t palette[768] = {};
++	std::vector<uint8_t> pixels;     // width*height palette indices
++	std::vector<SourceBox> boxes;
++};
++
++// V1/V2 box: rows in 2-pixel units, columns in 8-pixel units.
++struct V2Box { int uy, ly, ulx, urx, llx, lrx, mask, flags; };
++
++struct SandboxScene {
++	int width = 0, height = 0;       // pixels; width is a multiple of 8
++	int firstSlot = 0, slotCount = 0;
++	std::vector<uint8_t> pixels;     // width*height palette slot indices
++	std::vector<uint8_t> palette;    // slotCount*3 RGB for slots firstSlot..
++	std::vector<V2Box> boxes;
++	std::vector<int8_t> next;        // boxes*boxes next-box table (-1 none)
++	int padLeft = 0;                 // pixels added on the left (centering)
++	int spawnX = 0, spawnY = 0;      // V1 units, inside a walkable box
++	int leftX = -1, rightX = -1;     // V1 units of walkable edge points (-1 none)
++	int leftY = 0, rightY = 0;
++};
++
++// Parses an "SVW1" scene. False (with a reason) for anything malformed.
++bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error);
++
++// Scales to targetHeight (area average, then nearest of the scene's own
++// colors), packs the colors used into slotCount slots from firstSlot, and
++// converts boxes. Disabled boxes (flag 0x80) are dropped.
++// minWidth pads narrow scenes (centered, in the scene's darkest color).
++bool fitScene(const SourceScene &source, int targetHeight, int firstSlot, int slotCount,
++	SandboxScene &out, std::string &error, int minWidth = 0);
++
++// Next-box routing for V2 boxes that touch (shared edge or overlap).
++std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes);
++
++// A V1 room resource for the sandbox: header, boxes, routing and empty tile
++// streams (the picture is drawn from SandboxScene::pixels). No objects or
++// scripts.
++std::vector<uint8_t> buildV1Room(const SandboxScene &scene);
++
++} // End of namespace World
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+new file mode 100644
+index 00000000..4edd0ff4
+--- /dev/null
++++ b/common/scummverse_world_catalog.h
+@@ -0,0 +1,67 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// SCUMMVERSE other worlds: curated scenes from the player's own copies of
++// other SCUMM games. Room numbers refer to the audited editions; the exporter
++// checks the running edition before writing. Names are descriptive. Nothing
++// here contains game data. Plain C++ (no library headers) so any translation
++// unit can include it, including after ScummVM's forbidden-symbol macros.
++#ifndef COMMON_SCUMMVERSE_WORLD_CATALOG_H
++#define COMMON_SCUMMVERSE_WORLD_CATALOG_H
++namespace Scummverse {
++namespace WorldCatalog {
++struct WorldScene { int room; const char *name; };
++struct WorldGame {
++	const char *gameid, *title, *folder; int version;
++	const WorldScene *scenes; int sceneCount;
++};
++static const WorldScene kWorldMonkey[] = {
++	{33, "Melee Island town"}, {28, "SCUMM Bar"}, {19, "Deck of the Sea Monkey"},
++	{20, "Monkey Island beach"}, {25, "Cannibal village"}, {12, "Giant monkey head"},
++};
++static const WorldScene kWorldMonkey2[] = {
++	{7, "Woodtick"}, {37, "Scabb Island beach"}, {46, "Booty Island waterfront"},
++	{47, "Booty Island street"}, {54, "Phatt City"}, {85, "Dinky Island jungle"},
++};
++static const WorldScene kWorldLoom[] = {
++	{5, "Loom Island tents"}, {24, "Shepherds' meadow"}, {16, "Crystalgard"},
++	{34, "The Forge"}, {8, "Stained-glass hall"},
++};
++static const WorldScene kWorldIndy3[] = {
++	{6, "Barnett College"}, {1, "College hallway"}, {15, "Venice"},
++	{36, "Zeppelin airfield"}, {71, "Country airfield"}, {79, "Circus train"},
++};
++static const WorldScene kWorldAtlantis[] = {
++	{19, "Monte Carlo"}, {29, "Algiers market"}, {49, "Seaside village"},
++	{33, "Cliffside ruins"}, {76, "Jungle pyramid"}, {43, "Excavation site"},
++};
++static const WorldScene kWorldTentacle[] = {
++	{9, "Edison mansion grounds"}, {12, "Mansion hall"}, {26, "Mansion lobby"},
++	{34, "Lobby of tomorrow"}, {46, "Future mansion"},
++};
++static const WorldScene kWorldSamnmax[] = {
++	{9, "Sam & Max's street"}, {12, "Snuckey's"}, {15, "Carnival midway"},
++	{24, "Gator Golf"}, {27, "World's largest ball of twine"}, {58, "Mount Rushmore"}, {59, "Dinosaur park"},
++};
++#define SCUMMVERSE_WORLD(id, title, folder, version, scenes) \
++	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0]))}
++static const WorldGame kWorldGames[] = {
++	SCUMMVERSE_WORLD("monkey", "The Secret of Monkey Island", "monkey", 4, kWorldMonkey),
++	SCUMMVERSE_WORLD("monkey2", "Monkey Island 2", "monkey2", 5, kWorldMonkey2),
++	SCUMMVERSE_WORLD("loom", "Loom", "loom", 3, kWorldLoom),
++	SCUMMVERSE_WORLD("indy3", "Indiana Jones and the Last Crusade", "indy3", 3, kWorldIndy3),
++	SCUMMVERSE_WORLD("atlantis", "Indiana Jones and the Fate of Atlantis", "atlantis", 5, kWorldAtlantis),
++	SCUMMVERSE_WORLD("tentacle", "Day of the Tentacle", "tentacle", 6, kWorldTentacle),
++	SCUMMVERSE_WORLD("samnmax", "Sam & Max Hit the Road", "samnmax", 6, kWorldSamnmax),
++};
++#undef SCUMMVERSE_WORLD
++inline bool sameId(const char *a, const char *b) {
++	while (*a && *a == *b) { ++a; ++b; }
++	return *a == *b;
++}
++inline const WorldGame *worldGame(const char *gameid) {
++	for (const auto &game : kWorldGames) if (sameId(game.gameid, gameid)) return &game;
++	return nullptr;
++}
++
++} // End of namespace WorldCatalog
++} // End of namespace Scummverse
++#endif
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+new file mode 100644
+index 00000000..13b1198d
+--- /dev/null
++++ b/common/scummverse_world_engine.h
+@@ -0,0 +1,36 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse other worlds: engine-facing bridge (plain types only). Holds the
++// one scene currently mounted in the sandbox. See common/scummverse_world.h.
++#ifndef COMMON_SCUMMVERSE_WORLD_ENGINE_H
++#define COMMON_SCUMMVERSE_WORLD_ENGINE_H
++
++#include <stddef.h>
++
++namespace Scummverse {
++namespace WorldBridge {
++
++// Parses and fits an exported scene (bytes of one .svw file). On failure the
++// previously mounted scene is kept and `error` explains why.
++bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity);
++bool mounted();
++int width();
++int height();
++const unsigned char *pixels();     // width*height palette slots
++int firstSlot();
++int slotCount();
++const unsigned char *palette();    // slotCount*3 RGB
++const unsigned char *room();       // V1 room resource
++int roomSize();
++int spawnX();
++int spawnY();
++int leftX();                       // -1 when walking cannot reach the edge
++int leftY();
++int rightX();
++int rightY();
++// A valid empty 320x128 V1 room (no boxes), for when no scene is available.
++const unsigned char *blankRoom(int &size);
++
++} // End of namespace WorldBridge
++} // End of namespace Scummverse
++
++#endif
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index 0731dac9..b4befea1 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -3802,7 +3802,17 @@ void GdiPCEngine::drawStripPCEngineMask(byte *dst, int stripnr, int top, int hei
+ }
+ #endif
+ 
++bool GdiV1::foreignScene() const {
++	return _foreignPixels && _vm->_roomResource == ScummverseContent::kForeignRoom;
++}
+ void GdiV1::drawStripV1Background(byte *dst, int dstPitch, int stripnr, int height) {
++	if (foreignScene()) {
++		// The picture is already in sandbox palette slots, one strip per column.
++		if (stripnr < 0 || stripnr * 8 + 8 > _foreignWidth) return;
++		const byte *src = _foreignPixels + stripnr * 8;
++		for (int y = 0; y < height && y < _foreignHeight; ++y, dst += dstPitch, src += _foreignWidth) memcpy(dst, src, 8);
++		return;
++	}
+ 	int charIdx;
+  const byte *roomColors = _vm->scummverseImportedScene() && _importedRoomColorMap ? _importedRoomColorMap : _colorMap;
+ 	height /= 8;
+@@ -3846,6 +3856,11 @@ void GdiV1::drawStripV1Object(byte *dst, int dstPitch, int stripnr, int width, i
+ }
+ 
+ void GdiV1::drawStripV1Mask(byte *dst, int stripnr, int width, int height) const {
++	if (foreignScene()) {
++		// No foreground planes yet: actors draw in front of the whole scene.
++		for (int y = 0; y < height; ++y, dst += _numStrips) *dst = 0;
++		return;
++	}
+ 	int maskIdx;
+ 	height /= 8;
+ 	width /= 8;
+diff --git a/engines/scumm/gfx.h b/engines/scumm/gfx.h
+index 125a651a..48550a68 100644
+--- a/engines/scumm/gfx.h
++++ b/engines/scumm/gfx.h
+@@ -357,6 +357,8 @@ public:
+ 
+ 	virtual void setRenderModeColorMap(const byte *map) {}
+  virtual void setImportedRoomColorMap(const byte *map) {}
++ // Other-worlds scenes: a full-room picture in palette slots (V1 only).
++ virtual void setForeignBackground(const byte *pixels, int width, int height) {}
+ 	virtual byte remapColorToRenderMode(byte col) const { return col; }
+ 
+ 	virtual void init();
+@@ -496,6 +498,9 @@ protected:
+ 
+ 	const byte *_colorMap = 0;
+  const byte *_importedRoomColorMap = nullptr;
++ const byte *_foreignPixels = nullptr;
++ int _foreignWidth = 0, _foreignHeight = 0;
++ bool foreignScene() const;
+ 
+ protected:
+ 	void decodeV1Gfx(const byte *src, byte *dst, int size) const;
+@@ -522,6 +527,7 @@ public:
+ 
+ 	void setRenderModeColorMap(const byte *map) override;
+  void setImportedRoomColorMap(const byte *map) override { _importedRoomColorMap=map; }
++ void setForeignBackground(const byte *pixels, int width, int height) override { _foreignPixels=pixels; _foreignWidth=width; _foreignHeight=height; }
+ 	byte remapColorToRenderMode(byte col) const override;
+ 
+ 	void roomChanged(byte *roomptr) override;
+diff --git a/engines/scumm/resource_v2.cpp b/engines/scumm/resource_v2.cpp
+index 519693a9..e113048e 100644
+--- a/engines/scumm/resource_v2.cpp
++++ b/engines/scumm/resource_v2.cpp
+@@ -83,7 +83,8 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 	const int nativeRoomCount = _numRooms;
+ 	const int nativeCostumeCount = _numCostumes;
+ 	if (_scummverseRoaming) _numCostumes = 44;
+-	if (_scummverseRoaming) _numRooms = ScummverseContent::kRoomCount;
++	// One more physical room (kForeignRoom) hosts the other-worlds scene in view.
++	if (_scummverseRoaming) _numRooms = ScummverseContent::kForeignRoom + 1;
+ 	readMAXS(0);
+ 	allocateArrays();
+ 
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 693fb24a..9d5823c7 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -938,6 +938,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+  scummverseRestoreTransportVisibility();
+  scummverseRestoreSeats();
+  scummverseRestoreSceneObjects();
++ scummverseRestoreWorld();
+ 
+ 	return true;
+ }
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 2c6a5647..14c86635 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -140,7 +140,7 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ }
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
+-	if (_scummverseRoamingReady && (ScummverseContent::foreignRoom(_currentRoom) || zakLogicalRoom(_currentRoom))) {
++	if (_scummverseRoamingReady && (ScummverseContent::foreignRoom(_currentRoom) || _currentRoom >= 128)) {
+ 		if((entry==13 || entry==11) && zakPadObject(_currentRoom,object)) { scummverseTeleportOffer(); return; }
+         if(_currentRoom==56 && object==753 && entry==11 && _scummVars[724]) {
+             int &reservation=_scummVars[501+VAR(VAR_EGO)];
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index e45155bd..b0891aa8 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -23,6 +23,9 @@
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_seats.h"
+ #include "common/scummverse_net_engine.h"
++#include "common/scummverse_world_engine.h"
++#include "common/scummverse_world_catalog.h"
++#include "scumm/boxes.h"
+ #ifdef IPHONE
+ #include "backends/fs/abstract-fs.h"
+ #include "backends/fs/posix/posix-fs.h"
+@@ -3979,6 +3982,15 @@ bool ScummEngine::isMessageBannerActive() {
+ }
+ 
+ void ScummEngine::runBootscript() {
++	// Other-worlds export mode: render the catalog scenes of this game into
++	// the private cache, then quit. Never set for normal play.
++	if (ConfMan.hasKey("scummverse_world_export")) {
++		const int written = scummverseExportWorld(ConfMan.getPath("scummverse_world_export"));
++		warning("SCUMMVERSE_WORLD_EXPORT %s %d", _game.gameid, written);
++		if (written) warning("SCUMMVERSE_WORLD_EXPORT_PASS enabled=%d", ConfMan.getBool("scummverse_roaming"));
++		quitGame();
++		return;
++	}
+ 	scummverseAICancel();
+ 	_scummverseAIActor = 0;
+ 	_scummverseRoamingReady = false;
+@@ -4222,7 +4234,10 @@ void ScummEngine::errorString(const char *buf1, char *buf2, int buf2Size) {
+ 
+ #include "common/scummverse_text.h"
+ #include "scumm/scummverse_worlds.inc"
++using namespace ::Scummverse::WorldCatalog;
++#include "scumm/scummverse_world_play.inc"
+ #include "scumm/scummverse_roaming.inc"
+ #include "scumm/scummverse_net.inc"
++#include "scumm/scummverse_world_export.inc"
+ 
+ } // End of namespace Scumm
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 6e63babd..dd884cf0 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1591,6 +1591,21 @@ protected:
+ 	bool scummverseMountZakCast();
+ 	Common::Array<byte> _scummverseZakCastCostumes[9];
+ 	void scummverseUpdateResident();
++	// Other worlds (scummverse_world_export.inc): catalog scene export.
++	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem);
++	int scummverseExportWorld(const Common::Path &dir);
++	// Other worlds in the sandbox (scummverse_world_play.inc).
++	int _scummverseWorldRoom = 0;
++	Common::Path scummverseWorldCache() const;
++	bool scummverseMountWorld(int room);
++	void scummverseApplyWorldPalette();
++	bool scummverseTravelWorld(int room, int x = -1, int y = -1);
++	void scummverseWorldEdges();
++	void scummverseRestoreWorld();
++	static const int kScummverseWorldFirstRoom = 200;
++	int scummverseWorldSceneCount() const;
++	// The scene's position in its game: index and the game's scene count.
++	bool scummverseWorldPlace(int index, int &scene, int &count) const;
+ 	// Local WiFi play (scummverse_net.inc): remote players' characters.
+ 	bool _scummverseNetOn = false;
+ 	unsigned _scummverseRemoteMask = 0;
+diff --git a/engines/scumm/scummverse_content.h b/engines/scumm/scummverse_content.h
+index d0aa7d51..6c9548e4 100644
+--- a/engines/scumm/scummverse_content.h
++++ b/engines/scumm/scummverse_content.h
+@@ -2,7 +2,7 @@
+ #ifndef SCUMM_SCUMMVERSE_CONTENT_H
+ #define SCUMM_SCUMMVERSE_CONTENT_H
+ namespace ScummverseContent {
+-enum { kFirstImportedRoom = 56, kRoomCount = 127,
++enum { kFirstImportedRoom = 56, kRoomCount = 127, kForeignRoom = kRoomCount,
+        kImportedRoomCount = kRoomCount - kFirstImportedRoom };
+ inline bool importedRoom(int room) { return room >= kFirstImportedRoom && room < kRoomCount; }
+ inline bool foreignRoom(int room) { return room >= 53 && room < kRoomCount; }
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index e3e51fc5..a4c712df 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -267,6 +267,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			int command = destination & 255;
+ 			if(command==63) scummverseRosterOffer();
+ 			else if(command>=129 && command<=152) scummverseSwitchActor(command-128);
++			else if(command>=160 && command<160+worldSceneTotal()) scummverseTravelWorld(kWorldFirstRoom+command-160);
+ 			else if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+ 			else if ((command >= 40 && command <= 49) && zakAirport(_currentRoom)) {
+ 				const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[command-40];
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+new file mode 100644
+index 00000000..91cdbf4d
+--- /dev/null
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -0,0 +1,83 @@
++// SCUMMVERSE other worlds: exporter. GPL-3.0-or-later.
++// Runs inside the original game's own engine (any SCUMM v3-v6 edition the
++// catalog lists) and writes each catalog scene, rendered by ScummVM's own
++// decoders, to a private cache next to the player's saves. The sandbox only
++// ever reads that cache. Room scripts are not run: the scene is the room's
++// background with its initially drawn objects.
++//
++// Cache file (little endian): "SVW1", u16 room, u16 width, u16 height,
++// u8 boxCount, u8 reserved, palette[768], pixels[width*height], then per box
++// int16 ulx,uly,urx,ury,lrx,lry,llx,lly, u8 flags, u8 mask.
++
++static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
++
++bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem) {
++	if (room <= 0 || room >= _numRooms) { problem = "room out of range"; return false; }
++	if (_game.version >= 4 && !_res->_types[rtRoom][room]._roomno) { problem = "room missing"; return false; }
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
++	_currentScript = 0xFF; vm.cutSceneStackPointer = 0;
++	// startScene's room setup, without exit or entry scripts.
++	killScriptsAndResources(); clearDrawQueues();
++	for (int id = 1; id < _numActors; ++id) _actors[id]->hideActor();
++	for (int i = 0; i < 256; ++i) { _roomPalette[i] = i; if (_shadowPalette) _shadowPalette[i] = i; }
++	if (_game.features & GF_SMALL_HEADER) setDirtyColors(0, 255);
++	_fullRedraw = true; _currentRoom = room; VAR(VAR_ROOM) = room; _roomResource = room;
++	if (VAR_ROOM_RESOURCE != 0xFF) VAR(VAR_ROOM_RESOURCE) = room;
++	ensureResourceLoaded(rtRoom, room); clearRoomObjects(); setupRoomSubBlocks(); resetRoomSubBlocks();
++	if (_roomHeight <= 0 || _roomHeight > _screenHeight || _roomWidth < _screenWidth) { problem = "unsupported room size"; return false; }
++	if (_virtscr[kMainVirtScreen].h != _roomHeight) {
++		const int top = _roomHeight + 16 <= _screenHeight ? 16 : 0;
++		initScreens(top, top + _roomHeight);
++	}
++	initBGBuffers(_roomHeight); resetRoomObjects();
++	if (VAR_ROOM_WIDTH != 0xFF && VAR_ROOM_HEIGHT != 0xFF) { VAR(VAR_ROOM_WIDTH) = _roomWidth; VAR(VAR_ROOM_HEIGHT) = _roomHeight; }
++	if (VAR_CAMERA_MIN_X != 0xFF) VAR(VAR_CAMERA_MIN_X) = _screenWidth / 2;
++	if (VAR_CAMERA_MAX_X != 0xFF) VAR(VAR_CAMERA_MAX_X) = _roomWidth - _screenWidth / 2;
++	camera._mode = kNormalCameraMode;
++	const int W = _roomWidth, H = _roomHeight;
++	Common::Array<byte> pixels; pixels.resize(W * H);
++	// Render one screen at a time across the room (camera centers).
++	for (int center = _screenWidth / 2;; center += _screenWidth) {
++		const int c = MIN(center, W - _screenWidth / 2);
++		setCameraAt(c, 0); camera._cur.x = camera._dest.x = c; cameraMoved();
++		_fullRedraw = true; scummLoop_handleDrawing();
++		const int left = c - _screenWidth / 2, xs = _virtscr[kMainVirtScreen].xstart;
++		for (int y = 0; y < H; ++y)
++			for (int x = 0; x < _screenWidth; ++x)
++				pixels[y * W + left + x] = *((const byte *)_virtscr[kMainVirtScreen].getBasePtr(xs + x, y));
++		if (c >= W - _screenWidth / 2) break;
++	}
++	Common::DumpFile out;
++	if (!out.open(file, true)) { problem = "cannot write cache"; return false; }
++	const int boxes = MIN<int>(getNumBoxes(), 255);
++	out.write("SVW1", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, H);
++	out.writeByte(boxes); out.writeByte(0);
++	out.write(_currentPalette, 768);
++	out.write(pixels.data(), pixels.size());
++	for (int b = 0; b < boxes; ++b) {
++		const BoxCoords box = getBoxCoordinates(b);
++		const Common::Point corners[4] = {box.ul, box.ur, box.lr, box.ll};
++		for (const auto &p : corners) { scummverseWrite16(out, p.x); scummverseWrite16(out, p.y); }
++		out.writeByte(getBoxFlags(b)); out.writeByte(getMaskFromBox(b));
++	}
++	out.finalize();
++	return !out.err();
++}
++
++// Exports every catalog scene of the running game into dir/<gameid>/.
++// Returns the number of scenes written; problems are logged per scene.
++int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
++	const WorldGame *game = worldGame(_game.gameid);
++	if (!game || game->version != _game.version) {
++		warning("SCUMMVERSE world export: %s (version %d) is not a supported edition", _game.gameid, _game.version);
++		return 0;
++	}
++	int written = 0;
++	for (int i = 0; i < game->sceneCount; ++i) {
++		Common::String problem;
++		const Common::Path file = dir.appendComponent(Common::String::format("%s-%d.svw", game->gameid, game->scenes[i].room));
++		if (scummverseExportScene(game->scenes[i].room, file, problem)) ++written;
++		else warning("SCUMMVERSE world export: %s room %d skipped (%s)", game->gameid, game->scenes[i].room, problem.c_str());
++	}
++	return written;
++}
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+new file mode 100644
+index 00000000..a8fd2432
+--- /dev/null
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -0,0 +1,149 @@
++// SCUMMVERSE other worlds: visiting exported scenes. GPL-3.0-or-later.
++// Every catalog scene has a logical room (kWorldFirstRoom + catalog index)
++// backed by the one physical kForeignRoom, mounted on entry from the
++// player's private export cache. Walking off a scene's side reaches the
++// neighboring scene of the same game when the original walk boxes allow it.
++
++namespace WorldBridge = ::Scummverse::WorldBridge;
++
++static const int kWorldFirstRoom = 200, kWorldFirstSlot = 16, kWorldSlots = 240; // kScummverseWorldFirstRoom
++
++static int worldSceneTotal() {
++	int total = 0;
++	for (const auto &game : kWorldGames) total += game.sceneCount;
++	return total;
++}
++static bool worldSceneAt(int index, const WorldGame *&game, int &scene) {
++	for (const auto &g : kWorldGames) {
++		if (index < g.sceneCount) { game = &g; scene = index; return true; }
++		index -= g.sceneCount;
++	}
++	return false;
++}
++static int worldIndexOfRoom(int room) {
++	const int index = room - kWorldFirstRoom;
++	return room >= kWorldFirstRoom && index < worldSceneTotal() ? index : -1;
++}
++static const char *worldSceneName(int room) {
++	const WorldGame *game; int scene;
++	return worldSceneAt(worldIndexOfRoom(room), game, scene) ? game->scenes[scene].name : nullptr;
++}
++
++int ScummEngine::scummverseWorldSceneCount() const { return worldSceneTotal(); }
++bool ScummEngine::scummverseWorldPlace(int index, int &scene, int &count) const {
++	const WorldGame *game;
++	if (!worldSceneAt(index, game, scene)) return false;
++	count = game->sceneCount; return true;
++}
++
++Common::Path ScummEngine::scummverseWorldCache() const {
++	if (ConfMan.hasKey("scummverse_worlds_path")) return ConfMan.getPath("scummverse_worlds_path");
++	return Common::Path("worlds");
++}
++
++bool ScummEngine::scummverseMountWorld(int room) {
++	const WorldGame *game; int scene;
++	if (!worldSceneAt(worldIndexOfRoom(room), game, scene)) return false;
++	if (_scummverseWorldRoom == room && WorldBridge::mounted()) return true;
++	const Common::Path file = scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", game->gameid, game->scenes[scene].room));
++	// The cache lives outside the game's search paths: open it directly.
++	const Common::FSNode node(file);
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
++	if (!in) {
++		_scummverseWorldNotice = Common::String::format("%s isn't installed. Add your copy of %s to Documents/%s.", game->scenes[scene].name, game->title, game->folder);
++		return false;
++	}
++	Common::Array<byte> data; data.resize(in->size());
++	if (in->read(data.data(), data.size()) != data.size()) { _scummverseWorldNotice = "The scene file could not be read."; return false; }
++	char problem[128];
++	if (!WorldBridge::mount(data.data(), data.size(), 128, kWorldFirstSlot, kWorldSlots, problem, sizeof(problem))) {
++		_scummverseWorldNotice = Common::String::format("%s could not be shown (%s). Export it again.", game->scenes[scene].name, problem);
++		return false;
++	}
++	_scummverseWorldRoom = room;
++	_resourceMapper[room & 0x7F] = ScummverseContent::kForeignRoom;
++	_res->nukeResource(rtRoom, ScummverseContent::kForeignRoom);
++	_gdi->setForeignBackground(WorldBridge::pixels(), WorldBridge::width(), WorldBridge::height());
++	return true;
++}
++
++// The scene's own colors live in palette slots the V1 art never uses.
++void ScummEngine::scummverseApplyWorldPalette() {
++	if (!WorldBridge::mounted() || worldIndexOfRoom(_currentRoom) < 0) return;
++	const byte *rgb = WorldBridge::palette();
++	for (int i = 0; i < WorldBridge::slotCount(); ++i)
++		setPalColor(WorldBridge::firstSlot() + i, rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
++}
++
++bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
++	if (!_scummverseRoamingReady || !_userPut || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
++	if (_currentRoom == 56 && _scummVars[724]) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
++	if (scummverseOnBus() || scummverseOnTram()) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
++	if (!scummverseMountWorld(room)) { scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false; }
++	Actor *player = derefActor(VAR(VAR_EGO), "world visitor");
++	// Remember where the visit started so the menu can bring the player back.
++	const int key = travellerReturnKey(VAR(VAR_EGO));
++	if (_currentRoom < 53 && player->_room == _currentRoom) {
++		_scummVars[key] = _currentRoom; _scummVars[key + 1] = player->getRealPos().x; _scummVars[key + 2] = player->getRealPos().y;
++	}
++	scummverseUpdateCompanions();
++	scummverseAICancel(); _scummverseAIActor = 0; stopTalk();
++	if (x < 0) { x = WorldBridge::spawnX(); y = WorldBridge::spawnY(); }
++	player->stopActorMoving(); player->setElevation(0); player->putActor(x, y, room);
++	startScene(room, player, 0);
++	scummverseApplyWorldPalette();
++	VAR(VAR_CURRENT_LIGHTS) = LIGHTMODE_room_lights_on | LIGHTMODE_actor_use_colors;
++	AdjustBoxResult point = player->adjustXYToBeInBox(x, y);
++	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
++	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
++	scummverseUpdateCompanions();
++	scummverseUpdateResident();
++	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
++	const WorldGame *game; int scene; worldSceneAt(worldIndexOfRoom(room), game, scene);
++	_scummverseWorldNotice = Common::String::format("%s (%s). Walk off the sides to explore; Worlds brings you home.", game->scenes[scene].name, game->title);
++	scummverseWorldReport(_scummverseWorldNotice.c_str());
++	return true;
++}
++
++// Walking to a side that the walk boxes reach continues to the neighboring
++// scene of the same game.
++void ScummEngine::scummverseWorldEdges() {
++	const int index = worldIndexOfRoom(_currentRoom);
++	if (index < 0 || !WorldBridge::mounted()) return;
++	Actor *player = derefActor(VAR(VAR_EGO), "world walker");
++	if (player->_moving) return;
++	const int x = player->getRealPos().x;
++	// One unit of slack: walking ends where the box edge snaps the actor.
++	const bool left = WorldBridge::leftX() >= 0 && x <= WorldBridge::leftX() + 1;
++	const bool right = WorldBridge::rightX() >= 0 && x >= WorldBridge::rightX() - 1;
++	if (!left && !right) { _scummverseTransitArmed = true; return; }
++	if (!_scummverseTransitArmed) return;
++	_scummverseTransitArmed = false;
++	const WorldGame *game; int scene; worldSceneAt(index, game, scene);
++	const int target = scene + (right ? 1 : -1);
++	if (target < 0 || target >= game->sceneCount) return;
++	const int targetRoom = _currentRoom + (right ? 1 : -1);
++	if (!scummverseMountWorld(targetRoom)) return;
++	// Arrive at the matching side of the next scene when it has one.
++	const int ax = right ? WorldBridge::leftX() : WorldBridge::rightX();
++	const int ay = right ? WorldBridge::leftY() : WorldBridge::rightY();
++	scummverseTravelWorld(targetRoom, ax >= 0 ? ax + (right ? 3 : -3) : -1, ax >= 0 ? ay : -1);
++}
++
++// After a load inside a scene: mount it again, or bring the player to the
++// airport when the scene is no longer installed.
++void ScummEngine::scummverseRestoreWorld() {
++	if (!_scummverseRoaming || worldIndexOfRoom(_currentRoom) < 0) return;
++	_scummverseWorldRoom = 0;
++	if (scummverseMountWorld(_currentRoom)) {
++		_res->nukeResource(rtRoom, ScummverseContent::kForeignRoom);
++		Actor *player = derefActor(VAR(VAR_EGO), "restored visitor");
++		startScene(_currentRoom, player, 0);
++		scummverseApplyWorldPalette();
++		setCameraFollows(player); _fullRedraw = true;
++		return;
++	}
++	Actor *player = derefActor(VAR(VAR_EGO), "stranded visitor");
++	player->putActor(30, 60, 53);
++	scummverseTravel(3);
++}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index d403dc00..08db5b03 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -334,6 +334,19 @@ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+ 		memcpy(_res->createResource(type, id, data.size()), data.data(), data.size());
+ 		return 1;
+ 	}
++	if (_scummverseRoaming && type == rtRoom && id == ScummverseContent::kForeignRoom) {
++		// The other-worlds scene in view (mounted on demand, e.g. after a load).
++		if (_scummverseWorldRoom != _currentRoom || !::Scummverse::WorldBridge::mounted()) scummverseMountWorld(_currentRoom);
++		if (!::Scummverse::WorldBridge::mounted()) {
++			// Never fail a load: an empty screen until the player is moved out.
++			int size = 0; const byte *blank = ::Scummverse::WorldBridge::blankRoom(size);
++			_gdi->setForeignBackground(nullptr, 0, 0);
++			memcpy(_res->createResource(type, id, size), blank, size);
++			return 1;
++		}
++		memcpy(_res->createResource(type, id, ::Scummverse::WorldBridge::roomSize()), ::Scummverse::WorldBridge::room(), ::Scummverse::WorldBridge::roomSize());
++		return 1;
++	}
+ 	if (_scummverseRoaming && type == rtRoom && ScummverseContent::importedRoom(id)) {
+ 		if (!scummverseMountExtra(id)) return 0;
+ 		const auto &data = _scummverseExtraRooms[id-56];
+@@ -471,6 +484,7 @@ void ScummEngine::scummverseAirportOffer() {
+ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	scummverseServiceBus(delta);
+ 	scummverseServiceTram(delta);
++	scummverseWorldEdges();
+ 	// Retry optional resources together, at most once per 600 timer units.
+ 	if (!_scummverseAirportMounted || !_scummverseStreetMounted || _scummverseZakCastCostumes[0].empty()) {
+ 		_scummverseAirportRetry -= delta;

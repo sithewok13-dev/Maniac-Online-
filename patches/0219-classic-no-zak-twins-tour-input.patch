@@ -1,0 +1,186 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 3c7a8487..805ad904 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -766,6 +766,10 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 	if (!_saveTemporaryState)
+ 		_sound->pauseSounds(true);
+ 
++	// SCUMMVERSE: a load ends the tour. It would go on from the place loaded,
++	// and the home and way back it kept are the game before the load's.
++	scummverseTourEnd(false);
++
+ 	closeRoom();
+ 
+ 	memset(_inventory, 0, sizeof(_inventory[0]) * _numInventory);
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 0811e1a8..de6c3c29 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -1552,6 +1552,11 @@ void ScummEngine_v0::runSentenceScript() {
+ }
+ 
+ void ScummEngine_v2::runInputScript(int clickArea, int val, int mode) {
++	// SCUMMVERSE: touring, the one played is on autopilot: the player's taps,
++	// verbs and keys wait till the tour is paused or stopped (as in the new
++	// engine; the tour's own controls come another way).
++	if (_scummverseTouring && !_scummverseTourPaused)
++		return;
+ 	// Scene coordinates are room-relative. Reject letterbox/stale touch input
+ 	// before actor hit testing indexes the renderer's strip usage table.
+ 	if (_scummverseRoamingReady && clickArea == kSceneClickArea &&
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index 12960f6e..c5e6d933 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -40,11 +40,15 @@ void ScummEngine::scummverseReleaseRemote(int peer) {
+ 	// The character stays where its player left it and resumes local life;
+ 	// from another world's place (or one this device can't show) it goes home,
+ 	// where it can (another world's slot is never kept by a character
+-	// nobody plays).
++	// nobody plays): the airport, or the mansion's front lawn without Zak's
++	// files.
+ 	Actor *a = derefActor(id, "released remote");
+ 	a->stopActorMoving(); _scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
+-	int source;
+-	if (!a->_room || scummverseWorldGameOf(a->_room, source) >= 0) a->putActor(30 + id % 5, 60, 53);
++	int source, home, x, y;
++	if (!a->_room || scummverseWorldGameOf(a->_room, source) >= 0) {
++		scummverseHomeSpot(scummverseMountAirport(), id, home, x, y);
++		a->putActor(x, y, home);
++	}
+ }
+ 
+ // An appearance set without the local player's notice ("You are playing...").
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 5175b1ac..31f253f2 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -489,16 +489,20 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				// Left in another world's place, out of sight: home again, where
+ 				// it can be played (no slot is kept by a character nobody plays);
+ 				// whoever still follows it there comes too (followers never leave
+-				// on their own).
+-				int source;
++				// on their own). Home is the airport, or the mansion's front
++				// lawn without Zak's files.
++				int source, home, x, y;
+ 				if(a->_room!=_currentRoom && scummverseWorldGameOf(a->_room,source)>=0) {
++					const bool airport=scummverseMountAirport();
+ 					for(int f : mansionCast) {
+ 						if(f==VAR(VAR_EGO) || scummverseRemoteActor(f) || _scummVars[770+f]!=id) continue;
+ 						Actor *follower=derefActor(f,"follower home");
+ 						if(follower->_room!=a->_room) continue;
+-						follower->stopActorMoving(); follower->putActor(30+f%5,60,53); _scummverseRoamers[f]=Roamer();
++						scummverseHomeSpot(airport,f,home,x,y);
++						follower->stopActorMoving(); follower->putActor(x,y,home); _scummverseRoamers[f]=Roamer();
+ 					}
+-					a->stopActorMoving(); a->putActor(30+id%5,60,53); r=Roamer(); continue;
++					scummverseHomeSpot(airport,id,home,x,y);
++					a->stopActorMoving(); a->putActor(x,y,home); r=Roamer(); continue;
+ 				}
+ 				int exits[12], count=0;
+ 				// The van's cockpit is only open where the van stands (at Mars).
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 1222751d..92559e24 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -447,9 +447,14 @@ void ScummEngine::scummverseRestoreWorld() {
+ 		setCameraFollows(player); _fullRedraw = true;
+ 		return;
+ 	}
++	// (Without Zak's files there is no airport: back to the mansion, as the
++	// Worlds menu's Return to Maniac Mansion goes.)
+ 	Actor *player = derefActor(VAR(VAR_EGO), "stranded visitor");
+-	player->putActor(30, 60, 53);
+-	scummverseTravel(3);
++	const bool airport = scummverseMountAirport();
++	int room, x, y;
++	scummverseHomeSpot(airport, 0, room, x, y);
++	player->putActor(x, y, room);
++	scummverseTravel(airport ? 3 : 2);
+ }
+ 
+ // ---- Guests --------------------------------------------------------------
+@@ -959,18 +964,22 @@ void ScummEngine::scummverseMountCharacters() {
+ 		if (look && _actors[id]->_room == _currentRoom) key += Common::String::format(" %d=%d", id, look);
+ 	}
+ 	// One of the mansion's or Zak's people visiting whose own actor, or
+-	// someone playing them, is here already steps aside.
++	// someone playing them, is here already steps aside. Who stands here is
++	// told by the costume worn (the mansion's and Zak's own looks wear
++	// theirs): the mansion's by its number, Zak's imported ones by Zak's own
++	// (names told Zak's villager look from the shaman visiting in the same
++	// costume, and missed Zak's own actors: Zak or Annie beside their twins).
+ 	auto twinHere = [&](int who) {
+-		const int game = worldAppearanceGame(who);
+-		const WorldGuest *visitor = worldAppearance(who);
+-		if (!worldHome(game) || !visitor) return false;
++		const int game = worldAppearanceGame(who), costume = worldAppearanceCostume(who);
++		if (!worldHome(game) || !worldAppearance(who)) return false;
+ 		const bool maniac = sameId(kWorldGames[game].gameid, "maniac");
+ 		for (int id = 1; id < kScummverseManiacActors; ++id) {
+ 			if (_actors[id]->_room != _currentRoom) continue;
+ 			const int look = scummverseAppearance(id);
+-			const WorldGuest *played = look ? worldAppearance(look) : nullptr;
+-			if (look ? worldNativeLook(look) && played && !strcmp(played->name, visitor->name) : maniac && _actors[id]->_costume == worldAppearanceCostume(who))
+-				return true;
++			if (look && !worldNativeLook(look)) continue; // (drawn as someone from another game)
++			const int worn = _actors[id]->_costume, imported = worn - kScummverseFirstZakCostume;
++			const int zak = worn == kZakOwnCostume ? 1 : imported >= 0 && imported < (int)ARRAYSIZE(kZakCastOriginal) ? kZakCastOriginal[imported] : -1;
++			if (maniac ? zak < 0 && worn == costume : zak == costume) return true;
+ 		}
+ 		return false;
+ 	};
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 47baafa9..0bc7f601 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -5,6 +5,16 @@ static_assert(ARRAYSIZE(zakPlaces)==ScummverseContent::kImportedRoomCount, "Impo
+ // before 0098, is a resident of the village now.)
+ static const int mansionCast[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 23, 24, 20, 21, 22, 8, 17, 18};
+ static bool scummverseZakGuest(int id) { return (id >= 20 && id <= 22) || id==8 || id==17 || id==18; }
++// Home for someone nobody plays, sent back from another world's place: the
++// airport (53, made from Zak's files) where this device has them, else the
++// mansion's front lawn, where the airport's way back comes out.
++static void scummverseHomeSpot(bool airport, int id, int &room, int &x, int &y) {
++	room = airport ? 53 : 1; x = (airport ? 30 : 8) + id % 5; y = airport ? 60 : 64;
++}
++// Zak's own number of each imported costume (sandbox costumes 35..52, in
++// order; Zak himself, 34, is Zak's costume 1).
++static const int kZakCastOriginal[] = {2,3,4,28,27,21,21,26,22, 16,11,23,25,24,29,10,17, 33};
++static const int kZakOwnCostume = 34;
+ // Connected-world adapters. GPL-3.0-or-later. No original game data included.
+ // Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:street, zak:zak.
+ // Native rooms 53/54 and added room 55; costume 34, actor 24, objects 650..731.
+@@ -197,11 +207,11 @@ bool ScummEngine::scummverseMountZakCast() {
+ 	// Sandbox costumes 35..43; the last two are the Nepal guard and the Guru.
+ 	// 44..51 (0096): Lou, the stewardess, the bum, the devotee, the sentry,
+ 	// the Skolarian projection, the pilot and the baker. 52 (0103): the broom.
+-	const int files[] = {6,28,28,4,10,38,38,17,19, 7,11,8,8,44,35,40,3, 21}, ids[] = {2,3,4,28,27,21,21,26,22, 16,11,23,25,24,29,10,17, 33};
++	const int files[] = {6,28,28,4,10,38,38,17,19, 7,11,8,8,44,35,40,3, 21}, *ids = kZakCastOriginal;
+ 	const char *hashes[] = {"1a79751f305b2fe6f8ee774de7108304","6282c2c0caa99bdbb38ba36051fb57d3","6282c2c0caa99bdbb38ba36051fb57d3","49d5e57fc1ab56a3b04e83faae000db4","7884b91ca526ffcd4d44bfe22816ec1e","0c701e2facdb1b2413d74ca2c9bdf3d6","0c701e2facdb1b2413d74ca2c9bdf3d6","9754dff5b01d21af693b39063ab96e36","8ac86c0d58bd696acfbe23cddef15eb9",
+ 		"44add553cba9f1fee9f4f84b40e69198","b282f83c9bbc14ff1026540b0c61c598","5337090e7a6ebdbfb698ebda3750d926","5337090e7a6ebdbfb698ebda3750d926","884a03db3f6a5a41920aeea82bd81a00","b885304af7e2aa2a742192d19046c1c3","1c03c5bef55a7c4934e11748149d40b2","25a9e059a9df572554ee8ceffc08cb9f",
+ 		"a6b1551f60dc73fcc76830a87e29e0f1"};
+-	static_assert(ARRAYSIZE(files) == ARRAYSIZE(_scummverseZakCastCostumes) && ARRAYSIZE(ids) == ARRAYSIZE(files) && ARRAYSIZE(hashes) == ARRAYSIZE(files), "one entry per imported Zak costume");
++	static_assert(ARRAYSIZE(files) == ARRAYSIZE(_scummverseZakCastCostumes) && ARRAYSIZE(kZakCastOriginal) == ARRAYSIZE(files) && ARRAYSIZE(hashes) == ARRAYSIZE(files), "one entry per imported Zak costume");
+ 	const uint table = 2 + 775 + 61 * 3;
+ 	for (int i=0;i<count;++i) {
+ 		Common::Array<byte> source;
+@@ -1105,7 +1115,15 @@ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	// Validate before changing the active actor or leaving the current scene
+ 	// (another game's place is a world slot, mounted as the Worlds menu does).
+ 	int source; const bool world=scummverseWorldGameOf(room,source)>=0;
+-	if(world ? !scummverseMountWorld(room) : room>=56 && !scummverseMountExtra(room)) return false;
++	if(world && !scummverseMountWorld(room)) return false;
++	// One in a room of Zak's that can't be shown here (a save made where his
++	// files were) is played from the mansion's front lawn instead.
++	if(!world && room>=53 && !(room==53 ? scummverseMountAirport() : room==54 ? scummverseMountZak() : room==55 ? scummverseMountStreet() : scummverseMountExtra(room))) {
++		scummverseHomeSpot(false,id,room,x,y); a->stopActorMoving(); a->putActor(x,y,room);
++	}
++	// (Mid-tour: the tour ends where it is, as in the new engine, giving the
++	// one it walked their way back to the mansion; the next one never toured.)
++	if(_scummverseTouring) scummverseTourEnd(false);
+ 	derefActor(VAR(VAR_EGO),"old player")->stopActorMoving();
+ 	stopTalk(); scummverseAICancel(); _scummverseAIActor=0;
+ 	VAR(VAR_EGO)=id;

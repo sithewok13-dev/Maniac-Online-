@@ -1,0 +1,372 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 8e504a02..1d0c4e69 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -312,9 +312,32 @@ static std::string chatPrompt(int actor, int room, int visitor, uint64_t partici
+ class Runtime {
+ public:
+ 	Runtime() : worker(&Runtime::work, this) {}
+-	~Runtime() {
++	~Runtime() { shutdown(); }
++	// Stops the worker for good, the model unloaded, while llama's own
++	// statics still live: before the process exits (iOS's will-terminate;
++	// the desktop probes, before main returns). Left to this static's
++	// destructor, a load or reply still running met them destroyed.
++	void shutdown() {
+ 		{ std::lock_guard<std::mutex> guard(mutex); quitting = true; ++epoch; }
+-		wake.notify_one(); worker.join();
++		wake.notify_one();
++		std::call_once(stopped, [this] { worker.join(); });
++	}
++	// The app losing the screen (Control Center, a call, the way to the
++	// background): what the model is writing stops, a reply, a greeting or a
++	// remark, and nothing starts until resume(). Waits up to `ms` for the
++	// worker to be out of llama (iOS refuses GPU work from the background and
++	// Metal aborts on it); false if it is not yet. A reply cut off is written
++	// again once resumed; a greeting or remark is dropped (the game says its own).
++	bool suspend(int ms) {
++		std::unique_lock<std::mutex> lock(mutex);
++		held = true;
++		if (generating) { ++epoch; if (jobChat) retryTicket = jobTicket; }
++		if (!jobChat) pending = false;
++		return idle.wait_for(lock, std::chrono::milliseconds(ms), [&] { return !generating; });
++	}
++	void resume() {
++		std::lock_guard<std::mutex> guard(mutex);
++		held = false; wake.notify_one();
+ 	}
+ 	void configure(const std::string &file, bool useGPU) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+@@ -325,7 +348,7 @@ public:
+ 	}
+ 	bool request(int actor, int room, int visitor) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (talkActor || !ready || busy || pending || !result.empty() || desired.empty()) return false;
++		if (held || talkActor || !ready || busy || pending || !result.empty() || desired.empty()) return false;
+ 		jobActor = actor; jobRoom = room; jobVisitor = visitor; jobChat = false; jobEvent.clear();
+ 		pending = true; wake.notify_one(); return true;
+ 	}
+@@ -334,7 +357,7 @@ public:
+ 	// say what happened and how to answer. Polled as a greeting is.
+ 	bool remark(int actor, int room, int about, const char *event) {
+ 		std::lock_guard<std::mutex> guard(mutex);
+-		if (!event || !*event || talkActor || !ready || busy || pending || !result.empty() || desired.empty()) return false;
++		if (!event || !*event || held || talkActor || !ready || busy || pending || !result.empty() || desired.empty()) return false;
+ 		jobActor = actor; jobRoom = room; jobVisitor = about; jobChat = false; jobEvent = event;
+ 		if (jobEvent.size() > 300) jobEvent.resize(300);
+ 		pending = true; wake.notify_one(); return true;
+@@ -490,11 +513,14 @@ public:
+ 
+ private:
+ 	std::mutex mutex;
+-	std::condition_variable wake;
++	std::condition_variable wake, idle;
++	std::once_flag stopped;
+ 	std::atomic<unsigned> epoch{0};
+ 	unsigned activeEpoch = 0;
+ 	std::chrono::steady_clock::time_point deadline;
+ 	bool quitting = false, dirty = false, pending = false, busy = false, ready = false, gpu = false;
++	// Held: no job starts (suspend()). Generating: the worker is in llama for a job.
++	bool held = false, generating = false;
+ 	std::string desired, result, status = "Off - using classic dialogue";
+ 	// Each talk ID's last line and who said it: guests of another place,
+ 	// renumbered wanderers and new parts take the same IDs.
+@@ -507,6 +533,7 @@ private:
+ 	// One shared conversation; the model is only one of its reply providers.
+ 	Scummverse::Conversation conversation;
+ 	uint32_t chatTicket = 0, jobTicket = 0, bubbleCursor = 0, readCursor = 0;
++	uint32_t retryTicket = 0; // (A reply suspend() cut off: written again.)
+ 	unsigned classicTurn = 0;
+ 	// Never invalidate a model load in progress: only generation is aborted.
+ 	void abortGeneration() { if (ready) ++epoch; pending = false; }
+@@ -577,6 +604,9 @@ private:
+ 	}
+ 	std::string generate(int actor, int room, int visitor, const std::string &question, const std::vector<ChatLine> &prior, uint64_t present, const std::string &event, const std::string &previous) {
+ 		if (actor <= 0 || actor >= kTalkActors) return "";
++		// (Out of llama only once the GPU is done with what was sent: suspend()
++		// waits for this; a stopped reply leaves a decode still running.)
++		struct Settle { llama_context *c; ~Settle() { llama_synchronize(c); } } settle{context};
+ 		std::string system = "You write dialogue for a spooky comic adventure game. You are ";
+ 		system += actorName(actor); system += ", "; system += personality(actor);
+ 		system += ". Reply with ONE short spoken English sentence, at most 18 words. Use plain ASCII punctuation. No name prefix, quotes, narration or stage directions. Be playful, not explicit. Do not claim to move, give items or change the game.";
+@@ -626,7 +656,8 @@ private:
+ 			output.append(piece, bytes);
+ 			// (Stops once a sentence has ended: "Dr." and "3." wait for what follows.)
+ 			if (output.size() > 180 || !cleanReply(output, actor, false).empty()) break;
+-			if (llama_decode(context, llama_batch_get_one(&token, 1)) != 0) { output.clear(); break; }
++			// (Nothing more for the GPU once stopped: suspend() may be waiting.)
++			if (aborted() || llama_decode(context, llama_batch_get_one(&token, 1)) != 0) { output.clear(); break; }
+ 		}
+ 		llama_sampler_free(sampler);
+ 		#ifdef SCUMMVERSE_AI_PROBE
+@@ -650,7 +681,7 @@ private:
+ 		bool initialized = false;
+ 		for (;;) {
+ 			std::unique_lock<std::mutex> lock(mutex);
+-			wake.wait(lock, [&] { return quitting || dirty || pending; });
++			wake.wait(lock, [&] { return quitting || dirty || (pending && !held); });
+ 			if (quitting) break;
+ 			activeEpoch = epoch.load();
+ 			if (dirty) {
+@@ -681,12 +712,13 @@ private:
+ 			const bool known = actor > 0 && actor < kTalkActors;
+ 			const std::string speaker = actorName(actor);
+ 			const std::string previous = known && memories[actor].speaker == speaker ? memories[actor].line : std::string();
+-			pending = false; busy = true; ambientBusy = !chat;
++			pending = false; busy = generating = true; ambientBusy = !chat;
+ 			deadline = std::chrono::steady_clock::now() + std::chrono::seconds(chat ? 30 : 5);
+ 			status = chat ? speaker + " is replying (up to 30 seconds)." : "Writing a line on this device";
+ 			lock.unlock(); std::string line = modelLoaded() ? generate(actor, room, visitor, question, prior, present, event, previous) : ""; lock.lock();
+-			busy = false; ambientBusy = false;
++			busy = generating = false; ambientBusy = false; idle.notify_all();
+ 			if (known && !line.empty()) memories[actor] = Memory{speaker, line}; // Every speaker, other-world guests included.
++			const bool retry = chat && ticket == retryTicket; retryTicket = 0;
+ 			if (activeEpoch == epoch.load()) {
+ 				if (chat) {
+ 					// Timeouts and filtered output fall back to a labelled classic line.
+@@ -696,7 +728,7 @@ private:
+ 					pumpChat();
+ 				} else { result = line; resultActor = actor; resultRoom = room; }
+ 				status = line.empty() ? (chat ? "Ready - no reply this time" : "Ready - last response used classic fallback") : "Ready - dialogue stays on this device";
+-			}
++			} else if (retry && chatTicket == ticket) pending = true; // (Cut off by suspend(): again, once active.)
+ 		}
+ 		unload();
+ 	}
+diff --git a/backends/platform/ios7/scummverse_ai_ui.inc b/backends/platform/ios7/scummverse_ai_ui.inc
+index e9fcc5f8..692f7132 100644
+--- a/backends/platform/ios7/scummverse_ai_ui.inc
++++ b/backends/platform/ios7/scummverse_ai_ui.inc
+@@ -8,6 +8,7 @@
+ 	NSURLSession *_session;
+ 	NSURLSessionDownloadTask *_task;
+ 	std::atomic<unsigned> _generation;
++	unsigned _wipes;
+ 	NSString *_notice;
+ 	NSInteger _downloadTier;
+ }
+@@ -20,6 +21,7 @@
+ - (BOOL)verify:(NSURL *)file tier:(NSInteger)tier;
+ - (NSURL *)directory;
+ - (NSURL *)fileFor:(NSInteger)tier;
++- (BOOL)fits:(NSInteger)tier;
+ - (BOOL)hasCapacity:(NSInteger)tier;
+ - (void)setNotice:(NSString *)notice;
+ - (void)disable;
+@@ -27,6 +29,9 @@
+ - (void)stopForPressure:(NSNotification *)notification;
+ - (void)background:(NSNotification *)notification;
+ - (void)foreground:(NSNotification *)notification;
++- (void)resignActive:(NSNotification *)notification;
++- (void)becomeActive:(NSNotification *)notification;
++- (void)terminate:(NSNotification *)notification;
+ @end
+ 
+ @interface ScummverseAISettingsController : UITableViewController {
+@@ -49,7 +54,8 @@
+ 		NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
+ 		configuration.allowsCellularAccess = NO;
+ 		configuration.timeoutIntervalForRequest = 60;
+-		configuration.timeoutIntervalForResource = 3600;
++		// (Six hours: 2.5 GB at under 1 Mbit/s. A download cut off starts again.)
++		configuration.timeoutIntervalForResource = 6 * 3600;
+ 		_session = [[NSURLSession sessionWithConfiguration:configuration] retain];
+ 		NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+ 		[center addObserver:self selector:@selector(stopForPressure:) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+@@ -59,14 +65,26 @@
+ 		// to active: Control Center, a banner or the Photos prompt would check
+ 		// and load the model again, ending the conversation.)
+ 		[center addObserver:self selector:@selector(foreground:) name:UIApplicationWillEnterForegroundNotification object:nil];
++		// (Any loss of focus stops what the model writes, and the GPU with it;
++		// the model and the conversation stay.)
++		[center addObserver:self selector:@selector(resignActive:) name:UIApplicationWillResignActiveNotification object:nil];
++		[center addObserver:self selector:@selector(becomeActive:) name:UIApplicationDidBecomeActiveNotification object:nil];
++		[center addObserver:self selector:@selector(terminate:) name:UIApplicationWillTerminateNotification object:nil];
+ 	}
+ 	return self;
+ }
+ - (NSURL *)directory {
+-	NSURL *root = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
++	NSFileManager *files = [NSFileManager defaultManager];
++	NSURL *root = [[files URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
+ 	NSURL *directory = [root URLByAppendingPathComponent:@"LocalDialogue" isDirectory:YES];
+-	[[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
++	[files createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
+ 	[directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
++	// (Once a launch, before any download: what a kill left staged.)
++	static dispatch_once_t swept;
++	dispatch_once(&swept, ^{
++		for (NSURL *file in [files contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:0 error:nil])
++			if ([file.pathExtension isEqualToString:@"partial"]) [files removeItemAtURL:file error:nil];
++	});
+ 	return directory;
+ }
+ - (NSURL *)fileFor:(NSInteger)tier {
+@@ -75,19 +93,25 @@
+ - (void)setNotice:(NSString *)notice {
+ 	[_notice release]; _notice = [notice copy];
+ }
+-- (BOOL)hasCapacity:(NSInteger)tier {
++// Whether the phone has the memory for a tier, for good: by the size it is
++// sold with (iOS reports less, some 5.5 GiB on a 6 GB phone; so rounded up).
++- (BOOL)fits:(NSInteger)tier {
+ 	if (tier < 1 || tier > 3) return NO;
++	const uint64_t gigabytes = ([NSProcessInfo processInfo].physicalMemory + (1ULL << 30) - 1) >> 30;
++	return gigabytes >= (tier == 1 ? 3ULL : tier == 2 ? 6ULL : 10ULL);
++}
++- (BOOL)hasCapacity:(NSInteger)tier {
++	if (![self fits:tier]) return NO;
+ 	// Conservative starting limits, not claims of per-device benchmarks.
+-	uint64_t physical = [NSProcessInfo processInfo].physicalMemory;
+ 	uint64_t needed = (tier == 1 ? 800ULL : tier == 2 ? 1600ULL : 3500ULL) * 1024 * 1024;
+-	return physical >= (tier == 1 ? 3ULL : tier == 2 ? 6ULL : 10ULL) * 1024 * 1024 * 1024 &&
+-		os_proc_available_memory() >= needed &&
++	return os_proc_available_memory() >= needed &&
+ 		[NSProcessInfo processInfo].thermalState < NSProcessInfoThermalStateSerious;
+ }
+ - (void)activate:(NSInteger)tier {
+ 	if (tier < 1 || tier > 3) return;
+ 	if (![self hasCapacity:tier]) {
+-		[self setNotice:@"Not enough free memory, or the phone is too warm. Classic dialogue is active. Try Small later."];
++		[self setNotice:[self fits:tier] ? @"Not enough free memory, or the phone is too warm. Classic dialogue is active. Try Small later." :
++			@"This model needs a phone with more memory. Classic dialogue is active."];
+ 		ScummverseLocalAI::runtime().configure("", false);
+ 		return;
+ 	}
+@@ -109,8 +133,8 @@
+ 			}
+ 			[self setNotice:nil];
+ 			[[NSUserDefaults standardUserDefaults] setInteger:tier forKey:@"SCUMMVERSELocalDialogue"];
+-			// CPU mode limits memory on older devices; newer devices use Metal.
+-			BOOL gpu = [NSProcessInfo processInfo].physicalMemory >= 6ULL * 1024 * 1024 * 1024;
++			// CPU mode limits memory on older devices; newer devices (6 GB) use Metal.
++			BOOL gpu = [self fits:2];
+ 			ScummverseLocalAI::runtime().configure(file.path.UTF8String, gpu);
+ 		});
+ 	});
+@@ -136,22 +160,26 @@
+ 	ScummverseLocalAI::runtime().configure("", false);
+ }
+ - (void)download:(NSInteger)tier {
+-	if (![self hasCapacity:tier]) { [self setNotice:@"Use Classic for now: memory or temperature limit reached."]; return; }
++	if (![self hasCapacity:tier]) {
++		[self setNotice:[self fits:tier] ? @"Use Classic for now: memory or temperature limit reached." : @"This model needs a phone with more memory."];
++		return;
++	}
+ 	if ([[NSFileManager defaultManager] fileExistsAtPath:[self fileFor:tier].path]) { [self activate:tier]; return; }
+-	[self disable];
+-	const unsigned token = ++_generation;
+ 	const SVModel &model = svModels[tier - 1];
++	// (Room first: without it, the model in use stays on.)
+ 	NSDictionary *space = [[NSFileManager defaultManager] attributesOfFileSystemForPath:[self directory].path error:nil];
+ 	if ([space[NSFileSystemFreeSize] unsignedLongLongValue] < model.bytes + 300ULL * 1024 * 1024) {
+ 		[self setNotice:@"Not enough storage for this model."]; return;
+ 	}
++	[self disable];
++	const unsigned token = ++_generation, wipe = _wipes;
+ 	_downloadTier = tier;
+ 	[self setNotice:@"Downloading over Wi-Fi. Tap AI again to check progress or cancel."];
+ 	NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:model.url]];
+ 	NSURLRequest *request = [NSURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:60];
+ 	_task = [[_session downloadTaskWithRequest:request completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+-		if (token != _generation.load()) return;
+-		NSURL *staged = [[self directory] URLByAppendingPathComponent:[NSString stringWithFormat:@"model-%u.partial", token]];
++		// (A name of its own: the counter starts from 0 each launch.)
++		NSURL *staged = [[self directory] URLByAppendingPathComponent:[NSString stringWithFormat:@"model-%@.partial", [NSUUID UUID].UUIDString]];
+ 		NSString *failure = nil;
+ 		NSError *fileError = nil;
+ 		NSInteger httpStatus = [(NSHTTPURLResponse *)response statusCode];
+@@ -163,12 +191,22 @@
+ 		BOOL ok = failure == nil;
+ 
+ 		dispatch_async(dispatch_get_main_queue(), ^{
+-			if (token != _generation.load()) { [[NSFileManager defaultManager] removeItemAtURL:staged error:nil]; return; }
+-			[_task release]; _task = nil;
++			NSFileManager *files = [NSFileManager defaultManager];
++			const BOOL current = token == _generation.load();
++			if (current) { [_task release]; _task = nil; }
++			// (A file that passed its check is kept when the download was
++			// overtaken, by the background or another choice; only Delete
++			// discards it. It is used when chosen again.)
+ 			NSError *installError = nil;
+-			BOOL installed = ok && [[NSFileManager defaultManager] moveItemAtURL:staged toURL:[self fileFor:tier] error:&installError];
++			BOOL installed = ok && wipe == _wipes;
++			if (installed) {
++				NSURL *target = [self fileFor:tier];
++				[files removeItemAtURL:target error:nil]; // (one that came first: the same SHA-256)
++				installed = [files moveItemAtURL:staged toURL:target error:&installError];
++			}
++			[files removeItemAtURL:staged error:nil];
++			if (!current) return;
+ 			if (!installed) {
+-				[[NSFileManager defaultManager] removeItemAtURL:staged error:nil];
+ 				[self setNotice:failure ?: [NSString stringWithFormat:@"Could not install model: %@", installError.localizedDescription]];
+ 				return;
+ 			}
+@@ -189,6 +227,9 @@
+ 	[self setNotice:@"Local dialogue paused to free memory or let the phone cool. Classic lines remain available. Select a model to retry."];
+ }
+ - (void)background:(NSNotification *)notification {
++	// (A decode still running when the focus went: up to a second more, while
++	// iOS still takes the GPU's work.)
++	ScummverseLocalAI::runtime().suspend(1000);
+ 	++_generation;
+ 	[_task cancel]; [_task release]; _task = nil;
+ 	ScummverseLocalAI::runtime().configure("", false);
+@@ -197,6 +238,12 @@
+ 	NSInteger tier = [[NSUserDefaults standardUserDefaults] integerForKey:@"SCUMMVERSELocalDialogue"];
+ 	if (tier > 0) [self activate:tier];
+ }
++// (Control Center, a banner, a call, the way to the background: the reply
++// being written stops within 300 ms and is written again on return.)
++- (void)resignActive:(NSNotification *)notification { ScummverseLocalAI::runtime().suspend(300); }
++- (void)becomeActive:(NSNotification *)notification { ScummverseLocalAI::runtime().resume(); }
++// (Before the process exits, while llama's statics still live.)
++- (void)terminate:(NSNotification *)notification { ScummverseLocalAI::runtime().shutdown(); }
+ 
+ - (BOOL)isDownloading { return _task != nil; }
+ - (NSString *)statusText {
+@@ -204,7 +251,7 @@
+ 	return _notice ?: [NSString stringWithUTF8String:ScummverseLocalAI::runtime().getStatus().c_str()];
+ }
+ - (void)deleteModels {
+-	[self disable]; [[NSFileManager defaultManager] removeItemAtURL:[self directory] error:nil];
++	++_wipes; [self disable]; [[NSFileManager defaultManager] removeItemAtURL:[self directory] error:nil];
+ 	[self setNotice:@"Models deleted. Classic dialogue is active."];
+ }
+ - (void)showFrom:(UIView *)view {
+@@ -240,7 +287,8 @@
+ 		cell.textLabel.text = names[row - 1];
+ 		BOOL available = [settings hasCapacity:row] && ![settings isDownloading];
+ 		cell.userInteractionEnabled = available; cell.textLabel.enabled = available;
+-		cell.detailTextLabel.text = available ? @"Tap to use or download over Wi-Fi" : @"Unavailable while downloading, low on free memory, or too warm";
++		cell.detailTextLabel.text = available ? @"Tap to use or download over Wi-Fi" : ![settings fits:row] ? @"Needs a phone with more memory" :
++			@"Unavailable while downloading, low on free memory, or too warm";
+ 	} else if (row == 4) { cell.textLabel.text = @"Classic / cancel download"; }
+ 	else { cell.textLabel.text = @"Delete downloaded models"; cell.textLabel.textColor = UIColor.systemRedColor; }
+ 	return cell;
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 20648e1c..a3d4a836 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -52,7 +52,11 @@ static BOOL scummverseSystemMenu=NO;
+ 		_history=[[[UITextView alloc] init] autorelease]; _history.editable=NO; _history.backgroundColor=UIColor.clearColor; _history.textColor=UIColor.whiteColor; _history.font=[UIFont systemFontOfSize:14]; [self addSubview:_history];
+ 		_arrive=[UIButton buttonWithType:UIButtonTypeSystem]; [_arrive setTitle:@"Arrive" forState:UIControlStateNormal]; [_arrive setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; _arrive.backgroundColor=[UIColor colorWithWhite:0 alpha:0.8]; _arrive.layer.cornerRadius=6; [_arrive addTarget:self action:@selector(arrive) forControlEvents:UIControlEventTouchUpInside]; [host addSubview:_arrive];
+ 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
+-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(close) name:UIApplicationWillResignActiveNotification object:nil];
++		// (Control Center, a banner or the Photos prompt only let the keyboard
++		// go; the reply being written waits (scummverse_ai_ui.inc). The
++		// background, which unloads the model, ends the conversation.)
++		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(resignActive) name:UIApplicationWillResignActiveNotification object:nil];
++		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(close) name:UIApplicationDidEnterBackgroundNotification object:nil];
+ 		_timer=[NSTimer scheduledTimerWithTimeInterval:0.15 target:self selector:@selector(refresh) userInfo:nil repeats:YES];
+ 		self.hidden=YES;
+ 	} return self;
+@@ -73,6 +77,7 @@ static BOOL scummverseSystemMenu=NO;
+ 	scummverseWorldRequest(ScummverseLocalAI::sceneToken() | ((ScummverseLocalAI::follows(actor)?96:64)+actor));
+ }
+ - (void)arrive { scummverseWorldRequest(ScummverseLocalAI::sceneToken() | 24); }
++- (void)resignActive { [self endEditing:YES]; }
+ - (void)close {
+ 	[self endEditing:YES]; _open=NO; _showHistory=NO; self.hidden=YES;
+ 	ScummverseLocalAI::runtime().endTalk(); [_error release]; _error=nil;

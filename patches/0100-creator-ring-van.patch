@@ -1,0 +1,262 @@
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index 0790e422..79d76fc3 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -16,8 +16,16 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 	return image;
+ }
+ 
+-// How long a box is held for everyone in its game (the bar fills meanwhile).
+-static const NSTimeInterval kScummverseCastHold = 0.6;
++// How long a box is held for everyone in its game (a green ring runs round
++// the box meanwhile; the user: "make the long press green and goes around
++// the main characters", ".5 sec").
++static const NSTimeInterval kScummverseCastHold = 0.5;
++
++// A box's hold ring (named "hold" among its layers).
++static CAShapeLayer *scummverseHoldRing(UIView *tile) {
++	for (CALayer *layer in tile.layer.sublayers) if ([layer.name isEqualToString:@"hold"]) return (CAShapeLayer *)layer;
++	return nil;
++}
+ 
+ @interface ScummverseCastController : UIViewController {
+ 	UIScrollView *_grid;
+@@ -91,9 +99,10 @@ static const NSTimeInterval kScummverseCastHold = 0.6;
+ 		UILabel *hint = [[[UILabel alloc] init] autorelease]; hint.tag = 202; hint.textAlignment = NSTextAlignmentCenter;
+ 		hint.textColor = [UIColor colorWithWhite:0.75 alpha:1]; hint.font = [UIFont systemFontOfSize:11]; hint.adjustsFontSizeToFitWidth = YES; hint.minimumScaleFactor = 0.6;
+ 		hint.text = here ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
+-		// Holding a box fills this bar until the list of everyone opens.
+-		UIView *bar = [[[UIView alloc] init] autorelease]; bar.tag = 203; bar.userInteractionEnabled = NO;
+-		bar.backgroundColor = [UIColor colorWithRed:0.75 green:0.45 blue:1 alpha:1]; bar.layer.cornerRadius = 2; bar.hidden = !here; [tile addSubview:bar];
++		// Holding a box runs this ring round it until the list of everyone opens.
++		CAShapeLayer *ring = [CAShapeLayer layer]; ring.name = @"hold"; ring.hidden = !here;
++		ring.fillColor = UIColor.clearColor.CGColor; ring.strokeColor = [UIColor colorWithRed:0.20 green:0.90 blue:0.35 alpha:1].CGColor;
++		ring.lineWidth = 4; ring.lineCap = kCALineCapRound; ring.strokeEnd = 0; [tile.layer addSublayer:ring];
+ 		tile.accessibilityLabel = here ? [NSString stringWithFormat:@"Play as %@, %@", people[0][0], scummverseCastTitles[slot]] : [NSString stringWithFormat:@"%@, not added", scummverseCastTitles[slot]];
+ 		tile.accessibilityHint = here ? @"Long press for everyone in this game" : nil;
+ 		[tile addTarget:self action:@selector(choose:) forControlEvents:UIControlEventTouchUpInside];
+@@ -125,8 +134,13 @@ static const NSTimeInterval kScummverseCastHold = 0.6;
+ 		[tile viewWithTag:200].frame = CGRectMake(6, 4, w - 12, h - 54);
+ 		[tile viewWithTag:201].frame = CGRectMake(3, h - 50, w - 6, 30);
+ 		[tile viewWithTag:202].frame = CGRectMake(3, h - 20, w - 6, 14);
+-		// A box being held keeps its filling bar.
+-		if (!((UIButton *)tile).tracking) [self resetBar:(UIButton *)tile];
++		// The ring follows the box's rounded edge; a box being held keeps its running ring.
++		CAShapeLayer *ring = scummverseHoldRing(tile);
++		[CATransaction begin]; [CATransaction setDisableActions:YES];
++		ring.frame = tile.bounds;
++		ring.path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(tile.bounds, 2, 2) cornerRadius:7].CGPath;
++		[CATransaction commit];
++		if (!((UIButton *)tile).tracking) [self resetRing:(UIButton *)tile];
+ 		++i;
+ 	}
+ 	_grid.contentSize = CGSizeMake(_grid.bounds.size.width, rows * height);
+@@ -135,26 +149,28 @@ static const NSTimeInterval kScummverseCastHold = 0.6;
+ 	scummverseWorldRequest(request);
+ 	[self done];
+ }
+-// The hold bar: empty along the box's foot, filling over the long press.
+-- (void)resetBar:(UIButton *)tile {
+-	UIView *bar = [tile viewWithTag:203];
+-	[bar.layer removeAllAnimations];
+-	bar.frame = CGRectMake(6, tile.bounds.size.height - 6, 0, 4);
++// The hold ring: none until a box is held, then running once round it over
++// the long press.
++- (void)resetRing:(UIButton *)tile {
++	CAShapeLayer *ring = scummverseHoldRing(tile);
++	[ring removeAllAnimations];
++	[CATransaction begin]; [CATransaction setDisableActions:YES]; ring.strokeEnd = 0; [CATransaction commit];
+ }
+ - (void)press:(UIButton *)tile {
+ 	tile.backgroundColor = [UIColor colorWithRed:0.38 green:0.12 blue:0.50 alpha:1];
+-	UIView *bar = [tile viewWithTag:203];
+-	[self resetBar:tile];
+-	const CGFloat full = tile.bounds.size.width - 12;
++	CAShapeLayer *ring = scummverseHoldRing(tile);
++	[self resetRing:tile];
+ 	// The scroll view hands a touch over a moment late (delaysContentTouches):
+-	// the bar fills that much sooner, so it is full when the list opens.
+-	[UIView animateWithDuration:MAX(0.1, kScummverseCastHold - 0.15) delay:0 options:UIViewAnimationOptionCurveLinear | UIViewAnimationOptionAllowUserInteraction animations:^{
+-		CGRect f = bar.frame; f.size.width = full; bar.frame = f;
+-	} completion:nil];
++	// the ring runs that much sooner, so it closes when the list opens.
++	CABasicAnimation *run = [CABasicAnimation animationWithKeyPath:@"strokeEnd"];
++	run.fromValue = @0; run.toValue = @1; run.duration = MAX(0.1, kScummverseCastHold - 0.15);
++	run.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
++	run.fillMode = kCAFillModeForwards; run.removedOnCompletion = NO;
++	[ring addAnimation:run forKey:@"hold"];
+ }
+ - (void)unpress:(UIButton *)tile {
+ 	tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1];
+-	[self resetBar:tile];
++	[self resetRing:tile];
+ }
+ - (void)choose:(UIButton *)tile {
+ 	if (self.presentedViewController) return;
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index cfb524bd..6397db72 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 15;
++static const int kWorldExportVersion = 16;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -153,6 +153,11 @@ static const WorldCostumeVariant kWorldCostumeVariants[] = {
+ 	{9, 949, 49, -1, -1, -1, -1, -1, 11}, // Curse's Murray in the green of the ship's hold
+ 	{8, 128, 128, 1, 15, 15, -1, -1, 0}, // The Dig's nest monster: its crawl is animation 15, still its first step
+ 	{9, 49, 12, -1, -1, -1, -1, -1, 14}, // Curse's Murray: his head alone (costume 12, not 49's plank), bone white in Plunder Island's colours (his own room's make him orange)
++	// The Dig's Creator: the game never walks it and its own walk, stand and
++	// talk are one still picture (the user: "Creator isn't animated. Just
++	// moves around lifelessly"); it talks with its head and mouth
++	// (animation 13), and walks on swinging legs (kWorldLegSwings).
++	{8, 321, 321, 1, 2, 3, 13, 3, 0},
+ };
+ inline const WorldCostumeVariant *worldCostumeVariant(int game, int costume) {
+ 	for (const auto &v : kWorldCostumeVariants) if (v.game == game && v.costume == costume) return &v;
+@@ -187,6 +192,17 @@ inline const WorldCostumeGraft *worldCostumeGraft(int game, int costume) {
+ 	for (const auto &g : kWorldCostumeGrafts) if (g.game == game && g.costume == costume) return &g;
+ 	return nullptr;
+ }
++// Guests the game drew facing one way only (`right`: facing right): facing
++// the other way they are its mirror (the Dig's Creator walked left still
++// facing right).
++struct WorldOneFacing { short game, costume; bool right; };
++static const WorldOneFacing kWorldOneFacings[] = {
++	{8, 321, true}, // The Dig's Creator
++};
++inline const WorldOneFacing *worldOneFacing(int game, int costume) {
++	for (const auto &f : kWorldOneFacings) if (f.game == game && f.costume == costume) return &f;
++	return nullptr;
++}
+ // Guests crammed into a plane seat (the user: "hilariously oversized
+ // sitting in the plane seats", "conform [to the] general shape of the seats
+ // and look like they're crammed in them"): their seated pose if they have
+@@ -295,7 +311,8 @@ inline const WorldSideView *worldSideView(int game, int costume) {
+ // far one as a camel paces, the feet `reach` pixels each way.
+ struct WorldLegSwing { short game, costume, hip, reach; };
+ static const WorldLegSwing kWorldLegSwings[] = {
+-	{4, 93, 60, 6}, // Fate of Atlantis' camel
++	{4, 93, 60, 6},  // Fate of Atlantis' camel
++	{8, 321, 76, 6}, // The Dig's Creator, mid-stride in its picture
+ };
+ static const int kWorldLegSwingFrames = 8;
+ inline const WorldLegSwing *worldLegSwing(int game, int costume) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index db4a2018..30e3a864 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1852,6 +1852,7 @@ protected:
+ 	bool scummverseVanFlying() const;
+ 	bool scummverseInVan() const;
+ 	int scummverseVanSite() const;
++	int scummverseVanRoom() const;
+ 	bool scummverseVanSiteHere(int site) const;
+ 	bool scummverseVanRect(int &x, int &y, int &w, int &h);
+ 	bool scummverseLoadVan();
+diff --git a/engines/scumm/scummverse_van.inc b/engines/scumm/scummverse_van.inc
+index 5cdb0a7e..cd83c79d 100644
+--- a/engines/scumm/scummverse_van.inc
++++ b/engines/scumm/scummverse_van.inc
+@@ -37,6 +37,19 @@ int ScummEngine::scummverseVanSite() const {
+ 	return site >= 0 && site < kWorldVanSiteCount ? site : 0;
+ }
+ 
++// The room the van stands in (a world's only while a room slot holds that
++// place), or 0.
++int ScummEngine::scummverseVanRoom() const {
++	const int site = scummverseVanSite();
++	if (site < 0) return 0;
++	if (site == 0) return kVanLandingSite;
++	const WorldVanSite &s = kWorldVanSites[site];
++	if (s.game < 0) return s.room;
++	const int key = s.game * 1024 + s.room + 1;
++	for (int i = 0; i < kWorldRoomSlots; ++i) if (_scummVars[kWorldSlotVar + i] == key) return kWorldSlotRoom + i;
++	return 0;
++}
++
+ // Whether the viewed room is a site's room.
+ bool ScummEngine::scummverseVanSiteHere(int site) const {
+ 	if (site < 0 || site >= kWorldVanSiteCount) return false;
+@@ -270,9 +283,18 @@ void ScummEngine::scummverseVanRequest(int site) {
+ 	if (_scummVars[kVanPhaseVar] >= kVanLiftoff) { _scummVars[kVanDestinationVar] = 0; scummverseVanLand(site); return; }
+ 	if (_currentRoom != kVanCockpit || _scummVars[kVanPhaseVar]) return;
+ 	_scummVars[kVanDestinationVar] = site + 1;
+-	// Everyone in the cockpit flies along.
++	// Everyone in the cockpit flies along, and whoever stands where the van
++	// is parked jumps in too (the user: "None of the other npcs jump in with
++	// me"), unless already on another ride (the bus, a flight, the tram).
++	const int parked = scummverseVanRoom();
+ 	unsigned riders = 0;
+-	for (int id : mansionCast) if (!scummverseRemoteActor(id) && derefActor(id, "van rider")->_room == kVanCockpit) riders |= 1u << id;
++	for (int id : mansionCast) {
++		if (scummverseRemoteActor(id)) continue;
++		const unsigned bit = 1u << id;
++		const int room = derefActor(id, "van rider")->_room;
++		const bool riding = (_scummVars[766] & bit) || (_scummVars[724] && (_scummVars[725] & bit)) || (_scummVars[610] & bit);
++		if (room == kVanCockpit || (parked && room == parked && !riding)) riders |= bit;
++	}
+ 	_scummVars[kVanRidersVar] = riders; _scummVars[kVanPhaseVar] = 1;
+ 	scummverseAnnounce("All systems go. Hold on to something!");
+ }
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index be7b47af..32e6e919 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -893,6 +893,9 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 		if (kind == 2 && variant && variant->init >= 0 && variant->talkStart < 0) continue;
+ 		// A walk drawn under one facing serves them all.
+ 		const bool sideways = kind == 1 && side && !remote;
++		// A variant's own animations each start from its set-up (a chore keeps
++		// the layers it does not name: the Creator's talk tucks its arm in).
++		if (variant && variant->init >= 0) setUp(sideways ? side->facing : facings[dir]);
+ 		a->setDirection(sideways ? side->facing : facings[dir]);
+ 		a->startAnimActor(stand); step();
+ 		if (kind) a->startAnimActor(kind == 1 ? a->_walkFrame : a->_talkStartFrame);
+@@ -924,6 +927,9 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 				frames.push_back(f);
+ 			}
+ 	}
++	// Drawn facing one way only: the other facing is its mirror.
++	if (const WorldOneFacing *one = worldOneFacing(gameIndex, named))
++		for (ScummverseGuestFrame &f : frames) if (f.dir == (one->right ? 0 : 1)) f.mirror();
+ 	if (tables) for (int k = 0; k < 8; ++k) for (int c = 0; c < 2; ++c) _shadowPalette[k * 256 + 254 + c] = shades[k][c];
+ 	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false); a->_shadowMode = 0;
+ 	a->_ignoreBoxes = false;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 1526138f..b599b01a 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -563,19 +563,26 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 		// seatTop) down, seatSink percent of them below the seat's front;
+ 		// what the pose puts over the seat's front (a leg over the armrest)
+ 		// drawn over it.
++		// Without a seated pose their standing picture sets the size and
++		// place, so talking or a gesture does not change either.
+ 		const byte *over = nullptr;
++		int rdx = dx, rdy = dy, rw = width, rh = height;
+ 		if (WorldBridge::guestFrames(sprite, 1, kWorldSeatedKind) > 0) {
+ 			frame = WorldBridge::guestFrame(sprite, 1, kWorldSeatedKind, 0, dx, dy, width, height);
++			rdx = dx; rdy = dy; rw = width; rh = height;
+ 			int odx, ody, ow = 0, oh = 0;
+ 			if (WorldBridge::guestFrames(sprite, 1, kWorldSeatedKind) > 1)
+ 				over = WorldBridge::guestFrame(sprite, 1, kWorldSeatedKind, 1, odx, ody, ow, oh);
+ 			if (ow != width || oh != height) over = nullptr;
++		} else if (!WorldBridge::guestFrame(sprite, dir, 0, 0, rdx, rdy, rw, rh)) {
++			rdx = dx; rdy = dy; rw = width; rh = height;
+ 		}
+ 		if (!frame) return true;
+ 		const double total = (kWorldSeatCushion - style.seatTop) * 100.0 / (100 - style.seatSink);
+-		const double sy = total / height, sx = MAX((double)style.seatWidth / width, sy * 100 / style.seatSquash);
++		const double sy = total / rh, sx = MAX((double)style.seatWidth / rw, sy * 100 / style.seatSquash);
+ 		const int bw = (int)(width * sx), bh = (int)(height * sy);
+-		const int bx = a->getPos().x - vs.xstart + style.seatBack, by = kWorldSeatCushion + (int)(total * style.seatSink / 100) - bh;
++		const int bx = a->getPos().x - vs.xstart + style.seatBack + (int)floor((dx - rdx) * sx);
++		const int by = kWorldSeatCushion + (int)(total * style.seatSink / 100) - (int)(rh * sy) + (int)floor((dy - rdy) * sy);
+ 		const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + bw), top = MAX(0, by);
+ 		int bottom = top;
+ 		for (int layer = 0; layer < (over ? 2 : 1); ++layer) {

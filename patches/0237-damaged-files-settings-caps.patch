@@ -1,0 +1,308 @@
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 3190037b..8e4e623d 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -43,6 +43,7 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ 	if (v2) {
+ 		if (size < fixed + 2) { error = "truncated scene"; return false; }
+ 		const int objects = read16(p); p += 2;
++		if (objects > kMostSceneObjects) { error = "too many objects"; return false; }
+ 		const size_t record = v4 ? 16 : 14; // "SVW4" adds the object's state.
+ 		const size_t known = fixed + 2 + (size_t)objects * record + (v3 ? (size_t)boxes * 2 : 0);
+ 		if (v5 ? size < known : size != known) { error = "truncated scene"; return false; }
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index d76e3616..b46abd8e 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -146,7 +146,10 @@ bool fitSprite(const SourceSprite &source, double scale, int firstSlot, int slot
+ 
+ // Parses an "SVW1" or "SVW2" scene (SVW2 appends the room's objects: u16
+ // count, then per object u16 id, int16 x, y, width, height, walkX, walkY).
+-// False (with a reason) for anything malformed.
++// False (with a reason) for anything malformed, or with more objects than
++// any game's room has (a few dozen; thousands, a damaged or made-up file,
++// would keep the engines minutes over each place).
++static const int kMostSceneObjects = 1024;
+ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error);
+ 
+ // Scales to targetHeight (area average, then nearest of the scene's own
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index 8205912d..baff1c13 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -80,6 +80,16 @@ bool spriteParses(const unsigned char *data, size_t size);
+ // A valid empty 320x128 V1 room (no boxes), for when no scene is available.
+ const unsigned char *blankRoom(int &size);
+ 
++// Whether a file of the worlds cache is read whole at the size its stream
++// gives (`stored`: its bytes on disk). A compressed one's is what its last
++// four bytes say: anything, gigabytes, in one an export stopped partway
++// through. Never more than deflate makes of the bytes there (1032 to 1), nor
++// than the largest file kept (a character, a few megabytes); else not read.
++static const long long kMostCacheFile = 64LL << 20;
++inline bool readableSize(long long size, long long stored) {
++	return size > 0 && stored > 0 && size <= kMostCacheFile && size <= stored * 1032;
++}
++
+ } // End of namespace WorldBridge
+ } // End of namespace Scummverse
+ 
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 67ec2c47..d1283969 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -134,6 +134,22 @@ namespace Scumm {
+ // Use g_scumm from error() ONLY
+ ScummEngine *g_scumm = nullptr;
+ 
++// SCUMMVERSE: a setting of ours as ConfMan reads it (its registered default
++// when unset); one it cannot read (a settings file cut short as the app was
++// stopped writing it) as `otherwise`: its own getInt and getBool end the
++// app there.
++static int scummverseSetting(const Common::String &key, int otherwise, const Common::String &domain = Common::String()) {
++	if (!ConfMan.hasKey(key, domain)) return otherwise;
++	const Common::String text = ConfMan.get(key, domain);
++	char *end = nullptr;
++	const long number = strtol(text.c_str(), &end, 0);
++	return end == text.c_str() ? otherwise : (int)number;
++}
++static bool scummverseSwitch(const char *key, bool otherwise) {
++	bool value;
++	return Common::parseBool(ConfMan.get(key), value) ? value : otherwise;
++}
++
+ 
+ struct dbgChannelDesc {
+ 	const char *channel, *desc;
+@@ -182,7 +198,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	// A game's story (scummverse_story.inc): its own engine, its own way;
+ 	// only the Worlds menu's way out of it. (The mansion's own story too:
+ 	// none of the mansion's additions.)
+-	_scummverseStory = ConfMan.hasKey("scummverse_story") && ConfMan.getBool("scummverse_story") && !ConfMan.hasKey("scummverse_world_export");
++	_scummverseStory = ConfMan.hasKey("scummverse_story") && scummverseSwitch("scummverse_story", false) && !ConfMan.hasKey("scummverse_world_export");
+ 	const bool auditedManiac = _game.id == GID_MANIAC &&
+ 		_game.version == 1 && _game.platform == Common::kPlatformDOS &&
+ 		!(_game.features & GF_DEMO) && !_scummverseStory &&
+@@ -192,11 +208,11 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	// tables are checked against.)
+ 	_scummverseAuditedZak = _game.id == GID_ZAK && _game.version == 1 && _game.platform == Common::kPlatformDOS &&
+ 		!(_game.features & GF_DEMO) && dr.md5 == "7020931d5a2be0a49d68e7a1882363e4";
+-	_scummverseRoaming = auditedManiac && ConfMan.getBool("scummverse_roaming");
++	_scummverseRoaming = auditedManiac && scummverseSwitch("scummverse_roaming", true);
+ 	_scummverseExplorationDoors = auditedManiac &&
+-		ConfMan.getBool("scummverse_exploration_doors");
++		scummverseSwitch("scummverse_exploration_doors", true);
+ 	_scummverseExplorationSafety = auditedManiac &&
+-		ConfMan.getBool("scummverse_exploration_safety");
++		scummverseSwitch("scummverse_exploration_safety", true);
+ 	// (A request left from before a story started is dropped.)
+ 	if (_scummverseStory) {
+ 		scummverseWorldPoll();
+@@ -4049,7 +4065,7 @@ void ScummEngine::runBootscript() {
+ 		const int written = scummverseExportWorld(ConfMan.getPath("scummverse_world_export"));
+ 		_scummverseExporting = false;
+ 		warning("SCUMMVERSE_WORLD_EXPORT %s %d", _game.gameid, written);
+-		if (written) warning("SCUMMVERSE_WORLD_EXPORT_PASS enabled=%d", ConfMan.getBool("scummverse_roaming"));
++		if (written) warning("SCUMMVERSE_WORLD_EXPORT_PASS enabled=%d", scummverseSwitch("scummverse_roaming", true));
+ 		quitGame();
+ 		return;
+ 	}
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index 8d15a988..fafa7edc 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -24,7 +24,7 @@
+ // numbers).
+ static int scummverseStoryOrder(const Common::String &target, int slot) {
+ 	const Common::String key = Common::String::format("scummverse_story_order%d", slot);
+-	return ConfMan.hasKey(key, target) ? ConfMan.getInt(key, target) : 0;
++	return scummverseSetting(key, 0, target);
+ }
+ 
+ // A story's save written, in its story slot or as its autosave (any way:
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index e9aad44a..0b6e3270 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -417,7 +417,7 @@ void ScummEngine::scummverseTourEnd(bool home) {
+ }
+ 
+ void ScummEngine::scummverseTourCommand(int command, int number) {
+-	const int saved = CLIP(ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1, 1, MAX(1, scummverseTourCount()));
++	const int saved = CLIP(scummverseSetting("scummverse_tour_stop", 1), 1, MAX(1, scummverseTourCount()));
+ 	switch (command) {
+ 	case ScummverseTour::kResume: if (!_scummverseTouring) scummverseTourStart(saved - 1); break;
+ 	case ScummverseTour::kRestart: scummverseTourStart(0); break;
+@@ -473,9 +473,9 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 	const int total = scummverseTourCount();
+ 	if (!_scummverseTourPublished) {
+ 		_scummverseTourPublished = true;
+-		const int saved = ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1;
++		const int saved = scummverseSetting("scummverse_tour_stop", 1);
+ 		_scummverseTourStop = _scummverseTourShown = CLIP(saved, 1, MAX(1, total)) - 1;
+-		if (ConfMan.hasKey("scummverse_tour_speed")) ScummverseTour::setSpeed(ConfMan.getInt("scummverse_tour_speed"));
++		if (ConfMan.hasKey("scummverse_tour_speed")) ScummverseTour::setSpeed(scummverseSetting("scummverse_tour_speed", 1));
+ 		scummverseTourPublish("");
+ 	}
+ 	// The speed chosen (remembered; waitForTimer plays the game faster while
+diff --git a/engines/scumm/scummverse_van.inc b/engines/scumm/scummverse_van.inc
+index 0db7ce25..b9284331 100644
+--- a/engines/scumm/scummverse_van.inc
++++ b/engines/scumm/scummverse_van.inc
+@@ -64,7 +64,9 @@ bool ScummEngine::scummverseVanRect(int &x, int &y, int &w, int &h) {
+ 	const int site = scummverseVanSite();
+ 	if (site <= 0 || !scummverseVanSiteHere(site)) return false;
+ 	const bool picture = scummverseLoadVan();
+-	const double scale = MAX(10, _scummVars[kVanScaleVar] ? _scummVars[kVanScaleVar] : 100) / 100.0;
++	// (Its scale as parked, at most twice or so; one a damaged save holds,
++	// within ten times.)
++	const double scale = CLIP(_scummVars[kVanScaleVar] ? _scummVars[kVanScaleVar] : 100, 10, 1000) / 100.0;
+ 	w = MAX(1, (int)((picture ? _scummverseVanW : kVanWidth) * scale)); h = MAX(1, (int)((picture ? _scummverseVanH : kVanHeight) * scale));
+ 	x = _scummVars[kVanXVar]; y = _scummVars[kVanYVar] - h;
+ 	return true;
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 627b85f0..2cdfd8c9 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -64,7 +64,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 	_scummverseWanderBuilt = true;
+ 	// (Off with scummverse_wanderers=false: the engine tests keep their
+ 	// rooms as they were.)
+-	_scummverseWanderersOn = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
++	_scummverseWanderersOn = !ConfMan.hasKey("scummverse_wanderers") || scummverseSwitch("scummverse_wanderers", true);
+ 	if (!_scummverseWanderersOn) return;
+ 	WanderBridge::reset(_rnd.getRandomNumber(0x7FFFFFFE) + 1);
+ 	wanderStandingSig = 0;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 4209db38..e931fee0 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -142,13 +142,17 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	// The cache lives outside the game's search paths: open it directly.
+ 	const Common::FSNode node(file);
+ 	// Scene files are gzip-compressed (older exports are plain; both read).
+-	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
++	Common::SeekableReadStream *stored = node.exists() ? node.createReadStream() : nullptr;
++	const int64 storedSize = stored ? stored->size() : 0;
++	Common::ScopedPtr<Common::SeekableReadStream> in(stored ? Common::wrapCompressedReadStream(stored) : nullptr);
+ 	if (!in) {
+ 		_scummverseWorldNotice = Common::String::format("%s isn't installed. Add your copy of %s to Documents/%s.", placeName.c_str(), game->title, game->folder);
+ 		return false;
+ 	}
+-	Common::Array<byte> data; data.resize(in->size());
+-	if (in->read(data.data(), data.size()) != data.size()) { _scummverseWorldNotice = "The scene file could not be read."; return false; }
++	// (A damaged one's size says anything: WorldBridge::readableSize.)
++	Common::Array<byte> data;
++	if (WorldBridge::readableSize(in->size(), storedSize)) data.resize(in->size());
++	if (data.empty() || in->read(data.data(), data.size()) != data.size()) { _scummverseWorldNotice = "The scene file could not be read."; return false; }
+ 	// The scene leaves its characters more colours when many are expected
+ 	// here: its own at home, wanderers visiting, anyone playing someone.
+ 	int expected = 0;
+@@ -193,7 +197,7 @@ Common::Array<byte> ScummEngine::scummverseCharacterFrames(int game, int costume
+ 	if (game < 0 || game >= worldGameCount()) return data;
+ 	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-c%d.svc", kWorldGames[game].gameid, costume)));
+ 	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
+-	if (in) { data.resize(in->size()); if (in->read(data.data(), data.size()) != data.size()) data.clear(); }
++	if (in && WorldBridge::readableSize(in->size(), in->size())) { data.resize(in->size()); if (in->read(data.data(), data.size()) != data.size()) data.clear(); }
+ 	return data;
+ }
+ 
+@@ -1365,11 +1369,14 @@ void ScummEngine::scummverseMountDigTram(int game, int source) {
+ 	int line, end;
+ 	if (!worldTramStop(game, source, line, end)) return;
+ 	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-%d-car.svw", kWorldGames[game].gameid, source)));
+-	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
++	Common::SeekableReadStream *stored = node.exists() ? node.createReadStream() : nullptr;
++	const int64 storedSize = stored ? stored->size() : 0;
++	Common::ScopedPtr<Common::SeekableReadStream> in(stored ? Common::wrapCompressedReadStream(stored) : nullptr);
+ 	if (!in) return; // An older export: the car stays unseen.
+-	Common::Array<byte> data; data.resize(in->size());
++	Common::Array<byte> data;
++	if (WorldBridge::readableSize(in->size(), storedSize)) data.resize(in->size()); // (a damaged one's says anything)
+ 	char problem[128];
+-	if (in->read(data.data(), data.size()) != data.size() || !WorldBridge::mountPicture(data.data(), data.size(), problem, sizeof(problem)))
++	if (data.empty() || in->read(data.data(), data.size()) != data.size() || !WorldBridge::mountPicture(data.data(), data.size(), problem, sizeof(problem)))
+ 		warning("SCUMMVERSE world: tram car not shown");
+ 	else { _scummverseDigTramPicture = true; _scummverseDigTramShown = 1 << 20; _scummverseDigTramAmount = 256; }
+ }
+@@ -1407,6 +1414,8 @@ void ScummEngine::scummverseServiceDigTram(int delta) {
+ 			else if (dx <= 2 && dy <= 3 && _scummverseDigTramArmed && !player->_moving) scummverseCallDigTram(line, end);
+ 		}
+ 	}
++	// (A trip no line has, as a damaged save may hold: none.)
++	if (_scummVars[609] && (_scummVars[611] < 1 || _scummVars[611] > 2 * kWorldTramLineCount)) _scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
+ 	const int previous = _scummVars[609];
+ 	if (previous) {
+ 		const int phase = _scummVars[609] += MIN(delta, 60);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 8083725f..6b4f5f95 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -111,6 +111,23 @@ static bool walkable(int game, int room) {
+ 	return kind != kWorldMapRoom && kind != kWorldFloorPlan;
+ }
+ 
++// A setting kept between launches, as ConfMan reads it; one it cannot read
++// (a settings file cut short as the app was stopped writing it) as not
++// kept: its own getInt and getBool end the app there.
++static bool keptInt(const char *key, int &value) {
++	if (!ConfMan.hasKey(key)) return false;
++	const Common::String text = ConfMan.get(key);
++	char *end = nullptr;
++	const long number = strtol(text.c_str(), &end, 0);
++	if (end == text.c_str()) return false;
++	value = (int)number;
++	return true;
++}
++static bool keptBool(const char *key, bool otherwise) {
++	bool value;
++	return ConfMan.hasKey(key) && Common::parseBool(ConfMan.get(key), value) ? value : otherwise;
++}
++
+ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
+ 	_phone = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick, scummverseTravelScene,
+ 		scummverseCastGame, scummverseCastMember, scummverseCastShow, scummversePlacesBegin, scummversePlacesItem, scummversePlacesCancel, scummversePlacesShow, scummversePlacesHide,
+@@ -134,8 +151,11 @@ bool SandboxEngine::hasFeature(EngineFeature f) const {
+ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data) const {
+ 	data.clear();
+ 	const Common::FSNode node = _folder.getChild(name);
+-	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
+-	if (!in || in->size() <= 0) return false;
++	Common::SeekableReadStream *file = node.exists() ? node.createReadStream() : nullptr;
++	const int64 stored = file ? file->size() : 0;
++	Common::ScopedPtr<Common::SeekableReadStream> in(file ? Common::wrapCompressedReadStream(file) : nullptr);
++	// (A damaged one's size says anything: WorldBridge::readableSize.)
++	if (!in || !WorldBridge::readableSize(in->size(), stored)) return false;
+ 	data.resize(in->size());
+ 	return in->read(data.data(), data.size()) == data.size();
+ }
+@@ -4094,20 +4114,21 @@ Common::Error SandboxEngine::run() {
+ 	_frame.resize(_width * _height);
+ 	_converted.resize(_width * _height * _format.bytesPerPixel);
+ 	scan();
+-	_wanderers = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
+-	_verbs = !ConfMan.hasKey("scummverse_verbs") || ConfMan.getBool("scummverse_verbs");
++	_wanderers = keptBool("scummverse_wanderers", true);
++	_verbs = keptBool("scummverse_verbs", true);
+ 	PanelBridge::clearThings(); // (read afresh: the cache may have been exported again)
+ 	Camera::reset(); // (nothing from an earlier game)
+ 	Tour::reset();
+-	if (ConfMan.hasKey(kTourSpeedKey)) Tour::setSpeed(ConfMan.getInt(kTourSpeedKey));
++	int setting, vanX, vanY;
++	if (keptInt(kTourSpeedKey, setting)) Tour::setSpeed(setting);
+ 	_tourSpeed = Tour::speed();
+-	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+-	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
++	_touring.resumePlace = keptInt(kTourResumeKey, setting) ? setting : -1;
++	if (keptInt(kVanPlaceKey, setting)) _vanPlace = setting;
+ 	if (ConfMan.hasKey(kDarkKey)) lightsRead(ConfMan.get(kDarkKey));
+-	if (ConfMan.hasKey(kFlashlightKey)) _flashlight = ConfMan.getBool(kFlashlightKey);
++	_flashlight = keptBool(kFlashlightKey, _flashlight);
+ 	if (ConfMan.hasKey(kFollowersKey)) followersRead(ConfMan.get(kFollowersKey));
+-	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+-	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
++	if (keptInt(kTramParkedKey, setting)) _tram.parked = (unsigned)setting & ((1u << (2 * kWorldTramLineCount)) - 1);
++	if (keptInt(kVanXKey, vanX) && keptInt(kVanYKey, vanY)) { _vanX = vanX; _vanY = vanY; }
+ 	vanHome();
+ 	if (ConfMan.hasKey(kWayBackKey)) {
+ 		WayBack w;

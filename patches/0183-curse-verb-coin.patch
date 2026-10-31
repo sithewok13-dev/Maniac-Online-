@@ -1,0 +1,335 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 48f76e12..e655bf1e 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -480,8 +480,15 @@ void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenH
+ 		}
+ 	}
+ 	// The name over it, centred on its banner, on the screen (a long one
+-	// past the coin's edges).
++	// past the coin's edges); or on the line the game keeps for it, centred
++	// there (The Curse's at the bottom of its screen).
+ 	const double width = textWidth(0, _coinName) * _colScale;
++	if (_source.sentenceCentred && _source.sentenceY > 0) {
++		const Rect at = onScreen(Rect(_source.sentenceX, _source.sentenceY, 1, 1));
++		const double pen = std::max(0.0, std::min(screenWidth - width, at.x - width / 2));
++		line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, at.y, _rowScale, _colScale, color(_source.nameInk));
++		return;
++	}
+ 	const double pen = std::max(0.0, std::min(screenWidth - width, on.x + _source.nameX * _colScale - width / 2));
+ 	line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, on.y + (int)std::lround(_source.nameY * _rowScale), _rowScale, _colScale, color(_source.nameInk));
+ }
+@@ -891,6 +898,7 @@ void removeItem(int item) {
+ void clearItems() { panel().setItems(std::vector<Panel::Item>()); }
+ void scroll(int by) { panel().scroll(by); }
+ int firstItem() { return panel().firstItem(); }
++bool arrows() { return panel().arrows(); }
+ void render(unsigned int *screen, int pitch, int screenHeight) { panel().render(screen, pitch, screenHeight); }
+ unsigned int talkColor(int index) {
+ 	return panel().color(index >= 0 && index < 256 ? index : panel().source().talkColor);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index ca8b96a3..f3143644 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -242,6 +242,7 @@ public:
+ 	void setItems(const std::vector<Item> &items);
+ 	const std::vector<Item> &items() const { return _items; }
+ 	int firstItem() const { return _first; }
++	bool arrows() const { return _source.up.width > 0 || _source.down.width > 0; } // (The Curse's chest has none)
+ 	void scroll(int by); // by a row of slots
+ 	// The panel's rows of a screen of 0xAARRGGBB (`pitch` pixels a row).
+ 	void render(uint32_t *screen, int pitch, int screenHeight) const;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 6c56b917..c3ce9ab7 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -89,6 +89,7 @@ void removeItem(int item);
+ void clearItems();
+ void scroll(int by);
+ int firstItem();
++bool arrows(); // (its box has arrows: The Curse's chest has none)
+ // Loom's distaff ("SVI4", under the scene): its verbs are its notes; one
+ // played (its verb) is lit, and at the fourth the draft they spin is
+ // returned (its index; 16 more played backwards; -2 none; -1 before the
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 8c62b6a7..311a71b3 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -33,11 +33,11 @@ static const int kWorldExportVersion = 22;
+ // from 0162 not fix; from 0168 what each thing is inside, drawn with that
+ // one open; from 0169 one its state makes untouchable away; from 0171 what
+ // two things do together, from 0172 from each picture): "maniac-v29", the
+-// rest as kWorldExportVersion, so only it is exported again.
++// rest as kWorldExportVersion, so only it is exported again. From 0183 The
++// Curse of Monkey Island's is one ahead too (its coin, from its fonts).
+ inline int worldExportVersion(const char *gameid) {
+-	const char *mansion = "maniac";
+-	while (*mansion && *gameid == *mansion) { ++mansion; ++gameid; }
+-	return kWorldExportVersion + (!*mansion && !*gameid ? 7 : 0);
++	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
++	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -866,6 +866,9 @@ static const WorldVerb kWorldVerbs[] = {
+ 	// Full Throttle: four, its coin's (see kWorldCoins): the skull's eyes,
+ 	// its teeth, the hand, the boot (a kick moves what a push would).
+ 	{7, 8, kWorldVerbLook}, {7, 10, kWorldVerbTalk}, {7, 9, kWorldVerbHand}, {7, 5, kWorldVerbPush},
++	// The Curse of Monkey Island: three, its coin's: the hand, the skull,
++	// the parrot (the mouth: talk to, eat).
++	{9, 7, kWorldVerbHand}, {9, 6, kWorldVerbLook}, {9, 8, kWorldVerbTalk},
+ };
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+@@ -908,26 +911,38 @@ inline const WorldOverlay *worldOverlay(int game) {
+ 	for (const auto &o : kWorldOverlays) if (o.game == game) return &o;
+ 	return nullptr;
+ }
+-// A game whose verbs are a coin held over a thing (Full Throttle's, the new
+-// engine's step 2f; "<game>-ui.svi" all the same, as "SVI3"). The coin is a
+-// costume (`coin`) in animation `idle`, its anchor (the actor's position)
+-// where it is held; each verb's part (`verbs`, the game's own numbers) lit
+-// in an animation of its own (`lit`); the name of what it is held over in
+-// lettering `charset`, colour `ink`, centred `nameY` below the anchor. A
+-// right click opens the things carried: a costume (`box`, animation
+-// `boxIdle`) with its anchor at (boxX, boxY) on the game's screen; its
+-// cells there (one row: the first's top left, their size, from one to the
+-// next, how many); its arrows there (`back`, `forward`: x, y, width,
+-// height; a thing each way), each shown in an animation of its own.
++// A game whose verbs are a coin held over a thing (Full Throttle's and The
++// Curse of Monkey Island's, the new engine's step 2f; "<game>-ui.svi" all
++// the same, as "SVI3"). The coin is a costume (`coin`) in animation `idle`,
++// its anchor (the actor's position) where it is held; each verb's part
++// (`verbs`, the game's own numbers, a 0 ends them) lit in an animation of
++// its own (`lit`); the name of what it is held over in lettering
++// `charset`, colour `ink`, centred `nameY` below the anchor, or, where
++// (nameAtX, nameAtY) is set, centred there on the game's screen (The
++// Curse's line at the bottom). A right click opens the things carried: a
++// costume (`box`, animation `boxIdle`) with its anchor at (boxX, boxY) on
++// the game's screen, or the blast object `boxBlast` the game draws (The
++// Curse's chest); its cells there (the first's top left, their size, from
++// one to the next across and down, how many across and down); its arrows
++// there (`back`, `forward`: x, y, width, height; a thing each way), each
++// shown in an animation of its own (none on a chest: as many cells as it
++// holds). `start`: an object its start asks to be tapped first (The
++// Curse's how hard: the plain game), then on until the player has the
++// pointer in another room, whose colours the coin is captured in.
+ struct WorldCoin {
+ 	short game, coin, idle, nameY, charset, ink;
+ 	short verbs[4], lit[4];
+ 	short box, boxIdle, boxX, boxY, cellX, cellY, cellWidth, cellHeight, stepX, columns;
+ 	short back[4], forward[4], backLit, forwardLit;
++	short stepY, rows, boxBlast, start, nameAtX, nameAtY;
+ };
+ static const WorldCoin kWorldCoins[] = {
+ 	{7, 5, 6, 18, 1, 7, {8, 10, 9, 5}, {18, 15, 9, 12},
+-	 6, 6, 160, 80, 103, 105, 28, 34, 29, 4, {88, 66, 52, 21}, {180, 66, 52, 21}, 14, 10},
++	 6, 6, 160, 80, 103, 105, 28, 34, 29, 4, {88, 66, 52, 21}, {180, 66, 52, 21}, 14, 10,
++	 0, 1, 0, 0, 0, 0},
++	{9, 1, 6, 0, 1, 19, {7, 6, 8, 0}, {7, 8, 9, 0},
++	 0, 0, 0, 0, 100, 180, 80, 56, 80, 6, {0, 0, 0, 0}, {0, 0, 0, 0}, 0, 0,
++	 56, 4, 114, 1365, 320, 440},
+ };
+ inline const WorldCoin *worldCoin(int game) {
+ 	for (const auto &c : kWorldCoins) if (c.game == game) return &c;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 54711a6d..8b049b9c 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -2324,15 +2324,23 @@ void ScummEngine::scummverseCaptureLettersV7(int charset, int ink, ScummverseUiF
+ 	font.glyphs.clear();
+ #ifdef ENABLE_SCUMM_7_8
+ 	// (Full Throttle's and The Dig's: charsets of the classic kind, as many
+-	// letters as theirs has. The Curse's own fonts are not taken yet.)
+-	if (_game.version != 7 || _game.heversion || charset < 0 || charset >= _numCharsets) return;
+-	const byte *resource = getResourceAddress(rtCharset, charset);
+-	if (!resource) return;
+-	const int count = MIN<int>(READ_LE_UINT16(resource + 29 + 2), 256);
+-	GlyphRenderer_v7 *glyphs = static_cast<CharsetRendererV7 *>(_charset);
++	// letters as theirs has. The Curse's: its own fonts, FONT0.NUT to
++	// FONT4.NUT, their plain letters.)
++	if ((_game.version != 7 && _game.version != 8) || _game.heversion || charset < 0) return;
++	int count = 127;
++	GlyphRenderer_v7 *glyphs = nullptr;
++	if (_game.version == 7) {
++		const byte *resource = charset < _numCharsets ? getResourceAddress(rtCharset, charset) : nullptr;
++		if (!resource) return;
++		count = MIN<int>(READ_LE_UINT16(resource + 29 + 2), 256);
++		glyphs = static_cast<CharsetRendererV7 *>(_charset);
++	} else {
++		if (charset > 4) return;
++		glyphs = static_cast<CharsetRendererNut *>(_charset);
++	}
+ 	_charset->setCurID(charset);
+ 	// (Its own colours, as the game loads them for each line it draws.)
+-	if (charset < (int)ARRAYSIZE(_charsetData)) memcpy(_charsetColorMap, _charsetData[charset], _game.id == GID_DIG ? sizeof(_charsetColorMap) : 4);
++	if (_game.version == 7 && charset < (int)ARRAYSIZE(_charsetData)) memcpy(_charsetColorMap, _charsetData[charset], _game.id == GID_DIG ? sizeof(_charsetColorMap) : 4);
+ 	font.height = MIN(_charset->getFontHeight(), 255);
+ 	// (Nothing drawn: a colour neither the ink nor one of the charset's.)
+ 	int none = 255;
+@@ -2575,8 +2583,8 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldCoin *coin = worldCoin(gameIndex);
+ 	if (!coin) { problem = "no controls"; return false; }
+-	if (_game.version != 7 || _game.heversion) { problem = "its controls are drawn its own way"; return false; }
+-	for (int c : {(int)coin->coin, (int)coin->box})
++	if ((_game.version != 7 && _game.version != 8) || _game.heversion) { problem = "its controls are drawn its own way"; return false; }
++	for (int c : {(int)coin->coin, coin->boxBlast ? (int)coin->coin : (int)coin->box})
+ 		if (c <= 0 || c >= _numCostumes || !_res->_types[rtCostume][c]._roomno) { problem = "costume missing"; return false; }
+ 	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) { vm.slot[i].status = ssDead; vm.slot[i].cutsceneOverride = 0; vm.slot[i].freezeCount = 0; }
+ 	_currentScript = 0xFF; vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF;
+@@ -2586,6 +2594,13 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 	memset(args, 0, sizeof(args));
+ 	args[0] = _bootParam;
+ 	_rnd.setSeed(0x5C0BE); // (The same start each time.)
++	// (The Curse's start from its variables as a fresh one has them, not as
++	// its places' export left them: else it opens its own main menu.)
++	if (coin->start) {
++		memset(_scummVars, 0, _numVariables * sizeof(int32));
++		memset(_bitVars, 0, _numBitVariables >> 3);
++		resetScummVars();
++	}
+ 	runScript(1, 0, 0, args);
+ 	int frame = 0;
+ 	auto frames = [&](int count) {
+@@ -2603,8 +2618,26 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 	auto ready = [&]() { return _userPut > 0 && _cursor.state > 0 && _cursor.width > 0 && _cursor.height > 0; };
+ 	int steady = 0;
+ 	while (frame < 3000 && !shouldQuit() && steady < 30) { frames(1); steady = ready() ? steady + 1 : 0; }
++	// (A start that asks first, The Curse's how hard: its answer tapped, the
++	// pointer moved there first as a player's would be, then on until the
++	// player has it in a room of the story.)
++	if (coin->start && steady >= 30 && getObjectIndex(coin->start) > 0) {
++		const ObjectData &o = _objs[getObjectIndex(coin->start)];
++		const int menu = _currentRoom;
++		_mouse.x = o.x_pos + o.width / 2 - _virtscr[kMainVirtScreen].xstart; _mouse.y = o.y_pos + o.height / 2 - _screenTop;
++		frames(5);
++		_leftBtnPressed = 1 | 2; frames(1); // (down and clicked)
++		_leftBtnPressed = 1; frames(2);
++		_leftBtnPressed = 0;
++		steady = 0;
++		while (frame < 6000 && !shouldQuit() && steady < 60) { frames(1); steady = ready() && _currentRoom != menu ? steady + 1 : 0; }
++		steady = steady >= 60 ? 30 : 0;
++	} else if (coin->start) steady = 0;
+ 	_scummverseMusicTimer = -1;
+-	if (steady < 30 || shouldQuit()) { problem = "its pointer never showed"; return false; }
++	if (steady < 30 || shouldQuit()) {
++		problem = Common::String::format("its pointer never showed (room %d, frame %d, controls %d, pointer %d)", _currentRoom, frame, _userPut, _cursor.state);
++		return false;
++	}
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 	const int W = _screenWidth, top = vs.topline, rows = MIN<int>(vs.h, _screenHeight - top);
+ 	if (top != 0 || rows <= 0 || vs.w < W) { problem = "no screen"; return false; }
+@@ -2635,9 +2668,10 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 		a->putActor(x + vs.xstart, y, _currentRoom);
+ 		a->_visible = true;
+ 		// (Its exact colours, as the game's kernel function 14 sets them, its
+-		// shadow colour kept as one and left out, as for the people.)
++		// shadow colour kept as one and left out, as for the people. The
++		// Curse's own are the room's as they are.)
+ 		a->_shadowMode = 1;
+-		a->remapActorPalette(255, 255, 255, 0);
++		if (_game.version == 7) a->remapActorPalette(255, 255, 255, 0);
+ 		a->startAnimActor(a->_initFrame);
+ 		a->startAnimActor(base);
+ 		if (anim != base) a->startAnimActor(anim);
+@@ -2686,10 +2720,44 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 			for (int x = px0; x <= px1; ++x) { const int c = at(lit[k], x, y); v.lit.push_back(MAX(c, 0)); v.litMask.push_back(c >= 0); }
+ 		ui.verbs.push_back(v);
+ 	}
+-	// The name, centred below the anchor, in its lettering.
++	// The name, centred below the anchor, in its lettering (or on the line
++	// the game keeps for it: The Curse's at the bottom).
+ 	ui.nameX = -x0; ui.nameY = -y0 + coin->nameY; ui.nameInk = coin->ink;
++	if (coin->nameAtY) { ui.sentenceX = coin->nameAtX; ui.sentenceY = coin->nameAtY; ui.sentenceCentred = true; ui.sentenceColor = coin->ink; }
+ 	scummverseCaptureLettersV7(coin->charset, coin->ink, ui.fonts[0]);
+ 	if (ui.fonts[0].glyphs.empty()) { problem = "no lettering"; return false; }
++	ui.slotKind = 2;
++	for (int row = 0; row < MAX<int>(coin->rows, 1); ++row)
++		for (int k = 0; k < coin->columns; ++k) {
++			const ScummverseUiRect r = {coin->cellX + k * coin->stepX, coin->cellY + row * coin->stepY, coin->cellWidth, coin->cellHeight};
++			if (r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows) ui.slots.push_back(r);
++		}
++	// The talk lettering, in the player's talk colour.
++	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
++	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
++	scummverseCaptureLettersV7(_string[0]._default.charset, ui.talk, ui.fonts[1]);
++	if (ui.fonts[1].glyphs.empty()) { problem = "no lettering"; return false; }
++	if (coin->boxBlast) {
++		// The Curse's chest: a right click opens it, as the game draws it
++		// (alone, its things left out); as many cells as it holds, no arrows.
++		auto click = [&](byte &mouseButton) { mouseButton = 1 | 2; frames(1); mouseButton = 0; };
++		_mouse.x = W / 2; _mouse.y = rows / 2;
++		click(_rightBtnPressed);
++		Common::Rect where;
++		int waited = 0;
++		while (waited < 120 && !shouldQuit() && !scummverseBlast(coin->boxBlast, where)) { frames(1); ++waited; }
++		_scummverseMusicTimer = -1;
++		if (!scummverseBlast(coin->boxBlast, where)) { problem = "its chest never opened"; return false; }
++		Common::Array<int> blasts;
++		blasts.push_back(coin->boxBlast);
++		if (!scummverseCaptureObjects(Common::Array<int>(), blasts, Common::Rect(0, 0, W, rows), ui.image, ui.mask)) { problem = "its chest cannot be drawn"; return false; }
++		for (byte &m : ui.mask) if (m != 1) m = 0;
++		click(_rightBtnPressed);
++		frames(30);
++		_scummverseMusicTimer = -1;
++		ui.palette = _currentPalette;
++		return scummverseWriteUi(ui, file, problem);
++	}
+ 	// The box of things where the game opens it, and its arrows (the box in
+ 	// an arrow's animation, over the arrow's rectangle).
+ 	ScummverseGuestFrame box, back, forward;
+@@ -2725,16 +2793,6 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 			for (int x = 0; x < r[2]; ++x)
+ 				if (p.mask[y * r[2] + x] && !ui.mask[(r[1] + y) * W + r[0] + x]) ui.mask[(r[1] + y) * W + r[0] + x] = 2;
+ 	}
+-	ui.slotKind = 2;
+-	for (int k = 0; k < coin->columns; ++k) {
+-		const ScummverseUiRect r = {coin->cellX + k * coin->stepX, coin->cellY, coin->cellWidth, coin->cellHeight};
+-		if (r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows) ui.slots.push_back(r);
+-	}
+-	// The talk lettering, in the player's talk colour.
+-	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
+-	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
+-	scummverseCaptureLettersV7(_string[0]._default.charset, ui.talk, ui.fonts[1]);
+-	if (ui.fonts[1].glyphs.empty()) { problem = "no lettering"; return false; }
+ 	// (The palette last: with the colours the costumes took.)
+ 	ui.palette = _currentPalette;
+ 	return scummverseWriteUi(ui, file, problem);
+diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
+index 2e54d0fe..f0856aa7 100644
+--- a/engines/scumm/smush/smush_player.cpp
++++ b/engines/scumm/smush/smush_player.cpp
+@@ -1315,6 +1315,10 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+ 		}
+ 		if (_endOfFile)
+ 			break;
++		// SCUMMVERSE: The Curse's films end at once while its controls are
++		// exported (its start run until the player has the pointer).
++		if (_vm->_scummverseExporting && _vm->_game.version == 8)
++			_vm->_smushVideoShouldFinish = true;
+ 		if (_vm->shouldQuit() || _vm->_saveLoadFlag || _vm->_smushVideoShouldFinish) {
+ 			_vm->_mixer->stopHandle(*_compressedFileSoundHandle);
+ 			_vm->_mixer->stopHandle(*_IACTchannel);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 2bf6c477..c1237710 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -3310,7 +3310,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (PanelBridge::selected() != -1) fail("a verb not let go", g);
+ 		}
+ 		// (Over the scene: its icons, where it has more than its tap; a coin, its parts.)
+-		if (coin ? parts < 4 : over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < (PanelBridge::distaff() ? 8 : 9)) fail("fewer verbs than the game has", g);
++		if (coin ? parts < 3 || parts < PanelBridge::verbCount() : over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < (PanelBridge::distaff() ? 8 : 9)) fail("fewer verbs than the game has", g);
+ 		// Loom's: its sixteen drafts; notes that spin none do nothing; a
+ 		// draft that is not taken up yet says so.
+ 		if (PanelBridge::distaff()) {
+@@ -3484,7 +3484,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 					for (int ax = 0; ax < _width; ax += 2)
+ 						if (PanelBridge::hit(ax, ay, index) == 4) { int *a = index < 0 ? back : forward; if (a[0] < 0) { a[0] = ax; a[1] = ay; } }
+ 				const int first = PanelBridge::firstItem();
+-				if (back[0] < 0 || forward[0] < 0) fail("the box's arrows not found", g);
++				if (back[0] < 0 || forward[0] < 0) { if (PanelBridge::arrows()) fail("the box's arrows not found", g); }
+ 				else if (PanelBridge::itemCount() > PanelBridge::slotCount()) {
+ 					press(back[0], back[1]); release(back[0], back[1]);
+ 					if (PanelBridge::firstItem() != first - 1 || !PanelBridge::isOpen()) fail("the box's back arrow not a thing back", g);

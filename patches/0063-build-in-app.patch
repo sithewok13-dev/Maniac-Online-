@@ -1,0 +1,41 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 2f4118da..4461a401 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -518,7 +518,7 @@ void scummverseAirportOffer(int actor) {
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 	UIViewController *controller = (UIViewController *)responder;
+ 	if (!controller || controller.presentedViewController) return;
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithFormat:@"%@\n\n%s", scummverseInstalledWorlds(), ScummverseLocalAI::worldStatus().c_str()] preferredStyle:UIAlertControllerStyleAlert];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithFormat:@"%@\n\n%s\n\n%@", scummverseInstalledWorlds(), ScummverseLocalAI::worldStatus().c_str(), scummverseBuildStatus()] preferredStyle:UIAlertControllerStyleAlert];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Import Zak from this app" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] importLocalFrom:controller]; }];
+ 	}]];
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index 1b57f3f9..98d60af6 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -188,6 +188,23 @@ static NSString *scummverseZakFolderReport(NSURL *selected, NSString *result) {
+ }
+ @end
+ 
++// Which build is running (stamped into Info.plist by tools/package_ipa.py)
++// and how many supplied games have other worlds exported for it.
++static NSString *scummverseBuildStatus() {
++	NSString *build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"SCUMMVERSEBuild"];
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm = [NSFileManager defaultManager];
++	int folders = 0, exported = 0;
++	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		BOOL directory = NO;
++		if (![fm fileExistsAtPath:[documents stringByAppendingPathComponent:[NSString stringWithUTF8String:game.folder]] isDirectory:&directory] || !directory) continue;
++		++folders;
++		if ([fm fileExistsAtPath:[NSString stringWithFormat:@"%@/worlds/%s-v%d.svx", documents, game.gameid, Scummverse::WorldCatalog::kWorldExportVersion]]) ++exported;
++	}
++	NSString *worlds = folders ? [NSString stringWithFormat:@"\nOther worlds ready: %d of %d games", exported, folders] : @"";
++	return [NSString stringWithFormat:@"Build: %@%@", build.length ? build : @"development", worlds];
++}
++
+ static NSString *scummverseInstalledWorlds() {
+ 	NSString *path = [NSString stringWithUTF8String:iOS7_getZakDirectory().c_str()];
+ 	NSFileManager *fm = [NSFileManager defaultManager];

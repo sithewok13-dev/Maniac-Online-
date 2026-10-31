@@ -14,7 +14,7 @@
  Actor *rider=derefActor(21,"bus companion");
  local->putActor(25,60,53); remote->putActor(25,60,60); rider->putActor(92,59,55);
  for(int id : {20,21,24}) _scummVars[770+id]=3;
- _scummVars[765]=80; _scummVars[766]=1u<<21; _scummVars[767]=21; rider->hideActor();
+ _scummVars[765]=kBusBoarding+20; _scummVars[766]=1u<<21; _scummVars[767]=21; rider->hideActor();
  _scummverseCompanionEgo=3; _scummverseCompanionRoom=53;
  scummverseUpdateCompanions();
  if(remote->_room!=60 || rider->_room!=55 || rider->_visible) error("Companion update teleported an absent or travelling actor");
@@ -36,6 +36,7 @@
  // A bus invitation cannot pull a follower out of another scene.
  scummverseTravel(5); local->putActor(90,59,55);
  remote->putActor(25,60,60); rider->putActor(25,60,60);
- scummverseWaitBus();scummverseServiceBus(60);
+ scummverseWaitBus();
+ for(int n=0;n<kBusBoarding/60+2 && _scummVars[765]<=kBusBoarding;++n) scummverseServiceBus(60);
  if(!(_scummVars[766]&(1u<<24)) || (_scummVars[766]&((1u<<20)|(1u<<21)))) error("Bus manifest ignored departure room");
  warning("SCUMMVERSE_COMPANION_PRESENCE_PASS enabled=1");quitGame();

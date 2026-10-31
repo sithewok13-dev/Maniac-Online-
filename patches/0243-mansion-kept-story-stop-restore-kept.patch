@@ -1,0 +1,197 @@
+diff --git a/base/main.cpp b/base/main.cpp
+index 8fd1061b..e8a0bef3 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -199,6 +199,12 @@ static void scummverseStoryHome(const Common::String &maniacTarget, Common::Stri
+ // the mansion goes on from it at its first start (scummvm_main). Its file:
+ // the backend's; elsewhere none, unless a test names its own.
+ static const char *const kScummverseRestorePointKey = "scummverse_restore_point";
++// The point taken, kept on disk until the mansion's first start decides on
++// it (its one try: a save that stops the app as it loads is not tried
++// again), so a start that stops before the mansion starts (its exports, a
++// story gone on in, Story mode's list) leaves it to the next.
++static const char *const kScummverseRestoreTakenKey = "scummverse_restore_taken";
++static const char *const kScummverseRestoreTakenSlotKey = "scummverse_restore_taken_slot";
+ static char scummverseRestoreTarget[64]; // (empty: none)
+ static int scummverseRestoreSlot = -1;
+ static Common::Path scummverseRestorePointFile() {
+@@ -209,9 +215,32 @@ static Common::Path scummverseRestorePointFile() {
+ 		ConfMan.getPath(kScummverseRestorePointKey, Common::ConfigManager::kApplicationDomain) : Common::Path();
+ #endif
+ }
+-static void scummverseTakeRestorePoint() {
++// The kept point let go: the mansion's first start has decided on it.
++static void scummverseForgetRestorePoint() {
+ 	scummverseRestoreTarget[0] = 0;
+ 	scummverseRestoreSlot = -1;
++	if (!ConfMan.hasKey(kScummverseRestoreTakenKey, Common::ConfigManager::kApplicationDomain) &&
++		!ConfMan.hasKey(kScummverseRestoreTakenSlotKey, Common::ConfigManager::kApplicationDomain)) return;
++	ConfMan.removeKey(kScummverseRestoreTakenKey, Common::ConfigManager::kApplicationDomain);
++	ConfMan.removeKey(kScummverseRestoreTakenSlotKey, Common::ConfigManager::kApplicationDomain);
++	ConfMan.flushToDisk();
++}
++static void scummverseTakeRestorePoint(const Common::String &maniacTarget) {
++	scummverseRestoreTarget[0] = 0;
++	scummverseRestoreSlot = -1;
++	// (One taken at a start that stopped before the mansion started: still
++	// where it was, the mansion not played since. Read as the file is.)
++	if (ConfMan.hasKey(kScummverseRestoreTakenKey, Common::ConfigManager::kApplicationDomain) ||
++		ConfMan.hasKey(kScummverseRestoreTakenSlotKey, Common::ConfigManager::kApplicationDomain)) {
++		const Common::String kept = "[state]\nrestore_target=" + ConfMan.get(kScummverseRestoreTakenKey, Common::ConfigManager::kApplicationDomain) +
++			"\nrestore_slot=" + ConfMan.get(kScummverseRestoreTakenSlotKey, Common::ConfigManager::kApplicationDomain) + "\n";
++		if (Scummverse::Restore::parse(kept.c_str(), kept.size(), scummverseRestoreTarget, sizeof(scummverseRestoreTarget), scummverseRestoreSlot)) {
++			warning("SCUMMVERSE: the phone's restore point, kept from a start that stopped first: %s, slot %d", scummverseRestoreTarget, scummverseRestoreSlot);
++		} else {
++			warning("SCUMMVERSE: the phone's restore point kept from before is damaged; not used");
++			scummverseForgetRestorePoint();
++		}
++	}
+ 	const Common::Path path = scummverseRestorePointFile();
+ 	if (path.empty()) return;
+ 	const Common::FSNode file(path);
+@@ -225,16 +254,25 @@ static void scummverseTakeRestorePoint() {
+ 			if (in->read(text.data(), text.size()) != text.size()) text.clear();
+ 		}
+ 	}
+-	// (Let go at once, whatever it holds: never taken twice, nor again at
+-	// the next start if this one stops; the backend's event finds nothing.)
+-	Common::ScopedPtr<Common::SeekableWriteStream> out(file.createWriteStream());
+-	if (!out) warning("SCUMMVERSE: the phone's restore point could not be let go");
+-	out.reset();
+-	if (text.empty() || !Scummverse::Restore::parse(text.data(), text.size(), scummverseRestoreTarget, sizeof(scummverseRestoreTarget), scummverseRestoreSlot)) {
++	char target[sizeof(scummverseRestoreTarget)];
++	int slot = -1;
++	if (text.empty() || !Scummverse::Restore::parse(text.data(), text.size(), target, sizeof(target), slot)) {
+ 		warning("SCUMMVERSE: the phone's restore point is damaged; not used");
+-		return;
++	} else if (scummverseRestoreTarget[0] && Common::String(scummverseRestoreTarget).equalsIgnoreCase(maniacTarget) && !maniacTarget.equalsIgnoreCase(target)) {
++		// (Another game's since, the mansion not played: its own kept stands.)
++		warning("SCUMMVERSE: the phone's restore point is %s's; the mansion's kept from before stands", target);
++	} else {
++		memcpy(scummverseRestoreTarget, target, sizeof(target));
++		scummverseRestoreSlot = slot;
++		ConfMan.set(kScummverseRestoreTakenKey, scummverseRestoreTarget, Common::ConfigManager::kApplicationDomain);
++		ConfMan.setInt(kScummverseRestoreTakenSlotKey, scummverseRestoreSlot, Common::ConfigManager::kApplicationDomain);
++		ConfMan.flushToDisk();
++		debug(1, "SCUMMVERSE: the phone's restore point: %s, slot %d", scummverseRestoreTarget, scummverseRestoreSlot);
+ 	}
+-	debug(1, "SCUMMVERSE: the phone's restore point: %s, slot %d", scummverseRestoreTarget, scummverseRestoreSlot);
++	// (Let go once kept, whatever it holds: never taken twice; the backend's
++	// event finds nothing.)
++	Common::ScopedPtr<Common::SeekableWriteStream> out(file.createWriteStream());
++	if (!out) warning("SCUMMVERSE: the phone's restore point could not be let go");
+ }
+ 
+ // Story mode's home (common/scummverse_story.h: Story mode and Explore mode
+@@ -812,7 +850,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	if (!sandboxGame) scummverseAddStoryTargets(maniacPath);
+ 	scummverseManiacPath = maniacPath;
+ 	// (Before anything takes the backend's events, which let it go.)
+-	if (!sandboxGame) scummverseTakeRestorePoint();
++	if (!sandboxGame) scummverseTakeRestorePoint(maniacTarget);
+ 	// The story playing when the app was put away goes on (after any
+ 	// exports), from its newest save; the mansion after it, where it was.
+ 	// (Taken now: a game that stops the app as it starts is not opened again
+@@ -1071,27 +1109,31 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			const Common::String slot = resume ? transient->getVal("save_slot") : Common::String();
+ 			*transient = maniacTransient;
+ 			if (resume) transient->setVal("save_slot", slot);
+-			// (The app stopped while the new engine was open, and started
+-			// again: the mansion where it was saved for it, not afresh.)
+-			if (ConfMan.hasKey(Scummverse::kSandboxOpenKey, Common::ConfigManager::kApplicationDomain)) {
++			// (The app stopped in a game the mansion opened, the new engine or
++			// a story, and started again: the mansion where it was saved for
++			// it, not afresh.)
++			if (ConfMan.hasKey(Scummverse::kManiacWaitingKey, Common::ConfigManager::kApplicationDomain)) {
++				// (The new engine's says true; a story's, its target.)
++				const Common::String opened = ConfMan.get(Scummverse::kManiacWaitingKey, Common::ConfigManager::kApplicationDomain);
+ 				Common::String home;
+ 				int homeSlot = -1;
+ 				if (!transient->contains("save_slot")) scummverseStoryHome(maniacTarget, home, homeSlot);
+ 				if (homeSlot != -1) {
+-					warning("SCUMMVERSE: the mansion where it was when the new engine was opened");
++					warning("SCUMMVERSE: the mansion where it was when %s was opened",
++						opened.hasPrefixIgnoreCase(Scummverse::WorldCatalog::kWorldStoryPrefix) ? opened.c_str() : "the new engine");
+ 					ConfMan.setInt("save_slot", homeSlot, Common::ConfigManager::kTransientDomain);
+ 				}
+-				ConfMan.removeKey(Scummverse::kSandboxOpenKey, Common::ConfigManager::kApplicationDomain);
++				ConfMan.removeKey(Scummverse::kManiacWaitingKey, Common::ConfigManager::kApplicationDomain);
+ 				ConfMan.flushToDisk();
+ 			}
+ 			// (The app stopped while the mansion played, put away first: the
+ 			// phone's restore point, its autosave, as ScummVM's launcher would
+ 			// have taken it. At its first start only, and not over a save it
+-			// was chained to or the new engine's: those are newer.)
++			// was chained to or waited in for a game it opened: those are newer.
++			// Decided on now, it is let go, on disk too: tried once.)
+ 			if (scummverseRestoreTarget[0]) {
+ 				const Common::String pointTarget(scummverseRestoreTarget);
+ 				const int pointSlot = scummverseRestoreSlot;
+-				scummverseRestoreTarget[0] = 0;
+ 				// (The mansion's own saves: 0 to 99, as the engine names them.)
+ 				const Common::String pointFile = Common::String::format("%s.s%02d", maniacTarget.c_str(), pointSlot);
+ 				Common::ScopedPtr<Common::InSaveFile> saved(!pointTarget.equalsIgnoreCase(maniacTarget) || pointSlot < 0 || pointSlot > 99 ? nullptr :
+@@ -1107,6 +1149,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 					ConfMan.setInt("save_slot", pointSlot, Common::ConfigManager::kTransientDomain);
+ 				}
+ 			}
++			scummverseForgetRestorePoint();
+ 			// (No story to go on in at the next start: the mansion is playing.)
+ 			if (ConfMan.hasKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) {
+ 				ConfMan.removeKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index 89bae2f4..d3796037 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -178,12 +178,14 @@ inline Common::String storyLacks(const char *gameid, const Common::Path &path) {
+ // cleared when the mansion starts again.
+ static const char *const kStoryPlayingKey = "scummverse_story_playing";
+ 
+-// Explore mode's new engine opened from the mansion, the mansion saved for
+-// it in its slot 100: set as the mansion leaves for it, cleared when the
+-// mansion starts again. Still set at a start (the app stopped while the new
+-// engine was open, which writes no restore point for the mansion), the
+-// mansion starts from that save, where it was.
+-static const char *const kSandboxOpenKey = "scummverse_sandbox_open";
++// The mansion waiting in its temporary save (slot 100) for a game it opened
++// in Explore mode: the new engine (true), or a game's story from its Worlds
++// menu (that story's target). Set as the mansion leaves for it, cleared when
++// the mansion starts again. Still set at a start (the app stopped in that
++// game: no restore point is the mansion's then, and in Explore mode a story
++// is not gone on in), the mansion starts from that save, where it was. (Its
++// name is 0239's, from the new engine: kept, so one written then is read.)
++static const char *const kManiacWaitingKey = "scummverse_sandbox_open";
+ 
+ // The story to go on in at this start: its target, else empty (none, or
+ // its folder or a file it needs is gone).
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index fafa7edc..fefb9fbc 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -202,7 +202,13 @@ void ScummEngine::scummverseOpenStory(int game) {
+ 	if (refusal) {
+ 		warning("SCUMMVERSE story: %s not opened (%s)", game >= 0 && game < worldGameCount() ? kWorldGames[game].gameid : "?", refusal);
+ 		scummverseSay(VAR(VAR_EGO), refusal);
++		return;
+ 	}
++	// (So a start after the app was stopped in that story, or in one it went
++	// on to, finds the mansion here, as for the new engine: base/main.cpp.
++	// Only once on its way: a story refused leaves the mansion playing on.)
++	ConfMan.set(::Scummverse::kManiacWaitingKey, Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid, Common::ConfigManager::kApplicationDomain);
++	ConfMan.flushToDisk();
+ }
+ 
+ // From the mansion (its Worlds menu's Story mode): saved to the temporary
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 45be817a..4cdfa896 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -113,7 +113,7 @@ void ScummEngine::scummverseOpenSandbox() {
+ 	ConfMan.setPath("path", scummverseWorldCache(), kSandboxTarget);
+ 	// (So a start after the app was stopped in the new engine finds the
+ 	// mansion here: base/main.cpp.)
+-	ConfMan.setBool(::Scummverse::kSandboxOpenKey, true, Common::ConfigManager::kApplicationDomain);
++	ConfMan.setBool(::Scummverse::kManiacWaitingKey, true, Common::ConfigManager::kApplicationDomain);
+ 	ConfMan.flushToDisk();
+ 	ChainedGamesMan.push(kSandboxTarget);
+ 	ChainedGamesMan.push(ConfMan.getActiveDomainName(), 100);

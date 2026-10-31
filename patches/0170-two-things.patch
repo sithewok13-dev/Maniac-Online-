@@ -1,0 +1,230 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index f97ee505..7ca7ce6b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -697,6 +697,14 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	// (A panel's verb is used once; a pointer stays the verb it is.)
+ 	if (!PanelBridge::over()) PanelBridge::select(-1);
++	// (Holding the first of two: the thing tapped is the second; else let go.)
++	if (_holding.kind) {
++		Common::Array<int> things;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
++		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
++		if (thing >= 0) { pairWith(-1, thing); return; }
++		letGo();
++	}
+ 	if (kind != kWorldVerbWalk) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+@@ -762,6 +770,9 @@ void SandboxEngine::walkToDoor(int link, double x, double y) {
+ }
+ 
+ void SandboxEngine::useOn(int kind, int verb, int thing) {
++	if (_holding.kind) { pairWith(-1, thing); return; }
++	if (twoThings(kind, false)) { hold(kind, verb, -1, thing); return; }
++	_pairing = Pair();
+ 	char name[80], verbName[40];
+ 	StageBridge::objectName(thing, name, sizeof(name));
+ 	PanelBridge::verbName(verb, verbName, sizeof(verbName));
+@@ -889,6 +900,72 @@ bool SandboxEngine::isCarried(int game, int room, int id) const {
+ 	return false;
+ }
+ 
++// Two things (from 0170): Give, Use with a thing carried first; Unlock and
++// Fix (the oldest games' "with") with one here first. Only with the panel
++// under the scene (the others' pointers and coins as before).
++bool SandboxEngine::twoThings(int kind, bool carried) const {
++	if (!PanelBridge::loaded() || PanelBridge::over() || PanelBridge::distaff() || PanelBridge::coin()) return false;
++	if (kind == kWorldVerbGive || kind == kWorldVerbUse) return carried;
++	return (kind == kWorldVerbUnlock || kind == kWorldVerbFix) && !carried;
++}
++
++void SandboxEngine::hold(int kind, int verb, int item, int thing) {
++	_holding.kind = kind; _holding.verb = verb; _holding.item = item; _holding.thing = thing;
++	_action = 0; _target = -1; _pairing = Pair();
++	// (Its verb stays lit until the second is chosen.)
++	PanelBridge::select(verb);
++	sentence(pairText(_holding, -1, -1));
++	_dirty = true;
++}
++
++void SandboxEngine::letGo() {
++	_holding = Pair(); _pairing = Pair();
++	PanelBridge::select(-1);
++	sentence("");
++	_dirty = true;
++}
++
++// "Use the key with", then "Use the key with the door".
++Common::String SandboxEngine::pairText(const Pair &p, int item, int thing) const {
++	char verbName[40], first[80] = "", second[80] = "";
++	PanelBridge::verbName(p.verb, verbName, sizeof(verbName));
++	if (p.item >= 0) PanelBridge::itemName(p.item, first, sizeof(first));
++	else if (p.thing >= 0) StageBridge::objectName(p.thing, first, sizeof(first));
++	if (item >= 0) PanelBridge::itemName(item, second, sizeof(second));
++	else if (thing >= 0) StageBridge::objectName(thing, second, sizeof(second));
++	Common::String text = Common::String::format("%s %s %s", verbName, first, p.kind == kWorldVerbGive ? "to" : "with");
++	if (*second) text += Common::String(" ") + second;
++	return text;
++}
++
++void SandboxEngine::pairWith(int item, int thing) {
++	const Pair p = _holding;
++	_holding = Pair();
++	PanelBridge::select(-1);
++	// (The same thing twice: nothing.)
++	if ((item >= 0 && item == p.item) || (thing >= 0 && thing == p.thing)) { sentence(""); return; }
++	sentence(pairText(p, item, thing));
++	// (Walked to the one here, if either is; two carried, at once.)
++	const int here = p.thing >= 0 ? p.thing : thing;
++	if (here < 0) { pairUp(p.kind, -1, p.item >= 0 ? p.item : item, item >= 0 && p.item >= 0 ? item : -1); return; }
++	_pairing = p;
++	_pairing.item = p.item >= 0 ? p.item : item;
++	_pairing.thing = p.thing >= 0 && thing >= 0 ? thing : -1;
++	_action = p.kind; _target = here;
++	double tx, ty;
++	doorPoint(here, tx, ty);
++	StageBridge::walkTo(_player, tx, ty);
++}
++
++// What two things do together: as their game's script, where it is known
++// (the mansion's, later); else the plain rules: it doesn't work.
++void SandboxEngine::pairUp(int kind, int target, int item, int other) {
++	(void)target; (void)item; (void)other;
++	sentence("");
++	say(kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
++	if (!_testing) saveState();
++}
++
+ // The sentence line: what is being done ("" is walking: the walk verb's own
+ // name, as the games show it).
+ void SandboxEngine::sentence(const Common::String &text) {
+@@ -900,6 +977,7 @@ void SandboxEngine::sentence(const Common::String &text) {
+ 
+ void SandboxEngine::chooseVerb(int verb) {
+ 	_action = 0; _target = -1; _door = -1;
++	if (_holding.kind) letGo();
+ 	// (Loom's notes: played, lit a moment; the fourth spins a draft.)
+ 	if (PanelBridge::distaff()) {
+ 		const int draft = PanelBridge::play(verb);
+@@ -1028,10 +1106,14 @@ void SandboxEngine::rightClick(int screenX, int screenY) {
+ 	_dirty = true;
+ }
+ 
+-// A thing carried: looked at, it is named; nothing else works on it here.
++// A thing carried: looked at, it is named; nothing else works on it here
++// (but the first or second of two: "Use the key with").
+ void SandboxEngine::useItem(int item, int kind) {
+ 	const int verb = PanelBridge::selected();
+ 	if (!kind) kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
++	if (_holding.kind && (kind == _holding.kind || kind == kWorldVerbWalk)) { pairWith(item, -1); return; }
++	if (_holding.kind) letGo();
++	if (twoThings(kind, true)) { hold(kind, verb, item, -1); return; }
+ 	char name[80];
+ 	PanelBridge::itemName(item, name, sizeof(name));
+ 	// (In Sam & Max's box the pointer stays the verb it is; walking there looks.)
+@@ -1410,6 +1492,11 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ void SandboxEngine::act() {
+ 	const int kind = _action, target = _target;
+ 	_action = 0; _target = -1;
++	if (_pairing.kind) {
++		const Pair p = _pairing;
++		_pairing = Pair();
++		if (p.kind == kind) { pairUp(kind, target, p.item, p.thing); return; }
++	}
+ 	sentence("");
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(target, id, ox, oy, w, h, wx, wy, state)) return;
+@@ -2828,7 +2915,7 @@ Common::Error SandboxEngine::run() {
+ // a door is refused, and out of reach nothing is done; all kept through the
+ // state file. A picture of each panel in use.
+ Common::Error SandboxEngine::verbsTest() {
+-	int panels = 0, verbs = 0, chosen = 0, failed = 0;
++	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
+ 	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+@@ -3376,6 +3463,50 @@ Common::Error SandboxEngine::verbsTest() {
+ 					}
+ 					if (PanelBridge::over()) { PanelBridge::open(false); PanelBridge::select(-1); }
+ 				}
++				// (From 0170, with the panel under the scene: Use, the thing
++				// carried ("Use it with", the verb still lit), then a thing here
++				// (walked to, the plain answer); and Use, it, then the floor: let go.)
++				const int using_ = verbOf(kWorldVerbUse);
++				if (using_ >= 0 && twoThings(kWorldVerbUse, true) && PanelBridge::slotRect(slot, x, y, w, h)) {
++					char name[80], text[200];
++					PanelBridge::itemName(PanelBridge::itemCount() - 1, name, sizeof(name));
++					auto shownAt = [&](int k, int &sx, int &sy) {
++						int kid, kx, ky, kw, kh, kwx, kwy, ks;
++						if (!StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks)) return false;
++						StageBridge::toScreen(kx + kw / 2.0, ky + kh / 2.0, sx, sy);
++						return sx >= 0 && sx < _width && sy >= 0 && sy < PanelBridge::top();
++					};
++					// (Another thing here on screen, else a door; none, not tried.)
++					int other = -1, sx = 0, sy = 0;
++					for (int k : things) if (isThing(k) && !isDoor(k) && shownAt(k, sx, sy)) { other = k; break; }
++					for (int k = 0; k < StageBridge::objectCount() && other < 0; ++k) if (isThing(k) && shownAt(k, sx, sy)) other = k;
++					if (other < 0) break;
++					bool ok = pick(using_);
++					if (ok) tapRect(x, y, w, h);
++					PanelBridge::sentenceText(text, sizeof(text));
++					ok = ok && _holding.kind == kWorldVerbUse && PanelBridge::selected() == using_ && Common::String(text).contains(name) && Common::String(text).hasSuffix(" with");
++					if (ok) { _speech.clear(); tap(sx, sy); settle(); }
++					ok = ok && !_holding.kind && _speech == "That doesn't seem to work.";
++					// (Let go on the floor: a roomy spot with no thing at it.)
++					double xs[12], ys[12];
++					const int spots = StageBridge::spots(12, xs, ys);
++					int floorX = -1, floorY = -1;
++					Common::Array<int> all;
++					for (int k = 0; k < StageBridge::objectCount(); ++k) if (isThing(k)) all.push_back(k);
++					for (int k = 0; k < spots && floorX < 0; ++k)
++						if (StageBridge::objectAt(xs[k], ys[k], all.data(), all.size(), 2) < 0) {
++							int fx, fy;
++							StageBridge::toScreen(xs[k], ys[k], fx, fy);
++							if (fx >= 0 && fx < _width && fy >= 0 && fy < PanelBridge::top()) { floorX = fx; floorY = fy; }
++						}
++					if (ok && floorX >= 0 && pick(using_)) {
++						tapRect(x, y, w, h);
++						tap(floorX, floorY);
++						ok = !_holding.kind && PanelBridge::selected() < 0 && !_action;
++						settle();
++					}
++					if (!ok) fail("Use with a thing carried not as two things", g); else ++paired;
++				}
+ 				break;
+ 			}
+ 			// One its game's script does not take (a pirate at a table): refused.
+@@ -3769,6 +3900,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
++	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here", paired);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, failed);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index f10b4c50..be540c41 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -92,6 +92,19 @@ private:
+ 	void newKid();
+ 	void useItem(int item, int kind = 0); // (kind 0: the verb chosen)
+ 	void useOn(int kind, int verb, int thing); // walked to, then the verb
++	// A sentence of two things (from 0170, the panels under the scene: "Use
++	// the key with", "Give ... to", "Unlock the door with"): the first
++	// chosen waits for the second; then walked to the one here, if one is,
++	// and pairUp. Their prepositions as the oldest games' engine has them.
++	struct Pair { int kind = 0, verb = -1, item = -1, thing = -1; };
++	Pair _holding;                     // the first chosen (kind 0: none)
++	Pair _pairing;                     // on arrival: the other (a thing carried, else one here)
++	bool twoThings(int kind, bool carried) const;
++	void hold(int kind, int verb, int item, int thing);
++	void letGo();
++	void pairWith(int item, int thing); // the second chosen
++	void pairUp(int kind, int target, int item, int other);
++	Common::String pairText(const Pair &p, int item, int thing) const;
+ 	// Full Throttle's coin (step 2f): a press, and what it is on (a thing
+ 	// here, else one carried in the open box); held long enough, the coin
+ 	// opens over it; the part under the pointer lit as it moves; let go, the

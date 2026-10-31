@@ -1,0 +1,222 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 856ef93b..0e73f3d4 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -649,12 +649,22 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ // once. A row of the same thing and scene as an earlier one (Dr Fred's
+ // two films of his lab) is told apart by its order: the export records it
+ // only after each earlier one, the new engine reads its records so.
++// From 0268 the switch's two films of his lab from its picture 0 (on) only
++// again, as 0263 had Dr Fred's: its script (Push, Pull, Use and Turn off
++// alike) runs only while the switch's state bit 8 is clear, which it then
++// sets (picture 1, off) as it stops the alarm and starts script 126; from
++// off it does nothing, and no script or room entry clears that bit again.
++// So it is turned once: off with the meteor still there, Dr Fred's other
++// cut-scene, then nothing more from it (the ending's way through it gone,
++// as in the original, whose self-destruct countdown, script 123, not
++// modelled, then ends its game). `from` -1 stays for a film shown from
++// either picture (none now).
+ struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen, from, script, timed, then, place, once; };
+ static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218, 0, 0, 0, 0, 0, 0},
+ 	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+ 	{10, 21, 399, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0}, {10, 21, 399, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0},
+-	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 42, 63, 1, 0}, {10, 51, 176, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 63, 42, 0, 1, 1},
+-	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -42, 0, 1, 0}};
++	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 63, 1, 0}, {10, 51, 176, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 63, 42, 0, 1, 1},
++	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -42, 0, 1, 0}};
+ inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ // (A room only a close-up shows: from 0263 not one also a place, `place`.)
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6f7e1299..0bfab466 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2490,7 +2490,8 @@ void SandboxEngine::act() {
+ 		!strcmp(kWorldGames[_game].gameid, "maniac") && maniacTogether(_room, id)) { say("It won't budge."); return; }
+ 	// (From 0240: a close-up its game's script shows for this verb from the
+ 	// picture it is in (the wall safe's keypad, shut; from 0257 the radio's,
+-	// on; from 0266 either, `from` -1: the lab's switch): shown instead.)
++	// on; from 0266 either, `from` -1; from 0268 the lab's switch's from on
++	// only again, as its script runs): shown instead.)
+ 	const int closeUp = door ? -1 : closeUpFor(id, kind);
+ 	const int shownFrom = closeUp >= 0 ? closeUpFrom(_game, closeUp) : 0;
+ 	if (closeUp >= 0 && (shownFrom < 0 || thingBit(target, id) == shownFrom) && closeUpShow(closeUp, id)) return;
+@@ -2499,9 +2500,13 @@ void SandboxEngine::act() {
+ 	// answers, below.)
+ 	if (!door && viewButton(id, kind)) { if (!_testing) saveState(); return; }
+ 	// (Another thing shown so by this one, as its game's script: its own
+-	// answer then only if it has one; all of it, when it moves with them.)
++	// answer then only if it has one; all of it, when it moves with them.
++	// From 0268 what its answer makes touchable or untouchable kept all the
++	// same, from the picture it was in: the shower curtain's parts, drawn
++	// aside, untouchable; drawn back, touchable again.)
++	const int fromBefore = thingBit(target, id);
+ 	const int sets = thingSets(id, kind);
+-	if (sets && (result != 2 || sets == 2)) { if (!_testing) saveState(); return; }
++	if (sets && (result != 2 || sets == 2)) { touchesAfter(_game, _room, id, kind, fromBefore, 0); if (!_testing) saveState(); return; }
+ 	// (From 0155, a thing of the mansion's as its own script answers (its
+ 	// things file): from the picture it is in, the line said, its picture
+ 	// after and the others it sets; from 0247 Sam & Max's as its own
+@@ -6651,12 +6656,19 @@ Common::Error SandboxEngine::verbsTest() {
+ 				for (int part : parts) if (thingIn(part) < 0 || StageBridge::objectShown(thingIn(part)) != picture || !StageBridge::looksAs(thingIn(part), picture)) return false;
+ 				return true;
+ 			};
+-			bool ok = enter(maniac, 24, 0, problem) && thingIn(279) >= 0 && all(1);
+-			ok = ok && doAt(kWorldVerbOpen, thingIn(116)) && all(0);
++			// (From 0268 touchable as its answers leave it: aside, the parts not
++			// things, its gathered end still one; back, all of it things again.)
++			auto partsThings = [&](bool are) {
++				if (thingIn(279) < 0 || !isThing(thingIn(279))) return false;
++				for (int part : parts) if (thingIn(part) < 0 || isThing(thingIn(part)) != are) return false;
++				return true;
++			};
++			bool ok = enter(maniac, 24, 0, problem) && thingIn(279) >= 0 && all(1) && partsThings(true);
++			ok = ok && doAt(kWorldVerbOpen, thingIn(116)) && all(0) && partsThings(false);
+ 			if (ok && ConfMan.hasKey("scummverse_shots")) { present(); shot("shower-open.png"); }
+-			ok = ok && doAt(kWorldVerbClose, thingIn(279)) && all(1);
+-			ok = ok && doAt(kWorldVerbPush, thingIn(117)) && _speech == "It won't budge." && all(1);
+-			ok = ok && doAt(kWorldVerbPull, thingIn(279)) && all(0) && doAt(kWorldVerbClose, thingIn(115)) && all(1);
++			ok = ok && doAt(kWorldVerbClose, thingIn(279)) && all(1) && partsThings(true);
++			ok = ok && doAt(kWorldVerbPush, thingIn(117)) && _speech == "It won't budge." && all(1) && partsThings(true);
++			ok = ok && doAt(kWorldVerbPull, thingIn(279)) && all(0) && partsThings(false) && doAt(kWorldVerbClose, thingIn(115)) && all(1) && partsThings(true);
+ 			// (Its sink runs without its second picture; its shower's tap has
+ 			// no handle, and turned off does nothing.)
+ 			forgetThing(thingKey(maniac, 24, 253)); forgetThing(thingKey(maniac, 24, 118));
+@@ -6664,7 +6676,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			ok = ok && doAt(kWorldVerbTurnOn, thingIn(253)) && StageBridge::objectShown(thingIn(253)) == 0 && doAt(kWorldVerbTurnOff, thingIn(253)) && StageBridge::objectShown(thingIn(253)) == 1;
+ 			const int tap = thingIn(118), tapShown = tap >= 0 ? StageBridge::objectShown(tap) : -1;
+ 			ok = ok && doAt(kWorldVerbTurnOn, tap) && _speech == "The handle's missing." && doAt(kWorldVerbTurnOff, tap) && _speech.empty() && StageBridge::objectShown(tap) == tapShown;
+-			if (!ok) fail("the shower curtain not drawn aside and back as one, or the sink or the tap not as the game", maniac); else ++links;
++			if (!ok) fail("the shower curtain not drawn aside and back as one (from 0268 its parts not things while aside), or the sink or the tap not as the game", maniac); else ++links;
+ 		}
+ 		// The garden gate, as one: opened on the pool deck, all three of its
+ 		// sides open; pushed, all shut; pulled from the garage, that side and
+@@ -8070,14 +8082,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// arriving into a film's scene that is a place too. Dr Fred's film's
+ 		// place not shown again as it ends: over once, someone else played,
+ 		// the ending only where they are then (the lab); never elsewhere.
+-		// From 0266 the switch's script runs alike on or off: before, Dr
+-		// Fred's other film (the meteor still there) as recorded, back where
+-		// they stood, the switch off, nothing following, again from off;
+-		// turned off first, kept through a save and reload, then once they
+-		// took the meteor (from off) Dr Fred's film and the ending's; the
+-		// ending seen once for good, kept through a save and reload: never
+-		// again, from off or on; an older state (SVS6) read with none seen,
+-		// damaged ones let go.
++		// From 0266 before, Dr Fred's other film (the meteor still there) as
++		// recorded, back where they stood, the switch off, nothing following;
++		// turned off first, kept through a save and reload; the ending seen
++		// once for good, kept through a save and reload: never again, from off
++		// or on; an older state (SVS6) read with none seen, damaged ones let
++		// go. From 0268 the switch's script runs only from on, as the
++		// original's: from off nothing, before they took the meteor or after
++		// (turned off first, the ending's way through it gone); on again (as
++		// afresh), its film again.
+ 		int fredFilm = -1, endFilm = -1, otherFilm = -1, takenEvent = maniac >= 0 ? worldTimedOf(maniac, 42) : -1;
+ 		for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac); ++i) {
+ 			int r, thing, kinds, scene, left, keyCount, pressCount;
+@@ -8185,8 +8198,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// (From 0266 the switch turned off with the meteor still there: Dr
+ 			// Fred's other film as recorded (his lab, the one there in their
+ 			// place, its events on their ticks), back where they stood, the
+-			// switch off, nothing following, nothing seen; again from off (its
+-			// script runs alike), skipped by a tap.)
++			// switch off, nothing following, nothing seen; skipped by a tap.
++			// From 0268 not again from off, as its script runs only from on:
++			// nothing then; on again (as afresh), the film again.)
+ 			if (ok) {
+ 				ok = doorPoint(thingIn(176), rx, ry);
+ 				StageBridge::walkable(rx, ry);
+@@ -8196,19 +8210,26 @@ Common::Error SandboxEngine::verbsTest() {
+ 					watch(otherFilm, 30, otherLength, otherLead, otherCostume, otherX, otherY, otherEvents, otherSeen) && otherSeen == otherEvents;
+ 				if (ok) step(1);
+ 				ok = ok && backAt() && sameStood(stood) && pictureOf(51, 176) == 1 && _seen.empty() && !timedHappened(maniac, 42) && onStage(meteorKey);
++				for (int kind : {(int)kWorldVerbTurnOff, (int)kWorldVerbPush, (int)kWorldVerbPull, (int)kWorldVerbUse})
++					ok = ok && doAt(kind, thingIn(176)) && _closeUp.index < 0 && _room == 51 && pictureOf(51, 176) == 1;
++				if (ok) setPicture(51, 176, 0);
+ 				ok = ok && doAt(kWorldVerbTurnOff, thingIn(176)) && _closeUp.index == otherFilm;
+ 				if (ok) { stepFor(otherLead); ok = _closeUp.inScene && _room == 30; }
+ 				if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index < 0 && _room == 51 && pictureOf(51, 176) == 1 && _seen.empty(); }
+ 				if (ok) endingOther = otherEvents;
+ 			}
+ 			if (ok) ++endingBefore;
+-			else { ok = false; fail("before the Meteor Police took the meteor: not the Purple Meteor in the lab, its thing, the radio's answers or the switch Dr Fred's other film (again from off, nothing following)", maniac); }
++			else { ok = false; fail("before the Meteor Police took the meteor: not the Purple Meteor in the lab, its thing, the radio's answers or the switch Dr Fred's other film (nothing following, nothing "
++				"from off, again from on)", maniac); }
+ 			// (From 0266 turned off first, as above: kept through a save and
+ 			// reload; then the Meteor Police take the meteor (both doors open at
+-			// their time): the switch, off, turned off again plays Dr Fred's film
+-			// then the ending's (each skipped by a tap), back in the lab; the
+-			// ending seen kept through a save and reload; never again, from off
+-			// or on (as its own script answers then).)
++			// their time). From 0268 the switch, off, does nothing then, turned
++			// off, pushed, pulled or used (its script runs only from on: the
++			// ending's way through it gone, as in the original); on again (as
++			// afresh), turned off, Dr Fred's film then the ending's (each skipped
++			// by a tap), back in the lab; the ending seen kept through a save and
++			// reload; never again, from off or on (as its own script answers
++			// then).)
+ 			if (ok) {
+ 				int g, r;
+ 				double kx, ky;
+@@ -8224,6 +8245,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 					step(1);
+ 					ok = timedHappened(maniac, 42) && go(4) && go(51) && !onStage(meteorKey) && thingIn(176) >= 0 && pictureOf(51, 176) == 1;
+ 				}
++				for (int kind : {(int)kWorldVerbTurnOff, (int)kWorldVerbPush, (int)kWorldVerbPull, (int)kWorldVerbUse})
++					ok = ok && doAt(kind, thingIn(176)) && _closeUp.index < 0 && _room == 51 && pictureOf(51, 176) == 1 && _seen.empty();
++				if (ok) setPicture(51, 176, 0);
+ 				ok = ok && doAt(kWorldVerbTurnOff, thingIn(176)) && _closeUp.index == fredFilm;
+ 				if (ok) { stepFor(fredLead); ok = _closeUp.inScene && _room == 30; }
+ 				if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index == endFilm && _seen.empty(); }
+@@ -8238,8 +8262,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 					ok = ok && doAt(kWorldVerbTurnOff, thingIn(176)) && _closeUp.index < 0 && pictureOf(51, 176) == 1;
+ 				}
+ 				if (ok) ++endingFirst;
+-				else fail("the switch turned off before the Meteor Police took the meteor, then again after: Dr Fred's film and the ending's not played, the switch not kept off "
+-					"through a save and reload, the ending not kept as seen, or played again", maniac);
++				else fail("the switch turned off before the Meteor Police took the meteor: not kept off through a save and reload, a film from off after they took it, or (on "
++					"again) Dr Fred's film and the ending's not played, the ending not kept as seen, or played again", maniac);
+ 			}
+ 			// (Their time with the dungeon shut: nothing taken.)
+ 			fresh();
+@@ -9621,12 +9645,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 		radioTubeRefused, radioTube, radioSocketRefused, radioSocket, radioRefused, radioUnpowered, radioOn, radioOff, radioPoster, radioKeypadShown, radioWrong, radioCalled, radioFilms,
+ 		radioFilmEvents, radioTicks, radioShut, radioKept, radioBadge, radioOnce, radioTubeOut, radioFellBack);
+ 	warning("SCUMMVERSE sandbox selftest ending: %d before the Meteor Police took the meteor (the Purple Meteor in the lab, its thing there, the radio's keypad its answer, the switch "
+-		"Dr Fred's other film (%d events), back where they stood, nothing following, again from off); %d turned off first, kept through a save and reload, then once they took the "
+-		"meteor Dr Fred's film and the ending's from off, seen kept through a save and reload, never again; %d taken at their time with the dungeon's doors open (not with them "
+-		"shut), kept through a save and reload; %d lab without the Purple Meteor after (its thing untouchable, the radio's line instead of its keypad, Dr Fred's lab and the front "
+-		"door places still); the switch: %d played Dr Fred's film (%d events) then the ending's at once (%d events), back where they stood, not again (from off or on, through a "
+-		"save and reload); %d an older state (SVS6) read with none seen, damaged ones let go; %d skipped by a tap, the ending following; %d over once where the place it was shown "
+-		"from could not be shown again; %d the ending's left before its end, the switch still on (Dr Fred's film again)",
++		"Dr Fred's other film (%d events), back where they stood, nothing following, nothing from off, again from on); %d turned off first, kept through a save and reload, then "
++		"once they took the meteor nothing from off, on again Dr Fred's film and the ending's, seen kept through a save and reload, never again; %d taken at their time with the "
++		"dungeon's doors open (not with them shut), kept through a save and reload; %d lab without the Purple Meteor after (its thing untouchable, the radio's line instead of its "
++		"keypad, Dr Fred's lab and the front door places still); the switch: %d played Dr Fred's film (%d events) then the ending's at once (%d events), back where they stood, "
++		"not again (from off or on, through a save and reload); %d an older state (SVS6) read with none seen, damaged ones let go; %d skipped by a tap, the ending following; %d "
++		"over once where the place it was shown from could not be shown again; %d the ending's left before its end, the switch still on (Dr Fred's film again)",
+ 		endingBefore, endingOther, endingFirst, endingTaken, endingGone, endingPlayed, endingFred, endingEvents, endingOlder, endingSkipped, endingFellBack, endingLeft);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 46bf79b6..7ad241fc 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -291,11 +291,11 @@ private:
+ 	void filmStep(int ticks);
+ 	void filmEnd();                         // seen to its end, or skipped: back, its mark left
+ 	// From 0257 (kWorldCloseUps' `from` and `script`): the picture a close-up
+-	// is shown from (the radio's keypad: on; from 0266 -1, either: the lab's
+-	// switch's films) and the script a keypad's right answer starts (0:
+-	// none; the radio's call); that answer starts the timed events called
+-	// (kWorldTimed's `on`) and the film it plays (the Meteor Police
+-	// answering), shown by no verb itself.
++	// is shown from (the radio's keypad: on; from 0266 -1, either; from 0268
++	// the lab's switch's films from on again) and the script a keypad's right
++	// answer starts (0: none; the radio's call); that answer starts the timed
++	// events called (kWorldTimed's `on`) and the film it plays (the Meteor
++	// Police answering), shown by no verb itself.
+ 	int closeUpFrom(int game, int index, int *script = nullptr) const;
+ 	void closeUpCalled(const CloseUp &c);
+ 	// From 0263 (kWorldCloseUps' `timed`, `then` and `place`): a close-up's

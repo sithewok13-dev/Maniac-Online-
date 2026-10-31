@@ -1,0 +1,46 @@
+diff --git a/engines/scumm/debugger.cpp b/engines/scumm/debugger.cpp
+index c9dcb68a..12b94b1b 100644
+--- a/engines/scumm/debugger.cpp
++++ b/engines/scumm/debugger.cpp
+@@ -19,6 +19,7 @@
+  *
+  */
+ 
++#include "common/config-manager.h"
+ #include "common/debug-channels.h"
+ #include "common/file.h"
+ #include "common/str.h"
+@@ -119,7 +120,10 @@ void ScummDebugger::preEnter() {
+ void ScummDebugger::postEnter() {
+ 	// Runtime debug level change is dealt with by the base class "debuglevel" command
+ 	// but need to ensure that the _debugMode parameter is updated in sync.
+-	_vm->_debugMode = (gDebugLevel >= 0);
++	// SCUMMVERSE (From 0275): as at the engine's start (scumm.cpp): the
++	// game's own debug mode only where scummverse_game_debug_mode asks.
++	bool asked = false;
++	_vm->_debugMode = (gDebugLevel >= 0) && Common::parseBool(ConfMan.get("scummverse_game_debug_mode"), asked) && asked;
+ 	// Boot params often need debugging switched on to work
+ 	if (_vm->_bootParam)
+ 		_vm->_debugMode = true;
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 0b90c8a0..adb9a2a6 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -318,7 +318,16 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	g_scumm = this;
+ 
+ 	// Read settings from the detector & config manager
+-	_debugMode = (gDebugLevel >= 0);
++	// SCUMMVERSE (From 0275): a debug level is the log's, not the game's own
++	// debug mode, which its scripts read (VAR_DEBUGMODE, set from it each
++	// frame): with it Monkey Island's boot leaves out a script that draws a
++	// random number each frame, its room 14 object 176's Turn on starts
++	// another script, and Day of the Tentacle, Full Throttle and The Curse of
++	// Monkey Island take keys as debug keys, not their usual ones. A phone
++	// has no debug level; tests log with one, and the games must run for them
++	// as there. scummverse_game_debug_mode=true gives the game the debug
++	// level's, as stock ScummVM does; a boot param still turns it on.
++	_debugMode = (gDebugLevel >= 0) && scummverseSwitch("scummverse_game_debug_mode", false);
+ 	_dumpScripts = ConfMan.getBool("dump_scripts");
+ 	_bootParam = ConfMan.getInt("boot_param");
+ 	// Boot params often need debugging switched on to work

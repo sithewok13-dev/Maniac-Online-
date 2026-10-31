@@ -1,0 +1,101 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 5fd321b3..5bf20a65 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -632,9 +632,10 @@ void SandboxEngine::spin(int draft) {
+ 	say("Nothing happens.");
+ }
+ 
+-// The next of the game's people (its cast's order), played where the one
+-// played stands. (The one before is not left standing there; they wander as
+-// everyone does.)
++// The next of the game's people (its cast's order), played where they are
++// (among the wanderers, else where they live), as the mansion's New kid goes
++// to the kid chosen; the one played before stays where they stand (out
++// among the wanderers here; without them, while the place is shown).
+ void SandboxEngine::newKid() {
+ 	Common::Array<int> keys;
+ 	for (const WorldCastGuest &c : kWorldCast)
+@@ -644,18 +645,34 @@ void SandboxEngine::newKid() {
+ 	for (uint i = 0; i < keys.size(); ++i) if (keys[i] == _playerKey) at = i;
+ 	double x, y;
+ 	StageBridge::position(_player, x, y);
+-	const int before = _playerKey;
++	const int before = _playerKey, fromGame = _game, fromRoom = _room, here = place(_game, _room);
+ 	Common::String problem;
+ 	// (One who cannot be shown is passed over for the next.)
+ 	for (uint step = 1; step <= keys.size(); ++step) {
+-		_playerKey = keys[(at + step) % keys.size()];
+-		if (_playerKey == before || !enter(_game, _room, 0, problem)) continue;
+-		StageBridge::place(_player, x, y);
++		const int key = keys[(at + step) % keys.size()];
++		if (key == before) continue;
++		int game = fromGame, room = fromRoom, home;
++		const int there = _wanderers ? WanderBridge::where(key) : 0;
++		if (there && Wander::placeKind(there) == Wander::kWorld && installed(Wander::placeGame(there), Wander::placeRoom(there)) && place(Wander::placeGame(there), Wander::placeRoom(there))) {
++			game = Wander::placeGame(there); room = Wander::placeRoom(there);
++		} else if (!_wanderers && castHome(key, home)) {
++			game = worldAppearanceGame(key); room = home;
++		}
++		if (_wanderers && here) WanderBridge::send(before, here);
++		_playerKey = key;
++		if (!enter(game, room, 0, problem)) continue;
++		if (game == fromGame && room == fromRoom) {
++			// (Still here: the one before where they stood.)
++			int left = -1;
++			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == before) left = n;
++			if (left < 0 && (left = addPerson(before)) >= 0) _onStage.push_back(before);
++			if (left >= 0) StageBridge::place(left, x, y);
++		}
+ 		if (!_testing) saveState();
+ 		return;
+ 	}
+ 	_playerKey = before;
+-	enter(_game, _room, 0, problem);
++	enter(fromGame, fromRoom, 0, problem);
+ 	StageBridge::place(_player, x, y);
+ 	say("There's no one else here to play.");
+ }
+@@ -3042,7 +3059,7 @@ static void show() { ++shown; }
+ Common::Error SandboxEngine::castTest() {
+ 	_phone.castGame = FakeCast::game; _phone.castMember = FakeCast::member; _phone.castShow = FakeCast::show;
+ 	_wanderers = false;
+-	int failed = 0, faces = 0, listed = 0, played = 0, expected = 0;
++	int failed = 0, faces = 0, listed = 0, played = 0, expected = 0, newKids = 0;
+ 	auto fail = [&](const char *what, const char *where) { ++failed; warning("SCUMMVERSE sandbox cast: %s: %s", where, what); };
+ 	int game, room;
+ 	Common::String problem;
+@@ -3128,6 +3145,24 @@ Common::Error SandboxEngine::castTest() {
+ 		if (most != 1 || times != 1) fail("the one played shown twice", "wanderers");
+ 		if (!WanderBridge::where(before)) fail("the one played before not out", "wanderers");
+ 	}
++	// The mansion's New kid among the wanderers: the next of its people
++	// played where they are, the one played before left out where they stood.
++	int maniac = -1, kids = 0;
++	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
++	for (const WorldCastGuest &c : kWorldCast) kids += c.game == maniac && hasCharacter(worldAppearanceKey(c.game, c.guest.costume));
++	if (maniac >= 0 && kids >= 2) {
++		int first = -1;
++		for (const WorldCastGuest &c : kWorldCast) if (first < 0 && c.game == maniac && hasCharacter(worldAppearanceKey(c.game, c.guest.costume))) first = worldAppearanceKey(c.game, c.guest.costume);
++		if (!castChoose(first) || _game != maniac) fail("the mansion's first not played", "new kid");
++		else {
++			const int here = place(_game, _room);
++			newKid();
++			const int there = WanderBridge::where(_playerKey);
++			if (_playerKey == first || _player < 0 || Wander::placeGame(there) != _game || Wander::placeRoom(there) != _room) fail("the next not played where they are", "new kid");
++			else if (WanderBridge::where(first) != here) fail("the one before not left where they stood", "new kid");
++			else ++newKids;
++		}
++	}
+ 	_wanderers = false;
+ 	// Kept; and a request in the screen's range that is no one's (the chat's
+ 	// scene token) changes nothing.
+@@ -3156,7 +3191,7 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d failed", (int)FakeCast::boxes.size(), faces, listed, played, expected, failed);
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are, %d failed", (int)FakeCast::boxes.size(), faces, listed, played, expected, newKids, failed);
+ 	if (failed || !faces || !listed || played != expected || played < 2) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

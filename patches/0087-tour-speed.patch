@@ -1,0 +1,141 @@
+diff --git a/backends/platform/ios7/scummverse_tour_ui.inc b/backends/platform/ios7/scummverse_tour_ui.inc
+index 0759ae81..55febca5 100644
+--- a/backends/platform/ios7/scummverse_tour_ui.inc
++++ b/backends/platform/ios7/scummverse_tour_ui.inc
+@@ -71,7 +71,8 @@ static void scummverseTourRefresh(UIView *view) {
+ }
+ 
+ static void scummverseInstallTour(UIView *view) {
+-	[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *) { scummverseTourRefresh(view); }];
++	// Often enough to show a stop passed quickly at 8x.
++	[NSTimer scheduledTimerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *) { scummverseTourRefresh(view); }];
+ }
+ 
+ // "Go to stop…": a number.
+@@ -107,6 +108,10 @@ static void scummverseShowTour(UIViewController *controller) {
+ 		add(next > 1 ? [NSString stringWithFormat:@"Start at stop %d", next] : @"Start the tour", Scummverse::Tour::kResume);
+ 		if (next > 1) add(@"Start over at stop 1", Scummverse::Tour::kRestart);
+ 	}
++	// Speed: 1x, 2x, 4x, 8x in turn (the whole game, while touring).
++	const int speed = Scummverse::Tour::speed(), faster = speed < 8 ? speed * 2 : 1;
++	[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Speed %d× (change to %d×)", speed, faster]
++		style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { Scummverse::Tour::setSpeed(faster); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to stop…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ scummverseTourAskStop(controller, total > 0 ? total : 1); }];
+ 	}]];
+diff --git a/common/scummverse_tour.cpp b/common/scummverse_tour.cpp
+index 9fa8b263..2e3a1397 100644
+--- a/common/scummverse_tour.cpp
++++ b/common/scummverse_tour.cpp
+@@ -17,6 +17,7 @@ static int g_command = kNone, g_stop = 0;
+ static bool g_said = false, g_running = false;
+ static std::string g_label;
+ static int g_next = 1, g_total = 0;
++static int g_speed = 1;
+ 
+ void request(int command, int stop) {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+@@ -50,10 +51,21 @@ bool status(bool &running, char *label, int capacity, int &next, int &total) {
+ 	return g_said;
+ }
+ 
++void setSpeed(int speed) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	g_speed = speed == 2 || speed == 4 || speed == 8 ? speed : 1;
++}
++
++int speed() {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	return g_speed;
++}
++
+ void reset() {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+ 	g_command = kNone; g_stop = 0;
+ 	g_said = false; g_running = false; g_label.clear(); g_next = 1; g_total = 0;
++	g_speed = 1;
+ }
+ 
+ } // namespace Tour
+diff --git a/common/scummverse_tour.h b/common/scummverse_tour.h
+index e133c824..b46fe8bc 100644
+--- a/common/scummverse_tour.h
++++ b/common/scummverse_tour.h
+@@ -25,7 +25,13 @@ void publish(bool running, const char *label, int next, int total);
+ // (truncated to capacity, at a whole UTF-8 character).
+ bool status(bool &running, char *label, int capacity, int &next, int &total);
+ 
+-// Nothing waiting or said (a game starting or ending).
++// ---- Speed (set by the interface, read by the game each step) ----
++// The tour plays the game this many times faster: 1, 2, 4 or 8 (anything
++// else is 1).
++void setSpeed(int speed);
++int speed();
++
++// Nothing waiting or said, normal speed (a game starting or ending).
+ void reset();
+ 
+ } // namespace Tour
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 5c966ee2..255f31ce 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -2689,6 +2689,8 @@ void ScummEngine::waitForTimer(int quarterFrames, bool freezeMacGui) {
+ 		msecDelay = 0;
+ 	else if (_fastMode & 1)
+ 		msecDelay = 10;
++	else if (_scummverseTouring && _scummverseTourSpeed > 1)
++		msecDelay /= _scummverseTourSpeed; // the TOUR at 2x, 4x or 8x
+ 
+ 	cur = _system->getMillis();
+ 	uint32 diff = cur - _lastWaitTime;
+@@ -2709,7 +2711,13 @@ void ScummEngine::waitForTimer(int quarterFrames, bool freezeMacGui) {
+ 		if (_macGui && !freezeMacGui)
+ 			_macGui->updateWindowManager();
+ 
+-		_system->updateScreen();
++		// The TOUR played fast: shown at most about 60 times a second (a
++		// screen waiting for the display would hold the game back), the
++		// steps between drawn but not shown.
++		if (!_scummverseTouring || _scummverseTourSpeed == 1 || _system->getMillis() - _scummverseTourShownAt >= 16) {
++			_system->updateScreen();
++			_scummverseTourShownAt = _system->getMillis();
++		}
+ 		cur = _system->getMillis();
+ 
+ #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 8be61473..272a9111 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1701,6 +1701,8 @@ protected:
+ 	bool _scummverseTouring = false, _scummverseTourPublished = false, _scummverseTourOnFoot = false, _scummverseTourViaDoor = false;
+ 	int _scummverseTourStop = 0, _scummverseTourStep = 1, _scummverseTourPhase = 0, _scummverseTourWait = 0;
+ 	int _scummverseTourShown = 0; // the stop the label names (the walk may be on its way to the next)
++	int _scummverseTourSpeed = 1; // the game plays this many times faster while touring
++	uint32 _scummverseTourShownAt = 0; // when the screen was last shown (the tour played fast)
+ 	int _scummverseTourDwell = 0; // ticks in this stop
+ 	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
+ 	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 64858961..e5dbcb39 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -369,8 +369,17 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 		_scummverseTourPublished = true;
+ 		const int saved = ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1;
+ 		_scummverseTourStop = _scummverseTourShown = CLIP(saved, 1, MAX(1, total)) - 1;
++		if (ConfMan.hasKey("scummverse_tour_speed")) ScummverseTour::setSpeed(ConfMan.getInt("scummverse_tour_speed"));
+ 		scummverseTourPublish("");
+ 	}
++	// The speed chosen (remembered; waitForTimer plays the game faster while
++	// touring).
++	const int speed = ScummverseTour::speed();
++	if (speed != _scummverseTourSpeed) {
++		_scummverseTourSpeed = speed;
++		ConfMan.setInt("scummverse_tour_speed", speed);
++		ConfMan.flushToDisk();
++	}
+ 	int command, number;
+ 	if (ScummverseTour::takeRequest(command, number)) scummverseTourCommand(command, number);
+ 	if (!_scummverseTouring) return;

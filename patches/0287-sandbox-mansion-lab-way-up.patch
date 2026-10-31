@@ -1,0 +1,1497 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index c2942424..28414bbf 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -371,10 +371,12 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 				f.costume = r.u16(); f.x = r.u16(); f.y = r.u16(); f.facing = r.u8(); f.color = r.u8();
+ 				const int events = r.u8();
+ 				if (events > kMostFilmEvents) { out = GameThings(); error = "bad close-up"; return false; }
+-				// (From 0250 its lead no longer than it, nor than kMostFilmLead: a
+-				// damaged one would leave its thing shown, taps waiting, for minutes.)
++				// (From 0250 its lead no longer than kMostFilmLead: a damaged one
++				// would leave its thing shown, taps waiting, for minutes. From 0287
++				// it may be longer than the film itself: Meteor Mess played a
++				// while before its high score shows, briefly.)
+ 				film = c.keys.empty() && c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty() && !c.right && !c.wrong && f.facing < 4 && f.leadPicture < 2 &&
+-					f.lead <= f.length && f.lead <= kMostFilmLead;
++					f.lead <= kMostFilmLead;
+ 				for (int k = 0; k < events && r.ok; ++k) {
+ 					FilmEvent e;
+ 					e.tick = r.u16(); e.id = r.u16(); e.picture = r.u8(); line(e.line);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 2b6b8124..df5be02c 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -242,7 +242,8 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // a view; a film has no keys, no code and no turns: the mansion's TV): u16
+ // its length (the game's ticks; 0: no film, nothing more), then u16 how long
+ // its thing's place shows first (from 0250 at most its length and
+-// kMostFilmLead, else the file is refused) and u8 the thing's picture
++// kMostFilmLead, from 0287 at most kMostFilmLead, else the file is refused)
++// and u8 the thing's picture
+ // meanwhile, u16 the
+ // costume of the one there (0: nobody), u16 x and y of their feet (source
+ // pixels), u8 the way they face (0 left, 1 right, 2 front, 3 back), u8 their
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 37fd32c4..bace94d5 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -141,10 +141,18 @@ static const int kWorldExportVersion = 25;
+ // chandelier, a verb an answer of two hands on; kWorldKeptValues,
+ // kWorldValueReaders' `kids` and `marks`, kWorldTimed's `after`,
+ // kWorldTimedValues, kWorldLaterLines, its things file "SVOC":
+-// "maniac-v47").
++// "maniac-v47"); from 0287 the mansion's again (the way to its lab: the
++// dungeon's inner door's keypad, its code drawn as Dr Fred's high score on
++// Meteor Mess draws it, that high score seen with a quarter, the arcade's
++// wires fixed in the dark, and the Purple Tentacle given the badge;
++// kWorldCloseUps' `with` and `drawn`, kWorldTimed's `powered` and `draw`,
++// kWorldMarkReaders' `holds` and `unpowered`, kWorldKeptValues' 151 and
++// kWorldValueReaders' badge: "maniac-v48"); from 0287 the mansion's again
++// (the arcade's wires fixed with the tools used on them, as with Fix:
++// kWorldMarkReaders' Use row: "maniac-v49").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 22 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 24 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
+ 		same(gameid, "zak") || same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+ 		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -710,12 +718,33 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ // as in the original, whose self-destruct countdown, script 123, not
+ // modelled, then ends its game). `from` -1 stays for a film shown from
+ // either picture (none now).
+-struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen, from, script, timed, then, place, once; };
+-static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218, 0, 0, 0, 0, 0, 0},
+-	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 21, 399, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0}, {10, 21, 399, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0},
+-	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 63, 1, 0}, {10, 51, 176, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 63, 42, 0, 1, 1},
+-	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -42, 0, 1, 0}};
++// From 0287 `with`, a second thing a film is shown by (used with it, the
++// one carried; 0: none, its verbs alone), and `drawn`, the script of a timed
++// event (kWorldTimed) whose happening draws a keypad's code (its `draw`):
++// the export plays the keypad with that draw run first, as its own seed
++// picks it (so the code is the one that event's draw leaves), and the new
++// engine takes its code as right only once that event has happened (before,
++// its game's code is none a key gives: every code wrong). The mansion's
++// dungeon (room 4): the inner door (163, inside the outer door, 160, once
++// that is open) shows its keypad (room 43; Open, Push, Pull or Use; its
++// script, 46, copies the code from variable 59 on into the keypad's): the
++// right code unlocks and opens it (and its other side, room 31's 166), a
++// wrong one its line (its script 69), the door shut. Its code is none until
++// Dr Fred has played Meteor Mess (script 101, kWorldTimed), whose script 102
++// draws one of four codes and shows it as his high score (room 39, one of
++// its things 248 to 251 shown). The arcade's Meteor Mess (room 18, 442)
++// used with the quarter (221), the arcade's wires fixed (room 15, 225; the
++// event wants them so), shows that high score (script 27, room 39 for a
++// while; a film here) once he has played; before, as its record of a thing
++// used with it (nothing). The quarter its script puts in the coin box is
++// not modelled (kept).
++struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen, from, script, timed, then, place, once, with, drawn; };
++static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 21, 399, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0, 0, 0}, {10, 21, 399, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 42, -42, 0, 0, 0, 0, 0},
++	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 63, 1, 0, 0, 0}, {10, 51, 176, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 63, 42, 0, 1, 1, 0, 0},
++	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -42, 0, 1, 0, 0, 0},
++	{10, 4, 163, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101}, {10, 18, 442, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 221, 0}}; // (from 0287)
+ inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ // (A room only a close-up shows: from 0263 not one also a place, `place`.)
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+@@ -1373,32 +1402,48 @@ enum {
+ // scripts check (with the main power off, turned on with the tape in, they
+ // do nothing); a deck turned on with its tape in, and the Victrola, are
+ // answered by the value kept where kWorldValueReaders has a row so.
+-struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads, kid, bare, powered, picked; };
++// From 0287 `holds`, a thing the kid carries too (0: none): the export gives
++// it to the kid first, and the new engine gives the answer only while the
++// one played carries it (the mansion's flashlight lit, as `var` at `value`
++// has it on), and `unpowered`: only with the main power off, as its script
++// checks (the export plays it so; with the power on, the thing's usual
++// answer). The arcade's wires in the attic (room 15, 225) fixed with the
++// tools (152) by a kid with the flashlight (84) on (156 at 1) and the circuit
++// breakers off: fixed (picture 1), the kid's line; its script starts Dr
++// Fred's way to Meteor Mess (script 101, kWorldTimed: started by this
++// answer, `on`). Otherwise the wires answer as before (their Open: with the
++// power on, the shock). From 0287 the tools used on them (Use) likewise:
++// the tools' own Use hands on to the wires' Use, whose script is Fix's (as
++// a player has it: before, "That doesn't seem to work", his time never
++// started).
++struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads, kid, bare, powered, picked, holds, unpowered; };
+ static const WorldMarkReader kWorldMarkReaders[] = {
+-	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed, 0, 0, 0, 0},
+-	{10, 1, 276, kWorldVerbUse, 222, 50, 0, 0, 0, kManiacMarkAddressed | kManiacMarkStamped | kManiacMarkManuscript, 0, 0, 0, 0},
+-	{10, 9, 222, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0, 0}, {10, 1, 58, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0, 0},
+-	{10, 7, 85, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn, 0, 0, 0, 0},
+-	{10, 7, 85, kWorldVerbUse, 132, 0, 0, 0, 0, kManiacMarkWater, 0, 0, 0, 0},
+-	{10, 7, 85, kWorldVerbClose, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 7, 85, kWorldVerbTurnOn, 0, 31, 83, 85, 6, 0, 0, 0, 0, 0},
+-	{10, 7, 88, kWorldVerbUse, 132, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0},
+-	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0},
+-	{10, 1, 57, kWorldVerbOpen, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0}, {10, 1, 57, kWorldVerbPull, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0},
+-	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed, 0, 0, 0, 0},
+-	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 3, 73, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0},
+-	{10, 21, 398, kWorldVerbUse, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0}, {10, 21, 398, kWorldVerbFix, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0},
+-	{10, 21, 399, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 212, 1, 0}, {10, 21, 399, kWorldVerbUse, 0, 0, 0, 162, 3, 0, 0, 0, 0, 0},
+-	{10, 21, 397, kWorldVerbRead, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 21, 212, kWorldVerbPickUp, 0, 0, 0, 172, 1, 0, 0, 0, 0, 0},
+-	{10, 2, 142, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 167, 0, 1},
+-	{10, 17, 192, kWorldVerbPickUp, 0, 191, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 3, 80, kWorldVerbPickUp, 0, 228, 0, 0, 0, 0, 0, 0, 0, 0},
+-	{10, 17, 30, kWorldVerbPickUp, 0, 366, 0, 167, 1, 0, 0, 0, 0, 0},
+-	{10, 17, 191, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 192, 1, 0}, {10, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 80, 1, 0},
+-	{10, 20, 164, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 216, 1, 0}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0},
+-	{10, 17, 365, kWorldVerbUse, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}; // (from 0286: the piano, for those its music is not: kWorldValueReaders' `kids`)
++	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed, 0, 0, 0, 0, 0, 0},
++	{10, 1, 276, kWorldVerbUse, 222, 50, 0, 0, 0, kManiacMarkAddressed | kManiacMarkStamped | kManiacMarkManuscript, 0, 0, 0, 0, 0, 0},
++	{10, 9, 222, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0, 0, 0, 0}, {10, 1, 58, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbUse, 132, 0, 0, 0, 0, kManiacMarkWater, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbClose, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbTurnOn, 0, 31, 83, 85, 6, 0, 0, 0, 0, 0, 0, 0},
++	{10, 7, 88, kWorldVerbUse, 132, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0, 0, 0},
++	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0, 0, 0, 0},
++	{10, 1, 57, kWorldVerbOpen, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0, 0, 0}, {10, 1, 57, kWorldVerbPull, 0, 165, 0, 100, 1, 0, 0, 0, 0, 0, 0, 0},
++	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed, 0, 0, 0, 0, 0, 0},
++	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 3, 73, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0},
++	{10, 21, 398, kWorldVerbUse, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0}, {10, 21, 398, kWorldVerbFix, 73, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0},
++	{10, 21, 399, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 212, 1, 0, 0, 0}, {10, 21, 399, kWorldVerbUse, 0, 0, 0, 162, 3, 0, 0, 0, 0, 0, 0, 0},
++	{10, 21, 397, kWorldVerbRead, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 21, 212, kWorldVerbPickUp, 0, 0, 0, 172, 1, 0, 0, 0, 0, 0, 0, 0},
++	{10, 2, 142, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 167, 0, 1, 0, 0},
++	{10, 17, 192, kWorldVerbPickUp, 0, 191, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 3, 80, kWorldVerbPickUp, 0, 228, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 17, 30, kWorldVerbPickUp, 0, 366, 0, 167, 1, 0, 0, 0, 0, 0, 0, 0},
++	{10, 17, 191, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 192, 1, 0, 0, 0}, {10, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 80, 1, 0, 0, 0},
++	{10, 20, 164, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 216, 1, 0, 0, 0}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0},
++	{10, 17, 365, kWorldVerbUse, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // (from 0286: the piano, for those its music is not: kWorldValueReaders' `kids`)
++	{10, 15, 225, kWorldVerbFix, 152, 0, 0, 156, 1, 0, 0, 0, 0, 0, 84, 1}, // (from 0287: the arcade's wires)
++	{10, 15, 225, kWorldVerbUse, 152, 0, 0, 156, 1, 0, 0, 0, 0, 0, 84, 1}}; // (from 0287: the tools used on them)
+ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, int kind, int with) {
+ 	for (const WorldMarkReader &r : kWorldMarkReaders)
+ 		if (r.game == game && r.room == room && r.object == object && r.kind == kind && r.with == with) return &r;
+@@ -1419,8 +1464,17 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // Tentacle's demo tape; set as kWorldTimedValues has it). Its game also
+ // keeps who played the piano (86), read only by the reply's Read with 101
+ // at 2 (its line as for the export's kid); not here.
++// From 0287 the Purple Tentacle gone from his post before the lab (151 at 1:
++// room 31; his scripts 157, 119, 115 and 99 set it as he leaves for good,
++// and the inner door's walk, room 4's 163, puts him there only while it is
++// 0), and the Green Tentacle's friends (the mansion's bit variables 2960 on,
++// one a kid; kept as one value, bit k kid k, by the new engine alone: no
++// variable of the export's, nothing played with it): the kid who gives him
++// his recording contract (101 at 3; his script 110) is his friend, whom he
++// comes to save from the Purple Tentacle (script 49's catch, 115).
+ struct WorldKeptValue { short game, var, values[4]; };
+-static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {10, 94, {25, 44, 0, 0}}, {10, 82, {2, 0, 0, 0}}, {10, 101, {1, 2, 3, 0}}};
++static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {10, 94, {25, 44, 0, 0}}, {10, 82, {2, 0, 0, 0}}, {10, 101, {1, 2, 3, 0}},
++	{10, 151, {1, 0, 0, 0}}, {10, 2960, {0, 0, 0, 0}}}; // (from 0287)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -1507,6 +1561,14 @@ inline bool worldKeptValue(int game, int var) {
+ // kept); the kid's given to him, or the book contract (the kid killed), or
+ // the book contract given to the Purple Meteor (the ending, scripts 118, 63
+ // and 124), none.
++// From 0287 the badge the Meteor Police leave in the dungeon (room 4, 214)
++// given to the Purple Tentacle (13, room 31): his first line (his script,
++// 157, a cut-scene, waits on each line being shown, which the export does
++// not show: no more is recorded), the badge kept; he leaves his post for
++// good as it ends (151 at 1), which the new engine keeps (its
++// kManiacGivenLeaves). The reply given to him: for a book contract (101 at
++// 1; script 119) his line and he leaves (151 at 1, recorded), his line for
++// any other (the kid then caught, script 49: here, the way on still barred).
+ // (From 0286 `object` and `need` an int: kWorldPersonThing and a costume.)
+ struct WorldValueReader { short game, room; int object; short kind, with; int need; short bare, powered, reads, later, kids, marks; };
+ static const WorldValueReader kWorldValueReaders[] = {
+@@ -1529,7 +1591,8 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	{10, 1, 60, kWorldVerbRead, 0, 0, 0, 0, 101, 0, 0, 0},
+ 	{10, 20, kWorldPersonThing + 14, kWorldVerbGive, 60, 0, 0, 0, 101, 0, 0, 0},
+ 	{10, 51, kWorldPersonThing + 16, kWorldVerbGive, 60, 0, 0, 0, 101, 0, 0, 0},
+-	{10, 31, kWorldPersonThing + 13, kWorldVerbGive, 60, 0, 0, 0, 101, 0, 0, 0}};
++	{10, 31, kWorldPersonThing + 13, kWorldVerbGive, 60, 0, 0, 0, 101, 0, 0, 0},
++	{10, 31, kWorldPersonThing + 13, kWorldVerbGive, 214, 0, 0, 0, 0, 0, 0, 0}}; // (from 0287)
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // Timed events (from 0250): what a game's script does a while after the one
+@@ -1585,12 +1648,30 @@ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >=
+ // (60) is in the mailbox (shown, and touchable: kManiacShownLater), only
+ // where they offer a contract (101). The export checks its wait, and what
+ // it leaves by what was posted, against the script.
+-struct WorldTimed { short game, from, to, need[3][2], marks; int first; short every, away[2], room, checks[2][2], sets[2][2], once, script, on, var, value, takes[2], person, after; };
++// From 0287 `away` four places (0: none), `powered`: also waiting, as its
++// script does, while the main power is off (kWorldMainPowers), and `draw`,
++// a script its happening runs whose random pick it leaves (0: none; the
++// export runs it, as its own seed picks, for what is shown once it has
++// happened: kWorldCloseUps' `drawn` and `timed`). One `on` a thing of `from`
++// with `need` (not a keypad's: the radio's has none) starts as an answer
++// leaves its things so. Dr Fred playing Meteor Mess (script 101): started by
++// the arcade's wires fixed (room 15, 225 in picture 1; their script starts
++// it), 14400 ticks later, then every 3600 while the one played is in the
++// arcade (18), the hallway (13), the hidden room's (19) or Weird Ed's room
++// (26), or the main power is off, he plays (with the wires fixed; else he
++// walks off, never so here): his high score, the dungeon's inner door's code
++// (script 102, its draw), done for good. What his cut-scene shows (room 18)
++// is not modelled. Its game also has him play after its other cut-scenes
++// (scripts 143 and 145, not modelled) and after the Purple Tentacle has put
++// a kid back in the dungeon with its inner door left open (script 49, as he
++// says; no catch here), each time a new draw: here once, its code kept.
++struct WorldTimed { short game, from, to, need[3][2], marks; int first; short every, away[4], room, checks[2][2], sets[2][2], once, script, on, var, value, takes[2], person, after, powered, draw; };
+ static const WorldTimed kWorldTimed[] = {
+-	{10, 12, 38, {{0, 0}, {0, 0}, {0, 0}}, 0, 18300, 300, {1, 26}, 1, {{0, 0}, {0, 0}}, {{57, 0}, {0, 0}}, 1, 111, 0, 0, 0, {0, 0}, 0, 0},
+-	{10, 1, 0, {{58, 1}, {50, 0}, {51, 1}}, kManiacMarkAddressed | kManiacMarkStamped, 5400, 1800, {1, 0}, 1, {{58, 1}, {0, 0}}, {{58, 0}, {51, 0}}, 0, 105, 0, 0, 0, {0, 0}, 0, 0},
+-	{10, 21, 0, {{0, 0}, {0, 0}, {0, 0}}, 0, 21258, 0, {0, 0}, 4, {{160, 1}, {163, 1}}, {{214, 0}, {0, 0}}, 2, 42, 399, 162, 3, {51, 45}, 16, 0},
+-	{10, 0, 0, {{0, 0}, {0, 0}, {0, 0}}, 0, 32502, 1800, {1, 0}, 1, {{0, 0}, {0, 0}}, {{60, 1}, {0, 0}}, 1, 105, 0, 0, 0, {0, 0}, 0, 105}}; // (from 0286)
++	{10, 12, 38, {{0, 0}, {0, 0}, {0, 0}}, 0, 18300, 300, {1, 26, 0, 0}, 1, {{0, 0}, {0, 0}}, {{57, 0}, {0, 0}}, 1, 111, 0, 0, 0, {0, 0}, 0, 0, 0, 0},
++	{10, 1, 0, {{58, 1}, {50, 0}, {51, 1}}, kManiacMarkAddressed | kManiacMarkStamped, 5400, 1800, {1, 0, 0, 0}, 1, {{58, 1}, {0, 0}}, {{58, 0}, {51, 0}}, 0, 105, 0, 0, 0, {0, 0}, 0, 0, 0, 0},
++	{10, 21, 0, {{0, 0}, {0, 0}, {0, 0}}, 0, 21258, 0, {0, 0, 0, 0}, 4, {{160, 1}, {163, 1}}, {{214, 0}, {0, 0}}, 2, 42, 399, 162, 3, {51, 45}, 16, 0, 0, 0},
++	{10, 0, 0, {{0, 0}, {0, 0}, {0, 0}}, 0, 32502, 1800, {1, 0, 0, 0}, 1, {{0, 0}, {0, 0}}, {{60, 1}, {0, 0}}, 1, 105, 0, 0, 0, {0, 0}, 0, 105, 0, 0}, // (from 0286)
++	{10, 15, 0, {{225, 1}, {0, 0}, {0, 0}}, 0, 14400, 3600, {18, 13, 19, 26}, 18, {{0, 0}, {0, 0}}, {{206, 0}, {0, 0}}, 2, 101, 225, 0, 0, {0, 0}, 0, 0, 1, 102}}; // (from 0287)
+ static const int kWorldTimedCount = (int)(sizeof(kWorldTimed) / sizeof(kWorldTimed[0]));
+ // (From 0263 a game's timed event by its script: its index, else -1. From
+ // 0286 not one another's happening starts, `after`: the same script's.)
+@@ -1598,6 +1679,12 @@ inline int worldTimedOf(int game, int script) {
+ 	for (int i = 0; i < kWorldTimedCount; ++i) if (script && kWorldTimed[i].game == game && kWorldTimed[i].script == script && !kWorldTimed[i].after) return i;
+ 	return -1;
+ }
++// (From 0287 the one another's happening starts, by that one's script
++// (`after`): its index, else -1. The mansion's reply, after its pickup.)
++inline int worldTimedAfter(int game, int script) {
++	for (int i = 0; i < kWorldTimedCount; ++i) if (script && kWorldTimed[i].game == game && kWorldTimed[i].after == script) return i;
++	return -1;
++}
+ // What a timed event that another's happening starts (kWorldTimed's
+ // `after`) leaves kept (from 0286), by the values kept as it happens (its
+ // script reads them as it runs): with `reads` at `value` and `also` at
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index d6eb4dce..bbfff61e 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -2526,9 +2526,25 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (booted) started = keep();
+ 			else warning("SCUMMVERSE world things: %s start not run past its kid picker", kWorldGames[gameIndex].gameid);
+ 		}
++		// (From 0287 a timed event's draw (kWorldTimed's `draw`): its script
++		// run alone until it ends, from a seed of its own, so every close-up
++		// shown after that event (kWorldCloseUps' `drawn`, `timed`) finds the
++		// same pick: the dungeon's inner door's code and the high score that
++		// shows it, as Dr Fred's game leaves them.)
++		auto drawOf = [&](int script) {
++			const int event = script ? worldTimedOf(gameIndex, script) : -1;
++			const int draw = event >= 0 ? kWorldTimed[event].draw : 0;
++			if (!draw) return;
++			_rnd.setSeed(0x5C0BE + draw);
++			int args[NUM_SCRIPT_LOCAL];
++			memset(args, 0, sizeof(args));
++			runScript(draw, false, false, args);
++			for (int n = 0; n < 60 && isScriptRunning(draw); ++n) oneFrame();
++		};
+ 		// (From 0257 from the picture its thing shows it from, `from`.)
+ 		auto showCloseUp = [&](const WorldCloseUp &c, int verb) {
+ 			if (booted) restore(started); else putBack();
++			drawOf(c.drawn); // (from 0287)
+ 			_rnd.setSeed(0x5C0BE + c.room);
+ 			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
+ 			const int at = getObjectIndex(c.object);
+@@ -2771,11 +2787,17 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// script run, its thing in its picture `from`; no verb shows it.)
+ 		auto filmStart = [&](const WorldCloseUp &c, int verb, bool powerOffFirst) {
+ 			restore(started);
++			// (From 0287 one shown once a timed event with a draw has happened:
++			// that draw run first; and the things that event wanted, so: the
++			// arcade's wires fixed for Dr Fred's high score.)
++			if (c.timed > 0) drawOf(c.timed);
+ 			_rnd.setSeed(0x5C0BE + c.room);
+ 			// (From 0263 one shown only once a timed event has happened: with
+ 			// the variable it leaves so first, as its place's entry finds it.)
+ 			const int event = c.timed > 0 ? worldTimedOf(gameIndex, c.timed) : -1;
+ 			if (event >= 0 && kWorldTimed[event].var > 0 && kWorldTimed[event].var < _numVariables) VAR(kWorldTimed[event].var) = kWorldTimed[event].value;
++			if (event >= 0 && kWorldTimed[event].draw) // (from 0287)
++				for (const short (&n)[2] : kWorldTimed[event].need) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
+ 			if ((!verb && !c.script) || !arrive(c.room) || (!c.script && !getVerbEntrypoint(c.object, verb))) return false;
+ 			// (With the main power off, as its circuit breakers leave it.)
+ 			if (powerOffFirst) putState(powerId, powerOff ? getState(powerId) | kObjectStateIntrinsic : getState(powerId) & ~kObjectStateIntrinsic);
+@@ -2789,7 +2811,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				runScript(c.script, false, false, args);
+ 				return true;
+ 			}
+-			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			// (From 0287 one shown with a second thing, `with`: that one the
++			// kid's, used with it, as its sentence runs it: the quarter in
++			// Meteor Mess.)
++			if (c.with) putOwner(c.with, VAR(VAR_EGO));
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = c.with;
+ 			_charsetBuffer[0] = 0;
+ 			runObjectScript(c.object, verb, false, false, nullptr);
+ 			return true;
+@@ -2978,7 +3004,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
+ 					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (more close-ups than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+-				else if (played && (u.lead > Scummverse::PanelBridge::kMostFilmLead || u.lead > u.length))
++				else if (played && u.lead > Scummverse::PanelBridge::kMostFilmLead) // (from 0287 not its length: kMostFilmLead's alone)
+ 					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (its lead, %d ticks, longer than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, u.lead);
+ 				else if (played) closeUps.push_back(u);
+ 				else warning("SCUMMVERSE world things: %s film %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+@@ -3113,6 +3139,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					putPicture(m.object, from);
+ 					if (carryable.contains(m.object) && (!m.picked || getOwner(m.object) != ego)) { addObjectToInventory(m.object, m.room); putOwner(m.object, ego); }
+ 					if (m.with) putOwner(m.with, ego);
++					// (From 0287 `holds`, the kid's too; `unpowered`, the main
++					// power off first, as its circuit breakers leave it.)
++					if (m.holds) putOwner(m.holds, ego);
++					if (m.unpowered && powerId) putState(powerId, powerOff ? getState(powerId) | kObjectStateIntrinsic : getState(powerId) & ~kObjectStateIntrinsic);
+ 					putMarks(set);
+ 					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects), was(_objectStateTable, _numGlobalObjects);
+ 					const Common::Array<int32> varsWere(_scummVars, _numVariables);
+@@ -3432,8 +3462,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			// (From 0286 one another's happening starts: with it, below.)
+ 			if (w.game != gameIndex || !w.script || !w.sets[0][0] || w.after) continue;
+ 			int there = w.on ? w.from : w.to;
+-			for (uint r = 0; r < found.size() && !there; ++r)
+-				if (found[r].room != w.from && found[r].room != w.away[0] && found[r].room != w.away[1] && !worldCloseUpScene(gameIndex, found[r].room)) there = found[r].room;
++			for (uint r = 0; r < found.size() && !there; ++r) {
++				bool away = false;
++				for (short a : w.away) away = away || (a && found[r].room == a); // (from 0287 four)
++				if (found[r].room != w.from && !away && !worldCloseUpScene(gameIndex, found[r].room)) there = found[r].room;
++			}
+ 			restore(started);
+ 			_rnd.setSeed(0x5C0BE + w.room);
+ 			if (!there || !arrive(there)) { warning("SCUMMVERSE world things: %s timed event %d not checked (no place to wait in)", kWorldGames[gameIndex].gameid, t); continue; }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 693c8679..95eb073a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -555,6 +555,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		for (const WorldCastGuest &cast : kWorldCast)
+ 			if (cast.game == game && cast.room == room) keys.push_back(worldAppearanceKey(game, cast.guest.costume));
+ 	}
++	// (From 0287 the Purple Tentacle at his post while he guards it, as the
++	// inner door's walk puts him there, wherever the wanderers had him.)
++	if (!_enteringCloseUp) guardPosted(game, room, keys);
+ 	for (int key : keys) {
+ 		// (The same person as someone here already, by name, or as one
+ 		// following the one played (come along after them, bringFollowers:
+@@ -650,6 +653,15 @@ static const ManiacSets kManiacSets[] = {
+ 	{1, 276, kOpened, 1, 50, 1}, {1, 276, kClosed, 1, 50, 0},
+ 	{22, 380, kOpened, 22, 209, 1}, {22, 380, kClosed, 22, 209, 0},
+ 	{10, 351, 1 << kWorldVerbPush | 1 << kWorldVerbPull, 10, 69, 1},
++	// (From 0287 the two sides of the doors up to the lab, as their scripts
++	// set both: the dungeon's inner door (4, 163) and room 31's side of it
++	// (166), the lab's door (30, 255) and its other side (51, 267); the lab's
++	// way out to the garage (51, 177) opens the cement slab there (16, 59).
++	// The inner door opened only by its keypad (kWorldCloseUps), the lab's
++	// door only by its card key (kManiacSlots): their Open rows are theirs.)
++	{31, 166, kOpened, 4, 163, 1}, {31, 166, kClosed, 4, 163, 0}, {4, 163, kOpened, 31, 166, 1}, {4, 163, kClosed, 31, 166, 0},
++	{30, 255, kOpened, 51, 267, 1}, {30, 255, kClosed, 51, 267, 0}, {51, 267, kOpened, 30, 255, 1}, {51, 267, kClosed, 30, 255, 0},
++	{51, 177, kOpened, 16, 59, 1},
+ };
+ // From 0153: things its game moves as one, each row what one of them does
+ // (tools/test_mansion_links.py again): on `hides` each of `parts` shows
+@@ -693,6 +705,58 @@ struct ManiacOpenedBy { short room, door; const char *line; };
+ static const ManiacOpenedBy kManiacOpenedBy[] = {{10, 69, "There's no handle here!"}};
+ struct ManiacDoorNeeds { short room, door, needRoom, needObject, needPicture; };
+ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69, 10, 69, 1}};
++// From 0287 the way up to the mansion's lab, as its game's own scripts keep
++// it (each read with them, nothing copied; tools/test_sandbox_engine.py's
++// "lab" check). Its doors its game keeps locked: no way through them but
++// open, never opened on the way through, and Open (Unlock, Push, Pull, Use)
++// on one shut refused, with its line here (the inner door: its keypad
++// instead, kWorldCloseUps; none here):
++// - the dungeon's inner door (room 4, 163, to room 31): its game starts it
++//   locked; its keypad's right code (Dr Fred's high score, once he has
++//   played: kWorldTimed) unlocks and opens it, a wrong one its line, Close
++//   shuts and locks it again; from room 31 its other side (166) opens it
++//   with no code. A door as before where its things file has no keypad for
++//   it (an export of before);
++// - the lab's door (room 30, 255, to room 51): locked until the card key
++//   (104, from Weird Ed's room) is used on its card slot (415) or on it
++//   (its script hands that on to the slot), which opens it; shut again from
++//   room 30 it is locked again (its Close), from the lab's side (267) only
++//   shut, as no one shuts it here but from room 30. Anything else used on
++//   the slot, its line;
++// - the garage's cement slab (room 16, 59, to the lab's room 51): opened
++//   only from the lab's side, by its door there (177; kManiacSets), and then
++//   open for good; from the garage it won't move (Open, its line; Close, the
++//   same: its script leaves it as it is).
++// The Purple Tentacle (costume 13) guards room 31's way on to the lab (168)
++// while the game's variable 151 is 0 (kWorldKeptValues; his post): the
++// inner door's walk puts him there, and he catches a kid who comes on into
++// the room (scripts 117 and 49: the dungeon, or worse). Here, as Explore
++// mode has no catches, his door is barred instead, his line said, nobody
++// caught: tried (Open, or walked through) by the Green Tentacle's friend
++// (variable 2960's bit for the kid played: the kid who gave him his
++// recording contract), the Green Tentacle comes and leads him away for good
++// (script 115; 151 at 1; told, its film not shown), and the way is open.
++// Given the badge, or a book contract (kWorldValueReaders), he leaves for
++// good likewise (his script's lines). Weird Ed's friendship (his script 99)
++// is not modelled (the film he is given is never developed here). Gone, he
++// is not put on the stage again (as takenAway).
++struct ManiacLocked { short room, door; const char *line; bool stays; }; // (`stays`: its Close here moves it neither)
++static const ManiacLocked kManiacLocked[] = {{4, 163, nullptr, false}, {30, 255, "It won't open.", false}, {16, 59, "It won't budge.", true}};
++struct ManiacSlot { short room, slot, door, key; };
++static const ManiacSlot kManiacSlots[] = {{30, 415, 255, 104}};
++struct ManiacGuard { short room, door, costume, gone, friendCostume, friends; };
++static const ManiacGuard kManiacGuards[] = {{31, 168, 13, 151, 14, 2960}};
++// (What a thing given to one of the cast leaves kept where its export's
++// record does not say it (kWorldValueReaders' rows): with the value kept it
++// reads so (`reads` 0: none), `var` at `value`, or (`kid`) the bit of the
++// kid played set in it. The Green Tentacle given his recording contract (101
++// at 3): that kid his friend (2960; a bit variable, none of the export's).
++// The Purple Tentacle given the badge: gone from his post (151 at 1), as his
++// script 157 leaves him at its end, which the export does not reach (its
++// cut-scene waits on its lines being shown); the book contract's script
++// (119) is recorded with it.)
++struct ManiacGivenLeaves { short room, costume, with, reads, value, var, set; bool kid; };
++static const ManiacGivenLeaves kManiacGivenLeaves[] = {{20, 14, 60, 101, 3, 2960, 0, true}, {31, 13, 214, 0, 0, 151, 1, false}};
+ // From 0250: things its scripts make touchable only as they show them
+ // (clearing their untouchable bit with their picture), away where its start
+ // puts them: touchable while in another picture than that start's (an
+@@ -1359,15 +1423,133 @@ bool SandboxEngine::doorAllowed(int room, int door) const {
+ 		if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == door && insideShut(o)) return false;
+ 	}
+ 	for (const ManiacDoorNeeds &n : kManiacDoorNeeds) if (n.room == room && n.door == door && pictureOf(n.needRoom, n.needObject) != n.needPicture) return false;
++	// (From 0287 one its game keeps locked: only open; the Purple Tentacle's
++	// while he guards it.)
++	if (lockedDoor(room, door) && pictureOf(room, door) != 1) return false;
++	if (guarding(room, door)) return false;
+ 	return true;
+ }
+ 
+ bool SandboxEngine::meetDoorNeed(int room, int door) {
+ 	if (doorAllowed(room, door)) return false;
+ 	for (const ManiacDoorNeeds &n : kManiacDoorNeeds) if (n.room == room && n.door == door) setPicture(n.needRoom, n.needObject, n.needPicture);
++	// (From 0287 opened, as its key or keypad opens it; the Purple Tentacle
++	// gone from his post, as he leaves it.)
++	if (lockedDoor(room, door)) setPicture(room, door, 1);
++	for (const ManiacGuard &g : kManiacGuards) if (guarding(room, door) && g.room == room && g.door == door) _kept[_game * 65536 + g.gone] = 1;
+ 	return true;
+ }
+ 
++// ---- The way up to the mansion's lab (from 0287; kManiacLocked, kManiacGuards) ----
++
++bool SandboxEngine::lockedDoor(int room, int door, const char **line, bool *stays) const {
++	if (line) *line = nullptr;
++	if (stays) *stays = false;
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	for (const ManiacLocked &l : kManiacLocked) {
++		if (l.room != room || l.door != door) continue;
++		// (The inner door only where its keypad is recorded: else a door as
++		// before, rather than none to the lab at all.)
++		if (!l.line && !keypadOf(room, door)) return false;
++		if (line) *line = l.line;
++		if (stays) *stays = l.stays;
++		return true;
++	}
++	return false;
++}
++
++bool SandboxEngine::keypadOf(int room, int door) const {
++	for (int i = 0; _game >= 0 && i < PanelBridge::closeUpCount(_game); ++i) {
++		int r, thing, kinds, scene, left, keys, presses;
++		if (PanelBridge::closeUpThing(_game, i, r, thing, kinds) && r == room && thing == door && PanelBridge::closeUpScene(_game, i, scene, left, keys, presses) && presses) return true;
++	}
++	return false;
++}
++
++// (Shut, a verb that would open it: refused with its line, true. Its
++// keypad, where it has one, is shown before this: closeUpFor.)
++bool SandboxEngine::lockRefuses(int id, int kind) {
++	const char *line;
++	bool stays;
++	if (!lockedDoor(_room, id, &line, &stays)) return false;
++	const bool opening = kind == kWorldVerbOpen || kind == kWorldVerbUnlock || kind == kWorldVerbPush || kind == kWorldVerbPull || kind == kWorldVerbUse;
++	// (The slab, from the garage: shut or open, it won't move.)
++	if (!(opening && (pictureOf(_room, id) != 1 || stays)) && !(stays && kind == kWorldVerbClose)) return false;
++	if (line) say(line);
++	return true;
++}
++
++bool SandboxEngine::guarding(int room, int door) const {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || (_touring.on && !_touring.paused)) return false;
++	for (const ManiacGuard &g : kManiacGuards) {
++		// (Not for himself, played. From 0287 nor for one of his name played
++		// (Day of the Tentacle's Purple Tentacle: never two of anyone, so he
++		// could not be put at his post), nor with him not to be shown (his
++		// character not installed, or one that could not be shown): else his
++		// door barred for good, nobody there to give the badge to.)
++		const int key = worldAppearanceKey(_game, g.costume);
++		if (g.room == room && g.door == door && !keptValue(_game, g.gone) && _playerKey != key && !samePersonKeys(_playerKey, key) && hasCharacter(key) && !_broken.contains(key))
++			return true;
++	}
++	return false;
++}
++
++// The one played at the Purple Tentacle's door while he guards it: the
++// Green Tentacle's friend saved (he gone for good, told; false: on through
++// it), else barred (his line, by him where he is here; true).
++bool SandboxEngine::guardStops(int door, int kind) {
++	if (kind != kWorldVerbWalk && kind != kWorldVerbOpen && kind != kWorldVerbUnlock && kind != kWorldVerbPush && kind != kWorldVerbPull && kind != kWorldVerbUse) return false;
++	for (const ManiacGuard &g : kManiacGuards) {
++		if (!guarding(_room, door) || g.room != _room || g.door != door) continue;
++		const int kid = playedKid(_game);
++		if (kid && (keptValue(_game, g.friends) & 1 << kid)) {
++			_kept[_game * 65536 + g.gone] = 1;
++			announce("The Green Tentacle comes and leads the Purple Tentacle away.");
++			if (!_testing) saveState();
++			return false;
++		}
++		int guard = -1;
++		for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == worldAppearanceKey(_game, g.costume)) guard = n;
++		if (guard >= 0) sayAs(guard, "No one goes past me."); else say("I can't get past.");
++		return true;
++	}
++	return false;
++}
++
++void SandboxEngine::guardPosted(int game, int room, Common::Array<int> &keys) const {
++	for (const ManiacGuard &g : kManiacGuards) {
++		const int key = worldAppearanceKey(game, g.costume);
++		if (g.room != room || !guarding(room, g.door) || !hasCharacter(key)) continue;
++		// (From 0287 the first put on the stage, so that one of his name the
++		// wanderers have here (Day of the Tentacle's Purple Tentacle) steps
++		// aside for him (twinOnStage), not he for them: before, that one
++		// stood there, refusing the badge, the door barred.)
++		const Common::Array<int>::iterator at = Common::find(keys.begin(), keys.end(), key);
++		if (at != keys.end()) keys.erase(at);
++		keys.insert_at(0, key);
++	}
++}
++
++// (The Purple Tentacle gone from his post: not put on the stage again.)
++bool SandboxEngine::guardGone(int key) const {
++	for (int g = 0; g < worldGameCount(); ++g) {
++		if (!sameId(kWorldGames[g].gameid, "maniac")) continue;
++		for (const ManiacGuard &guard : kManiacGuards) if (key == worldAppearanceKey(g, guard.costume) && keptValue(g, guard.gone)) return true;
++	}
++	return false;
++}
++
++// (Given to one of the cast as kManiacGivenLeaves has it: kept so.)
++void SandboxEngine::givenLeaves(int game, int room, int costume, int with, int value) {
++	if (game < 0 || game >= worldGameCount() || !sameId(kWorldGames[game].gameid, "maniac")) return;
++	const int kid = playedKid(game);
++	for (const ManiacGivenLeaves &g : kManiacGivenLeaves) {
++		if (g.room != room || g.costume != costume || g.with != with || (g.reads && g.value != value) || !worldKeptValue(game, g.var)) continue;
++		if (!g.kid) _kept[game * 65536 + g.var] = g.set;
++		else if (kid) _kept[game * 65536 + g.var] = keptValue(game, g.var) | 1 << kid;
++	}
++}
++
+ // The mansion's lights (its lamps, lights and light switches: what its
+ // script turns on and off, not a flashlight), as Maniac's own engine: off,
+ // the place is dark (black, everyone in grey), until turned on again; kept.
+@@ -1912,10 +2094,65 @@ void SandboxEngine::pairUp(const Pair &p) {
+ 	if (p.person >= 0 && p.person < (int)_onStage.size()) {
+ 		if (_player >= 0) { double x, y; StageBridge::position(p.person, x, y); StageBridge::face(_player, x, y); }
+ 		if (p.kind != kWorldVerbGive || !(pairPerson(p) || pairPersonValued(p) || heldUsual(p))) sayAs(p.person, p.kind == kWorldVerbGive ? "No, thanks." : "Hello.");
+-	} else if (!pairOwn(p) && !heldUsual(p)) say(p.kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
++	} else if (pairCloseUp(p)) {
++		return; // (from 0287: a film the two show, kept as any close-up)
++	} else {
++		// (From 0287 a door used through its slot: on the slot, its key
++		// opening the door, as its scripts have it.)
++		const Pair q = slotPair(p);
++		if (!pairOwn(q) && !heldUsual(q)) say(q.kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
++		else slotOpens(q);
++	}
+ 	if (!_testing) saveState();
+ }
+ 
++// From 0287 (kManiacSlots) the mansion's lab's door (room 30, 255): a thing
++// used on it is used on its card slot (415), as its script hands it on.
++static int stageThing(int id) {
++	for (int o = 0; o < StageBridge::objectCount(); ++o) {
++		int oid, ox, oy, w, h, wx, wy, state;
++		if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++	}
++	return -1;
++}
++
++SandboxEngine::Pair SandboxEngine::slotPair(const Pair &p) const {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return p;
++	Pair q = p;
++	for (const ManiacSlot &s : kManiacSlots) {
++		if (s.room != _room) continue;
++		const int door = stageThing(s.door), slot = stageThing(s.slot);
++		if (door < 0 || slot < 0) continue;
++		if (q.thing == door) q.thing = slot;
++		if (q.withThing == door) q.withThing = slot;
++	}
++	return q;
++}
++
++// (Its key used on its slot, Use or Unlock: the door opened, both its sides,
++// as the slot's script opens it; the export leaves doors to this engine.)
++void SandboxEngine::slotOpens(const Pair &q) {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || (q.kind != kWorldVerbUse && q.kind != kWorldVerbUnlock)) return;
++	for (const ManiacSlot &s : kManiacSlots) {
++		const int slot = s.room == _room ? stageThing(s.slot) : -1;
++		const int item = q.thing == slot || q.withThing == slot ? (q.item >= 0 ? q.item : q.withItem) : -1;
++		if (slot < 0 || item < 0 || item >= (int)_carried.size() || _carried[item].game != _game || _carried[item].id != s.key) continue;
++		setPicture(_room, s.door, 1);
++		thingSets(s.door, kWorldVerbOpen);
++	}
++}
++
++// From 0287 a film its thing here shows used with the one carried
++// (kWorldCloseUps' `with`: Meteor Mess with the quarter): shown, as one
++// thing's verb shows one. False: none.
++bool SandboxEngine::pairCloseUp(const Pair &p) {
++	const int here = p.thing >= 0 ? p.thing : p.withThing, item = p.item >= 0 ? p.item : p.withItem;
++	int id, ox, oy, w, h, wx, wy, state;
++	if (_game < 0 || here < 0 || item < 0 || item >= (int)_carried.size() || _carried[item].game != _game || !StageBridge::object(here, id, ox, oy, w, h, wx, wy, state)) return false;
++	const int closeUp = closeUpFor(id, p.kind, _carried[item].id);
++	return closeUp >= 0 && closeUpShow(closeUp, id);
++}
++
+ int SandboxEngine::personAt(int screenX, int screenY) const {
+ 	const int n = StageBridge::actorAt(screenX, screenY, _player);
+ 	return n >= 0 && n < (int)_onStage.size() ? n : -1;
+@@ -2062,6 +2299,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		if (flags & 8) viewPaid(game, room, id, with);
+ 		if (!marked) touchesAfter(game, room, id, p.kind, from, with, reader ? valued : nullptr);
+ 		leaveMarks(game, sets);
++		if (marked && t.thing >= 0) timedAnswered(game, room, id, from, after); // (from 0287)
+ 		if (reader) valuesAfter(game, *reader, from, valued); // (from 0282)
+ 		// (From 0286 what the mansion's answer of two hands on, after it, as
+ 		// one thing's: the cassette put in the Green Tentacle's stereo while
+@@ -2154,10 +2392,22 @@ bool SandboxEngine::pairPersonValued(const Pair &p) {
+ 	const int id = kWorldPersonThing + costume;
+ 	int valued[2], after, flags, others[4 * 64], count, lines;
+ 	bool dead = false;
+-	const WorldValueReader *reader = valueReader(_game, _room, id, kWorldVerbGive, 0, c.id, valued, &dead);
++	// (From 0287 where they are, else where its cast puts them, as
++	// personAnswerRoom finds the usual answers: the wanderers take them
++	// anywhere, the Green Tentacle hardly ever home, so before, given him
++	// his tape or his contract anywhere else: "No, thanks.", and his friend
++	// never made.)
++	int room = _room;
++	const WorldValueReader *reader = valueReader(_game, room, id, kWorldVerbGive, 0, c.id, valued, &dead);
++	for (const WorldCastGuest &cast : kWorldCast) {
++		if (reader || dead) break;
++		if (cast.game != _game || cast.guest.costume != costume || cast.room == _room) continue;
++		room = cast.room;
++		reader = valueReader(_game, room, id, kWorldVerbGive, 0, c.id, valued, &dead);
++	}
+ 	if (dead) return true;
+-	if (!reader || !PanelBridge::thingAnswer(_game, _room, id, kWorldVerbGive, 0, c.id, after, flags, others, count, 64, lines, valued)) return false;
+-	sayAnswer(_game, _room, id, kWorldVerbGive, 0, c.id, lines, valued);
++	if (!reader || !PanelBridge::thingAnswer(_game, room, id, kWorldVerbGive, 0, c.id, after, flags, others, count, 64, lines, valued)) return false;
++	sayAnswer(_game, room, id, kWorldVerbGive, 0, c.id, lines, valued);
+ 	if (flags & 4) useUp(p.item);
+ 	for (int k = 0; k < count; ++k) {
+ 		const int r = others[4 * k], o = others[4 * k + 1], picture = others[4 * k + 2];
+@@ -2165,8 +2415,9 @@ bool SandboxEngine::pairPersonValued(const Pair &p) {
+ 		if (others[4 * k + 3]) carryGiven(_game, others, count, k);
+ 		else setPicture(r, o, picture);
+ 	}
+-	touchesAfter(_game, _room, id, kWorldVerbGive, 0, c.id, valued);
++	touchesAfter(_game, room, id, kWorldVerbGive, 0, c.id, valued);
+ 	valuesAfter(_game, *reader, 0, valued);
++	givenLeaves(_game, room, costume, c.id, valued[1] & 0xFF); // (from 0287)
+ 	return true;
+ }
+ 
+@@ -3091,6 +3342,9 @@ void SandboxEngine::act() {
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+ 	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
+ 	if (acting && !near && result != 1) { say("I can't reach that."); return; }
++	// (From 0287 the Purple Tentacle's door while he guards it: barred, or
++	// the Green Tentacle's friend saved first.)
++	if (door && guardStops(id, kind)) { if (!_testing) saveState(); return; }
+ 	// (A door its game opens only from something else: its own line.)
+ 	if ((kind == kWorldVerbOpen || kind == kWorldVerbClose || kind == kWorldVerbUnlock) && openedOnlyBy(_room, id)) { say(openedOnlyBy(_room, id)); return; }
+ 	// (Moved with others as one, as its game's script: pushed or pulled
+@@ -3101,9 +3355,12 @@ void SandboxEngine::act() {
+ 	// picture it is in (the wall safe's keypad, shut; from 0257 the radio's,
+ 	// on; from 0266 either, `from` -1; from 0268 the lab's switch's from on
+ 	// only again, as its script runs): shown instead.)
+-	const int closeUp = door ? -1 : closeUpFor(id, kind);
++	// (From 0287 the dungeon's inner door's keypad, shut: a door's own.)
++	const int closeUp = door && !(lockedDoor(_room, id) && thingBit(target, id) == 0) ? -1 : closeUpFor(id, kind);
+ 	const int shownFrom = closeUp >= 0 ? closeUpFrom(_game, closeUp) : 0;
+ 	if (closeUp >= 0 && (shownFrom < 0 || thingBit(target, id) == shownFrom) && closeUpShow(closeUp, id)) return;
++	// (From 0287 a door its game keeps locked, shut: refused, its line.)
++	if (door && lockRefuses(id, kind)) { if (!_testing) saveState(); return; }
+ 	// (From 0242: a button turning a view's thing here (the telescope's),
+ 	// a turn paid for: turned, its line said; none paid: as its own script
+ 	// answers, below.)
+@@ -3172,12 +3429,15 @@ void SandboxEngine::act() {
+ 
+ // ---- Close-ups (from 0240; kWorldCloseUps, the things file's "SVO6") ----
+ 
+-int SandboxEngine::closeUpFor(int id, int kind) const {
++int SandboxEngine::closeUpFor(int id, int kind, int with) const {
+ 	if (_game < 0 || _closeUp.index >= 0 || kind <= 0 || kind >= 16) return -1;
+ 	for (int i = 0; i < PanelBridge::closeUpCount(_game); ++i) {
+ 		int room, thing, kinds, scene, left, keys, presses, script = 0;
+ 		if (!PanelBridge::closeUpThing(_game, i, room, thing, kinds) || room != _room || thing != id || !(kinds & 1 << kind) ||
+ 			!PanelBridge::closeUpScene(_game, i, scene, left, keys, presses) || !closeUpOpen(_game, i)) continue;
++		// (From 0287 one shown with a second thing only with it, `with`.)
++		const WorldCloseUp *row = closeUpRow(_game, i);
++		if ((row ? row->with : 0) != with) continue;
+ 		// (From 0257 not a film its keypad's right answer plays: after it.
+ 		// From 0263 nor one another film's end starts.)
+ 		closeUpFrom(_game, i, &script);
+@@ -3246,6 +3506,7 @@ bool SandboxEngine::timedTook(int game, int room, int id) const {
+ 
+ bool SandboxEngine::takenAway(int key) const {
+ 	if (!key || key == _playerKey) return false;
++	if (guardGone(key)) return true; // (from 0287)
+ 	for (const Timed &t : _timed) {
+ 		const WorldTimed *w = t.phase == 2 && t.event >= 0 && t.event < kWorldTimedCount ? &kWorldTimed[t.event] : nullptr;
+ 		if (w && w->once == 2 && w->person && worldAppearanceKey(w->game, w->person) == key) return true;
+@@ -3389,9 +3650,14 @@ void SandboxEngine::closeUpPress(int key) {
+ 	_notice = _closeUp.typed; _noticeClock = 1 << 30; _noticeColor = -1; _dirty = true;
+ 	if (++_closeUp.presses < presses) return;
+ 	const CloseUp c = _closeUp;
++	// (From 0287 a code its game has drawn only once a timed event has
++	// happened (kWorldCloseUps' `drawn`: the inner door's, Dr Fred's high
++	// score): before, none a key gives, every code wrong.)
++	const WorldCloseUp *row = closeUpRow(c.game, c.index);
++	const bool right = c.right && !(row && row->drawn && !timedHappened(c.game, row->drawn));
+ 	int picture;
+ 	char said[256];
+-	if (!PanelBridge::closeUpAnswer(c.game, c.index, c.right, picture, said, sizeof(said))) { picture = -1; *said = 0; }
++	if (!PanelBridge::closeUpAnswer(c.game, c.index, right, picture, said, sizeof(said))) { picture = -1; *said = 0; }
+ 	// (From 0252, as filmEnd from a review of 0248: where it was shown from
+ 	// not shown again (its scene or the one played's file not read now),
+ 	// over all the same, once (not tried again at each key tapped, the one
+@@ -3403,13 +3669,15 @@ void SandboxEngine::closeUpPress(int key) {
+ 		if (c.game == _game) setPicture(c.room, c.id, picture);
+ 		else _pictures[thingKey(c.game, c.room, c.id)] = picture;
+ 	}
++	// (From 0287 a door its keypad opens: its other side too, as Open's.)
++	if (right && picture == 1 && c.game == _game && c.room == _room && worldLinkFrom(_game, _room, c.id)) thingSets(c.id, kWorldVerbOpen);
+ 	Common::String problem;
+ 	const bool shown = back || startElsewhere(c.game, c.room, problem);
+ 	if (!shown) warning("SCUMMVERSE sandbox: nowhere to be after the close-up %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
+ 	if (shown && *said) say(said);
+ 	// (From 0257 the right number on the radio's: the call, its film only
+ 	// back there.)
+-	if (c.right) closeUpCalled(c);
++	if (right) closeUpCalled(c);
+ 	if (!_testing) saveState();
+ }
+ 
+@@ -3629,6 +3897,15 @@ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from,
+ 	// power off, as its script checks, nothing.)
+ 	if (reader->kid && playedKid(game) != reader->kid) return false;
+ 	if (reader->bare && pictureIn(game, room, reader->bare) != 0) return false;
++	// (From 0287 `holds`: the one played carries it too (the flashlight: on);
++	// `unpowered`: only with the main power off, as its script checks.)
++	if (reader->holds) {
++		bool held = false;
++		for (const Carried &c : _carried) held = held || (c.game == game && c.id == reader->holds && (!isFlashlight(c) || _flashlight));
++		if (!held) return false;
++	}
++	int powerRoom, powerId, offPicture;
++	if (reader->unpowered && !(PanelBridge::mainPower(game, powerRoom, powerId, offPicture) && pictureIn(game, powerRoom, powerId) == offPicture)) return false;
+ 	// (From 0263 one played as after a timed event, its `var` at its `value`
+ 	// (kWorldTimed's): from the picture a close-up of its thing shows for
+ 	// this verb only until that event (the radio's keypad), only once it has
+@@ -3643,7 +3920,6 @@ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from,
+ 		}
+ 	}
+ 	if (!PanelBridge::markedAnswer(game, room, id, kind, from, with, marksNow(game) & reader->reads, after, others, count, capacity, line, lineCapacity, flags, sets)) return false;
+-	int powerRoom, powerId, offPicture;
+ 	if (reader->powered && PanelBridge::mainPower(game, powerRoom, powerId, offPicture) && pictureIn(game, powerRoom, powerId) == offPicture) {
+ 		after = from; count = 0; flags = 0; sets = 0;
+ 		if (lineCapacity > 0) *line = 0;
+@@ -3831,6 +4107,23 @@ int SandboxEngine::timedLeaving(int game, int room) const {
+ 	return events;
+ }
+ 
++// From 0287 one an answer starts (`on` a thing of `from` with `need`, not a
++// keypad's): its thing's own answer leaving it so from another picture, as
++// its script starts it; never again once under way or done (the arcade's
++// wires fixed: Dr Fred's way to Meteor Mess).
++void SandboxEngine::timedAnswered(int game, int room, int id, int from, int after) {
++	int events = 0;
++	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
++		const WorldTimed &w = kWorldTimed[i];
++		if (w.game != game || !w.on || w.on != id || w.from != room || w.need[0][0] != id || w.need[0][1] != after || from == after) continue;
++		bool ok = true;
++		for (const short (&n)[2] : w.need) ok = ok && (!n[0] || n[0] == id || pictureIn(w.game, w.from, n[0]) == n[1]);
++		for (const Timed &t : _timed) ok = ok && t.event != i;
++		if (ok) events |= 1 << i;
++	}
++	timedStart(events);
++}
++
+ void SandboxEngine::timedStart(int events) {
+ 	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
+ 		if (!(events & 1 << i)) continue;
+@@ -3852,7 +4145,13 @@ void SandboxEngine::timedStep(int ticks) {
+ 		Timed &t = _timed[i];
+ 		if (t.phase != 1 || t.event < 0 || t.event >= kWorldTimedCount || (t.left -= ticks) > 0) continue;
+ 		const WorldTimed &w = kWorldTimed[t.event];
+-		if (_game == w.game && ((w.away[0] && _room == w.away[0]) || (w.away[1] && _room == w.away[1]))) { t.left += MAX<int>(1, w.every); continue; }
++		// (From 0287 any of four places; and, `powered`, the main power off.)
++		bool waits = false;
++		for (short a : w.away) waits = waits || (a && _game == w.game && _room == a);
++		int powerRoom, powerId, offPicture;
++		if (w.powered) loadThings(w.game);
++		if (w.powered && PanelBridge::mainPower(w.game, powerRoom, powerId, offPicture) && pictureIn(w.game, powerRoom, powerId) == offPicture) waits = true;
++		if (waits) { t.left += MAX<int>(1, w.every); continue; }
+ 		t.phase = w.once == 1 ? 2 : 0;
+ 		loadThings(w.game);
+ 		// (From 0257 each of its checks; once its things are put so, done for
+@@ -4131,6 +4430,9 @@ void SandboxEngine::reachDoor() {
+ 	const bool there = walked || across;
+ 	if (there && !walked) ++_doorsAcross;
+ 	if (!found || !there) { _door = -1; sentence(waitingLine()); return; }
++	// (From 0287 the Purple Tentacle's door while he guards it: barred, or the
++	// Green Tentacle's friend saved first.)
++	if (guardStops(link.object, kWorldVerbWalk)) { _door = -1; return; }
+ 	// (Shut: seen opening a moment first, as the game shows it open; not a
+ 	// door to somewhere not installed.)
+ 	if (installed(_game, link.target) && openDoor(link.object)) { thingSets(link.object, kWorldVerbOpen); _opening = kDoorOpening; return; }
+@@ -4145,7 +4447,9 @@ void SandboxEngine::reachDoor() {
+ // painted in the doorway.)
+ bool SandboxEngine::doorOpens(int index, int &picture, bool shut) const {
+ 	int id, ox, oy, w, h, wx, wy, state;
+-	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(index, id, ox, oy, w, h, wx, wy, state) || openedOnlyBy(_room, id) || insideShut(index)) return false;
++	// (From 0287 nor one its game keeps locked: kManiacLocked.)
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(index, id, ox, oy, w, h, wx, wy, state) || openedOnlyBy(_room, id) || insideShut(index) ||
++		lockedDoor(_room, id)) return false;
+ 	const int pictures = StageBridge::objectPictures(index), shown = shut ? 0 : StageBridge::objectShown(index);
+ 	const bool differs = pictures > 1 && StageBridge::picturesDiffer(index, 0, 1);
+ 	int gamePicture, answers = -1;
+@@ -8137,6 +8441,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int musicPianoOthers = 0, musicPiano = 0, musicPianoVictrola = 0, musicHeard = 0, musicDemoRefused = 0, musicGiven = 0, musicAway = 0, musicHanded = 0; // (from 0286)
+ 	int musicMailed = 0, musicContract = 0, musicKidContract = 0, musicNoReply = 0, musicChandelier = 0; // (from 0286)
+ 	int routePolice = 0, routePoliceSteps = 0, routeBook = 0, routeBookSteps = 0, routeSpace = 0, routeSpaceSteps = 0; // (from 0286)
++	int labInner = 0, labWires = 0, labFred = 0, labScore = 0, labCode = 0, labGuard = 0, labBadge = 0, labContract = 0, labFriend = 0, labCard = 0, labSlab = 0; // (from 0287)
++	int labTwin = 0, labNamesake = 0, labUnshown = 0, labAway = 0, labUse = 0; // (from 0287)
+ 	int insideHere = 0, insideOlder = 0, insideStamped = 0;
+ 	{
+ 		int maniac = -1;
+@@ -8576,8 +8882,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 			_speech.clear();
+ 			pairUp(p);
+ 			bool same = (*said ? _speech == said : _speech.empty()) && thingBit(o, id) == after && isCarried(maniac, withRoom, with) == !(flags & 4);
+-			for (int i = 0; i < count; ++i)
+-				same = same && (others[3 * i + 2] == 2 ? isCarried(maniac, others[3 * i], others[3 * i + 1]) : isCarried(maniac, others[3 * i], others[3 * i + 1]) || pictureOf(others[3 * i], others[3 * i + 1]) == others[3 * i + 2]);
++			// (From 0287 the lab's door its card slot's key opens: open, as the
++			// Open its script hands on, which the export leaves to this engine
++			// (kManiacSlots), both its sides.)
++			int slotDoor = 0;
++			for (const ManiacSlot &s : kManiacSlots) if (room == s.room && id == s.slot && with == s.key) slotDoor = s.door;
++			for (int i = 0; i < count; ++i) {
++				const int want = slotDoor && others[3 * i] == room && others[3 * i + 1] == slotDoor ? 1 : others[3 * i + 2];
++				same = same && (want == 2 ? isCarried(maniac, others[3 * i], others[3 * i + 1]) : isCarried(maniac, others[3 * i], others[3 * i + 1]) || pictureOf(others[3 * i], others[3 * i + 1]) == want);
++			}
++			for (const ManiacSets &m : kManiacSets) {
++				if (!slotDoor || m.room != room || m.object != slotDoor || !(m.kinds & kOpened)) continue;
++				same = same && pictureOf(room, slotDoor) == 1 && pictureOf(m.otherRoom, m.other) == m.picture;
++				setPicture(m.otherRoom, m.other, 0); forgetThing(thingKey(maniac, m.otherRoom, m.other));
++			}
+ 			if (same) ++pairsSeen;
+ 			else {
+ 				warning("SCUMMVERSE sandbox: %d in room %d, verb %d with %d: said '%s', shown %d (its script: '%s', %d, flags %d)", id, room, kind, with, _speech.c_str(), thingBit(o, id), said, after, flags);
+@@ -8645,15 +8963,21 @@ Common::Error SandboxEngine::verbsTest() {
+ 			};
+ 			ok = ok && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 0;
+ 			ok = ok && unlock(161) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 0;
+-			ok = ok && unlock(162) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 1 && doorAllowed(4, 163);
++			ok = ok && unlock(162) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 1;
+ 			const WorldLink *way = worldLinkTo(maniac, 4, 31);
+ 			int index = -1;
+ 			for (int i = 0; way && i < worldMap(maniac)->linkCount; ++i) if (&worldMap(maniac)->links[i] == way) index = i;
+-			ok = ok && way && way->object == 163 && travel(index) && _room == 31;
++			// (From 0287 the inner door in its doorway (163) locked still, as its
++			// game starts it, until its keypad opens it (the "lab" check): then
++			// through it.)
++			ok = ok && way && way->object == 163 && !doorAllowed(4, 163) && !travel(index) && _room == 4;
++			if (ok) setPicture(4, 163, 1);
++			ok = ok && doorAllowed(4, 163) && travel(index) && _room == 31;
+ 			ok = ok && enter(maniac, 4, 0, problem) && doAt(kWorldVerbClose, thingIn(160)) && pictureOf(4, 160) == 0;
+ 			if (!ok) fail("the padlocked door not opened with both its locks unlocked", maniac); else ++padlocks;
+ 			putBack(keyRoom, 141);
+-			for (int id : {160, 161, 162}) forgetThing(thingKey(maniac, 4, id));
++			for (int id : {160, 161, 162, 163}) forgetThing(thingKey(maniac, 4, id));
++			forgetThing(thingKey(maniac, 31, 166));
+ 		}
+ 		// (From 0240) The wall safe behind the painting (room 9), as a player
+ 		// does it: the safe no thing until the painting is moved; Open on it
+@@ -9438,7 +9762,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 					chain = chain && pictureIn(maniac, 1, 58) == 1 && pictureIn(maniac, 1, 51) == 1;
+ 					step(1);
+ 					// (From 0286 its reply then due: kWorldTimed's after the pickup.)
+-					const int replyEvent = kWorldTimedCount - 1;
++					const int replyEvent = worldTimedAfter(maniac, pickup.script); // (from 0287 by its `after`: another event follows it)
+ 					if (chain && pictureIn(maniac, 1, 58) == 0 && pictureIn(maniac, 1, 51) == 0 && _timed.size() == 2 && _timed[1].event == replyEvent &&
+ 						kWorldTimed[replyEvent].after == pickup.script && _timed[1].phase == 1 && _timed[1].left == kWorldTimed[replyEvent].first) {
+ 						++mailCollected; ++mailWaited; mailCollectedTicks = pickup.first + pickup.every;
+@@ -9453,7 +9777,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 					stepFor(18000 + 10800 + 1800);
+ 					const int strollMail = _strollClock;
+ 					const uint32 randomMail = _random.getSeed();
+-					stepFor(MAX(0, kWorldTimed[kWorldTimedCount - 1].first + 1800 - (18000 + 10800 + 1800)));
++					stepFor(MAX(0, kWorldTimed[worldTimedAfter(maniac, pickup.script)].first + 1800 - (18000 + 10800 + 1800)));
+ 					if (pictureIn(maniac, 1, 60) == 0 && go(1) && !isThing(thingIn(58)) && !isThing(thingIn(60)) && pictureOf(1, 51) == 0 && !keptValue(maniac, 101) &&
+ 						_timed.size() == 2 && _timed[1].phase == 2) ++mailAfter;
+ 					else fail("something after the pickup of the manuscript not retyped", maniac);
+@@ -10233,9 +10557,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// descumm, nothing copied), each its main way as a player has it, from
+ 		// afresh (things as its start has them; no marks, values kept, timed
+ 		// events or films seen), as far as the new engine plays it, each step
+-		// counted; places entered as its Worlds menu enters them (the way up to
+-		// the lab, past the Purple Tentacle (room 31) and the lab's locked door
+-		// (30, 255), not walked: the new engine lets anyone through). (1) The
++		// counted; places entered as its Worlds menu enters them, but (from
++		// 0287) the way up to the lab, walked through its doors: the dungeon's
++		// inner door (4, 163, by its code), past the Purple Tentacle (31, 168)
++		// and the lab's door (30, 255, by its card key). (1) The
+ 		// Meteor Police: Bernard takes the old radio's tube (room 3, 73), puts
+ 		// it in the socket (21, 398) and turns the radio on; the wanted poster
+ 		// (397) read, its number dialled on the radio's keypad: called, their
+@@ -10243,10 +10568,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// pool's ladder (6, 172) to its pit for the key there (2, 141), the
+ 		// valve closed again (the original's reactor alarm, script 12, stopped
+ 		// so; not played here, nor a kid left in the pit as it fills); the key
+-		// unlocks the dungeon's padlocks (4, 161 and 162), its outer door
+-		// (160) and inner door (163) opened; their time: the meteor taken; the
+-		// lab's switch (51, 176) turned off: Dr Fred's film, then the ending's
+-		// (each skipped by a tap), seen: reached. (2) The book contract: Wendy uses the
++		// unlocks the dungeon's padlocks (4, 161 and 162), its outer door (160)
++		// opened; (from 0287) the inner door's code found as a player finds it:
++		// the tools (16, 152) and the flashlight (7, 84) carried, the circuit
++		// breakers (8, 157) turned off, the flashlight on, the arcade's wires
++		// (15, 225) fixed with the tools, the power on again; Dr Fred's time
++		// (kWorldTimed: he plays Meteor Mess, his high score the code); the
++		// quarter (9, 221) used on Meteor Mess (18, 442): his high score (its
++		// film, room 39); the inner door's keypad, his code tapped: open. Their
++		// time: the meteor taken, the badge (4, 214) left; picked up, through
++		// the inner door, given to the Purple Tentacle (he leaves his post),
++		// past him, the card key (26, 104) used on the lab door's slot (30,
++		// 415), through it to the lab; the lab's switch (51, 176) turned off: Dr
++		// Fred's film, then the ending's (each skipped by a tap), seen: reached.
++		// (2) The book contract: Wendy uses the
+ 		// meteor's manuscript (22, 210) with the typewriter (27, 416), as the
+ 		// original retypes it for her only (160 at 2); the envelope steamed,
+ 		// opened, addressed and stamped (as the mail check above has them), the
+@@ -10254,12 +10589,50 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// nothing posted back (the manuscript retyped not kept: no book
+ 		// contract; the contract given to the Purple Meteor would start the
+ 		// ending through scripts 118, 63 and 124, none of it filmed either).
+-		// (3) The Edsel: the switch turned off with the meteor still there (Dr
++		// (3) The Edsel: (from 0287 the way up walked: the Purple Tentacle
++		// passed as his game lets one by with no police, the Green Tentacle's
++		// friend saved: Bernard given the Green Tentacle's recording contract
++		// (the demo tape's reply, 101 at 3, as the music check gets it) gives it
++		// to him (20, his friend); the code as in (1); the pit's key on the
++		// padlocks, the outer door and the inner door opened; at the Purple
++		// Tentacle's door the Green Tentacle comes and leads him away; the card
++		// key, the lab) the switch turned off with the meteor still there (Dr
+ 		// Fred's other film, skipped); the meteor (51, 45) picked up: stops
+ 		// there, refused (its line; its script takes it only once Dr Fred's
+ 		// cut-scene has set 108 at 2, not kept); carried (its script 134),
+ 		// put in the Edsel's trunk (16, 151, unlocked with the key 215; 268),
+ 		// the key used on the Edsel (340) and its launch (130) not played.
++		// (4) From 0287 the way up to the lab, each of its doors as its game
++		// keeps it, step by step ("lab"): (a) the dungeon's inner door shut and
++		// locked (its outer door open): no way through it (travel, a walking
++		// tap), Open shows its keypad, whose code, before Dr Fred has played,
++		// is wrong even as his draw has it (his game's code none then): its
++		// wrong line, shut. (b) The arcade's wires fixed with the tools only
++		// with the circuit breakers off and the flashlight carried and on: with
++		// the power on, or the flashlight off, as before (not fixed, his time
++		// not started); fixed, its line, his time started (14400 ticks). (c)
++		// The quarter in Meteor Mess before he has played: no film. His time
++		// waits while the power is off and while the one played is in the
++		// arcade (every 3600), kept through a save and reload, then he has
++		// played. (d) The quarter in Meteor Mess: his high score's film, its
++		// scene as recorded (the drawn one shown), the quarter kept. (e) The
++		// keypad: a wrong code, shut, its line; the right one, open, both its
++		// sides, kept through a save and reload, and through it to room 31;
++		// back, shut by Close (both sides, no way through), and opened from
++		// room 31's side (166) with no code. (f) The Purple Tentacle there (put
++		// at his post), his door barred: no way through (travel, a walking tap,
++		// his line), Open his line too; the kid's contract (101 at 2) given:
++		// his refusal, still barred. (g) The badge given: his line, gone for
++		// good (151 at 1), kept through a save and reload, not on the stage
++		// there again, the way on open. (h) The book contract (101 at 1) given:
++		// gone likewise. (i) The Green Tentacle's friend (Bernard, his contract
++		// given) at the door: saved, the way on open; another kid (Dave): barred.
++		// (j) The lab's door shut: no way through, Open its refusal, a quarter
++		// in its slot the slot's line; the card key in the slot: open (both its
++		// sides), through to the lab; back, shut by Close, refused again; the
++		// card key used on the door itself (Unlock): open. (k) The garage's
++		// cement slab: no way through from the garage, Open and Close its line;
++		// the lab's way out (51, 177) opened: open, through it to the lab.
+ 		{
+ 			const int playedRoutes = _playerKey;
+ 			const Common::Array<Mark> marksRoutes = _marks;
+@@ -10276,10 +10649,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int poolLadder = -1;
+ 			for (int i = 0; routeMap && i < routeMap->linkCount; ++i) if (routeMap->links[i].room == 6 && routeMap->links[i].object == 172) poolLadder = i;
+ 			static const int routeThings[][2] = {{3, 72}, {3, 73}, {21, 212}, {21, 398}, {21, 399}, {29, 66}, {6, 139}, {2, 141}, {4, 160}, {4, 161}, {4, 162}, {4, 163}, {4, 214}, {51, 176}, {51, 45},
+-				{22, 210}, {9, 222}, {9, 221}, {1, 165}, {1, 57}, {1, 58}, {1, 50}, {1, 51}, {1, 60}, {1, 276}, {27, 416}};
++				{22, 210}, {9, 222}, {9, 221}, {1, 165}, {1, 57}, {1, 58}, {1, 50}, {1, 51}, {1, 60}, {1, 276}, {27, 416},
++				{15, 225}, {16, 152}, {7, 84}, {8, 157}, {18, 442}, {26, 104}, {31, 166}, {31, 168}, {30, 255}, {30, 415}, {51, 267}, {51, 177}, {16, 59}}; // (from 0287)
++			const bool flashlightRoutes = _flashlight; // (from 0287)
++			const Common::Array<Carried> carriedRoutes = _carried; // (from 0287: what was carried before, the flashlight among it, carried again after, and the places as they were)
++			const Common::HashMap<int, int> picturesRoutes = _pictures, touchedRoutes = _touched;
+ 			auto routeFresh = [&]() {
+ 				for (const int (&t)[2] : routeThings) { putBack(t[0], t[1]); forgetThing(thingKey(maniac, t[0], t[1])); }
+ 				_marks.clear(); _timed.clear(); _seen.clear(); _kept.clear(); _later.clear();
++				_flashlight = false; // (from 0287)
+ 			};
+ 			auto carriedAt = [&](int room, int id) {
+ 				for (uint c = 0; c < _carried.size(); ++c) if (_carried[c].game == maniac && _carried[c].room == room && _carried[c].id == id) return (int)c;
+@@ -10328,10 +10706,107 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				return false;
+ 			};
++			// (From 0287 the way up to the lab: the inner door's keypad, the high
++			// score's film, Dr Fred's time; the doors on the way, as links.)
++			int innerPad = -1, innerKeys = 0, innerPresses = 0, scoreFilm = -1;
++			for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac); ++i) {
++				int r, thing, kinds, scene, left, keyCount, pressCount;
++				if (!PanelBridge::closeUpThing(maniac, i, r, thing, kinds) || !PanelBridge::closeUpScene(maniac, i, scene, left, keyCount, pressCount)) continue;
++				if (r == 4 && thing == 163 && pressCount) { innerPad = i; innerKeys = keyCount; innerPresses = pressCount; }
++				if (r == 18 && thing == 442 && !pressCount && !keyCount) scoreFilm = i;
++			}
++			const int fredEvent = maniac >= 0 ? worldTimedOf(maniac, 101) : -1;
++			auto linkOf = [&](int room, int door) {
++				for (int i = 0; routeMap && i < routeMap->linkCount; ++i) if (routeMap->links[i].room == room && routeMap->links[i].object == door) return i;
++				return -1;
++			};
++			const int innerLink = linkOf(4, 163), backLink = linkOf(31, 166), guardLink = linkOf(31, 168), labLink = linkOf(30, 255), labBackLink = linkOf(51, 267), slabLink = linkOf(16, 59);
++			const int guardKey = maniac >= 0 ? worldAppearanceKey(maniac, 13) : 0, greenKey = maniac >= 0 ? worldAppearanceKey(maniac, 14) : 0, dave = maniac >= 0 ? worldAppearanceKey(maniac, 3) : 0;
++			// (A key of that keypad giving that value, tapped where it is on the screen.)
++			auto tapIn = [&](int pad, int keyCount, int value) {
++				for (int k = 0; k < keyCount; ++k) {
++					int key, v, id, ox, oy, w, h, wx, wy, state, sx, sy;
++					char keyLine[8];
++					if (!PanelBridge::closeUpKey(maniac, pad, k, key, v, keyLine, sizeof(keyLine)) || v != value || !StageBridge::object(thingIn(key), id, ox, oy, w, h, wx, wy, state)) continue;
++					StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++					if (sx < 0 || sx >= _width || sy < 0 || sy >= _height) return false;
++					tap(sx, sy);
++					return true;
++				}
++				return false;
++			};
++			// (Through a door as a walking tap takes the one played there: on
++			// through it where it lets them; true: through.)
++			auto walkThrough = [&](int index) {
++				if (index < 0 || !routeMap) return false;
++				const WorldLink &l = routeMap->links[index];
++				const int o = thingIn(l.object);
++				double x, y;
++				if (o < 0 || !doorPoint(o, x, y)) return false;
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				_speech.clear();
++				_doorTapX = x; _doorTapY = y; _door = index;
++				reachDoor();
++				for (int k = 0; k < 120 && _opening > 0; ++k) step(1);
++				return _game == maniac && _room == l.target;
++			};
++			// (The main power off or on, as a player turns it: its circuit breakers.)
++			auto powerSet = [&](bool on) {
++				int breakersRoom, breakers, off;
++				return PanelBridge::mainPower(maniac, breakersRoom, breakers, off) && go(breakersRoom) && thingIn(breakers) >= 0 &&
++					doAt(on ? kWorldVerbTurnOn : kWorldVerbTurnOff, thingIn(breakers)) && (pictureOf(breakersRoom, breakers) == off) == !on;
++			};
++			// (Given to one of the cast here, as a player gives it.)
++			auto giveTo = [&](int key, int item) {
++				int person = -1;
++				for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == key) person = n;
++				if (person < 0 || item < 0) return false;
++				Pair p;
++				p.kind = kWorldVerbGive; p.item = item; p.person = person;
++				_speech.clear();
++				pairUp(p);
++				return true;
++			};
++			auto reload = [&]() {
++				int g, r;
++				double kx, ky;
++				saveState();
++				_carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); forgetThings(); _marks.clear(); _timed.clear();
++				return loadState(g, r, kx, ky) && enter(g, r, 0, problem);
++			};
++			auto waiting = [&](int event) {
++				for (const Timed &t : _timed) if (t.event == event && t.phase == 1) return t.left;
++				return -1;
++			};
++			// (The inner door's code as a player finds it: the arcade's wires
++			// fixed in the dark, Dr Fred's high score, seen with the quarter in
++			// Meteor Mess, tapped on the inner door's keypad.)
++			auto wiresFixed = [&]() {
++				_flashlight = false;
++				bool ok = take(16, 152) >= 0 && take(7, 84) >= 0 && powerSet(false);
++				if (ok) useItem(carriedAt(7, 84), kWorldVerbTurnOn);
++				return ok && _flashlight && go(15) && thingIn(225) >= 0 && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 1 && powerSet(true);
++			};
++			auto fredPlayed = [&]() {
++				if (!go(15)) return false;
++				for (int k = 0; k < 60 && !timedHappened(maniac, 101); ++k) stepFor(600);
++				return timedHappened(maniac, 101);
++			};
++			auto scoreSeen = [&]() { return go(18) && thingIn(442) >= 0 && with(kWorldVerbUse, take(9, 221), 442) && skipFilm(scoreFilm) && _closeUp.index < 0 && _room == 18; };
++			auto innerOpened = [&]() {
++				bool ok = go(4) && thingIn(163) >= 0 && doAt(kWorldVerbOpen, thingIn(163)) && _closeUp.index == innerPad;
++				for (int i = 0; ok && i < innerPresses; ++i) ok = tapIn(innerPad, innerKeys, PanelBridge::closeUpCode(maniac, innerPad, i));
++				return ok && _closeUp.index < 0 && _room == 4 && pictureOf(4, 163) == 1;
++			};
+ 			const bool routesThere = maniac >= 0 && radioKeypad >= 0 && radioFilm >= 0 && policeEvent >= 0 && fredFilm >= 0 && endFilm >= 0 && otherFilm >= 0 && hasCharacter(bernard) &&
+ 				hasCharacter(wendy) && hasCharacter(meteorKey) && installed(maniac, 2) && installed(maniac, 3) && installed(maniac, 4) && installed(maniac, 21) && installed(maniac, 51) &&
+-				installed(maniac, 22) && installed(maniac, 27) && installed(maniac, 1) && installed(maniac, 9) && installed(maniac, 29) && installed(maniac, 6) && _closeUps.contains(maniac * 1024 + 43);
+-			if (maniac >= 0 && !routesThere) fail("the endings' ways not there to play (their places, people, keypad or films)", maniac);
++				installed(maniac, 22) && installed(maniac, 27) && installed(maniac, 1) && installed(maniac, 9) && installed(maniac, 29) && installed(maniac, 6) && _closeUps.contains(maniac * 1024 + 43) &&
++				// (From 0287 the way up to the lab.)
++				innerPad >= 0 && scoreFilm >= 0 && fredEvent >= 0 && innerLink >= 0 && backLink >= 0 && guardLink >= 0 && labLink >= 0 && labBackLink >= 0 && slabLink >= 0 &&
++				installed(maniac, 7) && installed(maniac, 8) && installed(maniac, 15) && installed(maniac, 16) && installed(maniac, 18) && installed(maniac, 20) && installed(maniac, 26) &&
++				installed(maniac, 30) && installed(maniac, 31) && hasCharacter(guardKey) && hasCharacter(greenKey) && hasCharacter(dave) && _closeUps.contains(maniac * 1024 + 39);
++			if (maniac >= 0 && !routesThere) fail("the endings' ways not there to play (their places, people, keypads or films)", maniac);
+ 			// (1) The Meteor Police.
+ 			if (routesThere) {
+ 				routeFresh();
+@@ -10346,15 +10821,30 @@ Common::Error SandboxEngine::verbsTest() {
+ 				ok = ok && go(29) && doAt(kWorldVerbOpen, thingIn(66)) && pictureOf(6, 139) == 1 && go(6) && poolLadder >= 0 && travel(poolLadder) && _room == 2 && thingIn(141) >= 0 &&
+ 					doAt(kWorldVerbPickUp, thingIn(141)) && carriedAt(2, 141) >= 0 && go(29) && doAt(kWorldVerbClose, thingIn(66)) && pictureOf(6, 139) == 0 &&
+ 					go(4) && with(kWorldVerbUnlock, carriedAt(2, 141), 161) &&
+-					with(kWorldVerbUnlock, carriedAt(2, 141), 162) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 1 && doAt(kWorldVerbOpen, thingIn(163)) && pictureOf(4, 163) == 1;
++					with(kWorldVerbUnlock, carriedAt(2, 141), 162) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 1;
++				routePoliceSteps += ok;
++				// (From 0287 the inner door's code, as a player finds it.)
++				ok = ok && wiresFixed();
++				routePoliceSteps += ok;
++				ok = ok && fredPlayed() && scoreSeen();
++				routePoliceSteps += ok;
++				ok = ok && innerOpened();
+ 				routePoliceSteps += ok;
+-				if (ok) stepFor(kWorldTimed[policeEvent].first);
++				for (int k = 0; ok && k < 60 && !timedHappened(maniac, 42); ++k) stepFor(600);
+ 				ok = ok && timedHappened(maniac, 42) && takenAway(meteorKey);
+ 				routePoliceSteps += ok;
+-				ok = ok && go(51) && thingIn(176) >= 0 && pictureOf(51, 176) == 0 && doAt(kWorldVerbTurnOff, thingIn(176)) && skipFilm(fredFilm) && skipFilm(endFilm) && _closeUp.index < 0 &&
++				// (From 0287 the badge they left, given to the Purple Tentacle; past
++				// him, the lab's door by its card key, walked through.)
++				ok = ok && go(4) && thingIn(214) >= 0 && doAt(kWorldVerbPickUp, thingIn(214)) && carriedAt(4, 214) >= 0 && travel(innerLink) && _room == 31 &&
++					!travel(guardLink) && _room == 31 && giveTo(guardKey, carriedAt(4, 214)) && keptValue(maniac, 151) == 1 && travel(guardLink) && _room == 30;
++				routePoliceSteps += ok;
++				ok = ok && !travel(labLink) && _room == 30 && thingIn(415) >= 0 && with(kWorldVerbUse, take(26, 104), 415) && pictureOf(30, 255) == 1 && travel(labLink) && _room == 51;
++				routePoliceSteps += ok;
++				ok = ok && thingIn(176) >= 0 && pictureOf(51, 176) == 0 && doAt(kWorldVerbTurnOff, thingIn(176)) && skipFilm(fredFilm) && skipFilm(endFilm) && _closeUp.index < 0 &&
+ 					_seen.size() == 1 && pictureOf(51, 176) == 1;
+ 				routePoliceSteps += ok;
+-				if (ok) ++routePolice; else fail("the Meteor Police's ending not reached as a player plays it from afresh (the radio, its call, the dungeon's doors, the meteor taken, the switch)", maniac);
++				if (ok) ++routePolice;
++				else fail("the Meteor Police's ending not reached as a player plays it from afresh (the radio, its call, the dungeon's doors, the inner door's code, the meteor taken, the badge given, the lab's door, the switch)", maniac);
+ 			}
+ 			// (2) The book contract: as far as its reply.
+ 			if (routesThere) {
+@@ -10367,8 +10857,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 				routeBookSteps += ok;
+ 				ok = ok && go(1) && doAt(kWorldVerbOpen, thingIn(276)) && with(kWorldVerbUse, carriedAt(9, 222), 276) && carriedAt(9, 222) < 0 && pictureOf(1, 58) == 1 &&
+ 					doAt(kWorldVerbClose, thingIn(276)) && doAt(kWorldVerbPull, thingIn(51)) && go(2);
+-				if (ok) stepFor(kWorldTimed[1].first + kWorldTimed[kWorldTimedCount - 1].first);
+-				ok = ok && pictureIn(maniac, 1, 58) == 0 && _timed.size() == 1 && _timed[0].event == kWorldTimedCount - 1 && _timed[0].phase == 2;
++				const int replyEvent = worldTimedAfter(maniac, kWorldTimed[1].script); // (from 0287 by its `after`)
++				if (ok) stepFor(kWorldTimed[1].first + kWorldTimed[replyEvent].first);
++				ok = ok && pictureIn(maniac, 1, 58) == 0 && _timed.size() == 1 && _timed[0].event == replyEvent && _timed[0].phase == 2;
+ 				routeBookSteps += ok;
+ 				// (Stops here: no book contract.)
+ 				const bool stopped = ok && pictureIn(maniac, 1, 60) == 0 && !keptValue(maniac, 101);
+@@ -10377,13 +10868,208 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// (3) The Edsel: as far as the meteor picked up.
+ 			if (routesThere) {
+ 				routeFresh();
+-				bool ok = as(bernard) && go(51) && thingIn(176) >= 0 && doAt(kWorldVerbTurnOff, thingIn(176)) && skipFilm(otherFilm) && _closeUp.index < 0 && pictureOf(51, 176) == 1;
++				// (From 0287 the way up walked: the Green Tentacle's friend saved
++				// from the Purple Tentacle, the code, the card key.)
++				bool ok = as(bernard);
++				if (ok) _kept[maniac * 65536 + 101] = 3; // (the demo tape's reply, as the music check gets it)
++				ok = ok && go(20) && giveTo(greenKey, take(1, 60)) && (keptValue(maniac, 2960) & 1 << 5);
++				routeSpaceSteps += ok;
++				ok = ok && wiresFixed();
++				routeSpaceSteps += ok;
++				ok = ok && fredPlayed() && scoreSeen();
++				routeSpaceSteps += ok;
++				ok = ok && go(4) && with(kWorldVerbUnlock, take(2, 141), 161) && with(kWorldVerbUnlock, carriedAt(2, 141), 162) && doAt(kWorldVerbOpen, thingIn(160)) && innerOpened();
++				routeSpaceSteps += ok;
++				ok = ok && travel(innerLink) && _room == 31 && !keptValue(maniac, 151) && thingIn(168) >= 0 && doAt(kWorldVerbOpen, thingIn(168)) && keptValue(maniac, 151) == 1 &&
++					travel(guardLink) && _room == 30;
++				routeSpaceSteps += ok;
++				ok = ok && thingIn(415) >= 0 && with(kWorldVerbUse, take(26, 104), 415) && pictureOf(30, 255) == 1 && travel(labLink) && _room == 51;
++				routeSpaceSteps += ok;
++				ok = ok && thingIn(176) >= 0 && doAt(kWorldVerbTurnOff, thingIn(176)) && skipFilm(otherFilm) && _closeUp.index < 0 && pictureOf(51, 176) == 1;
+ 				routeSpaceSteps += ok;
+ 				const bool stopped = ok && thingIn(45) >= 0 && isThing(thingIn(45)) && doAt(kWorldVerbPickUp, thingIn(45)) && !_speech.empty() && carriedAt(51, 45) < 0;
+-				if (stopped) ++routeSpace; else fail("the Edsel's way not as far as the meteor in the lab, or the meteor taken there", maniac);
++				if (stopped) ++routeSpace;
++				else fail("the Edsel's way not as far as the meteor in the lab (the Green Tentacle's friend, the inner door's code, saved from the Purple Tentacle, the lab's door), or the meteor taken there", maniac);
++			}
++			// (4) From 0287 the way up to the lab, step by step.
++			if (routesThere) {
++				routeFresh();
++				char line[256];
++				int picture, after, others[3 * 64], count, flags, sets;
++				const Common::String innerWrong = PanelBridge::closeUpAnswer(maniac, innerPad, false, picture, line, sizeof(line)) ? line : "";
++				const Common::String innerRight = PanelBridge::closeUpAnswer(maniac, innerPad, true, picture, line, sizeof(line)) ? line : "";
++				const Common::String wiresLine = PanelBridge::markedAnswer(maniac, 15, 225, kWorldVerbFix, 0, 152, 0, after, others, count, 64, line, sizeof(line), flags, sets) ? line : "";
++				const Common::String slotLine = PanelBridge::pairEffect(maniac, 30, 415, kWorldVerbUse, 0, 0xFFFF, after, others, count, 64, line, sizeof(line), flags) ? line : "";
++				auto valueLine = [&](int room, int id, int kind, int from, int second, int need, int value, int k, int &speaker) {
++					int wearing, color;
++					char text[256] = "";
++					const int valued[2] = {need, value};
++					return PanelBridge::answerLine(maniac, room, id, kind, from, second, k, speaker, wearing, color, text, sizeof(text), valued) ? Common::String(text) : Common::String();
++				};
++				int speaker = 0;
++				// (A keypad's code, its first press another key's: wrong.)
++				auto wrongCode = [&]() {
++					int first = -1;
++					for (int k = 0; k < innerKeys && first < 0; ++k) {
++						int key, value;
++						char keyLine[8];
++						if (PanelBridge::closeUpKey(maniac, innerPad, k, key, value, keyLine, sizeof(keyLine)) && value != PanelBridge::closeUpCode(maniac, innerPad, 0)) first = value;
++					}
++					bool ok = first >= 0;
++					for (int i = 0; ok && i < innerPresses; ++i) ok = tapIn(innerPad, innerKeys, i ? PanelBridge::closeUpCode(maniac, innerPad, i) : first);
++					return ok;
++				};
++				auto rightCode = [&]() {
++					bool ok = true;
++					for (int i = 0; ok && i < innerPresses; ++i) ok = tapIn(innerPad, innerKeys, PanelBridge::closeUpCode(maniac, innerPad, i));
++					return ok;
++				};
++				// (a) The inner door, shut and locked as its game starts it.
++				bool ok = as(bernard) && go(4);
++				if (ok) setPicture(4, 160, 1);
++				ok = ok && thingIn(163) >= 0 && pictureOf(4, 163) == 0 && !doorAllowed(4, 163) && !travel(innerLink) && _room == 4 && !walkThrough(innerLink) && _room == 4;
++				ok = ok && doAt(kWorldVerbOpen, thingIn(163)) && _closeUp.index == innerPad && rightCode() && _closeUp.index < 0 && _room == 4 && pictureOf(4, 163) == 0 &&
++					!innerWrong.empty() && _speech == innerWrong;
++				if (ok) ++labInner; else fail("the dungeon's inner door not shut and locked as its game starts it (no way through, its keypad shown, even its code wrong before Dr Fred has played)", maniac);
++				// (b) The arcade's wires: fixed only in the dark, the flashlight on.
++				_flashlight = false;
++				ok = ok && take(16, 152) >= 0 && take(7, 84) >= 0 && go(15) && thingIn(225) >= 0 && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 0 && waiting(fredEvent) < 0;
++				if (ok) useItem(carriedAt(7, 84), kWorldVerbTurnOn); // (lit, but the power on: not)
++				ok = ok && _flashlight && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 0 && waiting(fredEvent) < 0;
++				if (ok) useItem(carriedAt(7, 84), kWorldVerbTurnOff); // (the power off, unlit: not)
++				ok = ok && !_flashlight && powerSet(false) && go(15) && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 0 && waiting(fredEvent) < 0;
++				if (ok) useItem(carriedAt(7, 84), kWorldVerbTurnOn);
++				ok = ok && _flashlight && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 1 && !wiresLine.empty() && _speech == wiresLine &&
++					waiting(fredEvent) == kWorldTimed[fredEvent].first;
++				if (ok) ++labWires; else fail("the arcade's wires not fixed as their script has them (only with the power off and the flashlight carried and on; then Dr Fred's time started)", maniac);
++				// (c) Before he has played: the quarter in Meteor Mess shows
++				// nothing. His time waits with the power off, and in the arcade.
++				ok = ok && go(18) && thingIn(442) >= 0 && with(kWorldVerbUse, take(9, 221), 442) && _closeUp.index < 0 && go(15);
++				if (ok) stepFor(kWorldTimed[fredEvent].first + 60);
++				ok = ok && !timedHappened(maniac, 101) && waiting(fredEvent) > 0 && powerSet(true) && go(18);
++				if (ok) stepFor(kWorldTimed[fredEvent].every + 60);
++				ok = ok && !timedHappened(maniac, 101) && waiting(fredEvent) > 0 && go(26); // (Weird Ed's room, the last of its four)
++				if (ok) stepFor(kWorldTimed[fredEvent].every + 60);
++				ok = ok && !timedHappened(maniac, 101) && waiting(fredEvent) > 0 && reload() && waiting(fredEvent) > 0 && pictureOf(15, 225) == 1 && go(15);
++				if (ok) stepFor(kWorldTimed[fredEvent].every + 60);
++				ok = ok && timedHappened(maniac, 101) && waiting(fredEvent) < 0;
++				if (ok) ++labFred; else fail("Dr Fred's time not as his script waits it (14400 ticks, again every 3600 while the power is off or the one played is in the arcade; kept through a save and reload)", maniac);
++				// (d) Now the quarter shows his high score: its scene as recorded.
++				ok = ok && go(18) && with(kWorldVerbUse, carriedAt(16, 152), 442) && _closeUp.index < 0; // (another thing: not)
++				ok = ok && with(kWorldVerbUse, carriedAt(9, 221), 442) && _closeUp.index == scoreFilm;
++				for (int k = 0; ok && k < 2000 && !_closeUp.inScene; ++k) step(1);
++				bool drawn = false;
++				for (int o = 0; ok && o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state, answers;
++					if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || !PanelBridge::gameThing(maniac, 39, id, picture, answers) || StageBridge::objectPictures(o) < 2) continue;
++					ok = StageBridge::objectShown(o) == picture;
++					drawn = drawn || picture == 1;
++				}
++				ok = ok && drawn && _closeUp.inScene && _room == 39;
++				if (ok) tap(_width / 2, _height / 3);
++				ok = ok && _closeUp.index < 0 && _room == 18 && carriedAt(9, 221) >= 0;
++				if (ok) ++labScore; else fail("Dr Fred's high score not shown by the quarter in Meteor Mess as its script shows it (its scene as recorded, the quarter kept)", maniac);
++				// (e) The keypad: wrong, then right; both sides; kept; through.
++				ok = ok && go(4) && doAt(kWorldVerbOpen, thingIn(163)) && _closeUp.index == innerPad && wrongCode() && _closeUp.index < 0 && pictureOf(4, 163) == 0 && _speech == innerWrong;
++				ok = ok && doAt(kWorldVerbOpen, thingIn(163)) && _closeUp.index == innerPad && rightCode() && _closeUp.index < 0 && pictureOf(4, 163) == 1 && pictureIn(maniac, 31, 166) == 1 &&
++					_speech == innerRight && doorAllowed(4, 163);
++				ok = ok && reload() && _room == 4 && pictureOf(4, 163) == 1 && travel(innerLink) && _room == 31 && travel(backLink) && _room == 4;
++				ok = ok && doAt(kWorldVerbClose, thingIn(163)) && pictureOf(4, 163) == 0 && pictureIn(maniac, 31, 166) == 0 && !doorAllowed(4, 163) && !travel(innerLink) && _room == 4;
++				ok = ok && go(31) && thingIn(166) >= 0 && doAt(kWorldVerbOpen, thingIn(166)) && pictureOf(31, 166) == 1 && pictureIn(maniac, 4, 163) == 1;
++				if (ok) ++labCode; else fail("the inner door's keypad not as its script answers once Dr Fred has played (a wrong code, the right one opening both its sides, kept, through; shut by Close, opened from room 31)", maniac);
++				// (f) The Purple Tentacle at his post, his door barred.
++				ok = ok && go(31) && personHere(maniac, 31, 13) && thingIn(168) >= 0 && !doorAllowed(31, 168) && !travel(guardLink) && _room == 31 && !walkThrough(guardLink) && _room == 31 &&
++					_speech == "No one goes past me." && doAt(kWorldVerbOpen, thingIn(168)) && _speech == "No one goes past me." && pictureOf(31, 168) == 0;
++				if (ok) _kept[maniac * 65536 + 101] = 2;
++				const Common::String notThat = valueLine(31, kWorldPersonThing + 13, kWorldVerbGive, 0, 60, 0, 2, 0, speaker);
++				ok = ok && giveTo(guardKey, take(1, 60)) && !notThat.empty() && _speech == notThat && !keptValue(maniac, 151) && !doorAllowed(31, 168);
++				// (He himself, played, goes through his own door.)
++				ok = ok && as(guardKey) && go(31) && doorAllowed(31, 168) && as(bernard) && go(31) && !doorAllowed(31, 168);
++				if (ok) ++labGuard; else fail("the Purple Tentacle not guarding his door as his scripts (there, the way on barred, his line; the kid's contract refused)", maniac);
++				// (g) The badge given: gone for good.
++				const Common::String badgeLine = valueLine(31, kWorldPersonThing + 13, kWorldVerbGive, 0, 214, 0, 0, 0, speaker);
++				ok = ok && giveTo(guardKey, take(4, 214)) && !badgeLine.empty() && _speech == badgeLine && keptValue(maniac, 151) == 1 && doorAllowed(31, 168) && carriedAt(4, 214) >= 0;
++				ok = ok && reload() && keptValue(maniac, 151) == 1 && go(31) && !personHere(maniac, 31, 13) && travel(guardLink) && _room == 30;
++				if (ok) ++labBadge; else fail("the badge given to the Purple Tentacle not sending him off for good as his script (his line, kept, not there again, the way on open)", maniac);
++				// (h) The book contract given: gone likewise.
++				_kept.erase(maniac * 65536 + 151);
++				if (ok) _kept[maniac * 65536 + 101] = 1;
++				ok = ok && go(31) && personHere(maniac, 31, 13) && giveTo(guardKey, carriedAt(1, 60)) && keptValue(maniac, 151) == 1 && doorAllowed(31, 168);
++				if (ok) ++labContract; else fail("a book contract given to the Purple Tentacle not sending him off as his script", maniac);
++				// (i) The Green Tentacle's friend saved; another kid barred.
++				_kept.erase(maniac * 65536 + 151);
++				if (ok) _kept[maniac * 65536 + 101] = 3;
++				ok = ok && go(20) && giveTo(greenKey, carriedAt(1, 60)) && (keptValue(maniac, 2960) & 1 << 5) && !(keptValue(maniac, 2960) & 1 << 3);
++				ok = ok && as(dave) && go(31) && personHere(maniac, 31, 13) && doAt(kWorldVerbOpen, thingIn(168)) && !keptValue(maniac, 151) && _speech == "No one goes past me." && !walkThrough(guardLink);
++				ok = ok && as(bernard) && go(31) && walkThrough(guardLink) && keptValue(maniac, 151) == 1 && _room == 30 && reload() && keptValue(maniac, 151) == 1 && (keptValue(maniac, 2960) & 1 << 5);
++				if (ok) ++labFriend; else fail("the Green Tentacle's friend not saved from the Purple Tentacle (his contract given by Bernard: his friend; another kid barred)", maniac);
++				// (j) The lab's door: its card key.
++				ok = ok && go(30) && thingIn(255) >= 0 && thingIn(415) >= 0 && pictureOf(30, 255) == 0 && !doorAllowed(30, 255) && !travel(labLink) && _room == 30 && !walkThrough(labLink) &&
++					doAt(kWorldVerbOpen, thingIn(255)) && _speech == "It won't open." && pictureOf(30, 255) == 0;
++				ok = ok && with(kWorldVerbUse, carriedAt(9, 221), 255) && _speech == slotLine && pictureOf(30, 255) == 0;
++				ok = ok && with(kWorldVerbUse, take(26, 104), 415) && pictureOf(30, 255) == 1 && pictureIn(maniac, 51, 267) == 1 && travel(labLink) && _room == 51 && travel(labBackLink) && _room == 30;
++				ok = ok && doAt(kWorldVerbClose, thingIn(255)) && pictureOf(30, 255) == 0 && pictureIn(maniac, 51, 267) == 0 && doAt(kWorldVerbOpen, thingIn(255)) && pictureOf(30, 255) == 0 &&
++					with(kWorldVerbUnlock, carriedAt(26, 104), 255) && pictureOf(30, 255) == 1 && reload() && pictureOf(30, 255) == 1;
++				if (ok) ++labCard; else fail("the lab's door not locked as its script keeps it (no way through, refused; another thing in its slot its line; the card key opening it, both sides; shut and locked again; the card key on the door)", maniac);
++				// (k) The garage's cement slab: only from the lab.
++				ok = ok && go(16) && thingIn(59) >= 0 && !doorAllowed(16, 59) && !travel(slabLink) && _room == 16 && doAt(kWorldVerbOpen, thingIn(59)) && _speech == "It won't budge." &&
++					doAt(kWorldVerbClose, thingIn(59)) && _speech == "It won't budge." && pictureOf(16, 59) == 0;
++				ok = ok && go(51) && thingIn(177) >= 0 && doAt(kWorldVerbOpen, thingIn(177)) && pictureIn(maniac, 16, 59) == 1 && go(16) && doorAllowed(16, 59) && travel(slabLink) && _room == 51;
++				if (ok) ++labSlab; else fail("the garage's cement slab not opened only from the lab, as its scripts have it", maniac);
++				// (l) From 0287 with everyone out (the wanderers, as a launch has
++				// them): the Purple Tentacle at his post all the same, sent away
++				// by the wanderers, one of his name they have there (Day of the
++				// Tentacle's, where installed) stepping aside for him, the badge
++				// given; no guard where he cannot be shown (not barred for good);
++				// the Green Tentacle met away from his room given his contract:
++				// Bernard his friend all the same.
++				int namesake = 0;
++				for (const WorldCastGuest &cast : kWorldCast) {
++					const int key = worldAppearanceKey(cast.game, cast.guest.costume);
++					if (!namesake && cast.game != maniac && hasCharacter(key) && samePersonKeys(key, guardKey)) namesake = key;
++				}
++				auto shownHere = [&](int key) { for (int k : _onStage) if (k == key) return true; return false; };
++				const bool wanderersWere = _wanderers;
++				_wanderers = true;
++				buildWanderers();
++				_kept.erase(maniac * 65536 + 151);
++				ok = ok && installed(maniac, 12) && installed(maniac, 13) && WanderBridge::send(guardKey, place(maniac, 13)) && (!namesake || WanderBridge::send(namesake, place(maniac, 31))) &&
++					go(13) && go(31) && personHere(maniac, 31, 13) && !(namesake && shownHere(namesake)) && !doorAllowed(31, 168);
++				// (That one played: no guard for him, as for the Purple Tentacle himself.)
++				ok = ok && (!namesake || (as(namesake) && go(31) && doorAllowed(31, 168) && !personHere(maniac, 31, 13) && as(bernard) && go(31) && personHere(maniac, 31, 13)));
++				ok = ok && giveTo(guardKey, carriedAt(4, 214)) && keptValue(maniac, 151) == 1 && doorAllowed(31, 168);
++				if (ok) { ++labTwin; labNamesake += namesake != 0; }
++				else fail("the Purple Tentacle not at his post with everyone out (one of his name there standing in his place), or the badge not taken there", maniac);
++				_kept.erase(maniac * 65536 + 151);
++				_broken[guardKey] = true;
++				ok = ok && go(13) && go(31) && !shownHere(guardKey) && doorAllowed(31, 168) && travel(guardLink) && _room == 30 && !keptValue(maniac, 151);
++				_broken.erase(guardKey);
++				ok = ok && go(31) && personHere(maniac, 31, 13) && !doorAllowed(31, 168);
++				if (ok) ++labUnshown; else fail("the Purple Tentacle's door barred with him not to be shown (nobody there to give the badge to)", maniac);
++				_kept.erase(maniac * 65536 + 2960);
++				_kept[maniac * 65536 + 101] = 3;
++				ok = ok && WanderBridge::send(greenKey, place(maniac, 13)) && go(12) && go(13) && shownHere(greenKey) && giveTo(greenKey, take(1, 60)) && (keptValue(maniac, 2960) & 1 << 5) &&
++					carriedAt(1, 60) < 0 && go(31) && walkThrough(guardLink) && keptValue(maniac, 151) == 1 && _room == 30;
++				if (ok) ++labAway; else fail("the Green Tentacle met away from his room not taking his contract as his script (Bernard his friend), nor then saving him from the Purple Tentacle", maniac);
++				_wanderers = wanderersWere;
++				// (m) From 0287 the tools used on the arcade's wires (Use) in the
++				// dark, the flashlight on: fixed as with Fix (the tools' own Use
++				// hands on to the wires'), his time started.
++				putBack(15, 225); forgetThing(thingKey(maniac, 15, 225));
++				for (uint i = _timed.size(); i-- > 0;) if (_timed[i].event == fredEvent) _timed.remove_at(i);
++				_flashlight = false;
++				ok = ok && take(16, 152) >= 0 && take(7, 84) >= 0 && powerSet(false);
++				if (ok) useItem(carriedAt(7, 84), kWorldVerbTurnOn);
++				ok = ok && _flashlight && go(15) && thingIn(225) >= 0 && pictureOf(15, 225) == 0 && with(kWorldVerbUse, carriedAt(16, 152), 225) && pictureOf(15, 225) == 1 &&
++					!wiresLine.empty() && _speech == wiresLine && waiting(fredEvent) == kWorldTimed[fredEvent].first && powerSet(true);
++				if (ok) ++labUse; else fail("the arcade's wires not fixed with the tools used on them in the dark, as with Fix (his time started)", maniac);
+ 			}
+ 			routeFresh();
+ 			_marks = marksRoutes; _timed = timedRoutes; _seen = seenRoutes; _kept = keptRoutes; _later = laterRoutes;
++			_flashlight = flashlightRoutes; // (from 0287)
++			_carried.clear(); PanelBridge::clearItems();
++			for (const Carried &kept : carriedRoutes) carry(kept.game, kept.room, kept.id, kept.name, kept.picture, false);
++			_pictures = picturesRoutes; _touched = touchedRoutes;
+ 			if (_playerKey != playedRoutes) castChoose(playedRoutes);
+ 			_random.setSeed(randomRoutes); _strollClock = strollRoutes;
+ 		}
+@@ -11191,7 +11877,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 						hasCharacter(razorKey) && hasCharacter(daveKey) && hasCharacter(greenKey) && hasCharacter(purpleMeteorKey) &&
+ 						PanelBridge::valueAnswered(maniac, 17, 365, kWorldVerbUse, 0, 0, 191, 0);
+ 					if (maniac >= 0 && !musicThere) fail("the mansion's music not recorded (export version 47), or its places or people not there", maniac);
+-					const int replyEvent = maniac >= 0 ? kWorldTimedCount - 1 : -1;
++					const int replyEvent = maniac >= 0 ? worldTimedAfter(maniac, 105) : -1; // (from 0287 by its `after`)
+ 					const WorldTimed *reply = replyEvent >= 0 && kWorldTimed[replyEvent].after ? &kWorldTimed[replyEvent] : nullptr;
+ 					// (1) The piano.
+ 					if (musicThere) {
+@@ -13034,10 +13720,25 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest recorded again: %d the tape played again once the old rusty key is carried, the key not drawn where it lay; %d of %d a record put on the Victrola "
+ 		"while one is on refused, the first given back taken off", tapeKeyOnce, tapeSecond, tapeSecondTried);
+ 	// (From 0286 the original's endings, as far as the new engine plays them.)
+-	warning("SCUMMVERSE sandbox selftest endings: the Meteor Police's %d reached (%d of 6 steps: the radio's tube by Bernard, the radio on, its call, the pool's key and the dungeon's doors, the meteor taken, "
++	warning("SCUMMVERSE sandbox selftest endings: the Meteor Police's %d reached (%d of 11 steps: the radio's tube by Bernard, the radio on, its call, the pool's key and the dungeon's outer door, "
++		"the arcade's wires fixed in the dark, Dr Fred's high score seen, the inner door's code, the meteor taken, the badge given to the Purple Tentacle, the lab's door by its card key, "
+ 		"the switch's films and the ending seen); the book contract's %d as far as its reply (%d of 3 steps: the manuscript retyped by Wendy, the envelope, posted and collected) and "
+-		"stopped there, none posted back (the manuscript retyped not kept); the Edsel's %d as far as the meteor in the lab (%d of 1 step: Dr Fred's other film) and stopped there, "
++		"stopped there, none posted back (the manuscript retyped not kept); the Edsel's %d as far as the meteor in the lab (%d of 7 steps: the Green Tentacle's friend, the arcade's wires, "
++		"Dr Fred's high score, the inner door's code, saved from the Purple Tentacle, the lab's door, Dr Fred's other film) and stopped there, "
+ 		"refused (taken only once Dr Fred's cut-scene has set its value, not kept)", routePolice, routePoliceSteps, routeBook, routeBookSteps, routeSpace, routeSpaceSteps);
++	// (From 0287 the way up to the lab.)
++	warning("SCUMMVERSE sandbox selftest lab: %d the dungeon's inner door shut and locked as its game starts it (no way through, its keypad, its code wrong before Dr Fred has played); "
++		"%d the arcade's wires fixed only in the dark with the flashlight on (his time started); %d his time waiting with the power off, in the arcade and Weird Ed's room, kept, then come; "
++		"%d his high score shown by the quarter in Meteor Mess as recorded; %d the inner door's keypad (wrong, right, both sides, kept, through; shut, opened from room 31); "
++		"%d the Purple Tentacle guarding his door (barred, his line; the kid's contract refused; not for him, played); %d the badge sending him off for good (kept, not there again); "
++		"%d a book contract likewise; %d the Green Tentacle's friend saved, another kid barred; %d the lab's door by its card key only (refused, the slot's line, both sides, "
++		"locked again, the key on the door); %d the garage's cement slab opened only from the lab", labInner, labWires, labFred, labScore, labCode, labGuard, labBadge, labContract,
++		labFriend, labCard, labSlab);
++	// (From 0287 the same with everyone out, and the wires by Use.)
++	warning("SCUMMVERSE sandbox selftest lab more: %d the Purple Tentacle at his post with everyone out, given the badge there (%d with one of his name the wanderers had there "
++		"stepping aside for him, and no guard for that one played); %d no guard where he cannot be shown (the way on open); %d the Green Tentacle given his contract away from his "
++		"room (his friend made, then saved); %d the arcade's wires fixed with the tools used on them, as with Fix (his time started)",
++		labTwin, labNamesake, labUnshown, labAway, labUse);
+ 	// (From 0286 the mansion's music.)
+ 	warning("SCUMMVERSE sandbox selftest music: the piano %d answered with their line for someone not Syd or Razor, %d of 2 recorded by Syd and Razor (157 at 50) and kept, %d with the Victrola on "
+ 		"turned off first; the Green Tentacle %d hearing its tape on his stereo (his lines, his demo tape, the cassette kept), the demo tape given back as the cassette (55), %d refused "
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 62b29e0d..e72a8ab8 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -206,6 +206,25 @@ private:
+ 	const char *openedOnlyBy(int room, int id) const; // a door opened only from elsewhere: its line
+ 	bool doorAllowed(int room, int door) const;
+ 	bool meetDoorNeed(int room, int door);  // (the checks': as the game would)
++	// From 0287 the way up to the mansion's lab (kManiacLocked, kManiacSlots,
++	// kManiacGuards): a door its game keeps locked (its refusal's line; the
++	// slab's, `stays`: never moved from here), whether it has its keypad, a
++	// verb on one refused; the Purple Tentacle guarding his door, the one
++	// played stopped there (or saved by the Green Tentacle, his friend), gone
++	// from his post; what a thing given leaves kept (a friend made, the Purple
++	// Tentacle sent off); the lab's door used through
++	// its slot, its key opening it; a film shown by two things.
++	bool lockedDoor(int room, int door, const char **line = nullptr, bool *stays = nullptr) const;
++	bool keypadOf(int room, int door) const;
++	bool lockRefuses(int id, int kind);
++	bool guarding(int room, int door) const;
++	bool guardStops(int door, int kind);
++	bool guardGone(int key) const;
++	void guardPosted(int game, int room, Common::Array<int> &keys) const; // (enter's: the keys of those put on the stage)
++	void givenLeaves(int game, int room, int costume, int with, int value);
++	Pair slotPair(const Pair &p) const;
++	void slotOpens(const Pair &q);
++	bool pairCloseUp(const Pair &p);
+ 	void lights(bool on);                   // here lit, or dark (kept)
+ 	// Dark: its lights turned off, or its game's main power off (the
+ 	// mansion's circuit breakers) where its own scripts leave it dark then.
+@@ -299,7 +318,7 @@ private:
+ 	CloseUp _closeUp;                       // (index -1: none shown)
+ 	bool _enteringCloseUp = false;
+ 	Common::HashMap<int, bool> _closeUps;   // close-ups exported: game * 1024 + room (not places)
+-	int closeUpFor(int id, int kind) const; // the one this verb on this thing here shows (-1: none)
++	int closeUpFor(int id, int kind, int with = 0) const; // the one this verb on this thing here shows (-1: none; from 0287 with a second thing's id)
+ 	bool closeUpShow(int index, int id);    // (false: not shown, here as before)
+ 	void closeUpTap(int screenX, int screenY);
+ 	void closeUpPress(int key);             // (an index among its keys)
+@@ -411,6 +430,7 @@ private:
+ 	Common::Array<Timed> _timed;
+ 	int timedLeaving(int game, int room) const; // those leaving here for there starts (bit i: kWorldTimed[i])
+ 	void timedStart(int events);
++	void timedAnswered(int game, int room, int id, int from, int after); // (from 0287: those an answer of its thing starts)
+ 	void timedStep(int ticks);
+ 	int pictureIn(int game, int room, int id) const; // (a thing's picture now, in any game's place)
+ 	// From 0263 (kWorldTimed's `once` 2, `takes` and `person`): one that has

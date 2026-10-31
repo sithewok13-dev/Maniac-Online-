@@ -1,0 +1,453 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 12c4a07a..cca94cc5 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -905,6 +905,14 @@ static bool itemFrom(const unsigned char *scene, size_t size, int id, const char
+ 			// (Only what differs from the place without it: the thing itself.)
+ 			item.picture.push_back(with[i] == place[i] && k != off && !whole ? 0u : 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2]);
+ 		}
++		// (Its pictures the same, as the mansion's garage's two, nothing
++		// differs: its picture whole, not nothing.)
++		bool seen = false;
++		for (uint32_t c : item.picture) seen = seen || (c >> 24);
++		for (size_t i = 0; !seen && i < with.size(); ++i) {
++			const uint8_t *c = source.palette + 3 * with[i];
++			item.picture[i] = 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2];
++		}
+ 		return true;
+ 	}
+ 	return false;
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index a713e857..17410c75 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -556,6 +556,19 @@ bool Scene::drawnRect(int n, int &x0, int &y0, int &x1, int &y1) const {
+ 	return rectOf(placeOf(_actors[n], _view, _boxes), _view, x0, y0, x1, y1);
+ }
+ 
++bool Scene::drawnAt(int n, int screenX, int screenY) const {
++	if (n < 0 || n >= (int)_actors.size()) return false;
++	const Placement p = placeOf(_actors[n], _view, _boxes);
++	int x0, y0, x1, y1;
++	if (!rectOf(p, _view, x0, y0, x1, y1) || screenX < x0 || screenX >= x1 || screenY < y0 || screenY >= y1) return false;
++	// (As render picks the pixel drawn there; a glow is no part of them.)
++	const int row = std::min(p.frame->height - 1, (int)((screenY - p.y0) / p.down));
++	const int col = std::min(p.frame->width - 1, (int)((screenX - p.x0) / p.across));
++	if (row < 0 || col < 0 || p.frame->mask.size() < (size_t)p.frame->width * p.frame->height) return false;
++	const uint8_t m = p.frame->mask[(size_t)row * p.frame->width + col];
++	return m == 1 || m == 3;
++}
++
+ int Scene::shownKind(int n) const {
+ 	if (n < 0 || n >= (int)_actors.size()) return -1;
+ 	const Placement p = placeOf(_actors[n], _view, _boxes);
+@@ -1148,6 +1161,7 @@ int objectAt(double x, double y, const int *candidates, int count, double slack)
+ 	return stage().objectAt(Stage::Point(x, y), std::vector<int>(candidates, candidates + std::max(0, count)), slack);
+ }
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().drawnRect(actor, x0, y0, x1, y1); }
++bool drawnAt(int actor, int screenX, int screenY) { return stage().drawnAt(actor, screenX, screenY); }
+ int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect) {
+ 	return stage().addProp(pixels, width, height, none, palette, Stage::Point(x, y), rows, pixelAspect);
+ }
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 14981849..d0640a48 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -224,6 +224,7 @@ public:
+ 	bool closestIn(int group, Point p, Point &out) const;
+ 	// The screen rectangle an actor covers (false when off screen).
+ 	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
++	bool drawnAt(int actor, int screenX, int screenY) const; // a pixel of theirs drawn there
+ 	// An object shown in one of its pictures (0: without it; "SVW5").
+ 	bool showObject(int object, int picture);
+ 	int showing(int object) const; // the picture an object is in now
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 68566e4a..3ad7fe78 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -95,6 +95,7 @@ int boxCount();
+ int camera();                                  // the scaled scene's left edge on screen
+ void lookAt(double x);                         // the camera centred there (source pixels)
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
++bool drawnAt(int actor, int screenX, int screenY);
+ // A still picture among the people (the Shuttle Bug parked): width x height
+ // palette indices (`none`: not drawn) in its own colours (palette: 768
+ // bytes), its bottom centre at x, y (source pixels), `rows` scene rows tall
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index b74c4e9f..89f73424 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -779,8 +779,10 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	_beamX = x; _beamY = y; _beamSet = true; // (the flashlight where the pointer is)
+ 	const int wasOpening = _opening, wasDoor = _door;
+ 	_door = -1; _action = 0; _target = -1; _opening = 0;
+-	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
++	// (Loom's: a thing, not a door, is chosen, or examined when it was. The
++	// notes played so far let go.)
+ 	if (PanelBridge::distaff()) {
++		PanelBridge::clearPlayed();
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i) && !isDoor(i)) things.push_back(i);
+ 		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+@@ -816,6 +818,11 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		if (thing >= 0) { pairWith(-1, thing); return; }
+ 		letGo();
+ 	}
++	// (Someone in front of what is behind them: a verb on them, not on that.)
++	if (kind != kWorldVerbWalk) {
++		const int person = personAt(screenX, screenY);
++		if (person >= 0) { useOnPerson(kind, verb, person); return; }
++	}
+ 	if (kind != kWorldVerbWalk) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+@@ -887,13 +894,40 @@ void SandboxEngine::useOn(int kind, int verb, int thing) {
+ 	char name[80], verbName[40];
+ 	StageBridge::objectName(thing, name, sizeof(name));
+ 	PanelBridge::verbName(verb, verbName, sizeof(verbName));
+-	sentence(Common::String::format("%s %s", verbName, name));
++	const Common::String line = Common::String::format("%s %s", verbName, name);
++	sentence(line);
+ 	_action = kind; _target = thing;
++	// (What is: named where it is, as the oldest games do, not walked to.)
++	if (kind == kWorldVerbWhatIs) { act(); sentence(line); return; }
+ 	double tx, ty;
+ 	doorPoint(thing, tx, ty);
+ 	StageBridge::walkTo(_player, tx, ty);
+ }
+ 
++// A verb on someone here: looking names them; talking (The Dig's tap too)
++// walks up beside them, who answer; the rest does nothing.
++void SandboxEngine::useOnPerson(int kind, int verb, int person) {
++	const WorldGuest *who = person < (int)_onStage.size() ? worldAppearance(_onStage[person]) : nullptr;
++	char verbName[40];
++	PanelBridge::verbName(verb, verbName, sizeof(verbName));
++	const Common::String name = who ? who->name : "someone";
++	_pairing = Pair();
++	if (kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbRead) {
++		sentence(Common::String::format("%s %s", verbName, name.c_str()));
++		if (_player >= 0) { double x, y; StageBridge::position(person, x, y); StageBridge::face(_player, x, y); }
++		say(Common::String::format("It's %s.", name.c_str()).c_str());
++		return;
++	}
++	if (kind == kWorldVerbTalk || kind == kWorldVerbAct) {
++		Pair p;
++		p.kind = kind; p.verb = verb;
++		walkBeside(person, p, Common::String::format("%s %s", verbName, name.c_str()));
++		return;
++	}
++	sentence("");
++	say(kind == kWorldVerbPickUp ? "I can't pick that up." : "That doesn't seem to work.");
++}
++
+ // A press in a coin game: on a thing carried in the open box, else on a
+ // thing here (as a tap finds one).
+ void SandboxEngine::press(int screenX, int screenY) {
+@@ -910,6 +944,8 @@ void SandboxEngine::press(int screenX, int screenY) {
+ 	}
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
++	// (Someone in front of a thing: them.)
++	if ((_press.person = personAt(screenX, screenY)) >= 0) return;
+ 	Common::Array<int> things;
+ 	for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+ 	_press.object = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+@@ -919,18 +955,30 @@ void SandboxEngine::press(int screenX, int screenY) {
+ void SandboxEngine::hold() {
+ 	_press.held = true;
+ 	char name[80] = "";
++	const WorldGuest *who = _press.person >= 0 && _press.person < (int)_onStage.size() ? worldAppearance(_onStage[_press.person]) : nullptr;
+ 	if (_press.item >= 0) PanelBridge::itemName(_press.item, name, sizeof(name));
++	else if (who) Common::strlcpy(name, who->name, sizeof(name));
+ 	else if (_press.object >= 0) StageBridge::objectName(_press.object, name, sizeof(name));
+ 	else return;
+ 	_action = 0; _target = -1; _door = -1; _doorGoalLink = -1; _opening = 0;
+ 	PanelBridge::openCoin(_press.x, _press.y, name);
+-	PanelBridge::lightCoin(PanelBridge::coinVerb(_pointerX, _pointerY));
++	_press.under = PanelBridge::coinVerb(_press.x, _press.y);
++	PanelBridge::lightCoin(coinPart(_pointerX, _pointerY));
+ 	_dirty = true;
+ }
+ 
++// (Pushed down to stay on screen, a coin may open with a part under the
++// finger: that part only once the finger has moved, else none.)
++int SandboxEngine::coinPart(int screenX, int screenY) const {
++	const int part = PanelBridge::coinVerb(screenX, screenY);
++	return part == _press.under && !_press.moved ? -1 : part;
++}
++
+ void SandboxEngine::drag(int screenX, int screenY) {
+ 	_pointerX = screenX; _pointerY = screenY; _dirty = true;
+-	if (PanelBridge::coinOpen()) PanelBridge::lightCoin(PanelBridge::coinVerb(screenX, screenY));
++	const int slack = MAX(6, _width / 160);
++	if (_press.down && (ABS(screenX - _press.x) > slack || ABS(screenY - _press.y) > slack)) _press.moved = true;
++	if (PanelBridge::coinOpen()) PanelBridge::lightCoin(coinPart(screenX, screenY));
+ }
+ 
+ // Let go: on a part of the coin, its verb on what it is over (a thing here
+@@ -938,14 +986,15 @@ void SandboxEngine::drag(int screenX, int screenY) {
+ // the press began.
+ void SandboxEngine::release(int screenX, int screenY) {
+ 	const Press p = _press;
++	if (!PanelBridge::coinOpen()) { _press = Press(); tap(p.x, p.y); return; }
++	const int verb = coinPart(screenX, screenY);
+ 	_press = Press();
+-	if (!PanelBridge::coinOpen()) { tap(p.x, p.y); return; }
+-	const int verb = PanelBridge::coinVerb(screenX, screenY);
+ 	PanelBridge::shutCoin();
+ 	_dirty = true;
+ 	if (verb < 0) return;
+ 	const int kind = PanelBridge::verbKind(verb);
+ 	if (p.item >= 0) useItem(p.item, kind);
++	else if (p.person >= 0 && p.person < (int)_onStage.size()) useOnPerson(kind, verb, p.person);
+ 	else if (p.object >= 0 && isThing(p.object)) useOn(kind, verb, p.object);
+ }
+ 
+@@ -1109,7 +1158,7 @@ void SandboxEngine::pairWith(int item, int thing) {
+ 	const int here = p.thing >= 0 ? p.thing : thing;
+ 	if (here < 0) { pairUp(both); return; }
+ 	double tx, ty;
+-	if (!doorPoint(here, tx, ty)) { sentence(""); return; }
++	if (!doorPoint(here, tx, ty)) { sentence(waitingLine()); return; }
+ 	_pairing = both;
+ 	_action = p.kind; _target = here;
+ 	StageBridge::walkTo(_player, tx, ty);
+@@ -1119,10 +1168,10 @@ void SandboxEngine::pairWith(int item, int thing) {
+ // (the mansion's, from 0171); else the plain rules: it doesn't work. Given
+ // to someone (from 0173): they answer, as nobody's game says what they take.
+ void SandboxEngine::pairUp(const Pair &p) {
+-	sentence("");
++	sentence(waitingLine());
+ 	if (p.person >= 0 && p.person < (int)_onStage.size()) {
+ 		if (_player >= 0) { double x, y; StageBridge::position(p.person, x, y); StageBridge::face(_player, x, y); }
+-		sayAs(p.person, "No, thanks.");
++		sayAs(p.person, p.kind == kWorldVerbGive ? "No, thanks." : "Hello.");
+ 	} else if (!pairOwn(p)) say(p.kind == kWorldVerbGive ? "I don't think they want it." : "That doesn't seem to work.");
+ 	if (!_testing) saveState();
+ }
+@@ -1131,8 +1180,8 @@ int SandboxEngine::personAt(int screenX, int screenY) const {
+ 	int found = -1, front = -1;
+ 	for (int n = 0; n < (int)_onStage.size(); ++n) {
+ 		int x0, y0, x1, y1;
+-		if (n == _player || !StageBridge::drawnRect(n, x0, y0, x1, y1)) continue;
+-		if (screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1 && y1 > front) { front = y1; found = n; }
++		if (n == _player || !StageBridge::drawnRect(n, x0, y0, x1, y1) || !StageBridge::drawnAt(n, screenX, screenY)) continue;
++		if (y1 > front) { front = y1; found = n; }
+ 	}
+ 	return found;
+ }
+@@ -1144,6 +1193,10 @@ void SandboxEngine::giveTo(int person) {
+ 	const WorldGuest *who = person < (int)_onStage.size() ? worldAppearance(_onStage[person]) : nullptr;
+ 	Common::String text = pairText(p, -1, -1);
+ 	if (who) text += Common::String(" ") + who->name;
++	walkBeside(person, p, text);
++}
++
++void SandboxEngine::walkBeside(int person, const Pair &p, const Common::String &text) {
+ 	sentence(text);
+ 	// (Walked up beside them, on the side nearer.)
+ 	double px, py, x, y;
+@@ -1219,6 +1272,15 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 	return false;
+ }
+ 
++// When a walk ends: the first of two still held, else a verb chosen on the
++// way (the sentence begun), else walking.
++Common::String SandboxEngine::waitingLine() const {
++	if (_holding.kind) return pairText(_holding, -1, -1);
++	char chosen[40] = "";
++	if (PanelBridge::loaded() && !PanelBridge::over() && !PanelBridge::distaff() && PanelBridge::selected() >= 0) PanelBridge::verbName(PanelBridge::selected(), chosen, sizeof(chosen));
++	return chosen;
++}
++
+ // The sentence line: what is being done ("" is walking: the walk verb's own
+ // name, as the games show it).
+ void SandboxEngine::sentence(const Common::String &text) {
+@@ -1233,8 +1295,11 @@ void SandboxEngine::chooseVerb(int verb) {
+ 	if (_holding.kind) letGo();
+ 	// (Loom's notes: played, lit a moment; the fourth spins a draft.)
+ 	if (PanelBridge::distaff()) {
++		// (A note long after the last begins a draft again: one stray note
++		// would leave every draft after it a note out.)
++		if (_noteGap <= 0) PanelBridge::clearPlayed();
+ 		const int draft = PanelBridge::play(verb);
+-		_noteClock = 30; _dirty = true;
++		_noteClock = 30; _noteGap = kNoteGap; _dirty = true;
+ 		if (draft != -1) spin(draft);
+ 		return;
+ 	}
+@@ -1856,10 +1921,7 @@ void SandboxEngine::act() {
+ 		_pairing = Pair();
+ 		if (p.kind == kind && (p.person >= 0 ? target < 0 : p.thing == target || p.withThing == target)) { pairUp(p); return; }
+ 	}
+-	// (A verb chosen on the way: still the sentence begun.)
+-	char chosen[40] = "";
+-	if (!PanelBridge::over() && !PanelBridge::distaff() && PanelBridge::selected() >= 0) PanelBridge::verbName(PanelBridge::selected(), chosen, sizeof(chosen));
+-	sentence(chosen);
++	sentence(waitingLine());
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(target, id, ox, oy, w, h, wx, wy, state)) return;
+ 	char name[80], line[160];
+@@ -2076,7 +2138,7 @@ void SandboxEngine::reachDoor() {
+ 	const bool walked = near(x, y) || near(tx, ty), across = _doorGoalLink == _door && near(_doorGoalX, _doorGoalY);
+ 	const bool there = walked || across;
+ 	if (there && !walked) ++_doorsAcross;
+-	if (!found || !there) { _door = -1; sentence(""); return; }
++	if (!found || !there) { _door = -1; sentence(waitingLine()); return; }
+ 	// (Shut: seen opening a moment first, as the game shows it open; not a
+ 	// door to somewhere not installed.)
+ 	if (installed(_game, link.target) && openDoor(link.object)) { thingSets(link.object, kWorldVerbOpen); _opening = kDoorOpening; return; }
+@@ -2165,6 +2227,7 @@ void SandboxEngine::step(int ticks) {
+ 	tramStep(ticks);
+ 	rideStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
++	if (_noteGap > 0) _noteGap -= ticks;
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
+ 	followStep(ticks);
+@@ -3286,7 +3349,7 @@ bool SandboxEngine::readyToMove(int actor) const {
+ void SandboxEngine::haltWalk() {
+ 	if (_player < 0) return;
+ 	if (StageBridge::moving(_player)) StageBridge::stop(_player);
+-	if (_door >= 0 || _action || _pairing.kind) sentence(_holding.kind ? pairText(_holding, -1, -1) : Common::String());
++	if (_door >= 0 || _action || _pairing.kind) sentence(waitingLine());
+ 	_door = -1; _action = 0; _target = -1; _pairing = Pair();
+ }
+ 
+@@ -3967,9 +4030,9 @@ Common::Error SandboxEngine::run() {
+ // a door is refused, and out of reach nothing is done; all kept through the
+ // state file. A picture of each panel in use.
+ Common::Error SandboxEngine::verbsTest() {
+-	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0, given = 0;
++	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0, given = 0, lookedAtPerson = 0, unmoved = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
+-	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0, onTheWay = 0;
++	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0, onTheWay = 0, strayNotes = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+ 	auto tapRect = [&](int x, int y, int w, int h) { tap(x + w / 2, y + h / 2); };
+ 	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
+@@ -4023,6 +4086,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		press(sx, sy);
+ 		hold();
+ 		if (!PanelBridge::coinOpen() || !partPoint(v, px, py)) { release(sx, sy); _action = 0; _target = -1; _door = -1; return false; }
++		// (As a finger goes: off the coin, then onto the part.)
++		int cx, cy, cw, ch;
++		PanelBridge::coinRect(cx, cy, cw, ch);
++		drag(cx, cy);
+ 		drag(px, py);
+ 		if (PanelBridge::coinLit() != v) return false;
+ 		release(px, py);
+@@ -4074,6 +4141,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
+ 		if (sx < 0 || sx >= _width || sy < 0 || sy >= (PanelBridge::over() ? _height : PanelBridge::top())) { PanelBridge::select(-1); return false; }
+ 		tap(sx, sy);
++		// (What is: named where it is, not walked to; not someone in front.)
++		if (kind == kWorldVerbWhatIs) return done(!_speech.empty() && personAt(sx, sy) < 0);
+ 		if (_target != object) { _action = 0; _target = -1; return done(false); }
+ 		settle();
+ 		// (Not got to: another one is tried.)
+@@ -4141,6 +4210,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (PanelBridge::coinOpen()) fail("the coin open before it is held", g);
+ 				hold();
+ 				if (!PanelBridge::coinOpen()) { fail("the coin not opened", g); break; }
++				// (Nothing lit till the finger moves: a part may open under it.)
++				if (PanelBridge::coinLit() != -1) fail("a part lit before the finger moved", g);
++				{
++					int cx, cy, cw, ch;
++					PanelBridge::coinRect(cx, cy, cw, ch);
++					drag(cx, cy);
++				}
+ 				for (int v = 0; v < PanelBridge::verbCount(); ++v) {
+ 					++verbs; ++parts;
+ 					if (!partPoint(v, px, py)) { fail("a part of the coin not found", g); continue; }
+@@ -4157,6 +4233,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (PanelBridge::coinLit() != -1) fail("a part lit off the parts", g);
+ 				release(cx, cy);
+ 				if (PanelBridge::coinOpen() || _action || _target >= 0) fail("let go off its parts, something done", g); else ++coins;
++				// (Let go where it opened, the finger not moved: nothing, though a
++				// part may be under it.)
++				press(sx, sy); hold(); release(sx, sy);
++				if (PanelBridge::coinOpen() || _action || _target >= 0) fail("let go where it opened, unmoved, something done", g); else ++unmoved;
+ 				// (From the spot farthest from it.)
+ 				double xs[12], ys[12], tx, ty;
+ 				StageBridge::toScene(sx, sy, tx, ty);
+@@ -4281,6 +4361,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (_speech != "Nothing happens.") fail("a draft not taken up said nothing", g); else ++distaffs;
+ 				_speech.clear();
+ 				for (int t = 0; t < 60; ++t) step(1);
++				// (A stray note, then a while: the draft after it spun still, not
++				// a note out.)
++				if (PanelBridge::noteVerb(notes[1], verb) && PanelBridge::verbRect(verb, x, y, w, h)) tapRect(x, y, w, h);
++				for (int t = 0; t < kNoteGap + 10; ++t) step(1);
++				_speech.clear();
++				for (int k = 0; k < 4; ++k) if (PanelBridge::noteVerb(notes[k], verb) && PanelBridge::verbRect(verb, x, y, w, h)) tapRect(x, y, w, h);
++				if (_speech != "Nothing happens." || PanelBridge::playedNotes()) fail("a draft after a stray note not spun", g); else ++strayNotes;
++				_speech.clear();
++				for (int t = 0; t < 60; ++t) step(1);
+ 			}
+ 		}
+ 		Common::Array<int> things;
+@@ -4608,6 +4697,22 @@ Common::Error SandboxEngine::verbsTest() {
+ 					ok = ok && !_holding.kind && _speaker == person && _speech == "No, thanks.";
+ 					if (!ok) fail("Give to someone not as two things", g); else ++given;
+ 				}
++				// (Someone in front of what is behind them: looked at, them.)
++				const int lookVerb = verbOf(kWorldVerbLook) >= 0 ? verbOf(kWorldVerbLook) : verbOf(kWorldVerbWhatIs);
++				// (Where they are drawn now, turned to who gave it.)
++				int lx = -1, ly = -1, x0, y0, x1, y1;
++				if (person >= 0 && StageBridge::drawnRect(person, x0, y0, x1, y1))
++					for (int a = 1; a < 8 && lx < 0; ++a) for (int b = 1; b < 8 && lx < 0; ++b) {
++						const int tx = x0 + (x1 - x0) * b / 8, ty = y0 + (y1 - y0) * a / 8;
++						if (ty < PanelBridge::top() && personAt(tx, ty) == person) { lx = tx; ly = ty; }
++					}
++				if (lx >= 0 && lookVerb >= 0 && pick(lookVerb)) {
++					_speech.clear();
++					tap(lx, ly);
++					const WorldGuest *who = worldAppearance(_onStage[person]);
++					if (!who || _speech != Common::String::format("It's %s.", who->name) || _action) fail("someone looked at not named", g); else ++lookedAtPerson;
++					settle();
++				}
+ 				break;
+ 			}
+ 			// One its game's script does not take (a pirate at a table): refused.
+@@ -5169,7 +5274,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone", paired, pairsSeen, pairsAway, pairsFound, given);
++	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone (%d looked at them, not what is behind)", paired, pairsSeen, pairsAway, pairsFound, given, lookedAtPerson);
++	warning("SCUMMVERSE sandbox selftest interface: %d coins let go unmoved where they opened, nothing done; %d drafts spun after a stray note", unmoved, strayNotes);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others; %d taken whose pictures are the same)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside, sameTaken);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 473fa1d6..d8c962fe 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -114,9 +114,12 @@ private:
+ 	void pairWith(int item, int thing); // the second chosen
+ 	int personAt(int screenX, int screenY) const; // someone here under a tap (a stage actor; -1: none)
+ 	void giveTo(int person);           // "Give the key to" someone: walked to, they answer
++	void useOnPerson(int kind, int verb, int person); // a verb on someone here
++	void walkBeside(int person, const Pair &p, const Common::String &text); // walked up to them, the pair done there
+ 	void pairUp(const Pair &p);
+ 	bool pairOwn(const Pair &p);       // the mansion's own answer, where known
+ 	Common::String pairText(const Pair &p, int item, int thing) const;
++	Common::String waitingLine() const;     // the sentence line once a walk ends
+ 	// Full Throttle's coin (step 2f): a press, and what it is on (a thing
+ 	// here, else one carried in the open box); held long enough, the coin
+ 	// opens over it; the part under the pointer lit as it moves; let go, the
+@@ -495,9 +498,12 @@ private:
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them
+ 	Common::HashMap<int, int> _pictures;    // objects in another picture (thingKey; taken: 0)
+-	struct Press { bool down = false, held = false; int x = 0, y = 0, object = -1, item = -1; uint32 at = 0; };
++	struct Press { bool down = false, held = false, moved = false; int x = 0, y = 0, object = -1, item = -1, person = -1, under = -1; uint32 at = 0; };
++	int coinPart(int screenX, int screenY) const; // the coin's part there, not the one it opened under till moved
+ 	Press _press;                           // (a coin game's press)
+ 	int _chosen = -1, _noteClock = 0;       // (Loom's: the thing chosen; a note lit so long)
++	int _noteGap = 0;                       // (ticks till a note begins a draft again)
++	static const int kNoteGap = 150;
+ 	struct Carried { int game, room, id, picture; Common::String name; };
+ 	Common::Array<Carried> _carried;        // things carried, in order
+ 	Common::Array<Carried> _carriedAway;    // carried from a place no longer installed: kept, not shown

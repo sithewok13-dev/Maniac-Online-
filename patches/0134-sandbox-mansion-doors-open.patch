@@ -1,0 +1,143 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 06cdbf7b..e33c0149 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -56,6 +56,8 @@ static const int kGameShare = 100000;
+ // How near a door's walk-to point the one played must stop to go through
+ // it (source pixels of a 320-wide game).
+ static const double kDoorReach = 12;
++// Ticks a door is seen open before it is gone through.
++static const int kDoorOpening = 20;
+ // The Worlds menu's requests: back to Maniac, the character screen, then go
+ // to game n.
+ static const int kBackRequest = kWorldSandboxRequest + 1;
+@@ -402,7 +404,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
+-	_door = -1; _action = 0; _target = -1;
++	_door = -1; _action = 0; _target = -1; _opening = 0;
+ 	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
+ 	if (PanelBridge::distaff()) {
+ 		Common::Array<int> things;
+@@ -928,7 +930,11 @@ bool SandboxEngine::travel(int index) {
+ 	if (!arrival) if (const WorldLink *back = worldLinkTo(_game, link.target, _room)) arrival = back->object;
+ 	const int game = _game, from = _room;
+ 	Common::String problem;
+-	if (enter(game, link.target, arrival, problem)) return true;
++	openDoor(link.object); // (the tour's way through too)
++	if (enter(game, link.target, arrival, problem)) {
++		if (arrival) openDoor(arrival);
++		return true;
++	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[game].gameid, (int)link.target, problem.c_str());
+ 	enter(game, from, 0, problem);
+ 	return false;
+@@ -957,8 +963,33 @@ void SandboxEngine::reachDoor() {
+ 	const bool walked = near(x, y) || near(tx, ty), across = _doorGoalLink == _door && near(_doorGoalX, _doorGoalY);
+ 	const bool there = walked || across;
+ 	if (there && !walked) ++_doorsAcross;
+-	if (found && there) travel(_door);
+-	else { _door = -1; sentence(""); }
++	if (!found || !there) { _door = -1; sentence(""); return; }
++	// (Shut: seen opening a moment first, as the game shows it open.)
++	if (openDoor(link.object)) { _opening = kDoorOpening; return; }
++	travel(_door);
++}
++
++// The mansion's doors open as someone goes through them, and the door back
++// stands open (as Maniac's own engine opens them): shown as Open shows them,
++// only where the game's own script opens and shuts that door and its open
++// picture differs; kept open (as opened by hand). (Zak's are left as drawn,
++// as Maniac's engine leaves most of them: some open pictures have someone
++// painted in the doorway.)
++bool SandboxEngine::openDoor(int id) {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	for (int i = 0; i < StageBridge::objectCount(); ++i) {
++		int oid, ox, oy, w, h, wx, wy, state;
++		if (!StageBridge::object(i, oid, ox, oy, w, h, wx, wy, state) || oid != id) continue;
++		const int pictures = StageBridge::objectPictures(i), shown = StageBridge::objectShown(i);
++		const bool differs = pictures > 1 && StageBridge::picturesDiffer(i, 0, 1);
++		int picture = -1, gamePicture, answers = -1;
++		if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
++		char line[160];
++		if (!differs || PanelBridge::decide(kWorldVerbOpen, true, pictures, shown, differs, w, h, answers, "", picture, line, sizeof(line), true) != 2) return false;
++		showPicture(i, id, picture);
++		return true;
++	}
++	return false;
+ }
+ 
+ // Someone the wanderers brought here while the player watches comes in
+@@ -1001,7 +1032,9 @@ void SandboxEngine::stroll(int ticks) {
+ 
+ void SandboxEngine::step(int ticks) {
+ 	StageBridge::update(ticks);
+-	if (_door >= 0 && !StageBridge::moving(_player)) reachDoor();
++	if (_opening > 0) {
++		if ((_opening -= ticks) <= 0) { _opening = 0; if (_door >= 0) travel(_door); }
++	} else if (_door >= 0 && !StageBridge::moving(_player)) reachDoor();
+ 	if (_action && !StageBridge::moving(_player)) act();
+ 	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); StageBridge::talk(_speaker, false); _speaker = -1; _dirty = true; }
+ 	if (_noticeClock > 0 && (_noticeClock -= ticks) <= 0) { _notice.clear(); _dirty = true; }
+@@ -3867,6 +3900,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+ 		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0;
++		int seenOpening = 0, openBehind = 0, openBack = 0;
+ 		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+@@ -3927,10 +3961,31 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				StageBridge::follow(_player);
+ 				const int startRoom = _room;
+ 				double px = 0, py = 0;
++				bool opening = false;
+ 				for (int t = 0; t < 30000 && _room == startRoom && (_door >= 0 || StageBridge::moving(_player)); ++t) {
+ 					StageBridge::position(_player, px, py);
++					// (Seen opening: shown open, there, before going through.)
++					if (_opening > 0 && !opening) {
++						opening = StageBridge::objectShown(object) != 0;
++						// (A picture of one: door-open.png.)
++						if (opening && !seenOpening && ConfMan.hasKey("scummverse_shots")) { present(); shot("door-open.png"); }
++					}
+ 					step(1);
+ 				}
++				seenOpening += opening;
++				// (The mansion's: the door gone through left open, and the door
++				// back open, where the game opens them.)
++				if (!strcmp(kWorldGames[g].gameid, "maniac") && _room == link.target) {
++					const Common::HashMap<int, int>::const_iterator behind = _pictures.find(thingKey(g, link.room, link.object));
++					openBehind += behind != _pictures.end() && behind->_value != 0;
++					if (link.arrival || worldLinkTo(g, link.target, link.room)) {
++						const int back = link.arrival ? link.arrival : worldLinkTo(g, link.target, link.room)->object;
++						for (int o = 0; o < StageBridge::objectCount(); ++o) {
++							int id, x_, y_, w_, h_, wx, wy, state;
++							if (StageBridge::object(o, id, x_, y_, w_, h_, wx, wy, state) && id == back) openBack += StageBridge::objectShown(o) != 0;
++						}
++					}
++				}
+ 				if (_room == link.target) {
+ 					++through;
+ 					// Standing at the door back (or the named object), as near as the
+@@ -3963,6 +4018,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		}
+ 		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d from as near as the walk boxes allow, %d failed",
+ 			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed);
++		warning("SCUMMVERSE sandbox selftest doors opening: %d seen opening, %d left open behind, %d open on arrival", seenOpening, openBehind, openBack);
+ 		if (!tried || failed || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 5824b887..fff43965 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -279,6 +279,8 @@ private:
+ 	int _door = -1;                         // the door walked to (index in the game's map)
+ 	double _doorTapX = 0, _doorTapY = 0;    // where it was tapped
+ 	double _doorGoalX = 0, _doorGoalY = 0;  // where the walk to it ends (as near as the walk boxes allow)
++	int _opening = 0;                       // ticks left of a door seen opening before it is gone through
++	bool openDoor(int id);                  // the mansion's: shown open as one goes through (true: it was shut)
+ 	int _doorGoalLink = -1;                 // the door (map link) that end is for; -1: none
+ 	int _doorsAcross = 0;                   // doors gone through from that end only (the "doors" check)
+ 	void walkToDoor(int link, double x, double y); // (and that end kept)

@@ -1,0 +1,28 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6db2c622..b1fe54e1 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -3312,8 +3312,9 @@ Common::Error SandboxEngine::followTest() {
+ 		++asked;
+ 		// Walking after the one played (to beside them).
+ 		double px, py, x, y;
++		// (No strolling meanwhile: only following moves them.)
+ 		if (awayFrom(n) > 3 * reach) {
+-			for (int t = 0; t < 60 * 30; ++t) step(1);
++			for (int t = 0; t < 60 * 30; ++t) { _strollClock = 1 << 20; step(1); }
+ 			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
+ 			if (apart(px, py, x, y) > 2 * reach) fail("not walked after the one played"); else ++walked;
+ 		}
+@@ -3340,10 +3341,11 @@ Common::Error SandboxEngine::followTest() {
+ 		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (96 + kTalkVisitor + actorSlot(n, _player)));
+ 		if (following(key) || _speech != "See you around!" || _speaker != n) { fail("not let stay"); continue; }
+ 		if (awayFrom(n) > 3 * reach) {
+-			for (int t = 0; t < 60 * 30; ++t) step(1);
++			for (int t = 0; t < 60 * 30; ++t) { _strollClock = 1 << 20; step(1); }
+ 			StageBridge::position(_player, px, py); StageBridge::position(n, x, y);
+ 			if (apart(px, py, x, y) <= 2 * reach) { fail("came after though asked to stay"); continue; }
+ 		}
++		_strollClock = 0;
+ 		++stayed;
+ 		// Asked along again, then someone else played: following no one.
+ 		request(((talkRoom() * 32 + kTalkPlayer) << 8) | (64 + kTalkVisitor + actorSlot(n, _player)));

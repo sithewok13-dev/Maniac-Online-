@@ -1,0 +1,174 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index e9c4f2a1..48b738ee 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 8;
++static const int kWorldExportVersion = 9;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -149,6 +149,35 @@ inline const WorldCostumeVariant *worldCostumeVariant(int game, int costume) {
+ 	for (const auto &v : kWorldCostumeVariants) if (v.game == game && v.costume == costume) return &v;
+ 	return nullptr;
+ }
++// Exploration presets the exporter applies before drawing a game's rooms,
++// with numbers from the game's own scripts. The Dig's light bridges: a beam
++// object without class 32 (Untouchable) is a bridge switched on and var 430
++// counts them (global script 236); each spire's, the island map's and the
++// hub's own room script then draws its bridges (actors) and opens their walk
++// boxes. Every bridge on, as after the panels' puzzles.
++struct WorldPresetClass { short game, object, cls; };
++static const WorldPresetClass kWorldPresetClassesOff[] = {
++	{8, 252, 32}, {8, 367, 32}, {8, 394, 32}, {8, 427, 32}, {8, 511, 32},
++};
++struct WorldPresetVar { short game, var, value; };
++static const WorldPresetVar kWorldPresetVars[] = {{8, 430, 5}};
++struct WorldPresetScript { short game, room, script; };
++static const WorldPresetScript kWorldPresetScripts[] = {
++	{8, 31, 2000}, {8, 49, 2000}, {8, 56, 2002}, {8, 61, 2002}, {8, 75, 2001},
++	{8, 77, 2000}, {8, 77, 2002}, {8, 91, 2000},
++};
++// Tints a preset room's entry script gives the colors its scripts' actors
++// use (the Dig spires light their bridges' colors 192..207).
++struct WorldPresetTint { short game, room, red, green, blue, start, end; };
++static const WorldPresetTint kWorldPresetTints[] = {
++	{8, 31, 180, 120, 275, 192, 207}, {8, 56, 160, 180, 255, 192, 207},
++};
++// Animation steps run before a preset room is captured.
++static const int kWorldPresetFrames = 60;
++inline bool worldPresetRoom(int game, int room) {
++	for (const auto &p : kWorldPresetScripts) if (p.game == game && p.room == room) return true;
++	return false;
++}
+ // Characters who float instead of walking (Murray, the talking skull).
+ struct WorldHoverer { short game, costume; };
+ static const WorldHoverer kWorldHoverers[] = {{9, 49}};
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 6217c757..ea2c453a 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -5,7 +5,10 @@
+ // ever reads that cache. Room scripts are not run: the scene is the room's
+ // background with its initially drawn objects. Exception: v3/v4 rooms built
+ // by their entry script (pseudo-room instances of a template, rooms that
+-// render one color) run that script for a few cycles, then stop it.
++// render one color) run that script for a few cycles, then stop it. And an
++// exploration preset (catalog) switches some of the game's own state on
++// before its rooms are drawn and runs the named room scripts that draw it,
++// actors included (The Dig's light bridges).
+ //
+ // Cache file (little endian, gzip-compressed): "SVW4", u16 room, u16 width,
+ // u16 height, u8 boxCount, u8 reserved, palette[768], pixels[width*height],
+@@ -97,6 +100,31 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		}
+ 		if (!hidden.empty()) updateObjectStates(); // Drawing reads the room's copy.
+ 	}
++	// An exploration preset's room scripts draw what the preset switched on
++	// (the Dig's light bridges are actors) and set walk boxes to match. Only
++	// their actors stay; nothing else in the game is in this room.
++	const bool preset = game && worldPresetRoom((int)(game - kWorldGames), room);
++	if (preset) {
++		for (int id = 1; id < _numActors; ++id) _actors[id]->putActor(0, 0, 0);
++		for (const auto &t : kWorldPresetTints)
++			if (t.game == (int)(game - kWorldGames) && t.room == room) darkenPalette(t.red, t.green, t.blue, t.start, t.end);
++		for (const auto &p : kWorldPresetScripts)
++			if (p.game == (int)(game - kWorldGames) && p.room == room) runScript(p.script, false, false, nullptr);
++		for (int cycle = 0; cycle < 16 && _currentRoom == room; ++cycle) {
++			bool running = false;
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) {
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++				running = running || vm.slot[i].status == ssRunning;
++			}
++			if (!running) break;
++			runAllScripts(); _sound->stopAllSounds();
++		}
++		for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
++		_currentScript = 0xFF; vm.cutSceneStackPointer = 0;
++		stopTalk(); if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++		_sound->stopAllSounds();
++		if (_currentRoom != room || _roomResource != resource) { problem = "preset script left the room"; return false; }
++	}
+ 	if (VAR_ROOM_WIDTH != 0xFF && VAR_ROOM_HEIGHT != 0xFF) { VAR(VAR_ROOM_WIDTH) = _roomWidth; VAR(VAR_ROOM_HEIGHT) = _roomHeight; }
+ 	if (VAR_CAMERA_MIN_X != 0xFF) VAR(VAR_CAMERA_MIN_X) = _screenWidth / 2;
+ 	if (VAR_CAMERA_MAX_X != 0xFF) VAR(VAR_CAMERA_MAX_X) = _roomWidth - _screenWidth / 2;
+@@ -105,6 +133,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	camera._mode = kNormalCameraMode;
+ 	const int W = _roomWidth, H = _roomHeight;
+ 	Common::Array<byte> pixels; pixels.resize(W * H);
++	bool actors = false;
+ 	auto render = [&]() {
+ 		// One screen at a time across the room (camera centers).
+ 		for (int center = _screenWidth / 2;; center += _screenWidth) {
+@@ -113,6 +142,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			camera._cur.y = camera._dest.y = _screenHeight / 2;
+ 			setCameraAt(c, _screenHeight / 2); camera._cur.x = camera._dest.x = c; cameraMoved();
+ 			_fullRedraw = true; scummLoop_handleDrawing();
++			if (actors) scummLoop_handleActors();
+ 			const int left = c - _screenWidth / 2, xs = _virtscr[kMainVirtScreen].xstart;
+ 			for (int y = 0; y < H; ++y)
+ 				for (int x = 0; x < _screenWidth; ++x)
+@@ -125,6 +155,22 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	};
+ 	// A v3/v4 room drawn entirely by its entry script comes out one color.
+ 	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true);
++	if (preset) {
++		// Their animations run: a light bridge is a stream of pulses, so the
++		// still keeps every pixel any step drew (one cycle, the latest wins).
++		const Common::Array<byte> plain = pixels;
++		Common::Array<byte> lit = plain;
++		actors = true;
++		for (int frame = 0; frame < kWorldPresetFrames; ++frame) {
++			render();
++			for (uint i = 0; i < pixels.size(); ++i) if (pixels[i] != plain[i]) lit[i] = pixels[i];
++		}
++		pixels = lit;
++		int changed = 0;
++		for (uint i = 0; i < pixels.size(); ++i) changed += pixels[i] != plain[i];
++		warning("SCUMMVERSE_WORLD_PRESET %s %d %d", game->gameid, room, changed);
++		for (int id = 1; id < _numActors; ++id) _actors[id]->putActor(0, 0, 0);
++	}
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	// The compressed stream owns (and closes) the file.
+@@ -346,6 +392,9 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	}
+ 	Common::DumpFile attempt;
+ 	if (attempt.open(tryPath, true)) { attempt.write("SVT1", 4); attempt.writeByte(MIN(attempts + 1, 255)); attempt.finalize(); attempt.close(); }
++	// Exploration presets: the game's own switches (see the catalog).
++	for (const auto &p : kWorldPresetClassesOff) if (p.game == gameIndex) putClass(p.object, p.cls, false);
++	for (const auto &p : kWorldPresetVars) if (p.game == gameIndex) _scummVars[p.var] = p.value;
+ 	// v3/v4 pseudo rooms: the mapping the game's boot script would set up.
+ 	if (const WorldMap *map = worldMap(gameIndex))
+ 		for (int i = 0; i < map->roomCount && _game.version <= 4; ++i)
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 3d9b6696..4e4b1e94 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -252,8 +252,9 @@ void ScummEngine::scummverseWorldDoors() {
+ 	_scummverseTapPending = false;
+ 	const int px = _scummverseTapX * 8 + 4, py = _scummverseTapY * 2;
+ 	const int ax = player->getRealPos().x, ay = player->getRealPos().y;
+-	// The smallest door under the tap wins (doors can overlap big hotspots).
+-	const WorldLink *best = nullptr; long bestArea = 0;
++	// A door under the tap beats one only near it; then the smallest door
++	// wins (doors can overlap big hotspots).
++	const WorldLink *best = nullptr; long bestArea = 0; bool bestUnder = false;
+ 	for (int i = 0; i < WorldBridge::objectCount(); ++i) {
+ 		int id, x, y, w, h, wx, wy;
+ 		WorldBridge::object(i, id, x, y, w, h, wx, wy);
+@@ -269,8 +270,9 @@ void ScummEngine::scummverseWorldDoors() {
+ 			const AdjustBoxResult walk = player->adjustXYToBeInBox(wx, wy);
+ 			there = (ABS(ax - tap.x) <= 2 && ABS(ay - tap.y) <= 4) || (ABS(ax - walk.x) <= 3 && ABS(ay - walk.y) <= 6);
+ 		}
+-		if (!there || (best && (long)w * h >= bestArea)) continue;
+-		best = link; bestArea = (long)w * h;
++		const bool under = px >= x && px < x + w && py >= y && py < y + h;
++		if (!there || (best && (bestUnder > under || (bestUnder == under && (long)w * h >= bestArea)))) continue;
++		best = link; bestArea = (long)w * h; bestUnder = under;
+ 	}
+ 	if (best) scummverseFollowLink(gameIndex, source, best->target, best->arrival);
+ }

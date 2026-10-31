@@ -1,0 +1,237 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 2d936899..37ea91f1 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -589,8 +589,10 @@ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame
+ 			[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %@", scummverseStoryTitle(game)] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryRequest + i); }]];
+ 		}
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Save now" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStorySaveRequest); }]];
+-		// (Story mode's list; a story opened in Explore mode goes back to the mansion.)
+-		[menu addAction:[UIAlertAction actionWithTitle:Scummverse::storyMode() ? @"Story list" : @"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryHomeRequest); }]];
++		// (Story mode's list; a story opened in Explore mode goes back to the
++		// mansion. The mode as the game's thread said it: not ConfMan, which
++		// that thread may be writing.)
++		[menu addAction:[UIAlertAction actionWithTitle:scummverseStoryModeOn() ? @"Story list" : @"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryHomeRequest); }]];
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Explore mode (the mansion, other worlds)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryExploreRequest); }]];
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:menu animated:YES completion:nil];
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 0b2e26d5..ee47bfb2 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -657,6 +657,9 @@ bool scummverseSandboxActive() { return scummverseSandboxOn.load(); }
+ static std::atomic<int> scummverseStoryGame{-1};
+ void scummverseStoryPlaying(int game) { scummverseStoryGame.store(game); }
+ int scummverseStoryPlaying() { return scummverseStoryGame.load(); }
++static std::atomic<bool> scummverseStoryModeFlag{false};
++void scummverseStoryModeOn(bool story) { scummverseStoryModeFlag.store(story); }
++bool scummverseStoryModeOn() { return scummverseStoryModeFlag.load(); }
+ void scummverseTalkAppearance(int actor, int key) {
+ 	if (actor > 0 && actor < ScummverseLocalAI::kGuestActor) ScummverseLocalAI::appearances[actor].store(key);
+ }
+diff --git a/backends/platform/ios7/scummverse_ai_ui.inc b/backends/platform/ios7/scummverse_ai_ui.inc
+index e118c4f0..e9fcc5f8 100644
+--- a/backends/platform/ios7/scummverse_ai_ui.inc
++++ b/backends/platform/ios7/scummverse_ai_ui.inc
+@@ -55,7 +55,10 @@
+ 		[center addObserver:self selector:@selector(stopForPressure:) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+ 		[center addObserver:self selector:@selector(stopForPressure:) name:NSProcessInfoThermalStateDidChangeNotification object:nil];
+ 		[center addObserver:self selector:@selector(background:) name:UIApplicationDidEnterBackgroundNotification object:nil];
+-		[center addObserver:self selector:@selector(foreground:) name:UIApplicationDidBecomeActiveNotification object:nil];
++		// (Back from the background, which unloaded it; not on every return
++		// to active: Control Center, a banner or the Photos prompt would check
++		// and load the model again, ending the conversation.)
++		[center addObserver:self selector:@selector(foreground:) name:UIApplicationWillEnterForegroundNotification object:nil];
+ 	}
+ 	return self;
+ }
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 709afcab..01bcd8c7 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -23,6 +23,7 @@ static BOOL scummverseSystemMenu=NO;
+ - (void)openTalk;
+ - (void)refresh;
+ - (void)layoutBar;
++- (Scummverse::SplitLayout)publishedLayout;
+ @end
+ @implementation ScummverseTalkBar
+ - (UIButton *)button:(NSString *)title action:(SEL)action {
+@@ -93,14 +94,27 @@ static BOOL scummverseSystemMenu=NO;
+ 	NSString *next=[field.text stringByReplacingCharactersInRange:range withString:text]; return next.length<=160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=512;
+ }
+ - (BOOL)textFieldShouldReturn:(UITextField *)field { [self send]; return NO; }
++// Some field typing in this window (a menu's own included).
++static BOOL scummverseFieldTyping(UIView *view) {
++	if([view isFirstResponder] && [view conformsToProtocol:@protocol(UITextInput)]) return YES;
++	for(UIView *subview in view.subviews) if(scummverseFieldTyping(subview)) return YES;
++	return NO;
++}
+ // (A hardware keyboard: the game's keys back once the message field lets go
+-// (closed, sent in landscape, a menu over it), as at launch; else L, F and P
+-// would reach nothing until a pinch.)
++// (closed, sent in landscape, the game's menu over it), as at launch; else L,
++// F and P would reach nothing until a pinch. Not from a menu presented over
++// the game, nor from another field: the tour's "Go to stop" or the WiFi
++// address keep their keys.)
+ - (void)textFieldDidEndEditing:(UITextField *)field {
+ #ifdef __IPHONE_14_0
+ 	if (@available(iOS 14.0, tvOS 14.0, *)) {
+ 		if (GCKeyboard.coalescedKeyboard != nil)
+-			dispatch_async(dispatch_get_main_queue(), ^{ if (![_input isFirstResponder]) [(iPhoneView *)_host showKeyboard]; });
++			dispatch_async(dispatch_get_main_queue(), ^{
++				UIResponder *responder=_host;
++				while(responder && ![responder isKindOfClass:UIViewController.class]) responder=responder.nextResponder;
++				if([_input isFirstResponder] || ((UIViewController *)responder).presentedViewController || scummverseFieldTyping(_host.window)) return;
++				[(iPhoneView *)_host showKeyboard];
++			});
+ 	}
+ #endif
+ }
+@@ -203,6 +217,10 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	_arrive.hidden=scummverseSystemMenu || story || (ScummverseLocalAI::currentRoom()!=56 && ScummverseLocalAI::currentRoom()!=221);
+ 	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { _scene=ScummverseLocalAI::sceneToken(); _hasTranscript=NO; }
+ 	self.hidden=scummverseSystemMenu || story || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
++	// (Hidden, the message field lets the keyboard go: a draft typed in
++	// portrait, the chat not opened, then turned to landscape would leave the
++	// keyboard over the game with no field to see.)
++	if(self.hidden && [_input isFirstResponder]) [self endEditing:YES];
+ 	const uint64_t here=r.actorsInRoom(), mask=r.talkingWith();
+ 	[self rebuildChips:here talking:mask];
+ 	NSMutableArray *names=[NSMutableArray array];
+@@ -278,6 +296,15 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 		_send.frame=CGRectMake(w-66,MAX(32,h-composer),60,composer);
+ 	}
+ }
++// The split the picture is drawn to, as layoutBar last told the renderer
++// (the chat open or not, on which side, above the keyboard): for the tour's
++// label and bar, kept off the chat and the toolbar.
++- (Scummverse::SplitLayout)publishedLayout {
++	const BOOL known=_publishedFlags>=0;
++	return Scummverse::splitLayout(_host.bounds.size.width,_host.bounds.size.height,
++		known ? _publishedInset/1000.0 : _host.safeAreaInsets.bottom,scummverseGameAspect()/1000.0,
++		known && (_publishedFlags&1),!(known && (_publishedFlags&2)));
++}
+ @end
+ static ScummverseTalkBar *scummverseTalkBar;
+ static void scummverseInstallTalk(UIView *view) {
+diff --git a/backends/platform/ios7/scummverse_tour_ui.inc b/backends/platform/ios7/scummverse_tour_ui.inc
+index c0bdf330..344f7d63 100644
+--- a/backends/platform/ios7/scummverse_tour_ui.inc
++++ b/backends/platform/ios7/scummverse_tour_ui.inc
+@@ -106,7 +106,9 @@ static void scummverseTourRefresh(UIView *view) {
+ 	Scummverse::Tour::status(running, text, sizeof(text), next, total);
+ 	if (running != scummverseTourAwake) {
+ 		scummverseTourAwake = running;
+-		UIApplication.sharedApplication.idleTimerDisabled = running ? YES : NO;
++		// Afterwards, as a game keeps it: awake while one runs
++		// (ios7_osys_video.mm's engineInit), not in the launcher.
++		UIApplication.sharedApplication.idleTimerDisabled = (running || [(iPhoneView *)view isInGame]) ? YES : NO;
+ 	}
+ 	if (!running || !text[0]) { scummverseTourLabel.hidden = YES; scummverseTourBar.hidden = YES; scummverseTourAsked = -1; return; }
+ 	if (!scummverseTourLabel) {
+@@ -133,8 +135,14 @@ static void scummverseTourRefresh(UIView *view) {
+ 	scummverseTourTapper.host = view;
+ 	if (scummverseTourLabel.superview != view) [view addSubview:scummverseTourLabel];
+ 	if (scummverseTourBar.superview != view) [view addSubview:scummverseTourBar];
+-	[view bringSubviewToFront:scummverseTourLabel];
+-	[view bringSubviewToFront:scummverseTourBar];
++	// On top, reordered only when they are not: a reorder lays the view out
++	// again, which rebuilds the game's surface (layoutSublayersOfLayer).
++	NSArray *order = view.subviews;
++	const NSUInteger views = order.count;
++	if (views < 2 || order[views - 2] != scummverseTourLabel || order[views - 1] != scummverseTourBar) {
++		[view bringSubviewToFront:scummverseTourLabel];
++		[view bringSubviewToFront:scummverseTourBar];
++	}
+ 	NSString *label = [NSString stringWithFormat:@" %@ ", [NSString stringWithUTF8String:text] ?: @""];
+ 	if (![scummverseTourLabel.text isEqualToString:label]) scummverseTourLabel.text = label;
+ 	UIEdgeInsets safe = UIEdgeInsetsZero;
+@@ -143,17 +151,22 @@ static void scummverseTourRefresh(UIView *view) {
+ 	// landscape in the band left of it (where the renderer drew it), in
+ 	// portrait at the top of the chat area under the toolbar (the layout
+ 	// contract, chat closed); over the picture's top left only where neither
+-	// has room (a split screen, the smallest phones).
++	// has room (the chat open, the smallest phones). Always in the game's
++	// half, as the picture is laid out (the chat's own layout, open or not,
++	// on either side): never over the chat or the toolbar.
+ 	const CGSize host = view.bounds.size;
+ 	const bool portrait = host.width < host.height;
+-	const auto layout = Scummverse::splitLayout(host.width, host.height, safe.bottom, scummverseGameAspect() / 1000.0, false);
++	const auto layout = scummverseTalkBar ? [scummverseTalkBar publishedLayout] :
++		Scummverse::splitLayout(host.width, host.height, safe.bottom, scummverseGameAspect() / 1000.0, false);
+ 	int gameX = 0, gameY = 0, gameW = 0, gameH = 0;
+ 	const CGFloat pictureX = scummverseGameRect(gameX, gameY, gameW, gameH) ? gameX : layout.game.x;
+-	const CGFloat band = pictureX - safe.left - 12;
+-	const bool beside = !portrait && band >= 88, below = portrait && layout.chat.h > 120;
+-	// Clear of the buttons down the right side.
+-	const CGFloat width = beside ? band : MAX(120, host.width - safe.left - safe.right - 72);
+-	const CGFloat left = safe.left + 6, top = below ? layout.chat.y + 4 : safe.top + 4;
++	const CGFloat areaLeft = MAX((CGFloat)layout.gameArea.x, safe.left);
++	const CGFloat areaRight = MIN((CGFloat)(layout.gameArea.x + layout.gameArea.w), host.width - safe.right);
++	const CGFloat band = pictureX - areaLeft - 12;
++	const bool beside = !portrait && band >= 88, below = portrait && !layout.split && layout.chat.h > 120;
++	// Clear of the buttons down the right side (of the game's half).
++	const CGFloat width = beside ? band : MAX(120, areaRight - areaLeft - 72);
++	const CGFloat left = areaLeft + 6, top = below ? layout.chat.y + 4 : safe.top + 4;
+ 	scummverseTourLabel.numberOfLines = beside ? 6 : 2;
+ 	const CGSize fit = [scummverseTourLabel sizeThatFits:CGSizeMake(width, beside ? 120 : 40)];
+ 	scummverseTourLabel.frame = CGRectMake(left, top, MIN(width, fit.width + 8), fit.height + 6);
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 7c9df4ba..af49279c 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -35,6 +35,11 @@ bool scummverseSandboxActive();
+ // the Worlds menu offers the other games' and the way back to the mansion.
+ void scummverseStoryPlaying(int game);
+ int scummverseStoryPlaying();
++// Story mode (true) or Explore mode, as the game's thread last read or set it
++// (common/scummverse_story.h): the Worlds menu's, which does not read ConfMan
++// while the game may be writing it. Explore until the game has said.
++void scummverseStoryModeOn(bool story);
++bool scummverseStoryModeOn();
+ // Who is nearby and who is talking, as bits of talk IDs: sandbox characters
+ // 1..24, the scene's own characters 25..29 (kScummverseGuestActor), wanderers
+ // visiting 30..55 (kScummverseTalkVisitor + their slot).
+@@ -86,6 +91,8 @@ inline void scummverseSandboxActive(bool) {}
+ inline bool scummverseSandboxActive() { return false; }
+ inline void scummverseStoryPlaying(int) {}
+ inline int scummverseStoryPlaying() { return -1; }
++inline void scummverseStoryModeOn(bool) {}
++inline bool scummverseStoryModeOn() { return false; }
+ inline unsigned long long scummverseTalkScene(int, int, unsigned long long, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+ inline void scummverseTalkAppearance(int, int) {}
+ inline void scummverseTalkVisitor(int, int) {}
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index 1b43053d..d590e2ab 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -14,6 +14,7 @@
+ #include "common/config-manager.h"
+ #include "common/fs.h"
+ #include "common/scummverse_world_catalog.h"
++#include "common/scummverse_ai.h"
+ 
+ #ifdef IPHONE
+ // (The backend's: where Zak's files are, and where the app keeps its own
+@@ -117,14 +118,19 @@ inline Common::String storyMissing(const char *gameid, const Common::Path &path)
+ // mode plays the original games, each as it was made, from a list of them
+ // (its home, base/main.cpp); Explore mode is the mansion, the other worlds
+ // and the new engine. Kept in the application domain; Explore when unset.
++// (The game's thread only; each read or change is told to the iPhone's
++// Worlds menu, scummverseStoryModeOn, which does not read ConfMan.)
+ static const char *const kModeKey = "scummverse_mode";
+ inline bool storyMode() {
+-	return ConfMan.hasKey(kModeKey, Common::ConfigManager::kApplicationDomain) &&
++	const bool story = ConfMan.hasKey(kModeKey, Common::ConfigManager::kApplicationDomain) &&
+ 		ConfMan.get(kModeKey, Common::ConfigManager::kApplicationDomain) == "story";
++	::scummverseStoryModeOn(story);
++	return story;
+ }
+ inline void setStoryMode(bool story) {
+ 	ConfMan.set(kModeKey, story ? "story" : "explore", Common::ConfigManager::kApplicationDomain);
+ 	ConfMan.flushToDisk();
++	::scummverseStoryModeOn(story);
+ }
+ 
+ // What a game's copy lacks that its story plays on without

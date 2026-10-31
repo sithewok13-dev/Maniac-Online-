@@ -24,6 +24,66 @@ create `maniac` and copy all your original `.LFL` files there. Force-close and
 reopen SCUMMVERSE. Finder file sharing on a Mac or Apple Devices file sharing on
 Windows is another way to populate the same Documents directory.
 
+Each IPA carries its own version, `<patch>.<build>` (for example `63.69`), so
+the sideloading tool installs it as an update over the previous one; your game
+files and saves in Documents stay. To check which build is running, open the
+in-game menu's **Connected worlds**: its message ends with "Build: patch 0063,
+build 69 (…)" and how many of your other games are exported for that build.
+**Tour every location (watch for bugs)**, in the Worlds menu: your character
+goes on autopilot and visits every location of the twelve games in turn —
+Maniac Mansion's 37 rooms, Zak McKracken's, then every room of your other ten
+games (773 stops with all of them) — walking without a stop, one pass
+through each room: straight on to the door out (into a dead end and back
+out, the only turn), then on to the next through a door, as a player would, wherever doors lead there (passing back
+through rooms already seen if need be); it warps only where no door leads
+on (places reached by plane, bus, tram or cutscene, or a door that does not
+work). A label at the top left names each stop, for example
+"Stop 137 of 773 · Zak 84 · Mars pyramid crystal room" (with "warped" when it
+warped there, "on the way through …" while passing through): note its
+number or code to report a bug. Under the label, on the game's screen
+while the tour runs, a bar: ◀ previous stop, pause/play, ▶ next stop, the
+speed (1×, 2×, 4×, 8×, 16× in turn: the whole game plays that much faster
+while touring; remembered), # go to a stop by number and ■ stop the tour,
+which brings your character back to where it began. Pause stops your
+character where it is; paused, ◀ and ▶ go from stop to stop and stay
+paused, so each stop can be looked at and screenshotted (the label and its
+number are in the screenshot); play walks on. Tapping the label opens the
+same controls as a menu. The tour remembers its place, so Start
+picks up at the next stop; Start over begins again at stop 1. Rooms of games
+you have not added are passed over.
+The screen stays awake while the tour runs. To keep it as a video, use the
+iPhone's own Screen Recording (Control Center; the label is in the video):
+the whole tour is a few hours, so record it a game at a time with Go to
+stop… (with every game added: Maniac Mansion 1, Zak 38, Monkey Island 140,
+Monkey Island 2 221, Loom 292, Indiana Jones and the Last Crusade 332,
+Fate of Atlantis 442, Day of the Tentacle 515, Sam & Max 565, Full Throttle
+610, The Dig 661, Curse of Monkey Island 722, to 773).
+
+Other games are set up once, at launch, before Maniac Mansion starts; keep the
+app open until then. Folder names ignore case and spaces around them, but
+must otherwise match (`loom`, `samnmax`, …). A game folder is found at the
+top of Files › SCUMMVERSE or one folder further down (unzipping an archive
+of several game folders in the Files app puts them inside a folder named
+after the archive; a Mac's `__MACOSX` folder is ignored). Connected worlds
+names any top-level folder it doesn't recognize. Once a game is set up, the
+Worlds menu's "Play as someone else" lets the character you control
+become anyone from it (Indy, Guybrush, Sam and Max, The Creator, …); the
+Purple Meteor from Maniac Mansion itself is always offered first, and floats,
+followed by the Meteor Police officer (in a glass dome, his helmet, so no
+fishbowl on Mars), the man-eating plant (fully grown, rolling on a pot with
+wheels; a fishbowl on Mars) and Dead Cousin Ted (on roller skates, a
+fishbowl on Mars too);
+Loom offers Chaos, who floats; Day of the Tentacle offers Ted dressed up
+for the beauty contest (spaghetti hair, big lips), who glides on his skates;
+Curse of Monkey Island offers Murray twice (the skull as in the theater, and
+green as in the ship's hold), who bounces like a ball to get around and
+opens his mouth as he talks. A game whose setup stopped twice is listed as "Could not
+set up" and skipped; to retry it, delete its `.try` file in the `worlds`
+folder with the Files app. If it still shows an older build, the old app is the one being opened: look for
+a second SCUMMVERSE icon (two sideloading tools can install two copies), and
+force-close the app before reopening it. Deleting an app also deletes its
+Documents folder, so copy your game files out first.
+
 The workflow checks that the app targets iPhoneOS and contains arm64 code, then
 checks IPA ZIP integrity. Those checks do not establish successful installation
 or gameplay on your device. The build log is available as a diagnostic artifact.
@@ -47,9 +107,12 @@ Generation on Linux verifies the generator and project structure only, not the
 Apple toolchain, SDK, linking, signing, or app runtime.
 
 The fork changes both `dists/ios7/Info.plist` and its `.in` template to display
-SCUMMVERSE and declare landscape orientations. It uses existing backend settings
-`orientation_games=landscape`, `orientation_menus=landscape`,
-`touch_mode_2d_games=direct`, and `filtering=false`.
+SCUMMVERSE and declare portrait and landscape orientations. It uses existing
+backend settings `orientation_games=auto`, `orientation_menus=auto` (the app
+follows the phone's rotation), `touch_mode_2d_games=direct`, and
+`filtering=false`. Hold the phone upright (rotation lock may stay on) for the
+picture on top and the conversation below; turn it sideways to play full width,
+with the conversation beside the picture while it is open.
 
 ## Supply the authentic original DOS V1 data
 
@@ -122,6 +185,41 @@ is also available as a testing shortcut.
 Keep both data folders when loading saves. See [worlds.md](worlds.md) (packaged as
 WORLDS.md) for the exact walking routes and current airport/street/apartment scope.
 
-Leave Zak's apartment through the door and walk right to the bus for a free
-airport ride. The airport's right-hand door takes the return bus. Keep 03.LFL
-in the `zak` folder for the street scene. The street stairs return to the apartment.
+Leave Zak's apartment through his living room and walk right to the bus for a
+free airport ride. The airport's right-hand door takes the return bus. Keep 03.LFL
+in the `zak` folder for the street scene. The street stairs return to the apartment;
+the corner up the street leads to 14th Avenue (Lou's Loans, the Society office).
+
+Melissa and Leslie's van stands at the Mars landing site. Walk in through its
+door and tap the controls: after a countdown it lifts off with everyone in the
+cockpit, and you look out at the stars until you tap **Arrive** and pick an
+outdoor place (Zak's, the mansion's, or an installed other world's). It stays
+parked there, drawn beside you; tap it to board again.
+
+The **CAMERA** button (camera symbol, below Worlds; in portrait after it)
+takes pictures of the game:
+- Tap: a photo, with a white flash, the shutter sound and "1 photo saved".
+  CLEAN (the default) is the room alone; FULL is the whole screen with the
+  verbs and inventory. Both are enlarged with sharp pixels (the whole screen
+  is 1600 by 1200, in the proportions the phone shows).
+- Hold half a second, while the ring around it fills: a selfie. The game
+  holds still, everyone in the room turns to the camera and poses (now and
+  then someone hasn't noticed, or they all stare at your character), and the
+  picture is framed on your character and whoever is near. It takes 1, 3 or
+  5 photos (3 unless you change it), posed afresh for each; afterwards
+  everything is exactly as it was.
+- Slide it down: the options (CLEAN or FULL, SELFIES 1, 3 or 5), remembered.
+  Tap anywhere else to close them.
+Photos go to the Photos app (it asks once, for adding photos only; the game
+holds still while it asks). With that access off they go to Files ›
+SCUMMVERSE › Screenshots. Names look like "SCUMMVERSE 2026-10-17 14.05.09
+clean.png" ("full", "selfie"; a second one within the same second gets -2,
+-3 after the time). On iOS 13 they always go to Files (adding to Photos
+needs iOS 14 there).
+
+Zak's crystal teleport panel lists seven sites: Seattle, Mexico, Peru, Egypt,
+Mars face, Mars pyramid and Atlantis (Fate of Atlantis's lost city, when that
+game is set up).
+
+In The Dig, walk to a tram station's platform edge: the car comes, waits a few
+seconds for everyone on the edge, and takes you to the other end of the line.

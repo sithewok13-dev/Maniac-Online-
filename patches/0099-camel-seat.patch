@@ -1,0 +1,132 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 092f0b70..cfb524bd 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 14;
++static const int kWorldExportVersion = 15;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -190,17 +190,18 @@ inline const WorldCostumeGraft *worldCostumeGraft(int game, int costume) {
+ // Guests crammed into a plane seat (the user: "hilariously oversized
+ // sitting in the plane seats", "conform [to the] general shape of the seats
+ // and look like they're crammed in them"): their seated pose if they have
+-// one (kWorldSeatPoses), else as they stand, squeezed into `width` pixels
+-// from the seat's back (at most `squash` percent narrower than their own
+-// shape), their top against the overhead bins at row `top`, `sink` percent
+-// of them below the seat's front.
+-struct WorldSeatFit { short game, costume, sink, top, squash, width; };
++// one (kWorldSeatPoses), else as they stand, from `back` pixels right of
++// the seat's place (left of it, partly behind the seat's back), at least
++// `width` pixels wide (at most `squash` percent narrower than their own
++// shape), their top at row `top` (the overhead bins near 18), `sink`
++// percent of them below the seat's front.
++struct WorldSeatFit { short game, costume, sink, top, squash, width, back; };
+ static const WorldSeatFit kWorldSeatFits[] = {
+-	{8, 321, 35, 18, 200, 56}, // The Dig's Creator
+-	{8, 128, 15, 20, 120, 60}, // The Dig's nest monster, sprawled in it
+-	{4, 93, 22, 14, 120, 52},  // Fate of Atlantis' camel, sitting back
+-	{6, 248, 22, 14, 130, 58}, // Sam & Max's virtual reality dragon
+-	{0, 34, 10, 28, 100, 44},  // Monkey Island's three-headed monkey, facing the front
++	{8, 321, 35, 18, 200, 56, 4}, // The Dig's Creator
++	{8, 128, 15, 20, 120, 60, 4}, // The Dig's nest monster, sprawled in it
++	{4, 93, 30, 22, 108, 40, 3},  // Fate of Atlantis' camel, sitting back, filling the seat
++	{6, 248, 22, 14, 130, 58, 4}, // Sam & Max's virtual reality dragon
++	{0, 34, 10, 28, 100, 44, 4},  // Monkey Island's three-headed monkey, facing the front
+ };
+ inline const WorldSeatFit *worldSeatFit(int game, int costume) {
+ 	for (const auto &f : kWorldSeatFits) if (f.game == game && f.costume == costume) return &f;
+@@ -225,14 +226,15 @@ static const int kWorldSeatedKind = 3;
+ struct WorldSeatPart { short x0, y0, x1, y1, pivotX, pivotY, angle, scale, on, atX, atY, front; };
+ struct WorldSeatPose { short game, costume; WorldSeatPart parts[6]; short fill; };
+ static const WorldSeatPose kWorldSeatPoses[] = {
+-	// Fate of Atlantis' camel sits back in the seat (the user: "a more
+-	// relaxed pose with its leg on the armrest", "his head in a neutral
+-	// position facing the right of the plane like everyone else"): leaning
+-	// back, the far hind leg under it, forelegs folded, head level, the near
+-	// hind leg slung over the armrest.
+-	{4, 93, {{9, 29, 20, 62, 14, 31, 60, 100, 1, 14, 31, 0}, {0, 0, 54, 37, 6, 30, 105, 100, -1, 0, 0, 0},
+-		{30, 34, 58, 62, 44, 36, -40, 100, 1, 44, 35, 0}, {46, 0, 92, 32, 52, 26, 0, 100, 1, 50, 20, 0},
+-		{1, 29, 11, 47, 6, 31, 95, 100, 1, 6, 32, 1}, {1, 46, 11, 62, 6, 46, 5, 100, 4, 6, 46, 1}}, -1},
++	// Fate of Atlantis' camel sitting back in the seat (the user: "his head
++	// in a neutral position facing the right of the plane like everyone
++	// else", "sitting all the way back against the back of the seat", "come
++	// further forward and make him bigger to fill up the seat", no leg
++	// "sticking out"): its hump against the seat's back, head level, its
++	// forelegs down in its lap and hind legs in the seat, behind its front.
++	{4, 93, {{24, 29, 37, 62, 30, 31, 0, 120, 1, 30, 31, 0}, {0, 0, 54, 37, 6, 30, 100, 120, -1, 0, 0, 0},
++		{50, 0, 92, 32, 52, 26, 0, 120, 1, 50, 20, 0}, {36, 29, 49, 46, 42, 31, 0, 120, 1, 42, 31, 0},
++		{39, 45, 58, 62, 45, 45, 0, 120, 3, 45, 45, 0}}, -1},
+ 	// Sam & Max's dragon upright, its tail curled up the seat's back.
+ 	{6, 248, {{0, 52, 54, 82, 52, 70, -55, 100, -1, -4, -30, 0}, {46, 0, 120, 91, 60, 91, 0, 100, -1, 0, 0, 0}}, -1},
+ 	// The Dig's nest monster sprawled in the seat: legs over its back and
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index b5cd45c4..db4a2018 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1698,7 +1698,7 @@ protected:
+ 	struct ScummverseSpriteStyle {
+ 		bool hover = false, glide = false, dressUp = false, oneWay = false;
+ 		int hop = -1, jaw = 0;
+-		int seatSink = 0, seatTop = 0, seatSquash = 0, seatWidth = 0; // Crammed into a plane seat (kWorldSeatFits).
++		int seatSink = 0, seatTop = 0, seatSquash = 0, seatWidth = 0, seatBack = 0; // Crammed into a plane seat (kWorldSeatFits).
+ 	};
+ 	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, const ScummverseSpriteStyle &style);
+ 	Common::String _scummverseCharactersKey;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index a0bf3eec..1526138f 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -450,7 +450,7 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 		style.glide = glider != nullptr; style.dressUp = glider && glider->dressUp; style.oneWay = glider && glider->oneWay;
+ 		style.hop = bouncer ? _scummverseAvatarHop[id] : -1; style.jaw = bouncer ? bouncer->jaw : 0;
+ 		if (const WorldSeatFit *fit = worldSeatFit(game, costume)) {
+-			style.seatSink = fit->sink; style.seatTop = fit->top; style.seatSquash = fit->squash; style.seatWidth = fit->width;
++			style.seatSink = fit->sink; style.seatTop = fit->top; style.seatSquash = fit->squash; style.seatWidth = fit->width; style.seatBack = fit->back;
+ 		}
+ 		int numerator = 1, denominator = 1;
+ 		const double scale = inWorld ? scummverseWorldDepth(a) :
+@@ -506,14 +506,13 @@ static const int kWorldSeatShift = 12;
+ // cushion rather than in the seat; the rest sink to their waist
+ // (kWorldSeatWaist percent of their height below the cushion), so a person
+ // standing in the art sits; nobody starts left of the seat's back. The big
+-// ones (kWorldSeatFits) are crammed in from kWorldSeatFitBack right of the
+-// seat's place (its back) to past its armrest.
++// ones (kWorldSeatFits) are crammed in from near the seat's back to past
++// its armrest.
+ static const int kWorldSeatTallest = 72;
+ static const int kWorldSeatWidest = 44;
+ static const int kWorldSeatSmall = 48;
+ static const int kWorldSeatWaist = 53;
+ static const int kWorldSeatBack = 2;
+-static const int kWorldSeatFitBack = 4;
+ static bool worldHop(int &hop, bool moving, int delta) {
+ 	if (!moving && !hop) return false;
+ 	hop += delta;
+@@ -576,17 +575,19 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 		const double total = (kWorldSeatCushion - style.seatTop) * 100.0 / (100 - style.seatSink);
+ 		const double sy = total / height, sx = MAX((double)style.seatWidth / width, sy * 100 / style.seatSquash);
+ 		const int bw = (int)(width * sx), bh = (int)(height * sy);
+-		const int bx = a->getPos().x - vs.xstart + kWorldSeatFitBack, by = kWorldSeatCushion + (int)(total * style.seatSink / 100) - bh;
++		const int bx = a->getPos().x - vs.xstart + style.seatBack, by = kWorldSeatCushion + (int)(total * style.seatSink / 100) - bh;
+ 		const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + bw), top = MAX(0, by);
+ 		int bottom = top;
+ 		for (int layer = 0; layer < (over ? 2 : 1); ++layer) {
+ 			const byte *picture = layer ? over : frame;
++			// Behind the seat's front, nothing shows past the seat's back either.
++			const int from = layer ? left : MAX(left, a->getPos().x - vs.xstart + kWorldSeatBack);
+ 			const int end = layer ? MIN<int>(vs.h, by + bh) : MIN(kWorldSeatCushion, by + bh);
+ 			for (int y = top; y < end; ++y) {
+ 				const byte *mask = !layer && zbuf > 0 ? getMaskBuffer(0, y, zbuf) : nullptr;
+ 				const byte *src = picture + MIN(height - 1, (int)((y - by) / sy)) * width;
+-				byte *dst = (byte *)vs.getPixels(left, y);
+-				for (int x = left; x < right; ++x, ++dst) {
++				byte *dst = (byte *)vs.getPixels(from, y);
++				for (int x = from; x < right; ++x, ++dst) {
+ 					if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
+ 					const int col = MIN(width - 1, (int)((x - bx) / sx));
+ 					if (src[col]) *dst = src[col];

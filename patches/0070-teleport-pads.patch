@@ -1,0 +1,114 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index f2507ef1..0819e324 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -1,4 +1,7 @@
+ // Pixel destination computer. GPL-3.0-or-later; no original game assets.
++#include <cctype>
++#include <string>
++#include <vector>
+ static void scummversePixelText(CGContextRef context, const char *text, int x, int y, int scale, UIColor *color) {
+ 	static const byte glyphs[26][7] = {
+ 		{14,17,17,31,17,17,17},{30,17,17,30,17,17,30},{14,17,16,16,16,17,14},{30,17,17,17,17,17,30},
+@@ -20,12 +23,37 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ @property(nonatomic) NSInteger choice;
+ @property(nonatomic) NSInteger page;
+ @property(nonatomic) BOOL teleport;
++@property(nonatomic) std::vector<ScummversePad> pads;
+ @end
+ // One list for drawing and VoiceOver labels, in airport/pad command order.
+ static const char *const scummverseFlightNames[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
+ // Original crystal-map sites, in engine pad order (commands 50+).
+ static const char *const scummversePadNames[]={"SEATTLE","MEXICO","PERU","EGYPT","MARS"};
+ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummversePadNames[0]);
++// The pads also reach otherworldly places of the installed other worlds:
++// each named place and story area of these games whose scene is exported.
++static const struct { const char *gameid, *label; } scummversePadWorlds[]={{"dig","DIG"},{"loom","LOOM"},{"atlantis","ATLANTIS"}};
++struct ScummversePad { std::string label; int command, request; }; // Zak site: token-bound command; other world: place request.
++static std::vector<ScummversePad> scummversePads() {
++	std::vector<ScummversePad> pads;
++	for (int i=0;i<scummversePadCount;++i) pads.push_back({scummversePadNames[i],50+i,0});
++	NSString *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm=[NSFileManager defaultManager];
++	for (const auto &world : scummversePadWorlds) {
++		const Scummverse::WorldCatalog::WorldGame *game=Scummverse::WorldCatalog::worldGame(world.gameid);
++		if(!game) continue;
++		const int index=(int)(game-Scummverse::WorldCatalog::kWorldGames);
++		auto add=[&](int room,const char *name) {
++			if(![fm fileExistsAtPath:[NSString stringWithFormat:@"%@/worlds/%s-%d.svw",documents,game->gameid,room]]) return;
++			std::string label=std::string(world.label)+" "+name;
++			for(char &c : label) c=(char)toupper((unsigned char)c);
++			pads.push_back({label.substr(0,34),0,Scummverse::WorldCatalog::worldPlaceRequest(index,room)});
++		};
++		for(int i=0;i<game->sceneCount;++i) add(game->scenes[i].room,game->scenes[i].name);
++		if(const auto *map=Scummverse::WorldCatalog::worldMap(index)) for(int i=0;i<map->areaCount;++i) add(map->areas[i].room,map->areas[i].name);
++	}
++	return pads;
++}
+ @implementation ScummverseAirportView
+ - (void)drawRect:(CGRect)rect {
+ 	CGContextRef c = UIGraphicsGetCurrentContext();
+@@ -35,16 +63,16 @@ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummverse
+ 	CGContextFillRect(c, CGRectMake(30,20,260,160));
+ 	CGContextFillRect(c, CGRectMake(26,26,268,148));
+ 	scummversePixelText(c,"DESTINATIONS",88,28,2,UIColor.blackColor);
+-	const char *const *flights=scummverseFlightNames, *const *pads=scummversePadNames;
++	const char *const *flights=scummverseFlightNames;
+ 	const char *codes[]={"MM","SFO","SEA","MIA","FIH","KTM","CAI","LHR","MEX","LIM"};
+-	int count=_teleport?scummversePadCount:10;
++	int count=_teleport?(int)_pads.size():10;
+ 	for (int i=0;i<4;++i) {
+ 		int index=(int)_page*4+i; if(index>=count) break;
+ 		int y=57+i*20;
+ 		CGContextSetFillColorWithColor(c, UIColor.blackColor.CGColor); CGContextFillRect(c,CGRectMake(52,y+3,13,6));
+ 		CGContextSetFillColorWithColor(c, UIColor.whiteColor.CGColor); CGContextFillRect(c,CGRectMake(50,y,13,6));
+ 		if (_choice==index) { CGContextSetFillColorWithColor(c,UIColor.blackColor.CGColor); CGContextFillRect(c,CGRectMake(54,y+1,5,4)); }
+-		scummversePixelText(c,_teleport?pads[index]:flights[index],74,y,1,UIColor.whiteColor);
++		scummversePixelText(c,_teleport?_pads[index].label.c_str():flights[index],74,y,1,UIColor.whiteColor);
+ 		if(!_teleport) scummversePixelText(c,codes[index],252,y,1,UIColor.whiteColor);
+ 	}
+ 	scummversePixelText(c,"PREV   NEXT",126,137,1,UIColor.whiteColor);
+@@ -65,6 +93,7 @@ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummverse
+ - (void)viewDidLoad {
+ 	[super viewDidLoad]; self.view.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+ 	_panel=[[[ScummverseAirportView alloc] init] autorelease]; _panel.backgroundColor=UIColor.clearColor; _panel.choice=0; _panel.teleport=_teleport;
++	if(_teleport) _panel.pads=scummversePads();
+ 	[self.view addSubview:_panel];
+ 	NSArray *names=@[@"",@"",@"",@"",@"Confirm destination",@"Cancel",@"Previous page",@"Next page"];
+ 	for (int i=0;i<8;++i) {
+@@ -75,11 +104,11 @@ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummverse
+ }
+ // Row buttons describe the destinations shown on the current page.
+ - (void)labelRows {
+-	const int count=_panel.teleport?scummversePadCount:10;
++	const int count=_panel.teleport?(int)_panel.pads.size():10;
+ 	for (int i=0;i<4;++i) {
+ 		UIView *row=[_panel viewWithTag:i+1]; const int index=(int)_panel.page*4+i;
+ 		row.hidden=index>=count;
+-		if(index<count) row.accessibilityLabel=[[NSString stringWithUTF8String:(_panel.teleport?scummversePadNames:scummverseFlightNames)[index]] capitalizedString];
++		if(index<count) row.accessibilityLabel=[[NSString stringWithUTF8String:_panel.teleport?_panel.pads[index].label.c_str():scummverseFlightNames[index]] capitalizedString];
+ 	}
+ }
+ - (void)viewDidLayoutSubviews {
+@@ -91,13 +120,19 @@ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummverse
+ 	[_panel setNeedsDisplay];
+ }
+ - (void)choose:(UIButton *)sender {
+-	int count=_panel.teleport?scummversePadCount:10;
++	int count=_panel.teleport?(int)_panel.pads.size():10;
+ 	if(sender.tag==7 || sender.tag==8) {
+ 		_panel.page=(_panel.page+(sender.tag==7?-1:1)+(count+3)/4)%((count+3)/4);
+ 		[self labelRows]; [_panel setNeedsDisplay]; return;
+ 	}
+ 	if (sender.tag<=4) { int index=(int)_panel.page*4+(int)sender.tag-1; if(index<count) _panel.choice=index; [_panel setNeedsDisplay]; return; }
+-	if (sender.tag==5) scummverseWorldRequest(_token | ((_panel.teleport?50:40) + (int)_panel.choice));
++	if (sender.tag==5) {
++		if (!_panel.teleport) scummverseWorldRequest(_token | (40 + (int)_panel.choice));
++		else if (_panel.choice < (NSInteger)_panel.pads.size()) {
++			const ScummversePad pad=_panel.pads[_panel.choice]; // The property returns a copy.
++			scummverseWorldRequest(pad.request ? pad.request : (_token | pad.command));
++		}
++	}
+ 	[self dismissViewControllerAnimated:NO completion:nil];
+ }
+ @end

@@ -1,0 +1,751 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index bdf56124..d44a4845 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -53,7 +53,7 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 		v.name.assign(name.begin(), name.end());
+ 		r.bytes((size_t)v.rect.width * v.rect.height, v.lit);
+ 		if (!r.ok) break;
+-		if (v.kind < kWalk || v.kind > kWhatIs || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
++		if (v.kind < kWalk || v.kind > kTakeOff || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
+ 		out.verbs.push_back(v);
+ 	}
+ 	out.sentenceX = r.s16(); out.sentenceY = r.s16();
+@@ -133,20 +133,27 @@ Outcome decide(int kind, const Thing &thing, const std::string &name) {
+ 	switch (kind) {
+ 	case kLook:
+ 	case kWhatIs:
++	case kRead:
+ 		o.result = kSay; o.say = name.empty() ? "Nothing special." : name;
+ 		if (!name.empty()) o.say[0] = (char)std::toupper((unsigned char)o.say[0]);
+ 		if (!name.empty() && o.say.back() != '.' && o.say.back() != '!' && o.say.back() != '?') o.say += ".";
+ 		return o;
+-	case kPickUp:
+-		if (!thing.door && states && thing.shown != 0 && thing.differs && thing.width * thing.height <= kSmallest && answers(kPickUp, kPickUp)) {
+-			o.result = kTake; o.picture = 0; return o;
++	case kPickUp: {
++		const bool there = thing.takenShown ? thing.shown == 0 : thing.shown != 0;
++		if (!thing.door && states && there && thing.differs && thing.width * thing.height <= kSmallest && answers(kPickUp, kPickUp)) {
++			o.result = kTake; o.picture = thing.takenShown ? 1 : 0; return o;
+ 		}
+ 		return say("I can't pick that up.");
++	}
+ 	case kOpen:
+-	case kTurnOn:
+-		if (!states || !answers(kind == kOpen ? kOpen : kTurnOn, kind == kOpen ? kClose : kTurnOff)) return say(kind == kOpen ? "It doesn't open." : "It doesn't turn on.");
+-		if (thing.shown != 0) return say(kind == kOpen ? "It's already open." : "It's already on.");
++	case kUnlock:
++	case kTurnOn: {
++		const bool opens = kind != kTurnOn;
++		if (!states || !answers(opens ? kOpen : kTurnOn, opens ? kClose : kTurnOff))
++			return say(kind == kUnlock ? "It isn't locked." : opens ? "It doesn't open." : "It doesn't turn on.");
++		if (thing.shown != 0) return say(opens ? "It's already open." : "It's already on.");
+ 		return show(1);
++	}
+ 	case kClose:
+ 	case kTurnOff:
+ 		if (!states || !answers(kind == kClose ? kOpen : kTurnOn, kind == kClose ? kClose : kTurnOff)) return say(kind == kClose ? "It doesn't close." : "It doesn't turn off.");
+@@ -163,6 +170,12 @@ Outcome decide(int kind, const Thing &thing, const std::string &name) {
+ 		return say("That doesn't seem to work.");
+ 	case kTalk:
+ 		return say("It doesn't answer.");
++	case kFix:
++		return say("It doesn't need fixing.");
++	case kPutOn:
++		return say("I can't wear that.");
++	case kTakeOff:
++		return say("I'm not wearing that.");
+ 	default:
+ 		return o;
+ 	}
+@@ -468,23 +481,24 @@ int itemCount() { return (int)panel().items().size(); }
+ int itemName(int item, char *name, int capacity) {
+ 	return copy(item >= 0 && item < itemCount() ? panel().items()[item].name : std::string(), name, capacity);
+ }
+-bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture) {
++bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture, int without) {
+ 	World::SourceScene source;
+ 	std::string problem;
+ 	if (!World::parseScene(scene, size, source, problem)) return false;
+ 	for (const World::SourceObject &o : source.objects) {
+ 		if (o.id != id || o.pictures.empty()) continue;
+ 		// Its picture as the place showed it (the one asked, else the one
+-		// shown, else its last).
+-		const int k = picture > 0 && picture < (int)o.pictures.size() ? picture : o.shown > 0 ? o.shown : (int)o.pictures.size() - 1;
++		// shown, else its last), against the place without it.
++		const int n = (int)o.pictures.size(), off = without > 0 && without < n ? without : 0;
++		const int k = picture >= 0 && picture < n && picture != off ? picture : o.shown >= 0 && o.shown < n && o.shown != off ? o.shown : n - 1;
+ 		Panel::Item item;
+ 		item.name = name ? name : o.name;
+ 		item.width = o.pictureWidth; item.height = o.pictureHeight;
+-		const std::vector<uint8_t> &without = o.pictures[0], &with = o.pictures[k];
++		const std::vector<uint8_t> &place = o.pictures[off], &with = o.pictures[k];
+ 		for (size_t i = 0; i < with.size(); ++i) {
+ 			const uint8_t *c = source.palette + 3 * with[i];
+ 			// (Only what differs from the place without it: the thing itself.)
+-			item.picture.push_back(with[i] == without[i] && k != 0 ? 0u : 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2]);
++			item.picture.push_back(with[i] == place[i] && k != off ? 0u : 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2]);
+ 		}
+ 		std::vector<Panel::Item> items = panel().items();
+ 		items.push_back(item);
+@@ -534,9 +548,10 @@ bool gameThing(int game, int room, int id, int &picture, int &answers) {
+ 	return false;
+ }
+ 
+-int decide(int kind, bool door, int pictures, int shown, bool differs, int width, int height, int answers, const char *name, int &picture, char *say, int capacity) {
++int decide(int kind, bool door, int pictures, int shown, bool differs, int width, int height, int answers, const char *name, int &picture, char *say, int capacity, bool takenShown) {
+ 	Panel::Thing t;
+ 	t.door = door; t.pictures = pictures; t.shown = shown; t.differs = differs; t.width = width; t.height = height; t.answers = answers;
++	t.takenShown = takenShown;
+ 	const Panel::Outcome o = Panel::decide(kind, t, name ? name : "");
+ 	picture = o.picture;
+ 	copy(o.say, say, capacity);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 459f03c2..8e69b9fe 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -23,7 +23,8 @@ namespace Panel {
+ 
+ // What a verb does (the catalog's WorldVerbKind).
+ enum VerbKind {
+-	kWalk = 1, kLook, kPickUp, kOpen, kClose, kPush, kPull, kUse, kGive, kTalk, kTurnOn, kTurnOff, kWhatIs
++	kWalk = 1, kLook, kPickUp, kOpen, kClose, kPush, kPull, kUse, kGive, kTalk, kTurnOn, kTurnOff, kWhatIs,
++	kRead, kUnlock, kFix, kNewKid, kPutOn, kTakeOff // (the oldest games' own)
+ };
+ 
+ struct Rect {
+@@ -68,15 +69,18 @@ struct Item { std::string name; int width = 0, height = 0; std::vector<uint32_t>
+ // one shown; whether picture 0 looks different from the one shown; its size;
+ // the verbs its own script answers in its game (bit k: VerbKind k; -1 not
+ // known: the games without a things file).
+-struct Thing { bool door = false; int pictures = 0, shown = 0; bool differs = false; int width = 0, height = 0, answers = -1; };
++// takenShown: the oldest games' way round, a thing there while it shows
++// picture 0 and gone (taken) in picture 1, its "on" picture.
++struct Thing { bool door = false; int pictures = 0, shown = 0; bool differs = false; int width = 0, height = 0, answers = -1; bool takenShown = false; };
+ enum Result { kNothing = 0, kSay, kShow, kTake };
+ // kSay: `say`; kShow: picture `picture`; kTake: into the inventory, the
+ // place then shows picture 0.
+ struct Outcome { int result = kNothing; int picture = -1; std::string say; };
+-// The plain rules: look (and "what is") names it; open and turn on show
+-// picture 1 when it shows none, close and turn off picture 0; push and pull
+-// switch one with two pictures, else step through those showing it; pick
+-// up takes what is small, shown and not a door; the rest is said not to work.
++// The plain rules: look (and "what is", read) names it; open (and unlock)
++// and turn on show picture 1 when it shows none, close and turn off picture
++// 0; push and pull switch one with two pictures, else step through those
++// showing it; pick up takes what is small, shown and not a door; the rest is
++// said not to work ("new kid" is the player's, not the thing's).
+ // Where its game's script is known, each also needs the thing to answer
+ // that verb there (open or close for either, on or off, push or pull, pick
+ // up): a pirate is not taken, a wall not opened.
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index afa95315..5bf17aca 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -49,9 +49,10 @@ int verbName(int verb, char *name, int capacity);
+ void sentence(const char *text);
+ int sentenceText(char *text, int capacity);
+ // Things carried: one more from a scene (bytes of its .svw, uncompressed),
+-// the object `id` in its picture `picture` (else as that place shows it);
+-// false when it has no picture.
+-bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture = -1);
++// the object `id` in its picture `picture` (else as that place shows it),
++// only where it differs from picture `without` (the place without it: the
++// oldest games' is their "on" picture); false when it has no picture.
++bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture = -1, int without = 0);
+ int itemCount();
+ int itemName(int item, char *name, int capacity);
+ void removeItem(int item);
+@@ -65,8 +66,10 @@ void render(unsigned int *screen, int pitch, int screenHeight);
+ void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale);
+ // What verb `kind` does to a thing in the scene (Panel::decide; `answers`
+ // the verbs its game's script answers, -1 not known): 0 nothing, 1 say
+-// `say`, 2 show `picture`, 3 take it (the place then shows picture 0).
+-int decide(int kind, bool door, int pictures, int shown, bool differs, int width, int height, int answers, const char *name, int &picture, char *say, int capacity);
++// `say`, 2 show `picture`, 3 take it (the place then shows picture 0; with
++// `takenShown`, the oldest games' way: there while picture 0 shows, taken
++// it shows picture 1).
++int decide(int kind, bool door, int pictures, int shown, bool differs, int width, int height, int answers, const char *name, int &picture, char *say, int capacity, bool takenShown = false);
+ // Where a game puts things (bytes of its "-things.svo", uncompressed; kept
+ // per game): an object's picture there and the verbs its script answers.
+ bool loadThings(int game, const unsigned char *data, size_t size, char *error, int capacity); // (kept as none when malformed)
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 915b91a4..bec8eb75 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -669,8 +669,21 @@ static const WorldLegacyPlace kWorldLegacyPlaces[] = {
+ // any answer). Loom, Sam & Max and the later games have none of these.
+ enum WorldVerbKind {
+ 	kWorldVerbWalk = 1, kWorldVerbLook, kWorldVerbPickUp, kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush,
+-	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs
+-};
++	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs,
++	// The oldest games' own (the mansion's, Zak's).
++	kWorldVerbRead, kWorldVerbUnlock, kWorldVerbFix, kWorldVerbNewKid, kWorldVerbPutOn, kWorldVerbTakeOff
++};
++// The verb a things file's answers count one under (bit k: kind k, 1..13):
++// the oldest games' own verbs as the nearest of those.
++inline int worldVerbAnswerKind(int kind) {
++	switch (kind) {
++	case kWorldVerbRead: return kWorldVerbLook;
++	case kWorldVerbUnlock: return kWorldVerbOpen;
++	case kWorldVerbFix: case kWorldVerbPutOn: case kWorldVerbTakeOff: return kWorldVerbUse;
++	case kWorldVerbNewKid: return 0;
++	default: return kind;
++	}
++}
+ struct WorldVerb { short game, verb, kind; };
+ static const WorldVerb kWorldVerbs[] = {
+ 	// The Secret of Monkey Island, Indiana Jones and the Last Crusade: twelve.
+@@ -692,14 +705,29 @@ static const WorldVerb kWorldVerbs[] = {
+ 	{4, 3, kWorldVerbOpen}, {4, 4, kWorldVerbClose}, {4, 5, kWorldVerbGive}, {4, 6, kWorldVerbPush},
+ 	{4, 7, kWorldVerbPull}, {4, 8, kWorldVerbUse}, {4, 9, kWorldVerbLook}, {4, 10, kWorldVerbWalk},
+ 	{4, 11, kWorldVerbPickUp}, {4, 12, kWorldVerbTalk},
+-};
+-struct WorldPanel { short game, sentence, firstSlot, lastSlot, pictures, up, down, answerRoom; };
++	// Maniac Mansion (DOS V1): fifteen, its own (its script 164 sets them up).
++	{10, 9, kWorldVerbPush}, {10, 10, kWorldVerbPull}, {10, 3, kWorldVerbGive}, {10, 1, kWorldVerbOpen},
++	{10, 2, kWorldVerbClose}, {10, 12, kWorldVerbRead}, {10, 13, kWorldVerbWalk}, {10, 14, kWorldVerbPickUp},
++	{10, 15, kWorldVerbWhatIs}, {10, 8, kWorldVerbUnlock}, {10, 7, kWorldVerbNewKid}, {10, 11, kWorldVerbUse},
++	{10, 4, kWorldVerbTurnOn}, {10, 5, kWorldVerbTurnOff}, {10, 6, kWorldVerbFix},
++	// Zak McKracken (DOS V1): fourteen, from its own start.
++	{11, 9, kWorldVerbPush}, {11, 1, kWorldVerbOpen}, {11, 13, kWorldVerbWalk}, {11, 6, kWorldVerbPutOn},
++	{11, 4, kWorldVerbTurnOn}, {11, 10, kWorldVerbPull}, {11, 2, kWorldVerbClose}, {11, 14, kWorldVerbPickUp},
++	{11, 7, kWorldVerbTakeOff}, {11, 5, kWorldVerbTurnOff}, {11, 3, kWorldVerbGive}, {11, 12, kWorldVerbRead},
++	{11, 15, kWorldVerbWhatIs}, {11, 11, kWorldVerbUse},
++};
++// (start: a global script that sets the verbs up, run instead of the game's
++// own start: the mansion's, as the original engine's sandbox does; the
++// oldest games' sentence line and inventory are the engine's own.)
++struct WorldPanel { short game, sentence, firstSlot, lastSlot, pictures, up, down, answerRoom, start; };
+ static const WorldPanel kWorldPanels[] = {
+-	{0, 100, 101, 106, 0, 107, 108, 0},
+-	{1, 100, 200, 207, 1, 208, 209, 108},
+-	{3, 100, 101, 106, 0, 107, 108, 0},
+-	{4, 100, 101, 110, 1, 111, 112, 0},
+-	{5, 100, 200, 205, 1, 208, 209, 0},
++	{0, 100, 101, 106, 0, 107, 108, 0, 0},
++	{1, 100, 200, 207, 1, 208, 209, 108, 0},
++	{3, 100, 101, 106, 0, 107, 108, 0, 0},
++	{4, 100, 101, 110, 1, 111, 112, 0, 0},
++	{5, 100, 200, 205, 1, 208, 209, 0, 0},
++	{10, 0, 0, 0, 0, 0, 0, 0, 164},
++	{11, 0, 0, 0, 0, 0, 0, 0, 0},
+ };
+ inline const WorldPanel *worldPanel(int game) {
+ 	for (const auto &p : kWorldPanels) if (p.game == game) return &p;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index fec76f9b..b913f7b6 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1648,6 +1648,8 @@ protected:
+ 	bool scummverseTravelPad(int index);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	bool scummverseExportPanel(int game, const Common::Path &file, Common::String &problem);
++	// (The oldest games' panel: their engine's own sentence line and inventory.)
++	virtual bool scummverseExportPanelOld(int game, const Common::Path &file, Common::String &problem) { problem = "no verb panel"; return false; }
+ 	int _scummverseMusicTimer = -1; // The panel export's own music clock (-1: the music's).
+ 	bool _scummverseExporting = false; // In the other worlds' export (scripts run out of their story's order).
+ 	bool _scummverseAuditedManiac = false; // (Maniac Mansion DOS V1 English, its tables checked against)
+diff --git a/engines/scumm/scumm_v2.h b/engines/scumm/scumm_v2.h
+index 94fe4102..610d5bc9 100644
+--- a/engines/scumm/scumm_v2.h
++++ b/engines/scumm/scumm_v2.h
+@@ -51,6 +51,8 @@ public:
+ 	void checkV2MouseOver(Common::Point pos);
+ 	int checkV2Inventory(int x, int y);
+ 	void redrawV2Inventory();
++	// SCUMMVERSE: the verb panel for the new engine (scummverse_world_export.inc).
++	bool scummverseExportPanelOld(int game, const Common::Path &file, Common::String &problem) override;
+ 
+ protected:
+ 	byte _hiLiteColorVerbArrow = 0x0E;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 5320db1e..5e9adc97 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -265,6 +265,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	if (scripted) {
+ 		if (_game.version <= 2) {
+ 			keep.take(this);
++			_rnd.setSeed(0x5C0BE + room); // (The same picks each time.)
+ 			VAR(VAR_CAMERA_MIN_X) = _screenWidth / 2; VAR(VAR_CAMERA_MAX_X) = _roomWidth - _screenWidth / 2;
+ 		}
+ 		// The room's own entry script draws its objects (doors, furniture, a
+@@ -354,7 +355,8 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			for (const WorldVerb &v : kWorldVerbs) {
+ 				if (v.game != gameIndex) continue;
+ 				const int entry = getVerbEntrypoint(o.obj_nr, v.verb);
+-				if (entry && entry != any) answers |= 1 << v.kind;
++				const int kind = worldVerbAnswerKind(v.kind);
++				if (kind && entry && entry != any) answers |= 1 << kind;
+ 			}
+ 			if (any) answers |= Scummverse::PanelBridge::kThingAnswersAny;
+ 			if (getClass(o.obj_nr, kObjectClassUntouchable) || getOwner(o.obj_nr) != OF_OWNER_ROOM) answers |= Scummverse::PanelBridge::kThingAway;
+@@ -1141,6 +1143,17 @@ bool ScummEngine::scummverseGraftGuest(int costume, Common::Array<ScummverseGues
+ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem) {
+ 	const WorldGame *game = worldGame(_game.gameid);
+ 	const int gameIndex = game ? (int)(game - kWorldGames) : -1;
++	// (The oldest games draw their people in their colours only while the
++	// lights say so; a scripted room's variables, put back, may not: lit
++	// while they are drawn, then as they were.)
++	struct LightsKeep {
++		int32 *var; int32 saved;
++		~LightsKeep() { if (var) *var = saved; }
++	} lights = {nullptr, 0};
++	if (_game.version <= 2 && VAR_CURRENT_LIGHTS != 0xFF) {
++		lights.var = &_scummVars[VAR_CURRENT_LIGHTS]; lights.saved = *lights.var;
++		*lights.var = LIGHTMODE_room_lights_on | LIGHTMODE_actor_use_colors;
++	}
+ 	if (worldCostumeGraft(gameIndex, costume)) {
+ 		Common::Array<ScummverseGuestFrame> frames;
+ 		return scummverseGraftGuest(costume, frames, problem) && scummverseWriteGuest(costume, frames, false, file, problem);
+@@ -1501,6 +1514,60 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	return true;
+ }
+ 
++// A verb panel as written (see scummverseExportPanel below).
++struct ScummverseUiVerb { int kind, id, x, y, width, height; Common::String name; Common::Array<byte> lit; };
++struct ScummverseUiRect { int x, y, width, height; };
++struct ScummverseUiGlyph { int code, advance, x, y, width, height; Common::Array<byte> pixels; };
++struct ScummverseUiFont { int height, ink, none; Common::Array<ScummverseUiGlyph> glyphs; };
++struct ScummverseUi {
++	int width = 0, screenHeight = 0, top = 0, rows = 0;
++	const byte *palette = nullptr;
++	Common::Array<byte> image;
++	Common::Array<ScummverseUiVerb> verbs;
++	int sentenceX = 0, sentenceY = 0, sentenceColor = 0; bool sentenceCentred = false;
++	int slotKind = 1, slotColor = 0, slotLit = 0;
++	Common::Array<ScummverseUiRect> slots;
++	ScummverseUiRect arrows[2] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
++	int talk = 15;
++	ScummverseUiFont fonts[2];
++};
++static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file, Common::String &problem) {
++	Common::DumpFile *dump = new Common::DumpFile();
++	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
++	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
++	Common::WriteStream &out = *compressed;
++	out.write("SVI1", 4);
++	for (int f : {ui.width, ui.screenHeight, ui.top, ui.rows}) scummverseWrite16(out, f);
++	out.write(ui.palette, 768);
++	out.write(ui.image.data(), ui.image.size());
++	out.writeByte(MIN<uint>(ui.verbs.size(), 255));
++	for (uint i = 0; i < ui.verbs.size() && i < 255; ++i) {
++		const ScummverseUiVerb &v = ui.verbs[i];
++		out.writeByte(v.kind); scummverseWrite16(out, v.id);
++		for (int f : {v.x, v.y, v.width, v.height}) scummverseWrite16(out, f);
++		out.writeByte(v.name.size()); out.write(v.name.c_str(), v.name.size());
++		out.write(v.lit.data(), v.lit.size());
++	}
++	for (int f : {ui.sentenceX, ui.sentenceY}) scummverseWrite16(out, f);
++	out.writeByte(ui.sentenceCentred ? 1 : 0); out.writeByte(ui.sentenceColor);
++	out.writeByte(ui.slotKind); out.writeByte(ui.slotColor); out.writeByte(ui.slotLit);
++	out.writeByte(MIN<uint>(ui.slots.size(), 255));
++	for (uint i = 0; i < ui.slots.size() && i < 255; ++i) for (int f : {ui.slots[i].x, ui.slots[i].y, ui.slots[i].width, ui.slots[i].height}) scummverseWrite16(out, f);
++	for (const ScummverseUiRect &r : ui.arrows) for (int f : {r.x, r.y, r.width, r.height}) scummverseWrite16(out, f);
++	out.writeByte(ui.talk);
++	for (const ScummverseUiFont &f : ui.fonts) {
++		out.writeByte(f.height); out.writeByte(f.ink); out.writeByte(f.none); out.writeByte(MIN<uint>(f.glyphs.size(), 255));
++		for (uint i = 0; i < f.glyphs.size() && i < 255; ++i) {
++			const ScummverseUiGlyph &g = f.glyphs[i];
++			out.writeByte(g.code); out.writeByte(g.advance); out.writeByte((byte)(int8)g.x); out.writeByte((byte)(int8)g.y);
++			out.writeByte(g.width); out.writeByte(g.height); out.write(g.pixels.data(), g.pixels.size());
++		}
++	}
++	out.finalize();
++	if (out.err()) { problem = "cannot write cache"; return false; }
++	return true;
++}
++
+ // The game's verb panel as its own start leaves it ("<game>-ui.svi", the new
+ // engine's step 2c; read by common/scummverse_panel.cpp): "SVI1", u16 the
+ // game's screen width, height, the panel's first row and its rows;
+@@ -1520,6 +1587,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldPanel *panel = worldPanel(gameIndex);
+ 	if (!panel) { problem = "no verb panel"; return false; }
++	if (_game.version <= 2) return scummverseExportPanelOld(gameIndex, file, problem);
+ 	// (Mac Indiana Jones draws its verbs in a window of its own, FM Towns on
+ 	// a layer of its own: not here.)
+ 	if ((_macGui && _game.id == GID_INDY3) || _game.platform == Common::kPlatformFMTowns) { problem = "its verbs are drawn elsewhere"; return false; }
+@@ -1615,7 +1683,7 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) image[y * W + x] = at(x, y);
+ 	// The verbs, each also drawn highlighted; walking is named even where it
+ 	// is not on the panel (a tap).
+-	struct Verb { int kind, id, x, y, width, height; Common::String name; Common::Array<byte> lit; };
++	typedef ScummverseUiVerb Verb;
+ 	Common::Array<Verb> verbs;
+ 	for (int i = 1; i < _numVerbs; ++i) {
+ 		VerbSlot &v = _verbs[i];
+@@ -1658,7 +1726,7 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	_charset->setCurID(_verbs[sentence].charset_nr);
+ 	const int lineHeight = _charset->getFontHeight();
+ 	// Rectangles on the panel (else none).
+-	struct SlotRect { int x, y, width, height; };
++	typedef ScummverseUiRect SlotRect;
+ 	auto within = [&](SlotRect r) { return r.width > 0 && r.height > 0 && r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows ? r : SlotRect{0, 0, 0, 0}; };
+ 	auto rectOf = [&](int slot, int &x, int &y, int &w, int &h) {
+ 		const VerbSlot &v = _verbs[slot];
+@@ -1728,8 +1796,8 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	// The lettering: each character as the game draws it on the sentence
+ 	// line, after a space (the pen as within a line), in the sentence's
+ 	// colour; its own charset's and the talk's, as many letters as each has.
+-	struct Glyph { int code, advance, x, y, width, height; Common::Array<byte> pixels; };
+-	struct Font { int height, ink, none; Common::Array<Glyph> glyphs; };
++	typedef ScummverseUiGlyph Glyph;
++	typedef ScummverseUiFont Font;
+ 	VerbSlot &line = _verbs[sentence];
+ 	const VerbSlot kept = line;
+ 	Common::Array<byte> keptName;
+@@ -1788,40 +1856,135 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	line = kept;
+ 	const int talk = ego && isValidActor(ego) ? _actors[ego]->_talkColor : 15;
+ 	// Written.
+-	Common::DumpFile *dump = new Common::DumpFile();
+-	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+-	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+-	Common::WriteStream &out = *compressed;
+-	out.write("SVI1", 4);
+-	for (int f : {W, (int)_screenHeight, top, rows}) scummverseWrite16(out, f);
+-	out.write(_currentPalette, 768);
+-	out.write(image.data(), image.size());
+-	out.writeByte(MIN<uint>(verbs.size(), 255));
+-	for (uint i = 0; i < verbs.size() && i < 255; ++i) {
+-		const Verb &v = verbs[i];
+-		out.writeByte(v.kind); scummverseWrite16(out, v.id);
+-		for (int f : {v.x, v.y, v.width, v.height}) scummverseWrite16(out, f);
+-		out.writeByte(v.name.size()); out.write(v.name.c_str(), v.name.size());
+-		out.write(v.lit.data(), v.lit.size());
++	ScummverseUi ui;
++	ui.width = W; ui.screenHeight = _screenHeight; ui.top = top; ui.rows = rows; ui.palette = _currentPalette;
++	ui.image = image; ui.verbs = verbs;
++	ui.sentenceX = kept.curRect.left; ui.sentenceY = kept.curRect.top - top; ui.sentenceCentred = kept.center; ui.sentenceColor = kept.color;
++	ui.slotKind = panel->pictures ? 2 : 1;
++	ui.slotColor = slots.empty() || slots[0] <= 0 ? ink : _verbs[slots[0]].color;
++	ui.slotLit = slots.empty() || slots[0] <= 0 ? ink : _verbs[slots[0]].hicolor;
++	ui.slots = slotRects; ui.arrows[0] = arrows[0]; ui.arrows[1] = arrows[1];
++	ui.talk = talk; ui.fonts[0] = fonts[0]; ui.fonts[1] = fonts[1];
++	return scummverseWriteUi(ui, file, problem);
++}
++
++// The oldest games' verb panel (as scummverseExportPanel writes it): the
++// verbs their scripts set up (the mansion's from its script that does so,
++// as the original engine's sandbox starts; else from the game's own start,
++// run on at once), and the sentence line, inventory names and arrows where
++// their engine draws them; the lettering is the engine's own.
++bool ScummEngine_v2::scummverseExportPanelOld(int gameIndex, const Common::Path &file, Common::String &problem) {
++	const WorldPanel *panel = worldPanel(gameIndex);
++	if (!panel) { problem = "no verb panel"; return false; }
++	if (_game.platform == Common::kPlatformNES || _game.platform == Common::kPlatformC64 || _game.platform == Common::kPlatformApple2GS) {
++		problem = "its verbs are drawn its own way"; return false;
+ 	}
+-	for (int f : {(int)kept.curRect.left, (int)kept.curRect.top - top}) scummverseWrite16(out, f);
+-	out.writeByte(kept.center ? 1 : 0); out.writeByte(kept.color);
+-	const int slotColor = slots.empty() || slots[0] <= 0 ? ink : _verbs[slots[0]].color;
+-	const int slotLit = slots.empty() || slots[0] <= 0 ? ink : _verbs[slots[0]].hicolor;
+-	out.writeByte(panel->pictures ? 2 : 1); out.writeByte(slotColor); out.writeByte(slotLit);
+-	out.writeByte(MIN<uint>(slotRects.size(), 255));
+-	for (uint i = 0; i < slotRects.size() && i < 255; ++i) for (int f : {slotRects[i].x, slotRects[i].y, slotRects[i].width, slotRects[i].height}) scummverseWrite16(out, f);
+-	for (const SlotRect &r : arrows) for (int f : {r.x, r.y, r.width, r.height}) scummverseWrite16(out, f);
+-	out.writeByte(talk);
+-	for (const Font &f : fonts) {
+-		out.writeByte(f.height); out.writeByte(f.ink); out.writeByte(f.none); out.writeByte(MIN<uint>(f.glyphs.size(), 255));
+-		for (uint i = 0; i < f.glyphs.size() && i < 255; ++i) {
+-			const Glyph &g = f.glyphs[i];
+-			out.writeByte(g.code); out.writeByte(g.advance); out.writeByte((byte)(int8)g.x); out.writeByte((byte)(int8)g.y);
+-			out.writeByte(g.width); out.writeByte(g.height); out.write(g.pixels.data(), g.pixels.size());
+-		}
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) { vm.slot[i].status = ssDead; vm.slot[i].cutsceneOverride = 0; vm.slot[i].freezeCount = 0; }
++	_currentScript = 0xFF; vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF;
++	memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
++	_EXCD_offs = 0; // (No room to leave: the last place exported is not left.)
++	// (The screens as the engine sets them for a start: the mansion's room
++	// is taller.)
++	if (_game.id == GID_MANIAC && _game.version <= 1) initScreens(16, 152); else initScreens(16, 144);
++	VAR(VAR_CURRENT_LIGHTS) = LIGHTMODE_room_lights_on | LIGHTMODE_actor_use_colors;
++	for (int i = 1; i < _numVerbs; ++i) if (_verbs[i].verbid) killVerb(i);
++	_rnd.setSeed(0x5C0BE); // (The same start each time.)
++	int args[NUM_SCRIPT_LOCAL];
++	memset(args, 0, sizeof(args));
++	args[0] = _bootParam;
++	if (panel->start) runScript(panel->start, false, false, nullptr); else runScript(1, 0, 0, args);
++	VirtScreen &vs = _virtscr[kVerbVirtScreen];
++	const int W = _screenWidth, top = vs.topline, rows = MIN<int>(vs.h, _screenHeight - top);
++	if (rows <= 0 || vs.w < W) { problem = "no verb screen"; return false; }
++	auto onPanel = [&](const VerbSlot &v) { return v.curRect.top >= top && v.curRect.top < _screenHeight; };
++	auto action = [&](int i) { const VerbSlot &v = _verbs[i]; return v.verbid && v.curmode == 1 && v.type == kTextVerbType && worldVerbKind(gameIndex, v.verbid) && onPanel(v); };
++	auto verbsUp = [&]() { int up = 0; for (int i = 1; i < _numVerbs; ++i) up += action(i); return up; };
++	int frame = 0, most = 0, mostAt = 0;
++	while (frame < 3000 && !shouldQuit() && !(most >= 4 && frame > mostAt + 30)) {
++		for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i)
++			if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++		scummverseSkipCutscene();
++		if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++		_talkDelay = 0;
++		if (panel->start) runAllScripts(); else scummLoop(4);
++		_sound->stopAllSounds();
++		++frame;
++		const int up = verbsUp();
++		if (up > most) { most = up; mostAt = frame; }
+ 	}
+-	out.finalize();
+-	if (out.err()) { problem = "cannot write cache"; return false; }
+-	return true;
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
++	_currentScript = 0xFF;
++	if (most < 4 || verbsUp() < 4 || shouldQuit()) { problem = "its verbs never showed"; return false; }
++	auto at = [&](int x, int y) -> byte & { return *((byte *)vs.getPixels(x, y)); };
++	// The panel as the engine draws it with nothing carried and the sentence
++	// line empty: its verbs on black.
++	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) at(x, y) = 0;
++	for (int i = 1; i < _numVerbs; ++i) if (action(i)) drawVerb(i, 0);
++	ScummverseUi ui;
++	ui.width = W; ui.screenHeight = _screenHeight; ui.top = top; ui.rows = rows; ui.palette = _currentPalette;
++	ui.image.resize(W * rows);
++	for (int y = 0; y < rows; ++y) for (int x = 0; x < W; ++x) ui.image[y * W + x] = at(x, y);
++	// Each verb, also drawn highlighted.
++	for (int i = 1; i < _numVerbs; ++i) {
++		if (!action(i)) continue;
++		VerbSlot &v = _verbs[i];
++		bool known = false;
++		for (const ScummverseUiVerb &k : ui.verbs) known = known || k.id == v.verbid;
++		if (known) continue;
++		ScummverseUiVerb verb;
++		verb.kind = worldVerbKind(gameIndex, v.verbid); verb.id = v.verbid;
++		for (const byte *c = getResourceAddress(rtVerb, i); c && *c && verb.name.size() < 32; ++c)
++			if (*c >= 32 && *c != 127 && *c != '@') verb.name += (char)*c;
++		drawVerb(i, 1);
++		const Common::Rect drawn = v.oldRect.left != -1 ? v.oldRect : v.curRect;
++		const int x0 = CLIP<int>(drawn.left, 0, W), x1 = CLIP<int>(drawn.right, x0, W);
++		const int y0 = CLIP<int>(drawn.top - top, 0, rows), y1 = CLIP<int>(drawn.bottom - top, y0, rows);
++		verb.x = x0; verb.y = y0; verb.width = x1 - x0; verb.height = y1 - y0;
++		for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) verb.lit.push_back(at(x, y));
++		drawVerb(i, 0);
++		ui.verbs.push_back(verb);
++	}
++	// The sentence line, the inventory's four names and its arrows: where
++	// the engine draws them (its own boxes), in its colours.
++	const V2MouseoverBox &line = _mouseOverBoxesV2[6];
++	ui.sentenceX = line.rect.left; ui.sentenceY = line.rect.top; ui.sentenceCentred = false; ui.sentenceColor = line.color;
++	ui.slotKind = 1; ui.slotColor = _mouseOverBoxesV2[0].color; ui.slotLit = _mouseOverBoxesV2[0].hicolor;
++	auto box = [&](const V2MouseoverBox &b) {
++		ScummverseUiRect r = {b.rect.left, b.rect.top, b.rect.width(), b.rect.height()};
++		return r.x >= 0 && r.y >= 0 && r.width > 0 && r.height > 0 && r.x + r.width <= W && r.y + r.height <= rows ? r : ScummverseUiRect{0, 0, 0, 0};
++	};
++	for (int k = 0; k < 4; ++k) ui.slots.push_back(box(_mouseOverBoxesV2[k]));
++	ui.arrows[0] = box(_mouseOverBoxesV2[4]); ui.arrows[1] = box(_mouseOverBoxesV2[5]);
++	const int ego = VAR(VAR_EGO);
++	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
++	// The lettering: each character as the engine draws it on the sentence
++	// line, after a space, in the sentence's colour (one for both uses).
++	ScummverseUiFont font;
++	const int ink = line.color, none = 255, penX = 8, boxW = 64, boxH = MIN(rows, 16);
++	font.ink = ink; font.none = none;
++	_charset->setCurID(1);
++	font.height = MIN(_charset->getFontHeight(), 255);
++	const int space = _charset->getCharWidth(' ');
++	for (int code = 32; code < 128; ++code) {
++		if (code == '@') continue;
++		for (int y = 0; y < boxH; ++y) for (int x = 0; x < boxW; ++x) at(x, y) = none;
++		const byte text[3] = {' ', (byte)code, 0};
++		_string[2].charset = 1; _string[2].xpos = penX; _string[2].ypos = top; _string[2].right = W - 1;
++		_string[2].color = ink; _string[2].center = false;
++		drawString(2, text);
++		const int pen = penX + space;
++		int x0 = boxW, y0 = boxH, x1 = 0, y1 = 0;
++		for (int y = 0; y < boxH; ++y)
++			for (int x = 0; x < boxW; ++x)
++				if (at(x, y) != none) { x0 = MIN(x0, x); y0 = MIN(y0, y); x1 = MAX(x1, x + 1); y1 = MAX(y1, y + 1); }
++		ScummverseUiGlyph g;
++		g.code = code; g.advance = CLIP(_charset->getCharWidth(code), 0, 255);
++		if (x0 >= x1) { x0 = pen; y0 = 0; x1 = x0; y1 = y0; }
++		g.x = CLIP(x0 - pen, -128, 127); g.y = CLIP(y0, -128, 127);
++		g.width = MIN(x1 - x0, 64); g.height = MIN(y1 - y0, 64);
++		for (int y = y0; y < y0 + g.height; ++y) for (int x = x0; x < x0 + g.width; ++x) g.pixels.push_back(at(x, y));
++		if (g.advance || g.width) font.glyphs.push_back(g);
++	}
++	ui.fonts[0] = font; ui.fonts[1] = font;
++	return scummverseWriteUi(ui, file, problem);
+ }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 62735b0b..ceb4850b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -426,12 +426,42 @@ void SandboxEngine::chooseVerb(int verb) {
+ 	if (verb == PanelBridge::selected() || PanelBridge::verbKind(verb) == kWorldVerbWalk) {
+ 		PanelBridge::select(-1); sentence(""); return;
+ 	}
++	// (The mansion's "New kid": someone else of the game played, here.)
++	if (PanelBridge::verbKind(verb) == kWorldVerbNewKid) { PanelBridge::select(-1); sentence(""); newKid(); return; }
+ 	char name[40];
+ 	PanelBridge::verbName(verb, name, sizeof(name));
+ 	PanelBridge::select(verb);
+ 	sentence(name);
+ }
+ 
++// The next of the game's people (its cast's order), played where the one
++// played stands. (The one before is not left standing there: who wanders is
++// chosen when the engine starts, without the one played then.)
++void SandboxEngine::newKid() {
++	Common::Array<int> keys;
++	for (const WorldCastGuest &c : kWorldCast)
++		if (c.game == _game && hasCharacter(worldAppearanceKey(c.game, c.guest.costume))) keys.push_back(worldAppearanceKey(c.game, c.guest.costume));
++	if (keys.size() < 2) { say("There's no one else here to play."); return; }
++	uint at = keys.size() - 1;
++	for (uint i = 0; i < keys.size(); ++i) if (keys[i] == _playerKey) at = i;
++	double x, y;
++	StageBridge::position(_player, x, y);
++	const int before = _playerKey;
++	Common::String problem;
++	// (One who cannot be shown is passed over for the next.)
++	for (uint step = 1; step <= keys.size(); ++step) {
++		_playerKey = keys[(at + step) % keys.size()];
++		if (_playerKey == before || !enter(_game, _room, 0, problem)) continue;
++		StageBridge::place(_player, x, y);
++		if (!_testing) saveState();
++		return;
++	}
++	_playerKey = before;
++	enter(_game, _room, 0, problem);
++	StageBridge::place(_player, x, y);
++	say("There's no one else here to play.");
++}
++
+ // A thing carried: looked at, it is named; nothing else works on it here.
+ void SandboxEngine::useItem(int item) {
+ 	const int verb = PanelBridge::selected();
+@@ -443,8 +473,9 @@ void SandboxEngine::useItem(int item) {
+ 	sentence("");
+ 	int picture;
+ 	char line[160];
+-	if (PanelBridge::decide(kind == kWorldVerbWhatIs ? kWorldVerbLook : kind, false, 0, 0, false, 0, 0, -1, name, picture, line, sizeof(line)) == 1)
+-		say(kind == kWorldVerbLook || kind == kWorldVerbWhatIs ? line : "That doesn't seem to work.");
++	const bool naming = kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbRead;
++	if (PanelBridge::decide(naming ? kWorldVerbLook : kind, false, 0, 0, false, 0, 0, -1, name, picture, line, sizeof(line)) == 1)
++		say(naming ? line : "That doesn't seem to work.");
+ }
+ 
+ void SandboxEngine::say(const Common::String &line) {
+@@ -463,7 +494,8 @@ void SandboxEngine::showPicture(int object, int id, int picture) {
+ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name, int picture) {
+ 	Common::Array<byte> data;
+ 	if (game < 0 || game >= worldGameCount() || !read(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room), data)) return false;
+-	if (!PanelBridge::addItem(data.data(), data.size(), id, name.c_str(), picture)) return false;
++	// (The oldest games' place without it is its "on" picture.)
++	if (!PanelBridge::addItem(data.data(), data.size(), id, name.c_str(), picture, worldHome(game) ? 1 : 0)) return false;
+ 	Carried c;
+ 	c.game = game; c.room = room; c.id = id; c.name = name; c.picture = picture;
+ 	_carried.push_back(c);
+@@ -481,9 +513,11 @@ void SandboxEngine::act() {
+ 	StageBridge::objectName(target, name, sizeof(name));
+ 	const int pictures = StageBridge::objectPictures(target), shown = StageBridge::objectShown(target);
+ 	const bool door = worldLinkFrom(_game, _room, id) != nullptr;
+-	const bool differs = pictures > 1 && StageBridge::picturesDiffer(target, 0, shown);
++	// (The oldest games show a thing taken in its "on" picture, there in 0.)
++	const bool takenShown = worldHome(_game);
++	const bool differs = pictures > 1 && StageBridge::picturesDiffer(target, 0, takenShown ? 1 : shown);
+ 	// (What takes a hand takes them there: by its walk-to point, or at it.)
+-	const bool looking = kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbTalk;
++	const bool looking = kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbTalk || kind == kWorldVerbRead;
+ 	double px, py, tx, ty;
+ 	StageBridge::position(_player, px, py);
+ 	doorPoint(target, tx, ty);
+@@ -494,11 +528,11 @@ void SandboxEngine::act() {
+ 	if (!looking && !near) { say("I can't reach that."); return; }
+ 	int picture = -1, gamePicture, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+-	switch (PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line))) {
++	switch (PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown)) {
+ 	case 1: say(line); break;
+ 	case 2: showPicture(target, id, picture); break;
+ 	case 3:
+-		if (carry(_game, _room, id, name, shown)) showPicture(target, id, 0);
++		if (carry(_game, _room, id, name, shown)) showPicture(target, id, picture);
+ 		else say("I can't pick that up.");
+ 		break;
+ 	default: break;
+@@ -870,12 +904,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 		double rowScale, colScale;
+ 		StageBridge::view(left, top, width, height, rowScale, colScale);
+ 		if (PanelBridge::top() != top + height || PanelBridge::top() + PanelBridge::screenRows() > _height) fail("not under the scene", g);
+-		// Each verb chosen, then let go.
++		// Each verb chosen, then let go ("New kid": someone else played).
+ 		int shownVerbs = 0;
+ 		for (int v = 0; v < PanelBridge::verbCount(); ++v) {
+ 			int x, y, w, h;
+ 			if (!PanelBridge::verbRect(v, x, y, w, h)) continue;
+ 			++shownVerbs; ++verbs;
++			if (PanelBridge::verbKind(v) == kWorldVerbNewKid) {
++				const int before = _playerKey;
++				tapRect(x, y, w, h);
++				if (_playerKey == before || _player < 0 || PanelBridge::selected() != -1) fail("new kid not played", g); else ++chosen;
++				// (Back to who played.)
++				while (_playerKey != before) { const int at = _playerKey; tapRect(x, y, w, h); if (_playerKey == at) break; }
++				continue;
++			}
+ 			tapRect(x, y, w, h);
+ 			char name[40], said[160];
+ 			PanelBridge::verbName(v, name, sizeof(name));
+@@ -896,6 +938,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 			door = worldLinkFrom(g, _room, id) != nullptr;
+ 			small = w * h <= 64 * 64;
+ 		};
++		// (The oldest games' things are there in picture 0, taken in 1.)
++		const bool old = worldHome(g);
++		const int takenPicture = old ? 1 : 0;
++		auto there = [&](int o, int shown) { return (old ? shown == 0 : shown != 0) && StageBridge::picturesDiffer(o, 0, old ? 1 : shown); };
+ 		// What its game's script answers (all, where not known: no entry, or
+ 		// only its catch-all one).
+ 		auto answer = [&](int o, int a, int b) {
+@@ -994,16 +1040,18 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (taken > takenBefore) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+-				if (door || !small || pictures < 2 || shown == 0 || !StageBridge::picturesDiffer(o, 0, shown) || !answer(o, kWorldVerbPickUp, kWorldVerbPickUp)) continue;
++				if (door || !small || pictures < 2 || !there(o, shown) || !answer(o, kWorldVerbPickUp, kWorldVerbPickUp)) continue;
+ 				const int before = PanelBridge::itemCount();
+ 				if (!use(kWorldVerbPickUp, o)) continue;
+-				if (PanelBridge::itemCount() != before + 1 || StageBridge::objectShown(o) != 0) { fail("not taken", g); break; }
++				if (PanelBridge::itemCount() != before + 1 || StageBridge::objectShown(o) != takenPicture) { fail("not taken", g); break; }
+ 				++taken;
+ 				// Not there to be used again.
+ 				if (use(kWorldVerbPickUp, o) || use(kWorldVerbOpen, o)) fail("used again once taken", g);
+ 				// Looked at in its slot.
+ 				const int looking = verbOf(kWorldVerbLook) >= 0 ? verbOf(kWorldVerbLook) : verbOf(kWorldVerbWhatIs);
+ 				int x, y, w, h;
++				// (Scrolled to it: the last carried, past the slots shown.)
++				for (int turn = 0; turn < 64 && PanelBridge::itemCount() - 1 - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
+ 				const int slot = PanelBridge::itemCount() - 1 - PanelBridge::firstItem();
+ 				if (looking >= 0 && PanelBridge::verbRect(looking, x, y, w, h)) {
+ 					tapRect(x, y, w, h);
+@@ -1022,7 +1070,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (declined > declinedBefore) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+-				if (door || !small || pictures < 2 || shown == 0 || !StageBridge::picturesDiffer(o, 0, shown) || answer(o, kWorldVerbPickUp, kWorldVerbPickUp)) continue;
++				if (door || !small || pictures < 2 || !there(o, shown) || answer(o, kWorldVerbPickUp, kWorldVerbPickUp)) continue;
+ 				const int before = PanelBridge::itemCount();
+ 				if (!use(kWorldVerbPickUp, o)) continue;
+ 				if (_speech != "I can't pick that up." || PanelBridge::itemCount() != before) fail("taken though its game does not", g); else ++declined;
+@@ -1047,7 +1095,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!enter(c.game, c.room, 0, problem)) { fail("not shown again", c.game); continue; }
+ 			for (int o = 0; o < StageBridge::objectCount(); ++o) {
+ 				int id, ox, oy, w, h, wx, wy, state;
+-				if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == c.id && StageBridge::objectShown(o) != 0) fail("back again", c.game);
++				if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == c.id && StageBridge::objectShown(o) != (worldHome(c.game) ? 1 : 0)) fail("back again", c.game);
+ 			}
+ 		}
+ 	}
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 7579d543..b1d75302 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -82,6 +82,7 @@ private:
+ 	bool isCarried(int game, int room, int id) const;
+ 	void sentence(const Common::String &text);
+ 	void chooseVerb(int verb);
++	void newKid();
+ 	void useItem(int item);
+ 	void act();
+ 	void say(const Common::String &line);

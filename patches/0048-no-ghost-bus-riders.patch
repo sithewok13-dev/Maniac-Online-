@@ -1,0 +1,37 @@
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index ee41a4da..752c89ba 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2339,6 +2339,10 @@ void ScummEngine::processActors() {
+ 	for (int i = 1; i < _numActors; i++) {
+ 		if (_game.version == 8 && _actors[i]->_layer < 0)
+ 			continue;
++		// The sandbox hides transport riders in place instead of moving them to
++		// room 0. A full redraw flags every actor, so never draw hidden ones.
++		if (_scummverseRoaming && !_actors[i]->_visible)
++			continue;
+ 		if (_actors[i]->isInCurrentRoom()) {
+ 			_sortedActors[numactors++] = _actors[i];
+ 		}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 58988c36..471527f5 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -612,10 +612,13 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 		}
+ 		_scummVars[766]=passengers;
+ 		if(_currentRoom==55 && (passengers & (1u<<VAR(VAR_EGO)))) setCameraAt(108*8,60*2);
+-	}
+-	if(phase>60 && phase<150) for(int id : mansionCast) if(_scummVars[766] & (1u<<id)) {
+-		Actor *a=derefActor(id,"bus passenger");a->stopActorMoving();
+-		a->putActor(103,51+(phase-60),55);
++		// Board once: riders stay hidden at the stop until arrival. Moving them
++		// every tick re-showed them (putActor shows hidden in-room actors) and
++		// the per-frame show/hide churn left their last image on screen.
++		for(int id : mansionCast) if(passengers & (1u<<id)) {
++			Actor *a=derefActor(id,"bus passenger");a->stopActorMoving();
++			a->putActor(103,51,55);
++		}
+ 	}
+  scummverseRestoreTransportVisibility();
+ 	if(phase>=150) {

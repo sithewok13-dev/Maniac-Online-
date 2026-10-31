@@ -1,0 +1,363 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index ccf88260..5b3cc8c4 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -58,10 +58,11 @@ static const int kWorldExportVersion = 25;
+ // the envelope's way to the mailbox: more marks and the answers that read
+ // them, kWorldMarks and kWorldMarkReaders: "maniac-v37"); from 0251 The Dig's
+ // and Full Throttle's (their things placed and what their own verbs on them
+-// answer: "dig-v26", "ft-v26").
++// answer: "dig-v26", "ft-v26"); from 0253 Day of the Tentacle's (what its
++// verbs on its things answer, each kid in their own time: "tentacle-v26").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1082,6 +1083,26 @@ static const WorldVerb kWorldVerbs[] = {
+ // that, as its sentence script gives it).
+ struct WorldOwnVerb { short game, kind, verb; };
+ static const WorldOwnVerb kWorldOwnVerbs[] = {{8, kWorldVerbAct, 3}};
++// Who is played where (from 0253, for its things' export), in a game whose
++// places each belong to one of its players: from room `first` to `last`,
++// the actor played there (else the one its start plays). Day of the
++// Tentacle's kids, each in their own time: Hoagie (3) in the past (the
++// Edison house of the colonial days and its grounds, 7 to 24), Bernard (1)
++// in the present (25 to 43, and 89 by the motel's back), Laverne (2) in the
++// future (44 to 59); each says their own lines.
++struct WorldPlayedIn { short game, first, last, actor; };
++static const WorldPlayedIn kWorldPlayedIn[] = {{5, 7, 24, 3}, {5, 25, 43, 1}, {5, 89, 89, 1}, {5, 44, 59, 2}};
++inline int worldPlayedIn(int game, int room) {
++	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == game && room >= p.first && room <= p.last) return p.actor;
++	return 0;
++}
++// A verb its game wants a second thing for (from 0253, for its things'
++// export: no sentence runs until one is chosen, so none is recorded): on a
++// thing of one of its classes `first` to `last` (0 0: on any thing). Day of
++// the Tentacle's verb script (120) asks "use ... with" for a thing of class
++// 1 to 4 (its prepositions); giving always asks "to whom".
++struct WorldWantsSecond { short game, kind, first, last; };
++static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}};
+ // Marks (from 0248): what a game's script leaves for others' to read later,
+ // which the new engine keeps: the kid's own (`bit`, plus the kid's number,
+ // of its game's bit variables: the mansion's TV's film watched, by that kid
+diff --git a/engines/scumm/script_v6.cpp b/engines/scumm/script_v6.cpp
+index 5331d4a8..f78c73c1 100644
+--- a/engines/scumm/script_v6.cpp
++++ b/engines/scumm/script_v6.cpp
+@@ -3229,6 +3229,16 @@ void ScummEngine_v6::o6_kernelSetFunctions() {
+ 		fadeIn(args[1]);
+ 		break;
+ 	case 8:
++		// SCUMMVERSE (from 0253): while exporting, Day of the Tentacle's
++		// computer (room 42) starting Maniac Mansion is passed over, its
++		// script stopped there as when the game leaves for the mansion: the
++		// export plays each thing's answer without a player, and would leave
++		// the game (or, with no Maniac Mansion of its own, wait on a dialog).
++		if (_scummverseExporting) {
++			warning("SCUMMVERSE world export: Maniac Mansion's start passed over");
++			stopObjectCode();
++			break;
++		}
+ 		if (startManiac()) {
+ 			// This is so that the surprised exclamation happens
+ 			// after we return to the game again, not before.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index fa420db9..55f7a373 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -2721,10 +2721,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			kWorldGames[gameIndex].gameid, runs, (int)effects.size(), left, beyond, silent, past);
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+-	} else if ((_game.id == GID_DIG || _game.id == GID_FT) && VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
++	} else if ((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE) && VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+ 		// (From 0251, The Dig's and Full Throttle's, "SVO7" with effects as
+ 		// Sam & Max's: what their own verbs answer, see
+-		// scummverseExportOwnAnswers.)
++		// scummverseExportOwnAnswers; from 0253 Day of the Tentacle's, its
++		// verb panel's.)
+ 		Common::Array<int> placeRooms;
+ 		Common::Array<Common::Array<int> > placeThings;
+ 		for (const Room &r : found) { placeRooms.push_back(r.room); placeThings.push_back(r.things); }
+@@ -2871,9 +2872,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ // keep what is carried: one changed, let go or made anew put back as it
+ // was), the pointer, the player's hold on the game and the one played's
+ // clothes (the place's entry scripts dress them for it). (A film is passed
+-// over while exporting: ScummEngine_v7::o6_kernelSetFunctions.)
++// over while exporting: ScummEngine_v7::o6_kernelSetFunctions.) From 0253
++// Day of the Tentacle's likewise: its verb panel's verbs but walking (a
++// tap), each played as the kid of that place's time (kWorldPlayedIn: their
++// own lines, their own clothes put back), none its game wants a second
++// thing for (kWorldWantsSecond: giving, and using one of its "with" things).
+ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<int> &rooms, const Common::Array<Common::Array<int> > &things, Common::Array<ScummverseAnswer> &answers) {
+-	const int ego = VAR(VAR_EGO);
++	// (The one played: its start's, else the one of that place, from 0253.)
++	const int startEgo = VAR(VAR_EGO);
++	int ego = startEgo;
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects), owners(_objectOwnerTable, _numGlobalObjects);
+ 	const Common::Array<uint32> classes(_classData, _numGlobalObjects);
+@@ -2882,7 +2889,11 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	Common::Array<bool> held(MAX(_numArray, 1), false);
+ 	for (int i = 1; i < _numArray; ++i)
+ 		if (_res->isResourceLoaded(rtString, i)) { held[i] = true; arrays[i] = Common::Array<byte>(_res->_types[rtString][i]._address, _res->_types[rtString][i]._size); }
+-	const int cursorState = _cursor.state, userPut = _userPut, egoCostume = _actors[ego]->_costume;
++	const int cursorState = _cursor.state, userPut = _userPut;
++	// (Each one played's clothes as its start has them.)
++	Common::HashMap<int, int> clothes;
++	clothes[startEgo] = _actors[startEgo]->_costume;
++	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == gameIndex && p.actor > 0 && p.actor < _numActors) clothes[p.actor] = _actors[p.actor]->_costume;
+ 	auto putBack = [&]() {
+ 		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+ 		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
+@@ -2924,8 +2935,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	auto arrive = [&](int room) {
+ 		quiet();
+ 		// (In the clothes they had; the place's entry scripts dress them for
+-		// it, as on arriving: The Dig's space suit.)
+-		if (_actors[ego]->_costume != egoCostume) _actors[ego]->setActorCostume(egoCostume);
++		// it, as on arriving: The Dig's space suit. From 0253 the one played
++		// there.)
++		if (_actors[ego]->_costume != clothes[ego]) _actors[ego]->setActorCostume(clothes[ego]);
++		VAR(VAR_EGO) = ego;
+ 		// (From no place: no exit scripts.)
+ 		_EXCD_offs = 0;
+ 		const int exitScript = VAR_EXIT_SCRIPT != 0xFF ? VAR(VAR_EXIT_SCRIPT) : 0, exitScript2 = VAR_EXIT_SCRIPT2 != 0xFF ? VAR(VAR_EXIT_SCRIPT2) : 0;
+@@ -2952,7 +2965,11 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (Each kind of the game's controls, its own verb for it.)
+ 	Common::Array<int> kinds, verbs;
+ 	for (const WorldVerb &v : kWorldVerbs) {
+-		if (v.game != gameIndex || v.kind == kWorldVerbWalk) continue;
++		// (From 0253 not giving, nor any its game wants a second thing for on
++		// every thing: kWorldWantsSecond.)
++		bool second = false;
++		for (const WorldWantsSecond &w : kWorldWantsSecond) second = second || (w.game == gameIndex && w.kind == v.kind && !w.first && !w.last);
++		if (v.game != gameIndex || v.kind == kWorldVerbWalk || second) continue;
+ 		int verb = v.verb;
+ 		for (const WorldOwnVerb &own : kWorldOwnVerbs) if (own.game == gameIndex && own.kind == v.kind) verb = own.verb;
+ 		kinds.push_back(v.kind); verbs.push_back(verb);
+@@ -2972,8 +2989,18 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	const int32 kRunSteps = 4000000;
+ 	int runs = 0, left = 0, beyond = 0, silent = 0, past = 0, overran = 0, unnamed = 0;
+ 	Common::HashMap<int, int> byKind;
++	// (From 0253, a verb its game wants a second thing for on this one, a
++	// thing of those classes: no sentence runs until one is chosen.)
++	auto wantsSecond = [&](int kind, int obj) {
++		for (const WorldWantsSecond &w : kWorldWantsSecond)
++			for (int c = w.first; w.game == gameIndex && w.kind == kind && c <= w.last && c > 0; ++c) if (getClass(obj, c)) return true;
++		return false;
++	};
++	int seconds = 0;
+ 	for (uint k = 0; k < rooms.size() && k < things.size() && !shouldQuit(); ++k) {
+ 		const int room = rooms[k];
++		const int played = worldPlayedIn(gameIndex, room);
++		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		for (uint i = 0; i + 4 < things[k].size() && !shouldQuit(); i += 5) {
+ 			const int obj = things[k][i];
+ 			if (worldLinkFrom(gameIndex, room, obj) || (things[k][i + 2] & Scummverse::PanelBridge::kThingAway)) continue;
+@@ -2986,6 +3013,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					const int at = arrive(room) ? getObjectIndex(obj) : -1;
+ 					// (One with no name there is none a player can touch.)
+ 					if (at <= 0 || scummverseObjectName(obj).empty()) { unnamed += at > 0; _scummverseStepBudget = -1; continue; }
++					if (wantsSecond(kinds[v], obj)) { ++seconds; _scummverseStepBudget = -1; continue; }
+ 					++runs;
+ 					putState(obj, from);
+ 					// (Where its game walks them to it: its picture's own point.)
+@@ -3049,10 +3077,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	}
+ 	Common::String counts;
+ 	for (int kind : kinds) counts += Common::String::format(" %d:%d", kind, byKind.contains(kind) ? byKind[kind] : 0);
+-	debug(1, "SCUMMVERSE world things: %s %d runs, %d answers (by verb kind:%s; %d leaving the place, %d things or answers in a picture past 1, %d saying and changing nothing, %d running on past their steps; %d others past 1 left out; %d not run, unnamed)",
+-		kWorldGames[gameIndex].gameid, runs, (int)answers.size(), counts.c_str(), left, beyond, silent, overran, past, unnamed);
++	debug(1, "SCUMMVERSE world things: %s %d runs, %d answers (by verb kind:%s; %d leaving the place, %d things or answers in a picture past 1, %d saying and changing nothing, %d running on past their steps; %d others past 1 left out; %d not run, unnamed; %d not run, wanting a second thing)",
++		kWorldGames[gameIndex].gameid, runs, (int)answers.size(), counts.c_str(), left, beyond, silent, overran, past, unnamed, seconds);
+ 	putBack(); quiet();
+-	if (_actors[ego]->_costume != egoCostume) _actors[ego]->setActorCostume(egoCostume);
++	for (const auto &worn : clothes) if (_actors[worn._key]->_costume != worn._value) _actors[worn._key]->setActorCostume(worn._value);
+ }
+ 
+ // A verb panel as written (see scummverseExportPanel below).
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 160b3d83..4edab225 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -108,9 +108,11 @@ static double pixelAspect(int game) { return squarePixels(game) ? 1.0 : 1.2; }
+ static int screenWidthOf(int game) { return squarePixels(game) ? 640 : 320; }
+ // A game whose things answer as its own sentences do (its things file's
+ // effects, played by its own scripts: ownAnswer): Sam & Max's from 0247, The
+-// Dig's (its tap) and Full Throttle's (its coin's verbs) from 0251.
++// Dig's (its tap) and Full Throttle's (its coin's verbs) from 0251, Day of
++// the Tentacle's (its verb panel's) from 0253.
+ static bool ownSentences(int game) {
+-	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "samnmax") || sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft"));
++	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "samnmax") || sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft") ||
++		sameId(kWorldGames[game].gameid, "tentacle"));
+ }
+ static bool walkable(int game, int room) {
+ 	const int kind = worldRoomKind(game, room);
+@@ -5690,22 +5692,40 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// Dig's or Full Throttle's: their things answer as their own sentences
+ 		// do, each record checked below.)
+ 		const bool ownAnswers = ownSentences(g);
++		// (From 0253, one whose things so answer with its verb panel under the
++		// scene, Day of the Tentacle's: not pushed or refused here, but one
++		// taken as its own record takes it, for what follows a take: looked
++		// at carried, used with another, given to someone.)
++		const bool panelOwn = ownAnswers && !PanelBridge::over() && !PanelBridge::coin() && !PanelBridge::distaff();
++		auto ownTake = [&](int o, int from) {
++			int id, ox, oy, w, h, wx, wy, state, after, others[3 * 64], count;
++			char said[256];
++			bool took = false;
++			StageBridge::object(o, id, ox, oy, w, h, wx, wy, state);
++			return PanelBridge::thingEffect(g, _room, id, kWorldVerbPickUp, from, after, others, count, 64, said, sizeof(said), &took) && took ? after : -1;
++		};
+ 		Common::Array<int> rooms;
+-		if (!ownAnswers) rooms.push_back(room);
+-		for (int i = 0; i < kWorldGames[g].sceneCount && !ownAnswers; ++i) rooms.push_back(kWorldGames[g].scenes[i].room);
+-		if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->roomCount && !ownAnswers; ++i) rooms.push_back(map->rooms[i].room);
++		if (!ownAnswers || panelOwn) rooms.push_back(room);
++		for (int i = 0; i < kWorldGames[g].sceneCount && (!ownAnswers || panelOwn); ++i) rooms.push_back(kWorldGames[g].scenes[i].room);
++		if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->roomCount && (!ownAnswers || panelOwn); ++i) rooms.push_back(map->rooms[i].room);
+ 		const int pushedBefore = pushed, takenBefore = taken, declinedBefore = declined;
++		const uint carriedHere = _carried.size();
+ 		const bool known = PanelBridge::thingsLoaded(g);
+ 		Common::HashMap<int, bool> seen;
+ 		for (uint k = 0; k < rooms.size() && seen.size() < 80; ++k) {
+ 			if (pushed > pushedBefore && taken > takenBefore && declined > declinedBefore) break;
++			if (panelOwn && taken > takenBefore) break;
+ 			if (seen.contains(rooms[k]) || !installed(g, rooms[k])) continue;
+ 			seen[rooms[k]] = true;
+ 			if (k && !enter(g, rooms[k], 0, problem)) continue;
++			// (Taken as its record takes it where someone is, to be given.)
++			bool someone = !panelOwn;
++			for (uint n = 0; n < _onStage.size() && !someone; ++n) someone = (int)n != _player;
++			if (!someone) continue;
+ 			things.clear();
+ 			for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 			for (int o : things) {
+-				if (pushed > pushedBefore) break;
++				if (pushed > pushedBefore || panelOwn) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+ 				const int known = pictures < 2 ? -1 : effectAfter(o, kWorldVerbPush, shown ? 1 : 0);
+@@ -5720,10 +5740,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (taken > takenBefore) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+-				if (door || !small || pictures < 2 || !there(o, shown) || !answer(o, kWorldVerbPickUp, kWorldVerbPickUp) || keptBack(o, shown ? 1 : 0)) continue;
++				const int ownAfter = panelOwn && shown <= 1 ? ownTake(o, shown) : -1;
++				if (panelOwn ? door || !small || pictures < 2 || ownAfter < 0 :
++					door || !small || pictures < 2 || !there(o, shown) || !answer(o, kWorldVerbPickUp, kWorldVerbPickUp) || keptBack(o, shown ? 1 : 0)) continue;
+ 				const int before = PanelBridge::itemCount();
+ 				if (!use(kWorldVerbPickUp, o)) continue;
+-				if (PanelBridge::itemCount() != before + 1 || StageBridge::objectShown(o) != takenPicture) { fail("not taken", g); break; }
++				if (PanelBridge::itemCount() != before + 1 || StageBridge::objectShown(o) != (panelOwn ? ownAfter : takenPicture)) { fail("not taken", g); break; }
+ 				++taken;
+ 				// Not there to be used again.
+ 				if (use(kWorldVerbPickUp, o) || use(kWorldVerbOpen, o)) fail("used again once taken", g);
+@@ -5834,7 +5856,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			}
+ 			// One its game's script does not take (a pirate at a table): refused.
+ 			for (int o : things) {
+-				if (declined > declinedBefore) break;
++				if (declined > declinedBefore || panelOwn) break;
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+ 				if (door || !small || pictures < 2 || !there(o, shown) || answer(o, kWorldVerbPickUp, kWorldVerbPickUp)) continue;
+@@ -5844,6 +5866,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 				break;
+ 			}
+ 		}
++		// (From 0253 the one taken as its record takes it put back, its
++		// records each checked below.)
++		for (uint c = _carried.size(); panelOwn && c-- > carriedHere;)
++			if (_carried[c].game == g) { _pictures.erase(thingKey(g, _carried[c].room, _carried[c].id)); PanelBridge::removeItem(c); _carried.remove_at(c); }
++		if (panelOwn && taken == takenBefore) fail("not taken as its own record takes it", g);
+ 		// (Where its game's things are known, each seen in that game.)
+ 		if (known && !ownAnswers && (pushed == pushedBefore || taken == takenBefore || declined == declinedBefore)) fail("not pushed, taken and declined", g);
+ 		withThings += known && !ownAnswers;
+@@ -7343,10 +7370,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// (The Dig: a door its game keeps untouchable until another thing's
+ 	// answer shows it, its way down under its hatch: a tap there is the
+ 	// hatch's, whose answer shows the door; then a tap there goes through.)
+-	struct OwnRecords { int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0; int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things; };
+-	OwnRecords ownDig, ownFt;
++	struct OwnRecords { int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0; int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things; };
++	// (From 0253 Day of the Tentacle's likewise, its verb panel's verbs; one
++	// taken with its verb chosen on the panel and a tap on it, seen among its
++	// panel's things.)
++	OwnRecords ownDig, ownFt, ownDott;
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+-		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : nullptr;
++		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : sameId(kWorldGames[g].gameid, "tentacle") ? &ownDott : nullptr;
+ 		if (!c) continue;
+ 		loadThings(g);
+ 		c->game = g; c->all = PanelBridge::effectCount(g);
+@@ -7379,9 +7409,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 			char said[256];
+ 			bool took = false;
+ 			if (!PanelBridge::thingEffect(g, room, id, kind, from, after, others, count, 64, said, sizeof(said), &took)) return false;
+-			bool same = (*said ? _speech == said : _speech.empty()) && pictureNow(o, id) == after && isCarried(g, room, id) == took;
++			// (From 0253, one its game takes that has no picture of its own in
++			// its place (Day of the Tentacle's drawn in another's) cannot be
++			// carried here: refused, as one with no picture is never taken,
++			// nothing else changed.)
++			const bool noPicture = took && !isCarried(g, room, id) && !StageBridge::objectPictures(o) && _speech == "I can't pick that up." && pictureNow(o, id) == from;
++			bool same = noPicture || ((*said ? _speech == said : _speech.empty()) && pictureNow(o, id) == after && isCarried(g, room, id) == took);
+ 			int unpictured = 0;
+-			for (int i = 0; i < count; ++i) {
++			for (int i = 0; i < count && !noPicture; ++i) {
+ 				const int r = others[3 * i], other = others[3 * i + 1], picture = others[3 * i + 2];
+ 				if (picture == 2 && !isCarried(g, r, other) && same) {
+ 					if (carry(g, r, other, "", 0)) same = false; else ++unpictured;
+@@ -7389,7 +7424,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 				} else same = same && (picture == 2 || isCarried(g, r, other) || pictureOf(r, other) == picture);
+ 			}
+ 			if (!same) warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d: said %d letters, shown %d%s (its record: %d letters, %d%s)", kWorldGames[g].gameid, id, room, kind, from, (int)_speech.size(), pictureNow(o, id), isCarried(g, room, id) ? ", carried" : "", (int)strlen(said), after, took ? ", taken" : "");
+-			if (same && !controls) {
++			if (same && !controls && noPicture) ++c->refused;
++			else if (same && !controls) {
+ 				c->lines += *said != 0; c->pictures += after != from; c->taken += took; c->unpictured += unpictured;
+ 				for (int i = 0; i < count; ++i) c->given += others[3 * i + 2] == 2;
+ 				if (kind >= 0 && kind <= kWorldVerbNote) ++c->byKind[kind];
+@@ -7424,13 +7460,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (o < 0 || !isThing(o) || !use(kind, o)) continue;
+ 			int bx, by, bw, bh, x, y, w, h;
+ 			bool boxed = PanelBridge::itemCount() == before + 1;
++			// (From 0253 a verb panel's things are on it, always shown.)
++			const bool shown = !PanelBridge::over() && !PanelBridge::coin();
+ 			if (boxed && PanelBridge::coin()) rightClick(_width / 2, _height / 2);
+-			else if (boxed) boxed = PanelBridge::buttonRect(bx, by, bw, bh) && (tapRect(bx, by, bw, bh), true);
+-			for (int turn = 0; turn < 64 && boxed && PanelBridge::isOpen() && PanelBridge::itemCount() - 1 - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
+-			boxed = boxed && PanelBridge::isOpen() && PanelBridge::slotRect(PanelBridge::itemCount() - 1 - PanelBridge::firstItem(), x, y, w, h);
++			else if (boxed && !shown) boxed = PanelBridge::buttonRect(bx, by, bw, bh) && (tapRect(bx, by, bw, bh), true);
++			for (int turn = 0; turn < 64 && boxed && (shown || PanelBridge::isOpen()) && PanelBridge::itemCount() - 1 - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++			boxed = boxed && (shown || PanelBridge::isOpen()) && PanelBridge::slotRect(PanelBridge::itemCount() - 1 - PanelBridge::firstItem(), x, y, w, h);
+ 			PanelBridge::open(false); PanelBridge::select(-1);
+ 			if (answered(o, room, id, kind, from, true) && boxed) ++c->controls;
+-			else fail(PanelBridge::coin() ? "a thing not taken as its game takes it, with its coin" : "a thing not taken as its game takes it, with its tap", g);
++			else fail(PanelBridge::coin() ? "a thing not taken as its game takes it, with its coin" : shown ? "a thing not taken as its game takes it, with its verb panel" : "a thing not taken as its game takes it, with its tap", g);
+ 		}
+ 		for (int k = 0; k < c->all && sameId(kWorldGames[g].gameid, "dig"); ++k) {
+ 			int room, id, kind, from, after, others[3 * 64], count, found, answers;
+@@ -7466,6 +7504,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 		}
+ 		Common::String kinds;
+ 		for (int kind = 1; kind <= kWorldVerbNote; ++kind) if (c->byKind[kind]) kinds += Common::String::format("%s%d of verb %d", kinds.empty() ? "" : ", ", c->byKind[kind], kind);
++		if (c->refused) kinds += Common::String::format("%s%d taken by its game refused, no picture of their own to carry", kinds.empty() ? "" : ", ", c->refused);
+ 		warning("SCUMMVERSE sandbox selftest %s: %d of %d records of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken, %d given, %d of them with no picture to carry; %s), %d taken with its own controls, in its box; %d of %d doors its game keeps untouchable shown by another's answer, then gone through",
+ 			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden);
+ 	}
+@@ -7536,7 +7575,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined) ||
+ 		(ownAll && (ownSeen + ownAway != ownAll || !ownSeen || !ownTaken || ownPointer != 1)) ||
+ 		(ownDig.all && (ownDig.seen + ownDig.away != ownDig.all || !ownDig.seen || !ownDig.taken || ownDig.controls != 1 || ownDig.shown != ownDig.hidden)) ||
+-		(ownFt.all && (ownFt.seen + ownFt.away != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1)))
++		(ownFt.all && (ownFt.seen + ownFt.away != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1)) ||
++		(ownDott.all && (ownDott.seen + ownDott.away != ownDott.all || !ownDott.seen || !ownDott.taken || ownDott.controls != 1)))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

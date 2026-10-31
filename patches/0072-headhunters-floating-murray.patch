@@ -1,0 +1,160 @@
+diff --git a/common/scummverse_world_cast.inc b/common/scummverse_world_cast.inc
+index 41ec4607..83e8c239 100644
+--- a/common/scummverse_world_cast.inc
++++ b/common/scummverse_world_cast.inc
+@@ -14,12 +14,15 @@ static const WorldCastGuest kWorldCast[] = {
+ 	{0, 25, 0, {9, "Lemonhead",
+ 		"Lemonhead, the cannibal with the lemon-shaped mask who leads the welcome (and the menu) in the Monkey Island village; proud, theatrical, and secretly vegetarian", 14,
+ 		{"Welcome to our village. Please keep still.", "I carve all the heads around here myself.", "We prefer fruit these days. Mostly."}}},
+-	{0, 25, 1, {9, "Cannibals of Monkey Island",
+-		"one of Lemonhead's fellow cannibals in the Monkey Island village; suspicious of strangers, fond of bananas, and surprisingly polite", 7,
+-		{"Hands where we can see them, stranger.", "Have you brought a banana for the idol?", "We're between meals at the moment."}}},
+-	{0, 25, 2, {34, "Three-headed monkey",
++	{0, 25, 1, {34, "Three-headed monkey",
+ 		"the legendary three-headed monkey, which actually turns up in the cannibal village when someone shouts about it; baffled, triple-chattering, and camera-shy", 8,
+ 		{"Ook! Ook! Ook!", "Eep? Eep? Eep?", "Chee. Chee. Chee."}}},
++	{0, 25, 2, {906, "Sharptooth",
++		"Sharptooth, one of the three cannibals of Monkey Island, in a grey shaggy mask full of pointed teeth; fierce-looking, secretly a vegetarian, and fussy about the quality of the village fruit", 7,
++		{"Do not mind the teeth. Mostly decorative.", "Have you tried the bananas this season? Superb.", "We used to be scarier. Then we discovered salad."}}},
++	{0, 25, 3, {911, "Red Skull",
++		"Red Skull, one of the three cannibals of Monkey Island, in a red skull mask with a grin of square teeth; theatrical, proud of his mask, and fond of dramatic pronouncements about the island", 12,
++		{"Behold! The mask of terror! It took me all week.", "Monkey Island keeps its secrets. And its snacks.", "Visitors come and go. Mostly go."}}},
+ 	{0, 28, 0, {26, "Cook (SCUMM Bar)",
+ 		"the SCUMM Bar's short-tempered cook who defends his kitchen and his stew from every intruder; grumpy, territorial, and proud of food nobody praises", 11,
+ 		{"Out of my kitchen!", "The stew is fine. Don't ask what's in it.", "Customers sit there. Cooks stand here."}}},
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index f0a4f9e7..e9c4f2a1 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 7;
++static const int kWorldExportVersion = 8;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -137,6 +137,25 @@ inline const WorldGuest *worldGuestAt(int key, int slot) {
+ 		if (cast.game == game && cast.room == room && cast.slot == slot) return &cast.guest;
+ 	return nullptr;
+ }
++// Characters a game draws from another character's costume with its own
++// animation set (e.g. Monkey Island's cannibals share one costume, each with
++// a different mask): exported as a virtual costume number of that game.
++struct WorldCostumeVariant { short game, costume, real, init, walk, stand, talkStart, talkStop; };
++static const WorldCostumeVariant kWorldCostumeVariants[] = {
++	{0, 906, 9, 6, 7, 8, 9, 8},     // Monkey Island cannibal, second mask
++	{0, 911, 9, 11, 12, 13, 14, 13}, // Monkey Island cannibal, third mask
++};
++inline const WorldCostumeVariant *worldCostumeVariant(int game, int costume) {
++	for (const auto &v : kWorldCostumeVariants) if (v.game == game && v.costume == costume) return &v;
++	return nullptr;
++}
++// Characters who float instead of walking (Murray, the talking skull).
++struct WorldHoverer { short game, costume; };
++static const WorldHoverer kWorldHoverers[] = {{9, 49}};
++inline bool worldHovers(int game, int costume) {
++	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
++	return false;
++}
+ // Playing as someone from another game: a sandbox character's appearance is
+ // a cast member by key game * 1024 + costume + 1 (0: themselves). Keys are
+ // saved, and stay valid when the cast is regenerated.
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 9f44363b..0f407e76 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1644,7 +1644,7 @@ protected:
+ 	// and characters playing someone else) whenever that set changes.
+ 	void scummverseMountCharacters();
+ 	Common::Array<byte> scummverseCharacterFrames(int game, int costume) const;
+-	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale);
++	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover);
+ 	Common::String _scummverseCharactersKey;
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index b7818a3a..6217c757 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -180,6 +180,10 @@ struct ScummverseGuestFrame {
+ // renderer, in the room exported last. Each pose is drawn twice over
+ // different fills: a pixel is opaque when both passes agree.
+ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem) {
++	// A virtual costume: another costume with its own animation set.
++	const WorldGame *game = worldGame(_game.gameid);
++	const WorldCostumeVariant *variant = game ? worldCostumeVariant((int)(game - kWorldGames), costume) : nullptr;
++	if (variant) costume = variant->real;
+ 	if (costume <= 0 || costume >= _numCostumes) { problem = "costume out of range"; return false; }
+ 	if (_game.version >= 4 && !_res->_types[rtCostume][costume]._roomno) { problem = "costume missing"; return false; }
+ 	if (_game.version <= 3 && _res->_types[rtCostume][costume]._roomoffs == RES_INVALID_OFFSET) { problem = "costume missing"; return false; }
+@@ -188,6 +192,10 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	Actor *a = _actors[1];
+ 	a->initActor(0);
+ 	a->setActorCostume(costume);
++	if (variant) {
++		a->_initFrame = variant->init; a->_walkFrame = variant->walk; a->_standFrame = variant->stand;
++		a->_talkStartFrame = variant->talkStart; a->_talkStopFrame = variant->talkStop;
++	}
+ 	// Full size, unmasked, one animation step per call.
+ 	a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
+ 	putClass(a->_number, kObjectClassNeverClip, true);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 61bd5704..3d9b6696 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -398,8 +398,11 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 	// Someone from another game, in any room (frames mounted at this room's
+ 	// scale; other worlds add their depth).
+ 	const int id = a->_number;
+-	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom)
+-		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id], inWorld ? scummverseWorldDepth(a) : 1.0);
++	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom) {
++		const int look = scummverseAppearance(id);
++		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id],
++			inWorld ? scummverseWorldDepth(a) : 1.0, worldHovers(worldAppearanceGame(look), worldAppearanceCostume(look)));
++	}
+ 	if (!inWorld || a->_room != _currentRoom) return false;
+ 	const double depth = scummverseWorldDepth(a);
+ 	if (scummverseGuestSlot(a) >= 0) return scummverseDrawGuest(a, depth);
+@@ -408,23 +411,34 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 
+ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	const int k = scummverseGuestSlot(a);
+-	return k >= 0 && scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale);
++	if (k < 0) return false;
++	int source;
++	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
++	const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++	return scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale, guest && worldHovers(gameIndex, guest->costume));
++}
++
++// Floating characters (Murray) hover a quarter of their height above their
++// feet, bobbing gently, and keep their standing pose while they move.
++static int worldHoverLift(int tick, int height) {
++	return (int)(height / 4 + 2 * sin(tick * 0.08) + 0.5);
+ }
+ 
+-bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale) {
++bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover) {
+ 	if (!a->_needRedraw) return true;
+ 	a->_needRedraw = false;
+ 	int index;
+-	const int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
++	int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
++	if (hover && kind == 1) { kind = 0; index = 0; }
+ 	const int dir = worldGuestDirection(a->getFacing());
+-	shown = (dir * 3 + kind) * 64 + index % 64;
++	shown = hover ? -1 : (dir * 3 + kind) * 64 + index % 64; // Hovering is never still.
+ 	int dx, dy, width, height;
+ 	const byte *frame = WorldBridge::guestFrame(sprite, dir, kind, index, dx, dy, width, height);
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 	// Scaled around the feet, nearest pixel so outlines stay crisp.
+-	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation();
++	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation() - (hover ? worldHoverLift(tick, (int)(height * scale)) : 0);
+ 	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
+ 	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
+ 	const int left = MAX(0, x0), right = MIN<int>(_screenWidth, x0 + w);

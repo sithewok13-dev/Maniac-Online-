@@ -1,0 +1,416 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 28414bbf..eecdb74b 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -846,7 +846,9 @@ void Panel::renderControls(uint32_t *screen, int pitch, int screenWidth, int scr
+ // (Its picture centred on the pointer at the layout's scale, smaller to fit
+ // a slot as the box shows it; where it is not drawn the scene shows.)
+ void Panel::heldPointer(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, Rect *bounds) const {
+-	const Item &item = _items[_held];
++	// (From 0290 one with no picture: its name lettered.)
++	const Item named = _items[_held].picture.empty() ? lettered(_items[_held]) : Item();
++	const Item &item = named.picture.empty() ? _items[_held] : named;
+ 	if (item.width <= 0 || item.height <= 0 || item.picture.size() != (size_t)item.width * item.height || _rowScale <= 0 || _colScale <= 0) return;
+ 	double fit = 1.0;
+ 	if (!_source.slots.empty() && _source.slots[0].width > 0 && _source.slots[0].height > 0)
+@@ -909,6 +911,22 @@ void Panel::scroll(int by) {
+ 	_first -= _first % perRow;
+ }
+ 
++Item Panel::lettered(const Item &item) const {
++	if (!item.picture.empty() || item.name.empty()) return item;
++	const int font = textWidth(0, item.name) > 0 ? 0 : 1, rows = _source.fonts[font].height;
++	const int slot = !_source.slots.empty() ? _source.slots[0].width : 0;
++	const std::vector<std::string> lines = slot > 0 ? wrap(font, item.name, slot) : std::vector<std::string>(1, item.name);
++	int width = 0;
++	for (const std::string &line : lines) width = std::max(width, textWidth(font, line));
++	Item out = item;
++	if (width <= 0 || rows <= 0) return out;
++	out.width = width; out.height = rows * (int)lines.size();
++	out.picture.assign((size_t)out.width * out.height, 0);
++	const uint32_t ink = color(font == 0 && _source.sentenceColor ? _source.sentenceColor : _source.talkColor);
++	for (size_t k = 0; k < lines.size(); ++k) text(out.picture, out.width, out.height, font, lines[k], (width - textWidth(font, lines[k])) / 2, rows * (int)k, ink, out.width);
++	return out;
++}
++
+ int Panel::textWidth(int font, const std::string &text) const {
+ 	const Font &f = _source.fonts[font & 1];
+ 	int width = 0;
+@@ -974,7 +992,8 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		const Item &item = _items[i];
+ 		if (r.width <= 0 || r.height <= 0) continue;
+ 		if (_source.slotKind == 1) { text(canvas, W, H, 0, item.name, r.x, r.y, color(_source.slotColor), r.x + r.width); continue; }
+-		fit(canvas, r, item);
++		if (item.picture.empty()) fit(canvas, r, lettered(item)); // (from 0290 its name, lettered)
++		else fit(canvas, r, item);
+ 	}
+ 	// (Loom's: the thing chosen in its box.)
+ 	if (_source.distaff && _hasChosen) fit(canvas, _source.icon, _chosen);
+@@ -1281,6 +1300,22 @@ bool addItem(const unsigned char *scene, size_t size, int id, const char *name,
+ 	panel().setItems(items);
+ 	return true;
+ }
++bool addNamed(const unsigned char *scene, size_t size, int id, const char *name) {
++	World::SourceScene source;
++	std::string problem;
++	if (!World::parseScene(scene, size, source, problem)) return false;
++	for (const World::SourceObject &o : source.objects) {
++		if (o.id != id) continue;
++		Panel::Item item;
++		item.name = name && *name ? name : o.name;
++		if (item.name.empty()) return false;
++		std::vector<Panel::Item> items = panel().items();
++		items.push_back(item);
++		panel().setItems(items);
++		return true;
++	}
++	return false;
++}
+ bool distaff() { return panel().distaff(); }
+ int play(int verb) { return panel().play(verb); }
+ int playedNotes() { return panel().played(); }
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index df5be02c..f2249c16 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -149,7 +149,10 @@ struct Source {
+ // (with `error`) when malformed.
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error);
+ 
+-// A thing carried: its name and picture (0xAARRGGBB, width * height).
++// A thing carried: its name and picture (0xAARRGGBB, width * height). From
++// 0290 one with no picture (width and height 0) is carried by its name: in a
++// slot of pictures, and held as the pointer, drawn as its name in the
++// panel's lettering (`lettered`).
+ struct Item { std::string name; int width = 0, height = 0; std::vector<uint32_t> picture; };
+ 
+ // A thing in the scene a verb is used on: a door of the game's map; how many
+@@ -477,6 +480,11 @@ public:
+ 	// Text in the game's lettering: its width (source pixels), and lines of
+ 	// at most `width` source pixels.
+ 	int textWidth(int font, const std::string &text) const;
++	// (From 0290 a thing carried as drawn: its picture, or for one with none
++	// its name in the sentence's lettering (else the talk's), lines no wider
++	// than a slot where a word allows, in the sentence's colour (else the
++	// talk's), as a picture.)
++	Item lettered(const Item &item) const;
+ 	std::vector<std::string> wrap(int font, const std::string &text, int width) const;
+ 	// Speech: lines in the talk lettering, centred on `centreX`, the last
+ 	// ending at `bottomY` (screen pixels), at the scene's scale, kept on a
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 3f1fdc12..562676ba 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -83,6 +83,13 @@ int sentenceText(char *text, int capacity);
+ // only where it differs from picture `without` (the place without it: the
+ // oldest games' is their "on" picture); false when it has no picture.
+ bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture = -1, int without = 0);
++// From 0290 one of a scene with no picture of its own (its game draws it as
++// part of the place, or not at all there: Day of the Tentacle's hamster,
++// room 42, 429; Monkey Island's bananas, room 25, 298 and 299), carried by
++// its name alone (`name`, null: the scene's): a names list shows it as any
++// other, a slot of pictures (and the pointer holding it) its name in the
++// panel's lettering; false when the scene has no such thing or no name.
++bool addNamed(const unsigned char *scene, size_t size, int id, const char *name);
+ int itemCount();
+ int itemName(int item, char *name, int capacity);
+ void removeItem(int item);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 149a0dcd..a0745f26 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -157,11 +157,14 @@ static const int kWorldExportVersion = 25;
+ // kWorldCloseUps' `with` given to one of its cast, `var`, `sets` and
+ // `takes`, kWorldCastThings: "maniac-v50"); from 0289 the mansion's again
+ // (the dungeon's inner door's keypad shown by Unlock too, and Meteor Mess's
+-// score screen with no high score before Dr Fred has played: "maniac-v51").
++// score screen with no high score before Dr Fred has played: "maniac-v51");
++// from 0290 Zak's again (a place whose entry starts a cut-scene that shows
++// another room first, the first time, arrived at past it, as a player skips
++// it: its living room, room 2, answered, before not at all: "zak-v33").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
+-		same(gameid, "zak") || same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
++		same(gameid, "zak") ? 8 : same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+ 		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index f5e0d51b..71c64615 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4806,6 +4806,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			getObjectXYPos(at, x, y, dir);
+ 			_actors[ego]->putActor(x, y, room);
+ 		}
++		// (From 0290 a cut-scene its entry starts that shows another room
++		// first (Zak's living room, room 2, the first time: its "meanwhile"):
++		// skipped as a player skips it, the one played in the place as a door
++		// leaves them, so that its end comes back there. Before, every run of
++		// the place found itself elsewhere, and the place had no answers.)
++		bool skippedAway = false;
+ 		for (int cycle = 0; cycle < 16 && _currentRoom == room; ++cycle) {
+ 			bool running = false;
+ 			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+@@ -4817,6 +4823,16 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+ 			_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
+ 			runAllScripts(); _sound->stopAllSounds(); dropTexts();
++			if (_currentRoom != room && !skippedAway && vm.cutScenePtr[vm.cutSceneStackPointer]) {
++				skippedAway = true;
++				_actors[ego]->putActor(room);
++				for (int more = 0; more < 16 && _currentRoom != room; ++more) {
++					scummverseSkipCutscene();
++					if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++					_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
++					runAllScripts(); _sound->stopAllSounds(); dropTexts();
++				}
++			}
+ 		}
+ 		// (From 0285, there at the thing, the camera where the place's scripts
+ 		// sent it, as by the time a player has walked up to the thing: a pan
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 2900c1e8..b219a16f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2325,8 +2325,18 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			if (isCarried(game, r, o)) continue;
+ 			if (given && later) carryGiven(game, others, count, k); // (from 0281 its place as its game leaves it)
+ 			else if (given) {
+-				// (One the kid has then: carried, gone from its place.)
+-				if (carry(game, r, o, "", 0)) _pictures[thingKey(game, r, o)] = 1;
++				// (One the kid has then: carried, gone from its place. From 0290
++				// its place as the answer leaves it where it says (Zak's CashCard,
++				// room 1, 18, given by the torn wallpaper used under the desk: its
++				// "on" picture is it lying there, and drew it there again, carried,
++				// once the place was entered again or a state read back).)
++				int placed = -1;
++				for (int i = 0; i < count; ++i) if (others[4 * i] == r && others[4 * i + 1] == o && !others[4 * i + 3]) placed = others[4 * i + 2];
++				if (carry(game, r, o, "", 0)) {
++					if (placed < 0) _pictures[thingKey(game, r, o)] = 1;
++					else if (game == _game) setPicture(r, o, placed);
++					else _pictures[thingKey(game, r, o)] = placed;
++				}
+ 			} else if (game == _game) setPicture(r, o, picture);
+ 			else _pictures[thingKey(game, r, o)] = picture;
+ 		}
+@@ -3312,10 +3322,17 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ 	// & Max's what its game's script leaves. From 0258, one its place has no
+ 	// picture of (or given in no place: room 0) by its own inventory picture,
+ 	// where its game's things file has it.)
++	// (From 0290 a later game's thing its place has no picture of, nor its
++	// things file an inventory picture, by its name alone (PanelBridge::
++	// addNamed): before, its game's taking or giving it was refused, and what
++	// it is needed for could not be done (Day of the Tentacle's hamster, room
++	// 42, 429; Fate of Atlantis's gum, room 6, 102; Monkey Island's bananas,
++	// room 25, 298 and 299).)
+ 	const bool scene = room > 0 && read(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room), data);
+ 	if (!scene || !PanelBridge::addItem(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str(), picture, placeWithout(game, room, id, picture))) {
+ 		loadThings(game);
+-		if (!PanelBridge::addIcon(game, id, name.empty() ? nullptr : name.c_str())) return false;
++		if (!PanelBridge::addIcon(game, id, name.empty() ? nullptr : name.c_str()) &&
++			(!scene || worldHome(game) || !PanelBridge::addNamed(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str()))) return false;
+ 	}
+ 	Carried c;
+ 	c.game = game; c.room = room; c.id = id; c.name = name; c.picture = picture;
+@@ -12958,7 +12975,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 		return false;
+ 	};
+ 	int zakSingles = 0, zakSeen = 0, zakAway = 0, zakLines = 0, zakPictures = 0, zakTaken = 0, zakGiven = 0, zakUnpictured = 0, zakPanel = 0;
+-	int zakPairs = 0, zakPairsSeen = 0, zakPairsAway = 0, zakUsual = 0, zakUsedUp = 0, zakBothCarried = 0, zakKept = 0;
++	int zakPairs = 0, zakPairsSeen = 0, zakPairsAway = 0, zakUsual = 0, zakUsedUp = 0, zakBothCarried = 0, zakKept = 0, zakPlaced = 0, zakPlacedAll = 0, zakArrived = 0;
+ 	Common::HashMap<int, bool> zakThings;
+ 	int zak = -1;
+ 	for (int g = 0; g < worldGameCount(); ++g) if (sameId(kWorldGames[g].gameid, "zak")) zak = g;
+@@ -13092,6 +13109,73 @@ Common::Error SandboxEngine::verbsTest() {
+ 			for (int i = 0; i < count; ++i) { putBack(others[3 * i], others[3 * i + 1]); forgetThing(thingKey(zak, others[3 * i], others[3 * i + 1])); }
+ 			if (count || !carried) afresh(room);
+ 		}
++		// (From 0290 one an answer of two gives that the same answer also
++		// leaves in a picture of its own where it lay (Zak's CashCard, room 1,
++		// 18, given by the torn wallpaper used under the desk, its "on" picture
++		// it lying there): its place so once given, as entered again, and as a
++		// state read back, the one given carried still. Before, drawn there
++		// again, carried, once the place was entered again or read back.)
++		const Common::HashMap<int, int> placedPictures = _pictures;
++		const Common::Array<Carried> placedCarried = _carried;
++		for (int k = 0; k < zakAll; ++k) {
++			const TouchedKept touchedKept{_touched, _touched};
++			int room, id, kind, from, with = 0, after, flags, four[4 * 64], count, lines;
++			if (!PanelBridge::effectAt(zak, k, room, id, kind, from, &with) || !with || with == 0xFFFF || !installed(zak, room) || !carryable.contains(with) || carryable.contains(id) ||
++				!PanelBridge::thingAnswer(zak, room, id, kind, from, with, after, flags, four, count, 64, lines) || !(flags & 8)) continue;
++			int givenRoom = 0, givenThing = 0, placed = -1;
++			for (int i = 0; i < count; ++i)
++				for (int j = 0; j < count && four[4 * i + 3]; ++j)
++					if (!four[4 * j + 3] && four[4 * j] == four[4 * i] && four[4 * j + 1] == four[4 * i + 1]) { givenRoom = four[4 * i]; givenThing = four[4 * i + 1]; placed = four[4 * j + 2]; }
++			if (!givenThing || givenRoom != room) continue;
++			++zakPlacedAll;
++			_carried.clear(); PanelBridge::clearItems(); forgetThings();
++			const int o = enter(zak, room, 0, problem) ? thingIn(id) : -1;
++			bool ok = o >= 0 && isThing(o) && carry(zak, carryable[with], with, "", 0);
++			if (ok) {
++				if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from); else _pictures[thingKey(zak, room, id)] = from;
++				Pair p;
++				p.kind = kind; p.item = _carried.size() - 1; p.withThing = o;
++				pairUp(p);
++				ok = isCarried(zak, room, givenThing) && pictureOf(room, givenThing) == placed && enter(zak, room, 0, problem) && pictureOf(room, givenThing) == placed;
++			}
++			if (ok) {
++				saveState();
++				_carried.clear(); PanelBridge::clearItems(); forgetThings();
++				int sg, sr;
++				double sx, sy;
++				ok = loadState(sg, sr, sx, sy) && enter(zak, room, 0, problem) && isCarried(zak, room, givenThing) && pictureOf(room, givenThing) == placed;
++			}
++			if (ok) ++zakPlaced;
++			else fail("a thing an answer of two gives, its place in a picture the answer leaves it in, not so once given, entered again or read back", zak);
++			_carried.clear(); PanelBridge::clearItems(); forgetThings();
++		}
++		if (!zakPlacedAll && installed(zak, 1) && _folder.getChild(Common::String::format("zak-v%d.svx", worldExportVersion("zak"))).exists())
++			fail("no answer of two giving a thing it leaves in a picture of its own where it lay (the CashCard, room 1)", zak);
++		// (From 0290 a place whose entry starts a cut-scene that shows another
++		// room first, the first time (Zak's living room, room 2: its
++		// "meanwhile"), has answers of its own, as its export now skips that
++		// cut-scene as a player does (before, none at all, its plain rules
++		// for everything there): its cabinet (121) opened, then the box of
++		// crayons inside (25) picked up, as recorded: its line said (the plain
++		// rules say none), carried. Wherever Zak's export is of this version
++		// (its marker).)
++		if (installed(zak, 2) && _folder.getChild(Common::String::format("zak-v%d.svx", worldExportVersion("zak"))).exists()) {
++			const TouchedKept touchedKept{_touched, _touched};
++			int after, flags, four[4 * 64], count, lines, speaker, costume, color;
++			char said[256];
++			_carried.clear(); PanelBridge::clearItems(); forgetThings();
++			const bool recorded = PanelBridge::thingAnswer(zak, 2, 121, kWorldVerbOpen, 0, 0, after, flags, four, count, 64, lines) && after == 1 &&
++				PanelBridge::thingAnswer(zak, 2, 25, kWorldVerbPickUp, 0, 0, after, flags, four, count, 64, lines) && (flags & 1) && lines &&
++				PanelBridge::answerLine(zak, 2, 25, kWorldVerbPickUp, 0, 0, 0, speaker, costume, color, said, sizeof(said));
++			const int o = recorded && enter(zak, 2, 0, problem) ? thingIn(121) : -1;
++			bool ok = o >= 0 && pictureNow(o, 121) == 0 && doAt(kWorldVerbOpen, o) && pictureNow(o, 121) == 1 && thingIn(25) >= 0 && isThing(thingIn(25));
++			ok = ok && doAt(kWorldVerbPickUp, thingIn(25)) && _speech == said && isCarried(zak, 2, 25);
++			if (ok) ++zakArrived;
++			else fail("its living room (room 2) not answered as its game answers it once its first cut-scene is skipped (export Zak again: tools/export_worlds.py)", zak);
++		}
++		_carried.clear(); PanelBridge::clearItems(); forgetThings();
++		for (const Carried &kept : placedCarried) carry(kept.game, kept.room, kept.id, kept.name, kept.picture, false);
++		_pictures = placedPictures;
+ 		// (The first taken, as a player takes it: the panel's verb, a tap on
+ 		// it; carried, in the panel's slots; its place entered again, as its
+ 		// game leaves it without it.)
+@@ -13122,6 +13206,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	}
+ 	warning("SCUMMVERSE sandbox selftest Zak McKracken: %d of %d records of one thing of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken (%d places entered again as left), %d given, %d of them with no picture to carry), %d taken with its panel, in its slots; %d of %d of two things (Use) as its own sentence answers (%d not tried; %d a usual answer, %d using up, %d with both carried)",
+ 		zakSeen, zakSingles, (int)zakThings.size(), zakAway, zakLines, zakPictures, zakTaken, zakKept, zakGiven, zakUnpictured, zakPanel, zakPairsSeen, zakPairs, zakPairsAway, zakUsual, zakUsedUp, zakBothCarried);
++	warning("SCUMMVERSE sandbox selftest Zak McKracken given and placed: %d of %d answers of two giving a thing they leave in a picture of its own where it lay, carried and its place so, entered again and read back; "
++		"%d living room answered past its first cut-scene", zakPlaced, zakPlacedAll, zakArrived);
+ 	// (From 0270 who says a line here, whatever the things files hold, in a
+ 	// place of a later game with someone of its own there: the one played
+ 	// their own lines; no one's the place; someone here's over them, the
+@@ -14243,6 +14329,107 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"%d carried, its place as its game leaves it (the answer's own picture for it, else as its own pick up leaves it); %d not playable here or with no picture to carry it by; %d failed",
+ 		revealed.gives, revealed.givesSet, revealed.givesSeen, revealed.givesAway, revealed.givesFailed);
+ 	failed += revealed.failed + revealed.givesFailed;
++	// (From 0290) Each thing of a later game an answer of one thing takes, or
++	// gives from the place it is played in, that its place has no picture of
++	// (its game draws it as part of the place, or as someone: Day of the
++	// Tentacle's hamster, room 42, 429; Monkey Island's bananas, room 25,
++	// 298 and 299, given by 309 picked up), played as a player plays it, once
++	// a thing, in its place as its game starts it, nothing carried: carried
++	// (by its name, or by its own inventory picture where its things file
++	// has one), named as its place names it, its slot under the scene drawn
++	// (its name in the panel's lettering), kept through a save and a load.
++	// Before, its game's taking or giving it was refused, and what it is
++	// needed for could not be done.
++	int namedAll = 0, named = 0, namedKept = 0, namedFailed = 0;
++	{
++		const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++		const Common::Array<Carried> carriedKept = _carried;
++		const int wasGame = _game, wasRoom = _room;
++		Common::String problem;
++		Common::HashMap<int, bool> tried;
++		auto thingIn = [&](int id) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, w, h, wx, wy, state;
++				if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++			}
++			return -1;
++		};
++		for (int g = 0; g < worldGameCount(); ++g) {
++			if (!ownSentences(g) || worldHome(g)) continue;
++			loadThings(g);
++			for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++				int room, id, kind, from, with = 0, after, flags, others[4 * 64], count, lines;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || id >= kWorldPersonThing || !installed(g, room) ||
++					!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 64, lines)) continue;
++				int carried = (flags & 1) ? id : 0;
++				for (int i = 0; i < count && !carried; ++i) if (others[4 * i + 3] && others[4 * i] == room && others[4 * i + 1] != id) carried = others[4 * i + 1];
++				if (!carried || tried.contains(thingKey(g, room, carried))) continue;
++				_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going();
++				_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++				if (!enter(g, room, 0, problem)) continue;
++				const int o = thingIn(id), c = thingIn(carried);
++				char name[80];
++				if (o < 0 || c < 0 || StageBridge::objectPictures(c) || StageBridge::objectName(c, name, sizeof(name)) <= 0 || !isThing(o)) continue;
++				tried[thingKey(g, room, carried)] = true;
++				++namedAll;
++				if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from); else _pictures[thingKey(g, room, id)] = from;
++				double x, y;
++				doorPoint(o, x, y);
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				_action = kind; _target = o;
++				act();
++				char held[80] = "";
++				int item = -1;
++				for (uint i = 0; i < _carried.size(); ++i) if (_carried[i].game == g && _carried[i].room == room && _carried[i].id == carried) item = i;
++				bool ok = item >= 0 && PanelBridge::itemName(item, held, sizeof(held)) > 0 && !strcmp(held, name);
++				// (Drawn in its slot: the panel there not as it is with nothing carried.)
++				if (ok && PanelBridge::loaded() && !PanelBridge::over()) {
++					int sx, sy, sw, sh;
++					for (int turn = 0; turn < 64 && item - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++					ok = PanelBridge::slotRect(item - PanelBridge::firstItem(), sx, sy, sw, sh);
++					Common::Array<unsigned int> drawn((size_t)_width * _height, 0), without((size_t)_width * _height, 0);
++					PanelBridge::render(drawn.data(), _width, _height);
++					const Common::Array<Carried> carriedNow = _carried;
++					PanelBridge::clearItems();
++					PanelBridge::render(without.data(), _width, _height);
++					_carried.clear();
++					for (const Carried &k2 : carriedNow) carry(k2.game, k2.room, k2.id, k2.name, k2.picture, false);
++					bool differs = false;
++					for (int py = MAX(0, sy); ok && py < MIN(_height, sy + sh); ++py)
++						for (int px = MAX(0, sx); px < MIN(_width, sx + sw); ++px) differs = differs || drawn[py * _width + px] != without[py * _width + px];
++					ok = ok && differs && isCarried(g, room, carried);
++				}
++				if (ok) {
++					++named;
++					saveState();
++					_carried.clear(); PanelBridge::clearItems(); forgetThings();
++					int sg, sr;
++					double sx, sy;
++					ok = loadState(sg, sr, sx, sy) && isCarried(g, room, carried);
++					namedKept += ok;
++				}
++				if (!ok) {
++					++namedFailed;
++					warning("SCUMMVERSE sandbox named %s-%d object %d (verb %d from %d): %d, with no picture of its own there, not carried by its name, drawn in its slot and kept", kWorldGames[g].gameid, room, id, kind, from, carried);
++				}
++			}
++		}
++		// (Day of the Tentacle's hamster among them, wherever its place is installed.)
++		for (int g = 0; g < worldGameCount(); ++g)
++			if (sameId(kWorldGames[g].gameid, "tentacle") && installed(g, 42) && !tried.contains(thingKey(g, 42, 429))) {
++				++namedFailed;
++				warning("SCUMMVERSE sandbox named: Day of the Tentacle's hamster (room 42, 429) not among them");
++			}
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++		_pictures = picturesKept; _touched = touchedKept;
++		if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	}
++	warning("SCUMMVERSE sandbox selftest named: %d of %d things later games' answers take or give with no picture of their own in their place carried by their names (drawn in their slots), %d kept through a save and a load; %d failed",
++		named, namedAll, namedKept, namedFailed);
++	failed += namedFailed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,

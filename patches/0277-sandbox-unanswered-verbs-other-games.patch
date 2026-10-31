@@ -1,0 +1,326 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index c24e217e..9a3fc184 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1002,15 +1002,70 @@ bool SandboxEngine::effectRefuses(int id, int kind, int from) const {
+ // the plain rules would answer as they answer the other (the lab's switch:
+ // its script answers turning it off, pushing, pulling and using it, not
+ // turning it on). Its game's sentence script then says its own line for a
+-// verb a thing does not take, nothing changed.
++// verb a thing does not take, nothing changed. (From 0277 every game whose
++// own sentence so changes nothing: defaultQuiet.)
+ bool SandboxEngine::unanswered(int kind, int answers) const {
+-	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || answers < 0 || (answers & PanelBridge::kThingAnswersAny)) return false;
++	if (!defaultQuiet(_game) || answers < 0 || (answers & PanelBridge::kThingAnswersAny)) return false;
+ 	static const int pairs[][2] = {{kWorldVerbOpen, kWorldVerbClose}, {kWorldVerbTurnOn, kWorldVerbTurnOff}, {kWorldVerbPush, kWorldVerbPull}};
+ 	for (const int (&p)[2] : pairs)
+ 		if ((kind == p[0] || kind == p[1]) && !(answers & 1 << kind) && (answers & 1 << (kind == p[0] ? p[1] : p[0]))) return true;
+ 	return false;
+ }
+ 
++// From 0277 the games whose own sentence changes nothing for a verb a
++// thing's script has no entry for (nor a catch-all one), where a player
++// chooses a verb of a pair: the mansion's (0274), Zak's, both Monkey
++// Islands', the Last Crusade's and Fate of Atlantis's (their exports play
++// every verb of their panels through their own sentences: of every such
++// answer they recorded, none changed a thing; the verbs check counts them
++// again). Not Day of the Tentacle's: its own sentence answers such a verb
++// through another entry of the thing's script (its verb 13), which opens
++// and closes things whose scripts have no entry for either (room 15, 107;
++// room 23, 164 closed) and pulls one whose script has one only for pushing
++// (room 41, 421), recorded so. The others' players choose no such pair (Sam
++// & Max's pointer, Full Throttle's boot has no pull, The Dig's tap, The
++// Curse's coin, Loom's distaff).
++bool SandboxEngine::defaultQuiet(int game) {
++	static const char *const quiet[] = {"maniac", "zak", "monkey", "monkey2", "indy3", "atlantis"};
++	for (const char *id : quiet) if (game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, id)) return true;
++	return false;
++}
++
++// From 0277 Zak's and the later games' (ownSentences): their exports play
++// every verb of their panels on each thing from each picture it is played
++// from, through their games' own sentences, and keep each answer that says
++// a line or changes something (a refusal their own default says, kept as a
++// line). One with no record of a verb from the picture it is in, where it
++// has one of another verb from there (played there), is one whose game
++// said nothing and changed nothing then (Zak's shut drawers in room 1, 92
++// and 94, pushed; Day of the Tentacle's room 26, 190 pushed; Sam & Max's
++// things whose scripts keep them picked up: room 7, 63, 67 and 77), or took
++// the one played elsewhere (no record either: Zak's room 16, 343 pushed;
++// Monkey Island's room 42, 586 picked up), where the plain rules would
++// change it all the same. One never played from a picture (one past its
++// second only an answer of two shows, Fate of Atlantis's room 17, 183 to
++// 185; a place its export could not show, Zak's room 2) is not: its game's
++// answer there is not known. kAnswersNothing: one its game answers with
++// nothing at all from its pictures 0 and 1, every verb (no record says it
++// was played there): Full Throttle's room 56, 305.
++struct AnswersNothing { const char *gameid; short room, object; };
++static const AnswersNothing kAnswersNothing[] = {{"ft", 56, 305}};
++static bool answersNothing(int game, int room, int id) {
++	for (const AnswersNothing &a : kAnswersNothing)
++		if (game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, a.gameid) && a.room == room && a.object == id) return true;
++	return false;
++}
++
++bool SandboxEngine::unansweredThere(int id, int kind, int from) const {
++	if (!ownSentences(_game) || from < 0 || !PanelBridge::thingsLoaded(_game)) return false;
++	int after, flags, others[4], count, lines;
++	if (PanelBridge::thingAnswer(_game, _room, id, kind, from, 0, after, flags, others, count, 1, lines)) return false;
++	if (from <= 1 && answersNothing(_game, _room, id)) return true;
++	for (int k = kWorldVerbWalk; k <= kWorldVerbHand; ++k)
++		if (k != kind && PanelBridge::thingAnswer(_game, _room, id, k, from, 0, after, flags, others, count, 1, lines)) return true;
++	return false;
++}
++
+ int SandboxEngine::thingSets(int id, int kind) {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return 0;
+ 	int set = 0;
+@@ -2771,8 +2826,14 @@ void SandboxEngine::act() {
+ 	// answering the other of its pair (open or close, on or off, push or
+ 	// pull): as its game's answer for a verb a thing does not take, nothing
+ 	// changes, the plain rules' line for one that answers neither said (the
+-	// lab's switch turned on, a painting pushed or closed).)
+-	if (!door && unanswered(kind, answers)) {
++	// lab's switch turned on, a painting pushed or closed). From 0277 so in
++	// every game whose own sentence changes nothing then (defaultQuiet: the
++	// Last Crusade's room 7, 134 pushed), and in Zak's and the later games'
++	// where it was played from the picture it is in with no record of that
++	// verb (unansweredThere: its game said nothing and changed nothing),
++	// where the plain rules would change it (its picture, or it taken): Zak's
++	// shut drawers in room 1 pushed, Sam & Max's room 7, 63 picked up.)
++	if (!door && (unanswered(kind, answers) || ((result == 2 || result == 3) && unansweredThere(id, kind, pictureNow(target, id))))) {
+ 		PanelBridge::decide(kind, door, pictures, shown, differs, w, h, 0, name, picture, line, sizeof(line), takenShown);
+ 		say(line);
+ 		if (!_testing) saveState();
+@@ -6654,12 +6715,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 		};
+ 		// (From 0274 the mansion's: one that answers that verb itself, not only
+ 		// the other of its pair (unanswered: nothing changes then), nor one
+-		// moved with others as one (kManiacTogether: the gate pushed shut).)
+-		auto takes = [&](int o, int kind) {
++		// moved with others as one (kManiacTogether: the gate pushed shut).
++		// From 0277 any game's so, and not one played from that picture with
++		// no record of that verb (unansweredThere).)
++		auto takes = [&](int o, int kind, int from) {
+ 			int id, ox, oy, w, h, wx, wy, state, picture, answers;
+ 			StageBridge::object(o, id, ox, oy, w, h, wx, wy, state);
+ 			if (!strcmp(kWorldGames[g].gameid, "maniac") && maniacTogether(_room, id)) return false;
+-			return !PanelBridge::gameThing(g, _room, id, picture, answers) || !unanswered(kind, answers);
++			return !PanelBridge::gameThing(g, _room, id, picture, answers) || (!unanswered(kind, answers) && !unansweredThere(id, kind, from));
+ 		};
+ 		// (Where its own script's answer is known, the mansion's: its picture
+ 		// after a verb from one; -1 not known.)
+@@ -6743,7 +6806,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int id, pictures, shown; bool door, small;
+ 			facts(o, id, pictures, shown, door, small);
+ 			if (pictures < 2 || (PanelBridge::distaff() && loomOwn()) || shown != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !answer(o, kWorldVerbOpen, kWorldVerbClose) ||
+-				!takes(o, kWorldVerbOpen) || !takes(o, kWorldVerbClose) || effectAfter(o, kWorldVerbOpen, 0) == 0 || effectAfter(o, kWorldVerbClose, 1) == 1 || !use(kWorldVerbOpen, o)) continue;
++				!takes(o, kWorldVerbOpen, 0) || !takes(o, kWorldVerbClose, 1) || effectAfter(o, kWorldVerbOpen, 0) == 0 || effectAfter(o, kWorldVerbClose, 1) == 1 || !use(kWorldVerbOpen, o)) continue;
+ 			if (StageBridge::objectShown(o) != 1) { fail("not opened", g); break; }
+ 			++opened;
+ 			if (!use(kWorldVerbClose, o)) { fail("not closed", g); break; }
+@@ -6895,7 +6958,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				int id, pictures, shown; bool door, small;
+ 				facts(o, id, pictures, shown, door, small);
+ 				const int known = pictures < 2 ? -1 : effectAfter(o, kWorldVerbPush, shown ? 1 : 0);
+-				if (pictures < 2 || !answer(o, kWorldVerbPush, kWorldVerbPull) || !takes(o, kWorldVerbPush) || known == shown || !use(kWorldVerbPush, o)) continue;
++				if (pictures < 2 || !answer(o, kWorldVerbPush, kWorldVerbPull) || !takes(o, kWorldVerbPush, shown) || known == shown || !use(kWorldVerbPush, o)) continue;
+ 				const int next = known >= 0 ? known : pictures == 2 || shown == 0 ? (shown ? 0 : 1) : shown % (pictures - 1) + 1;
+ 				if (StageBridge::objectShown(o) != next) fail("not pushed", g); else ++pushed;
+ 				break;
+@@ -11011,6 +11074,182 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"the record taken off the Victrola %d of 2 as the one put on; the package's stamps %d pulled off; the radio's batteries %d given opened carried; %d of %d verbs a thing does not answer of its pair (%d things away) as its game, nothing changed; "
+ 		"the lab's switch turned on %d, from on and off, nothing",
+ 		givenSeen, givenAll, givenAway, givenCassettes, givenRecords, givenStamps, givenRadio, unansweredSeen, unansweredAll, unansweredAway, unansweredSwitch);
++	// (From 0277) A verb Zak's or a later game's thing does not answer, as a
++	// player chooses it (its panel's verbs, its pointer's, its coin's parts;
++	// not Loom's distaff: its own answers, else nothing happens), in each of
++	// its places: every thing on the stage (not a door) from each picture
++	// it was played from (a record of another verb from there), each verb
++	// with no record from there whose plain rules would change it (its
++	// picture, it taken): used on it as a player does, nothing changes (its
++	// picture, what is carried, its touch), a line said; where they change
++	// nothing, their own line as before. From the picture its place shows it
++	// in, or one an answer leaves it in, one never played from there (no
++	// record of any verb: a place its export could not show, Zak's room 2;
++	// a picture past its second only an answer of two shows, Fate of
++	// Atlantis's room 17, 183 to 185): the plain rules as before, but a
++	// verb of a pair its script has no entry for while it answers the other,
++	// in a game whose own sentence changes nothing then (defaultQuiet, as
++	// 0274's mansion): nothing changed, a line said; Day of the Tentacle's
++	// such by the plain rules. Each game's records of a verb of a pair a
++	// thing's script has no entry for (nor a catch-all one): in those of
++	// defaultQuiet none changing anything; Day of the Tentacle's some (its
++	// own sentence opens, closes and pulls so). Full Throttle's door in room
++	// 56 (kAnswersNothing: no record of any verb from 0 or 1) kicked from
++	// either: nothing.
++	struct UnansweredBy {
++		int game = -1, all = 0, seen = 0, away = 0, lines = 0, linesSeen = 0, plain = 0, plainSeen = 0, plainPaired = 0, quiet = 0, quietSeen = 0, defaults = 0, changing = 0;
++	};
++	Common::Array<UnansweredBy> unansweredBy;
++	int nothingAll = 0, nothingSeen = 0;
++	{
++		const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++		const uint32 randomKept = _random.getSeed();
++		const int strollKept = _strollClock;
++		static const int pairsOf[][2] = {{kWorldVerbOpen, kWorldVerbClose}, {kWorldVerbTurnOn, kWorldVerbTurnOff}, {kWorldVerbPush, kWorldVerbPull}};
++		auto partner = [&](int kind) {
++			for (const int (&p)[2] : pairsOf) if (kind == p[0] || kind == p[1]) return kind == p[0] ? p[1] : p[0];
++			return 0;
++		};
++		// (A verb whose plain rules can change a thing.)
++		auto changing = [](int kind) {
++			return kind == kWorldVerbPickUp || kind == kWorldVerbOpen || kind == kWorldVerbClose || kind == kWorldVerbPush || kind == kWorldVerbPull || kind == kWorldVerbTurnOn ||
++				kind == kWorldVerbTurnOff || kind == kWorldVerbUnlock || kind == kWorldVerbAct || kind == kWorldVerbHand;
++		};
++		auto recorded = [&](int g, int room, int id, int kind, int from) {
++			int after, flags, others[4], count, lines;
++			return PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 1, lines);
++		};
++		auto played = [&](int g, int room, int id, int from) {
++			for (int k = kWorldVerbWalk; k <= kWorldVerbHand; ++k) if (recorded(g, room, id, k, from)) return true;
++			return false;
++		};
++		Common::String problem;
++		for (int g = 0; g < worldGameCount(); ++g) {
++			if (!ownSentences(g)) continue;
++			loadThings(g);
++			if (!PanelBridge::thingsLoaded(g) || !PanelBridge::effectCount(g)) continue;
++			UnansweredBy u;
++			u.game = g;
++			Common::Array<int> rooms;
++			// (The pictures its answers leave each thing in (bit k: picture k).)
++			Common::HashMap<int, uint32> reached;
++			for (int k = 0, n = PanelBridge::effectCount(g); k < n; ++k) {
++				int room, id, kind, from, with = 0, after, flags, others[4 * 64], count, lines;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !PanelBridge::thingAnswer(g, room, id, kind, from, with, after, flags, others, count, 64, lines)) continue;
++				if (after >= 0 && after < 32) reached[thingKey(g, room, id)] |= 1u << after;
++				for (int i = 0; i < count; ++i)
++					if (!others[4 * i + 3] && others[4 * i + 2] >= 0 && others[4 * i + 2] < 32) reached[thingKey(g, others[4 * i], others[4 * i + 1])] |= 1u << others[4 * i + 2];
++			}
++			for (int k = 0, n = PanelBridge::effectCount(g); k < n; ++k) {
++				int room, id, kind, from, with = 0, picture, answers;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with) continue;
++				if (Common::find(rooms.begin(), rooms.end(), room) == rooms.end()) rooms.push_back(room);
++				// (Its own sentence for a verb of a pair a thing's script has no entry for.)
++				if (!partner(kind) || !PanelBridge::gameThing(g, room, id, picture, answers) || answers < 0 || (answers & (PanelBridge::kThingAnswersAny | 1 << kind))) continue;
++				int after, flags, others[4], count, lines, touched[3], touches = 0, self = 0;
++				PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 1, lines);
++				PanelBridge::answerTouches(g, room, id, kind, from, 0, touched, touches, 1, self);
++				++u.defaults;
++				if (after == from && !(flags & 1) && !count && !touches && !self) continue;
++				++u.changing;
++				if (defaultQuiet(g)) {
++					warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d it has no entry for: changed by its own sentence", kWorldGames[g].gameid, id, room, kind, from);
++					fail("a verb a thing's script has no entry for changing it, in a game taken to change nothing so (defaultQuiet)", g);
++				}
++			}
++			// (Every place of its, those without a record too: Zak's room 2.)
++			for (int room = 1; room < 1024; ++room) {
++				if (!installed(g, room)) continue;
++				const bool answered = Common::find(rooms.begin(), rooms.end(), room) != rooms.end();
++				if ((_game != g || _room != room) && !enter(g, room, 0, problem)) { if (answered) fail("a place not shown", g); continue; }
++				if (PanelBridge::distaff()) break; // (Loom's: its own answers, else nothing happens)
++				Common::Array<int> kinds;
++				for (int v = 0; v < PanelBridge::verbCount(); ++v) {
++					const int kind = PanelBridge::verbKind(v);
++					if (changing(kind) && Common::find(kinds.begin(), kinds.end(), kind) == kinds.end()) kinds.push_back(kind);
++				}
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state, found = -1, answers = -1;
++					if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || worldLinkFrom(g, room, id)) continue;
++					if (!PanelBridge::gameThing(g, room, id, found, answers)) answers = -1;
++					const int pictures = StageBridge::objectPictures(o), now = pictureNow(o, id);
++					if (pictures < 2) continue; // (the plain rules change none with one picture)
++					char name[80];
++					StageBridge::objectName(o, name, sizeof(name));
++					const bool takenShown = worldHome(g);
++					for (int kind : kinds)
++						for (int from = 0; from < pictures; ++from) {
++							if (recorded(g, room, id, kind, from)) continue;
++							const bool there = played(g, room, id, from) || (from <= 1 && answersNothing(g, room, id));
++							if (!there && from != now && !(from < 32 && reached.contains(thingKey(g, room, id)) && (reached[thingKey(g, room, id)] & 1u << from))) continue;
++							const bool differs = StageBridge::picturesDiffer(o, 0, takenShown ? 1 : from);
++							int picture = -1;
++							char line[160];
++							const int result = PanelBridge::decide(kind, false, pictures, from, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
++							const bool change = result == 2 || result == 3;
++							const bool halfPair = answers >= 0 && !(answers & PanelBridge::kThingAnswersAny) && partner(kind) && !(answers & 1 << kind) && (answers & 1 << partner(kind));
++							// (What is expected: nothing changed, a line said (keeps: a
++							// verb of a pair its script has no entry for in a game whose own
++							// sentence changes nothing then, whatever the plain rules say, as
++							// 0274's; or played there, where they would change it); else the
++							// plain rules' line, or their change.)
++							const bool keeps = (halfPair && defaultQuiet(g)) || (there && change);
++							if (!keeps && !change && !there) continue;
++							int &all = keeps ? (there ? u.all : u.quiet) : change ? u.plain : u.lines;
++							int &seen = keeps ? (there ? u.seen : u.quietSeen) : change ? u.plainSeen : u.linesSeen;
++							if (!isThing(o)) { if (keeps && there) { ++u.away; ++all; } continue; }
++							++all;
++							u.plainPaired += !keeps && change && halfPair;
++							const Common::HashMap<int, int> picturesWas = _pictures, touchedWas = _touched;
++							const int shownWas = StageBridge::objectShown(o);
++							const uint carriedWas = _carried.size();
++							showPicture(o, id, from);
++							const int touchWas = touchOf(g, room, id);
++							double x, y;
++							_speech.clear(); _saying.clear(); _notice.clear(); _noticeClock = 0;
++							bool ok = doorPoint(o, x, y);
++							if (ok) {
++								StageBridge::walkable(x, y);
++								StageBridge::place(_player, x, y);
++								_action = kind; _target = o;
++								act();
++							}
++							const bool carried = isCarried(g, room, id);
++							if (keeps) ok = ok && !_speech.empty() && StageBridge::objectShown(o) == from && pictureNow(o, id) == from && !carried && _carried.size() == carriedWas &&
++								touchOf(g, room, id) == touchWas && _game == g && _room == room && _closeUp.index < 0;
++							else if (change) ok = ok && _game == g && _room == room && (result == 3 ? carried && StageBridge::objectShown(o) == picture : StageBridge::objectShown(o) == picture && !carried);
++							else ok = ok && _speech == line && StageBridge::objectShown(o) == from && !carried;
++							if (ok) ++seen;
++							else {
++								warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d (%s, %s): said '%s', shown %d%s", kWorldGames[g].gameid, id, room, kind, from, there ? "played there" : "never played there",
++									keeps ? "nothing to change" : change ? "the plain rules' change" : "the plain rules' line", _speech.c_str(), StageBridge::objectShown(o), carried ? ", carried" : "");
++								fail(keeps ? "a verb a thing does not answer changed it (the plain rules), not as its game" : there ? "a verb a thing has no answer to whose plain rules change nothing not answered by their line" :
++									"a verb a thing was never played with not answered by the plain rules", g);
++							}
++							if (answersNothing(g, room, id) && kind == kWorldVerbPush && from <= 1) { ++nothingAll; nothingSeen += ok && keeps; }
++							if (_closeUp.index >= 0) closeUpLeave();
++							for (uint c = _carried.size(); c-- > carriedWas;) { PanelBridge::removeItem(c); _carried.remove_at(c); }
++							showPicture(o, id, shownWas);
++							_pictures = picturesWas; _touched = touchedWas;
++						}
++				}
++			}
++			unansweredBy.push_back(u);
++		}
++		// (Each thing its game answers with nothing at all, played nowhere.)
++		for (const AnswersNothing &a : kAnswersNothing)
++			for (int g = 0; g < worldGameCount(); ++g)
++				if (sameId(kWorldGames[g].gameid, a.gameid) && PanelBridge::thingsLoaded(g) && (played(g, a.room, a.object, 0) || played(g, a.room, a.object, 1)))
++					fail("a thing taken to be answered with nothing (kAnswersNothing) answered in its things file", g);
++		_pictures = picturesKept; _touched = touchedKept;
++		_random.setSeed(randomKept); _strollClock = strollKept;
++	}
++	for (const UnansweredBy &u : unansweredBy)
++		warning("SCUMMVERSE sandbox selftest unanswered %s: %d of %d verbs a thing has no answer to from a picture it was played from (%d away) as its game, nothing changed, a line said; "
++			"%d of %d of them whose plain rules change nothing, their line; from the picture its place shows it in or an answer leaves it in, never played there: %d of %d by the plain rules (%d a verb of a pair its script has no entry for), "
++			"%d of %d a verb of a pair its script has no entry for, nothing changed; %d of %d records of a verb of a pair its script has no entry for changing it",
++			kWorldGames[u.game].title, u.seen, u.all, u.away, u.linesSeen, u.lines, u.plainSeen, u.plain, u.plainPaired, u.quietSeen, u.quiet, u.changing, u.defaults);
++	warning("SCUMMVERSE sandbox selftest unanswered: %d of %d things answered with nothing at all kicked from their pictures 0 and 1, nothing changed", nothingSeen, nothingAll);
+ 	// (From 0272 each door an answer makes untouchable or touchable, before
+ 	// and after it, tapped with a verb chosen too: touchedDoors.)
+ 	const TouchedDoors doorsTouched = touchedDoors(true);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 57a1b777..5d5ff146 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -198,6 +198,8 @@ private:
+ 	int placeWithout(int game, int room, int id, int picture); // its place's picture without it (its box picture drawn against)
+ 	bool effectRefuses(int id, int kind, int from) const; // its script only says a line to it
+ 	bool unanswered(int kind, int answers) const; // (from 0274, the mansion's: its script answers the other of this verb's pair only)
++	static bool defaultQuiet(int game); // (from 0277: its own sentence changes nothing for a verb a thing's script has no entry for)
++	bool unansweredThere(int id, int kind, int from) const; // (from 0277, Zak's and the later games': played from there, no record of this verb)
+ 	static bool plainAnswer(int kind, int from, int after, bool taken, int count, const char *said); // (read, picked up: silent, nothing changed; taken where not there)
+ 	void loadThings(int game); // (its things file, once)
+ 	int thingBit(int object, int id) const; // the picture it is in as its game counts (0 or 1)

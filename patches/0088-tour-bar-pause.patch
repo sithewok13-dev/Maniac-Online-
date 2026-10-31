@@ -1,0 +1,417 @@
+diff --git a/backends/platform/ios7/scummverse_tour_ui.inc b/backends/platform/ios7/scummverse_tour_ui.inc
+index 55febca5..db7bb3b2 100644
+--- a/backends/platform/ios7/scummverse_tour_ui.inc
++++ b/backends/platform/ios7/scummverse_tour_ui.inc
+@@ -1,6 +1,7 @@
+ // TOUR: the label over the game naming the stop being visited (its number,
+ // code and name, to note down for bug reports; tap it for the tour's
+-// controls) and the controls themselves, opened from the Worlds menu. The
++// controls), the bar under it (previous, pause or play, next, speed) and
++// the controls themselves, opened from the Worlds menu. The
+ // game does the touring (engines/scumm/scummverse_tour.inc); requests and
+ // the label pass through common/scummverse_tour.h. Manual reference
+ // counting, like this file.
+@@ -16,22 +17,86 @@ static UIViewController *scummverseTourController(UIView *view) {
+ 	return controller && !controller.presentedViewController ? controller : nil;
+ }
+ 
++static void scummverseTourRefresh(UIView *view);
++static void scummverseTourAskStop(UIViewController *controller, int total);
++
++// The bar under the label, on the game's screen while touring: previous
++// stop, pause or play, next stop, speed, go to a stop by number, stop the
++// tour. Paused, Previous and Next go from stop to stop and stay paused (for
++// screenshots). Nothing here opens the tour's menu.
++static UIView *scummverseTourBar;
++static UIButton *scummverseTourPlayButton, *scummverseTourSpeedButton;
++static int scummverseTourAsked = -1; // pause (1) or play (0) asked, until the game says so
++
+ @interface ScummverseTourTapper : NSObject
+ @property (nonatomic, assign) UIView *host;
+ - (void)tap;
++- (void)previous;
++- (void)playPause;
++- (void)next;
++- (void)speed;
++- (void)goTo;
++- (void)stop;
+ @end
+ @implementation ScummverseTourTapper
+ - (void)tap {
+ 	if (UIViewController *controller = scummverseTourController(self.host)) scummverseShowTour(controller);
+ }
++- (void)previous { Scummverse::Tour::request(Scummverse::Tour::kPrevious); }
++- (void)next { Scummverse::Tour::request(Scummverse::Tour::kNext); }
++- (void)playPause {
++	const bool paused = scummverseTourAsked >= 0 ? scummverseTourAsked == 1 : Scummverse::Tour::paused();
++	scummverseTourAsked = paused ? 0 : 1;
++	Scummverse::Tour::request(paused ? Scummverse::Tour::kPlay : Scummverse::Tour::kPause);
++	if (self.host) scummverseTourRefresh(self.host);
++}
++- (void)speed {
++	const int speed = Scummverse::Tour::speed();
++	Scummverse::Tour::setSpeed(speed < 16 ? speed * 2 : 1);
++	if (self.host) scummverseTourRefresh(self.host);
++}
++- (void)goTo {
++	bool running = false;
++	int next = 1, total = 0;
++	Scummverse::Tour::status(running, nullptr, 0, next, total);
++	if (UIViewController *controller = scummverseTourController(self.host)) scummverseTourAskStop(controller, total > 0 ? total : 1);
++}
++- (void)stop { Scummverse::Tour::request(Scummverse::Tour::kStop); }
+ @end
+ 
+ static UILabel *scummverseTourLabel;
+ static ScummverseTourTapper *scummverseTourTapper;
+ static bool scummverseTourAwake;
+ 
+-// Shows the label while touring, at the top left of the game; the screen
+-// stays awake meanwhile (nobody touches it while watching, or recording it).
++// A bar button: an SF Symbol where there is one, else a title.
++static UIButton *scummverseTourButton(NSString *symbol, NSString *title, NSString *spoken, SEL action) {
++	UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
++	button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
++	button.layer.cornerRadius = 6;
++	button.tintColor = UIColor.whiteColor;
++	[button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
++	button.titleLabel.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold];
++	UIImage *image = nil;
++	if (symbol) { if (@available(iOS 13, *)) image = [UIImage systemImageNamed:symbol]; }
++	if (image) [button setImage:image forState:UIControlStateNormal];
++	else [button setTitle:title forState:UIControlStateNormal];
++	button.accessibilityLabel = spoken;
++	[button addTarget:scummverseTourTapper action:action forControlEvents:UIControlEventTouchUpInside];
++	[scummverseTourBar addSubview:button];
++	return button;
++}
++
++static void scummverseTourSetPlayIcon(bool paused) {
++	UIImage *image = nil;
++	if (@available(iOS 13, *)) image = [UIImage systemImageNamed:paused ? @"play.fill" : @"pause.fill"];
++	if (image) [scummverseTourPlayButton setImage:image forState:UIControlStateNormal];
++	else [scummverseTourPlayButton setTitle:paused ? @">" : @"||" forState:UIControlStateNormal];
++	scummverseTourPlayButton.accessibilityLabel = paused ? @"Play the tour" : @"Pause the tour";
++}
++
++// Shows the label while touring, at the top left of the game, and the bar
++// under it; the screen stays awake meanwhile (nobody touches it while
++// watching, or recording it).
+ static void scummverseTourRefresh(UIView *view) {
+ 	bool running = false;
+ 	char text[200];
+@@ -41,7 +106,7 @@ static void scummverseTourRefresh(UIView *view) {
+ 		scummverseTourAwake = running;
+ 		UIApplication.sharedApplication.idleTimerDisabled = running ? YES : NO;
+ 	}
+-	if (!running || !text[0]) { scummverseTourLabel.hidden = YES; return; }
++	if (!running || !text[0]) { scummverseTourLabel.hidden = YES; scummverseTourBar.hidden = YES; scummverseTourAsked = -1; return; }
+ 	if (!scummverseTourLabel) {
+ 		scummverseTourLabel = [[UILabel alloc] init];
+ 		scummverseTourLabel.textColor = UIColor.whiteColor;
+@@ -55,10 +120,19 @@ static void scummverseTourRefresh(UIView *view) {
+ 		scummverseTourTapper = [[ScummverseTourTapper alloc] init];
+ 		UITapGestureRecognizer *tap = [[[UITapGestureRecognizer alloc] initWithTarget:scummverseTourTapper action:@selector(tap)] autorelease];
+ 		[scummverseTourLabel addGestureRecognizer:tap];
++		scummverseTourBar = [[UIView alloc] init];
++		scummverseTourButton(@"backward.end.fill", @"<", @"Previous stop", @selector(previous));
++		scummverseTourPlayButton = scummverseTourButton(nil, nil, nil, @selector(playPause));
++		scummverseTourButton(@"forward.end.fill", @">", @"Next stop", @selector(next));
++		scummverseTourSpeedButton = scummverseTourButton(nil, @"1×", @"Tour speed", @selector(speed));
++		scummverseTourButton(nil, @"#", @"Go to stop number", @selector(goTo));
++		scummverseTourButton(@"stop.fill", @"Stop", @"Stop the tour", @selector(stop));
+ 	}
+ 	scummverseTourTapper.host = view;
+ 	if (scummverseTourLabel.superview != view) [view addSubview:scummverseTourLabel];
++	if (scummverseTourBar.superview != view) [view addSubview:scummverseTourBar];
+ 	[view bringSubviewToFront:scummverseTourLabel];
++	[view bringSubviewToFront:scummverseTourBar];
+ 	NSString *label = [NSString stringWithFormat:@" %@ ", [NSString stringWithUTF8String:text] ?: @""];
+ 	if (![scummverseTourLabel.text isEqualToString:label]) scummverseTourLabel.text = label;
+ 	UIEdgeInsets safe = UIEdgeInsetsZero;
+@@ -68,10 +142,27 @@ static void scummverseTourRefresh(UIView *view) {
+ 	const CGSize fit = [scummverseTourLabel sizeThatFits:CGSizeMake(width, 40)];
+ 	scummverseTourLabel.frame = CGRectMake(safe.left + 6, safe.top + 4, MIN(width, fit.width + 8), fit.height + 6);
+ 	scummverseTourLabel.hidden = NO;
++	// The bar: what the game says, or what was just asked of it.
++	const bool paused = Scummverse::Tour::paused();
++	if (scummverseTourAsked == (paused ? 1 : 0)) scummverseTourAsked = -1;
++	scummverseTourSetPlayIcon(scummverseTourAsked >= 0 ? scummverseTourAsked == 1 : paused);
++	NSString *speed = [NSString stringWithFormat:@"%d×", Scummverse::Tour::speed()];
++	if (![[scummverseTourSpeedButton titleForState:UIControlStateNormal] isEqualToString:speed]) [scummverseTourSpeedButton setTitle:speed forState:UIControlStateNormal];
++	// As wide as the label may be (narrower buttons on a narrow screen).
++	const CGFloat gap = 6, count = scummverseTourBar.subviews.count;
++	const CGFloat side = MIN(44, floor((width - gap * (count - 1) - 8) / count));
++	CGFloat x = 0;
++	for (UIView *button in scummverseTourBar.subviews) {
++		const CGFloat w = button == scummverseTourSpeedButton ? side + 8 : side;
++		button.frame = CGRectMake(x, 0, w, 36);
++		x += w + gap;
++	}
++	scummverseTourBar.frame = CGRectMake(safe.left + 6, CGRectGetMaxY(scummverseTourLabel.frame) + 4, x - gap, 36);
++	scummverseTourBar.hidden = NO;
+ }
+ 
+ static void scummverseInstallTour(UIView *view) {
+-	// Often enough to show a stop passed quickly at 8x.
++	// Often enough to show a stop passed quickly at 16x.
+ 	[NSTimer scheduledTimerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *) { scummverseTourRefresh(view); }];
+ }
+ 
+@@ -108,8 +199,8 @@ static void scummverseShowTour(UIViewController *controller) {
+ 		add(next > 1 ? [NSString stringWithFormat:@"Start at stop %d", next] : @"Start the tour", Scummverse::Tour::kResume);
+ 		if (next > 1) add(@"Start over at stop 1", Scummverse::Tour::kRestart);
+ 	}
+-	// Speed: 1x, 2x, 4x, 8x in turn (the whole game, while touring).
+-	const int speed = Scummverse::Tour::speed(), faster = speed < 8 ? speed * 2 : 1;
++	// Speed: 1x, 2x, 4x, 8x, 16x in turn (the whole game, while touring).
++	const int speed = Scummverse::Tour::speed(), faster = speed < 16 ? speed * 2 : 1;
+ 	[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Speed %d× (change to %d×)", speed, faster]
+ 		style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { Scummverse::Tour::setSpeed(faster); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to stop…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+diff --git a/common/scummverse_tour.cpp b/common/scummverse_tour.cpp
+index 2e3a1397..d6072848 100644
+--- a/common/scummverse_tour.cpp
++++ b/common/scummverse_tour.cpp
+@@ -6,29 +6,34 @@
+ 
+ #include <algorithm>
+ #include <cstring>
++#include <deque>
+ #include <mutex>
+ #include <string>
++#include <utility>
+ 
+ namespace Scummverse {
+ namespace Tour {
+ 
+ static std::mutex g_mutex;
+-static int g_command = kNone, g_stop = 0;
+-static bool g_said = false, g_running = false;
++static std::deque<std::pair<int, int> > g_requests; // command, stop
++static const size_t kMostRequests = 16;
++static bool g_said = false, g_running = false, g_paused = false;
+ static std::string g_label;
+ static int g_next = 1, g_total = 0;
+ static int g_speed = 1;
+ 
+ void request(int command, int stop) {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+-	g_command = command; g_stop = stop;
++	if (command == kNone) return;
++	if (g_requests.size() >= kMostRequests) g_requests.pop_front();
++	g_requests.push_back(std::make_pair(command, stop));
+ }
+ 
+ bool takeRequest(int &command, int &stop) {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+-	if (g_command == kNone) return false;
+-	command = g_command; stop = g_stop;
+-	g_command = kNone; g_stop = 0;
++	if (g_requests.empty()) return false;
++	command = g_requests.front().first; stop = g_requests.front().second;
++	g_requests.pop_front();
+ 	return true;
+ }
+ 
+@@ -51,9 +56,19 @@ bool status(bool &running, char *label, int capacity, int &next, int &total) {
+ 	return g_said;
+ }
+ 
++void publishPaused(bool paused) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	g_paused = paused;
++}
++
++bool paused() {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	return g_paused;
++}
++
+ void setSpeed(int speed) {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+-	g_speed = speed == 2 || speed == 4 || speed == 8 ? speed : 1;
++	g_speed = speed == 2 || speed == 4 || speed == 8 || speed == 16 ? speed : 1;
+ }
+ 
+ int speed() {
+@@ -63,8 +78,8 @@ int speed() {
+ 
+ void reset() {
+ 	std::lock_guard<std::mutex> guard(g_mutex);
+-	g_command = kNone; g_stop = 0;
+-	g_said = false; g_running = false; g_label.clear(); g_next = 1; g_total = 0;
++	g_requests.clear();
++	g_said = false; g_running = false; g_paused = false; g_label.clear(); g_next = 1; g_total = 0;
+ 	g_speed = 1;
+ }
+ 
+diff --git a/common/scummverse_tour.h b/common/scummverse_tour.h
+index b46fe8bc..4015973d 100644
+--- a/common/scummverse_tour.h
++++ b/common/scummverse_tour.h
+@@ -12,8 +12,9 @@ namespace Scummverse {
+ namespace Tour {
+ 
+ // ---- Requests (the interface's thread; taken by the game's) ----
+-enum Command { kNone = 0, kResume, kRestart, kNext, kPrevious, kStop, kGoTo };
+-// kGoTo takes the stop's number (1 = the first).
++enum Command { kNone = 0, kResume, kRestart, kNext, kPrevious, kStop, kGoTo, kPause, kPlay };
++// kGoTo takes the stop's number (1 = the first). Requests wait in order
++// (a few taps between two game steps all count; the oldest go past 16).
+ void request(int command, int stop = 0);
+ bool takeRequest(int &command, int &stop);
+ 
+@@ -25,13 +26,19 @@ void publish(bool running, const char *label, int next, int total);
+ // (truncated to capacity, at a whole UTF-8 character).
+ bool status(bool &running, char *label, int capacity, int &next, int &total);
+ 
++// Paused: the guide stands where it is (Previous and Next go from stop to
++// stop and stay paused). Said by the game.
++void publishPaused(bool paused);
++bool paused();
++
+ // ---- Speed (set by the interface, read by the game each step) ----
+-// The tour plays the game this many times faster: 1, 2, 4 or 8 (anything
+-// else is 1).
++// The tour plays the game this many times faster: 1, 2, 4, 8 or 16
++// (anything else is 1).
+ void setSpeed(int speed);
+ int speed();
+ 
+-// Nothing waiting or said, normal speed (a game starting or ending).
++// Nothing waiting or said, not paused, normal speed (a game starting or
++// ending).
+ void reset();
+ 
+ } // namespace Tour
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 255f31ce..9deb5cbc 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -2689,8 +2689,8 @@ void ScummEngine::waitForTimer(int quarterFrames, bool freezeMacGui) {
+ 		msecDelay = 0;
+ 	else if (_fastMode & 1)
+ 		msecDelay = 10;
+-	else if (_scummverseTouring && _scummverseTourSpeed > 1)
+-		msecDelay /= _scummverseTourSpeed; // the TOUR at 2x, 4x or 8x
++	else if (_scummverseTouring && !_scummverseTourPaused && _scummverseTourSpeed > 1)
++		msecDelay /= _scummverseTourSpeed; // the TOUR at 2x to 16x
+ 
+ 	cur = _system->getMillis();
+ 	uint32 diff = cur - _lastWaitTime;
+@@ -2714,7 +2714,7 @@ void ScummEngine::waitForTimer(int quarterFrames, bool freezeMacGui) {
+ 		// The TOUR played fast: shown at most about 60 times a second (a
+ 		// screen waiting for the display would hold the game back), the
+ 		// steps between drawn but not shown.
+-		if (!_scummverseTouring || _scummverseTourSpeed == 1 || _system->getMillis() - _scummverseTourShownAt >= 16) {
++		if (!_scummverseTouring || _scummverseTourPaused || _scummverseTourSpeed == 1 || _system->getMillis() - _scummverseTourShownAt >= 16) {
+ 			_system->updateScreen();
+ 			_scummverseTourShownAt = _system->getMillis();
+ 		}
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 272a9111..761a6230 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1703,6 +1703,8 @@ protected:
+ 	int _scummverseTourShown = 0; // the stop the label names (the walk may be on its way to the next)
+ 	int _scummverseTourSpeed = 1; // the game plays this many times faster while touring
+ 	uint32 _scummverseTourShownAt = 0; // when the screen was last shown (the tour played fast)
++	bool _scummverseTourPaused = false;
++	Common::Point _scummverseTourTarget; // the walk under way (walked to again after a pause)
+ 	int _scummverseTourDwell = 0; // ticks in this stop
+ 	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
+ 	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
+@@ -1710,6 +1712,7 @@ protected:
+ 	bool scummverseTourAdvance(Actor *a, int delta, int total);
+ 	void scummverseTourWalkTo(Actor *a, int x, int y);
+ 	void scummverseTourLeave();
++	void scummverseTourPause(bool pause);
+ 	bool scummverseTourDoorOut(int &x, int &y);
+ 	void scummverseTourBuild();
+ 	void scummverseTourSegment(int kind, int game, const Common::Array<int> &rooms, const Common::Array<struct TourEdge> &edges);
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index e5dbcb39..3ef1774b 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -302,6 +302,8 @@ void ScummEngine::scummverseTourStart(int index) {
+ 		const int game = scummverseWorldGameOf(_currentRoom, source);
+ 		_scummverseTourHome[0] = _currentRoom; _scummverseTourHome[1] = a->getRealPos().x; _scummverseTourHome[2] = a->getRealPos().y;
+ 		_scummverseTourHome[3] = game; _scummverseTourHome[4] = source;
++		_scummverseTourPaused = false;
++		ScummverseTour::publishPaused(false);
+ 	}
+ 	_scummverseTouring = true;
+ 	_scummverseTourZak = -1;
+@@ -316,6 +318,8 @@ void ScummEngine::scummverseTourStart(int index) {
+ void ScummEngine::scummverseTourEnd(bool home) {
+ 	if (!_scummverseTouring) return;
+ 	_scummverseTouring = false;
++	_scummverseTourPaused = false;
++	ScummverseTour::publishPaused(false);
+ 	_scummverseTransitArmed = false; // (home may be at a road's edge)
+ 	derefActor(VAR(VAR_EGO), "tour guide")->stopActorMoving();
+ 	if (home) {
+@@ -342,10 +346,27 @@ void ScummEngine::scummverseTourCommand(int command, int number) {
+ 		if (_scummverseTouring) { scummverseTourStart(_scummverseTourShown - 1); _scummverseTourStep = -1; }
+ 		break;
+ 	case ScummverseTour::kStop: scummverseTourEnd(true); break;
++	case ScummverseTour::kPause: scummverseTourPause(true); break;
++	case ScummverseTour::kPlay: scummverseTourPause(false); break;
+ 	default: break;
+ 	}
+ }
+ 
++// Paused: the guide stands where it is (the player may walk it about);
++// Previous and Next warp from stop to stop and stay paused. Played again,
++// it walks on to where it was going, from where it is now.
++void ScummEngine::scummverseTourPause(bool pause) {
++	if (pause == _scummverseTourPaused || (pause && !_scummverseTouring)) return;
++	_scummverseTourPaused = pause;
++	ScummverseTour::publishPaused(pause);
++	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
++	if (pause) { a->stopActorMoving(); return; }
++	int x, y;
++	if (_scummverseTourPhase == kTourWalking) scummverseTourWalkTo(a, _scummverseTourTarget.x, _scummverseTourTarget.y);
++	else if (_scummverseTourPhase == kTourToDoor && scummverseTourDoorPoint(_scummverseTourStop, _scummverseTourLegAt, x, y)) scummverseTourWalkTo(a, x, y);
++	_scummverseTourWait = kTourWalk;
++}
++
+ // In a stop (or not): its label (a warp says so), then the walks across.
+ void ScummEngine::scummverseTourArrive(bool entered, bool onFoot) {
+ 	const Common::String name = Common::String::format("Stop %d of %d \xC2\xB7 ", _scummverseTourStop + 1, scummverseTourCount()) + scummverseTourName(_scummverseTourStop);
+@@ -373,7 +394,7 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 		scummverseTourPublish("");
+ 	}
+ 	// The speed chosen (remembered; waitForTimer plays the game faster while
+-	// touring).
++	// touring, not paused).
+ 	const int speed = ScummverseTour::speed();
+ 	if (speed != _scummverseTourSpeed) {
+ 		_scummverseTourSpeed = speed;
+@@ -381,6 +402,7 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 		ConfMan.flushToDisk();
+ 	}
+ 	int command, number;
++	// One request a step: taps waiting in turn (three on Next: three stops on).
+ 	if (ScummverseTour::takeRequest(command, number)) scummverseTourCommand(command, number);
+ 	if (!_scummverseTouring) return;
+ 	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
+@@ -406,6 +428,7 @@ void ScummEngine::scummverseTourLeave() {
+ // Walks the guide to the spot in the nearest walk box; a room without walk
+ // boxes (a map) has nowhere to walk (V1 would take the last room's spot).
+ void ScummEngine::scummverseTourWalkTo(Actor *a, int x, int y) {
++	_scummverseTourTarget = Common::Point(x, y); // (walked to again after a pause)
+ 	if (!getNumBoxes()) return;
+ 	const AdjustBoxResult spot = a->adjustXYToBeInBox(x, y);
+ 	a->startWalkActor(spot.x, spot.y, -1);
+@@ -414,6 +437,9 @@ void ScummEngine::scummverseTourWalkTo(Actor *a, int x, int y) {
+ // One step of the tour's walk; true when the guide is not walking after it
+ // (the next step follows at once).
+ bool ScummEngine::scummverseTourAdvance(Actor *a, int delta, int total) {
++	// Paused: only a stop gone to by number, Next or Previous (a warp) is
++	// entered.
++	if (_scummverseTourPaused && (_scummverseTourPhase != kTourEnter || _scummverseTourOnFoot)) return false;
+ 	bool again = false;
+ 	switch (_scummverseTourPhase) {
+ 	case kTourEnter: {

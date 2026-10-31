@@ -14,6 +14,16 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def build_stamp(patches, env):
+    """Version and label for one build: the latest patch number and the CI
+    run number, so each IPA installs as an update and says which it is."""
+    numbers = [int(p.name[:4]) for p in patches if p.name[:4].isdigit()]
+    patch = max(numbers, default=0)
+    run = int(env.get("GITHUB_RUN_NUMBER") or 0)
+    commit = (env.get("GITHUB_SHA") or "local")[:7]
+    return f"{patch}.{run}", f"patch {patch:04d}, build {run} ({commit})"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=Path)
@@ -29,6 +39,11 @@ def main():
         raise SystemExit("Refusing to package proprietary game resource files")
     if not os.access(executable, os.X_OK):
         raise SystemExit("App executable is missing executable permission")
+    # Unsigned, so the sideloading tool signs the stamped Info.plist.
+    version, label = build_stamp(sorted((ROOT / "patches").glob("*.patch")), os.environ)
+    info["CFBundleShortVersionString"] = info["CFBundleVersion"] = version
+    info["SCUMMVERSEBuild"] = label
+    (app / "Info.plist").write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     ai = ROOT / "local-ai.json"
@@ -49,6 +64,8 @@ def main():
             raise SystemExit("IPA executable missing")
     metadata = {
         "project_commit": os.environ.get("GITHUB_SHA"),
+        "version": version,
+        "build": label,
         "upstream": json.loads((ROOT / "upstream.json").read_text()),
         "bundle_identifier": info["CFBundleIdentifier"],
         "minimum_ios": info.get("MinimumOSVersion"),

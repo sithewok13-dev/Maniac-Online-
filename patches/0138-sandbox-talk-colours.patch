@@ -1,0 +1,92 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index c7313775..e9a7b7dd 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -841,9 +841,12 @@ void clearItems() { panel().setItems(std::vector<Panel::Item>()); }
+ void scroll(int by) { panel().scroll(by); }
+ int firstItem() { return panel().firstItem(); }
+ void render(unsigned int *screen, int pitch, int screenHeight) { panel().render(screen, pitch, screenHeight); }
+-void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale) {
++unsigned int talkColor(int index) {
++	return panel().color(index >= 0 && index < 256 ? index : panel().source().talkColor);
++}
++void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int color) {
+ 	if (!panel().loaded() || !text) return;
+-	panel().say(screen, pitch, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, panel().color(panel().source().talkColor));
++	panel().say(screen, pitch, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, talkColor(color));
+ }
+ namespace {
+ std::vector<std::pair<int, Panel::GameThings> > &gameThings() { static std::vector<std::pair<int, Panel::GameThings> > g; return g; }
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 40da37f4..ec33c037 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -110,9 +110,11 @@ bool iconRect(int &x, int &y, int &width, int &height);
+ // The panel's rows of a screen of 0xAARRGGBB, `pitch` pixels a row (over
+ // the scene: the box, while it is open).
+ void render(unsigned int *screen, int pitch, int screenHeight);
+-// Speech in the game's talk lettering and the player's talk colour,
++// Speech in the game's talk lettering and the player's talk colour (or the
++// speaker's own: an index into the panel's colours; -1: the player's),
+ // centred on `centreX`, ending at `bottomY`, rows from `limit` on untouched.
+-void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale);
++void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int talkColor = -1);
++unsigned int talkColor(int index); // (that colour as 0xAARRGGBB; -1: the player's)
+ // What verb `kind` does to a thing in the scene (Panel::decide; `answers`
+ // the verbs its game's script answers, -1 not known): 0 nothing, 1 say
+ // `say`, 2 show `picture`, 3 take it (the place then shows picture 0; with
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 5bf20a65..ad184fa3 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1135,7 +1135,11 @@ void SandboxEngine::present() {
+ 			StageBridge::view(left, top, width, height, rowScale, colScale);
+ 			// (Kept within the scene's picture, as the games keep it on their screen.)
+ 			const int from = CLIP(left, 0, _width), across = CLIP(width, 1, _width - from);
+-			PanelBridge::say(_frame.data() + from, _width, across, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2 - from, y0 - (int)(4 * rowScale), rowScale, colScale);
++			// (The mansion's and Zak's people each in their own colour, as their
++			// games show them: the cast's, in the panel's colours.)
++			const WorldGuest *who = _speaker < (int)_onStage.size() ? worldAppearance(_onStage[_speaker]) : nullptr;
++			const int talkColor = worldHome(_game) && who && worldHome(worldAppearanceGame(_onStage[_speaker])) ? who->talkColor : -1;
++			PanelBridge::say(_frame.data() + from, _width, across, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2 - from, y0 - (int)(4 * rowScale), rowScale, colScale, talkColor);
+ 		}
+ 		// An announcement (the tram's) at the top of the place, in its middle.
+ 		if (!_notice.empty()) {
+@@ -2888,7 +2892,7 @@ Common::Error SandboxEngine::talkTest() {
+ 	_phone.appearance = FakeTalk::appearance; _phone.visitor = FakeTalk::visitorOf; _phone.scene = FakeTalk::scene;
+ 	_phone.picking = FakeTalk::isPicking; _phone.pick = FakeTalk::pick; _phone.travel = FakeTalk::travel;
+ 	_wanderers = false;
+-	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, failed = 0;
++	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, coloured = 0, failed = 0;
+ 	bool maniac = false, shown = false;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox talk: %s-%d: %s", kWorldGames[_game].gameid, _room, what); };
+ 	auto told = [&]() {
+@@ -2973,6 +2977,19 @@ Common::Error SandboxEngine::talkTest() {
+ 		step(1);
+ 		if (_speech != first || _speaker != a || !StageBridge::talking(a)) fail("a line not said over its speaker"); else ++lines;
+ 		if (!shown && ConfMan.hasKey("scummverse_shots")) { present(); shown = shot("talk.png"); }
++		// (The mansion's and Zak's people in their own colours: the line's
++		// pixels in it, against the place without the line.)
++		const WorldGuest *who = worldAppearance(_onStage[a]);
++		if (worldHome(g) && who && worldHome(worldAppearanceGame(_onStage[a])) && PanelBridge::talkColor(who->talkColor) != PanelBridge::talkColor(-1)) {
++			const unsigned int own = PanelBridge::talkColor(who->talkColor);
++			present();
++			int with = 0, without = 0;
++			for (uint32 p : _frame) with += p == own;
++			const Common::String line = _speech;
++			_speech.clear(); present(); _speech = line;
++			for (uint32 p : _frame) without += p == own;
++			if (with - without < 20) fail("a line not in its speaker's own colour"); else ++coloured;
++		}
+ 		FakeTalk::next = second;
+ 		int waited = 1;
+ 		for (; waited < 2000 && _speech != second; ++waited) { step(1); if (waited == 1 && FakeTalk::canSpeak) fail("the chat may speak over a line"); }
+@@ -3024,7 +3041,7 @@ Common::Error SandboxEngine::talkTest() {
+ 	for (int s = 0; s < kTalkSlots; ++s) cleared = cleared && !FakeTalk::visitors[s];
+ 	if (!cleared) { ++failed; warning("SCUMMVERSE sandbox talk: the chat not cleared on leaving"); }
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said (%d out of view), %d picked, %d stopped walking, Maniac's rooms %s, %d failed", places, lines, unseen, picks, walked, maniac ? "seen" : "not here", failed);
++	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said (%d out of view), %d picked, %d stopped walking, Maniac's rooms %s, %d in their speakers' own colours, %d failed", places, lines, unseen, picks, walked, maniac ? "seen" : "not here", coloured, failed);
+ 	if (!places || failed || lines != places * 3 || picks != places || !walked) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

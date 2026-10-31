@@ -1,0 +1,537 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index cfeeacca..0435b4c6 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -447,6 +447,12 @@ void scummverseAirportOffer(int actor) {
+ 	_scummverseCameraButton = scummverseInstallCamera(self);
+ 	scummverseInstallTour(self);
+ 	scummverseInstallTalk(self);
++	// A game's story: the original game's own controls, without the chat,
++	// its settings or the camera over it (the Worlds button stays, to leave).
++	[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *) {
++		const BOOL story = scummverseStoryPlaying() >= 0;
++		for (UIView *button in @[_scummverseAIButton, _scummverseTalkButton, _scummverseCameraButton]) button.hidden = story;
++	}];
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+ #endif
+@@ -530,6 +536,11 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	}
+ 	return NO;
+ }
++// A game's name in story play: the mansion's own story told apart from
++// the mansion this app makes of it.
++static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame &game) {
++	return !strcmp(game.gameid, "maniac") ? [NSString stringWithFormat:@"%s (original story)", game.title] : [NSString stringWithUTF8String:game.title];
++}
+ - (void)showScummverseWorlds {
+ 	UIResponder *responder = self;
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+@@ -557,12 +568,13 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	const int story = scummverseStoryPlaying();
+ 	if (story >= 0 && story < Scummverse::WorldCatalog::worldGameCount()) {
+ 		const Scummverse::WorldCatalog::WorldGame &playing = Scummverse::WorldCatalog::kWorldGames[story];
+-		UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:playing.title] message:@"The original game, as it was made. Leaving it saves where you are (\"Story\" in its own saves), and it starts there again next time." preferredStyle:UIAlertControllerStyleAlert];
++		UIAlertController *menu = [UIAlertController alertControllerWithTitle:scummverseStoryTitle(playing) message:@"The original game, as it was made. Leaving it saves where you are (\"Story\" in its own saves), and it starts there again next time." preferredStyle:UIAlertControllerStyleAlert];
+ 		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+-			if (i == story || !strcmp(game.gameid, "maniac") || !scummverseWorldFolderFound(game.folder)) continue;
+-			[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %s", game.title] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryRequest + i); }]];
++			if (i == story || !scummverseWorldFolderFound(game.folder)) continue;
++			[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %@", scummverseStoryTitle(game)] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryRequest + i); }]];
+ 		}
++		[menu addAction:[UIAlertAction actionWithTitle:@"Save now" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStorySaveRequest); }]];
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryHomeRequest); }]];
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:menu animated:YES completion:nil];
+@@ -603,14 +615,14 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+ 	for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 		const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+-		if (!strcmp(game.gameid, "maniac")) continue; // (Playing it here.)
++		// (The mansion's own story: from the folder the mansion is playing.)
+ 		const BOOL found = scummverseWorldFolderFound(game.folder);
+ 		// (Its story save, or its autosave: where it goes on from.)
+ 		NSString *saves = [NSString stringWithFormat:@"%@/Savegames/%s%s", documents, Scummverse::WorldCatalog::kWorldStoryPrefix, game.gameid];
+ 		const BOOL saved = [[NSFileManager defaultManager] fileExistsAtPath:[saves stringByAppendingFormat:@".s%02d", Scummverse::WorldCatalog::kWorldStorySlot]] ||
+ 			[[NSFileManager defaultManager] fileExistsAtPath:[saves stringByAppendingString:@".s00"]];
+-		NSString *title = !found ? [NSString stringWithFormat:@"%s (add Documents/%s)", game.title, game.folder] :
+-			saved ? [NSString stringWithFormat:@"Continue %s", game.title] : [NSString stringWithFormat:@"Start %s", game.title];
++		NSString *title = !found ? [NSString stringWithFormat:@"%@ (add Documents/%s)", scummverseStoryTitle(game), game.folder] :
++			saved ? [NSString stringWithFormat:@"Continue %@", scummverseStoryTitle(game)] : [NSString stringWithFormat:@"Start %@", scummverseStoryTitle(game)];
+ 		UIAlertAction *action = [UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryRequest + i); }];
+ 		action.enabled = found;
+ 		[menu addAction:action];
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 2343832d..939d46fd 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -178,10 +178,14 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ }
+ - (void)refresh {
+ 	auto &r=ScummverseLocalAI::runtime();
++	// A game's story: the original game alone (no chat, no Arrive; a chat
++	// left open shuts, giving the picture its room back).
++	const BOOL story=scummverseStoryPlaying()>=0;
++	if(story && _open) [self close];
+ 	// The plane, and Melissa and Leslie's van in flight (room 221).
+-	_arrive.hidden=scummverseSystemMenu || (ScummverseLocalAI::currentRoom()!=56 && ScummverseLocalAI::currentRoom()!=221);
++	_arrive.hidden=scummverseSystemMenu || story || (ScummverseLocalAI::currentRoom()!=56 && ScummverseLocalAI::currentRoom()!=221);
+ 	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { _scene=ScummverseLocalAI::sceneToken(); _hasTranscript=NO; }
+-	self.hidden=scummverseSystemMenu || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
++	self.hidden=scummverseSystemMenu || story || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
+ 	const uint64_t here=r.actorsInRoom(), mask=r.talkingWith();
+ 	[self rebuildChips:here talking:mask];
+ 	NSMutableArray *names=[NSMutableArray array];
+diff --git a/base/main.cpp b/base/main.cpp
+index b6d6a903..cf73e848 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -116,7 +116,8 @@ static bool launcherDialog() {
+ static const char *const kScummverseExportPrefix = "scummverse-export-";
+ // A game's folder in Documents (common/scummverse_story.h).
+ static Common::FSNode scummverseWorldFolder(const char *name) { return Scummverse::worldFolder(name); }
+-static int scummverseQueueWorldExports(const Common::String &maniacTarget, const Common::String &maniacGame, const Common::Path &maniacPath) {
++// (Then: the game to play after them, Maniac or a story to go on in.)
++static int scummverseQueueWorldExports(const Common::String &then, const Common::String &maniacGame, const Common::Path &maniacPath) {
+ 	const Common::FSNode cache(Common::Path("worlds"));
+ 	Common::StringArray targets;
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+@@ -153,7 +154,7 @@ static int scummverseQueueWorldExports(const Common::String &maniacTarget, const
+ 	if (targets.empty()) return 0;
+ 	ConfMan.setActiveDomain(targets[0]);
+ 	for (uint i = 1; i < targets.size(); ++i) ChainedGamesMan.push(targets[i]);
+-	ChainedGamesMan.push(maniacTarget);
++	ChainedGamesMan.push(then);
+ 	return targets.size();
+ }
+ static bool scummverseExportTarget() {
+@@ -168,11 +169,13 @@ static void scummverseForgetExportTargets() {
+ // Story play (Maniac's Worlds menu: the original games, each in its own
+ // engine as ScummVM runs it): each game found in Documents gets a target of
+ // its own at each launch (common/scummverse_story.h).
+-static void scummverseAddStoryTargets() {
+-	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) Scummverse::addStoryTarget(game);
++static void scummverseAddStoryTargets(const Common::Path &maniacPath) {
++	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) Scummverse::addStoryTarget(game, maniacPath);
+ }
+ static bool scummverseStoryTarget() {
+-	return ConfMan.getActiveDomainName().hasPrefix(Scummverse::WorldCatalog::kWorldStoryPrefix);
++	// (Targets are named in any case; a story is also known by its key.)
++	return ConfMan.getActiveDomainName().hasPrefixIgnoreCase(Scummverse::WorldCatalog::kWorldStoryPrefix) ||
++		(ConfMan.getActiveDomain() && ConfMan.getActiveDomain()->contains("scummverse_story"));
+ }
+ // Leaving a game's story with nothing else to start (its own Quit, Back to
+ // Maniac Mansion, or a game that cannot start): the mansion again, where
+@@ -621,7 +624,9 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	}
+ 
+ 	const bool sandboxGame = ConfMan.getActiveDomain() && ConfMan.get("engineid") == "scummverse" && ConfMan.get("gameid") == "sandbox";
+-	if (!sandboxGame && (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac")) {
++	// (A game's story, the mansion's own included, is opened from the
++	// mansion only.)
++	if (!sandboxGame && (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac" || scummverseStoryTarget())) {
+ 		warning("SCUMMVERSE: only Maniac Mansion (original DOS V1) and the sandbox are supported");
+ 		PluginManager::destroy();
+ 		return Common::kUnsupportedGameidError;
+@@ -646,8 +651,23 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	// (Its folder as it starts, command line included: the mansion's export.)
+ 	const Common::String maniacGame = sandboxGame ? Common::String() : ConfMan.get("gameid");
+ 	const Common::Path maniacPath = !sandboxGame && ConfMan.hasKey("path") ? ConfMan.getPath("path") : Common::Path();
+-	if (scummverseQueueWorldExports(maniacTarget, maniacGame, maniacPath)) ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+-	if (!sandboxGame) scummverseAddStoryTargets();
++	if (!sandboxGame) scummverseAddStoryTargets(maniacPath);
++	// The story playing when the app was put away goes on (after any
++	// exports), from its newest save; the mansion after it, where it was.
++	// (Taken now: a game that stops the app as it starts is not opened again
++	// at the next start.)
++	const Common::String resume = sandboxGame ? Common::String() : Scummverse::storyToResume();
++	if (ConfMan.hasKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) {
++		ConfMan.removeKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
++		ConfMan.flushToDisk();
++	}
++	if (!resume.empty()) warning("SCUMMVERSE: going on with %s", resume.c_str());
++	if (scummverseQueueWorldExports(resume.empty() ? maniacTarget : resume, maniacGame, maniacPath)) ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
++	else if (!resume.empty()) {
++		// (Maniac's command-line settings are its own: set aside until it starts.)
++		ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
++		ConfMan.setActiveDomain(resume);
++	}
+ 
+ 	if (settings.contains("dump-midi")) {
+ 		// Store this command line setting in ConfMan, since all transient settings are destroyed
+@@ -872,6 +892,11 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			const Common::String slot = resume ? transient->getVal("save_slot") : Common::String();
+ 			*transient = maniacTransient;
+ 			if (resume) transient->setVal("save_slot", slot);
++			// (No story to go on in at the next start: the mansion is playing.)
++			if (ConfMan.hasKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) {
++				ConfMan.removeKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
++				ConfMan.flushToDisk();
++			}
+ 		} else if (!exportRun) {
+ 			// The sandbox (opened from Maniac): the phone's own way to play.
+ 			transient->setVal("gui_return_to_launcher_at_exit", "false");
+@@ -1030,11 +1055,12 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			}
+ 			reportStandaloneError(result);
+ 			// A game chained from another that cannot start (the sandbox
+-			// opened from Maniac): on to the next (Maniac, where it was saved).
++			// opened from Maniac), or a story gone on with at the start: on to
++			// the next (Maniac, where it was saved).
+ 			Common::String next;
+ 			int slot = -1;
+-			if (chainedRun && !ChainedGamesMan.pop(next, slot) && storyRun) scummverseStoryHome(maniacTarget, next, slot);
+-			if (chainedRun && !next.empty()) {
++			if ((chainedRun || storyRun) && !ChainedGamesMan.pop(next, slot) && storyRun) scummverseStoryHome(maniacTarget, next, slot);
++			if ((chainedRun || storyRun) && !next.empty()) {
+ 				ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+ 				if (slot != -1)
+ 					ConfMan.setInt("save_slot", slot, Common::ConfigManager::kTransientDomain);
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index d0f555b5..abd685af 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -1,7 +1,8 @@
+ // SCUMMVERSE story play: each game's own target. GPL-3.0-or-later.
+ //
+ // The original games, each in its own engine as ScummVM runs it, opened
+-// from Maniac's Worlds menu (engines/scumm/scummverse_story.inc). Each game
++// from Maniac's Worlds menu (engines/scumm/scummverse_story.inc), Maniac
++// Mansion's own story among them. Each game
+ // found in Documents (the working directory) has a target of its own,
+ // kWorldStoryPrefix + its id, kept from one launch to the next so its saves
+ // stay its own; its folder is looked up again each time, its edition found
+@@ -43,22 +44,77 @@ inline Common::FSNode worldFolder(const char *name) {
+ }
+ 
+ // A game's story target, added or brought up to date when its folder is
+-// found (false when it is not). Not the mansion: it is the one they open
+-// from.
+-inline bool addStoryTarget(const WorldCatalog::WorldGame &game) {
+-	if (WorldCatalog::sameId(game.gameid, "maniac")) return false;
+-	const Common::FSNode folder = worldFolder(game.folder);
++// found (false when it is not). The mansion's own story is the mansion's
++// data (maniacPath: the folder the mansion itself plays from, its edition
++// the one the mansion checks) with none of the mansion's additions; it is
++// left as it was when that folder is not known.
++inline bool addStoryTarget(const WorldCatalog::WorldGame &game, const Common::Path &maniacPath = Common::Path()) {
++	const bool mansion = WorldCatalog::sameId(game.gameid, "maniac");
++	if (mansion && maniacPath.empty()) return false;
++	const Common::FSNode folder = mansion ? Common::FSNode(maniacPath) : worldFolder(game.folder);
+ 	if (!folder.exists() || !folder.isDirectory()) return false;
+ 	const Common::String target = Common::String(WorldCatalog::kWorldStoryPrefix) + game.gameid;
+ 	if (!ConfMan.hasGameDomain(target)) ConfMan.addGameDomain(target);
+ 	ConfMan.set("engineid", "scumm", target);
+ 	ConfMan.set("gameid", game.gameid, target);
+ 	ConfMan.set("description", game.title, target);
+-	ConfMan.setPath("path", folder.getPath(), target);
++	ConfMan.setPath("path", mansion ? maniacPath : folder.getPath(), target);
+ 	ConfMan.setBool("scummverse_story", true, target);
++	if (mansion) {
++		ConfMan.set("platform", "dos", target);
++		for (const char *addition : {"scummverse_roaming", "scummverse_exploration_doors", "scummverse_exploration_safety"})
++			ConfMan.setBool(addition, false, target);
++	}
+ 	return true;
+ }
+ 
++// A file a game's story cannot go on without (kWorldStoryNeeds) missing
++// from its folder (as the engine looks: there, or in its data, video or
++// resource folder, any case): its name, else empty. (Such a game's engine
++// would stop the app as it starts.)
++inline Common::String storyMissing(const char *gameid, const Common::Path &path) {
++	const char *const *needs = WorldCatalog::worldStoryNeeds(gameid);
++	if (!needs) return Common::String();
++	Common::FSList files, top;
++	const Common::FSNode folder(path);
++	if (!folder.getChildren(top, Common::FSNode::kListAll)) return Common::String(needs[0]);
++	for (const Common::FSNode &entry : top) {
++		const Common::String name = entry.getName();
++		if (!entry.isDirectory()) files.push_back(entry);
++		else if (name.equalsIgnoreCase("data") || name.equalsIgnoreCase("video") || name.equalsIgnoreCase("resource")) {
++			Common::FSList inner;
++			if (entry.getChildren(inner, Common::FSNode::kListFilesOnly)) for (const Common::FSNode &f : inner) files.push_back(f);
++		}
++	}
++	for (int i = 0; needs[i]; ++i) {
++		bool found = false;
++		for (const Common::FSNode &entry : files) found = found || entry.getName().equalsIgnoreCase(needs[i]);
++		if (!found) return Common::String(needs[i]);
++	}
++	return Common::String();
++}
++
++// The story playing when the app was put away or stopped (its target), so
++// the next start goes on in it; set once a story has played a few seconds
++// (a game that stops the app as it starts is not opened again and again),
++// cleared when the mansion starts again.
++static const char *const kStoryPlayingKey = "scummverse_story_playing";
++
++// The story to go on in at this start: its target, else empty (none, or
++// its folder or a file it needs is gone).
++inline Common::String storyToResume() {
++	if (!ConfMan.hasKey(kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) return Common::String();
++	const Common::String target = ConfMan.get(kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
++	if (!target.hasPrefixIgnoreCase(WorldCatalog::kWorldStoryPrefix) || !ConfMan.hasGameDomain(target)) return Common::String();
++	const Common::ConfigManager::Domain *domain = ConfMan.getDomain(target);
++	if (!domain->contains("scummverse_story") || !domain->contains("gameid") || !domain->contains("path")) return Common::String();
++	const Common::Path path = ConfMan.getPath("path", target);
++	const Common::FSNode folder(path);
++	if (!folder.exists() || !folder.isDirectory()) return Common::String();
++	if (!storyMissing(domain->getVal("gameid").c_str(), path).empty()) return Common::String();
++	return target;
++}
++
+ } // End of namespace Scummverse
+ 
+ #endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 311a71b3..5d73bfc3 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -759,15 +759,17 @@ static const int kWorldSandboxGameRequest = kWorldSandboxRequest + 16;
+ // Story play: the original games, each in its own engine as ScummVM runs
+ // it, from Maniac's Worlds menu. kWorldStoryRequest + a game: that game's
+ // story (from Maniac, or from another game's); kWorldStoryHomeRequest: back
+-// to the mansion. Above the sandbox's games, which it ignores. Each game's
++// to the mansion; kWorldStorySaveRequest: its story saved where it is, the
++// game going on. Above the sandbox's games, which it ignores. Each game's
+ // target is kWorldStoryPrefix + its id; its place is kept in its story
+ // save (kWorldStorySlot, an ordinary save, its own menus list it as
+ // "Story").
++static const int kWorldStorySaveRequest = kWorldSandboxRequest + 62;
+ static const int kWorldStoryHomeRequest = kWorldSandboxRequest + 63;
+ static const int kWorldStoryRequest = kWorldSandboxRequest + 64;
+ static const char *const kWorldStoryPrefix = "scummverse-story-";
+ static const int kWorldStorySlot = 99;
+-static_assert(kWorldSandboxGameRequest + (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) <= kWorldStoryHomeRequest,
++static_assert(kWorldSandboxGameRequest + (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) <= kWorldStorySaveRequest,
+ 	"the sandbox's game requests run into story play's");
+ // Files a game's story cannot go on without (its engine stops at the first
+ // one missing, and the app with it), looked for in its folder and in its
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 59f7800d..4fbc784a 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -179,9 +179,13 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	ConfMan.registerDefault("scummverse_exploration_doors", true);
+ 	ConfMan.registerDefault("scummverse_exploration_safety", true);
+ 	ConfMan.registerDefault("scummverse_roaming", true);
++	// A game's story (scummverse_story.inc): its own engine, its own way;
++	// only the Worlds menu's way out of it. (The mansion's own story too:
++	// none of the mansion's additions.)
++	_scummverseStory = ConfMan.hasKey("scummverse_story") && ConfMan.getBool("scummverse_story") && !ConfMan.hasKey("scummverse_world_export");
+ 	const bool auditedManiac = _game.id == GID_MANIAC &&
+ 		_game.version == 1 && _game.platform == Common::kPlatformDOS &&
+-		!(_game.features & GF_DEMO) &&
++		!(_game.features & GF_DEMO) && !_scummverseStory &&
+ 		dr.md5 == "7f45ddd6dbfbf8f80c0c0efea4c295bc";
+ 	_scummverseAuditedManiac = auditedManiac;
+ 	// (Zak McKracken DOS V1 English: the edition the original engine's Zak
+@@ -193,10 +197,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 		ConfMan.getBool("scummverse_exploration_doors");
+ 	_scummverseExplorationSafety = auditedManiac &&
+ 		ConfMan.getBool("scummverse_exploration_safety");
+-	// A game's story (scummverse_story.inc): its own engine, its own way;
+-	// only the Worlds menu's way out of it. (A request left from before it
+-	// started is dropped.)
+-	_scummverseStory = ConfMan.hasKey("scummverse_story") && ConfMan.getBool("scummverse_story") && !ConfMan.hasKey("scummverse_world_export");
++	// (A request left from before a story started is dropped.)
+ 	if (_scummverseStory) {
+ 		scummverseWorldPoll();
+ 		for (int g = 0; g < Scummverse::WorldCatalog::worldGameCount(); ++g)
+@@ -1629,8 +1630,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+ 	setupCostumeRenderer();
+ 
+ 	// Load game from specified slot, if any
++	// (A game's story started with none, as when the app goes on in it at
++	// its start: from its newest save, if it has one.)
++	if (_scummverseStory && !ConfMan.hasKey("save_slot")) _scummverseStoryFrom = scummverseStorySlotOf(_targetName);
+ 	if (ConfMan.hasKey("save_slot")) {
+ 		requestLoad(ConfMan.getInt("save_slot"));
++	} else if (_scummverseStoryFrom >= 0) {
++		requestLoad(_scummverseStoryFrom);
+ 	} else if (!ConfMan.hasKey("boot_param") && _game.id == GID_LOOM && _game.platform == Common::kPlatformFMTowns) {
+ 		// In case we run the Loom FM-Towns version and have no boot parameter
+ 		// nor start save game supplied we will show our own custom difficulty
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 92d85d0d..43dac82a 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1689,7 +1689,11 @@ protected:
+ 	int _scummverseStoryLeaving = -2; // (Asked to leave: -1 for the mansion, else that game; -2 not.)
+ 	int _scummverseStoryTried = 0; // (How long it has tried to save to leave, in 1/60 s of the game's time.)
+ 	bool _scummverseStorySaved = false; // (Saved to leave: nothing more to save on quitting.)
++	int _scummverseStoryFrom = -1; // (Started with no save named: the one it went on from, -1 none.)
++	int _scummverseStoryPlayed = 0; // (Its time played, in 1/60 s, until it is marked to go on in at the next start.)
++	int scummverseStorySlotOf(const Common::String &target);
+ 	void scummverseOpenStory(int game);
++	bool scummverseStoryReady(int game);
+ 	bool scummverseStoryChain(int game, Common::String &refusal);
+ 	bool scummverseStorySave(Common::String &problem);
+ 	void scummverseStoryQuit();
+diff --git a/engines/scumm/scummverse_camera.inc b/engines/scumm/scummverse_camera.inc
+index 9f459432..8ff28ac4 100644
+--- a/engines/scumm/scummverse_camera.inc
++++ b/engines/scumm/scummverse_camera.inc
+@@ -38,7 +38,8 @@ static const uint32 kSelfieSettle = 400, kSelfieNext = 300, kSelfieShow = 900;
+ 
+ bool ScummEngine::scummverseCameraStep() {
+ 	ScummverseCam::Request request;
+-	if (_game.id != GID_MANIAC) {
++	// (Nor in a game's story, the mansion's own included: as it was made.)
++	if (_game.id != GID_MANIAC || _scummverseStory) {
+ 		if (ScummverseCam::takeRequest(request)) ScummverseCam::note("No camera in this game");
+ 		return false;
+ 	}
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index cc695685..b0b58241 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -1,7 +1,8 @@
+ // SCUMMVERSE story play. GPL-3.0-or-later.
+ //
+ // The original games, each in its own engine as ScummVM runs it (none of
+-// the mansion's additions), opened from Maniac's Worlds menu. Each game
++// the mansion's additions), opened from Maniac's Worlds menu; Maniac
++// Mansion's own story among them (its data, without the mansion). Each game
+ // has a target of its own, kWorldStoryPrefix + its id (base/main.cpp sets
+ // them up from the folders in Documents, common/scummverse_story.h), and
+ // keeps its place in its story save (kWorldStorySlot, "Story"): saved there
+@@ -14,9 +15,10 @@
+ // Where a game's story goes on from: the newer of its story save and its
+ // autosave (slot 0, ScummVM's own, also made when the phone puts the app
+ // away); -1 when it has neither (it starts from the beginning).
+-static int scummverseStorySlotOf(const Common::String &target) {
++int ScummEngine::scummverseStorySlotOf(const Common::String &target) {
+ 	int best = -1;
+ 	uint64 newest = 0;
++	uint32 newestPlayed = 0;
+ 	for (int slot : {kWorldStorySlot, 0}) {
+ 		Common::String desc;
+ 		Graphics::Surface *thumbnail = nullptr;
+@@ -25,50 +27,36 @@ static int scummverseStorySlotOf(const Common::String &target) {
+ 		const bool found = ScummEngine::querySaveMetaInfos(target.c_str(), slot, 0, desc, thumbnail, when);
+ 		if (thumbnail) { thumbnail->free(); delete thumbnail; }
+ 		if (!found) continue;
+-		// (Year, month, day, hour, minute: the story save first when alike.)
++		// (Year, month, day, hour, minute; then, in the same minute, the time
++		// played, which grows as the one story goes on: the story save first
++		// when alike.)
+ 		const uint64 at = !when ? 1 : ((uint64)(infos.date & 0xFFFF) << 32) | ((uint64)((infos.date >> 16) & 0xFF) << 24) |
+ 			((uint64)(infos.date >> 24) << 16) | infos.time;
+-		if (best < 0 || at > newest) { best = slot; newest = at; }
++		const uint32 played = when ? infos.playtime : 0;
++		if (best < 0 || at > newest || (at == newest && played > newestPlayed)) { best = slot; newest = at; newestPlayed = played; }
+ 	}
+ 	return best;
+ }
+ 
+-// A file a game's story cannot go on without (kWorldStoryNeeds) missing
+-// from its folder (as the engine looks: there, or in its data, video or
+-// resource folder, any case): its name, else empty.
+-static Common::String scummverseStoryMissing(const char *gameid, const Common::Path &path) {
+-	const char *const *needs = worldStoryNeeds(gameid);
+-	if (!needs) return Common::String();
+-	Common::FSList files, top;
+-	const Common::FSNode folder(path);
+-	if (!folder.getChildren(top, Common::FSNode::kListAll)) return Common::String(needs[0]);
+-	for (const Common::FSNode &entry : top) {
+-		const Common::String name = entry.getName();
+-		if (!entry.isDirectory()) files.push_back(entry);
+-		else if (name.equalsIgnoreCase("data") || name.equalsIgnoreCase("video") || name.equalsIgnoreCase("resource")) {
+-			Common::FSList inner;
+-			if (entry.getChildren(inner, Common::FSNode::kListFilesOnly)) for (const Common::FSNode &f : inner) files.push_back(f);
+-		}
+-	}
+-	for (int i = 0; needs[i]; ++i) {
+-		bool found = false;
+-		for (const Common::FSNode &entry : files) found = found || entry.getName().equalsIgnoreCase(needs[i]);
+-		if (!found) return Common::String(needs[i]);
+-	}
+-	return Common::String();
++// A game's story target, there or set up now (a folder added since the app
++// started; the mansion's own story from the mansion's folder, when the
++// mansion asks): false when its folder is not found.
++bool ScummEngine::scummverseStoryReady(int game) {
++	if (game < 0 || game >= worldGameCount()) return false;
++	if (ConfMan.hasGameDomain(Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid)) return true;
++	return ::Scummverse::addStoryTarget(kWorldGames[game], _scummverseStory ? Common::Path() : ConfMan.getPath("path"));
+ }
+ 
+ // Starts a game's story next (this engine leaves at once): false, and why
+ // in words for the player, when it cannot.
+ bool ScummEngine::scummverseStoryChain(int game, Common::String &refusal) {
+-	if (game < 0 || game >= worldGameCount() || !strcmp(kWorldGames[game].gameid, "maniac")) { refusal = "That game has no story here."; return false; }
++	if (game < 0 || game >= worldGameCount()) { refusal = "That game has no story here."; return false; }
+ 	const Common::String target = Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid;
+-	// (A folder added since the app started gets its target now.)
+-	if (!ConfMan.hasGameDomain(target) && !::Scummverse::addStoryTarget(kWorldGames[game])) {
++	if (!scummverseStoryReady(game)) {
+ 		refusal = Common::String::format("I need its files in Documents/%s first.", kWorldGames[game].folder);
+ 		return false;
+ 	}
+-	Common::String missing = scummverseStoryMissing(kWorldGames[game].gameid, ConfMan.getPath("path", target));
++	Common::String missing = ::Scummverse::storyMissing(kWorldGames[game].gameid, ConfMan.getPath("path", target));
+ 	if (!missing.empty()) {
+ 		missing.toUppercase();
+ 		refusal = Common::String::format("It needs all of its files in Documents/%s: %s is missing.", kWorldGames[game].folder, missing.c_str());
+@@ -88,14 +76,13 @@ void ScummEngine::scummverseOpenStory(int game) {
+ 	const char *refusal = _scummverseNetOn ? "Not during a WiFi game." : _scummverseTouring ? "Not during the tour." : nullptr;
+ 	Common::String why;
+ 	// (Its folder and files looked at before Maniac is saved.)
+-	const bool found = game >= 0 && game < worldGameCount() && !sameId(kWorldGames[game].gameid, "maniac") &&
+-		(ConfMan.hasGameDomain(Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid) || ::Scummverse::addStoryTarget(kWorldGames[game]));
++	const bool found = scummverseStoryReady(game);
+ 	if (!refusal && !found) {
+ 		why = game >= 0 && game < worldGameCount() ? Common::String::format("I need its files in Documents/%s first.", kWorldGames[game].folder) : "That game has no story here.";
+ 		refusal = why.c_str();
+ 	}
+ 	if (!refusal) {
+-		Common::String missing = scummverseStoryMissing(kWorldGames[game].gameid, ConfMan.getPath("path", Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid));
++		Common::String missing = ::Scummverse::storyMissing(kWorldGames[game].gameid, ConfMan.getPath("path", Common::String(kWorldStoryPrefix) + kWorldGames[game].gameid));
+ 		if (!missing.empty()) {
+ 			missing.toUppercase();
+ 			why = Common::String::format("It needs all of its files in Documents/%s: %s is missing.", kWorldGames[game].folder, missing.c_str());
+@@ -156,7 +143,31 @@ void ScummEngine::scummverseLeaveStory(int game) {
+ 
+ void ScummEngine::scummverseUpdateStory(int delta) {
+ 	if (!_scummverseStory) return;
++	// (Played a few seconds: the next start goes on in it, if the app is put
++	// away or stopped before it is left.)
++	if (_scummverseStoryPlayed >= 0 && (_scummverseStoryPlayed += MAX(delta, 1)) >= 5 * 60) {
++		_scummverseStoryPlayed = -1;
++		ConfMan.set(::Scummverse::kStoryPlayingKey, _targetName, Common::ConfigManager::kApplicationDomain);
++		ConfMan.flushToDisk();
++		warning("SCUMMVERSE story: %s goes on at the next start", _targetName.c_str());
++	}
+ 	const int request = scummverseWorldPoll();
++	if (request == kWorldStorySaveRequest && _scummverseStoryLeaving == -2 && ChainedGamesMan.empty()) {
++		// (The menu's Save now: saved where it is, and on it goes.)
++		Common::String problem;
++		const bool leaving = _scummverseStorySaved;
++		if (scummverseStorySave(problem)) {
++			_scummverseStorySaved = leaving;
++			warning("SCUMMVERSE story: %s saved now", _targetName.c_str());
++			GUI::TimedMessageDialog dialog(_("Saved. It goes on from here next time."), 1500);
++			runDialog(dialog);
++		} else {
++			warning("SCUMMVERSE story: %s not saved now (%s)", _targetName.c_str(), problem.c_str());
++			GUI::TimedMessageDialog dialog(Common::U32String(Common::String::format("It can't be saved just now (%s). Try again in a moment.", problem.c_str())), 2500);
++			runDialog(dialog);
++		}
++		return;
++	}
+ 	if (request == kWorldStoryHomeRequest) scummverseLeaveStory(-1);
+ 	else if (request >= kWorldStoryRequest && request < kWorldStoryRequest + worldGameCount()) scummverseLeaveStory(request - kWorldStoryRequest);
+ 	if (_scummverseStoryLeaving == -2 || !ChainedGamesMan.empty() || shouldQuit()) return;
+@@ -183,6 +194,8 @@ void ScummEngine::scummverseUpdateStory(int delta) {
+ 		return;
+ 	}
+ 	if (!scummverseStoryChain(game, problem)) {
++		// (Staying: its quitting saves it again.)
++		_scummverseStorySaved = false;
+ 		warning("SCUMMVERSE story: %s not opened (%s)", kWorldGames[game].gameid, problem.c_str());
+ 		GUI::TimedMessageDialog dialog(Common::U32String(problem), 3000);
+ 		runDialog(dialog);

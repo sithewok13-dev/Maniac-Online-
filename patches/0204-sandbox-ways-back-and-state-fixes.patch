@@ -1,0 +1,405 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 973601e9..b74c4e9f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -90,7 +90,8 @@ static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
+ static const char *const kDarkKey = "scummverse_sandbox_dark"; // (the mansion's places with their lights off)
+ static const char *const kFlashlightKey = "scummverse_sandbox_flashlight"; // (the mansion's flashlight on)
+ static const char *const kFollowersKey = "scummverse_sandbox_followers"; // (the one followed, then those following)
+-static const char *const kWayBackKey = "scummverse_sandbox_way_back";   // (from a place with no way on: game room door, then that place's game room)
++static const char *const kTourSpeedKey = "scummverse_tour_speed";      // (as the mansion's tour)
++static const char *const kWayBackKey = "scummverse_sandbox_way_back";   // (from a place with no way back: game room door, then that place's game room)
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -204,7 +205,7 @@ bool SandboxEngine::startPlace(int &game, int &room) const {
+ }
+ 
+ int SandboxEngine::place(int game, int room) const {
+-	return walkable(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
++	return walkable(game, room) && !worldRideScene(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
+ }
+ 
+ // Everyone out (common/scummverse_wander.h, as Maniac's other-world
+@@ -371,12 +372,15 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		else if (PanelBridge::gameThing(game, room, id, picture, answers) && picture != StageBridge::objectShown(i) && picture < StageBridge::objectPictures(i))
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+-	// (A way back only from the place it is for: elsewhere let go, kept too.)
+-	if (game != _wayBack.atGame || room != _wayBack.atRoom) {
+-		if (_wayBack.game >= 0 && !_testing && ConfMan.hasKey(kWayBackKey)) { ConfMan.removeKey(kWayBackKey, ConfMan.getActiveDomainName()); ConfMan.flushToDisk(); }
+-		_wayBack = WayBack();
++	// (A way back kept while still past its door, with no way to the place
++	// it leads to; elsewhere let go. Kept too.)
++	if (_wayBack.game >= 0) {
++		if (game != _wayBack.game || room == _wayBack.room || reaches(game, room, _wayBack.room)) _wayBack = WayBack();
++		else { _wayBack.atGame = game; _wayBack.atRoom = room; }
++		wayBackKeep();
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
++	_notice.clear(); _noticeClock = 0; // (what was told at the place before)
+ 	// (What is inside another over it where that one is open, else under it.)
+ 	layInside();
+ 	showStains();
+@@ -457,7 +461,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		StageBridge::place(_player, xs[skip], ys[skip]);
+ 	}
+ 	spreadOthers();
+-	_noWayOn = !wayOut();
++	_noWayOn = _wayBack.game >= 0;
+ 	StageBridge::follow(_player);
+ 	bringFollowers();
+ 	tramShow();
+@@ -762,7 +766,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	}
+ 	// (The chat choosing whom to talk to: someone tapped, picked.)
+ 	if (_phone.pick(talkIdAt(screenX, screenY))) return;
+-	// (No way on from here: a tap on the arrow at its left goes back the way
++	// (No way back from here: a tap on the arrow at its left goes back the way
+ 	// they came.)
+ 	{
+ 		int bx0, by0, bx1, by1;
+@@ -918,7 +922,7 @@ void SandboxEngine::hold() {
+ 	if (_press.item >= 0) PanelBridge::itemName(_press.item, name, sizeof(name));
+ 	else if (_press.object >= 0) StageBridge::objectName(_press.object, name, sizeof(name));
+ 	else return;
+-	_action = 0; _target = -1; _door = -1;
++	_action = 0; _target = -1; _door = -1; _doorGoalLink = -1; _opening = 0;
+ 	PanelBridge::openCoin(_press.x, _press.y, name);
+ 	PanelBridge::lightCoin(PanelBridge::coinVerb(_pointerX, _pointerY));
+ 	_dirty = true;
+@@ -1925,21 +1929,40 @@ void SandboxEngine::act() {
+ 	if (!_testing) saveState();
+ }
+ 
+-bool SandboxEngine::wayOut() const {
+-	if (_game < 0) return true;
+-	int line, end;
+-	if (tramStop(line, end) || _vanPlace == _game * 1024 + _room) return true;
+-	for (const WorldRide &r : kWorldRides) if (r.game == _game && r.room == _room) return true;
+-	// (A door shut, or kept shut by its game until something is so, is one.)
+-	for (int o = 0; o < StageBridge::objectCount(); ++o) {
+-		int id, ox, oy, w, h, wx, wy, state;
+-		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
+-		const WorldLink *link = worldLinkFrom(_game, _room, id);
+-		if (link && link->target != _room && installed(_game, link->target)) return true;
++// From that place through its game's doors (a door shut, or kept shut by its
++// game until something is so, is one) to the other, or to a ride, a tram or
++// the van, which go on anywhere.
++bool SandboxEngine::reaches(int game, int from, int to) const {
++	const WorldMap *map = game >= 0 ? worldMap(game) : nullptr;
++	if (!map) return true;
++	Common::Array<int> queue;
++	Common::HashMap<int, bool> seen;
++	queue.push_back(from); seen[from] = true;
++	for (uint i = 0; i < queue.size(); ++i) {
++		const int room = queue[i];
++		int line, end;
++		if (room == to || worldTramStop(game, room, line, end) || _vanPlace == game * 1024 + room) return true;
++		for (const WorldRide &r : kWorldRides) if (r.game == game && r.room == room) return true;
++		for (int l = 0; l < map->linkCount; ++l) {
++			const WorldLink &link = map->links[l];
++			if (link.room != room || seen.contains(link.target) || !installed(game, link.target)) continue;
++			seen[link.target] = true;
++			queue.push_back(link.target);
++		}
+ 	}
+ 	return false;
+ }
+ 
++// (Kept between launches; not while touring: the tour leaves it as it was.)
++void SandboxEngine::wayBackKeep() {
++	if (_testing || _touring.on) return;
++	if (_wayBack.game < 0) {
++		if (!ConfMan.hasKey(kWayBackKey)) return;
++		ConfMan.removeKey(kWayBackKey, ConfMan.getActiveDomainName());
++	} else ConfMan.set(kWayBackKey, Common::String::format("%d %d %d %d %d", _wayBack.game, _wayBack.room, _wayBack.door, _wayBack.atGame, _wayBack.atRoom));
++	ConfMan.flushToDisk();
++}
++
+ bool SandboxEngine::backSign(int &x0, int &y0, int &x1, int &y1) const {
+ 	if (_wayBack.game < 0 || !_noWayOn || _touring.on || _player < 0 || _game != _wayBack.atGame || _room != _wayBack.atRoom) return false;
+ 	int left, top, width, height;
+@@ -1954,9 +1977,20 @@ bool SandboxEngine::backSign(int &x0, int &y0, int &x1, int &y1) const {
+ 
+ void SandboxEngine::goBack() {
+ 	const WayBack w = _wayBack;
++	const int game = _game, room = _room;
++	double x = 0, y = 0;
++	if (_player >= 0) StageBridge::position(_player, x, y);
+ 	Common::String problem;
+-	if (w.game < 0 || !installed(w.game, w.room) || !enter(w.game, w.room, w.door, problem)) { announce("There's no way back from here."); return; }
+-	if (!_testing) saveState();
++	if (w.game >= 0 && installed(w.game, w.room) && enter(w.game, w.room, w.door, problem)) {
++		if (!_testing) saveState();
++		return;
++	}
++	// (Not shown there: here still, as they stood, the arrow gone.)
++	if (w.game >= 0) warning("SCUMMVERSE sandbox: way back to %s-%d not shown (%s)", kWorldGames[w.game].gameid, w.room, problem.c_str());
++	_wayBack = WayBack();
++	wayBackKeep();
++	if (game >= 0 && enter(game, room, 0, problem)) placePlayer(x, y);
++	announce("There's no way back from here.");
+ }
+ 
+ bool SandboxEngine::travel(int index) {
+@@ -2003,15 +2037,14 @@ bool SandboxEngine::travel(int index) {
+ 			openedBack = StageBridge::objectShown(o) == 1;
+ 		}
+ 		if ((opened >= 0 || openedBack || shuts) && !_testing && !_touring.on) saveState();
+-		// (No way on from here, its game leaving it only by a script: back the
+-		// way they came, by a tap at its edge; told so, kept.)
+-		if (!wayOut()) {
++		// (No way back from here but its game's scripts, however far in: back
++		// the way they came, by the arrow at the left; told so, kept. Deeper
++		// in, the door they first came through still.)
++		if (_wayBack.game < 0 && !reaches(game, link.target, from)) {
+ 			_wayBack.game = game; _wayBack.room = from; _wayBack.door = link.object; _wayBack.atGame = game; _wayBack.atRoom = link.target;
+-			if (!_touring.on) announce("No way on from here: tap the arrow at the left to go back.");
+-			if (!_testing && !_touring.on) {
+-				ConfMan.set(kWayBackKey, Common::String::format("%d %d %d %d %d", game, from, (int)link.object, game, (int)link.target));
+-				ConfMan.flushToDisk();
+-			}
++			_noWayOn = true;
++			if (!_touring.on) announce("No way back from here: tap the arrow at the left to go back.");
++			wayBackKeep();
+ 		}
+ 		return true;
+ 	}
+@@ -2149,6 +2182,7 @@ void SandboxEngine::step(int ticks) {
+ }
+ 
+ void SandboxEngine::back() {
++	if (_peeing.actor >= 0) peeEnded(); // (the puddle as big as it got)
+ 	if (!_testing) saveState();
+ 	Common::Event event;
+ 	event.type = Common::EVENT_RETURN_TO_LAUNCHER;
+@@ -2160,6 +2194,7 @@ void SandboxEngine::back() {
+ // the mansion dropped, then Story mode's list (base/main.cpp). Explore mode
+ // later finds the mansion where it was when this engine was opened.
+ void SandboxEngine::enterStoryMode() {
++	if (_peeing.actor >= 0) peeEnded();
+ 	if (!_testing) saveState();
+ 	Common::String next;
+ 	int slot;
+@@ -2189,7 +2224,12 @@ void SandboxEngine::request(int code) {
+ 	if (code >= kWorldPlaceRequest && code < kWorldVanRequest) { rideChosen((code - kWorldPlaceRequest) / 1024, (code - kWorldPlaceRequest) % 1024); return; }
+ 	// The van's site, and the van boarded where it is (the Worlds menu).
+ 	if (code >= kWorldVanRequest && code < kWorldAppearanceRequest) { rideSite(code - kWorldVanRequest); return; }
+-	if (code == kWorldSandboxVanRequest) { tourEnd(false); vanBoard(); return; }
++	if (code == kWorldSandboxVanRequest) {
++		// (Touring: the tour ends only for the van where it stops, else goes on.)
++		if (_touring.on && _vanPlace == _game * 1024 + _room) tourEnd(false);
++		vanBoard();
++		return;
++	}
+ 	if (code == kWorldSandboxStayRequest) { rideStay(); return; }
+ 	if (code == kWorldStoryModeRequest) { tourEnd(false); enterStoryMode(); return; }
+ 	if (code < kGameRequest) return;
+@@ -2209,7 +2249,7 @@ void SandboxEngine::request(int code) {
+ void SandboxEngine::present() {
+ 	aimFlashlight();
+ 	StageBridge::render(_frame.data(), _width);
+-	// (No way on from here: the arrow back, at the place's left, the place
++	// (No way back from here: the arrow back, at the place's left, the place
+ 	// darkened under it.)
+ 	int bx0, by0, bx1, by1;
+ 	if (backSign(bx0, by0, bx1, by1)) {
+@@ -2426,6 +2466,8 @@ void SandboxEngine::tourCommand(int command, int number) {
+ 	case Tour::kPlay:
+ 		if (!_touring.on || !_touring.paused) break;
+ 		_touring.paused = false;
++		_door = -1; _action = 0; _target = -1; // (a sentence begun while paused let go)
++		letGo();
+ 		Tour::publishPaused(false);
+ 		if (_touring.phase != kTourRefusedStop) tourPlan();
+ 		break;
+@@ -2441,6 +2483,7 @@ void SandboxEngine::tourStart(int index) {
+ 		// (Aboard a ride: home is the stop it was boarded at.)
+ 		if (!keptPlace(_touring.homeGame, _touring.homeRoom, _touring.homeX, _touring.homeY)) { Tour::publish(false, "", 1, 0); return; }
+ 		if (!_testing) saveState(); // (where it began, kept while touring)
++		_touring.homeWay = _wayBack;
+ 	}
+ 	_door = -1; _action = 0; _target = -1;
+ 	_touring.on = true; _touring.paused = false;
+@@ -2455,7 +2498,10 @@ void SandboxEngine::tourEnd(bool home) {
+ 	_touring.on = false; _touring.paused = false;
+ 	if (_player >= 0) StageBridge::stop(_player);
+ 	Common::String problem;
++	// (Home: its way back as it was.)
++	if (home && _touring.homeGame >= 0) _wayBack = _touring.homeWay;
+ 	if (home && _touring.homeGame >= 0 && enter(_touring.homeGame, _touring.homeRoom, 0, problem)) placePlayer(_touring.homeX, _touring.homeY);
++	wayBackKeep();
+ 	tourPublish();
+ 	Tour::publishPaused(false);
+ 	tourKeep();
+@@ -3801,6 +3847,8 @@ Common::Error SandboxEngine::run() {
+ 	PanelBridge::clearThings(); // (read afresh: the cache may have been exported again)
+ 	Camera::reset(); // (nothing from an earlier game)
+ 	Tour::reset();
++	if (ConfMan.hasKey(kTourSpeedKey)) Tour::setSpeed(ConfMan.getInt(kTourSpeedKey));
++	_tourSpeed = Tour::speed();
+ 	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
+ 	if (ConfMan.hasKey(kDarkKey)) lightsRead(ConfMan.get(kDarkKey));
+@@ -3854,6 +3902,11 @@ Common::Error SandboxEngine::run() {
+ 		// The tour's controls (the iPhone's label and bar).
+ 		int command, number;
+ 		while (Tour::takeRequest(command, number)) { tourCommand(command, number); changed = true; }
++		// (The speed chosen, remembered.)
++		if (Tour::speed() != _tourSpeed) {
++			_tourSpeed = Tour::speed();
++			if (!_testing) { ConfMan.setInt(kTourSpeedKey, _tourSpeed); ConfMan.flushToDisk(); }
++		}
+ 		// (Full Throttle's: a press held opens the coin, let go uses it.
+ 		// Touring, taps wait: the one played is on autopilot.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+@@ -3894,6 +3947,7 @@ Common::Error SandboxEngine::run() {
+ 	// (Closed while touring: back where it began next time, the place saved
+ 	// as the tour started; it resumes at this stop.)
+ 	if (_touring.on) tourKeep();
++	if (_peeing.actor >= 0) peeEnded();
+ 	saveState();
+ 	_touring.on = false;
+ 	rideOff();
+@@ -6255,6 +6309,41 @@ Common::Error SandboxEngine::tourTest() {
+ 		while (g_system->getEventManager()->pollEvent(event)) {}
+ 		::Scummverse::setStoryMode(false);
+ 	}
++	// A tour begun past a door with no way back: the arrow back again once
++	// it ends; a sentence half made while paused let go when played on; the
++	// van asked for where it isn't, the tour on.
++	int wayKept = 0, letGoOnPlay = 0, vanElsewhere = 0;
++	for (int g = 0; g < worldGameCount() && !wayKept; ++g) {
++		const WorldMap *map = worldMap(g);
++		for (int i = 0; map && i < map->linkCount && !wayKept; ++i) {
++			const WorldLink &link = map->links[i];
++			if (!installed(g, link.room) || !installed(g, link.target) || reaches(g, link.target, link.room)) continue;
++			_wayBack = WayBack();
++			if (!enter(g, link.room, 0, problem) || !doorAllowed(link.room, link.object) || !travel(i) || _room != link.target) continue;
++			int bx0, by0, bx1, by1;
++			if (!backSign(bx0, by0, bx1, by1)) { fail("no arrow back past a door with no way back"); break; }
++			Tour::request(Tour::kGoTo, 3);
++			pump();
++			Tour::request(Tour::kPause);
++			pump();
++			_action = 1; _target = 0;
++			Tour::request(Tour::kPlay);
++			pump();
++			letGoOnPlay = _action == 0 && _target == -1;
++			if (_vanPlace != _game * 1024 + _room) {
++				request(kWorldSandboxVanRequest);
++				vanElsewhere = _touring.on;
++			} else vanElsewhere = 1;
++			Tour::request(Tour::kStop);
++			pump();
++			wayKept = !_touring.on && _game == g && _room == link.target && backSign(bx0, by0, bx1, by1) && _wayBack.room == link.room;
++			if (!wayKept) { fail("no arrow back once a tour begun past a door with no way back ended"); break; }
++		}
++	}
++	if (wayKept && !letGoOnPlay) fail("a sentence half made while paused not let go when played");
++	if (wayKept && !vanElsewhere) fail("the tour ended for the van where it isn't");
++	_wayBack = WayBack();
++	warning("SCUMMVERSE sandbox selftest tour way back: %d kept through a tour (%d a half sentence let go on Play, %d the van asked for elsewhere and the tour on)", wayKept, letGoOnPlay, vanElsewhere);
+ 	g_system->updateScreen();
+ 	warning("SCUMMVERSE sandbox selftest tour: %d stops (%d on foot, %d warped, %d not shown), %d doors not reached, %d gone through from as near as the walk boxes allow, in %d ticks, commands as asked%s, back where it began, %d failed",
+ 		total, onFoot, warped, refused, _touring.unreached - unreachedBefore, _touring.across - acrossBefore, ticks, passedThrough ? " (paused on the way through)" : "", failed);
+@@ -7246,7 +7335,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+ 		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0, insideOpened = 0, sameWay = 0;
+-		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0, stuck = 0, wentBack = 0;
++		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0, stuck = 0, wentBack = 0, deeper = 0, deeperBack = 0;
+ 		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+@@ -7257,6 +7346,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				// (The mansion's doors each from as the game leaves them.)
+ 				const bool mansion = !strcmp(kWorldGames[g].gameid, "maniac");
+ 				if (mansion) _pictures.clear();
++				_wayBack = WayBack(); // (each door from a place with a way back of its own)
+ 				if (!_playerKey || !enter(g, link.room, 0, problem)) {
+ 					// (Played by the game's own lead where the first one is missing.)
+ 					for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
+@@ -7390,12 +7480,23 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 						atDoor += (ax - dx) * (ax - dx) + (ay - dy) * (ay - dy) < 1;
+ 						break;
+ 					}
+-					// (No way on from there, its game leaving it by a script: the arrow
+-					// back drawn at its left, a tap on it back the way they came, at
+-					// that door; a tap at the other edge a walk, not back.)
++					// (No way back from there but its game's scripts, however far in:
++					// the arrow back drawn at its left, a tap on it back the way they
++					// came, at that door; a tap at the other edge a walk, not back.
++					// Every other door, past one of the place's own doors further in
++					// first, where it has one.)
+ 					int bx0, by0, bx1, by1;
+-					if (!wayOut()) {
++					if (!reaches(g, link.target, link.room)) {
+ 						++stuck;
++						bool in = false;
++						for (int j = 0; (stuck & 1) == 0 && j < map->linkCount && !in; ++j) {
++							const WorldLink &on = map->links[j];
++							if (on.room != link.target || on.target == link.target || !installed(g, on.target) || !doorAllowed(on.room, on.object)) continue;
++							in = travel(j) && _room == on.target;
++							if (!in && _room != link.target) enter(g, link.target, arrival, problem);
++						}
++						deeper += in;
++						const int here = _room;
+ 						const bool sign = backSign(bx0, by0, bx1, by1);
+ 						int white = 0;
+ 						if (sign) {
+@@ -7403,10 +7504,13 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 							for (int y = by0; y < by1; ++y) for (int x = bx0; x < bx1; ++x) white += x >= 0 && x < _width && y >= 0 && y < _height && _frame[y * _width + x] == 0xFFFFFFFFu;
+ 							tap(_width - 2, (by0 + by1) / 2);
+ 						}
+-						const bool stayed = _room == link.target;
++						bool stayed = _room == here;
++						// (Through a door of its own at that edge: a walk; back there for the arrow.)
++						for (int j = 0; !stayed && _room != link.room && j < map->linkCount; ++j)
++							if (map->links[j].room == here && map->links[j].target == _room) stayed = enter(g, here, 0, problem) && _room == here;
+ 						if (sign) tap((bx0 + bx1) / 2, (by0 + by1) / 2);
+-						if (sign && white && stayed && _room == link.room) ++wentBack;
+-						else { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: no way back from %d (arrow %d, drawn %d, edge tap kept there %d)", kWorldGames[g].gameid, (int)link.room, (int)link.object, (int)link.target, sign, white, stayed); }
++						if (sign && white && stayed && _room == link.room) { ++wentBack; deeperBack += in; }
++						else { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: no way back from %d (%d further in; arrow %d, drawn %d, edge tap kept there %d)", kWorldGames[g].gameid, (int)link.room, (int)link.object, (int)link.target, in ? here : 0, sign, white, stayed); }
+ 					} else if (backSign(bx0, by0, bx1, by1)) { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: an arrow back where there is a way on", kWorldGames[g].gameid, (int)link.room, (int)link.object); }
+ 				}
+ 				else if (_room != startRoom) ++elsewhere;
+@@ -7427,7 +7531,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed, insideOpened, sameWay);
+ 		warning("SCUMMVERSE sandbox selftest doors opening: %d of %d seen opening, %d of %d left open behind, %d of %d doors back open on arrival, %d of %d the game does not open left as they were",
+ 			seenOpening, opensCount, openBehind, opensCount, openBack, backCount, stays, staysCount);
+-		warning("SCUMMVERSE sandbox selftest doors with no way on: %d arrived at, %d back by a tap on the arrow at the left", stuck, wentBack);
++		warning("SCUMMVERSE sandbox selftest doors with no way on: %d arrived at, %d back by a tap on the arrow at the left (%d of %d from a place further in)", stuck, wentBack, deeperBack, deeper);
+ 		// The other games' switched doors (shown open or shut, as Monkey
+ 		// Island's): gone through open, the one back open too, a door there.
+ 		int switchedPairs = 0, switchedBack = 0;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 5c191fa6..473fa1d6 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -188,8 +188,9 @@ private:
+ 	// script): where they came from, by which door, to which place.
+ 	struct WayBack { int game = -1, room = 0, door = 0, atGame = -1, atRoom = 0; };
+ 	WayBack _wayBack;
+-	bool wayOut() const;                    // a door, a ride, a tram or the van here
+-	bool _noWayOn = false;                  // (as entered: none of those)
++	bool reaches(int game, int from, int to) const; // a way from that place to the other (or a ride, a tram or the van)
++	void wayBackKeep();
++	bool _noWayOn = false;                  // (as entered: past a door with no way back)
+ 	bool backSign(int &x0, int &y0, int &x1, int &y1) const; // the arrow back on screen (false: none)
+ 	void goBack();
+ 	int _spreadGroup = -1;                  // the part of the place the others were put in
+@@ -248,9 +249,11 @@ private:
+ 		int across = 0;         // doors gone through from as near as the walk boxes allow (a part the game joins by script)
+ 		int homeGame = -1, homeRoom = 0;
+ 		double homeX = 0, homeY = 0, cameX = 0, cameY = 0;
++		WayBack homeWay;
+ 		Common::Array<TourStop> stops;
+ 	};
+ 	Touring _touring;
++	int _tourSpeed = 1;                     // (as chosen, kept)
+ 	void tourBuild();
+ 	void tourReady(); // (at the start: the iPhone's menu told the stops)
+ 	void tourKeep();  // where it resumes, kept

@@ -1,0 +1,82 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 50c277b1..6471e955 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -660,6 +660,18 @@ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69,
+ // parent of the game's): touchable only while it is open (85 in picture 1).
+ struct ManiacShownLater { short room, object, inside, insidePicture; };
+ static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85, 1}, {1, 58, 0, 0}, {1, 57, 0, 0}};
++// From 0255: things The Dig's and Full Throttle's answers show in another
++// picture that their scripts keep untouchable all the same (isThing's rule
++// for those games, which takes the others so shown as made touchable;
++// probed in the original: every other an answer of theirs shows, its class
++// after): Full Throttle's room 131, 573 (the hand on 571 shows it moved aside).
++struct KeptUntouchable { const char *gameid; short room, object; };
++static const KeptUntouchable kKeptUntouchable[] = {{"ft", 131, 573}};
++static bool keptUntouchable(int game, int room, int id) {
++	for (const KeptUntouchable &k : kKeptUntouchable)
++		if (game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, k.gameid) && k.room == room && k.object == id) return true;
++	return false;
++}
+ 
+ bool SandboxEngine::padlockOpen(int id) const {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+@@ -1210,9 +1222,10 @@ bool SandboxEngine::isThing(int object) const {
+ 	// makes touchable as it shows it (kManiacShownLater) while shown so; from
+ 	// 0251, in The Dig and Full Throttle, any another's answer has shown in
+ 	// another picture since, as their scripts make what they so show
+-	// touchable: The Dig's way down under its hatch, the hatch opened.)
++	// touchable: The Dig's way down under its hatch, the hatch opened; from
++	// 0255 not one their scripts keep untouchable all the same.)
+ 	if (!PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway)) return true;
+-	if (sameId(kWorldGames[_game].gameid, "dig") || sameId(kWorldGames[_game].gameid, "ft")) return pictureOf(_room, id) != picture;
++	if (sameId(kWorldGames[_game].gameid, "dig") || sameId(kWorldGames[_game].gameid, "ft")) return pictureOf(_room, id) != picture && !keptUntouchable(_game, _room, id);
+ 	if (strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+ 	for (const ManiacShownLater &l : kManiacShownLater)
+ 		if (l.room == _room && l.object == id) return pictureOf(_room, id) != picture && (!l.inside || pictureOf(_room, l.inside) == l.insidePicture);
+@@ -7372,7 +7385,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// (The Dig: a door its game keeps untouchable until another thing's
+ 	// answer shows it, its way down under its hatch: a tap there is the
+ 	// hatch's, whose answer shows the door; then a tap there goes through.)
+-	struct OwnRecords { int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0; int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things; };
++	// (From 0255: one another's answer shows that its game keeps untouchable
++	// all the same, kKeptUntouchable, shown so but not a thing: Full
++	// Throttle's room 131, 573.)
++	struct OwnRecords { int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0, keptAll = 0, kept = 0; int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things; };
+ 	// (From 0253 Day of the Tentacle's likewise, its verb panel's verbs; one
+ 	// taken with its verb chosen on the panel and a tap on it, seen among its
+ 	// panel's things. From 0254 Monkey Island's and Monkey Island 2's so too.)
+@@ -7426,6 +7442,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 					putBack(r, other);
+ 				} else same = same && (picture == 2 || isCarried(g, r, other) || pictureOf(r, other) == picture);
+ 			}
++			for (int i = 0; i < count && !controls; ++i) {
++				const int r = others[3 * i], other = others[3 * i + 1], picture = others[3 * i + 2];
++				if (r != room || picture == 2 || !keptUntouchable(g, r, other) || thingIn(other) < 0) continue;
++				++c->keptAll;
++				if (isThing(thingIn(other))) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d shown in picture %d by another's answer, a thing then; its game keeps it untouchable", kWorldGames[g].gameid, other, r, picture); }
++				else ++c->kept;
++			}
+ 			if (!same) warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d: said %d letters, shown %d%s (its record: %d letters, %d%s)", kWorldGames[g].gameid, id, room, kind, from, (int)_speech.size(), pictureNow(o, id), isCarried(g, room, id) ? ", carried" : "", (int)strlen(said), after, took ? ", taken" : "");
+ 			if (same && !controls && noPicture) ++c->refused;
+ 			else if (same && !controls) {
+@@ -7509,8 +7532,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		Common::String kinds;
+ 		for (int kind = 1; kind <= kWorldVerbNote; ++kind) if (c->byKind[kind]) kinds += Common::String::format("%s%d of verb %d", kinds.empty() ? "" : ", ", c->byKind[kind], kind);
+ 		if (c->refused) kinds += Common::String::format("%s%d taken by its game refused, no picture of their own to carry", kinds.empty() ? "" : ", ", c->refused);
+-		warning("SCUMMVERSE sandbox selftest %s: %d of %d records of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken, %d given, %d of them with no picture to carry; %s), %d taken with its own controls, in its box; %d of %d doors its game keeps untouchable shown by another's answer, then gone through",
+-			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden);
++		warning("SCUMMVERSE sandbox selftest %s: %d of %d records of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken, %d given, %d of them with no picture to carry; %s), %d taken with its own controls, in its box; %d of %d doors its game keeps untouchable shown by another's answer, then gone through; %d of %d things it keeps untouchable all the same shown so, not things",
++			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden, c->kept, c->keptAll);
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -7579,7 +7602,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined) ||
+ 		(ownAll && (ownSeen + ownAway != ownAll || !ownSeen || !ownTaken || ownPointer != 1)) ||
+ 		(ownDig.all && (ownDig.seen + ownDig.away != ownDig.all || !ownDig.seen || !ownDig.taken || ownDig.controls != 1 || ownDig.shown != ownDig.hidden)) ||
+-		(ownFt.all && (ownFt.seen + ownFt.away != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1)) ||
++		(ownFt.all && (ownFt.seen + ownFt.away != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1 || ownFt.kept != ownFt.keptAll)) ||
+ 		(ownDott.all && (ownDott.seen + ownDott.away != ownDott.all || !ownDott.seen || !ownDott.taken || ownDott.controls != 1)) ||
+ 		(ownMonkey.all && (ownMonkey.seen + ownMonkey.away != ownMonkey.all || !ownMonkey.seen || !ownMonkey.taken || ownMonkey.controls != 1)) ||
+ 		(ownMonkey2.all && (ownMonkey2.seen + ownMonkey2.away != ownMonkey2.all || !ownMonkey2.seen || !ownMonkey2.taken || ownMonkey2.controls != 1)))

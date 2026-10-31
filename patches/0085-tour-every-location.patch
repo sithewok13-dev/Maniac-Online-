@@ -1,0 +1,812 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 83b050af..a2aa002c 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -91,6 +91,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #include "backends/platform/ios7/scummverse_airport_ui.inc"
+ #include "backends/platform/ios7/scummverse_roster_ui.inc"
+ #include "backends/platform/ios7/scummverse_camera_ui.inc"
++#include "backends/platform/ios7/scummverse_tour_ui.inc"
+ 
+ void scummverseAirportOffer(int actor) {
+ 	dispatch_async(dispatch_get_main_queue(), ^{
+@@ -443,6 +444,7 @@ void scummverseAirportOffer(int actor) {
+ 	[_scummverseWorldsButton addTarget:self action:@selector(showScummverseWorlds) forControlEvents:UIControlEventTouchUpInside];
+ 	[self addSubview:_scummverseWorldsButton];
+ 	_scummverseCameraButton = scummverseInstallCamera(self);
++	scummverseInstallTour(self);
+ 	scummverseInstallTalk(self);
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+@@ -536,6 +538,9 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAsFrom:controller]; }];
+ 	}]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Tour every location (watch for bugs)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ scummverseShowTour(controller); }];
++	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
+ 	}]];
+diff --git a/backends/platform/ios7/scummverse_tour_ui.inc b/backends/platform/ios7/scummverse_tour_ui.inc
+new file mode 100644
+index 00000000..c93e8c81
+--- /dev/null
++++ b/backends/platform/ios7/scummverse_tour_ui.inc
+@@ -0,0 +1,110 @@
++// TOUR: the label over the game naming the stop being visited (its number,
++// code and name, to note down for bug reports; tap it for the tour's
++// controls) and the controls themselves, opened from the Worlds menu. The
++// game does the touring (engines/scumm/scummverse_tour.inc); requests and
++// the label pass through common/scummverse_tour.h. Manual reference
++// counting, like this file.
++
++#include "common/scummverse_tour.h"
++
++static void scummverseShowTour(UIViewController *controller);
++
++static UIViewController *scummverseTourController(UIView *view) {
++	UIResponder *responder = view;
++	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
++	UIViewController *controller = (UIViewController *)responder;
++	return controller && !controller.presentedViewController ? controller : nil;
++}
++
++@interface ScummverseTourTapper : NSObject
++@property (nonatomic, assign) UIView *host;
++- (void)tap;
++@end
++@implementation ScummverseTourTapper
++- (void)tap {
++	if (UIViewController *controller = scummverseTourController(self.host)) scummverseShowTour(controller);
++}
++@end
++
++static UILabel *scummverseTourLabel;
++static ScummverseTourTapper *scummverseTourTapper;
++
++// Shows the label while touring, at the top left of the game.
++static void scummverseTourRefresh(UIView *view) {
++	bool running = false;
++	char text[200];
++	int next = 1, total = 0;
++	Scummverse::Tour::status(running, text, sizeof(text), next, total);
++	if (!running || !text[0]) { scummverseTourLabel.hidden = YES; return; }
++	if (!scummverseTourLabel) {
++		scummverseTourLabel = [[UILabel alloc] init];
++		scummverseTourLabel.textColor = UIColor.whiteColor;
++		scummverseTourLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
++		scummverseTourLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightSemibold];
++		scummverseTourLabel.numberOfLines = 2;
++		scummverseTourLabel.layer.cornerRadius = 6;
++		scummverseTourLabel.clipsToBounds = YES;
++		scummverseTourLabel.userInteractionEnabled = YES;
++		scummverseTourLabel.accessibilityHint = @"Opens the tour's controls";
++		scummverseTourTapper = [[ScummverseTourTapper alloc] init];
++		UITapGestureRecognizer *tap = [[[UITapGestureRecognizer alloc] initWithTarget:scummverseTourTapper action:@selector(tap)] autorelease];
++		[scummverseTourLabel addGestureRecognizer:tap];
++	}
++	scummverseTourTapper.host = view;
++	if (scummverseTourLabel.superview != view) [view addSubview:scummverseTourLabel];
++	[view bringSubviewToFront:scummverseTourLabel];
++	NSString *label = [NSString stringWithFormat:@" %@ ", [NSString stringWithUTF8String:text] ?: @""];
++	if (![scummverseTourLabel.text isEqualToString:label]) scummverseTourLabel.text = label;
++	UIEdgeInsets safe = UIEdgeInsetsZero;
++	if (@available(iOS 11, *)) safe = view.safeAreaInsets;
++	// Clear of the buttons down the right side.
++	const CGFloat width = MAX(120, view.bounds.size.width - safe.left - safe.right - 72);
++	const CGSize fit = [scummverseTourLabel sizeThatFits:CGSizeMake(width, 40)];
++	scummverseTourLabel.frame = CGRectMake(safe.left + 6, safe.top + 4, MIN(width, fit.width + 8), fit.height + 6);
++	scummverseTourLabel.hidden = NO;
++}
++
++static void scummverseInstallTour(UIView *view) {
++	[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *) { scummverseTourRefresh(view); }];
++}
++
++// "Go to stop…": a number.
++static void scummverseTourAskStop(UIViewController *controller, int total) {
++	UIAlertController *ask = [UIAlertController alertControllerWithTitle:@"Go to stop"
++		message:[NSString stringWithFormat:@"A stop's number, 1 to %d", total] preferredStyle:UIAlertControllerStyleAlert];
++	[ask addTextFieldWithConfigurationHandler:^(UITextField *field) { field.keyboardType = UIKeyboardTypeNumberPad; field.placeholder = @"Stop number"; }];
++	__block UIAlertController *asking = ask; // (not retained by its own action)
++	[ask addAction:[UIAlertAction actionWithTitle:@"Go" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		const int stop = asking.textFields.firstObject.text.intValue;
++		if (stop >= 1 && stop <= total) Scummverse::Tour::request(Scummverse::Tour::kGoTo, stop);
++	}]];
++	[ask addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:ask animated:YES completion:nil];
++}
++
++static void scummverseShowTour(UIViewController *controller) {
++	bool running = false;
++	char text[200];
++	int next = 1, total = 0;
++	Scummverse::Tour::status(running, text, sizeof(text), next, total);
++	NSString *message = @"Your character goes on autopilot and visits every location of the twelve games in turn (Maniac Mansion, Zak McKracken, then every room of your other games), walking across each one and on through a door where one leads there; it warps only where none does. The label at the top names each stop: note its number or code to report a bug. Stopping brings your character back.";
++	if (running) message = [NSString stringWithFormat:@"%@\n\nNow: %@", message, [NSString stringWithUTF8String:text] ?: @""];
++	else if (total) message = [NSString stringWithFormat:@"%@\n\n%d stops; the next is stop %d.", message, total, next];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Tour every location" message:message preferredStyle:UIAlertControllerStyleAlert];
++	auto add = ^(NSString *title, int command) {
++		[menu addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { Scummverse::Tour::request(command); }]];
++	};
++	if (running) {
++		add(@"Next stop", Scummverse::Tour::kNext);
++		add(@"Previous stop", Scummverse::Tour::kPrevious);
++	} else {
++		add(next > 1 ? [NSString stringWithFormat:@"Start at stop %d", next] : @"Start the tour", Scummverse::Tour::kResume);
++		if (next > 1) add(@"Start over at stop 1", Scummverse::Tour::kRestart);
++	}
++	[menu addAction:[UIAlertAction actionWithTitle:@"Go to stop…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		[controller dismissViewControllerAnimated:YES completion:^{ scummverseTourAskStop(controller, total > 0 ? total : 1); }];
++	}]];
++	if (running) add(@"Stop the tour", Scummverse::Tour::kStop);
++	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
++	[controller presentViewController:menu animated:YES completion:nil];
++}
+diff --git a/common/module.mk b/common/module.mk
+index d1eda27e..af294467 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -29,6 +29,7 @@ MODULE_OBJS := \
+ 	punycode.o \
+ 	random.o \
+ 	scummverse_camera.o \
++	scummverse_tour.o \
+ 	scummverse_net.o \
+ 	scummverse_world.o \
+ 	rational.o \
+diff --git a/common/scummverse_tour.cpp b/common/scummverse_tour.cpp
+new file mode 100644
+index 00000000..9fa8b263
+--- /dev/null
++++ b/common/scummverse_tour.cpp
+@@ -0,0 +1,60 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse TOUR: portable part. See scummverse_tour.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_tour.h"
++
++#include <algorithm>
++#include <cstring>
++#include <mutex>
++#include <string>
++
++namespace Scummverse {
++namespace Tour {
++
++static std::mutex g_mutex;
++static int g_command = kNone, g_stop = 0;
++static bool g_said = false, g_running = false;
++static std::string g_label;
++static int g_next = 1, g_total = 0;
++
++void request(int command, int stop) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	g_command = command; g_stop = stop;
++}
++
++bool takeRequest(int &command, int &stop) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	if (g_command == kNone) return false;
++	command = g_command; stop = g_stop;
++	g_command = kNone; g_stop = 0;
++	return true;
++}
++
++void publish(bool running, const char *label, int next, int total) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	g_said = true; g_running = running; g_label = label ? label : "";
++	g_next = next; g_total = total;
++}
++
++bool status(bool &running, char *label, int capacity, int &next, int &total) {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	running = g_running; next = g_next; total = g_total;
++	if (label && capacity > 0) {
++		size_t n = std::min(g_label.size(), (size_t)capacity - 1);
++		// Whole characters only (UTF-8: never in the middle of one).
++		while (n > 0 && n < g_label.size() && ((unsigned char)g_label[n] & 0xC0) == 0x80) --n;
++		memcpy(label, g_label.data(), n);
++		label[n] = 0;
++	}
++	return g_said;
++}
++
++void reset() {
++	std::lock_guard<std::mutex> guard(g_mutex);
++	g_command = kNone; g_stop = 0;
++	g_said = false; g_running = false; g_label.clear(); g_next = 1; g_total = 0;
++}
++
++} // namespace Tour
++} // namespace Scummverse
+diff --git a/common/scummverse_tour.h b/common/scummverse_tour.h
+new file mode 100644
+index 00000000..e133c824
+--- /dev/null
++++ b/common/scummverse_tour.h
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse TOUR: a character on autopilot visits every location in turn
++// (Maniac Mansion's rooms, Zak's, then every room exported from the other
++// games), walking across each while the player watches for bugs; a label
++// names each stop: its number, its code and its name. The interface asks
++// (start, next, ...) and shows the label; the game does the touring
++// (engines/scumm/scummverse_tour.inc). Plain types only.
++#ifndef COMMON_SCUMMVERSE_TOUR_H
++#define COMMON_SCUMMVERSE_TOUR_H
++
++namespace Scummverse {
++namespace Tour {
++
++// ---- Requests (the interface's thread; taken by the game's) ----
++enum Command { kNone = 0, kResume, kRestart, kNext, kPrevious, kStop, kGoTo };
++// kGoTo takes the stop's number (1 = the first).
++void request(int command, int stop = 0);
++bool takeRequest(int &command, int &stop);
++
++// ---- What the game says (the game's thread; read by the interface) ----
++// running: touring now; label: the stop being visited ("" when not
++// touring); next: the stop a resumed tour starts at (1-based); total: stops.
++void publish(bool running, const char *label, int next, int total);
++// The latest: false until the game has said anything. Copies the label
++// (truncated to capacity, at a whole UTF-8 character).
++bool status(bool &running, char *label, int capacity, int &next, int &total);
++
++// Nothing waiting or said (a game starting or ending).
++void reset();
++
++} // namespace Tour
++} // namespace Scummverse
++
++#endif
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 7198fd20..5c966ee2 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -26,6 +26,7 @@
+ #include "common/compression/deflate.h"
+ #include "common/scummverse_world_engine.h"
+ #include "common/scummverse_world_catalog.h"
++#include "common/scummverse_tour.h"
+ #include "scumm/boxes.h"
+ #ifdef IPHONE
+ #include "backends/fs/abstract-fs.h"
+@@ -169,6 +170,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	}
+ 	_res = new ResourceManager(this);
+ 	Scummverse::Camera::reset(); // (nothing from an earlier game)
++	Scummverse::Tour::reset();
+ 
+ 	// These exploration adapters are audited against the English DOS V1
+ 	// index. Other editions retain their original behavior.
+@@ -477,6 +479,7 @@ ScummEngine::~ScummEngine() {
+ 	if (_scummverseNetOn) Scummverse::NetBridge::close();
+ 	scummverseSelfieFree();
+ 	Scummverse::Camera::reset();
++	Scummverse::Tour::reset();
+ 	delete _musicEngine;
+ 
+ 	// Delete the sound object earlier than the actors
+@@ -4256,5 +4259,6 @@ using namespace ::Scummverse::WorldCatalog;
+ #include "scumm/scummverse_net.inc"
+ #include "scumm/scummverse_world_export.inc"
+ #include "scumm/scummverse_camera.inc"
++#include "scumm/scummverse_tour.inc"
+ 
+ } // End of namespace Scumm
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index a1ca1a86..7bfba9a9 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1686,6 +1686,42 @@ protected:
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
+ 	int _scummverseAvatarHop[kScummverseManiacActors] = {};
++	// TOUR (scummverse_tour.inc): the player's character on autopilot visits
++	// every location in turn while the player watches for bugs; a label
++	// names each stop (common/scummverse_tour.h).
++	// legs: how the stop is reached on foot from the stop before, doors in
++	// turn (_scummverseTourLegs[firstLeg..]; the rooms before the last are
++	// passed through), or none (a warp). A leg's door is its door table's
++	// index + 1 (mansionPassages, zakLinks or the game's door map).
++	struct ScummverseTourStop { int16 kind = 0, game = 0, room = 0, firstLeg = 0, legs = 0; };
++	struct ScummverseTourLeg { int16 door = 0, room = 0; };
++	Common::Array<ScummverseTourStop> _scummverseTourStops;
++	Common::Array<ScummverseTourLeg> _scummverseTourLegs;
++	int _scummverseTourLegAt = 0;
++	bool _scummverseTouring = false, _scummverseTourPublished = false, _scummverseTourOnFoot = false, _scummverseTourViaDoor = false;
++	int _scummverseTourStop = 0, _scummverseTourStep = 1, _scummverseTourPhase = 0, _scummverseTourWait = 0, _scummverseTourLeg = 0;
++	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
++	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
++	void scummverseUpdateTour(int delta);
++	void scummverseTourBuild();
++	void scummverseTourSegment(int kind, int game, const Common::Array<int> &rooms, const Common::Array<struct TourEdge> &edges);
++	bool scummverseTourThere(int index);
++	bool scummverseTourDoorPoint(int index, int leg, int &x, int &y);
++	bool scummverseTourThrough(int index, int leg);
++	bool scummverseTourIn(int kind, int game, int room);
++	Common::String scummverseTourRoomName(int kind, int game, int room) const;
++	void scummverseTourArrive(bool entered, bool onFoot);
++	int scummverseTourCount();
++	Common::String scummverseTourName(int index) const;
++	bool scummverseTourAvailable(int index);
++	bool scummverseTourPlace(int room, int x, int y);
++	bool scummverseTourZakRoom(int room);
++	bool scummverseTourEnter(int index);
++	void scummverseTourPublish(const Common::String &label);
++	void scummverseTourSave();
++	void scummverseTourStart(int index);
++	void scummverseTourEnd(bool home);
++	void scummverseTourCommand(int command, int number);
+ 	// CAMERA (scummverse_camera.inc): photos of the screen and selfies, taken
+ 	// between game steps. scummverseCameraStep is true while the game holds
+ 	// still (a selfie, or iOS asking for access to Photos).
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 9c0d90d3..e6c42f46 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -296,6 +296,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		}
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	}
++	scummverseUpdateTour(delta);
+ 	scummverseUpdateTransit(delta);
+ 	scummverseUpdateCabinChairs();
+ 	scummverseUpdateCompanions();
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+new file mode 100644
+index 00000000..4ac0ec11
+--- /dev/null
++++ b/engines/scumm/scummverse_tour.inc
+@@ -0,0 +1,435 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse TOUR (included by scumm.cpp): bug-watching. The character the
++// player controls goes on autopilot and visits every location of the twelve
++// games in turn, walking across each while the player watches: Maniac
++// Mansion's rooms, Zak's world (Zak's apartment, the airport, the street,
++// the imported places and its logical scenes), then every room in the door
++// maps of the other ten games (rooms of games not installed are passed
++// over). Within a game it walks to the next room through a door, the way a
++// player would, wherever a door leads to a room not yet visited; where none
++// does (a dead end, a room reached by a cutscene) it warps. A label over the
++// game names each stop: its number, its code (Maniac 12, Zak 84, loom 21),
++// its name where known, and whether it warped there. Stopping brings the
++// character back to where the tour began; the next stop is remembered to
++// resume (scummverse_tour_stop). The interface asks through
++// common/scummverse_tour.h.
++
++namespace ScummverseTour = ::Scummverse::Tour;
++
++enum { kTourManiac = 0, kTourZak = 1, kTourWorld = 2 };
++// Maniac Mansion's 37 rooms a kid can stand in (the original moves the kid
++// into each with loadRoomWithEgo: private research of its scripts; the same
++// rooms as mansionPassages), from the entry road where the game begins, with
++// a spot inside the walk boxes (actor units) and newly written names.
++struct TourManiacRoom { int room, x, y; const char *name; };
++static const TourManiacRoom kTourManiacRooms[] = {
++	{44, 26, 63, "entry road"}, {1, 59, 56, "front lawn"}, {2, 19, 60, "reactor pit under the pool"},
++	{3, 57, 59, "living room"}, {4, 48, 59, "dungeon passage"}, {5, 23, 57, "phone hall"}, {6, 12, 51, "pool deck"},
++	{7, 44, 61, "kitchen"}, {8, 44, 64, "boiler basement"}, {9, 18, 65, "wall-safe closet"}, {10, 36, 60, "grand foyer"},
++	{11, 38, 56, "upstairs landing"}, {12, 32, 57, "stair landing with plant"}, {13, 30, 59, "statue hall"},
++	{14, 14, 54, "art studio"}, {15, 18, 56, "wiring crawlspace"}, {16, 28, 63, "garage"}, {17, 18, 56, "music room"},
++	{18, 44, 62, "arcade room"}, {19, 26, 63, "desk bedroom"}, {20, 38, 62, "stereo bedroom"}, {21, 12, 63, "nurse's bedroom"},
++	{22, 9, 61, "medical office"}, {23, 26, 61, "photo darkroom"}, {24, 28, 62, "bathroom"}, {25, 40, 60, "muscle-machine gym"},
++	{26, 28, 60, "model-plane bedroom"}, {27, 22, 59, "study with plant"}, {28, 8, 61, "observatory"}, {29, 57, 54, "drain tunnel"},
++	{30, 59, 61, "laboratory"}, {31, 28, 61, "periscope control room"}, {36, 17, 59, "pantry"}, {37, 36, 65, "dining room"},
++	{38, 38, 60, "top-floor bedroom corridor"}, {51, 28, 59, "meteor chamber"}, {52, 4, 56, "gate approach"},
++};
++
++// A stop's timing, in game ticks: settling in, at most this long for each of
++// the three walks across (left, right, back to the middle) and to the door
++// out, a last look; a stop that could not be entered says so this long.
++static const int kTourSettle = 60, kTourWalk = 600, kTourLinger = 90, kTourRefused = 120;
++enum { kTourEnter = 0, kTourArrived, kTourWalking, kTourLingering, kTourRefusedStop, kTourToDoor };
++static const int kTourLegs = 3;
++static const int kTourLegPercent[kTourLegs] = {12, 88, 50};
++
++// One game's rooms in walking order: from its first room, on foot to the
++// nearest room not visited yet (the fewest doors; rooms visited before are
++// passed through), else, where no doors lead to one, on to the next room of
++// the list not visited yet (a warp). door: the door's table index + 1.
++struct TourEdge { int room, target, door; };
++void ScummEngine::scummverseTourSegment(int kind, int game, const Common::Array<int> &rooms, const Common::Array<TourEdge> &edges) {
++	const int count = (int)rooms.size();
++	auto at = [&](int room) { for (int i = 0; i < count; ++i) if (rooms[i] == room) return i; return -1; };
++	Common::Array<bool> seen; seen.resize(count);
++	for (int i = 0; i < count; ++i) seen[i] = false;
++	Common::Array<int> came, queue; // (the edge each room is first reached by)
++	int current = -1;
++	for (int placed = 0; placed < count; ++placed) {
++		int next = -1;
++		Common::Array<int> path;
++		if (current >= 0) {
++			came.resize(count); for (int i = 0; i < count; ++i) came[i] = -2;
++			queue.clear(); queue.push_back(current); came[current] = -1;
++			for (uint q = 0; q < queue.size() && next < 0; ++q)
++				for (uint e = 0; e < edges.size(); ++e) {
++					const int j = edges[e].room == rooms[queue[q]] ? at(edges[e].target) : -1;
++					if (j < 0 || came[j] != -2) continue;
++					came[j] = (int)e; queue.push_back(j);
++					if (!seen[j]) { next = j; break; }
++				}
++			for (int j = next; j >= 0 && came[j] >= 0; j = at(edges[came[j]].room)) path.insert_at(0, came[j]);
++		}
++		if (next < 0) for (int j = 0; j < count && next < 0; ++j) if (!seen[j]) next = j;
++		seen[next] = true;
++		ScummverseTourStop stop; stop.kind = kind; stop.game = game; stop.room = rooms[next];
++		stop.firstLeg = (int16)_scummverseTourLegs.size(); stop.legs = (int16)path.size();
++		for (int e : path) { ScummverseTourLeg leg; leg.door = (int16)edges[e].door; leg.room = (int16)edges[e].target; _scummverseTourLegs.push_back(leg); }
++		_scummverseTourStops.push_back(stop);
++		current = next;
++	}
++}
++
++void ScummEngine::scummverseTourBuild() {
++	if (!_scummverseTourStops.empty()) return;
++	Common::Array<int> rooms;
++	Common::Array<TourEdge> edges;
++	auto has = [&](int room) { for (int r : rooms) if (r == room) return true; return false; };
++	// Maniac Mansion, by its doors.
++	for (const auto &r : kTourManiacRooms) rooms.push_back(r.room);
++	for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n) {
++		const MansionPassage &p = mansionPassages[n];
++		if (!p.transit && has(p.room) && has(p.destination)) { TourEdge e = {p.room, p.destination, (int)n + 1}; edges.push_back(e); }
++	}
++	scummverseTourSegment(kTourManiac, 0, rooms, edges);
++	// Zak's world, by its doors (zakLinks, as the player uses them).
++	rooms.clear(); edges.clear();
++	rooms.push_back(54); rooms.push_back(53); rooms.push_back(55);
++	for (int room = ScummverseContent::kFirstImportedRoom; room < ScummverseContent::kRoomCount; ++room)
++		if (!zakRetiredRoomReplacement(room)) rooms.push_back(room);
++	for (const auto &scene : zakLogicalScenes) rooms.push_back(scene.room);
++	for (uint k = 0; k < ARRAYSIZE(zakLinks); ++k)
++		if (has(zakLinks[k].room) && has(zakLinks[k].destination) && zakLinks[k].room != zakLinks[k].destination) {
++			TourEdge e = {zakLinks[k].room, zakLinks[k].destination, (int)k + 1}; edges.push_back(e);
++		}
++	scummverseTourSegment(kTourZak, 0, rooms, edges);
++	// Every other game, by its door map, from its first named place.
++	for (int game = 0; game < worldGameCount(); ++game) {
++		const WorldMap *map = worldMap(game);
++		if (!map) continue;
++		rooms.clear(); edges.clear();
++		const int first = kWorldGames[game].sceneCount ? kWorldGames[game].scenes[0].room : -1;
++		for (int i = 0; i < map->roomCount; ++i) if (map->rooms[i].room == first) rooms.push_back(first);
++		for (int i = 0; i < map->roomCount; ++i) if (map->rooms[i].room != first) rooms.push_back(map->rooms[i].room);
++		for (int i = 0; i < map->linkCount; ++i) {
++			const WorldLink &l = map->links[i];
++			if (l.room != l.target && has(l.room) && has(l.target)) { TourEdge e = {l.room, l.target, i + 1}; edges.push_back(e); }
++		}
++		scummverseTourSegment(kTourWorld, game, rooms, edges);
++	}
++}
++
++int ScummEngine::scummverseTourCount() {
++	scummverseTourBuild();
++	return (int)_scummverseTourStops.size();
++}
++
++// A room's code and name ("Zak 84 · Mars pyramid crystal room").
++Common::String ScummEngine::scummverseTourRoomName(int kind, int gameIndex, int room) const {
++	if (kind == kTourManiac) {
++		for (const auto &r : kTourManiacRooms)
++			if (r.room == room) return Common::String::format("Maniac %d \xC2\xB7 %s", room, r.name);
++		return Common::String::format("Maniac %d", room);
++	}
++	if (kind == kTourZak) {
++		const char *name = room == 53 ? "Airport" : room == 54 ? "Zak's apartment" : room == 55 ? "Street" : zakSceneName(room);
++		return name ? Common::String::format("Zak %d \xC2\xB7 %s", room, name) : Common::String::format("Zak %d", room);
++	}
++	const WorldGame &game = kWorldGames[gameIndex];
++	const char *name = nullptr;
++	if (const WorldScene *scene = worldLandmark(gameIndex, room)) name = scene->name;
++	const WorldMap *map = worldMap(gameIndex);
++	if (!name && map) for (int i = 0; i < map->areaCount; ++i) if (map->areas[i].room == room) name = map->areas[i].name;
++	return name ? Common::String::format("%s %d \xC2\xB7 %s", game.gameid, room, name) : Common::String::format("%s %d", game.gameid, room);
++}
++
++Common::String ScummEngine::scummverseTourName(int index) const {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	return scummverseTourRoomName(stop.kind, stop.game, stop.room);
++}
++
++// Whether a stop can be visited here: Zak's when his files are supplied,
++// another game's when it is exported.
++bool ScummEngine::scummverseTourAvailable(int index) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	if (stop.kind == kTourZak) {
++		if (_scummverseTourZak < 0) _scummverseTourZak = scummverseMountZak() ? 1 : 0;
++		return _scummverseTourZak == 1;
++	}
++	if (stop.kind == kTourWorld) {
++		const WorldGame &game = kWorldGames[stop.game];
++		return Common::FSNode(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", game.gameid, stop.room))).exists();
++	}
++	return true;
++}
++
++// Into a mansion room directly, at a spot inside its walk boxes.
++bool ScummEngine::scummverseTourPlace(int room, int x, int y) {
++	if (_currentRoom >= 53 && !scummverseTravel(2)) return false;
++	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
++	scummverseAICancel(); _scummverseAIActor = 0; stopTalk();
++	a->stopActorMoving();
++	a->putActor(x, y, room);
++	_egoPositioned = false;
++	startScene(room, a, 0);
++	if (_currentRoom != room) return false;
++	const AdjustBoxResult point = a->adjustXYToBeInBox(x, y);
++	a->putActor(point.x, point.y, room);
++	setCameraAt(a->getPos().x, a->getPos().y); setCameraFollows(a);
++	resetSentence(); _fullRedraw = true;
++	return true;
++}
++
++// A Zak room by the sandbox's own travel (the apartment, the airport and the
++// street have their own destinations).
++bool ScummEngine::scummverseTourZakRoom(int room) {
++	const int destination = room == 54 ? 1 : room == 53 ? 3 : room == 55 ? 5 : room - 50;
++	return scummverseTravel(destination) && _currentRoom == room;
++}
++
++// Whether the guide stands in a room (another game's: by its own number).
++bool ScummEngine::scummverseTourIn(int kind, int game, int room) {
++	if (derefActor(VAR(VAR_EGO), "tour guide")->_room != _currentRoom) return false;
++	if (kind != kTourWorld) return _currentRoom == room;
++	int source = 0;
++	return scummverseWorldGameOf(_currentRoom, source) == game && source == room;
++}
++
++bool ScummEngine::scummverseTourThere(int index) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	return scummverseTourIn(stop.kind, stop.game, stop.room);
++}
++
++// Leg `leg` of the way to stop `index`: its door, if in the room the guide
++// stands in, and that door's walk-to point (actor units).
++bool ScummEngine::scummverseTourDoorPoint(int index, int leg, int &x, int &y) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	if (leg < 0 || leg >= stop.legs) return false;
++	const int door = _scummverseTourLegs[stop.firstLeg + leg].door;
++	if (stop.kind == kTourManiac) {
++		const MansionPassage &p = mansionPassages[door - 1];
++		return _currentRoom == p.room && scummverseDoorPoint(p.room, p.object, x, y);
++	}
++	if (stop.kind == kTourZak) {
++		const ZakLink &link = zakLinks[door - 1];
++		const int object = _currentRoom == link.room ? getObjectIndex(link.object) : -1;
++		if (object < 0) return false;
++		x = _objs[object].walk_x / 8; y = _objs[object].walk_y / 2;
++		return true;
++	}
++	const WorldLink &link = worldMap(stop.game)->links[door - 1];
++	int source = 0;
++	if (scummverseWorldGameOf(_currentRoom, source) != stop.game || source != link.room) return false;
++	for (int i = 0; i < WorldBridge::objectCount(); ++i) {
++		int id, ox, oy, w, h, wx, wy;
++		if (!WorldBridge::object(i, id, ox, oy, w, h, wx, wy) || id != link.object) continue;
++		// A door the room's script does not show here cannot be used.
++		if (link.switched && !WorldBridge::objectState(i)) return false;
++		x = wx; y = wy;
++		return true;
++	}
++	return false;
++}
++
++// Through leg `leg`'s door, the way the sandbox lets a player use it (the
++// guide is beside it), into the room it leads to.
++bool ScummEngine::scummverseTourThrough(int index, int leg) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	if (leg < 0 || leg >= stop.legs) return false;
++	const ScummverseTourLeg &way = _scummverseTourLegs[stop.firstLeg + leg];
++	const int door = way.door;
++	_scummverseWorldNotice.clear();
++	_scummverseLanding = true;
++	bool through = false;
++	if (stop.kind == kTourManiac) {
++		through = scummversePassage(mansionPassages[door - 1].object, 13);
++	} else if (stop.kind == kTourZak) {
++		const ZakLink &link = zakLinks[door - 1];
++		through = scummverseTravel(link.destination == 55 ? 5 : link.destination == 54 ? 1 : link.destination - 50,
++			link.arrivalObject, link.arrivalX, link.arrivalY);
++	} else {
++		const WorldLink &link = worldMap(stop.game)->links[door - 1];
++		through = scummverseFollowLink(stop.game, link.room, link.target, link.arrival);
++	}
++	_scummverseLanding = false;
++	return through && scummverseTourIn(stop.kind, stop.game, way.room);
++}
++
++// Into a stop by warping. The guide leaves any ride it is on as though it
++// had landed (a stop may be a plane's cabin or a tram mid-trip; the ride
++// goes on without it).
++bool ScummEngine::scummverseTourEnter(int index) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	_scummverseWorldNotice.clear();
++	_scummverseLanding = true;
++	bool entered = false;
++	if (stop.kind == kTourManiac) {
++		for (const auto &r : kTourManiacRooms) if (r.room == stop.room) entered = scummverseTourPlace(r.room, r.x, r.y);
++	} else if (stop.kind == kTourZak) {
++		entered = scummverseTourZakRoom(stop.room);
++	} else {
++		entered = scummverseTravelPlace(stop.game, stop.room);
++	}
++	_scummverseLanding = false;
++	return entered && scummverseTourThere(index);
++}
++
++void ScummEngine::scummverseTourPublish(const Common::String &label) {
++	ScummverseTour::publish(_scummverseTouring, label.c_str(), _scummverseTourStop + 1, scummverseTourCount());
++}
++
++void ScummEngine::scummverseTourSave() {
++	ConfMan.setInt("scummverse_tour_stop", _scummverseTourStop + 1);
++	ConfMan.flushToDisk();
++}
++
++// Starts (or restarts) the tour at a stop, remembering where it began.
++void ScummEngine::scummverseTourStart(int index) {
++	if (!_scummverseTouring) {
++		if (scummverseOnBus() || scummverseOnTram() || scummverseOnDigTram() || scummverseInVan() || (_currentRoom == 56 && _scummVars[724])) {
++			scummverseSay(VAR(VAR_EGO), "Let's finish this ride before the tour.");
++			return;
++		}
++		const Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
++		int source = 0;
++		const int game = scummverseWorldGameOf(_currentRoom, source);
++		_scummverseTourHome[0] = _currentRoom; _scummverseTourHome[1] = a->getRealPos().x; _scummverseTourHome[2] = a->getRealPos().y;
++		_scummverseTourHome[3] = game; _scummverseTourHome[4] = source;
++	}
++	_scummverseTouring = true;
++	_scummverseTourZak = -1;
++	_scummverseTourStop = CLIP(index, 0, scummverseTourCount() - 1);
++	_scummverseTourStep = 1;
++	_scummverseTourOnFoot = false; // (straight there)
++	_scummverseTourPhase = kTourEnter;
++}
++
++// Ends the tour; home: back to where it began.
++void ScummEngine::scummverseTourEnd(bool home) {
++	if (!_scummverseTouring) return;
++	_scummverseTouring = false;
++	derefActor(VAR(VAR_EGO), "tour guide")->stopActorMoving();
++	if (home) {
++		const int room = _scummverseTourHome[0];
++		_scummverseLanding = true;
++		if (_scummverseTourHome[3] >= 0) scummverseTravelPlace(_scummverseTourHome[3], _scummverseTourHome[4]);
++		else if (room >= 53) scummverseTourZakRoom(room);
++		else if (room >= 1) scummverseTourPlace(room, _scummverseTourHome[1], _scummverseTourHome[2]);
++		_scummverseLanding = false;
++	}
++	scummverseTourPublish("");
++}
++
++void ScummEngine::scummverseTourCommand(int command, int number) {
++	const int saved = CLIP(ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1, 1, MAX(1, scummverseTourCount()));
++	switch (command) {
++	case ScummverseTour::kResume: if (!_scummverseTouring) scummverseTourStart(saved - 1); break;
++	case ScummverseTour::kRestart: scummverseTourStart(0); break;
++	case ScummverseTour::kGoTo: scummverseTourStart(number - 1); break;
++	case ScummverseTour::kNext:
++		scummverseTourStart(_scummverseTouring ? _scummverseTourStop + 1 : saved - 1);
++		break;
++	case ScummverseTour::kPrevious:
++		if (_scummverseTouring) { scummverseTourStart(_scummverseTourStop - 1); _scummverseTourStep = -1; }
++		break;
++	case ScummverseTour::kStop: scummverseTourEnd(true); break;
++	default: break;
++	}
++}
++
++// In a stop (or not): its label (a warp says so), then the walks across.
++void ScummEngine::scummverseTourArrive(bool entered, bool onFoot) {
++	const Common::String name = Common::String::format("Stop %d of %d \xC2\xB7 ", _scummverseTourStop + 1, scummverseTourCount()) + scummverseTourName(_scummverseTourStop);
++	_scummverseTourViaDoor = entered && onFoot;
++	if (entered) {
++		_scummverseTourPhase = kTourArrived; _scummverseTourWait = kTourSettle; _scummverseTourLeg = 0;
++		scummverseTourPublish(onFoot ? name : name + " \xC2\xB7 warped");
++	} else {
++		_scummverseTourPhase = kTourRefusedStop; _scummverseTourWait = kTourRefused;
++		scummverseTourPublish(name + " \xC2\xB7 couldn't go there" + (_scummverseWorldNotice.empty() ? Common::String() : ": " + _scummverseWorldNotice));
++	}
++}
++
++// One step of the tour (from scummverseUpdateRoaming, while the player has
++// control and no script runs).
++void ScummEngine::scummverseUpdateTour(int delta) {
++	const int total = scummverseTourCount();
++	if (!_scummverseTourPublished) {
++		_scummverseTourPublished = true;
++		const int saved = ConfMan.hasKey("scummverse_tour_stop") ? ConfMan.getInt("scummverse_tour_stop") : 1;
++		_scummverseTourStop = CLIP(saved, 1, MAX(1, total)) - 1;
++		scummverseTourPublish("");
++	}
++	int command, number;
++	if (ScummverseTour::takeRequest(command, number)) scummverseTourCommand(command, number);
++	if (!_scummverseTouring) return;
++	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
++	switch (_scummverseTourPhase) {
++	case kTourEnter: {
++		// The next stop that can be visited here (going back for Previous).
++		const int from = _scummverseTourStop;
++		while (_scummverseTourStop >= 0 && _scummverseTourStop < total && !scummverseTourAvailable(_scummverseTourStop))
++			_scummverseTourStop += _scummverseTourStep;
++		if (_scummverseTourStop < 0 || _scummverseTourStop >= total) {
++			_scummverseTourStop = _scummverseTourStop < 0 ? 0 : total - 1;
++			_scummverseTouring = false;
++			scummverseTourPublish("");
++			scummverseSay(VAR(VAR_EGO), _scummverseTourStep > 0 ? "That was the last stop of the tour." : "That was the first stop of the tour.");
++			return;
++		}
++		_scummverseTourStep = 1;
++		scummverseTourSave();
++		// On foot from the stop before, door by door, where doors lead there.
++		int x, y;
++		_scummverseTourLegAt = 0;
++		if (_scummverseTourOnFoot && _scummverseTourStop == from && scummverseTourDoorPoint(_scummverseTourStop, 0, x, y)) {
++			const AdjustBoxResult door = a->adjustXYToBeInBox(x, y);
++			a->startWalkActor(door.x, door.y, -1);
++			_scummverseTourPhase = kTourToDoor; _scummverseTourWait = kTourWalk;
++			break;
++		}
++		scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false);
++		break;
++	}
++	case kTourToDoor: {
++		if ((_scummverseTourWait -= delta) > 0 && a->_moving) break;
++		// At the door (or as near as the walk boxes allow): through it, on to
++		// the next door when passing through, or straight to the stop if a
++		// door will not take the guide.
++		const ScummverseTourStop &stop = _scummverseTourStops[_scummverseTourStop];
++		if (!scummverseTourThrough(_scummverseTourStop, _scummverseTourLegAt)) { scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false); break; }
++		if (++_scummverseTourLegAt >= stop.legs) { scummverseTourArrive(true, true); break; }
++		int x, y;
++		const ScummverseTourLeg &way = _scummverseTourLegs[stop.firstLeg + _scummverseTourLegAt - 1];
++		scummverseTourPublish(Common::String::format("Stop %d of %d \xC2\xB7 on the way through ", _scummverseTourStop + 1, total) +
++			scummverseTourRoomName(stop.kind, stop.game, way.room));
++		if (!scummverseTourDoorPoint(_scummverseTourStop, _scummverseTourLegAt, x, y)) { scummverseTourArrive(scummverseTourEnter(_scummverseTourStop), false); break; }
++		const AdjustBoxResult door = a->adjustXYToBeInBox(x, y);
++		a->startWalkActor(door.x, door.y, -1);
++		_scummverseTourWait = kTourWalk;
++		break;
++	}
++	case kTourArrived:
++	case kTourWalking:
++		if ((_scummverseTourWait -= delta) > 0 && (_scummverseTourPhase == kTourArrived || a->_moving)) break;
++		if (_scummverseTourPhase == kTourWalking) ++_scummverseTourLeg;
++		if (_scummverseTourLeg >= kTourLegs) { _scummverseTourPhase = kTourLingering; _scummverseTourWait = kTourLinger; break; }
++		{
++			// Across the room: a spot this far along it, at the guide's own
++			// depth, moved into the nearest walk box.
++			const int x = MAX(1, _roomWidth / 8 * kTourLegPercent[_scummverseTourLeg] / 100);
++			const AdjustBoxResult target = a->adjustXYToBeInBox(x, a->getRealPos().y);
++			a->startWalkActor(target.x, target.y, -1);
++			_scummverseTourPhase = kTourWalking; _scummverseTourWait = kTourWalk;
++		}
++		break;
++	case kTourLingering:
++	case kTourRefusedStop:
++		if ((_scummverseTourWait -= delta) > 0) break;
++		_scummverseTourOnFoot = _scummverseTourPhase == kTourLingering;
++		++_scummverseTourStop;
++		_scummverseTourPhase = kTourEnter;
++		break;
++	default: break;
++	}
++}
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 5a63c28d..bb292505 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -160,7 +160,7 @@ bool ScummEngine::scummverseTravelPlace(int game, int source) {
+ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	if (!_scummverseRoamingReady || !_userPut || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
+ 	if (_currentRoom == 56 && _scummVars[724]) { scummverseSay(VAR(VAR_EGO), "Choose Arrive to finish this flight first."); return false; }
+-	if (scummverseOnBus() || scummverseOnTram() || ((scummverseOnDigTram() || scummverseInVan()) && !_scummverseLanding)) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
++	if (!_scummverseLanding && (scummverseOnBus() || scummverseOnTram() || scummverseOnDigTram() || scummverseInVan())) { scummverseSay(VAR(VAR_EGO), "Let's finish this ride first."); return false; }
+ 	if (!scummverseMountWorld(room)) { scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str()); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world visitor");
+ 	// Remember where the visit started so the menu can bring the player back.

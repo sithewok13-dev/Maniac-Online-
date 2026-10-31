@@ -1,0 +1,1564 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 273329da..08da64c6 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -182,6 +182,13 @@ const ThingEffect *GameThings::effect(int room, int id, int kind, int from, int
+ 	return e != effects.end() && key(*e) == wanted ? &*e : nullptr;
+ }
+ 
++const ValueAnswer *GameThings::value(int room, int id, int kind, int from, int with, int need, int value) const {
++	auto key = [](const ValueAnswer &v) { return std::make_tuple(v.room, v.id, v.kind, v.from, v.with, v.need, v.value); };
++	const auto wanted = std::make_tuple(room, id, kind, from, with, need, value);
++	const auto v = std::lower_bound(valued.begin(), valued.end(), wanted, [&](const ValueAnswer &a, const std::tuple<int, int, int, int, int, int, int> &b) { return key(a) < b; });
++	return v != valued.end() && key(*v) == wanted ? &*v : nullptr;
++}
++
+ const ThingParent *GameThings::parent(int room, int id) const {
+ 	const auto p = std::lower_bound(parents.begin(), parents.end(), std::make_pair(room, id), [](const ThingParent &a, const std::pair<int, int> &b) { return std::make_pair(a.room, a.id) < b; });
+ 	return p != parents.end() && p->room == room && p->id == id ? &*p : nullptr;
+@@ -190,8 +197,10 @@ const ThingParent *GameThings::parent(int room, int id) const {
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+ 	// ("SVO9", from 0258: SVO8 with its answers whole and its icons. "SVOA",
+-	// from 0267: SVO9 whose answers say what they make touchable.)
+-	const bool tenth = data && size >= 4 && !std::memcmp(data, "SVOA", 4);
++	// from 0267: SVO9 whose answers say what they make touchable. "SVOB",
++	// from 0282: SVOA with the answers played with a value kept.)
++	const bool eleventh = data && size >= 4 && !std::memcmp(data, "SVOB", 4);
++	const bool tenth = eleventh || (data && size >= 4 && !std::memcmp(data, "SVOA", 4));
+ 	const bool ninth = tenth || (data && size >= 4 && !std::memcmp(data, "SVO9", 4));
+ 	const bool films = ninth || (data && size >= 4 && !std::memcmp(data, "SVO8", 4));
+ 	const bool views = films || (data && size >= 4 && !std::memcmp(data, "SVO7", 4));
+@@ -218,17 +227,17 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 	}
+ 	const int effectCount = effects ? r.u16() : 0;
+ 	if (effectCount > kMostEffects) { out = GameThings(); error = "too many effects"; return false; }
+-	for (int i = 0; i < effectCount && r.ok; ++i) {
+-		ThingEffect e;
+-		e.room = r.u16(); e.id = r.u16(); e.kind = r.u8(); e.from = r.u8();
+-		if (pairs) e.with = r.u16();
++	// (An effect from its picture after on, as its version has it; from 0282
++	// an SVOB answer played with a value kept likewise. Null: good, else what
++	// is wrong with it.)
++	auto effectBody = [&](ThingEffect &e) -> const char * {
+ 		// (SVO9: its picture after whole, its flags in a byte of their own;
+ 		// SVOA's what it made of the thing itself too.)
+ 		const int after = r.u8(), flags = ninth ? r.u8() : 0;
+ 		if (ninth) { e.after = after; e.taken = (flags & 1) != 0; e.firstGone = (flags & 2) != 0; e.secondGone = (flags & 4) != 0; e.touch = flags & 8 ? 2 : flags & 16 ? 1 : 0; }
+ 		else { e.after = after & 1; e.taken = (after & 2) != 0; e.firstGone = (after & 4) != 0; e.secondGone = (after & 8) != 0; }
+ 		const int others = r.u8();
+-		if (others > kMostEffectParts) { out = GameThings(); error = "too many others"; return false; }
++		if (others > kMostEffectParts) return "too many others";
+ 		bool good = true;
+ 		for (int k = 0; k < others && r.ok; ++k) {
+ 			ThingPart part;
+@@ -252,7 +261,7 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		if (ninth) {
+ 			// (Its lines, each with who says it.)
+ 			const int lines = r.u8();
+-			if (lines > kMostLines) { out = GameThings(); error = "too many lines"; return false; }
++			if (lines > kMostLines) return "too many lines";
+ 			for (int k = 0; k < lines && r.ok; ++k) {
+ 				ThingLine l;
+ 				l.speaker = r.u8();
+@@ -269,8 +278,15 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			if (r.bytes(r.u8(), line)) e.line.assign(line.begin(), line.end());
+ 			if (!e.line.empty()) { ThingLine l; l.text = e.line; e.lines.push_back(l); }
+ 		}
+-		if (!good || flags > (tenth ? 31 : 7) || (flags & 24) == 24 || ((flags & 24) && (flags & 1)) || (!ninth && (e.from > 1 || after > (pairs ? 15 : 3)))) { out = GameThings(); error = "bad effect"; return false; }
+-		for (const ThingPart &part : e.others) if (!ninth && part.picture > (pairs ? 2 : 1)) { out = GameThings(); error = "bad effect"; return false; }
++		if (!good || flags > (tenth ? 31 : 7) || (flags & 24) == 24 || ((flags & 24) && (flags & 1)) || (!ninth && (e.from > 1 || after > (pairs ? 15 : 3)))) return "bad effect";
++		for (const ThingPart &part : e.others) if (!ninth && part.picture > (pairs ? 2 : 1)) return "bad effect";
++		return nullptr;
++	};
++	for (int i = 0; i < effectCount && r.ok; ++i) {
++		ThingEffect e;
++		e.room = r.u16(); e.id = r.u16(); e.kind = r.u8(); e.from = r.u8();
++		if (pairs) e.with = r.u16();
++		if (const char *bad = effectBody(e)) { out = GameThings(); error = bad; return false; }
+ 		out.effects.push_back(e);
+ 	}
+ 	const int parentCount = withParents && r.ok ? r.u16() : 0;
+@@ -434,6 +450,34 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			out.icons.push_back(c);
+ 		}
+ 	}
++	// (From 0282, "SVOB": the answers played with a value kept, what they
++	// leave of them and their later steps.)
++	if (eleventh && r.ok) {
++		const int count = r.u16();
++		if (count > kMostValued) { out = GameThings(); error = "bad values"; return false; }
++		for (int i = 0; i < count && r.ok; ++i) {
++			ValueAnswer v;
++			v.room = r.u16(); v.id = r.u16(); v.kind = r.u8(); v.from = r.u8(); v.with = r.u16(); v.need = r.u16(); v.value = r.u16();
++			ThingEffect &e = v.answer;
++			e.room = v.room; e.id = v.id; e.kind = v.kind; e.from = v.from; e.with = v.with;
++			if (const char *bad = effectBody(e)) { out = GameThings(); error = bad; return false; }
++			const int leaves = r.u8();
++			bool good = leaves <= kMostLeaves && v.id && v.kind > 0 && v.kind < 32;
++			for (int k = 0; k < leaves && good && r.ok; ++k) { const int var = r.u16(); v.leaves.push_back(std::make_pair(var, r.u16())); good = !r.ok || var > 0; }
++			const int steps = good ? r.u8() : 0;
++			good = good && steps <= kMostLaterSteps;
++			for (int k = 0; k < steps && good && r.ok; ++k) {
++				LaterStep step;
++				const int low = r.u16(), high = r.u16();
++				step.tick = high <= (kMostLaterTicks >> 16) ? low | high << 16 : kMostLaterTicks + 1;
++				step.room = r.u16(); step.id = r.u16(); step.picture = r.u8(); step.touch = r.u8();
++				good = !r.ok || (step.tick <= kMostLaterTicks && step.room && step.id && step.touch < 3 && (v.later.empty() || step.tick >= v.later.back().tick));
++				v.later.push_back(step);
++			}
++			if (!good) { out = GameThings(); error = "bad values"; return false; }
++			out.valued.push_back(v);
++		}
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
+ 	out.touches = tenth;
+ 	std::stable_sort(out.icons.begin(), out.icons.end(), [](const ThingIcon &a, const ThingIcon &b) { return a.id < b.id; });
+@@ -449,6 +493,10 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 	std::stable_sort(out.marked.begin(), out.marked.end(), [&](const MarkedAnswer &a, const MarkedAnswer &b) { return markedKey(a) < markedKey(b); });
+ 	for (size_t i = 1; i < out.marked.size(); ++i)
+ 		if (markedKey(out.marked[i]) == markedKey(out.marked[i - 1])) { out = GameThings(); error = "an answer twice"; return false; }
++	auto valueKey = [](const ValueAnswer &v) { return std::make_tuple(v.room, v.id, v.kind, v.from, v.with, v.need, v.value); };
++	std::stable_sort(out.valued.begin(), out.valued.end(), [&](const ValueAnswer &a, const ValueAnswer &b) { return valueKey(a) < valueKey(b); });
++	for (size_t i = 1; i < out.valued.size(); ++i)
++		if (valueKey(out.valued[i]) == valueKey(out.valued[i - 1])) { out = GameThings(); error = "an answer twice"; return false; }
+ 	std::stable_sort(out.rooms.begin(), out.rooms.end(), [](const std::pair<int, std::vector<GameThing> > &a, const std::pair<int, std::vector<GameThing> > &b) { return a.first < b.first; });
+ 	for (size_t i = 1; i < out.rooms.size(); ++i)
+ 		if (out.rooms[i].first == out.rooms[i - 1].first) { out = GameThings(); error = "a room twice"; return false; }
+@@ -1349,8 +1397,18 @@ bool pairEffect(int game, int room, int id, int kind, int from, int with, int &a
+ 	return false;
+ }
+ 
+-// (From 0258: an answer whole, its own to that second, else its usual one.)
+-static const Panel::ThingEffect *answerOf(int game, int room, int id, int kind, int from, int with) {
++// (From 0282, "SVOB": a value reader's answer so played.)
++static const Panel::ValueAnswer *valueOf(int game, int room, int id, int kind, int from, int with, int need, int value) {
++	for (const auto &g : gameThings()) if (g.first == game) return g.second.value(room, id, kind, from, with, need, value);
++	return nullptr;
++}
++// (From 0258: an answer whole, its own to that second, else its usual one.
++// From 0282 `valued` (need, value): a value reader's so played, else none.)
++static const Panel::ThingEffect *answerOf(int game, int room, int id, int kind, int from, int with, const int *valued = nullptr) {
++	if (valued) {
++		const Panel::ValueAnswer *v = valueOf(game, room, id, kind, from, with, valued[0], valued[1]);
++		return v ? &v->answer : nullptr;
++	}
+ 	for (const auto &g : gameThings()) {
+ 		if (g.first != game) continue;
+ 		const Panel::ThingEffect *e = g.second.effect(room, id, kind, from, with);
+@@ -1358,9 +1416,9 @@ static const Panel::ThingEffect *answerOf(int game, int room, int id, int kind,
+ 	}
+ 	return nullptr;
+ }
+-bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &after, int &flags, int *others, int &count, int capacity, int &lines) {
++bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &after, int &flags, int *others, int &count, int capacity, int &lines, const int *valued) {
+ 	count = 0; flags = 0; lines = 0;
+-	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with);
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
+ 	if (!e) return false;
+ 	after = e->after;
+ 	flags = (e->taken ? 1 : 0) | (e->firstGone ? 2 : 0) | (e->secondGone ? 4 : 0) | (with && e->with == with ? 8 : 0);
+@@ -1374,9 +1432,9 @@ bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &
+ 	return true;
+ }
+ // (From 0267, "SVOA".)
+-bool answerTouches(int game, int room, int id, int kind, int from, int with, int *touched, int &count, int capacity, int &self) {
++bool answerTouches(int game, int room, int id, int kind, int from, int with, int *touched, int &count, int capacity, int &self, const int *valued) {
+ 	count = 0; self = 0;
+-	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with);
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
+ 	if (!e) return false;
+ 	self = e->touch;
+ 	for (const Panel::ThingPart &part : e->others) {
+@@ -1388,8 +1446,8 @@ bool answerTouches(int game, int room, int id, int kind, int from, int with, int
+ 	return true;
+ }
+ // (From 0278.)
+-int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity) {
+-	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with);
++int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity, const int *valued) {
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
+ 	int count = 0;
+ 	for (size_t k = 0; e && k < e->others.size() && count < capacity; ++k) {
+ 		const Panel::ThingPart &part = e->others[k];
+@@ -1399,12 +1457,31 @@ int answerHands(int game, int room, int id, int kind, int from, int with, int *h
+ 	}
+ 	return count;
+ }
++// (From 0282.)
++bool valueAnswered(int game, int room, int id, int kind, int from, int with, int need, int value) {
++	return valueOf(game, room, id, kind, from, with, need, value) != nullptr;
++}
++int valueLeaves(int game, int room, int id, int kind, int from, int with, int need, int value, int *leaves, int capacity) {
++	const Panel::ValueAnswer *v = valueOf(game, room, id, kind, from, with, need, value);
++	int count = 0;
++	for (size_t k = 0; v && k < v->leaves.size() && count < capacity; ++k, ++count) { leaves[count * 2] = v->leaves[k].first; leaves[count * 2 + 1] = v->leaves[k].second; }
++	return count;
++}
++int valueLater(int game, int room, int id, int kind, int from, int with, int need, int value, int *steps, int capacity) {
++	const Panel::ValueAnswer *v = valueOf(game, room, id, kind, from, with, need, value);
++	int count = 0;
++	for (size_t k = 0; v && k < v->later.size() && count < capacity; ++k, ++count) {
++		const Panel::LaterStep &s = v->later[k];
++		steps[count * 5] = s.tick; steps[count * 5 + 1] = s.room; steps[count * 5 + 2] = s.id; steps[count * 5 + 3] = s.picture; steps[count * 5 + 4] = s.touch;
++	}
++	return count;
++}
+ bool thingsTouch(int game) {
+ 	for (const auto &g : gameThings()) if (g.first == game) return g.second.touches;
+ 	return false;
+ }
+-bool answerLine(int game, int room, int id, int kind, int from, int with, int line, int &speaker, int &costume, int &color, char *text, int capacity) {
+-	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with);
++bool answerLine(int game, int room, int id, int kind, int from, int with, int line, int &speaker, int &costume, int &color, char *text, int capacity, const int *valued) {
++	const Panel::ThingEffect *e = answerOf(game, room, id, kind, from, with, valued);
+ 	if (!e || line < 0 || line >= (int)e->lines.size()) return false;
+ 	const Panel::ThingLine &l = e->lines[line];
+ 	speaker = l.speaker; costume = l.costume; color = l.color;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index c62d8265..650fe41b 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -41,6 +41,14 @@
+ // WorldCatalog::kWorldVerbDraft and the draft's index as Panel::play gives
+ // it (32 to 63: past every VerbKind). The layout is unchanged; an answer's
+ // kind is any byte.
++//
++// From 0282 a things file may be "SVOB" (see below): SVOA with the answers
++// played with a value its game keeps (ValueAnswer: what the mansion's
++// cassette recorded, the record on its Victrola), what they leave of them
++// and their later steps. The export writes it only where there is one (the
++// mansion's); SVO1 to SVOA are read as before (none). Bridge: valueAnswered,
++// valueLeaves, valueLater; thingAnswer, answerTouches, answerHands and
++// answerLine read one given its key.
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+@@ -270,6 +278,28 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // that thing (its game's sentence script runs them next, in the order
+ // listed), its picture byte then the verb's kind (1 to 31); see
+ // PanelBridge::answerHands.
++// "SVOB" (from 0282): all SVOA has, then after the icons the answers played
++// with a value kept (kWorldValueReaders): u16 count (at most kMostValued),
++// each u16 room, u16 object, u8 verb kind, u8 the picture it was in, u16
++// the second thing (0: none), u16 the thing it wanted in its picture 1 (0:
++// none), u16 the value of the variable it reads it was played with (0:
++// none read, or 0), then an effect as SVOA's from its picture after on (its
++// flags, others and lines), then u8 count of values kept it leaves changed
++// (at most kMostLeaves), each u16 the variable and u16 its value, and u8
++// count of its later steps (at most kMostLaterSteps; what a script it
++// starts does after its first wait, in the order done), each u16 and u16
++// the ticks since the answer (low, high; at most kMostLaterTicks, none
++// fewer than the one before), u16 room, u16 object (a thing of a place),
++// u8 its picture then and u8 what it is made then (0 left alone, 1
++// touchable, 2 untouchable). A file with one out of range, or one key
++// twice, is refused whole.
++struct LaterStep { int tick = 0, room = 0, id = 0, picture = 0, touch = 0; };
++struct ValueAnswer {
++	int room = 0, id = 0, kind = 0, from = 0, with = 0, need = 0, value = 0;
++	ThingEffect answer;
++	std::vector<std::pair<int, int> > leaves; // (variable, value)
++	std::vector<LaterStep> later;
++};
+ struct ThingIcon { int id = 0, width = 0, height = 0; std::string name; std::vector<uint32_t> picture; };
+ struct FilmEvent { int tick = 0, id = 0, picture = 0; std::string line; };
+ struct CloseUpFilm {
+@@ -312,10 +342,12 @@ struct GameThings {
+ 	std::vector<MarkedAnswer> marked;                            // by room, id, kind, from, with, marks
+ 	std::vector<ThingIcon> icons;                                // by id (SVO9)
+ 	bool touches = false;                                        // its answers say what they make touchable (SVOA)
++	std::vector<ValueAnswer> valued;                             // by room, id, kind, from, with, need, value (SVOB)
+ 	const GameThing *find(int room, int id) const;
+ 	const ThingIcon *icon(int id) const;
+ 	const ThingEffect *effect(int room, int id, int kind, int from, int with = 0) const;
+ 	const ThingParent *parent(int room, int id) const;
++	const ValueAnswer *value(int room, int id, int kind, int from, int with, int need, int value) const;
+ };
+ // (At most this many rooms, objects in one, effects and others in one.)
+ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 32768, kMostEffectParts = 64;
+@@ -324,6 +356,7 @@ using PanelBridge::kMostCloseUps; using PanelBridge::kMostCloseUpKeys; using Pan
+ using PanelBridge::kMostTurns; using PanelBridge::kMostButtons; using PanelBridge::kMostCoins;
+ using PanelBridge::kMostFilmEvents; using PanelBridge::kMostMarks; using PanelBridge::kMostMarked; using PanelBridge::kMostFilmLead;
+ using PanelBridge::kMostLines; using PanelBridge::kMostIcons; using PanelBridge::kMostIconSide; using PanelBridge::kSpeakerPlayed; using PanelBridge::kSpeakerNone;
++using PanelBridge::kMostValued; using PanelBridge::kMostLeaves; using PanelBridge::kMostLaterSteps; using PanelBridge::kMostLaterTicks;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index e2fb4dbc..e6eaf5e5 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -169,8 +169,10 @@ bool pairEffect(int game, int room, int id, int kind, int from, int with, int &a
+ // 255 no one, its game's own; else its game's actor), the costume they wear
+ // there (0: none known), their talk colour (an index into the panel's
+ // colours; -1: the one played's) and the line.
+-bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &after, int &flags, int *others, int &count, int capacity, int &lines);
+-bool answerLine(int game, int room, int id, int kind, int from, int with, int line, int &speaker, int &costume, int &color, char *text, int capacity);
++// From 0282 `valued` (need, value; null: none): the answer of a value
++// reader so played instead ("SVOB", see valueAnswered).
++bool thingAnswer(int game, int room, int id, int kind, int from, int with, int &after, int &flags, int *others, int &count, int capacity, int &lines, const int *valued = nullptr);
++bool answerLine(int game, int room, int id, int kind, int from, int with, int line, int &speaker, int &costume, int &color, char *text, int capacity, const int *valued = nullptr);
+ // From 0267 ("SVOA"; a file of before says nothing): what an answer (as
+ // thingAnswer finds it) makes touchable or untouchable, as its game's
+ // scripts set or clear untouchable classes (the oldest games' state bit):
+@@ -180,14 +182,30 @@ bool answerLine(int game, int room, int id, int kind, int from, int with, int li
+ // of thingEffect, pairEffect and thingAnswer. thingsTouch: whether a game's
+ // things file says so (an answer silent on a thing leaves it as it was).
+ static const int kMadeTouchable = 1, kMadeUntouchable = 2;
+-bool answerTouches(int game, int room, int id, int kind, int from, int with, int *touched, int &count, int capacity, int &self);
++bool answerTouches(int game, int room, int id, int kind, int from, int with, int *touched, int &count, int capacity, int &self, const int *valued = nullptr);
+ bool thingsTouch(int game);
+ // From 0278 ("SVOA"; a file of before says nothing): what an answer (as
+ // thingAnswer finds it) hands on, as its game's sentence script runs it
+ // next: up to `capacity` verbs as (room, object, verb kind) in `hands`,
+ // three each, in the order run. Left out of thingEffect, pairEffect,
+ // thingAnswer and answerTouches. Returns how many.
+-int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity);
++int answerHands(int game, int room, int id, int kind, int from, int with, int *hands, int capacity, const int *valued = nullptr);
++// From 0282 ("SVOB"; a file of before has none): the answers of a value
++// reader (WorldCatalog::kWorldValueReaders) as its export played them, by
++// the thing it wanted in its picture 1 (`need`, 0: none) and the value
++// kept of the variable it reads (`value`, as its game counts; 0: none read,
++// or 0): whether there is one (thingAnswer, answerTouches, answerHands and
++// answerLine read it whole, given {need, value}); the values kept it leaves
++// changed, up to `capacity` as (variable, value) in `leaves`, two each; its
++// later steps (what a script it starts does after its first wait), up to
++// `capacity` as (ticks since it, room, object, picture, touch: 0 left
++// alone, kMadeTouchable or kMadeUntouchable) in `steps`, five each, in the
++// order done. Each returns how many. The most a file has: answers so, values
++// left by one, later steps of one and their ticks.
++static const int kMostValued = 256, kMostLeaves = 8, kMostLaterSteps = 32, kMostLaterTicks = 1 << 20;
++bool valueAnswered(int game, int room, int id, int kind, int from, int with, int need, int value);
++int valueLeaves(int game, int room, int id, int kind, int from, int with, int need, int value, int *leaves, int capacity);
++int valueLater(int game, int room, int id, int kind, int from, int with, int need, int value, int *steps, int capacity);
+ // A thing given carried by its own inventory picture (from 0258, "SVO9";
+ // one its place has no picture of): added as addItem adds one, named `name`
+ // (null: its own name); false: none.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 41b840c9..b7a01941 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -116,10 +116,15 @@ static const int kWorldExportVersion = 25;
+ // it in, as Fate of Atlantis's are; a thing an answer of two gives listed
+ // with the picture its game leaves its place in: "zak-v30", "samnmax-v30",
+ // "dig-v30", "ft-v30", "comi-v30", "tentacle-v31", "monkey-v32",
+-// "monkey2-v33").
++// "monkey2-v33"); from 0282 the mansion's again (what its cassette recorded
++// and which record is on the Victrola, kept: the answers that read or leave
++// them, and what a script they start does after its waits, its things file
++// "SVOB", kWorldKeptValues and kWorldValueReaders: "maniac-v44"); from 0282
++// the mansion's again (a record put on the Victrola with one on refused, as
++// its script refuses it, kWorldValueReaders: "maniac-v45").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 18 : same(gameid, "monkey2") ? 8 : same(gameid, "monkey") ? 7 : same(gameid, "tentacle") ? 6 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 20 : same(gameid, "monkey2") ? 8 : same(gameid, "monkey") ? 7 : same(gameid, "tentacle") ? 6 :
+ 		same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 5 :
+ 		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -1344,7 +1349,10 @@ enum {
+ // plays (366 at 1, kWorldVarThings); each deck turned on with its tape in
+ // (192, 80, 216 in picture 0) and the Victrola with its record on (30).
+ // The new engine reads `need`, `also` and `bare` where it is (a thing
+-// carried used elsewhere too).
++// carried used elsewhere too). From 0282 the decks `powered`, as their
++// scripts check (with the main power off, turned on with the tape in, they
++// do nothing); a deck turned on with its tape in, and the Victrola, are
++// answered by the value kept where kWorldValueReaders has a row so.
+ struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads, kid, bare, powered, picked; };
+ static const WorldMarkReader kWorldMarkReaders[] = {
+ 	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed, 0, 0, 0, 0},
+@@ -1368,13 +1376,78 @@ static const WorldMarkReader kWorldMarkReaders[] = {
+ 	{10, 2, 142, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 167, 0, 1},
+ 	{10, 17, 192, kWorldVerbPickUp, 0, 191, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 3, 80, kWorldVerbPickUp, 0, 228, 0, 0, 0, 0, 0, 0, 0, 0},
+ 	{10, 17, 30, kWorldVerbPickUp, 0, 366, 0, 167, 1, 0, 0, 0, 0, 0},
+-	{10, 17, 191, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 192, 0, 0}, {10, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0},
+-	{10, 20, 164, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 216, 0, 0}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0}};
++	{10, 17, 191, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 192, 1, 0}, {10, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 80, 1, 0},
++	{10, 20, 164, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 216, 1, 0}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0}};
+ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, int kind, int with) {
+ 	for (const WorldMarkReader &r : kWorldMarkReaders)
+ 		if (r.game == game && r.room == room && r.object == object && r.kind == kind && r.with == with) return &r;
+ 	return nullptr;
+ }
++// From 0282 values kept: a variable of a game's that its scripts set to one
++// of several values and read again later (not a mark, which is set for
++// good: this changes), kept by the new engine as its answers leave it (0,
++// as its game starts it, until one does). `values`: those it can hold here
++// but 0, as its game counts them. The mansion's: what its cassette (room 5,
++// 189) has recorded (157: 25 the record from room 20, 32; 44 the old
++// record, 188; blank, 0), and the record on the Victrola (94: 25 or 44, as
++// put on). Its game also records the piano played by Syd or Razor (50) and
++// has the demo tape say 55; neither here (the piano's cut-scene and the
++// Green Tentacle's, who gives that tape, are not played).
++struct WorldKeptValue { short game, var, values[4]; };
++static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 0, 0}}, {10, 94, {25, 44, 0, 0}}};
++inline bool worldKeptValue(int game, int var) {
++	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
++	return false;
++}
++// An answer whose script reads a value kept or leaves one (from 0282): a
++// verb kind on a thing of a room, with a second (`with`, carried; 0 none);
++// `need` a thing of its room in its picture 1 first, `bare` one in its
++// picture 0 (0: none; one whose picture is a variable, kWorldVarThings, so
++// by it); `powered`: with the main power off (kWorldMainPowers) it does
++// nothing, as its script checks; `reads`, the variable kept it reads (0:
++// none); `later`, a script it starts whose waits its game's clock keeps
++// (0: none). The export plays it from its game's own start, from each
++// picture of its thing, with each value `reads` can hold (none: once), as
++// a player has the things it wants: its answer whole, the values kept it
++// leaves changed, and what that later script does after its first wait,
++// each thing it changes then with the ticks since (its later steps;
++// scummverseExportThings, "SVOB"). The new engine gives it, by the value
++// kept now, from the first of its rows whose things are so (else its usual
++// answer), keeps what it leaves, and plays its later steps on its own clock
++// until its thing leaves the picture the answer left it in (as its game
++// stops that script then) or its answer starts that script again.
++// The mansion's (rooms 17, 3 and 20; nothing copied): the Victrola (366)
++// used with a record (32, 188) sets the record on (94: 25, 44); turned on
++// with its record on (30 in picture 0), it plays (167 at 1, its picture
++// 1), and while the cassette recorder (191) is recording, the cassette
++// records it (157 set to 94); record 32 (25) starts script 20, which
++// breaks the vase (187) 300 ticks later and stops the Victrola itself 72000
++// ticks after that (the old record plays until turned off). The recorder
++// turned on with its tape in (192 in picture 0) and the main power on
++// records, and while the Victrola plays, the cassette records its record
++// likewise. The cassette player of the living room (3, 228) turned on with
++// the tape in (80) and the power on plays what the cassette recorded (its
++// line for a blank one), and for record 32 starts script 21: 240 and 300
++// ticks later its two windows (78, 79) break, 360 ticks later the glass
++// chandelier (74) falls, untouchable, its broken one (75) and the old rusty
++// key in it (76) shown and touchable (the key opens the dungeon's door,
++// room 4); 18000 ticks after that it stops (228 at 0). The stereo of the
++// Green Tentacle's room (20, 164) with the tape in (216) likewise plays
++// what it recorded (its line for a blank one; nothing breaks there). The
++// tape is not taken out while its deck is on, nor the record off while it
++// plays (kWorldMarkReaders); turning either off, or the main power off
++// (the decks), stops it, its later steps with it. From 0282 a record is put
++// on only with none on (30 in its picture 1), as its script checks; with
++// one on, its line and nothing more (30 in its picture 0: a row of no value
++// read or left). Before, the second was used up and its value kept, and
++// the record taken off gave only it back: record 32 was lost for good.
++struct WorldValueReader { short game, room, object, kind, with, need, bare, powered, reads, later; };
++static const WorldValueReader kWorldValueReaders[] = {
++	{10, 17, 366, kWorldVerbUse, 32, 30, 0, 0, 0, 0}, {10, 17, 366, kWorldVerbUse, 188, 30, 0, 0, 0, 0},
++	{10, 17, 366, kWorldVerbUse, 32, 0, 30, 0, 0, 0}, {10, 17, 366, kWorldVerbUse, 188, 0, 30, 0, 0, 0},
++	{10, 17, 366, kWorldVerbTurnOn, 0, 191, 30, 0, 94, 20}, {10, 17, 366, kWorldVerbTurnOn, 0, 0, 30, 0, 94, 20},
++	{10, 17, 191, kWorldVerbTurnOn, 0, 366, 192, 1, 94, 0},
++	{10, 3, 228, kWorldVerbTurnOn, 0, 0, 80, 1, 157, 21}, {10, 20, 164, kWorldVerbTurnOn, 0, 0, 216, 1, 157, 0}};
+ // Timed events (from 0250): what a game's script does a while after the one
+ // played leaves a place (`from`, for `to`; 0: anywhere else) with things of
+ // it in pictures (`need`: a thing and its picture each; 0: none) and marks
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index ba270397..dcad8aff 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1725,7 +1725,11 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // same "SVO8") a film shown from either picture (`from` -1, played from 0)
+ // and a second film of the same thing and scene (Dr Fred's other cut-scene,
+ // the meteor still there: only as its end starts no script another of them
+-// starts), recorded after the first.
++// starts), recorded after the first. From 0282 "SVOB" (all SVOA has) with
++// the answers played with a value its game keeps (kWorldValueReaders: what
++// the cassette recorded, the record on the Victrola), what they leave of
++// them, and what a script they start does after its waits (its later
++// steps, with their ticks); see Scummverse::Panel::ValueAnswer.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1808,6 +1812,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	for (const WorldMark &m : kWorldMarks) if (m.game == gameIndex && (int)marks.size() < Scummverse::PanelBridge::kMostMarks) marks.push_back(&m);
+ 	struct Marked { int room, id, kind, from, with, need, marks, sets = 0; Effect answer; };
+ 	Common::Array<Marked> marked;
++	// (From 0282, "SVOB": the answers played with a value kept
++	// (kWorldValueReaders): its key, its answer whole, the values kept it
++	// leaves changed (variable, value each) and its later steps (ticks,
++	// room, object, picture, touch each).)
++	struct Valued { int room, id, kind, from, with, need, value; Effect answer; Common::Array<int> leaves, later; };
++	Common::Array<Valued> valued;
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;
+ 	// (From 0258, "SVO9": written only where an answer needs it (`ninth`); its
+ 	// things given, each with its game's own inventory picture (RGB, and 1
+@@ -2870,6 +2880,134 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 			debug(1, "SCUMMVERSE world things: %s answers of room %d object %d by its marks: %d so far", kWorldGames[gameIndex].gameid, m.room, m.object, (int)marked.size());
+ 		}
++		// (From 0282, "SVOB": each answer that reads a value kept or leaves one
++		// (kWorldValueReaders), from the game's own start as those by the
++		// marks, from each picture of its thing, with each value the variable
++		// it reads can hold (0 and kWorldKeptValues' values; none read: once),
++		// the others kept as its game starts them: the place as arrived, its
++		// `need` in its picture 1 and its `bare` in its picture 0 (a thing
++		// whose picture is a variable, by it), its second the kid's; its
++		// script run until it ends (as the answers above) but its `later`
++		// script, which waits as its game's clock keeps it: its answer whole
++		// (its line, its picture after, the others whose pictures it changed,
++		// what the kid has then, what is used up, what it makes touchable or
++		// untouchable, what it hands on) and the values kept it leaves
++		// changed. Then that later script on by its own waits, the game's
++		// clock put on by each (at most kMostLaterTicks in all), each thing of
++		// the places whose picture or touch it changes after each with the
++		// ticks since (its later steps); what it says then (a kid under the
++		// living room's chandelier as it falls) is not kept.)
++		int valuedSteps = 0;
++		for (const WorldValueReader &v : kWorldValueReaders) {
++			if (v.game != gameIndex || shouldQuit() || !booted) continue;
++			const int verb = verbOf(v.kind);
++			Common::Array<int> values;
++			values.push_back(0);
++			for (const WorldKeptValue &k : kWorldKeptValues)
++				for (short x : k.values) if (k.game == gameIndex && k.var == v.reads && x && v.reads) values.push_back(x);
++			const Room *here = nullptr;
++			for (const Room &r : found) if (r.room == v.room) here = &r;
++			auto laterSlot = [&]() {
++				for (uint k = 0; k < NUM_SCRIPT_SLOT && v.later; ++k) if (vm.slot[k].status != ssDead && vm.slot[k].where == WIO_GLOBAL && vm.slot[k].number == v.later) return (int)k;
++				return -1;
++			};
++			for (int from = 0; from < 2 && verb && here; ++from)
++				for (int value : values) {
++					restore(started);
++					_rnd.setSeed(0x5C0BE + v.room);
++					if (!arrive(v.room) || !getVerbEntrypoint(v.object, verb)) break;
++					const int ego = VAR(VAR_EGO);
++					if (v.need) putPicture(v.need, 1);
++					if (v.bare) putPicture(v.bare, 0);
++					if (v.reads > 0 && v.reads < _numVariables) VAR(v.reads) = value;
++					putPicture(v.object, from);
++					if (v.with) putOwner(v.with, ego);
++					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects), was(_objectStateTable, _numGlobalObjects);
++					const Common::Array<int32> varsWere(_scummVars, _numVariables);
++					const Common::Array<bool> touchWas = untouchables();
++					Common::Array<int> setStates;
++					_scummverseStatesSet = &setStates;
++					VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = v.object; VAR(VAR_ACTIVE_OBJECT2) = v.with;
++					_charsetBuffer[0] = 0;
++					runObjectScript(v.object, verb, false, false, nullptr);
++					Valued a;
++					a.room = v.room; a.id = v.object; a.kind = v.kind; a.from = from; a.with = v.with; a.need = v.need; a.value = value;
++					Effect &e = a.answer;
++					e.room = v.room; e.id = v.object; e.kind = v.kind; e.from = from; e.with = v.with;
++					for (int frame = 0; frame < 120; ++frame) {
++						bool running = false;
++						const int held = laterSlot();
++						for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) {
++							if (vm.slot[k].status == ssPaused && (int)k != held) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; }
++							running = running || vm.slot[k].status == ssRunning;
++						}
++						if (frame == 1) e.line = lineOf();
++						if (!running && frame > 1) break;
++						if (_currentRoom != v.room) break;
++						VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++					}
++					_scummverseStatesSet = nullptr;
++					e.after = pictureAfter(v.object);
++					e.taken = getOwner(v.object) != had[v.object] && getOwner(v.object) == ego;
++					e.firstGone = had[v.object] == ego && getOwner(v.object) != ego;
++					e.secondGone = v.with && v.with < (int)had.size() && had[v.with] == ego && getOwner(v.with) != ego;
++					Common::HashMap<int, bool> listed;
++					for (int other : setStates) {
++						if (other == v.object || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64 ||
++							!((was[other] ^ _objectStateTable[other]) & kObjectStateIntrinsic)) continue;
++						listed[other] = true;
++						e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(_objectStateTable[other] & kObjectStateIntrinsic ? 1 : 0);
++					}
++					for (int o = 1; o < (int)had.size() && e.others.size() < 3 * 64; ++o)
++						if (o != v.object && o != v.with && had[o] != ego && getOwner(o) == ego && placeOf.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(2); }
++					for (const WorldVarThing &t : kWorldVarThings)
++						if (t.game == gameIndex && t.object != v.object && t.var > 0 && t.var < _numVariables && placeOf.contains(t.object) && e.others.size() < 3 * 64 &&
++							(varsWere[t.var] != 0) != (VAR(t.var) != 0)) { e.others.push_back(placeOf[t.object]); e.others.push_back(t.object); e.others.push_back(VAR(t.var) ? 1 : 0); }
++					touches(e, v.room, v.object, Common::Array<int>(), touchWas, setStates, had, ego);
++					hands(e, v.room, here->things, v.object, v.kind);
++					for (const WorldKeptValue &k : kWorldKeptValues)
++						if (k.game == gameIndex && k.var > 0 && k.var < _numVariables && VAR(k.var) != varsWere[k.var] && a.leaves.size() < 2 * Scummverse::PanelBridge::kMostLeaves) {
++							a.leaves.push_back(k.var); a.leaves.push_back(VAR(k.var));
++						}
++					stopTalk(); _sound->stopAllSounds();
++					// (Its later script on by its own waits.)
++					Common::Array<byte> then(_objectStateTable, _numGlobalObjects);
++					Common::Array<int32> varsThen(_scummVars, _numVariables);
++					int ticks = 0;
++					for (int n = 0, s; n < 256 && (s = laterSlot()) >= 0 && !shouldQuit() && _currentRoom == v.room; ++n) {
++						if (vm.slot[s].status == ssPaused) {
++							ticks += MAX<int>(1, vm.slot[s].delay);
++							if (ticks > Scummverse::PanelBridge::kMostLaterTicks) break;
++							vm.slot[s].delay = 0; vm.slot[s].status = ssRunning;
++						}
++						for (int frame = 0; frame < 120 && (s = laterSlot()) >= 0 && vm.slot[s].status == ssRunning; ++frame) {
++							for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) if (vm.slot[k].status == ssPaused && (int)k != s) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; }
++							VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds(); stopTalk();
++						}
++						for (int o : placeObjects) {
++							const int before = then[o], now = _objectStateTable[o];
++							const bool shown = ((before ^ now) & kObjectStateIntrinsic) != 0, touched = ((before ^ now) & kObjectStateUntouchable) != 0;
++							if (worldVarThing(gameIndex, o) || (!shown && !touched) || a.later.size() >= 5 * (uint)Scummverse::PanelBridge::kMostLaterSteps) continue;
++							a.later.push_back(ticks); a.later.push_back(placeOf[o]); a.later.push_back(o); a.later.push_back(now & kObjectStateIntrinsic ? 1 : 0);
++							a.later.push_back(touched ? (now & kObjectStateUntouchable ? Scummverse::PanelBridge::kMadeUntouchable : Scummverse::PanelBridge::kMadeTouchable) : 0);
++							if (touched) changedTouch[o] = true;
++						}
++						for (const WorldVarThing &t : kWorldVarThings)
++							if (t.game == gameIndex && t.var > 0 && t.var < _numVariables && placeOf.contains(t.object) && (varsThen[t.var] != 0) != (VAR(t.var) != 0) &&
++								a.later.size() < 5 * (uint)Scummverse::PanelBridge::kMostLaterSteps) {
++								a.later.push_back(ticks); a.later.push_back(placeOf[t.object]); a.later.push_back(t.object); a.later.push_back(VAR(t.var) ? 1 : 0); a.later.push_back(0);
++							}
++						then = Common::Array<byte>(_objectStateTable, _numGlobalObjects);
++						varsThen = Common::Array<int32>(_scummVars, _numVariables);
++					}
++					if (laterSlot() >= 0) warning("SCUMMVERSE world things: %s room %d object %d's script %d still waits after %d ticks", kWorldGames[gameIndex].gameid, v.room, v.object, v.later, ticks);
++					stopTalk(); _sound->stopAllSounds();
++					valuedSteps += a.later.size() / 5;
++					// (One that leaves the place or the kid's hands: none.)
++					if (_currentRoom == v.room && vm.cutSceneStackPointer == 0 && (int)valued.size() < Scummverse::PanelBridge::kMostValued) valued.push_back(a);
++				}
++		}
++		debug(1, "SCUMMVERSE world things: %s %d answers played with a value kept, %d later steps", kWorldGames[gameIndex].gameid, (int)valued.size(), valuedSteps);
+ 		// (From 0250: each timed event's first wait (kWorldTimed) as the
+ 		// script that waits it counts, from the game's own start, the place it
+ 		// is left for (else one of the game's not to be in), as it leaves
+@@ -2922,11 +3060,16 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			}
+ 			touching += touched; handing += handed;
+ 		}
+-		// (From 0278 "SVOA" where one hands on too.)
+-		ninth = touching > 0 || handing > 0;
++		// (From 0278 "SVOA" where one hands on too; from 0282 "SVOB", all SVOA
++		// has, where an answer is played with a value kept.)
++		ninth = touching > 0 || handing > 0 || !valued.empty();
+ 		debug(1, "SCUMMVERSE world things: %s %d answers hand a verb on to a thing", kWorldGames[gameIndex].gameid, handing);
+ 		for (Effect &e : effects)
+ 			for (uint k = 0; ninth && k + 2 < e.others.size(); k += 3) if (e.others[k + 2] == 2) e.others[k + 2] = kGiven;
++		for (Valued &a : valued) {
++			scummverseSettleTouches(a.answer.others, changedTouch, 2);
++			for (uint k = 0; k + 2 < a.answer.others.size(); k += 3) if (a.answer.others[k + 2] == 2) a.answer.others[k + 2] = kGiven;
++		}
+ 		debug(1, "SCUMMVERSE world things: %s %d made touchable, %d untouchable (%d others only that, %d things themselves; %d as they were); %d answers make things touchable or untouchable (%d things changed so)",
+ 			kWorldGames[gameIndex].gameid, madeTouchable, madeUntouchable, touchedOnly, touchedSelf, touchedAsWas, touching, (int)changedTouch.size());
+ 		putBack(); quiet();
+@@ -3631,7 +3774,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	// as every answer these games' exports record now does.)
+ 	bool filmed = ninth || !marks.empty();
+ 	for (const CloseUp &u : closeUps) filmed = filmed || u.length;
+-	out.write(effects.empty() ? "SVO3" : ninth ? "SVOA" : filmed ? "SVO8" : "SVO7", 4);
++	// (From 0282 "SVOB" where an answer is played with a value kept: all SVOA
++	// has, and those after it.)
++	out.write(effects.empty() ? "SVO3" : !valued.empty() ? "SVOB" : ninth ? "SVOA" : filmed ? "SVO8" : "SVO7", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -3640,24 +3785,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			scummverseWrite16(out, r.things[i]); out.writeByte(CLIP(r.things[i + 1], 0, 255)); scummverseWrite16(out, r.things[i + 2]);
+ 		}
+ 	}
+-	scummverseWrite16(out, MIN<uint>(effects.size(), 32768));
+-	for (uint k = 0; k < effects.size() && k < 32768; ++k) {
+-		const Effect &e = effects[k];
+-		scummverseWrite16(out, e.room); scummverseWrite16(out, e.id);
+-		out.writeByte(e.kind); out.writeByte(e.from); scummverseWrite16(out, e.with);
+-		if (!ninth) {
+-			out.writeByte(e.after | (e.taken ? 2 : 0) | (e.firstGone ? 4 : 0) | (e.secondGone ? 8 : 0)); out.writeByte(e.others.size() / 3);
+-			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2] == kGiven ? 2 : e.others[i + 2]); }
+-			out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
+-			continue;
+-		}
+-		// (From 0258, "SVO9": its picture after whole, its flags apart, each
+-		// other's picture and whether it is given, each line with who says it;
+-		// see Scummverse::Panel::ThingEffect. From 0267, "SVOA": what it makes
+-		// touchable or untouchable, the thing itself's in its flags (bit 3
+-		// made untouchable, 4 touchable), an other's with whether it is given
+-		// (bit 1 made touchable, 2 untouchable, 3 only that: its picture not
+-		// set by it).)
++	// (From 0258, "SVO9": an answer from its picture after on: its picture
++	// after whole, its flags apart, each other's picture and whether it is
++	// given, each line with who says it; see Scummverse::Panel::ThingEffect.
++	// From 0267, "SVOA": what it makes touchable or untouchable, the thing
++	// itself's in its flags (bit 3 made untouchable, 4 touchable), an
++	// other's with whether it is given (bit 1 made touchable, 2 untouchable,
++	// 3 only that: its picture not set by it). From 0282 an "SVOB" answer
++	// played with a value kept likewise.)
++	auto writeAnswer = [&](const Effect &e) {
+ 		int flags = (e.taken ? 1 : 0) | (e.firstGone ? 2 : 0) | (e.secondGone ? 4 : 0), parts = 0;
+ 		for (uint i = 0; i + 2 < e.others.size(); i += 3) {
+ 			const int value = e.others[i + 2];
+@@ -3683,6 +3819,19 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (l.speaker) out.writeByte(l.color);
+ 			out.writeByte(MIN<uint>(l.text.size(), 255)); out.write(l.text.c_str(), MIN<uint>(l.text.size(), 255));
+ 		}
++	};
++	scummverseWrite16(out, MIN<uint>(effects.size(), 32768));
++	for (uint k = 0; k < effects.size() && k < 32768; ++k) {
++		const Effect &e = effects[k];
++		scummverseWrite16(out, e.room); scummverseWrite16(out, e.id);
++		out.writeByte(e.kind); out.writeByte(e.from); scummverseWrite16(out, e.with);
++		if (!ninth) {
++			out.writeByte(e.after | (e.taken ? 2 : 0) | (e.firstGone ? 4 : 0) | (e.secondGone ? 8 : 0)); out.writeByte(e.others.size() / 3);
++			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2] == kGiven ? 2 : e.others[i + 2]); }
++			out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
++			continue;
++		}
++		writeAnswer(e);
+ 	}
+ 	// (From 0168, "SVO3": what each thing is inside, and the picture that
+ 	// one shows it in; every game's, not only the mansion's. A number a room
+@@ -3771,6 +3920,23 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				out.write(icon.mask.data(), icon.mask.size()); out.write(icon.rgb.data(), icon.rgb.size());
+ 			}
+ 		}
++		// (From 0282, "SVOB": the answers played with a value kept, see
++		// Scummverse::Panel::ValueAnswer.)
++		if (!valued.empty()) {
++			scummverseWrite16(out, valued.size()); // (at most kMostValued, as recorded)
++			for (const Valued &a : valued) {
++				scummverseWrite16(out, a.room); scummverseWrite16(out, a.id); out.writeByte(a.kind); out.writeByte(a.from);
++				scummverseWrite16(out, a.with); scummverseWrite16(out, a.need); scummverseWrite16(out, a.value);
++				writeAnswer(a.answer);
++				out.writeByte(a.leaves.size() / 2); // (at most kMostLeaves, as recorded)
++				for (uint i = 0; i + 1 < a.leaves.size(); i += 2) { scummverseWrite16(out, a.leaves[i]); scummverseWrite16(out, a.leaves[i + 1]); }
++				out.writeByte(a.later.size() / 5); // (at most kMostLaterSteps, as recorded)
++				for (uint i = 0; i + 4 < a.later.size(); i += 5) {
++					scummverseWrite16(out, a.later[i] & 0xFFFF); scummverseWrite16(out, a.later[i] >> 16);
++					scummverseWrite16(out, a.later[i + 1]); scummverseWrite16(out, a.later[i + 2]); out.writeByte(a.later[i + 3]); out.writeByte(a.later[i + 4]);
++				}
++			}
++		}
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index febbe7fe..719fb2a4 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -715,6 +715,13 @@ static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85,
+ // and the radio its batteries for good. loadState puts it back in (0).
+ struct ManiacInside { short room, thing, inside; int usedMark; };
+ static const ManiacInside kManiacInside[] = {{1, 57, 165, kManiacMarkStamped}, {2, 142, 167, 0}};
++// From 0282: a light of the mansion's whose Pull its script answers by its
++// place's lights (its game's bit variable 2816 plus the room, 1 switched
++// off; the main power not read), handing Turn off on to itself while they
++// are on and Turn on while they are off: room 9's (305). Its record hands
++// on Turn off, as the export plays it with them on; handsAfter turns it so.
++struct ManiacLightPull { short room, object; };
++static const ManiacLightPull kManiacLightPulls[] = {{9, 305}};
+ // From 0255: things The Dig's and Full Throttle's answers show in another
+ // picture that their scripts keep untouchable all the same (isThing's rule
+ // for those games, which takes the others so shown as made touchable;
+@@ -890,15 +897,29 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	int after, others[3 * 64], count, flags = 0, sets = 0;
+ 	char said[256];
+ 	bool taken = false;
++	// (From 0282 as its script answers by a value kept, where it reads or
++	// leaves one (kWorldValueReaders: the record on the Victrola, what the
++	// cassette recorded); with the main power off where its script checks
++	// it, nothing.)
++	int valued[2];
++	bool dead = false;
++	const WorldValueReader *reader = valueReader(_game, _room, id, kind, from, 0, valued, &dead);
++	if (dead) return true;
+ 	// (From 0248: as its script answers by the marks, where it reads them.)
+-	const bool marked = markedEffect(_game, _room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), flags, sets);
++	const bool marked = !reader && markedEffect(_game, _room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), flags, sets);
+ 	if (marked) taken = (flags & 1) != 0;
+-	else if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
++	else if (reader) {
++		int four[4 * 64], lines, speaker, costume, color;
++		PanelBridge::thingAnswer(_game, _room, id, kind, from, 0, after, flags, four, count, 64, lines, valued);
++		for (int k = 0; k < count; ++k) { others[3 * k] = four[4 * k]; others[3 * k + 1] = four[4 * k + 1]; others[3 * k + 2] = four[4 * k + 3] ? 2 : four[4 * k + 2]; }
++		if (!lines || !PanelBridge::answerLine(_game, _room, id, kind, from, 0, 0, speaker, costume, color, said, sizeof(said), valued)) *said = 0;
++		taken = (flags & 1) != 0;
++	} else if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
+ 	// (From 0267 what it makes touchable or untouchable is a change too; from
+ 	// 0278 what it hands on.)
+ 	int touched[3 * 64], touchedCount = 0, self = 0, hands[3 * 8];
+-	if (!marked) PanelBridge::answerTouches(_game, _room, id, kind, from, 0, touched, touchedCount, 64, self);
+-	const int handed = marked ? 0 : PanelBridge::answerHands(_game, _room, id, kind, from, 0, hands, 8);
++	if (!marked) PanelBridge::answerTouches(_game, _room, id, kind, from, 0, touched, touchedCount, 64, self, reader ? valued : nullptr);
++	const int handed = marked ? 0 : PanelBridge::answerHands(_game, _room, id, kind, from, 0, hands, 8, reader ? valued : nullptr);
+ 	// (Read or picked up, saying nothing and changing nothing, or taken
+ 	// from the picture without it: the plain rules, as before 0161.)
+ 	if (plainAnswer(kind, from, after, taken, count + touchedCount + (self ? 1 : 0) + handed, said) || (taken && isCarried(_game, _room, id))) return false;
+@@ -922,11 +943,13 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	// then (an answer by the marks: the envelope taken out of the
+ 	// microwave): carried, gone from its place.)
+ 	othersAfter(_game, others, count, _room, id);
+-	if (!marked) touchesAfter(_game, _room, id, kind, from, 0);
++	if (!marked) touchesAfter(_game, _room, id, kind, from, 0, reader ? valued : nullptr);
+ 	leaveMarks(_game, sets);
++	// (From 0282 what it leaves kept, and its later steps.)
++	if (reader) valuesAfter(_game, *reader, from, valued);
+ 	// (From 0278 what it hands on, after it: the tape's turned on turning on
+ 	// its deck; one lying there picked up first, then used carried.)
+-	if (handed) handsAfter(_game, _room, id, kind, from);
++	if (handed) handsAfter(_game, _room, id, kind, from, 0, reader ? valued : nullptr);
+ 	return true;
+ }
+ 
+@@ -986,12 +1009,19 @@ void SandboxEngine::givenBack(int game, int room, int id, int &givenRoom, int &g
+ // carried as carried, one here as reached (act: its answer, by the marks,
+ // its close-up, the plain rules); one elsewhere, nothing. Not deeper than
+ // kMostHanded.
+-void SandboxEngine::handsAfter(int game, int room, int id, int kind, int from, int with) {
++void SandboxEngine::handsAfter(int game, int room, int id, int kind, int from, int with, const int *valued) {
+ 	int hands[3 * 8];
+-	const int count = _handing < kMostHanded ? PanelBridge::answerHands(game, room, id, kind, from, with, hands, 8) : 0;
++	const int count = _handing < kMostHanded ? PanelBridge::answerHands(game, room, id, kind, from, with, hands, 8, valued) : 0;
+ 	++_handing;
+ 	for (int k = 0; k < count; ++k) {
+-		const int r = hands[3 * k], o = hands[3 * k + 1], verb = hands[3 * k + 2];
++		const int r = hands[3 * k], o = hands[3 * k + 1];
++		int verb = hands[3 * k + 2];
++		// (From 0282 a light whose Pull reads its place's lights: Turn on
++		// while they are off, Turn off while on, as its script hands it on.)
++		for (const ManiacLightPull &l : kManiacLightPulls)
++			if (kind == kWorldVerbPull && r == room && o == id && l.room == room && l.object == id && (verb == kWorldVerbTurnOn || verb == kWorldVerbTurnOff) &&
++				game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, "maniac"))
++				verb = _dark.contains(game * 1024 + room) ? kWorldVerbTurnOn : kWorldVerbTurnOff;
+ 		int item = -1;
+ 		for (uint c = 0; c < _carried.size() && item < 0; ++c) if (_carried[c].game == game && _carried[c].room == r && _carried[c].id == o) item = c;
+ 		if (item >= 0) { useItem(item, verb); continue; }
+@@ -1007,9 +1037,9 @@ void SandboxEngine::handsAfter(int game, int room, int id, int kind, int from, i
+ 	--_handing;
+ }
+ 
+-void SandboxEngine::touchesAfter(int game, int room, int id, int kind, int from, int with) {
++void SandboxEngine::touchesAfter(int game, int room, int id, int kind, int from, int with, const int *valued) {
+ 	int touched[3 * 64], count, self;
+-	if (!PanelBridge::answerTouches(game, room, id, kind, from, with, touched, count, 64, self)) return;
++	if (!PanelBridge::answerTouches(game, room, id, kind, from, with, touched, count, 64, self, valued)) return;
+ 	for (int k = 0; k < count; ++k)
+ 		if (touched[3 * k + 2] == kTouchedTouchable || touched[3 * k + 2] == kTouchedUntouchable) _touched[thingKey(game, touched[3 * k], touched[3 * k + 1])] = touched[3 * k + 2];
+ 	if (self == kTouchedTouchable || self == kTouchedUntouchable) _touched[thingKey(game, room, id)] = self;
+@@ -1908,8 +1938,19 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		// a thing used with 239: 235 then in its picture 3), its lines in turn.
+ 		// Each other as (room, object, picture, given).)
+ 		bool marked = false;
++		// (From 0282 as its script answers by a value kept, where it reads or
++		// leaves one: the record put on the Victrola.)
++		int valued[2];
++		bool dead = false;
++		const WorldValueReader *reader = later ? nullptr : valueReader(game, room, id, p.kind, from, with, valued, &dead);
++		if (dead) return true;
+ 		if (later) {
+ 			if (!PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines)) continue;
++		} else if (reader) {
++			int speaker, costume, color;
++			PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines, valued);
++			if (!lines || !PanelBridge::answerLine(game, room, id, p.kind, from, with, 0, speaker, costume, color, said, sizeof(said), valued)) *said = 0;
++			lines = *said ? 1 : 0;
+ 		} else {
+ 			int three[3 * 64];
+ 			marked = markedEffect(game, room, id, p.kind, from, with, after, three, count, 64, said, sizeof(said), flags, sets);
+@@ -1922,7 +1963,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		}
+ 		// (From 0267 what it makes touchable or untouchable is a change too.)
+ 		int touched[3 * 64], touchedCount = 0, self = 0;
+-		if (!marked) PanelBridge::answerTouches(game, room, id, p.kind, from, with, touched, touchedCount, 64, self);
++		if (!marked) PanelBridge::answerTouches(game, room, id, p.kind, from, with, touched, touchedCount, 64, self, reader ? valued : nullptr);
+ 		// (Only an own answer uses up; the usual one never does. A usual one
+ 		// that says nothing and changes nothing: the next, else the plain
+ 		// rules, as for one thing.)
+@@ -1965,8 +2006,9 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		}
+ 		// (From 0242: a coin in a view's slot, a turn paid for.)
+ 		if (flags & 8) viewPaid(game, room, id, with);
+-		if (!marked) touchesAfter(game, room, id, p.kind, from, with);
++		if (!marked) touchesAfter(game, room, id, p.kind, from, with, reader ? valued : nullptr);
+ 		leaveMarks(game, sets);
++		if (reader) valuesAfter(game, *reader, from, valued); // (from 0282)
+ 		return true;
+ 	}
+ 	return false;
+@@ -3514,6 +3556,110 @@ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from,
+ 	return true;
+ }
+ 
++// ---- Values kept (from 0282; kWorldKeptValues, kWorldValueReaders) ----
++
++int SandboxEngine::keptValue(int game, int var) const {
++	const Common::HashMap<int, int>::const_iterator kept = _kept.find(game * 65536 + var);
++	return kept != _kept.end() ? kept->_value : 0;
++}
++
++// The first of its rows whose things are so (`need` in its picture 1,
++// `bare` in its picture 0, where they are), its answer by the value kept
++// now in its things file ("SVOB"); with the main power off where its
++// script checks it: `dead`, nothing done.
++const WorldValueReader *SandboxEngine::valueReader(int game, int room, int id, int kind, int from, int with, int *valued, bool *dead) const {
++	if (dead) *dead = false;
++	if (game < 0 || game >= worldGameCount()) return nullptr;
++	for (const WorldValueReader &v : kWorldValueReaders) {
++		if (v.game != game || v.room != room || v.object != id || v.kind != kind || v.with != with || (v.need && pictureIn(game, room, v.need) != 1) ||
++			(v.bare && pictureIn(game, room, v.bare) != 0)) continue;
++		valued[0] = v.need; valued[1] = v.reads ? keptValue(game, v.reads) : 0;
++		if (!PanelBridge::valueAnswered(game, room, id, kind, from, with, valued[0], valued[1])) return nullptr;
++		int powerRoom, powerId, offPicture;
++		if (dead && v.powered && PanelBridge::mainPower(game, powerRoom, powerId, offPicture) && pictureIn(game, powerRoom, powerId) == offPicture) *dead = true;
++		return &v;
++	}
++	return nullptr;
++}
++
++// What its answer leaves kept; its later steps under way from now (that
++// script's under way before let go: its game starts it again).
++void SandboxEngine::valuesAfter(int game, const WorldValueReader &v, int from, const int *valued) {
++	int leaves[2 * PanelBridge::kMostLeaves], steps[5];
++	const int left = PanelBridge::valueLeaves(game, v.room, v.object, v.kind, from, v.with, valued[0], valued[1], leaves, PanelBridge::kMostLeaves);
++	for (int k = 0; k < left; ++k) if (worldKeptValue(game, leaves[2 * k])) _kept[game * 65536 + leaves[2 * k]] = leaves[2 * k + 1];
++	if (!v.later || !PanelBridge::valueLater(game, v.room, v.object, v.kind, from, v.with, valued[0], valued[1], steps, 1)) return;
++	for (uint i = _later.size(); i-- > 0;) if (_later[i].game == game && _later[i].script == v.later) _later.remove_at(i);
++	Later l;
++	l.game = game; l.room = v.room; l.id = v.object; l.kind = v.kind; l.from = from; l.with = v.with; l.need = valued[0]; l.value = valued[1];
++	l.picture = pictureIn(game, v.room, v.object); l.script = v.later; l.at = 0;
++	_later.push_back(l);
++}
++
++// Each under way: its thing in another picture than its answer left it in,
++// let go (its game stopped that script then); else its steps come in their
++// time, each thing (here or kept) in its picture and made touchable or
++// untouchable; after its last, done.
++void SandboxEngine::laterStep(int ticks) {
++	bool changed = false;
++	for (uint i = 0; i < _later.size(); ++i) {
++		Later &l = _later[i];
++		if (pictureIn(l.game, l.room, l.id) != l.picture) { l.game = -1; continue; }
++		loadThings(l.game);
++		int steps[5 * PanelBridge::kMostLaterSteps];
++		const int count = PanelBridge::valueLater(l.game, l.room, l.id, l.kind, l.from, l.with, l.need, l.value, steps, PanelBridge::kMostLaterSteps);
++		const int was = l.at;
++		l.at += ticks;
++		const int game = l.game;
++		for (int k = 0; k < count; ++k) {
++			if (steps[5 * k] <= was || steps[5 * k] > l.at) continue;
++			const int r = steps[5 * k + 1], o = steps[5 * k + 2], picture = steps[5 * k + 3], touch = steps[5 * k + 4];
++			// (From 0282 not one carried: its place stays as its taking left it,
++			// as othersAfter leaves one. The tape played again once the old
++			// rusty key was taken drew the key under the chandelier again while
++			// carried; its game's script shows it only while the chandelier
++			// still hangs, and draws no thing a kid has.)
++			if (isCarried(game, r, o)) continue;
++			if (game == _game) setPicture(r, o, picture); else _pictures[thingKey(game, r, o)] = picture;
++			if (touch == kTouchedTouchable || touch == kTouchedUntouchable) _touched[thingKey(game, r, o)] = touch;
++			changed = true;
++		}
++		if (!count || l.at >= steps[5 * (count - 1)]) _later[i].game = -1;
++	}
++	for (uint i = _later.size(); i-- > 0;) if (_later[i].game < 0) _later.remove_at(i);
++	if (changed) { _dirty = true; if (!_testing) saveState(); }
++}
++
++// A state of before 0282 kept no values: the record on the Victrola (its
++// thing that shows one on in its picture 0, kWorldValueReaders' `bare`)
++// is the one put on (as givenBack finds it: gone from its place, carried
++// by nobody; the only one so), its value as putting it on leaves it. Read
++// from what the state keeps (the place not shown yet).
++void SandboxEngine::keptFromOlder() {
++	auto keptPicture = [&](int game, int room, int id) {
++		const Common::HashMap<int, int>::const_iterator kept = _pictures.find(thingKey(game, room, id));
++		int picture = 0, answers;
++		return kept != _pictures.end() ? kept->_value : PanelBridge::gameThing(game, room, id, picture, answers) ? picture : 0;
++	};
++	for (const WorldValueReader &v : kWorldValueReaders) {
++		if (v.game < 0 || v.game >= worldGameCount() || v.kind != kWorldVerbTurnOn || !v.bare || !v.reads || _kept.contains(v.game * 65536 + v.reads)) continue;
++		loadThings(v.game);
++		if (keptPicture(v.game, v.room, v.bare) != 0) continue;
++		const WorldValueReader *on = nullptr;
++		int ons = 0;
++		for (const WorldValueReader &put : kWorldValueReaders) {
++			// (From 0282 not one refusing it with one on, `bare`.)
++			if (put.game != v.game || put.room != v.room || put.object != v.object || !put.with || put.reads || put.bare) continue;
++			int home = 0, picture, answers;
++			for (int r = 1; r < 1024 && !home; ++r) if (PanelBridge::gameThing(v.game, r, put.with, picture, answers)) home = r; // (as givenBack finds its place)
++			if (home && !isCarried(v.game, home, put.with) && keptPicture(v.game, home, put.with) == 1) { on = &put; ++ons; }
++		}
++		int leaves[2 * PanelBridge::kMostLeaves];
++		const int left = ons == 1 ? PanelBridge::valueLeaves(v.game, on->room, on->object, on->kind, 0, on->with, on->need, 0, leaves, PanelBridge::kMostLeaves) : 0;
++		for (int k = 0; k < left; ++k) if (leaves[2 * k] == v.reads) _kept[v.game * 65536 + v.reads] = leaves[2 * k + 1];
++	}
++}
++
+ int SandboxEngine::playedKid(int game) const {
+ 	const int g = worldAppearanceGame(_playerKey), costume = worldAppearanceCostume(_playerKey);
+ 	return worldManiacKid(game, costume) && (g == game || g == kWorldManiacLooks) ? costume : 0;
+@@ -3884,6 +4030,7 @@ void SandboxEngine::step(int ticks) {
+ 	rideStep(ticks);
+ 	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext(); // (an answer's next line, from 0258)
+ 	if (!_touring.on) timedStep(ticks);
++	if (!_touring.on) laterStep(ticks); // (from 0282)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+ 	cabinPan(ticks);
+@@ -5734,6 +5881,13 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // guesses, from a state of before). A state of before 0267 read: each thing
+ // of a game that rule guessed at shown in another picture, so
+ // (kTouchedGuessed: as it was then).
++// "SVS9" (0282) adds the values kept (u16 count; s16 game, u16 its
++// variable, s32 the value) and the later steps under way (u16 count; s16
++// game, room, u16 id, u8 verb kind, u8 the picture it was in, u16 its
++// second, u16 the thing it wanted, s32 the value it was played with, u8 the
++// picture its thing was left in, u16 its script, s32 the ticks since). A
++// state of before 0282 read: none under way, the record on the Victrola as
++// givenBack finds it (keptFromOlder).
+ // "SVS1" (0105, 0106) ends after everyone; "SVS2" after the things carried.
+ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
+ 	if (_game < 0 || _player < 0) return false;
+@@ -5767,7 +5921,7 @@ void SandboxEngine::saveState() const {
+ 	if (!keptPlace(game, room, x, y)) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+-	out->writeUint32BE(MKTAG('S', 'V', 'S', '8'));
++	out->writeUint32BE(MKTAG('S', 'V', 'S', '9'));
+ 	out->writeSint16LE(game); out->writeSint16LE(room); out->writeSint32LE(_playerKey);
+ 	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
+ 	const int values = _wanderers ? WanderBridge::packedCount() : 0;
+@@ -5819,6 +5973,18 @@ void SandboxEngine::saveState() const {
+ 		out->writeSint16LE(i->_key / 65536 / 1024); out->writeSint16LE(i->_key / 65536 % 1024);
+ 		out->writeUint16LE(i->_key % 65536); out->writeByte(i->_value);
+ 	}
++	// (From 0282, "SVS9".)
++	out->writeUint16LE(MIN<uint>(_kept.size(), 65535));
++	int kept = 0;
++	for (Common::HashMap<int, int>::const_iterator i = _kept.begin(); i != _kept.end() && kept < 65535; ++i, ++kept) {
++		out->writeSint16LE(i->_key / 65536); out->writeUint16LE(i->_key % 65536); out->writeSint32LE(i->_value);
++	}
++	out->writeUint16LE(MIN<uint>(_later.size(), 65535));
++	for (uint i = 0; i < _later.size() && i < 65535; ++i) {
++		const Later &l = _later[i];
++		out->writeSint16LE(l.game); out->writeSint16LE(l.room); out->writeUint16LE(l.id); out->writeByte(l.kind); out->writeByte(l.from);
++		out->writeUint16LE(l.with); out->writeUint16LE(l.need); out->writeSint32LE(l.value); out->writeByte(l.picture); out->writeUint16LE(l.script); out->writeSint32LE(l.at);
++	}
+ 	out->finalize();
+ }
+ 
+@@ -5827,7 +5993,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 	const uint32 tag = in ? in->readUint32BE() : 0;
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4') && tag != MKTAG('S', 'V', 'S', '5') && tag != MKTAG('S', 'V', 'S', '6') &&
+-		tag != MKTAG('S', 'V', 'S', '7') && tag != MKTAG('S', 'V', 'S', '8')) return false;
++		tag != MKTAG('S', 'V', 'S', '7') && tag != MKTAG('S', 'V', 'S', '8') && tag != MKTAG('S', 'V', 'S', '9')) return false;
+ 	game = in->readSint16LE(); room = in->readSint16LE();
+ 	const int key = in->readSint32LE();
+ 	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
+@@ -5851,6 +6017,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	// What was changed and taken, and what is carried (dropped as a whole
+ 	// when the file ends early).
+ 	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear(); _marks.clear(); _timed.clear(); _seen.clear(); _touched.clear();
++	_kept.clear(); _later.clear();
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && everyone) {
+ 		Common::HashMap<int, int> pictures;
+ 		const int changed = in->readUint16LE();
+@@ -5870,7 +6037,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The stains, from SVS3: dropped as a whole when the file ends early.)
+ 		Common::Array<Stain> stains;
+-		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < marks && !in->eos(); ++i) {
+ 			Stain s;
+ 			s.game = in->readSint16LE(); s.room = in->readSint16LE();
+@@ -5879,7 +6046,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The views' turns, from SVS4: likewise.)
+ 		Common::HashMap<int, Turned> turned;
+-		const int views = tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int views = tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < views && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), r = in->readSint16LE(), id = in->readUint16LE(), value = in->readByte(), paid = in->readByte();
+ 			Turned t;
+@@ -5888,7 +6055,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The marks, from SVS5: likewise.)
+ 		Common::Array<Mark> left;
+-		const int leftCount = tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int leftCount = tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < leftCount && !in->eos(); ++i) {
+ 			Mark m;
+ 			m.game = in->readSint16LE(); m.mark = in->readByte(); m.key = in->readSint32LE();
+@@ -5896,7 +6063,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The timed events, from SVS6: likewise; one no longer of its game's, let go.)
+ 		Common::Array<Timed> timed;
+-		const int timedCount = tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int timedCount = tag == MKTAG('S', 'V', 'S', '6') || tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < timedCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE();
+ 			Timed t;
+@@ -5911,7 +6078,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		// (From 0266 the films seen once for good, from SVS7: likewise; one no
+ 		// longer such a film of its game's (nor one read already), let go.)
+ 		Common::Array<Seen> seen;
+-		const int seenCount = tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int seenCount = tag == MKTAG('S', 'V', 'S', '7') || tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < seenCount && !in->eos(); ++i) {
+ 			Seen f;
+ 			f.game = in->readSint16LE(); f.room = in->readSint16LE(); f.id = in->readUint16LE(); f.scene = in->readSint16LE();
+@@ -5923,14 +6090,35 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		// likewise; a value out of range let go. Before: each thing of a game
+ 		// 0251's rule guessed at shown in another picture, as that rule had it.)
+ 		Common::HashMap<int, int> touchedNow;
+-		const int touchedCount = tag == MKTAG('S', 'V', 'S', '8') ? in->readUint16LE() : 0;
++		const int touchedCount = tag == MKTAG('S', 'V', 'S', '8') || tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < touchedCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), r = in->readSint16LE(), id = in->readUint16LE(), touch = in->readByte();
+ 			if (g >= 0 && g < worldGameCount() && r >= 0 && r < 1024 && touch >= kTouchedTouchable && touch <= kTouchedGuessed) touchedNow[thingKey(g, r, id)] = touch;
+ 		}
+-		if (tag != MKTAG('S', 'V', 'S', '8'))
++		if (tag != MKTAG('S', 'V', 'S', '8') && tag != MKTAG('S', 'V', 'S', '9'))
+ 			for (Common::HashMap<int, int>::const_iterator i = pictures.begin(); i != pictures.end(); ++i)
+ 				if (touchGuessed(i->_key / 65536 / 1024)) touchedNow[i->_key] = kTouchedGuessed;
++		// (From 0282 the values kept and the later steps under way, from SVS9:
++		// likewise; a variable no longer kept, or one under way no longer of
++		// its game's readers (nor that script read already), let go.)
++		Common::HashMap<int, int> keptNow;
++		const int keptCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
++		for (int i = 0; i < keptCount && !in->eos(); ++i) {
++			const int g = in->readSint16LE(), var = in->readUint16LE(), value = in->readSint32LE();
++			if (g >= 0 && g < worldGameCount() && worldKeptValue(g, var)) keptNow[g * 65536 + var] = value;
++		}
++		Common::Array<Later> later;
++		const int laterCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
++		for (int i = 0; i < laterCount && !in->eos(); ++i) {
++			Later l;
++			l.game = in->readSint16LE(); l.room = in->readSint16LE(); l.id = in->readUint16LE(); l.kind = in->readByte(); l.from = in->readByte();
++			l.with = in->readUint16LE(); l.need = in->readUint16LE(); l.value = in->readSint32LE(); l.picture = in->readByte(); l.script = in->readUint16LE(); l.at = in->readSint32LE();
++			bool known = false;
++			for (const WorldValueReader &v : kWorldValueReaders)
++				known = known || (v.game == l.game && v.room == l.room && v.object == l.id && v.kind == l.kind && v.with == l.with && v.need == l.need && v.later && v.later == l.script);
++			for (const Later &read : later) known = known && !(read.game == l.game && read.script == l.script);
++			if (known && l.at >= 0 && l.at <= PanelBridge::kMostLaterTicks) later.push_back(l);
++		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+ 			for (const Carried &c : carried) if (!carry(c.game, c.room, c.id, c.name, c.picture, false)) _carriedAway.push_back(c);
+@@ -5940,6 +6128,9 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			_timed = timed;
+ 			_seen = seen;
+ 			_touched = touchedNow;
++			_kept = keptNow;
++			_later = later;
++			if (tag != MKTAG('S', 'V', 'S', '9')) keptFromOlder();
+ 			// (From 0278 a state kept before 0278: what the mansion's package
+ 			// and radio keep inside them, shown taken out by their pick-up then,
+ 			// in them again where the one it is in is carried, it is not, and
+@@ -7745,6 +7936,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int endingOther = 0, endingFirst = 0, endingOlder = 0;
+ 	int givenAll = 0, givenSeen = 0, givenAway = 0, givenCassettes = 0, givenRecords = 0, givenStamps = 0, givenRadio = 0, unansweredAll = 0, unansweredSeen = 0, unansweredAway = 0, unansweredSwitch = 0;
+ 	int handAll = 0, handSeen = 0, handAway = 0, handQuiet = 0, handDecks = 0, handTapesRefused = 0, handVictrola = 0, handRadio = 0, handPackage = 0, handStampsFirst = 0, handCarriedLines = 0, handAfar = 0;
++	int tapeChains = 0, tapeOld = 0, tapeBlank = 0, tapeCancelled = 0, tapeRestarted = 0, tapePower = 0, tapeLight = 0, tapeOlder = 0, tapeKey = 0; // (from 0282)
++	int tapeKeyOnce = 0, tapeSecond = 0, tapeSecondTried = 0; // (from 0282)
+ 	int insideHere = 0, insideOlder = 0, insideStamped = 0;
+ 	{
+ 		int maniac = -1;
+@@ -8191,9 +8384,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 				warning("SCUMMVERSE sandbox: %d in room %d, verb %d with %d: said '%s', shown %d (its script: '%s', %d, flags %d)", id, room, kind, with, _speech.c_str(), thingBit(o, id), said, after, flags);
+ 				fail("two things not as the mansion's own scripts answer", maniac);
+ 			}
+-			// (Put back: what was carried for it, or had by it.)
++			// (Put back: what was carried for it, or had by it. From 0282 the
++			// others it set as their game starts them too, as the next is
++			// played from its game's start: a record left on the Victrola
++			// refused the next record put on, as its script does.)
+ 			putBack(withRoom, with);
+-			for (int i = 0; i < count; ++i) if (others[3 * i + 2] == 2) { putBack(others[3 * i], others[3 * i + 1]); forgetThing(thingKey(maniac, others[3 * i], others[3 * i + 1])); }
++			for (int i = 0; i < count; ++i) {
++				if (others[3 * i + 2] == 2) putBack(others[3 * i], others[3 * i + 1]);
++				else if (PanelBridge::gameThing(maniac, others[3 * i], others[3 * i + 1], picture, answers)) setPicture(others[3 * i], others[3 * i + 1], picture);
++				forgetThing(thingKey(maniac, others[3 * i], others[3 * i + 1]));
++			}
+ 			forgetThing(thingKey(maniac, withRoom, with));
+ 		}
+ 		// (As a player finds them, from the picture the place shows them in:
+@@ -8830,10 +9030,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				// (From 0250 "SVS6": its timed events after the marks, left out too;
+ 				// from 0266 "SVS7": the films seen after those; from 0267 "SVS8":
+-				// what answers made touchable or untouchable after them.)
++				// what answers made touchable or untouchable after them; from 0282
++				// "SVS9": the values kept and the later steps under way after those.)
+ 				const uint tail = 2 + 7 * now.size() + (file.size() > 4 && file[3] >= '6' ? 2 + 8 * _timed.size() : 0) + (file.size() > 4 && file[3] >= '7' ? 2 + 8 * _seen.size() : 0) +
+-					(file.size() > 4 && file[3] == '8' ? 2 + 7 * _touched.size() : 0);
+-				if (file.size() > tail + 4 && (file[3] == '5' || file[3] == '6' || file[3] == '7' || file[3] == '8')) {
++					(file.size() > 4 && file[3] >= '8' ? 2 + 7 * _touched.size() : 0) + (file.size() > 4 && file[3] >= '9' ? 2 + 8 * _kept.size() + 2 + 23 * _later.size() : 0);
++				if (file.size() > tail + 4 && (file[3] == '5' || file[3] == '6' || file[3] == '7' || file[3] == '8' || file[3] == '9')) {
+ 					file.resize(file.size() - tail); file[3] = '4';
+ 					Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 					if (out) { out->write(file.data(), file.size()); out->finalize(); }
+@@ -9069,9 +9270,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 						if (in) { file.resize(in->size()); file.resize(in->read(file.data(), file.size())); }
+ 					}
+ 					// (From 0266 "SVS7": the films seen after those, left out too; from
+-					// 0267 "SVS8": its touches after them.)
+-					const uint tail = 2 + 8 + (file.size() > 4 && file[3] >= '7' ? 2 + 8 * _seen.size() : 0) + (file.size() > 4 && file[3] == '8' ? 2 + 7 * _touched.size() : 0);
+-					if (file.size() > tail + 4 && (file[3] == '6' || file[3] == '7' || file[3] == '8')) {
++					// 0267 "SVS8": its touches after them; from 0282 "SVS9": the values
++					// kept and the later steps under way after those.)
++					const uint tail = 2 + 8 + (file.size() > 4 && file[3] >= '7' ? 2 + 8 * _seen.size() : 0) + (file.size() > 4 && file[3] >= '8' ? 2 + 7 * _touched.size() : 0) +
++						(file.size() > 4 && file[3] >= '9' ? 2 + 8 * _kept.size() + 2 + 23 * _later.size() : 0);
++					if (file.size() > tail + 4 && (file[3] == '6' || file[3] == '7' || file[3] == '8' || file[3] == '9')) {
+ 						file.resize(file.size() - tail); file[3] = '5';
+ 						Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 						if (out) { out->write(file.data(), file.size()); out->finalize(); }
+@@ -9711,10 +9914,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 						if (in) { file.resize(in->size()); file.resize(in->read(file.data(), file.size())); }
+ 					}
+ 					// (From 0267 "SVS8": what answers made touchable or untouchable
+-					// after those, left out too; kept again after.)
++					// after those, left out too; kept again after. From 0282 "SVS9":
++					// the values kept and the later steps under way after those.)
+ 					const Common::HashMap<int, int> touchedThen = _touched;
+-					const uint tail = 2 + 8 * _seen.size() + (file.size() > 4 && file[3] == '8' ? 2 + 7 * _touched.size() : 0);
+-					bool older = file.size() > tail + 4 && (file[3] == '7' || file[3] == '8');
++					const uint tail = 2 + 8 * _seen.size() + (file.size() > 4 && file[3] >= '8' ? 2 + 7 * _touched.size() : 0) +
++						(file.size() > 4 && file[3] >= '9' ? 2 + 8 * _kept.size() + 2 + 23 * _later.size() : 0);
++					bool older = file.size() > tail + 4 && (file[3] == '7' || file[3] == '8' || file[3] == '9');
+ 					if (older) {
+ 						file.resize(file.size() - tail); file[3] = '6';
+ 						Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+@@ -10039,9 +10244,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 			const Common::HashMap<int, bool> darkHad = _dark;
+ 			const bool flashlightHad = _flashlight;
+ 			const Common::Array<Mark> marksHad = _marks;
++			const Common::HashMap<int, int> keptHad = _kept; // (from 0282)
++			const Common::Array<Later> laterHad = _later;
+ 			auto handReset = [&]() {
+ 				for (uint c = _carried.size(); c-- > handBase;) { PanelBridge::removeItem(c); _carried.remove_at(c); }
+ 				_pictures = givenPictures; _touched = givenKept.was; _marks = marksHad; _dark = darkHad; _flashlight = flashlightHad;
++				_kept = keptHad; _later = laterHad;
+ 				_speech.clear();
+ 			};
+ 			auto carriedIndex = [&](int room, int id) {
+@@ -10115,11 +10323,17 @@ Common::Error SandboxEngine::verbsTest() {
+ 					_touched[thingKey(maniac, room, id)] = kTouchedTouchable;
+ 					_speech.clear();
+ 					if (!run) { reached = reachAt(kind, o); runs[run] = state(); continue; }
+-					// (The verbs it hands on, each used by a player there.)
++					// (The verbs it hands on, each used by a player there. From 0282
++					// a light whose Pull reads its place's lights (kManiacLightPulls):
++					// Turn on while they are off, as its script hands it on.)
+ 					for (int h = 0; h < handCount && reached; ++h) {
+ 						const int c = carriedIndex(hands[3 * h], hands[3 * h + 1]);
+-						if (c >= 0) useItem(c, hands[3 * h + 2]);
+-						else reached = _room == hands[3 * h] && reachAt(hands[3 * h + 2], thingIn(hands[3 * h + 1]));
++						int verb = hands[3 * h + 2];
++						for (const ManiacLightPull &l : kManiacLightPulls)
++							if (kind == kWorldVerbPull && l.room == room && l.object == id && hands[3 * h] == room && hands[3 * h + 1] == id)
++								verb = _dark.contains(maniac * 1024 + room) ? kWorldVerbTurnOn : kWorldVerbTurnOff;
++						if (c >= 0) useItem(c, verb);
++						else reached = _room == hands[3 * h] && reachAt(verb, thingIn(hands[3 * h + 1]));
+ 					}
+ 					runs[run] = state();
+ 				}
+@@ -10297,6 +10511,236 @@ Common::Error SandboxEngine::verbsTest() {
+ 				else fail("a thing carried with a verb of one thing not answered as its script answers it carried", maniac);
+ 				dropAll(t[0], t[1]);
+ 			}
++			// (From 0282) What the mansion's cassette records and which record
++			// is on the Victrola, kept, and what playing them does, as its
++			// scripts (kWorldValueReaders; its things file's "SVOB"), as a
++			// player does it, the state saved and loaded back between steps:
++			// record 32 (from room 20) put on the Victrola (room 17), the
++			// cassette (room 5) put in the recorder, the recorder and the
++			// Victrola turned on, in either order: the cassette has the record
++			// (157 at 25); 300 ticks later the vase (187) is broken (through
++			// the engine's own step). The recorder turned off, the cassette
++			// taken out and played in the living room (room 3): no line (a
++			// blank one says its line); 240 and 300 ticks later its windows
++			// break, 360 later the chandelier falls (untouchable), the broken
++			// one and the old rusty key in it shown and touchable; the key
++			// picked up unlocks the dungeon's door (room 4, 159; the other
++			// side, room 8's 155, open too); 18420 ticks after it was turned
++			// on the deck is off again, 72300 after the Victrola was it stops.
++			// The old record (188): recorded, played: nothing breaks, the
++			// Victrola never stops itself. A blank cassette: the deck's line,
++			// in the living room and the Green Tentacle's room. The Victrola
++			// turned off before 300 ticks, the deck before 240: nothing breaks
++			// after; turned on again, again from the start. The main power
++			// off: the deck stops, nothing breaks; turned on then, nothing.
++			// Room 9's light pulled: off while on, on while off. A state of
++			// before 0282 with record 32 on the Victrola: read with it.
++			{
++				const Common::Array<Timed> timedTape = _timed;
++				const int strollTape = _strollClock;
++				auto reload = [&]() {
++					int g, r;
++					double kx, ky;
++					saveState();
++					_carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); forgetThings(); _marks.clear(); _timed.clear();
++					return loadState(g, r, kx, ky) && enter(g, r, 0, problem);
++				};
++				auto tapeReset = [&]() {
++					handReset();
++					static const int things[][2] = {{20, 32}, {17, 188}, {5, 189}, {3, 76}, {17, 30}, {17, 366}, {17, 191}, {17, 192}, {17, 187}, {3, 80}, {3, 228},
++						{3, 74}, {3, 75}, {3, 78}, {3, 79}, {20, 164}, {20, 216}, {4, 159}, {8, 155}};
++					for (const int (&t)[2] : things) dropAll(t[0], t[1]);
++					_kept.clear(); _later.clear(); _timed.clear();
++				};
++				auto ticks = [&](int n) { while (n > 0) { const int t = MIN(n, 600); laterStep(t); n -= t; } };
++				const bool there = maniac >= 0 && installed(maniac, 3) && installed(maniac, 4) && installed(maniac, 5) && installed(maniac, 8) && installed(maniac, 17) && installed(maniac, 20);
++				// (Recorded: record (32: 25, 188: 44) on, the cassette in the
++				// recorder, both turned on in that order; true where it is so.)
++				auto record = [&](int recordRoom, int recordId, bool recorderFirst, bool reloads) {
++					if (!enter(maniac, 17, 0, problem) || !useOn(carryFrom(recordRoom, recordId), thingIn(366)) || pictureOf(17, 30) != 0 || isCarried(maniac, recordRoom, recordId))
++						return false;
++					if (reloads && !reload()) return false;
++					if (!useOn(carryFrom(5, 189), thingIn(191)) || pictureOf(17, 192) != 0 || isCarried(maniac, 5, 189)) return false;
++					const Common::String recording = lineOf(17, 191, kWorldVerbTurnOn, 0, true);
++					for (int k = 0; k < 2; ++k) {
++						if ((k == 0) == recorderFirst) {
++							if (!doAt(kWorldVerbTurnOn, thingIn(191)) || pictureOf(17, 191) != 1 || _speech != recording) return false;
++						} else if (!doAt(kWorldVerbTurnOn, thingIn(30)) || pictureOf(17, 366) != 1) return false;
++						// (Nothing recorded until both are on.)
++						if (!k && keptValue(maniac, 157)) return false;
++						if (reloads && !reload()) return false;
++					}
++					return true;
++				};
++				for (int order = 0; there && order < 2; ++order) {
++					tapeReset();
++					bool ok = record(20, 32, order == 0, true) && keptValue(maniac, 94) == 25 && keptValue(maniac, 157) == 25 && _later.size() == 1 && pictureOf(17, 187) == 0;
++					// (The vase, through the engine's own clock.)
++					ticks(299);
++					ok = ok && pictureOf(17, 187) == 0;
++					step(1);
++					ok = ok && pictureOf(17, 187) == 1 && reload() && pictureOf(17, 187) == 1 && pictureOf(17, 366) == 1;
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(191)) && pictureOf(17, 191) == 0 && doAt(kWorldVerbPickUp, thingIn(192)) && isCarried(maniac, 5, 189) && keptValue(maniac, 157) == 25;
++					ok = ok && enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) && pictureOf(3, 80) == 0 && doAt(kWorldVerbTurnOn, thingIn(228)) &&
++						pictureOf(3, 228) == 1 && _speech.empty() && _later.size() == 2;
++					ticks(239);
++					ok = ok && pictureOf(3, 78) == 1 && pictureOf(3, 79) == 1 && reload();
++					ticks(1);
++					ok = ok && pictureOf(3, 78) == 0 && pictureOf(3, 79) == 1;
++					ticks(60);
++					ok = ok && pictureOf(3, 79) == 0 && pictureOf(3, 74) == 0 && thingIn(76) >= 0 && !isThing(thingIn(76)) && reload();
++					ticks(60);
++					ok = ok && pictureOf(3, 74) == 1 && !isThing(thingIn(74)) && pictureOf(3, 75) == 0 && isThing(thingIn(75)) && pictureOf(3, 76) == 0 && isThing(thingIn(76));
++					ok = ok && reload() && isThing(thingIn(76)) && doAt(kWorldVerbPickUp, thingIn(76)) && isCarried(maniac, 3, 76) && reload() && isCarried(maniac, 3, 76);
++					if (ok) {
++						// (The key: the dungeon's door unlocked, both its sides.)
++						Pair p;
++						p.kind = kWorldVerbUnlock; p.withItem = carriedIndex(3, 76);
++						const bool unlocked = enter(maniac, 4, 0, problem) && (p.thing = thingIn(159)) >= 0 && (pairUp(p), true) && pictureOf(4, 159) == 1 && pictureIn(maniac, 8, 155) == 1;
++						if (unlocked) ++tapeKey; else fail("the old rusty key from the chandelier not unlocking the dungeon's door", maniac);
++					}
++					ticks(18420 - 360 - 1);
++					ok = ok && pictureIn(maniac, 3, 228) == 1;
++					ticks(1);
++					ok = ok && pictureIn(maniac, 3, 228) == 0 && _later.size() == 1 && reload();
++					ticks(72300 - 300 - 18420 - 1);
++					ok = ok && pictureIn(maniac, 17, 366) == 1;
++					ticks(1);
++					ok = ok && pictureIn(maniac, 17, 366) == 0 && _later.empty() && reload() && pictureIn(maniac, 17, 366) == 0 && pictureIn(maniac, 17, 187) == 1;
++					if (ok) ++tapeChains;
++					else fail(order ? "record 32 recorded (the Victrola first), its vase, the tape played in the living room, its chandelier, key and stops not as its scripts" :
++						"record 32 recorded (the recorder first), its vase, the tape played in the living room, its chandelier, key and stops not as its scripts", maniac);
++				}
++				// (The old record: recorded, played; nothing breaks, nothing stops.)
++				if (there) {
++					tapeReset();
++					bool ok = record(17, 188, true, false) && keptValue(maniac, 94) == 44 && keptValue(maniac, 157) == 44 && _later.empty();
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(191)) && doAt(kWorldVerbPickUp, thingIn(192)) && enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) &&
++						doAt(kWorldVerbTurnOn, thingIn(228)) && pictureOf(3, 228) == 1 && _speech.empty() && _later.empty();
++					ticks(80000);
++					ok = ok && pictureOf(3, 78) == 1 && pictureOf(3, 74) == 0 && !isThing(thingIn(76)) && pictureOf(3, 228) == 1 && pictureIn(maniac, 17, 366) == 1 && pictureIn(maniac, 17, 187) == 0;
++					if (ok) ++tapeOld; else fail("the old record recorded and played breaking something or stopping, not as its scripts", maniac);
++				}
++				// (A blank cassette: the decks' line.)
++				if (there) {
++					tapeReset();
++					const Common::String blank = PanelBridge::valueAnswered(maniac, 3, 228, kWorldVerbTurnOn, 0, 0, 0, 0) ? lineOf(3, 228, kWorldVerbTurnOn, 0, true) : Common::String();
++					bool ok = !blank.empty() && enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) && doAt(kWorldVerbTurnOn, thingIn(228)) && _speech == blank && _later.empty();
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(228)) && doAt(kWorldVerbPickUp, thingIn(80)) && enter(maniac, 20, 0, problem) && useOn(carryFrom(5, 189), thingIn(164)) &&
++						doAt(kWorldVerbTurnOn, thingIn(164)) && !_speech.empty() && _speech == blank;
++					if (ok) ++tapeBlank; else fail("a blank cassette played not saying its deck's line", maniac);
++				}
++				// (Turned off in time: nothing breaks; on again, from the start.)
++				if (there) {
++					tapeReset();
++					bool ok = enter(maniac, 17, 0, problem) && useOn(carryFrom(20, 32), thingIn(366)) && doAt(kWorldVerbTurnOn, thingIn(30)) && _later.size() == 1;
++					ticks(299);
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(366)) && pictureOf(17, 366) == 0;
++					ticks(80000);
++					ok = ok && pictureOf(17, 187) == 0 && _later.empty();
++					_kept[maniac * 65536 + 157] = 25;
++					ok = ok && enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) && doAt(kWorldVerbTurnOn, thingIn(228));
++					ticks(239);
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(228)) && pictureOf(3, 228) == 0;
++					ticks(20000);
++					ok = ok && pictureOf(3, 78) == 1 && pictureOf(3, 74) == 0 && !isThing(thingIn(76)) && _later.empty();
++					if (ok) ++tapeCancelled; else fail("the Victrola or the deck turned off in time still breaking things later", maniac);
++					ok = ok && doAt(kWorldVerbTurnOn, thingIn(228));
++					ticks(200);
++					ok = ok && doAt(kWorldVerbTurnOn, thingIn(228)) && _later.size() == 1;
++					ticks(239);
++					ok = ok && pictureOf(3, 78) == 1;
++					ticks(1);
++					ok = ok && pictureOf(3, 78) == 0;
++					if (ok) ++tapeRestarted; else fail("the deck turned on again not starting its script again from the start", maniac);
++				}
++				// (The main power off: the deck stops, nothing breaks; on then, nothing.)
++				int powerRoom, powerId, powerOff;
++				if (there && PanelBridge::mainPower(maniac, powerRoom, powerId, powerOff) && installed(maniac, powerRoom)) {
++					tapeReset();
++					_kept[maniac * 65536 + 157] = 25;
++					bool ok = enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) && doAt(kWorldVerbTurnOn, thingIn(228)) && _later.size() == 1;
++					ok = ok && enter(maniac, powerRoom, 0, problem) && doAt(kWorldVerbTurnOff, thingIn(powerId)) && pictureOf(powerRoom, powerId) == powerOff && pictureIn(maniac, 3, 228) == 0;
++					ticks(20000);
++					ok = ok && pictureIn(maniac, 3, 78) == 1 && pictureIn(maniac, 3, 74) == 0 && _later.empty();
++					ok = ok && enter(maniac, 3, 0, problem) && doAt(kWorldVerbTurnOn, thingIn(228)) && pictureOf(3, 228) == 0 && _speech.empty() && _later.empty();
++					if (ok) ++tapePower; else fail("the deck playing on, or turned on, with the main power off, not as its scripts", maniac);
++				}
++				// (Room 9's light pulled: off while on, on while off, from each.)
++				if (maniac >= 0 && installed(maniac, 9)) {
++					const int key = maniac * 1024 + 9;
++					for (int lit = 0; lit < 2; ++lit) {
++						tapeReset();
++						if (lit) _dark.erase(key); else _dark[key] = true;
++						bool ok = enter(maniac, 9, 0, problem) && StageBridge::dark() == !lit;
++						for (int pull = 0; pull < 3 && ok; ++pull) {
++							const bool was = _dark.contains(key);
++							ok = doAt(kWorldVerbPull, thingIn(305)) && _dark.contains(key) == !was && StageBridge::dark() == !was;
++						}
++						if (ok) ++tapeLight; else fail("room 9's light pulled not turned off while on and on while off, as its script hands it on", maniac);
++					}
++				}
++				// (A state of before 0282 with record 32 on the Victrola: the
++				// state as kept then (no values, none under way), read with it.)
++				if (there) {
++					tapeReset();
++					bool ok = enter(maniac, 17, 0, problem) && useOn(carryFrom(20, 32), thingIn(366)) && keptValue(maniac, 94) == 25;
++					_kept.clear(); _later.clear();
++					saveState();
++					Common::Array<byte> kept;
++					{
++						Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
++						if (in) { kept.resize(in->size()); in->read(kept.data(), kept.size()); }
++					}
++					// (SVS9 with no values and none under way: SVS8 and two empty counts after it.)
++					ok = ok && kept.size() > 8 && kept[3] == '9' && kept[kept.size() - 1] == 0 && kept[kept.size() - 2] == 0 && kept[kept.size() - 3] == 0 && kept[kept.size() - 4] == 0;
++					if (ok) {
++						kept[3] = '8';
++						kept.resize(kept.size() - 4);
++						Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
++						ok = out && out->write(kept.data(), kept.size()) == kept.size();
++						if (out) out->finalize();
++					}
++					int g, r;
++					double kx, ky;
++					_carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); forgetThings(); _marks.clear();
++					ok = ok && loadState(g, r, kx, ky) && enter(g, r, 0, problem) && keptValue(maniac, 94) == 25 && keptValue(maniac, 157) == 0;
++					ok = ok && useOn(carryFrom(5, 189), thingIn(191)) && doAt(kWorldVerbTurnOn, thingIn(191)) && doAt(kWorldVerbTurnOn, thingIn(30)) && keptValue(maniac, 157) == 25 && _later.size() == 1;
++					if (ok) ++tapeOlder; else fail("a state kept before 0282 with record 32 on the Victrola not read with it on", maniac);
++				}
++				// (From 0282) The tape played again once the old rusty key is
++				// carried: the key not drawn under the chandelier again (its
++				// game's script shows it only while the chandelier still hangs,
++				// and draws no thing a kid has), carried still after a save and a
++				// load. A record put on the Victrola while one is on: refused, as
++				// its script refuses it (a line, nothing put on, the second still
++				// carried, the value kept as it was); taken off, the first given
++				// back; then the second put on. Where the things file has the
++				// refusal (export version 45).
++				if (there) {
++					tapeReset();
++					_kept[maniac * 65536 + 157] = 25;
++					bool ok = enter(maniac, 3, 0, problem) && useOn(carryFrom(5, 189), thingIn(228)) && doAt(kWorldVerbTurnOn, thingIn(228)) && _later.size() == 1;
++					ticks(360);
++					ok = ok && pictureOf(3, 76) == 0 && isThing(thingIn(76)) && doAt(kWorldVerbPickUp, thingIn(76)) && isCarried(maniac, 3, 76) && pictureOf(3, 76) == 1;
++					ok = ok && doAt(kWorldVerbTurnOff, thingIn(228)) && doAt(kWorldVerbTurnOn, thingIn(228)) && _later.size() == 1;
++					ticks(360);
++					ok = ok && pictureOf(3, 74) == 1 && pictureOf(3, 76) == 1 && reload() && pictureOf(3, 76) == 1 && isCarried(maniac, 3, 76);
++					if (ok) ++tapeKeyOnce; else fail("the tape played again once the old rusty key is carried drawing the key under the chandelier again", maniac);
++				}
++				if (there && PanelBridge::valueAnswered(maniac, 17, 366, kWorldVerbUse, 0, 32, 30, 0)) {
++					++tapeSecondTried;
++					tapeReset();
++					bool ok = enter(maniac, 17, 0, problem) && useOn(carryFrom(20, 32), thingIn(366)) && pictureOf(17, 30) == 0 && !isCarried(maniac, 20, 32) && keptValue(maniac, 94) == 25;
++					_speech.clear();
++					ok = ok && useOn(carryFrom(17, 188), thingIn(366)) && !_speech.empty() && isCarried(maniac, 17, 188) && pictureOf(17, 30) == 0 && keptValue(maniac, 94) == 25 && reload();
++					ok = ok && doAt(kWorldVerbPickUp, thingIn(30)) && isCarried(maniac, 20, 32) && isCarried(maniac, 17, 188) && pictureOf(17, 30) == 1;
++					ok = ok && useOn(carryFrom(17, 188), thingIn(366)) && !isCarried(maniac, 17, 188) && pictureOf(17, 30) == 0 && keptValue(maniac, 94) == 44;
++					if (ok) ++tapeSecond; else fail("a record put on the Victrola while one is on not refused as its script refuses it (the first lost)", maniac);
++				}
++				tapeReset();
++				_timed = timedTape; _strollClock = strollTape;
++			}
+ 			handReset();
+ 		}
+ 		_touched = givenKept.was; _marks = givenMarks; _pictures = givenPictures;
+@@ -11957,6 +12401,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"the Victrola %d played and stopped by its record, refused taken off while it plays; the radio %d picked up and its batteries given opened where it lies, not again; "
+ 		"the package %d picked up and its stamps given pulled at the front door, refused pulled or opened again carried, %d its stamps picked off first; %d of 2 carried answered as their scripts",
+ 		handSeen, handAll, handAway, handQuiet, effectsHanded, handDecks, handAfar, handTapesRefused, handVictrola, handRadio, handPackage, handStampsFirst, handCarriedLines);
++	// (From 0282 what the mansion's cassette records, which record is on the
++	// Victrola, and what playing them does, kept through saves and loads.)
++	warning("SCUMMVERSE sandbox selftest recorded: %d of 2 chains of record 32 recorded (either order) and played: the vase broken, the living room's windows and chandelier, "
++		"the key picked up (%d of 2 unlocking the dungeon's door), the deck and the Victrola stopping on their own; %d the old record recorded and played, nothing broken or stopping; "
++		"%d a blank cassette's line in two decks; %d turned off in time, nothing broken, %d turned on again from the start; %d the main power off, the deck stopped, nothing; "
++		"%d of 2 room 9's light pulled off and on as it is; %d a state kept before 0282 read with its record on", tapeChains, tapeKey, tapeOld, tapeBlank, tapeCancelled, tapeRestarted, tapePower,
++		tapeLight, tapeOlder);
++	// (From 0282 the key not drawn again once carried; a second record refused.)
++	warning("SCUMMVERSE sandbox selftest recorded again: %d the tape played again once the old rusty key is carried, the key not drawn where it lay; %d of %d a record put on the Victrola "
++		"while one is on refused, the first given back taken off", tapeKeyOnce, tapeSecond, tapeSecondTried);
+ 	// (From 0278 what the package and the radio keep inside them, given once.)
+ 	warning("SCUMMVERSE sandbox selftest inside: %d of 2 opened again where they gave what they keep inside (the radio nothing, the package its refusal); a state kept before 0278: "
+ 		"%d the package's stamps and the radio's batteries given once, %d the package refusing with the envelope stamped", insideHere, insideOlder, insideStamped);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 3d3dc157..c11f3fbf 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -36,7 +36,7 @@
+ 
+ namespace Scummverse {
+ 
+-namespace WorldCatalog { struct WorldCloseUp; } // (common/scummverse_world_catalog.h)
++namespace WorldCatalog { struct WorldCloseUp; struct WorldValueReader; } // (common/scummverse_world_catalog.h)
+ 
+ // The sandbox: the places of the player's games on the whole screen in true
+ // colour. The player walks where they tap and through the games' doors;
+@@ -352,7 +352,7 @@ private:
+ 	// verb on its thing as a player uses it, one carried as carried
+ 	// (useItem), one here as act() does on reaching it (no walk), one
+ 	// elsewhere nothing. `_handing`: how deep (at most kMostHanded).
+-	void handsAfter(int game, int room, int id, int kind, int from, int with = 0);
++	void handsAfter(int game, int room, int id, int kind, int from, int with = 0, const int *valued = nullptr);
+ 	static const int kMostHanded = 4;
+ 	int _handing = 0;
+ 	// From 0278 a thing of the mansion's carried, with a verb of one thing
+@@ -363,7 +363,31 @@ private:
+ 	// From 0267 what an answer (its record as thingAnswer finds it: `with`
+ 	// 0 none, else that second's own, else its usual one) makes touchable or
+ 	// untouchable, the thing itself too: kept (_touched).
+-	void touchesAfter(int game, int room, int id, int kind, int from, int with);
++	void touchesAfter(int game, int room, int id, int kind, int from, int with, const int *valued = nullptr);
++	// From 0282 values kept (kWorldKeptValues): game * 65536 + its variable,
++	// the value its answers left it at (none: 0, as its game starts it);
++	// kept ("SVS9"). valueReader: the row of kWorldValueReaders that answers
++	// a verb on a thing of a place from a picture now (the first whose
++	// things are so, its answer so in its game's things file), its key in
++	// `valued` (need, value kept); null: none (its usual answer). With the
++	// main power off where it is powered (`dead`), nothing. valuesAfter:
++	// what its answer leaves kept, and its later steps under way (_later).
++	Common::HashMap<int, int> _kept;
++	int keptValue(int game, int var) const;
++	const WorldCatalog::WorldValueReader *valueReader(int game, int room, int id, int kind, int from, int with, int *valued, bool *dead = nullptr) const;
++	void valuesAfter(int game, const WorldCatalog::WorldValueReader &v, int from, const int *valued);
++	// The later steps of a value reader's answer under way (what its `later`
++	// script does after its first wait), on this engine's clock as its
++	// game's keeps them: its answer's key, the picture its thing was left
++	// in, that script and the ticks since. Let go once its thing is in
++	// another (its game stops that script then: the Victrola or the deck
++	// turned off, the main power off), its last step done, or that script
++	// started again by another answer. Kept ("SVS9"). The tour starts none
++	// and its clock waits meanwhile (it leaves every place as it finds it).
++	struct Later { int game = -1, room = 0, id = 0, kind = 0, from = 0, with = 0, need = 0, value = 0, picture = 0, script = 0, at = 0; };
++	Common::Array<Later> _later;
++	void laterStep(int ticks);
++	void keptFromOlder(); // (a state of before 0282: the record on the Victrola, as givenBack finds it)
+ 	// From 0276 a thing carried an answer uses up: no longer carried, and
+ 	// untouchable where it was taken from (_touched), as its game's taking
+ 	// leaves it.
+@@ -784,7 +808,7 @@ private:
+ 	// (The selftests': a thing as its game starts it again, its picture and
+ 	// touch; every thing so.)
+ 	void forgetThing(int key) { _pictures.erase(key); _touched.erase(key); }
+-	void forgetThings() { _pictures.clear(); _touched.clear(); }
++	void forgetThings() { _pictures.clear(); _touched.clear(); _kept.clear(); _later.clear(); } // (from 0282 the values kept and later steps too)
+ 	struct Press { bool down = false, held = false, moved = false; int x = 0, y = 0, object = -1, item = -1, person = -1, under = -1; uint32 at = 0; };
+ 	int coinPart(int screenX, int screenY) const; // the coin's part there, not the one it opened under till moved
+ 	Press _press;                           // (a coin game's press)

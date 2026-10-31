@@ -1,0 +1,816 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index a0745f26..00338f10 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -160,10 +160,15 @@ static const int kWorldExportVersion = 25;
+ // score screen with no high score before Dr Fred has played: "maniac-v51");
+ // from 0290 Zak's again (a place whose entry starts a cut-scene that shows
+ // another room first, the first time, arrived at past it, as a player skips
+-// it: its living room, room 2, answered, before not at all: "zak-v33").
++// it: its living room, room 2, answered, before not at all: "zak-v33");
++// from 0292 Monkey Island's again (its red herring's Pick up while the
++// seagull is away, sent off by a step on the dock's loose plank, played as a
++// player gets it, kWorldStepAways: before, nothing gave the herring; the
++// bridge's troll given to as its game gives to him, kWorldGivenAs, the
++// herring taking the one played across: "monkey-v35").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey2") || same(gameid, "monkey") ? 10 : same(gameid, "tentacle") ? 9 :
+ 		same(gameid, "zak") ? 8 : same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+ 		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -810,9 +815,12 @@ static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0
+ // by the wanderers, once that thing is gone from its place (carried, or put
+ // away: its picture 1, as the mansion shows a thing taken). The mansion's
+ // Purple Meteor (16), the meteor in the lab (51, 45), whose pick-up takes
+-// him off the lab's stage as its script does.
++// him off the lab's stage as its script does. From 0292 also one who goes
++// for good once that thing is gone: Monkey Island's seagull (31) once the red
++// herring (room 41, 378) is taken from under it (its local script 211 flies
++// it off then; kWorldStepAways).
+ struct WorldCastThing { short game, costume, room, object; };
+-static const WorldCastThing kWorldCastThings[] = {{10, 16, 51, 45}};
++static const WorldCastThing kWorldCastThings[] = {{10, 16, 51, 45}, {0, 31, 41, 378}};
+ inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ // (A room only a close-up shows: from 0263 not one also a place, `place`.)
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+@@ -1377,6 +1385,60 @@ struct WorldWantsSecond { short game, kind, first, last; };
+ static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}, {0, kWorldVerbGive, 0, 0}, {1, kWorldVerbGive, 0, 0},
+ 	{11, kWorldVerbUse, 1, 7}, {11, kWorldVerbGive, 0, 0}, {0, kWorldVerbUse, 1, 4}, {1, kWorldVerbUse, 1, 4},
+ 	{4, kWorldVerbUse, 1, 4}, {4, kWorldVerbGive, 0, 0}, {3, kWorldVerbUse, 1, 4}, {3, kWorldVerbGive, 0, 0}, {3, kWorldVerbTalk, 0, 0}};
++// From 0292 a thing whose own script refuses a verb while something its
++// place keeps on it is there, sent away a while by the one played stepping
++// on a spot of the place that the place's own script watches (no verb, no
++// sentence: a walk), the verb answering otherwise meanwhile; each time sent
++// off a while of its own, as the place's scripts count the times. `spot` a
++// thing of the place whose point is stepped on (nearer than `reach` pixels,
++// either way, as its script measures), `need` a thing of the place its
++// script wants in its picture 1 (0: none), `whiles` the ticks from the step
++// until it is back (the game's frames, 6 ticks each here), the first five
++// times, then from `again` over again; `keeper` the costume of the one of
++// its cast it is (hidden meanwhile; 0: none). Monkey Island's red herring
++// (room 41, 378): its Pick up (its verb 11) refuses while the seagull (actor
++// 7, costume 31) sits on it, its class 6 set (the room's local scripts 204
++// and 205 land it there, its entry script 204 again on each arrival); with
++// the dock's door (324) open its local script 203 watches for the one played
++// within 3 pixels of the loose plank's point (902), and 202 then flips the
++// plank and starts 206, which clears the class and sends the gull up (207,
++// 208 or 209, by its count of flights, variable 271: 210 too past the third,
++// back to 1 after the fifth), until it lands, setting the class again: the
++// herring taken meanwhile (the gull gone for good, 211). The export records
++// that answer as one of two, the spot its second, and checks the whiles
++// against the scripts. Nothing else gives the herring, which the bridge's
++// troll (room 57) takes.
++struct WorldStepAway { short game, room, spot, thing, kind, need, reach, again, keeper; short whiles[5]; };
++static const WorldStepAway kWorldStepAways[] = {{0, 41, 902, 378, kWorldVerbPickUp, 324, 3, 2, 31, {72, 102, 246, 378, 510}}};
++static const int kWorldStepAwayCount = (int)(sizeof(kWorldStepAways) / sizeof(kWorldStepAways[0]));
++// (The row whose thing and verb these are, else -1.)
++inline int worldStepAwayOf(int game, int room, int thing, int kind) {
++	for (int k = 0; k < kWorldStepAwayCount; ++k)
++		if (kWorldStepAways[k].game == game && kWorldStepAways[k].room == room && kWorldStepAways[k].thing == thing && kWorldStepAways[k].kind == kind) return k;
++	return -1;
++}
++// (Its while the nth time sent off, from 0.)
++inline int worldStepAwayWhile(const WorldStepAway &w, int nth) {
++	const int span = 5 - w.again;
++	return w.whiles[nth < 5 || span <= 0 ? (nth < 5 ? nth : 4) : w.again + (nth - 5) % span];
++}
++// From 0292 one of a game's cast whom its game is given to as a thing of
++// the place (`object`), not as the actor: Monkey Island's sentence script
++// (2) gives to a thing of class 5 by that thing's own entry 80, and to an
++// actor only by the thing given's own Give. The bridge's troll (room 57,
++// costume 20) is its thing 637, whose giving (the room's local script 204)
++// takes the red herring (378) for good, makes the path on (636) touchable
++// and the troll untouchable, and walks the one played across the bridge to
++// the map (room 85); anything else, his line. The export gives to that
++// thing (filed under kWorldPersonThing and their costume as for any of the
++// cast given to) and records where such an answer takes the one played, as
++// for an answer of one thing (from 0283).
++struct WorldGivenAs { short game, room, costume, object; };
++static const WorldGivenAs kWorldGivenAs[] = {{0, 57, 20, 637}};
++inline const WorldGivenAs *worldGivenAs(int game, int room, int costume) {
++	for (const WorldGivenAs &g : kWorldGivenAs) if (g.game == game && g.room == room && g.costume == costume) return &g;
++	return nullptr;
++}
+ // Someone given to, in a things file's answers (from 0260, Day of the
+ // Tentacle's and both Monkey Islands' Give: its export plays each thing that
+ // can be carried given to each of the game's people (kWorldCast) in a place
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 71c64615..49c5814c 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -5119,6 +5119,51 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		}
+ 		stopTalk();
+ 	};
++	// (From 0292 a step on a spot (kWorldStepAways), the place's own scripts
++	// running: the one played walked from where they stand onto the spot's
++	// point, frames played as the game's loop plays them (its scripts'
++	// waits counted down by its frame's ticks, VAR_TIMER_NEXT) until the
++	// thing's classes (what its own script reads) have changed, its keeper
++	// sent off, and the player's hold is back (`whole` false: then stops),
++	// or (true) until they are as before again and every script the step
++	// started has ended. `ticks` from the frame its script sees the one
++	// played within reach of the point (as its script measures, the point
++	// put in their walk box) to the frame the classes are back: -1 never.)
++	struct StepOn { bool sent = false; int ticks = -1; };
++	auto stepFrame = [&]() {
++		const int delta = CLIP<int>(VAR_TIMER_NEXT != 0xFF ? VAR(VAR_TIMER_NEXT) : 4, 1, 15);
++		decreaseScriptDelay(delta);
++		oneFrame();
++		return delta;
++	};
++	auto stepOn = [&](const WorldStepAway &w, bool whole) {
++		StepOn s;
++		Actor *a = _actors[ego];
++		int x = 0, y = 0, dir = 0;
++		getObjectXYPos(w.spot, x, y, dir);
++		const AdjustBoxResult point = a->adjustXYToBeInBox(x, y);
++		const uint32 before = _classData[w.thing];
++		Common::Array<int> already;
++		for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) if (vm.slot[k].status != ssDead) already.push_back(vm.slot[k].number);
++		a->startWalkActor(x, y, -1);
++		int reached = -1, elapsed = 0;
++		for (int f = 0; f < 2400 && _currentRoom == w.room && _scummverseStepBudget && !shouldQuit(); ++f) {
++			const Common::Point at = a->getRealPos();
++			if (reached < 0 && ABS(at.x - point.x) < w.reach && ABS(at.y - point.y) < w.reach) reached = elapsed;
++			const int frameAt = elapsed;
++			elapsed += stepFrame();
++			const bool changed = _classData[w.thing] != before;
++			s.sent = s.sent || changed;
++			if (!whole && changed && !vm.cutSceneStackPointer && _userPut >= userPut) return s;
++			if (!whole || !s.sent) continue;
++			if (!changed && s.ticks < 0) s.ticks = reached < 0 ? -1 : frameAt - reached;
++			bool started = false;
++			for (uint k = 0; k < NUM_SCRIPT_SLOT && !started; ++k)
++				started = vm.slot[k].status != ssDead && Common::find(already.begin(), already.end(), (int)vm.slot[k].number) == already.end();
++			if (s.ticks >= 0 && !started && !a->_moving) return s;
++		}
++		return s;
++	};
+ 	// (From 0283, a run that leaves the place: where it takes the one played.
+ 	// As it leaves (nothing run since, `whyNot` 0): no cut-scene on and their
+ 	// game's hold on the player no less than at the run's start (else 2); the
+@@ -5180,8 +5225,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		++goneTo;
+ 		return true;
+ 	};
+-	// (One run: the verb (its index in kinds) on the thing from that picture.)
+-	auto run = [&](int room, int obj, int from, uint v) {
++	// (One run: the verb (its index in kinds) on the thing from that picture.
++	// From 0292 `stepped`, a row of kWorldStepAways (else null): its step
++	// first, the answer then filed as one of two, the spot its second.)
++	auto run = [&](int room, int obj, int from, uint v, const WorldStepAway *stepped) {
+ 		// (From 0256, not the inside of a ride: see below.)
+ 		if (worldRideScene(gameIndex, room)) return;
+ 		putBack();
+@@ -5190,6 +5237,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		_rnd.setSeed(0x5C0BE + room);
+ 		_scummverseStepBudget = kRunSteps;
++		// (From 0292 a step's `need` in its picture 1 as the place is
++		// arrived at, as a player leaves it: what its entry script reads.)
++		if (stepped && stepped->need) showAs(stepped->need, 1);
+ 		const int at = arrive(room, obj) ? getObjectIndex(obj) : -1;
+ 		// (One with no name there is none a player can touch.)
+ 		if (at <= 0 || scummverseObjectName(obj).empty()) { unnamed += at > 0; _scummverseStepBudget = -1; return; }
+@@ -5202,6 +5252,19 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (old) putState(obj, getState(obj) & ~kObjectStateUntouchable); // (from 0281, Zak's)
+ 		}
+ 		showAs(obj, from);
++		// (From 0292 its step first: the place's own scripts started again,
++		// as entering starts them (the arrival stops them all, the spot's
++		// watcher among them), the one played from the thing onto the spot
++		// until its keeper is sent off and the hold is back; then nothing
++		// running, the thing left so, and the verb as any other's below,
++		// played at once from where it is: what the one played gets while
++		// the keeper is away. None where the step sends nothing off.)
++		if (stepped) {
++			runEntryScript();
++			const StepOn s = stepOn(*stepped, false);
++			quiet();
++			if (!s.sent || _currentRoom != room || getObjectIndex(obj) <= 0 || !_scummverseStepBudget) { _scummverseStepBudget = -1; return; }
++		}
+ 		// (Where its game walks them to it: its picture's own point.)
+ 		int x = 0, y = 0, dir = 0;
+ 		getObjectXYPos(obj, x, y, dir);
+@@ -5238,7 +5301,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		else if (kinds[v] >= kWorldVerbDraft) spin(kinds[v] - kWorldVerbDraft);
+ 		else click(cx, cy);
+ 		ScummverseAnswer e;
+-		e.room = room; e.id = obj; e.kind = kinds[v]; e.from = from;
++		e.room = room; e.id = obj; e.kind = kinds[v]; e.from = from; e.with = stepped ? stepped->spot : 0;
+ 		round = false;
+ 		Common::String first; // (the first line as before 0258: shown or not)
+ 		Common::String theirs, someone, anything; // (Monkey Island's as before 0258: see ownLines)
+@@ -5388,7 +5451,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			const Common::String key = Common::String::format("%d %d ", room, obj);
+ 			tried[key + "0"] = tried[key + "1"] = ran[key + "0"] = ran[key + "1"] = true;
+ 			for (uint vn = 0; vn < kinds.size(); ++vn)
+-				for (int fn = 0; fn < 2 && !shouldQuit(); ++fn) run(room, obj, scummverseRunAt(fn, 2, reversed), scummverseRunAt(vn, kinds.size(), reversed));
++				for (int fn = 0; fn < 2 && !shouldQuit(); ++fn) run(room, obj, scummverseRunAt(fn, 2, reversed), scummverseRunAt(vn, kinds.size(), reversed), nullptr);
+ 		}
+ 	}
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+@@ -5400,7 +5463,55 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		From f = todo[next++];
+ 		if (reversed) { f = todo.back(); todo.pop_back(); next = 0; }
+ 		if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
+-		for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed));
++		for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed), nullptr);
++	}
++	// (From 0292 each thing of this game's whose keeper a step sends away
++	// (kWorldStepAways): its verb played as a player gets it, the step first
++	// (run's `stepped`), from the picture its place shows it in; its answer
++	// filed as one of two, the spot its second, so that it can be carried
++	// (Monkey Island's red herring: given to the bridge's troll among the
++	// answers of two below). Then the whiles its keeper stays away against
++	// the row's: the place arrived at as for that run, the spot stepped on
++	// eight times, each once the scripts the step before started have
++	// ended (as a player steps again), the ticks from each step to the
++	// thing's classes back; told whether as named, else warned (its edition
++	// counts otherwise: tools/export_worlds.py fails).)
++	for (const WorldStepAway &w : kWorldStepAways) {
++		if (w.game != gameIndex || shouldQuit()) continue;
++		int v = -1;
++		for (uint k = 0; k < kinds.size(); ++k) if (kinds[k] == w.kind) v = k;
++		const uint32 filed = (uint32)w.room << 16 | (uint16)w.thing;
++		if (v < 0 || !entryIn.contains(filed)) { warning("SCUMMVERSE world things: %s room %d: %d's step on %d not played (no such verb or thing)", kWorldGames[gameIndex].gameid, w.room, w.thing, w.spot); continue; }
++		const int from = things[entryIn[filed] >> 16][(entryIn[filed] & 0xFFFF) + 1];
++		const uint answered = answers.size();
++		run(w.room, w.thing, from, v, &w);
++		const bool recorded = answers.size() > answered;
++		putBack();
++		const int played = worldPlayedIn(gameIndex, w.room);
++		ego = played > 0 && played < _numActors ? played : startEgo;
++		_rnd.setSeed(0x5C0BE + w.room);
++		_scummverseStepBudget = kRunSteps;
++		if (w.need) showAs(w.need, 1);
++		Common::String measured, named;
++		int same = 0;
++		const int times = 8;
++		if (arrive(w.room, w.thing) && getObjectIndex(w.thing) > 0 && getObjectIndex(w.spot) > 0) {
++			showAs(w.thing, from);
++			runEntryScript();
++			for (int t = 0; t < times && _scummverseStepBudget && !shouldQuit(); ++t) {
++				const StepOn s = stepOn(w, true);
++				measured += Common::String::format(" %d", s.ticks);
++				named += Common::String::format(" %d", worldStepAwayWhile(w, t));
++				same += s.sent && s.ticks == worldStepAwayWhile(w, t);
++			}
++		}
++		quiet();
++		_scummverseStepBudget = -1;
++		if (recorded && same == times)
++			debug(1, "SCUMMVERSE world things: %s room %d: %d's verb %d recorded as its step on %d leaves it; its keeper away%s ticks, as named", kWorldGames[gameIndex].gameid, w.room, w.thing, w.kind, w.spot, measured.c_str());
++		else
++			warning("SCUMMVERSE world things: %s room %d: timed event of a step on %d (%d's keeper away): %s; away%s ticks, not%s as named", kWorldGames[gameIndex].gameid, w.room, w.spot, w.thing,
++				recorded ? "its answer recorded" : "no answer recorded", measured.c_str(), named.c_str());
+ 	}
+ 	Common::String counts;
+ 	for (int kind : kinds) counts += Common::String::format(" %d:%d", kind, byKind.contains(kind) ? byKind[kind] : 0);
+@@ -5507,14 +5618,16 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	};
+ 	// (From 0260 someone given to, by their actor: filed under
+ 	// kWorldPersonThing and their costume, its picture 0.)
+-	struct Target { int room, id, from; bool carried; int actor; };
++	// (From 0292 `as`: a thing of the place its game gives to for that actor,
++	// kWorldGivenAs; 0: the actor.)
++	struct Target { int room, id, from; bool carried; int actor, as; };
+ 	Common::Array<Target> targets;
+ 	Common::HashMap<int, Common::Array<int> > placesOf;
+ 	for (uint k = 0; pairs && k + 1 < ranList.size(); k += 2) {
+ 		placesOf[ranList[k + 1]].push_back(ranList[k]);
+-		if (!carryable.contains(ranList[k + 1])) for (int from = 0; from < 2; ++from) targets.push_back({ranList[k], ranList[k + 1], from, false, 0});
++		if (!carryable.contains(ranList[k + 1])) for (int from = 0; from < 2; ++from) targets.push_back({ranList[k], ranList[k + 1], from, false, 0, 0});
+ 	}
+-	for (uint k = 0; pairs && !heldThing && k < carriedOnes.size(); ++k) targets.push_back({carryable[carriedOnes[k]], carriedOnes[k], 0, true, 0});
++	for (uint k = 0; pairs && !heldThing && k < carriedOnes.size(); ++k) targets.push_back({carryable[carriedOnes[k]], carriedOnes[k], 0, true, 0, 0});
+ 	// (From 0260 who can be given to: each of the game's people (its cast,
+ 	// by costume) in a place exported as its game sets it up on arriving, but
+ 	// its players; one of a costume a place.)
+@@ -5539,7 +5652,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == gameIndex && c.guest.costume == costume);
+ 			if (!b->isInCurrentRoom() || !costume || n == ego || player(n) || !cast || dressed.contains(costume) || kWorldPersonThing + costume >= 0xFFFF) continue;
+ 			dressed[costume] = true;
+-			targets.push_back({room, kWorldPersonThing + costume, 0, false, n}); targetOrder.push_back(k);
++			const WorldGivenAs *as = worldGivenAs(gameIndex, room, costume);
++			targets.push_back({room, kWorldPersonThing + costume, 0, false, n, as && getObjectIndex(as->object) > 0 ? (int)as->object : 0}); targetOrder.push_back(k);
+ 			++people;
+ 		}
+ 	}
+@@ -5656,7 +5770,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					for (int n = 1; n < _numActors; ++n) costumes[n] = _actors[n]->isInCurrentRoom() ? _actors[n]->_costume : 0;
+ 					round = false;
+ 				}
+-				if (target.actor) doSentence(giveVerb, first, target.actor);
++				if (target.actor) doSentence(giveVerb, first, target.as ? target.as : target.actor); // (from 0292 `as`: kWorldGivenAs)
+ 				else doSentence(useVerb, first, target.id);
+ 			}
+ 			e.room = target.room; e.id = target.id; e.kind = target.actor ? kWorldVerbGive : kWorldVerbUse; e.from = target.from; e.with = first;
+@@ -5713,9 +5827,23 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			e.firstGone = target.carried && getOwner(target.id) != ego;
+ 			e.secondGone = getOwner(first) != ego;
+ 			const bool gone = spent || _currentRoom != target.room || a->_room != target.room;
++			// (From 0292 one given to as a thing of the place (kWorldGivenAs)
++			// whose answer takes the one played to another place exported, as
++			// it leaves (whyNot): recorded as an answer of one thing that leaves
++			// is (from 0283): what it did before leaving (not to the things of
++			// the room it arrives in, that room's entry script's), then where it
++			// takes them (arrives), its others at most 62 then. Any other answer
++			// of two that leaves: none, as before.)
++			const int goneWhy = gone && !spent && target.as ? whyNot(target.room, a) : -1;
++			const bool going = goneWhy == 0;
++			if (goneWhy > 0) countWhy(goneWhy);
++			auto arrivedIn = [&](int o) { return going && o != target.as && whereIsObject(o) == WIO_ROOM; };
++			Common::Array<bool> wasThere = was;
++			for (int o : placeObjects) if (arrivedIn(o)) wasThere[o] = untouchable(o);
++			const uint most = 3 * (going ? 62 : 64);
+ 			Common::HashMap<int, bool> listed;
+ 			for (int other : set) {
+-				if (gone || other == target.id || other == first || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
++				if ((gone && !going) || arrivedIn(other < 0 ? -other : other) || other == target.id || other == first || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= most) continue;
+ 				listed[other] = true;
+ 				// (From 0260 a later game's thing given then: listed once, given,
+ 				// below. From 0281 with the picture its game leaves its place in
+@@ -5726,20 +5854,30 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				// Before, the new engine left it drawn where it lay.)
+ 				e.others.push_back(placeIn(other, target.room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 			}
+-			for (int o = 1; o < (int)owned.size() && !gone && e.others.size() < 3 * 64; ++o)
++			for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+ 				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, target.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+ 			// (From 0267 what it makes touchable or untouchable: the one used on
+ 			// too, one here; not the two carried into it.)
+-			if (!gone) {
++			if (!gone || going) {
+ 				Common::Array<int> carried;
+ 				carried.push_back(first);
+ 				if (target.carried) carried.push_back(target.id);
+-				touches(e.others, target.room, target.carried || target.actor ? 0 : target.id, e.taken, carried, was, set, owned);
++				Common::Array<int> setHere;
++				for (int s : set) if (!arrivedIn(s < 0 ? -s : s)) setHere.push_back(s);
++				touches(e.others, target.room, target.carried || target.actor ? 0 : target.id, e.taken, carried, wasThere, setHere, owned);
++				while (e.others.size() > most) e.others.resize(e.others.size() - 3);
++			}
++			int goesRoom = 0, goesX = 0, goesY = 0, goesFacing = 0;
++			if (going && arrives(target.room, e.id, e.kind, e.from, a, goesRoom, goesX, goesY, goesFacing)) {
++				e.others.push_back(goesRoom); e.others.push_back(goesX); e.others.push_back(kScummverseGoes | goesFacing);
++				e.others.push_back(goesRoom); e.others.push_back(goesY); e.others.push_back(kScummverseGoesY);
++				debug(2, "SCUMMVERSE world things: %s room %d: %d given %d goes to %d, at %d,%d facing %d", kWorldGames[gameIndex].gameid, target.room, e.id, first, goesRoom, goesX, goesY, goesFacing);
+ 			}
++			const bool pairGone = gone && !goesRoom;
+ 			quiet();
+-			pairLeft += gone;
+-			Common::String key = gone ? Common::String("left") : Common::String::format("%d %d %d %d|%s|", e.after, e.taken, e.firstGone, e.secondGone, e.line.c_str());
+-			for (uint i = 0; !gone && i + 2 < e.others.size(); i += 3) {
++			pairLeft += pairGone;
++			Common::String key = pairGone ? Common::String("left") : Common::String::format("%d %d %d %d|%s|", e.after, e.taken, e.firstGone, e.secondGone, e.line.c_str());
++			for (uint i = 0; !pairGone && i + 2 < e.others.size(); i += 3) {
+ 				// (From 0267 not what it set or cleared as it was: see
+ 				// scummverseSettleTouches.)
+ 				int value = e.others[i + 2];
+@@ -5754,7 +5892,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			// theirs.)
+ 			bool spoken = heldThing || e.lines.size() > 1;
+ 			for (const ScummverseAnswer::Line &l : e.lines) spoken = spoken || l.speaker;
+-			for (uint i = 0; !gone && !old && spoken && i < e.lines.size(); ++i) key += Common::String::format("|%d.%d.%d.%s", e.lines[i].speaker, e.lines[i].costume, e.lines[i].color, e.lines[i].text.c_str());
++			for (uint i = 0; !pairGone && !old && spoken && i < e.lines.size(); ++i) key += Common::String::format("|%d.%d.%d.%s", e.lines[i].speaker, e.lines[i].costume, e.lines[i].color, e.lines[i].text.c_str());
+ 			tries.push_back(e); keys.push_back(key); firstOrder.push_back(ci);
+ 		}
+ 		if (reversed) { scummverseRunOrder(tries, 0, firstOrder); scummverseRunOrder(keys, 0, firstOrder); }
+@@ -5925,7 +6063,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			From f = todo[next++];
+ 			if (reversed) { f = todo.back(); todo.pop_back(); next = todoBefore; }
+ 			if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
+-			for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed));
++			for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed), nullptr);
+ 		}
+ 		// (A thing one of these gives listed once, given, as the answers of
+ 		// two had it (from 0260): not also in the picture its game's pick up
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 701e944f..19105834 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -523,6 +523,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
+ 	_going = Going(); // (from 0283: somewhere else now, an answer's way let go)
++	_stepAway.row = -1; _stepAway.off = true; // (from 0292: a keeper sent away back, uncounted)
+ 	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+ 	_cabinLeft = _cabinRight = 0;
+@@ -906,6 +907,15 @@ bool SandboxEngine::startShut(int game, int room, int id) const {
+ 	return _startShut.contains(thingKey(game, room, id));
+ }
+ 
++// (From 0292 whether a step's answer (kWorldStepAways) takes its thing,
++// from the picture its place shows it in: one that can be carried, as one
++// an answer of one thing takes.)
++static bool stepAwayTakes(int game, const WorldStepAway &w) {
++	int picture, answers, after, flags, others[4], count, lines;
++	return w.game == game && PanelBridge::gameThing(game, w.room, w.thing, picture, answers) &&
++		PanelBridge::thingAnswer(game, w.room, w.thing, w.kind, picture, w.spot, after, flags, others, count, 1, lines) && (flags & 1);
++}
++
+ // (The checks': the first answer there that opens a door startShut has, as
+ // a player gives it; false: none.)
+ static bool startOpener(int game, int room, int door, int &thing, int &kind, int &from, int &with) {
+@@ -1189,15 +1199,28 @@ void SandboxEngine::takenFrom(int room, int id) {
+ bool SandboxEngine::ownAnswer(int id, int kind, int target) {
+ 	const int from = pictureNow(target, id);
+ 	int after, flags, others[4 * 64], count, lines;
+-	if (from < 0 || !PanelBridge::thingAnswer(_game, _room, id, kind, from, 0, after, flags, others, count, 64, lines)) return false;
++	// (From 0292 while its keeper is away, sent off by a step on a spot
++	// (kWorldStepAways: Monkey Island's red herring, the seagull off it), as
++	// its game answers then: filed under the spot, its second; else, or an
++	// older things file without it, as ever.)
++	int with = stepAwayWith(id, kind);
++	if (with && (from < 0 || !PanelBridge::thingAnswer(_game, _room, id, kind, from, with, after, flags, others, count, 64, lines))) with = 0;
++	if (from < 0 || !PanelBridge::thingAnswer(_game, _room, id, kind, from, with, after, flags, others, count, 64, lines)) return false;
+ 	const bool taken = (flags & 1) != 0;
+ 	if (taken && isCarried(_game, _room, id)) return false;
+ 	if (taken) {
+ 		char name[80];
+ 		StageBridge::objectName(target, name, sizeof(name));
+ 		if (!carry(_game, _room, id, name, from)) { say("I can't pick that up."); return true; }
++		// (From 0292 one of the cast who goes once it is gone (as for the
++		// mansion's, effectOf): Monkey Island's seagull, the herring taken.)
++		for (uint n = 0; n < _onStage.size(); ++n) {
++			if ((int)n == _player || !castThingGone(_onStage[n])) continue;
++			StageBridge::stop(n); StageBridge::hide(n, true);
++			if (following(_onStage[n])) follow(_onStage[n], false);
++		}
+ 	}
+-	sayAnswer(_game, _room, id, kind, from, 0, lines);
++	sayAnswer(_game, _room, id, kind, from, with, lines);
+ 	if (StageBridge::objectPictures(target) > 1) { if (StageBridge::objectShown(target) != after) showPicture(target, id, after); }
+ 	else _pictures[thingKey(_game, _room, id)] = after;
+ 	for (int k = 0; k < count; ++k) {
+@@ -1207,11 +1230,11 @@ bool SandboxEngine::ownAnswer(int id, int kind, int target) {
+ 		else setPicture(r, o, picture);
+ 	}
+ 	// (From 0267 what it makes touchable or untouchable, itself too.)
+-	touchesAfter(_game, _room, id, kind, from, 0);
++	touchesAfter(_game, _room, id, kind, from, with);
+ 	// (From 0283 one that takes the one played to another place, as its
+ 	// game's script does: there once its lines are said (step, goThere).)
+ 	int place, x, y, facing;
+-	if (PanelBridge::answerGoes(_game, _room, id, kind, from, 0, place, x, y, facing)) {
++	if (PanelBridge::answerGoes(_game, _room, id, kind, from, with, place, x, y, facing)) {
+ 		_going.game = _game; _going.from = _room; _going.id = id; _going.room = place;
+ 		_going.x = x; _going.y = y; _going.facing = facing;
+ 	}
+@@ -1226,6 +1249,75 @@ int SandboxEngine::pictureNow(int object, int id) const {
+ 	return PanelBridge::gameThing(_game, _room, id, picture, answers) ? picture : 0;
+ }
+ 
++// From 0292 (kWorldStepAways), each tick: a keeper away back once its while
++// is over, counted a time as its game's script counts one (not once its
++// thing is gone: then it stays away for good), shown again; and one sent
++// off when the one played comes nearer than its reach to the spot's point
++// (where its walk boxes put it), having been off the spot since the last
++// (its game's step throws them back off it), none away already, its thing
++// still lying there and its `need` in its picture 1: away the while its
++// game's count of times gives, hidden meanwhile. Not while touring (its
++// walk is the tour's). Elsewhere it is back, uncounted, as its game's local
++// scripts stop on leaving and land it on the thing again on coming back.
++void SandboxEngine::stepAwayStep() {
++	auto gone = [&](const WorldStepAway &w) {
++		int found = 0, answers;
++		if (!PanelBridge::gameThing(w.game, w.room, w.thing, found, answers)) found = 0;
++		return isCarried(w.game, w.room, w.thing) || pictureIn(w.game, w.room, w.thing) != found;
++	};
++	if (_stepAway.row >= 0) {
++		const WorldStepAway &w = kWorldStepAways[_stepAway.row];
++		const bool here = _stepAway.game == _game && _stepAway.room == _room;
++		if (!here || _clock - _stepAway.at >= (uint32)_stepAway.lasts) {
++			if (here && !gone(w)) ++_stepsAway[_stepAway.row];
++			if (here) stepAwayKeeper(false);
++			_stepAway.row = -1;
++		}
++	}
++	if (_game < 0 || _player < 0 || _touring.on) return;
++	double px, py;
++	StageBridge::position(_player, px, py);
++	for (int k = 0; k < kWorldStepAwayCount; ++k) {
++		const WorldStepAway &w = kWorldStepAways[k];
++		if (w.game != _game || w.room != _room) continue;
++		double tx = 0, ty = 0;
++		bool found = false;
++		for (int o = 0; o < StageBridge::objectCount() && !found; ++o) {
++			int id, ox, oy, ow, oh, wx, wy, state;
++			found = StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state) && id == w.spot && doorPoint(o, tx, ty);
++		}
++		if (!found) continue;
++		StageBridge::walkable(tx, ty);
++		if (fabs(px - tx) >= w.reach || fabs(py - ty) >= w.reach) { _stepAway.off = true; continue; }
++		if (!_stepAway.off || _stepAway.row >= 0) continue;
++		_stepAway.off = false;
++		if (gone(w) || (w.need && pictureOf(_room, w.need) != 1)) continue;
++		_stepAway.row = k; _stepAway.game = _game; _stepAway.room = _room; _stepAway.at = _clock;
++		const Common::HashMap<int, int>::const_iterator times = _stepsAway.find(k);
++		_stepAway.lasts = worldStepAwayWhile(w, times != _stepsAway.end() ? times->_value : 0);
++		stepAwayKeeper(true);
++	}
++}
++
++int SandboxEngine::stepAwayWith(int id, int kind) const {
++	if (_stepAway.row < 0 || _stepAway.game != _game || _stepAway.room != _room || _clock - _stepAway.at >= (uint32)_stepAway.lasts) return 0;
++	const WorldStepAway &w = kWorldStepAways[_stepAway.row];
++	return w.thing == id && w.kind == kind ? w.spot : 0;
++}
++
++// (Its keeper, one of the cast there (not one played, nor following them),
++// out of sight while away; back in sight once back, unless gone for good.)
++void SandboxEngine::stepAwayKeeper(bool hidden) {
++	if (_stepAway.row < 0 || _stepAway.game != _game || _stepAway.room != _room) return;
++	const WorldStepAway &w = kWorldStepAways[_stepAway.row];
++	const int key = w.keeper ? worldAppearanceKey(w.game, w.keeper) : 0;
++	for (uint n = 0; key && n < _onStage.size(); ++n) {
++		if ((int)n == _player || _onStage[n] != key || following(key) || (!hidden && takenAway(key))) continue;
++		if (hidden) StageBridge::stop(n);
++		StageBridge::hide(n, hidden);
++	}
++}
++
+ // The picture of a thing's place without it, its box picture drawn against
+ // (the place's picture with it): the oldest games' "on" picture; one its
+ // game's own script takes (Sam & Max's things file, from 0247; The Dig's and
+@@ -2421,6 +2513,16 @@ bool SandboxEngine::pairPerson(const Pair &p) {
+ 		else setPicture(r, o, picture);
+ 	}
+ 	touchesAfter(_game, room, id, kWorldVerbGive, 0, c.id);
++	// (From 0292 one that takes the one played to another place (its things
++	// file's "SVOA", answerGoes, recorded for one its game is given to as a
++	// thing of the place, kWorldGivenAs: Monkey Island's troll given the red
++	// herring, across the bridge), as an answer of one thing's: there once
++	// its lines are said (step, goThere).)
++	int place, x, y, facing;
++	if (room == _room && PanelBridge::answerGoes(_game, room, id, kWorldVerbGive, 0, c.id, place, x, y, facing)) {
++		_going.game = _game; _going.from = _room; _going.id = id; _going.room = place;
++		_going.x = x; _going.y = y; _going.facing = facing;
++	}
+ 	return true;
+ }
+ 
+@@ -4705,6 +4807,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_going.room && _saying.empty() && _speechClock <= 0 && _noticeClock <= 0) goThere(); // (from 0283, its lines said)
+ 	if (!_touring.on) timedStep(ticks);
+ 	if (!_touring.on) laterStep(ticks); // (from 0282)
++	stepAwayStep(); // (from 0292)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+ 	cabinPan(ticks);
+@@ -7515,6 +7618,165 @@ SandboxEngine::GivenAgain SandboxEngine::givenAgain() {
+ 	return c;
+ }
+ 
++// From 0292 the "verbs" check's red herring (see verbsTest): its place as
++// its game starts it, nothing carried; the game's state as it was after.
++SandboxEngine::Herring SandboxEngine::herringPlayed() {
++	Herring h;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "monkey")) g = k;
++	const int row = g >= 0 ? worldStepAwayOf(g, 41, 378, kWorldVerbPickUp) : -1;
++	int after, flags, others[4 * 64], count, lines;
++	if (row >= 0 && installed(g, 41) && (loadThings(g), PanelBridge::thingAnswer(g, 41, 378, kWorldVerbPickUp, 0, 902, after, flags, others, count, 64, lines)) && (flags & 1)) {
++		const WorldStepAway &w = kWorldStepAways[row];
++		++h.all;
++		const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++		const Common::Array<Carried> carriedKept = _carried;
++		const int wasGame = _game, wasRoom = _room, wasKey = _playerKey;
++		// (Played by its game's lead, as the panels' check plays it.)
++		for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
++		Common::String problem;
++		auto fresh = [&]() {
++			_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going();
++			_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		};
++		auto check = [&](bool ok, const char *what) {
++			if (!ok) { ++h.failed; warning("SCUMMVERSE sandbox herring: %s", what); }
++			return ok;
++		};
++		auto thingIn = [&](int id) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, ow, oh, wx, wy, state;
++				if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++			}
++			return -1;
++		};
++		auto gull = [&]() {
++			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == worldAppearanceKey(g, w.keeper)) return (int)n;
++			return -1;
++		};
++		auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
++		auto walkTo = [&](double x, double y) { StageBridge::walkable(x, y); StageBridge::walkTo(_player, x, y); settle(); };
++		auto use = [&](int kind, int id) {
++			_speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++			const int o = thingIn(id);
++			if (o < 0) return false;
++			useOn(kind, -1, o);
++			settle();
++			return true;
++		};
++		double spotX = 0, spotY = 0, awayX = 0, awayY = 0;
++		fresh();
++		const bool entered = enter(g, 41, 0, problem);
++		const int plank = entered ? thingIn(w.spot) : -1, fish = entered ? thingIn(w.thing) : -1;
++		if (check(entered && plank >= 0 && fish >= 0 && doorPoint(plank, spotX, spotY) && doorPoint(fish, awayX, awayY), "its place, the plank or the herring not there")) {
++			awayX -= 40; // (well off the plank: the kitchen's side of the herring)
++			// (The door shut: the plank stepped on sends nothing off.)
++			walkTo(spotX, spotY);
++			check(_stepAway.row < 0 && gull() >= 0 && !StageBridge::hidden(gull()), "the plank stepped on with the dock's door shut sent the gull off");
++			walkTo(awayX, awayY);
++			check(use(kWorldVerbOpen, w.need) && pictureOf(41, w.need) == 1 && isThing(thingIn(w.thing)), "the dock's door not opened, or the herring not to be touched then");
++			check(use(kWorldVerbPickUp, w.thing) && !isCarried(g, 41, w.thing) && !_speech.empty(), "the herring picked up with the gull on it: not refused with its line");
++			// (Twice sent off and back, each while as its game counts it.)
++			for (int time = 0; time < 2; ++time) {
++				walkTo(spotX, spotY);
++				const int n = gull();
++				if (!check(_stepAway.row == row && _stepAway.lasts == worldStepAwayWhile(w, time) && n >= 0 && StageBridge::hidden(n) && stepAwayWith(w.thing, w.kind) == w.spot,
++					"the plank stepped on: the gull not away its while, out of sight")) break;
++				++h.steps;
++				const uint32 went = _stepAway.at;
++				for (int t = 0; t < 2 * w.whiles[4] && _stepAway.row >= 0; ++t) step(1);
++				check(_stepAway.row < 0 && _clock - went == (uint32)worldStepAwayWhile(w, time) && !StageBridge::hidden(n) && stepAwayWith(w.thing, w.kind) == 0,
++					"the gull not back, in sight, once its while is over");
++				// (Stood on still: nothing more until stepped off and on again.)
++				for (int t = 0; t < 30; ++t) step(1);
++				check(_stepAway.row < 0, "the gull sent off again by one standing on the plank");
++				check(use(kWorldVerbPickUp, w.thing) && !isCarried(g, 41, w.thing), "the herring taken once the gull is back");
++			}
++			// (The third time: picked up while the gull is away, walked to
++			// from the plank as a player does.)
++			walkTo(spotX, spotY);
++			const int third = gull();
++			if (check(_stepAway.row == row && _stepAway.lasts == worldStepAwayWhile(w, 2) && third >= 0 && StageBridge::hidden(third), "the plank stepped on a third time: the gull not away its third while")) {
++				++h.steps;
++				use(kWorldVerbPickUp, w.thing);
++				h.taken = check(isCarried(g, 41, w.thing) && _clock - _stepAway.at < (uint32)_stepAway.lasts && StageBridge::hidden(third) && castThingGone(worldAppearanceKey(g, w.keeper)),
++					"the herring not taken while the gull is away, or the gull not gone for good then");
++				for (int t = 0; t < 2 * w.whiles[4]; ++t) step(1);
++				check(StageBridge::hidden(third), "the gull back on the stage once the herring is taken");
++			}
++			if (h.taken) {
++				saveState();
++				fresh();
++				int sg, sr;
++				double sx, sy;
++				h.kept = check(loadState(sg, sr, sx, sy) && isCarried(g, 41, w.thing), "the herring not kept through a save and a load");
++				check(enter(g, 41, 0, problem) && gull() < 0 && pictureOf(41, w.thing) == after, "the gull on the stage, or the herring drawn where it lay, once entered again");
++			}
++			// (The troll's bridge, where its things file has his answer to
++			// the herring (kWorldGivenAs): something else given to him, his
++			// own line, nothing taken; the herring given as a player gives
++			// it (Give, the herring, the troll: walked up beside him), his
++			// line, the herring gone for good, the path on (636) touchable
++			// and the troll (637) not, and the one played across the bridge
++			// on the map (room 85) once his line is said; kept through a
++			// save and a load.)
++			const WorldGivenAs *troll = nullptr;
++			for (const WorldGivenAs &a : kWorldGivenAs) if (a.game == g && a.room == 57) troll = &a;
++			int place, gx, gy, facing;
++			if (h.kept && troll && installed(g, troll->room) && PanelBridge::answerGoes(g, troll->room, kWorldPersonThing + troll->costume, kWorldVerbGive, 0, w.thing, place, gx, gy, facing) &&
++				installed(g, place)) {
++				const int key = worldAppearanceKey(g, troll->costume);
++				auto trollAt = [&]() {
++					for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == key) return (int)n;
++					return -1;
++				};
++				auto give = [&](int item) {
++					const int n = trollAt();
++					if (n < 0 || item < 0) return false;
++					_speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++					Pair hp;
++					hp.kind = kWorldVerbGive; hp.item = item;
++					_holding = hp;
++					giveTo(n);
++					settle();
++					return true;
++				};
++				auto itemOf = [&](int id) {
++					for (uint i = 0; i < _carried.size(); ++i) if (_carried[i].game == g && _carried[i].id == id) return (int)i;
++					return -1;
++				};
++				if (check(enter(g, troll->room, 0, problem) && trollAt() >= 0, "the troll not at his bridge")) {
++					// (Something else carried given first: any, else the
++					// kitchen's 331 taken for it.)
++					int other = -1;
++					for (uint i = 0; i < _carried.size() && other < 0; ++i) if (_carried[i].game == g && _carried[i].id != w.thing) other = i;
++					if (other < 0 && carry(g, 41, 331, "", 0, false)) other = itemOf(331);
++					const int otherId = other >= 0 ? _carried[other].id : -1, otherRoom = other >= 0 ? _carried[other].room : -1;
++					check(give(other) && _room == troll->room && isCarried(g, otherRoom, otherId) && !_speech.empty() && touchOf(g, troll->room, 636) != kTouchedTouchable,
++						"something else given to the troll: not his line, or taken, or the path across opened");
++					check(give(itemOf(w.thing)), "the herring not given to the troll");
++					for (int t = 0; t < 4000 && _room == troll->room; ++t) step(1);
++					h.troll = check(!isCarried(g, 41, w.thing) && _room == place && touchOf(g, troll->room, 636) == kTouchedTouchable && touchOf(g, troll->room, troll->object) == kTouchedUntouchable,
++						"the herring given to the troll: not taken for good, or not across the bridge on the map, the path not opened");
++					if (h.troll) {
++						saveState();
++						fresh();
++						int sg, sr;
++						double sx, sy;
++						h.troll = check(loadState(sg, sr, sx, sy) && !isCarried(g, 41, w.thing) && touchOf(g, troll->room, 636) == kTouchedTouchable, "the troll's taking of the herring not kept through a save and a load");
++					}
++				}
++			}
++		}
++		fresh();
++		for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++		_pictures = picturesKept; _touched = touchedKept;
++		_playerKey = wasKey;
++		if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	}
++	return h;
++}
++
+ // From 0281 (the "verbs" check): each thing a game starts untouchable that an
+ // answer of its things file makes touchable in the answer's own place (an
+ // answer of one thing, or a thing carried used on one, as its record names
+@@ -13748,6 +14010,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 				for (int i = 0; i < count; ++i)
+ 					if (others[3 * i + 2] == 2 && !carryable.contains(others[3 * i + 1])) { carryable[others[3 * i + 1]] = others[3 * i]; carriedOnes.push_back(others[3 * i + 1]); }
+ 			}
++			// (From 0292 one a step's answer takes, as its export carries it
++			// into these: Monkey Island's red herring.)
++			for (const WorldStepAway &w : kWorldStepAways)
++				if (stepAwayTakes(g, w) && !carryable.contains(w.thing)) { carryable[w.thing] = w.room; carriedOnes.push_back(w.thing); }
+ 			for (int k = 0; k < c->count; ++k) {
+ 				const TouchedKept touchedKept{_touched, _touched}; // (from 0267)
+ 				int room, id, kind, from, with = 0;
+@@ -14551,6 +14817,26 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest named: %d of %d things later games' answers take or give with no picture of their own in their place carried by their names (drawn in their slots), %d kept through a save and a load; %d failed",
+ 		named, namedAll, namedKept, namedFailed);
+ 	failed += namedFailed;
++	// (From 0292) Monkey Island's red herring (room 41, 378), as a player
++	// gets it (kWorldStepAways), wherever its things file has its answer
++	// with the seagull away: its place as its game starts it, nothing
++	// carried. The dock's loose plank (902) stepped on with the dock's door
++	// (324) shut: nothing sent off; the door opened; the herring picked up:
++	// refused (the gull on it, its line); the plank stepped on: the gull
++	// away (out of sight), the herring answering otherwise; stood on, the
++	// while over: the gull back in sight, the herring refused again, and
++	// nothing more until stepped off and on again; each while as its game
++	// counts them (72, 102, then 246 ticks); the third time the herring
++	// picked up as a player does, walked to from the plank while the gull is
++	// away: carried, the gull gone for good (not on the stage, nor once the
++	// place is entered again), the herring not drawn where it lay; kept
++	// through a save and a load. Then at the troll's bridge (room 57): the
++	// herring given to the troll, as its game's troll takes it. Before,
++	// nothing gave the herring.
++	const Herring herring = herringPlayed();
++	warning("SCUMMVERSE sandbox selftest herring: %d of %d red herrings as a player gets them (%d times sent off by a step on the plank; taken while the gull is away %d, kept %d; given to the troll %d); %d failed",
++		herring.taken ? 1 : 0, herring.all, herring.steps, herring.taken ? 1 : 0, herring.kept ? 1 : 0, herring.troll ? 1 : 0, herring.failed);
++	failed += herring.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 907f6741..478a0609 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -680,6 +680,12 @@ private:
+ 		int gives = 0, givesSet = 0, givesSeen = 0, givesAway = 0, givesFailed = 0;
+ 	};
+ 	Revealed revealedPlayed();
++	// (From 0292 the "verbs" check's: Monkey Island's red herring as a player
++	// gets it, the seagull sent off by a step on the dock's plank
++	// (kWorldStepAways), then given to the bridge's troll (kWorldGivenAs).
++	// Counted; `failed` where one is not as its game leaves it.)
++	struct Herring { int all = 0, steps = 0, failed = 0; bool taken = false, kept = false, troll = false; };
++	Herring herringPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;
+@@ -780,6 +786,20 @@ private:
+ 	// now, as a door takes them (travel).
+ 	struct Going { int game = -1, from = 0, id = 0, room = 0, facing = 2; double x = 0, y = 0; };
+ 	Going _going;
++	// From 0292 a thing's keeper sent away a while by the one played stepping
++	// on a spot of its place (kWorldStepAways: Monkey Island's seagull, off
++	// the red herring): the row away now (-1: none), the tick it went and the
++	// ticks it stays; whether the one played has been off the spot since one
++	// went (`off`); each row's times sent off so far (by row; this run only,
++	// as its game counts them). stepAwayStep: each tick, sent off or back;
++	// stepAwayWith: the second its things file files the verb's answer under
++	// meanwhile (the spot), else 0.
++	struct StepAway { int row = -1, game = -1, room = -1, lasts = 0; uint32 at = 0; bool off = true; };
++	StepAway _stepAway;
++	Common::HashMap<int, int> _stepsAway;
++	void stepAwayStep();
++	int stepAwayWith(int id, int kind) const;
++	void stepAwayKeeper(bool hidden);
+ 	bool goThere();
+ 	bool openDoor(int id);                  // the mansion's: shown open as one goes through (true: it was shut, and is open)
+ 	bool doorOpens(int index, int &picture, bool shut) const; // (whether it would, and to which picture; `shut`: as if it were)
+@@ -853,7 +873,7 @@ private:
+ 	// (The selftests': a thing as its game starts it again, its picture and
+ 	// touch; every thing so.)
+ 	void forgetThing(int key) { _pictures.erase(key); _touched.erase(key); }
+-	void forgetThings() { _pictures.clear(); _touched.clear(); _kept.clear(); _later.clear(); } // (from 0282 the values kept and later steps too)
++	void forgetThings() { _pictures.clear(); _touched.clear(); _kept.clear(); _later.clear(); _stepsAway.clear(); _stepAway = StepAway(); } // (from 0282 the values kept and later steps too; from 0292 the keepers sent away)
+ 	struct Press { bool down = false, held = false, moved = false; int x = 0, y = 0, object = -1, item = -1, person = -1, under = -1; uint32 at = 0; };
+ 	int coinPart(int screenX, int screenY) const; // the coin's part there, not the one it opened under till moved
+ 	Press _press;                           // (a coin game's press)
