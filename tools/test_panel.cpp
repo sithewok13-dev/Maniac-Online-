@@ -4,7 +4,8 @@
 // line, things carried as names or pictures, arrows when there is more),
 // the game's lettering (widths, wrapping, speech at the scene's scale),
 // the plain rules for each verb, things carried from a scene, what a
-// thing's own script answers (the things files, SVO1 to SVOB), controls
+// thing's own script answers (the things files, SVO1 to SVOB), from 0290
+// one with no picture of its own carried by its name, controls
 // over the scene (Sam & Max's box, button and pointer), Full Throttle's
 // coin and box, and Loom's distaff.
 // c++ -std=c++11 -Wall -Wextra -Werror -Wshadow -fsanitize=address,undefined -Iengine
@@ -1622,6 +1623,63 @@ int main() {
 		assert(PanelBridge::decide(kOpen, true, 2, 0, true, 10, 10, 1 << kLook, "door", picture, say, sizeof(say)) == kSay && !strcmp(say, "It doesn't open."));
 		assert(PanelBridge::decide(kPickUp, false, 2, 0, true, 8, 8, -1, "key", picture, say, sizeof(say), true) == kTake && picture == 1);
 	}
+	{
+		// (From 0290) A thing with no picture of its own in its scene (as Day
+		// of the Tentacle's hamster): addItem refuses it; addNamed carries it
+		// by the name given, else the scene's, and none the scene has not; a
+		// names list shows its name as any other's, a slot of pictures its
+		// name in the panel's lettering (the sentence's, in its colour), and
+		// a pointer holding it over the scene the same (the talk's colour
+		// where the panel has no sentence colour); one with a picture as before.
+		PanelBridge::clear();
+		const std::vector<uint8_t> bare = sceneBytes(1, false);
+		char name[16], problem[64];
+		assert(!PanelBridge::addItem(bare.data(), bare.size(), 50, "AB") && !PanelBridge::addNamed(bare.data(), bare.size(), 51, "AB") && PanelBridge::itemCount() == 0);
+		assert(PanelBridge::addNamed(bare.data(), bare.size(), 50, nullptr) && PanelBridge::itemName(0, name, sizeof(name)) == 3 && !strcmp(name, "mug"));
+		PanelBridge::removeItem(0);
+		assert(PanelBridge::addNamed(bare.data(), bare.size(), 50, "AB") && PanelBridge::itemCount() == 1 && PanelBridge::itemName(0, name, sizeof(name)) == 2);
+		for (int kind = 2; kind >= 1; --kind) {
+			Spec slots; slots.slotKind = kind;
+			const std::vector<uint8_t> data = panelBytes(slots);
+			assert(PanelBridge::load(data.data(), data.size(), problem, sizeof(problem)));
+			PanelBridge::layout(64, 16, 0, 1.0, 1.0);
+			std::vector<uint32_t> screen(64 * 16, 0), empty(64 * 16, 0);
+			PanelBridge::render(screen.data(), 64, 16);
+			int inked = 0, elsewhere = 0;
+			for (int y = 6; y < 10; ++y) for (int x = 40; x < 48; ++x) inked += screen[y * 64 + x] == rgb(kind == 2 ? 9 : 7);
+			assert(inked > 0);
+			PanelBridge::removeItem(0);
+			PanelBridge::render(empty.data(), 64, 16);
+			// (A name drawn from the top of its slot, its letters' rows: a row past a slot of 4.)
+			for (int i = 0; i < 64 * 16; ++i) elsewhere += screen[i] != empty[i] && !(i % 64 >= 40 && i % 64 < 48 && i / 64 >= 6 && i / 64 < (kind == 1 ? 11 : 10));
+			assert(!elsewhere);
+			assert(PanelBridge::addNamed(bare.data(), bare.size(), 50, "AB"));
+		}
+		PanelBridge::clear();
+		// (A thing with a picture: drawn by it, not its name.)
+		auto byName = [](const char *text) { Item i; i.name = text; return i; };
+		Panel::Panel p;
+		Spec pictureSlots; pictureSlots.slotKind = 2;
+		const std::vector<uint8_t> data = panelBytes(pictureSlots);
+		assert(p.load(data.data(), data.size(), error));
+		Item pictured; pictured.name = "AB"; pictured.width = 1; pictured.height = 1; pictured.picture.assign(1, 0xFF00FF00u);
+		const Item same = p.lettered(pictured), named = p.lettered(byName("AB"));
+		assert(same.picture == pictured.picture && named.width == 7 && named.height == 5 && named.picture.size() == 35 && named.name == "AB");
+		assert(p.lettered(byName("")).picture.empty());
+		// Held as the pointer over the scene: its name, in the talk's colour.
+		const std::vector<uint8_t> over = overBytes();
+		Panel::Panel q;
+		assert(q.load(over.data(), over.size(), error));
+		q.layout(64, 40, 0, 2.0, 2.0);
+		q.setItems(std::vector<Item>(1, byName("A")));
+		q.hold(0);
+		std::vector<uint32_t> screen(64 * 40, 7);
+		q.renderControls(screen.data(), 64, 64, 40, 20, 20, true);
+		int talked = 0;
+		for (int y = 14; y < 26; ++y) for (int x = 14; x < 26; ++x) talked += screen[y * 64 + x] == rgb(11);
+		assert(talked > 0 && q.controlsBounds(64, 40, 20, 20, true).contains(20, 20));
+	}
+	std::puts("PASS: from 0290 a thing with no picture of its own carried by its name: in a names list as any other, in a slot of pictures and as the pointer holding it in the panel's lettering");
 	{
 		// The picture itself (Panel side): through a scene parsed here.
 		World::SourceScene source;

@@ -8468,3 +8468,41 @@ with descumm, nothing copied).
   every other export file byte for byte as before, two mansion exports
   identical; the all, doors and keep then resume self-tests as before;
   test_startup and the full data suite. Not tested on an iPhone.
+
+## Patch 0290 — things with no picture of their own carried by their names, Zak's living room answered, the CashCard's place (zak export version 33)
+
+From a bug hunt in the eleven later games, against the original's scripts
+(read with descumm, nothing copied).
+- A thing a later game's answer takes or gives that its place has no
+  picture of was refused ("I can't pick that up.", or it never arrived),
+  so every puzzle needing it was a dead end: Day of the Tentacle's
+  hamster (room 42), crank, dime, hammer and crowbar; Fate of Atlantis's
+  gum and coal; Monkey Island's bananas, gunpowder and voodoo root; Monkey
+  Island 2's drinks, syringe and gloves; the Curse's room 31 and others. It
+  is now carried by its name: in a names list as any other; in a slot of
+  pictures, a chest cell and the held pointer, its name in the panel's
+  lettering (PanelBridge::addNamed, Panel::lettered). Two-thing answers
+  now playable: Monkey Island 2 +832, Fate of Atlantis +522, Day of the
+  Tentacle +522.
+- Zak's living room and kitchen (room 2) and the San Francisco airport had
+  no answers: room 2's entry starts a cut-scene shown the first time that
+  loads another room, and the export never arrived there. It now skips
+  such a cut-scene as a player does, with the one played put in the place.
+  Zak +610 records; every other game's files byte for byte as before; two
+  exports identical, the reversed order the same answers.
+- Zak's CashCard (room 1, 18), given by the torn wallpaper used under the
+  desk, was drawn there again once the place was entered again or a state
+  read back: an answer of two now keeps the picture it gives a given thing
+  in the oldest games where it says one (the mansion has none).
+- Not done: Monkey Island's red herring (room 41) can't be taken (its
+  game's walk along the dock isn't recorded); places whose entry plays a
+  story cut-scene ending elsewhere (Monkey Island 19 and 39, Fate of
+  Atlantis 35, 50 and 66, Full Throttle 27, 65, 70, 129 and 174) keep the
+  plain rules; Day of the Tentacle's ice machine answers the hamster only
+  once opened.
+- Tests: test_panel (a new case, 3 mutations caught, ASan/UBSan); the verbs
+  self-test's new lines "named" (16 of 16 carried by name, drawn, kept
+  through a save and load) and "Zak McKracken given and placed" (4
+  mutations caught; ASan/UBSan clean); the all, doors, tour and follow
+  self-tests as before; test_startup, test_world_setup and the full data
+  suite. Not tested on an iPhone.

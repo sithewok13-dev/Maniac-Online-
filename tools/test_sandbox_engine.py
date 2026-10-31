@@ -348,10 +348,13 @@ def check_arrivals(worlds):
     # talked to (their pan done) and, where their scripts take them away
     # standing there, a thing still answered as before (Zak's room 4, 152;
     # Monkey Island's room 3, 44). Each wherever its game's export is of
-    # 0285's version (its marker).
+    # 0285's version (its marker). (From 0290) A place whose entry starts a
+    # cut-scene that shows another room first, the first time, answered
+    # past it, as a player skips it (Zak's living room, room 2: its cabinet
+    # opened, the box of crayons in it picked up; before, no answers at all).
     cases = (('monkey2', 35, (60, 670, PUSH, 0, 0)), ('monkey2', 35, (50, 574, LOOK, 0, 0)), ('indy3', 30, (7, 148, LOOK, 0, 0)),
              ('tentacle', 34, (30, 248, LOOK, 0, 0)), ('monkey', 34, (28, 332, TALK, 0, 0)), ('monkey', 34, (3, 44, LOOK, 0, 0)),
-             ('zak', 32, (4, 152, OPEN, 0, 0)))
+             ('zak', 32, (4, 152, OPEN, 0, 0)), ('zak', 33, (2, 121, OPEN, 0, 0)), ('zak', 33, (2, 25, PICK_UP, 0, 0)))
     checked = 0
     for game, version, key in cases:
         if not (worlds/f'{game}-v{version}.svx').exists() or not (worlds/f'{game}-{key[0]}.svw').exists():
@@ -858,6 +861,26 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: a thing given back that an answer uses up\n' + output[-2000:])
         print(f'PASS: {gb.group(1)} of {gb.group(2)} answers giving back a thing an answer of two uses up, played in turn: given back, used up again, '
               f'never a second one where it lay; kept through a save and a load')
+        # (From 0290) A thing a later game's answer takes or gives that its
+        # place has no picture of (Day of the Tentacle's hamster, room 42;
+        # Monkey Island's bananas, room 25): carried by its name, drawn in its
+        # slot, kept through a save and a load (before, refused). Zak's
+        # CashCard (room 1), given by an answer of two that leaves it a
+        # picture of its own where it lay: so once given, entered again and
+        # read back (before, drawn there again, carried); and its living room
+        # (room 2) answered past its first cut-scene, where its export is
+        # 0290's (zak-v33).
+        nm = re.search(r'selftest named: (\d+) of (\d+) things .*?, (\d+) kept through a save and a load; (\d+) failed', output)
+        if not nm or nm.group(4) != '0' or nm.group(1) != nm.group(2) or nm.group(3) != nm.group(1) or ((worlds/'tentacle-42.svw').exists() and nm.group(1) == '0'):
+            raise SystemExit('FAIL: things with no picture of their own carried by their names\n' + output[-2000:])
+        print(f'PASS: {nm.group(1)} things later games\' answers take or give with no picture of their own carried by their names, drawn in their slots, kept')
+        zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
+        zak33 = (worlds/'zak-v33.svx').exists()
+        if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \
+                (zak33 and (worlds/'zak-2.svw').exists() and zp.group(3) != '1'):
+            raise SystemExit('FAIL: Zak\'s CashCard\'s place once given, or its living room\'s answers (export Zak again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {zp.group(1)} of Zak\'s answers of two giving a thing they leave a picture of its own where it lay, so when entered again and read back; '
+              f'{zp.group(3)} living room answered past its first cut-scene')
         # (From 0281) A thing its game starts untouchable that an answer makes
         # touchable (one thing, or a thing carried used on one): the answer
         # played as a player plays it, then each answer of the thing from the
@@ -1423,8 +1446,10 @@ if __name__ == '__main__':
         # has the one played in the place as it starts, and answers there
         # what it did not (Zak's, Monkey Island 2's, the Last Crusade's, Day of
         # the Tentacle's); a verb of a pair Day of the Tentacle's script has
-        # no entry for, by the plain rules, only in an export before 0285's.)
-        later = (('zak', 'Zak McKracken', 16, True, 1, 1, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 0, 1),
+        # no entry for, by the plain rules, only in an export before 0285's.
+        # From 0290 none of Zak's: its room 2, the last never played, is
+        # arrived at past its cut-scene and answered.)
+        later = (('zak', 'Zak McKracken', 16, True, 0, 0, 1), ('monkey', 'The Secret of Monkey Island', 15, True, 0, 0, 1), ('monkey2', 'Monkey Island 2', 5, True, 0, 0, 1),
                  ('indy3', 'Indiana Jones and the Last Crusade', 30, True, 0, 0, 1), ('atlantis', 'Indiana Jones and the Fate of Atlantis', 3, True, 0, 1, 1),
                  ('tentacle', 'Day of the Tentacle', 5, False, 0, 0, 1), ('samnmax', 'Sam & Max Hit the Road', 8, False, 0, 0, 1), ('ft', 'Full Throttle', 2, False, 0, 1, 1),
                  ('dig', 'The Dig', 0, False, 0, 0, 0), ('comi', 'The Curse of Monkey Island', 0, False, 0, 0, 1), ('loom', 'Loom', 0, False, 0, 0, 0))
