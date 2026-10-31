@@ -1062,6 +1062,22 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Monkey Island 2\'s things shown by a value its game keeps, as a player plays them (export Monkey Island 2 again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {mt.group(1)} of Monkey Island 2\'s things shown by a value its game keeps played as a player plays them (the skull of room 92 by its 864\'s class, '
               f'the woodsmith\'s hammer and nails with him away), kept')
+        # (From 0302) Monkey Island 2's conversations as a player plays them,
+        # where its export is 0302's (monkey2-v39, its talks file): the antique
+        # dealer's sale of the saw by the money carried (none: his lines;
+        # enough: his two choices, the first the saw for 25), the peg leg sawn
+        # with it and the way out calling the woodsmith away (his hammer then
+        # taken), the dealer talked to, the laundry's bucket asked for (given
+        # the fifteenth time, or at once the other way) and filled with mud;
+        # choices tapped as a player taps them, through saves and loads.
+        # Before, each was its talk's first line and nothing more.
+        mc = re.search(r"selftest Monkey Island 2's conversations: (\d+) of (\d+) played as a player plays them .*?, (\d+) choices tapped, (\d+) kept through saves and loads; (\d+) failed", output)
+        talks39 = exported_since(worlds, 'monkey2', 39) and (worlds/'monkey2-talks.svq').exists()
+        mi2Talks = sum(talks39 and (worlds/f'monkey2-{room}.svw').exists() for room in (48, 14))
+        if not mc or mc.group(5) != '0' or mc.group(1) != mc.group(2) or int(mc.group(2)) < mi2Talks or (talks39 and int(mc.group(3)) < 20):
+            raise SystemExit('FAIL: Monkey Island 2\'s conversations not as its game plays them (export Monkey Island 2 again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {mc.group(1)} of Monkey Island 2\'s conversations played as a player plays them (the antique dealer\'s sale of the saw by the money carried, '
+              f'the woodsmith called away, the dealer talked to, the laundry\'s bucket), {mc.group(3)} choices tapped, {mc.group(4)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

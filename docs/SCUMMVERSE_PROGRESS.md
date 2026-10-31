@@ -9005,7 +9005,7 @@ descumm, nothing copied).
   shop's entry with it set takes him out, shows its sign (144) touchable,
   makes his own thing (143) untouchable and sets 362. Bit 361 is set only by
   room 14's local script 222, as the one played leaves by its street (126)
-  with its peg leg (130) sawn (the well-polished saw, room 48's 540, used on
+  with its peg leg (130) sawn (the saw, room 48's 540, used on
   it: verb 28, local 221, 130's class 6 and variable 166); room 14's entry
   (with 362) and global script 77 (18000 ticks away from rooms 7, 14 and 15)
   clear it. The saw is sold by room 48's antique dealer (its local 211: the
@@ -9097,3 +9097,165 @@ took 75 minutes with 301 patches. Now the copy is made again only after a
 patch did reverse, and each patch's file list is read once per run. The
 same answers: test_bootstrap passes in 8.5 minutes; with the copy kept after
 a reversal (a mutant), it fails at prefix 165.
+
+## Patch 0302 — a person's or a shop's conversation played as its game's scripts play it in the new engine: Monkey Island 2's antique dealer's sale of the saw by the money carried, the peg leg sawn and the woodsmith called away, the dealer talked to, the laundry's bucket asked for and filled (monkey2 export version 39)
+
+From 0301's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- What the original does. A later game's conversation is a menu of its
+  verbs (Monkey Island 2's 120 to 128, built by the talk's own script,
+  script 32 clearing them), a tap on one taken by its verb script (14 while
+  a talk is under way: the choice said by the one played, then its number
+  in variable 175), the talk going on by the number. The antique dealer
+  (room 48) sells by a thing's Pick up (local script 211): its price from
+  the thing's verb 32 (the saw, 540: 25), then, with less than that in 305
+  (the pieces of eight, 76, carried while 305 is above 0, named by its
+  count by 76's verb 250), his line and nothing; with enough, a choice of
+  two, the first the thing given and the price paid (250 run again). The
+  laundry's bucket (room 14, 124; Pick up, or Use while it lies there: its
+  local 211): three choices (two of them the bucket given; one asking for
+  it again, up to fifteen times, given the fifteenth). The dealer's own
+  talk (room 48, 545, Talk: local 206): his questions, back to them after
+  each answer, one set aside once asked, until the one played goes. The
+  saw used on the peg leg of room 14 (130; local 221, while 130 is without
+  class 6) gives 130 class 6 and sets 166; leaving by the street (126,
+  its verb 255) with 166 set clears it and plays 222, bit 361 (the
+  woodsmith called away, 0301's rows); room 14's entry clears 166. The
+  bucket used with the mud of room 20 (211, 212, 213; local 212) sets bit
+  367 while it is clear.
+- New engine, before. Each of these was the first line of its talk and
+  nothing more: no saw, no bucket, so the woodsmith was never away; Talk to
+  anyone of a later game's cast said "Hello.". And every answer in the
+  antique shop that moved the camera (every Pick up of a thing for sale,
+  516 used with 245) gave the Big Whoop map piece (519): the game's start
+  keeps room 7's own scroll script (its local 207), and the things
+  export's arrival in room 48 ran room 48's own 207, the figurehead's
+  trade, at each move of the camera (0293 found that start's script, not
+  this). A free map piece, the figurehead never traded.
+- New portable module common/scummverse_talks.{h,cpp} (and the plain-types
+  bridge scummverse_talks_engine.h): the talks file "<game>-talks.svq"
+  ("SVQ1") read and written; per talk its thing, verb and person (costume),
+  the value kept it reads, its ways of beginning by that value and the
+  money carried (a range), its menus (each choice's number in its game, its
+  text, its step), each step's lines (who says each), values kept left,
+  money added, things given, taken and shown anew, and its next menu or the
+  end; menus a graph (a talk that comes back to its questions comes back to
+  one menu). Damaged files refused (cut short, longer, a menu that is
+  none, a choice twice, ways of beginning that overlap, a line by no one,
+  past its most: 64 talks, 256 menus, 16 choices); tools/test_talks.cpp
+  (ASan/UBSan, TSan).
+- Export (scummverseExportTalks, after the things and the fights): each
+  row of kWorldTalks from the game's start, its place arrived at, the one
+  played at the thing, its verb as the game's sentence runs it; frames
+  played on until a menu is up (kWorldTalkChoices) or the game hands the
+  hold back (or nothing of the talk runs); every choice of every menu
+  played again from the start as a tap on it through the game's verb
+  script. Menus told apart by everything the game has then (variables,
+  bits, owners, pictures, classes, the talk's running scripts, where and
+  with what) but what changes by itself while it waits. Money none and
+  plenty; where they differ, the least that plays as plenty, found by
+  halves, each side of it checked (the sale: 0..24, 25 on). A choice not
+  taken as a tap takes it, a talk that never ends or leaves its place,
+  more menus than a file holds, money not told apart at one count, or a
+  row's `gives` given by none fail tools/export_worlds.py (which now copies
+  *.svq). Mad Marty's talk (room 14, 127) is such a failure: his ten
+  asked-once bits make more than 256 menus, so it is not a row. The things
+  a talk gives (`gives`: the saw, the bucket) are carried in the answers of
+  two. kWorldDoorValues and kWorldEntryValues checked by playing the door
+  and the entry. kWorldScrollStarts (Monkey Island 2): the start's own
+  scroll script let go on arriving elsewhere, in the things export and the
+  talks export.
+- New engine: a verb on a thing (Pick up, Use, Talk on its person's own
+  thing) or Talk to a person that opens a talk plays it: its opening's
+  lines, then its choices in 0298's choice list (phone-sized rows, paged),
+  each tapped: its lines (the choice said first by the one played), the
+  values kept it leaves, its money, the things it gives (carried, gone from
+  where they lay) or takes, those shown anew; to its next menu or its end.
+  No way of beginning so (none here): the thing's usual answer. The money
+  is a value kept (305; "SVS9", never below 0, older states with none); its
+  thing carried while there is any, by the name its game gives that count.
+  Leaving a place by a door with a value so (kWorldDoorValues), and
+  arriving at a place (kWorldEntryValues), as their scripts leave them. A
+  talk under way is let go on entering another place or loading.
+- Results: Monkey Island 2's talks file (4 talks, 34 menus, 70 choices, the
+  sale told apart by money; 186 runs; 7436 bytes); its things file: 72
+  answers by a value kept (was 56: the peg leg and the mud), 8326 answers
+  of two (was 6874: the saw and the bucket carried; the map piece's own
+  gives gone), 5937 of one (was 5945: room 48's Pick ups, and rooms 20, 50
+  and 53, without the stray scroll script; no answer gives 519 but the
+  figurehead given to the dealer); its scenes and characters byte for byte
+  as 0301 left them; every other file of every game byte for byte as before
+  (1139 files, the mansion's included); two exports identical; the
+  reversed order the same answers (its talks file identical).
+- Checked on another game, not shipped: a scratch catalog row for Monkey
+  Island's SCUMM Bar (room 28, 350, Talk; its choices 120.. into 193, a v4
+  edition) exported two menus of four, eight choices, each its lines; its
+  export unchanged here (no dead end found that a talk there fixes).
+- Not done: money's ways in are not played (the Bloody Lip's job, room 9,
+  420 pieces of eight, needs its cook fired first, bit 567, the rat in the
+  stew; polishing the peg leg gives one at a time only up to 19), so in
+  play the saw is still not afforded; the check gives the wages directly.
+  The woodsmith's return (362, global script 77) not played: once away he
+  stays. The bra's way after the mud: the bucket over room 13's door (123,
+  local 207) and its wait (208: 7200 ticks or the one played at the room's
+  left; 209 sets 368), room 14's entry with it (369), the ticket (111)
+  shown by 369, given to Mad Marty (local 203: the bra, 128) — none played.
+  The bucket's new name once filled; a talk's own bits not kept between its
+  plays (each begins as from the game's start but for kWorldKeptValues and
+  the money); a random line of a talk recorded as one of its variants;
+  Mad Marty's talk and talks of more menus than a file holds; the shop's
+  other things for sale (their overstock copies, 547 to 552); 0281's
+  example comment (516 used with 245 giving the map piece) was this bug;
+  Fate of Atlantis's start's scroll script left as it is (15 more Give
+  answers there once let go, rooms 29 and 66, not checked).
+- From the review of 0302: a place's entry values (kWorldEntryValues) were
+  applied on every arrival enter() saw, the app resuming where it was kept,
+  the tour's stops and its return, someone else played or another game and
+  back among them; each let the laundry's 166 go once the peg leg was sawn,
+  and sawn already it could not be sawn again, so the street never called
+  the woodsmith away and his hammer and nails were lost for good. Now they
+  are applied only on arriving by a way of its game (a door gone through,
+  an answer's way), never on the tour; a door's values (kWorldDoorValues)
+  the same, the tour paused counting as the player's own (as doorAllowed).
+  A place left any other way keeps its value, so its door (the laundry's
+  only exit) does what its script does on coming back. A step's kept values
+  are held only as worldKeptValueAs reads them back, as a load does. Counts
+  and money are summed wide and held within 0 to the most an int holds, on
+  load too. Game text in comments and progress entries replaced by numbers
+  (choice 122, the saw). The conversations line's peg-leg step now covers a
+  launch there and the tour out, back, out and home (166 kept), and an
+  arrival by the door letting 166 go; 3 mutations caught; test_talks
+  (ASan/UBSan, TSan), test_panel, the verbs self-test (every line as
+  before) and keep then resume.
+- Tests: a new verbs self-test line "Monkey Island 2's conversations" (4 of
+  4, 23 choices tapped as a player taps them, each choice's step said
+  first by the one played: the saw picked up with no money, nothing; with
+  the wages the dealer's two choices, the second nothing, the first the
+  saw and 25 paid, the pieces of eight renamed, through a save and a
+  load; the peg leg sawn, again redundant, the street calling the woodsmith
+  away, his shop without him, the hammer taken, through a save and a load;
+  sawn on a visit left another way, the laundry's entry letting it go; the
+  dealer talked to; the bucket: choice 122 nothing, given up on nothing, asked
+  fifteen times given, the other way given at once, filled with mud, again
+  their line, through a save and a load) and tools/test_sandbox_engine.py's
+  check of it, gated on monkey2-v39; the given-away and two-things replays
+  leave a record a talk plays to it and carry what a talk gives;
+  test_talks (ASan/UBSan, TSan), test_panel, test_world; every other verbs
+  line as before but Monkey Island 2's counts of its answers (above) and,
+  as the random draws before them go, the Curse's untapped held things (4,
+  was 0; as before with 0301's worlds) and the sword fighting's fights;
+  the all, doors and keep then resume self-tests as before (and with
+  0301's worlds every verbs line as before but the version-gated one);
+  25 mutations caught: 11 of the module's (one equivalent set aside), 6 of
+  the export's and catalog's (money not banded, the tap written straight
+  into its variable, the start's scroll script kept, the wrong choice
+  variable, Mad Marty's row, a door's check turned: each fails
+  tools/export_worlds.py, or the new check), 8 of the new engine's (the
+  door's value not let go, the entry's values, the money not paid, the
+  money not loaded, the money not read at the start, its thing not
+  carried by name, the act and Talk hooks); one equivalent with today's
+  data set aside (the given-away replay's leaving of a record a talk plays:
+  no such record gives a thing now). The python check run on the verbs
+  output as it is, and changed (a failure, no talks read, few choices):
+  each caught; test_startup, test_world_setup and the full data suite.
+  Not tested on an iPhone.

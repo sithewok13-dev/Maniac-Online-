@@ -58,11 +58,12 @@ def main():
         panels = sorted(f.name for f in cache.glob('*.svi')) if cache.exists() else []
         things = sorted(f.name for f in cache.glob('*.svo')) if cache.exists() else []
         fights = sorted(f.name for f in cache.glob('*.svd')) if cache.exists() else []  # (from 0298: kWorldDuels)
+        talks = sorted(f.name for f in cache.glob('*.svq')) if cache.exists() else []  # (from 0302: kWorldTalks)
         a.out.mkdir(parents=True, exist_ok=True)
-        for name in exported + guests + markers + panels + things + fights:
+        for name in exported + guests + markers + panels + things + fights + talks:
             shutil.copy2(docs/'worlds'/name, a.out/name)
         for line in log.splitlines():
-            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'SCUMMVERSE_WORLD_PRESET' in line or 'SCUMMVERSE_WORLD_PANEL' in line or 'SCUMMVERSE_WORLD_THINGS' in line or 'SCUMMVERSE_WORLD_DUEL' in line or 'world export' in line:
+            if 'SCUMMVERSE_WORLD_EXPORT ' in line or 'SCUMMVERSE_WORLD_GUEST' in line or 'SCUMMVERSE_WORLD_PRESET' in line or 'SCUMMVERSE_WORLD_PANEL' in line or 'SCUMMVERSE_WORLD_THINGS' in line or 'SCUMMVERSE_WORLD_DUEL' in line or 'SCUMMVERSE_WORLD_TALKS' in line or 'world export' in line:
                 print(line.strip())
         print(f'{len(exported)} scenes, {len(guests)} characters, {len(panels)} verb panels exported to {a.out} in {time.time() - started:.0f}s')
         # (From 0250: a timed event's first wait (kWorldTimed) not as the
@@ -76,6 +77,15 @@ def main():
         duels = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world duel' in line and 'not as its script' in line]
         if duels:
             print('\n'.join(duels) + '\nFAIL: insult sword fighting not as its scripts have it (common/scummverse_world_catalog.h, kWorldDuels)')
+            return 1
+        # (From 0302: a conversation (kWorldTalks), its money (kWorldMoneys) or
+        # a door's or an entry's value (kWorldDoorValues, kWorldEntryValues)
+        # not as its scripts play it, told by the export: an unbounded talk, a
+        # choice a tap does not take, money not told apart at one count.)
+        talked = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world talks' in line and 'not as its scripts' in line]
+        if talked:
+            print('\n'.join(talked) + '\nFAIL: a conversation not as its scripts play it (common/scummverse_world_catalog.h, kWorldTalks, kWorldMoneys, '
+                  'kWorldDoorValues, kWorldEntryValues)')
             return 1
         # (From 0300: a thing a place's entry draws each time, or a class a
         # value kept comes with, not as its scripts have them, told by the
