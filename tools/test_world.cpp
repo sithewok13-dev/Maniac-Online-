@@ -387,7 +387,9 @@ static void testCatalog() {
 
 // Door maps: doors join visitable rooms; every visitable room is reached
 // from a named place or a story area through doors (or by walking between
-// neighboring named places); story areas are named, visitable rooms; menu
+// neighboring named places; from 0297 or by the answer of a place that takes
+// the one played to a story place, kWorldStoryPlaces, a room of the map with
+// no door leading in); story areas are named, visitable rooms; menu
 // place requests stay above every scene-bound request.
 static void testMaps() {
 	using namespace Scummverse::WorldCatalog;
@@ -411,11 +413,19 @@ static void testMaps() {
 		while (!todo.empty()) {
 			const int room = todo.back(); todo.pop_back();
 			for (int i = 0; i < map->linkCount; ++i) if (map->links[i].room == room) reach(map->links[i].target);
+			for (const WorldStoryPlace &p : kWorldStoryPlaces) if (p.game == g && p.from == room) reach(p.room);
 			for (int i = 0; i < kWorldGames[g].sceneCount; ++i) {
 				if (kWorldGames[g].scenes[i].room != room) continue;
 				if (i > 0) reach(kWorldGames[g].scenes[i - 1].room);
 				if (i + 1 < kWorldGames[g].sceneCount) reach(kWorldGames[g].scenes[i + 1].room);
 			}
+		}
+		for (const WorldStoryPlace &p : kWorldStoryPlaces) {
+			if (p.game != g) continue;
+			bool in = false;
+			for (int i = 0; i < map->roomCount; ++i) in = in || map->rooms[i].room == p.room;
+			for (int i = 0; i < map->linkCount; ++i) assert(map->links[i].target != p.room);
+			assert(in && worldRoomKind(g, p.from) >= 0);
 		}
 		for (int i = 0; i < map->roomCount; ++i) {
 			if (std::find(reached.begin(), reached.end(), map->rooms[i].room) == reached.end()) {

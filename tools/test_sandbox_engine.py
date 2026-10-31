@@ -1001,6 +1001,23 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: a later game\'s values kept as a player plays them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {kv.group(1)} of a later game\'s answers and places by a value kept played as a player plays them (Monkey Island\'s ghost crew\'s jug, '
               f'captain\'s chest, SCUMM Bar\'s mugs with the trials done), kept')
+        # (From 0297) Monkey Island's trials as a player plays them, where its
+        # export is 0297's (monkey-v39): the treasure dug with the shovel (the
+        # T-shirt given, the trial counted once), the idol picked up under the
+        # harbour (carried up the ladder onto the dock, room 83, its way to the
+        # harbour street), in either order and as the last of three, each
+        # through a save and a load; then the SCUMM Bar's mugs, one filled at the
+        # kitchen's barrel, melting as its script melts it where the one played
+        # is, poured into another, drunk at Otis's lock (Otis freed and gone
+        # from the jail), and one left to melt back onto the bar's table.
+        # Before, the dig gave nothing, the idol could not be taken and no mug
+        # ever held grog.
+        tr = re.search(r"selftest Monkey Island's trials: (\d+) of (\d+) orders played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        trialCases = 3 if exported_since(worlds, 'monkey', 39) and all((worlds/f'monkey-{room}.svw').exists() for room in (64, 42, 83, 33, 28, 41, 31, 34)) else 0
+        if not tr or tr.group(4) != '0' or tr.group(1) != tr.group(2) or tr.group(3) != tr.group(1) or int(tr.group(2)) < trialCases:
+            raise SystemExit('FAIL: Monkey Island\'s trials and its grog as a player plays them (export Monkey Island again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {tr.group(1)} orders of Monkey Island\'s trials played as a player plays them (the treasure dug, the idol brought up onto the dock, each counted once; '
+              f'the SCUMM Bar\'s mugs, the grog filled, melting, poured and drunk at Otis\'s lock), kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

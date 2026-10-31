@@ -8701,3 +8701,76 @@ descumm, nothing copied).
   order the same answers; the all, doors and keep then resume self-tests
   as before; test_startup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0297 — two of Monkey Island's trials and its grog as a player plays them in the new engine: the treasure dug, the idol brought up onto the dock, a mug of grog carried to Otis's lock (monkey export version 39)
+
+From 0296's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- What the original does. Global script 68 counts a trial (195 one more),
+  sets its own bit (83 + its number) and 197 + its number to 2; nothing
+  else raises 195. The treasure: the X (room 64, 726) used with the shovel
+  (410) runs local 200 unless bit 86 is set (then a line): a cut-scene that
+  pans its camera and waits for it, gives the T-shirt (729) and counts
+  trial 3. The idol: picked up under the harbour (room 42, 586), local 203
+  unties the one played and walks them to the ladder, local 200 counts
+  trial 2, sets 276 (4, or 5 if that was the last trial: read by the dock's
+  entry) and puts them on the dock (room 83, a close-up the door maps left
+  out). The Sword Master (61/720 Walk or Talk, global 113) is an insult
+  sword fight (scripts 70, 71, 76-87, 97, 98): it needs the sword, Captain
+  Smirk's training (bit 19) and three pirate fights won (281); she insults
+  from her own set, the player answers from the comebacks learned from
+  pirates, first to five; won, bit 20, the other T-shirt (721) and trial 1.
+  The grog: with the trials done the SCUMM Bar's entry makes its mugs
+  (373 to 377) empty mugs (class 12, not 18: 0296's "full of grog" was
+  wrong; corrected in its comments); a mug used with the kitchen's barrel
+  (room 41, 380) is filled (local 215: class 18, global 65 started on it;
+  its line the first time only, bit 421); 65 waits, melts it by 2 on the
+  dock (33), 3 under the archway (35), 5 on the high street (34), else 1 a
+  frame, holds it a while more, turns it into a wad and gives it back to
+  the bar; global 66 pours one mug into another (the first given back, the
+  second's clock from the start); 67 at Otis's cell or lock (31's 414, 416)
+  frees him (bit 76, the mug given back), at the other cell's (415, 417)
+  the rat (bit 134).
+- New engine: the dig gives the T-shirt and counts the trial once, in any
+  order (kWorldValueReaders' row reading bit 86; kWorldKeptCounts: 195 is
+  added to, so trials count in any order); the idol is taken and the one
+  played climbs onto the dock (room 83, now a place: tools/world_maps.py's
+  STORY_PLACES, its two ends to the harbour street, 33; kWorldStoryPlaces),
+  at the spot its game leaves them, the trial counted. The mugs are
+  holders (kWorldHolders, kWorldHolderUses): filled at the barrel, melting
+  on this engine's clock as script 65 melts them where the one played is,
+  poured from one to another, drunk at Otis's lock (Otis, costume 13, gone
+  from the jail for good, kWorldCastGones), given back to the bar as their
+  game gives them back (on its table again), each answer as its game
+  answers it then. Which mug holds it and how far its clock is are kept
+  values (kWorldHeld, kWorldHeldFor): the state stays "SVS9".
+- Export: the valued runs move the camera as the game does (the dig's
+  wait goes on), may take the one played to another place exported
+  (0283's arrives, a cut-scene there played on), file what a counted
+  value gains; each mug used with each use and each other mug with them
+  as each can be (empty, holding, a wad; another holding; the first fill
+  or not), 450 answers, filed under kWorldHolderAnswer; the clock checked
+  against script 65 in four rooms (a mismatch fails tools/export_worlds.py).
+  The things file's limit of such answers is now 1024 (was 256).
+- Results: Monkey Island's things file (561 valued answers, was 99) and
+  its new dock scene; every other file of every game byte for byte as
+  before (1005 files; the mansion's included); two exports identical; the
+  reversed order the same answers.
+- Not done: the Sword Master's trial (the fight, its learning from pirate
+  fights on the map, global 111, and Smirk's training, global 57: to be
+  played by its own rules, not recorded as a win), so the mugs still need its trial counted to be reached in
+  play; the dock's cut-scenes (276: Elaine's visit, or the kidnapping with
+  the note, 940, and bit 304; also the routes there from 35, 38 and 85
+  once the trials are done); the mugs' changing names; the jail's lock
+  after Otis is freed answering as before (its classes not kept); 197 + n
+  and the important-looking pirates' report; the arrow back from the dock
+  (0283's rule, no door into 42).
+- Tests: a new verbs self-test line "Monkey Island's trials" (3 of 3:
+  treasure then idol, idol then treasure, all three with the idol last and
+  then the bar's mugs and the grog to Otis, saves and loads between); the
+  verbs self-test's two-thing and plain-rules checks leave answers by a
+  value kept to their own check (valuedNow); test_panel (a new case) and
+  test_world (story places) under ASan/UBSan, test_stage; the all (+1 place),
+  doors (+2), keep then resume self-tests; 14 mutations caught;
+  test_startup, test_world_setup and the full data suite. Not tested on an
+  iPhone.

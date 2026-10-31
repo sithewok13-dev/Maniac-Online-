@@ -15,11 +15,13 @@
 #include "common/scummverse_panel_engine.h"
 #include "common/scummverse_world.h"
 #include "common/scummverse_world_catalog.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <vector>
 using namespace Scummverse;
 using namespace Scummverse::Panel;
 
@@ -2380,5 +2382,54 @@ int main() {
 		assert(worldValueArrival(0, 28) && worldValueArrival(0, 28)->var == 195 && !worldValueArrival(0, 29) && !worldValueArrival(10, 28));
 	}
 	std::puts("PASS: a later game's values kept (its value readers, the places whose entries read one; Monkey Island's rows)");
+	// (From 0297) Monkey Island's trials and its grog: a value kept that its
+	// game only adds to (kWorldKeptCounts) is a kept value; the trials' rows
+	// read the treasure's own bit and the trials done; the holders
+	// (kWorldHolders) are things of a place, their fill one of their uses, the
+	// values their answers are filed under told apart (worldHolderCode), their
+	// clock as long as its parts and a wad from before its end; their kept
+	// values (kWorldHeld, kWorldHeldFor) no game variable, nor kept values of
+	// another game; a cast member gone so goes by a kept value; the dock
+	// (room 83) a place of its map, its two ways to the harbour street.
+	{
+		using namespace WorldCatalog;
+		for (const WorldKeptCount &k : kWorldKeptCounts) assert(worldKeptValue(k.game, k.var));
+		assert(worldKeptCount(0, 195) && !worldKeptCount(0, 236) && !worldKeptCount(10, 195));
+		bool dig = false, idol = false;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			dig = dig || (v.game == 0 && v.room == 64 && v.object == 726 && v.kind == kWorldVerbUse && v.with == 410 && v.reads == 0x8000 + 86);
+			idol = idol || (v.game == 0 && v.room == 42 && v.object == 586 && v.kind == kWorldVerbPickUp && !v.with && v.reads == 195);
+		}
+		assert(dig && idol && worldKeptValue(0, 0x8000 + 85) && worldKeptValue(0, 0x8000 + 86));
+		for (const WorldHolder &h : kWorldHolders) {
+			assert(h.game >= 0 && h.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && h.first > 0 && h.first <= h.last && h.script > 0 && h.frame > 0 && h.rate > 0 && h.amount > 0);
+			assert(worldHolderOf(h.game) == &h && worldHolder(h.game, h.room, h.first) && worldHolder(h.game, h.room, h.last) && !worldHolder(h.game, h.room, h.last + 1) && !worldHolder(h.game, h.room + 1, h.first));
+			assert(worldHolderUse(h.game, h.fillRoom, h.fill) && !worldHolder(h.game, h.fillRoom, h.fill));
+			for (int k = 0; k < 3; ++k) assert(h.rooms[k] > 0 && h.rates[k] > 0);
+			assert(worldHolderWaits(h, 300) == 306 || h.frame != 6);
+			assert(worldHolderWad(h) < worldHolderClock(h) && worldHolderClock(h) == worldHolderWad(h) + worldHolderWaits(h, h.wad));
+			assert(!worldKeptValue(h.game, kWorldHeld) && !worldKeptValue(h.game, kWorldHeldFor) && worldHeldValue(h.game, kWorldHeld) && worldHeldValue(h.game, kWorldHeldFor) && !worldHeldValue(h.game + 1, kWorldHeld));
+		}
+		for (const WorldHolderUse &u : kWorldHolderUses) assert(worldHolderOf(u.game) && worldHolderUse(u.game, u.room, u.object) == &u && (!u.reads || worldKeptValue(u.game, u.reads)));
+		std::vector<int> codes;
+		for (int with = 1; with <= 3; ++with)
+			for (int target = 0; target <= 3; ++target)
+				for (int third = 0; third < 2; ++third)
+					for (int read = 0; read < 2; ++read) codes.push_back(worldHolderCode(with, target, third, read));
+		std::sort(codes.begin(), codes.end());
+		assert(std::unique(codes.begin(), codes.end()) == codes.end() && codes.front() > 0 && codes.back() < 256);
+		assert(kWorldHolderAnswer != kWorldArrivalAnswer && kWorldHolderAnswer > kWorldPersonThing && kWorldHeld > 0x2000 && kWorldHeldFor < 0x8000);
+		for (const WorldCastGone &c : kWorldCastGones) assert(worldKeptValue(c.game, c.var));
+		const WorldMap *monkey = worldMap(0);
+		bool dock = false;
+		int ways = 0;
+		for (int i = 0; monkey && i < monkey->roomCount; ++i) dock = dock || monkey->rooms[i].room == 83;
+		for (int i = 0; monkey && i < monkey->linkCount; ++i) {
+			ways += monkey->links[i].room == 83 && monkey->links[i].target == 33;
+			assert(monkey->links[i].target != 83);
+		}
+		assert(dock && ways == 2);
+	}
+	std::puts("PASS: Monkey Island's trials and grog in the catalog (a value only added to, the trials' rows, its holders and their uses, the cast gone so, the dock)");
 	return 0;
 }

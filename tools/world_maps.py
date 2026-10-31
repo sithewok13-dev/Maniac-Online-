@@ -53,6 +53,16 @@ TEMPLATE_DOORS = {
         33: {500: (311, 'V99'), 501: ('V100', 13, 'paired')},                                 # castle tower rooms
     },
 }
+# From 0297 close-ups that a place's answer takes the one played to (0283's
+# answers that go elsewhere) and that are walked in and left as places:
+# kept as scenes, reached (for the story areas below) from that place, with
+# their own doors as their scripts take them with the story as that answer
+# leaves it, the analysis's other doors out of and into them left out (the
+# ways in are story routes, cut-scenes or actions on things, not doors).
+# Monkey Island's dock (room 83): the idol picked up under the harbour (42)
+# and the ladder climbed; its two ends lead back to the harbour street (33)
+# while its last part is not begun (bit 453 clear).
+STORY_PLACES = {('monkey', 83): (42, {862: 33, 863: 33})}
 # Travel the player starts with a tap: doors, exits, map hotspots, vehicles
 # and actions on objects (story, cutscene and debug transitions are left out).
 TRAVEL = {'door', 'exit', 'walk', 'map', 'action', 'car', 'chron-o-john'}
@@ -257,6 +267,8 @@ def load(game):
             kind = 'floor plan'
         if (game, room) in MAP_ROOMS:
             kind = 'map'
+        if (game, room) in STORY_PLACES:
+            kind = 'scene'
         if kinds.get(room) not in KINDS:
             kinds[room] = kind
     travel = []
@@ -273,6 +285,10 @@ def load(game):
     joined = set(physical.get(int(r), int(r)) for r in data.get('reachable', []))
     for l in travel:
         joined |= {int(l['room']), int(l['target'])}
+    # (From 0297 a story place's own doors only: STORY_PLACES.)
+    story = {room: doors for (g, room), (_from, doors) in STORY_PLACES.items() if g == game}
+    travel = [l for l in travel if int(l['room']) not in story and int(l['target']) not in story] + \
+        [{'room': room, 'object': obj, 'target': target, 'kind': 'door'} for room, doors in sorted(story.items()) for obj, target in sorted(doors.items())]
     # (Only rooms the export has a scene of (Loom's 65 and Full Throttle's 13
     # come out blank), and doors their scenes show (those with no rectangle
     # are not exported), as for Zak's below.)
@@ -357,6 +373,7 @@ def areas(game, rooms, links, named):
                 seen.add(t); todo.append(t)
         return seen
     seen, entrances = reach(named), []
+    seen |= {room for (g, room) in STORY_PLACES if g == game}  # (reached by their place's answer)
     while True:
         left = [r for r, _kind in rooms if r not in seen]
         if not left:
