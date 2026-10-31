@@ -8858,3 +8858,30 @@ descumm, nothing copied).
   export's, 8 of the module's; one equivalent set aside); test_startup,
   test_world_setup and the full data suite. Not tested on an
   iPhone.
+
+## Patch 0299 — the app's own name in its pictures: "NearGROG" at the top of the launcher, an N on its icon
+
+Asked for by the user (the app is "Near-Grog" on their phone).
+- The launcher's logo reads "NearGROG": "Near" green as "Scumm" was (its
+  outline, its darker depth below, its shadow), "GROG" gray stones with
+  cracks as "VM" was (outlined, each letter tilted, behind the green
+  word). gui/themes/common-svg/logo.svg, the scalable logo the Remastered
+  and ResidualVM themes draw (nanosvg draws it as a browser does; plain
+  filled paths, its size and the launcher's layout unchanged), and the
+  bitmaps the themes fall back to (Remastered, ResidualVM, Modern; magenta
+  for clear, their edges on each theme's own background, as before); their
+  zips rebuilt with scummtheme.py, only the logo files changed (help.bmp
+  and help.svg, missing from the source folders, kept from the old zips).
+  The Classic theme has no logo.
+- The app icon: an N for the S, the same green, outline, depth and shadow
+  on the same orange; its dark and tinted variants made as the S's were;
+  all 51 sizes from the 1024 masters, each at its own size and mode
+  (Contents.json unchanged). The launch screen's wordmark
+  (ScummVM.imageset, drawn on every start) reads "NearGROG" too.
+- Shapes: "Near" and the N from Rubik (SIL Open Font License 1.1), baked
+  as paths (no font at run time); "GROG" drawn as polygons. The app's
+  bundle name is unchanged.
+- Tests: every picture's size and mode as before; the new logo drawn by
+  the engine's own nanosvg and by Chromium alike; each theme zip the same
+  files in the same order; test_startup, the bootstrap check (a binary
+  patch: applied, reversed and reapplied). Not tested on an iPhone.
