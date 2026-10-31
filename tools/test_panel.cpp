@@ -1686,6 +1686,52 @@ int main() {
 		const Item same = p.lettered(pictured), named = p.lettered(byName("AB"));
 		assert(same.picture == pictured.picture && named.width == 7 && named.height == 5 && named.picture.size() == 35 && named.name == "AB");
 		assert(p.lettered(byName("")).picture.empty());
+		// (From 0294 an icon of a things file drawn nowhere, its mask empty
+		// (a thing given that its place's scene lists not, as its export
+		// writes it, 1 by 1): read as any icon (an older reader's too);
+		// addIcon carries it by its name as addNamed does, lettered in a slot
+		// of pictures; one drawn nowhere with no name is refused; one drawn
+		// as before.)
+		{
+			auto iconFile = [](const std::vector<std::pair<int, const char *> > &blank) {
+				std::vector<uint8_t> v = {'S', 'V', 'O', '9'};
+				put16(v, 0); put16(v, 0); put16(v, 0);             // (no places, no answers, no parents)
+				put16(v, 0); put16(v, 0); v.push_back(0); put16(v, 0); // (no main power)
+				v.push_back(0); v.push_back(0); put16(v, 0);       // (no close-ups, no marks, no answers by them)
+				put16(v, (int)blank.size() + 1);
+				put16(v, 105); v.push_back(2); put(v, {'K', 'G'}); put16(v, 1); put16(v, 1); v.push_back(1); put(v, {10, 20, 30});
+				for (const auto &b : blank) {
+					put16(v, b.first); v.push_back((uint8_t)std::strlen(b.second)); for (const char *c = b.second; *c; ++c) v.push_back((uint8_t)*c);
+					put16(v, 1); put16(v, 1); v.push_back(0); put(v, {0, 0, 0});
+				}
+				return v;
+			};
+			const std::vector<uint8_t> blanks = iconFile({{106, "AB"}, {107, ""}});
+			GameThings read;
+			assert(parseThings(blanks.data(), blanks.size(), read, error) && read.icons.size() == 3 && read.icon(106) && read.icon(106)->name == "AB" && read.icon(106)->picture == std::vector<uint32_t>(1, 0u));
+			assert(PanelBridge::loadThings(6, blanks.data(), blanks.size(), problem, sizeof(problem)));
+			Spec slots; slots.slotKind = 2;
+			const std::vector<uint8_t> panel2 = panelBytes(slots);
+			assert(PanelBridge::load(panel2.data(), panel2.size(), problem, sizeof(problem)));
+			PanelBridge::layout(64, 16, 0, 1.0, 1.0);
+			PanelBridge::clearItems();
+			assert(!PanelBridge::addIcon(6, 107, nullptr) && PanelBridge::itemCount() == 0);
+			assert(PanelBridge::addIcon(6, 106, nullptr) && PanelBridge::itemCount() == 1 && PanelBridge::itemName(0, name, sizeof(name)) == 2 && !strcmp(name, "AB"));
+			std::vector<uint32_t> screen(64 * 16, 0);
+			PanelBridge::render(screen.data(), 64, 16);
+			int inked = 0;
+			for (int y = 6; y < 10; ++y) for (int x = 40; x < 48; ++x) inked += screen[y * 64 + x] == rgb(9);
+			assert(inked > 0);
+			PanelBridge::clearItems();
+			assert(PanelBridge::addIcon(6, 105, nullptr) && PanelBridge::itemName(0, name, sizeof(name)) == 2 && !strcmp(name, "KG"));
+			std::fill(screen.begin(), screen.end(), 0u);
+			PanelBridge::render(screen.data(), 64, 16);
+			inked = 0;
+			for (int y = 6; y < 10; ++y) for (int x = 40; x < 48; ++x) inked += screen[y * 64 + x] == rgb(9);
+			assert(!inked);
+			PanelBridge::clear();
+			PanelBridge::clearThings();
+		}
 		// Held as the pointer over the scene: its name, in the talk's colour.
 		const std::vector<uint8_t> over = overBytes();
 		Panel::Panel q;
@@ -2250,5 +2296,29 @@ int main() {
 		PanelBridge::clear();
 	}
 	std::puts("PASS: where each draws (the panel, its box over the scene, the coin, the controls, speech: every pixel drawn inside its bounds, at several scales, half off the screen; none when nothing is); the panel as composed");
+	// (From 0294) Who stands under a thing their game gives to them through
+	// (kWorldGivesThrough's rule, worldStandsUnder): within its box, or no
+	// more than 16 pixels to either side and 32 above or below it, how far;
+	// else none (Monkey Island 2's cartographer 23 below his thing; Monkey
+	// Island's Otis 11 to its left, the jail's rat 54 away). Each game named
+	// once, a later one, by entry 80; each of kWorldGivenAs one of its cast
+	// in that place.
+	{
+		using namespace WorldCatalog;
+		assert(worldStandsUnder(161, 119, 152, 72, 16, 24) == 23 && worldStandsUnder(21, 122, 32, 72, 40, 48) == 13 && worldStandsUnder(126, 112, 32, 72, 40, 48) == -1);
+		assert(worldStandsUnder(160, 80, 152, 72, 16, 24) == 0 && worldStandsUnder(135, 152, 120, 72, 32, 48) == 32 && worldStandsUnder(135, 153, 120, 72, 32, 48) == -1);
+		assert(worldStandsUnder(168, 80, 152, 72, 16, 24) == 0 && worldStandsUnder(184, 80, 152, 72, 16, 24) == 16 && worldStandsUnder(185, 80, 152, 72, 16, 24) == -1 && worldStandsUnder(136, 40, 152, 72, 16, 24) == 48);
+		for (const WorldGivesThrough &g : kWorldGivesThrough) {
+			assert(g.game >= 0 && g.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && g.entry == 80 && (g.cls == 0 || g.cls == 5));
+			assert(strcmp(kWorldGames[g.game].gameid, "maniac") && strcmp(kWorldGames[g.game].gameid, "zak") && worldGivesThrough(g.game) == &g);
+		}
+		assert(worldGivesThrough(0) && worldGivesThrough(0)->cls == 5 && !worldGivesThrough(2) && !worldGivesThrough(10));
+		for (const WorldGivenAs &a : kWorldGivenAs) {
+			bool cast = false;
+			for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == a.game && c.room == a.room && c.guest.costume == a.costume);
+			assert(cast && a.object > 0 && worldGivenAs(a.game, a.room, a.costume) == &a);
+		}
+	}
+	std::puts("PASS: who is given to through a thing (the one standing under it, by how far; the games and their rows)");
 	return 0;
 }

@@ -392,6 +392,25 @@ def check_arrivals(worlds):
 GIVE = 9
 
 
+def check_given_through(worlds):
+    # (From 0294) People given to as their games give to them, through a
+    # thing (kWorldGivesThrough): Monkey Island's poodles (room 36, 475, a
+    # thing of the place) given the kitchen's meat (331), Monkey Island 2's
+    # cartographer (room 8, costume 22, by his thing 65) given his monocle
+    # (66), Day of the Tentacle's Red Edison (room 16, costume 83, by his
+    # thing 113) given the help-wanted sign (300), each its own answer,
+    # wherever its game's export is of 0294's version or later (monkey-v37,
+    # monkey2-v36, tentacle-v35). Before, the usual answer, or none.
+    wanted = [(game, key) for game, version, room, key in (
+        ('monkey', 37, 36, (36, 475, GIVE, 0, 331)), ('monkey2', 36, 8, (8, 0x8000 + 22, GIVE, 0, 66)), ('tentacle', 35, 16, (16, 0x8000 + 83, GIVE, 0, 300)))
+        if exported_since(worlds, game, version) and (worlds/f'{game}-{room}.svw').exists()]
+    for game, key in wanted:
+        if key not in answer_keys(worlds/f'{game}-things.svo'):
+            raise SystemExit(f'FAIL: {game} room {key[0]}: {key[1]} not answered (verb {key[2]} from {key[3]} with {key[4]}) as its game gives to its people through a thing '
+                             f'(export {game} again: tools/export_worlds.py)')
+    return len(wanted)
+
+
 def check_herring(worlds):
     # (From 0292) Monkey Island's red herring (room 41, 378): its Pick up as
     # its game answers while the seagull is away, sent off by a step on the
@@ -801,6 +820,9 @@ if __name__ == '__main__':
         herring = check_herring(worlds)
         if herring:
             print(f'PASS: {herring} answers of the red herring\'s way recorded: picked up while the seagull is away, given to the troll (from 0292)')
+        through = check_given_through(worlds)
+        if through:
+            print(f'PASS: {through} answers of people given to as their games give to them, through a thing, recorded (from 0294)')
         lit = check_lit_people(worlds)
         if lit:
             print(f"PASS: the mansion's and Zak's {lit} people in their colours (not the lights-off grey)")
@@ -943,6 +965,25 @@ if __name__ == '__main__':
         if not nm or nm.group(4) != '0' or nm.group(1) != nm.group(2) or nm.group(3) != nm.group(1) or ((worlds/'tentacle-42.svw').exists() and nm.group(1) == '0'):
             raise SystemExit('FAIL: things with no picture of their own carried by their names\n' + output[-2000:])
         print(f'PASS: {nm.group(1)} things later games\' answers take or give with no picture of their own carried by their names, drawn in their slots, kept')
+        # (From 0294) Things later games' answers give that their places'
+        # scenes list not (no box: their things files' icons drawn nowhere),
+        # as a player gets them: carried by their names, drawn in their slots,
+        # kept (Monkey Island's gunpowder, room 8, 105, its kegs picked up,
+        # among them where its export is 0294's or later: monkey-v37); and
+        # people given to through a thing as a player gives (Monkey Island's
+        # poodles, Monkey Island 2's cartographer, Day of the Tentacle's Red
+        # Edison, where their exports are 0294's: before, their usual answers).
+        ul = re.search(r'selftest unlisted: (\d+) of (\d+) things .*?, (\d+) kept through a save and a load; (\d+) failed', output)
+        if not ul or ul.group(4) != '0' or ul.group(1) != ul.group(2) or ul.group(3) != ul.group(1) or \
+                (exported_since(worlds, 'monkey', 37) and (worlds/'monkey-8.svw').exists() and ul.group(1) == '0'):
+            raise SystemExit('FAIL: things given that their places\' scenes list not carried by their names (export again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {ul.group(1)} things later games\' answers give that their places\' scenes list not carried by their names, drawn in their slots, kept')
+        gt = re.search(r'selftest given through: (\d+) own answers .*?, (\d+) to one of the cast, .*?; (\d+) of (\d+) played as a player gives .*?, (\d+) kept through a save and a load; (\d+) failed', output)
+        throughCases = sum(exported_since(worlds, game, version) and (worlds/f'{game}-{room}.svw').exists() and (worlds/f'{game}-{lies}.svw').exists()
+                           for game, version, room, lies in (('monkey', 37, 36, 41), ('monkey2', 36, 8, 8), ('tentacle', 35, 16, 34)))
+        if not gt or gt.group(6) != '0' or gt.group(3) != gt.group(4) or gt.group(5) != gt.group(3) or int(gt.group(4)) < throughCases:
+            raise SystemExit('FAIL: people given to as their games give to them, through a thing (export again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {gt.group(1)} own answers of Give to a thing of a place and {gt.group(2)} to one of the cast as their games give to their people; {gt.group(3)} played as a player gives, kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

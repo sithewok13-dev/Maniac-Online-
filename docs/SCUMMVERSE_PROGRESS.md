@@ -8610,3 +8610,38 @@ descumm, nothing copied).
   verbs, all and doors self-tests (every new record replays); test_panel,
   test_stage and test_world under ASan/UBSan; test_startup,
   test_world_setup and the full data suite. Not tested on an iPhone.
+
+## Patch 0294 — people given to as their games give to them, through a thing, and things given that their places don't show, in the new engine (export versions monkey 37, monkey2 36, atlantis 33, tentacle 35, indy3 31, ft 34, dig 33, comi 32)
+
+From 0292's "not done" and a scan of every later game's pick-ups, against
+the original's scripts (read with descumm, nothing copied).
+- Monkey Island, Monkey Island 2, Fate of Atlantis and Day of the Tentacle
+  give to their people through an object (kWorldGivesThrough), so nearly
+  every Give to them got the usual answer. The export now gives each
+  person through the object they stand under on arriving (kWorldGivenAs
+  first, with new rows for Red Edison, Nurse Edna and Dead Cousin Ted),
+  filed under them; objects with nobody of the cast under them are given
+  to as objects (Monkey Island's poodles, Monkey Island 2's Captain
+  Dread), and the new engine looks a Give up under the object given to.
+  Their own Give answers: Monkey Island 2 1 to 113, Monkey Island 7 to 16,
+  Atlantis 2 to 6, Day of the Tentacle 0 to 6.
+- A thing an answer gives that its place doesn't show was dropped. It is
+  now given, carried by its name, and used as any thing carried: Monkey
+  Island's gunpowder, grease and yellow petal; Monkey Island 2's paper,
+  oar, fish and the three things in room 90; Atlantis's cold cuts, bread
+  and spark plug; Full Throttle's fertilizer; the Last Crusade's uniform;
+  the Curse's coffin nails.
+- For these new Give targets a tie for the usual answer goes to the lowest
+  thing given, so the reversed order records the same answers.
+- Not done: things defined in rooms no place exports (Atlantis's three
+  stones; the Curse's rooms 1, 24 and 83); things shown only by story
+  state, timers or another thing's picture (Monkey Island's mugs, rope,
+  root beer and grog; Monkey Island 2's bra, hammer and nails; most of
+  Atlantis's and Day of the Tentacle's); the cannibals; the poodles' meat
+  with the petal; Sophia; the founding fathers; Zak not scanned.
+- Tests: two exports identical, the reversed order the same answers, every
+  other file byte for byte as before; ASan/UBSan export and verbs clean;
+  the verbs ("given through" 3 of 3, "unlisted" 21 of 21), all and doors
+  self-tests; 7 mutations caught; test_panel (two new cases) and
+  test_stage; test_startup, test_world_setup and the full data suite. Not
+  tested on an iPhone.
