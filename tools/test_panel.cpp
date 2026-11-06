@@ -2606,5 +2606,47 @@ int main() {
 		assert(worldKeptValueAs(1, 195, 1) == -1 && worldKeptValueAs(0, 0x8000 + 361, 1) == -1);
 	}
 	std::puts("PASS: a value kept that is a thing's class (kept as its row's, of its game alone; no game's variable), Monkey Island 2's skull, hammer and nails in the catalog; a value kept read back only as an answer leaves it");
+	// (From 0303) A thing a game's start gives one of its players where its
+	// code lies in a room no place exports (kWorldStartThings): a later
+	// game's, in a room none of its places is, a thing once, found by its
+	// game and number alone; the value its being given is kept by
+	// (kWorldStartGiven) its games' alone, no kept value, holder's value,
+	// class kept or need of a value reader. A place's arrival's `need` none
+	// or a thing of a place (not one of the cast, nor its own answer). Day of
+	// the Tentacle's: the kids' three things from room 61; the wine in the
+	// time capsule (bit 6) kept, read by the wine's three answers in the past
+	// and by the future's capsule opened with the can-opener and its vinegar
+	// taken (picked up or pulled) with the capsule open; room 44 arrived at
+	// with it and the capsule open; its export's version 36 on.
+	{
+		using namespace WorldCatalog;
+		const int games = (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0]));
+		for (const WorldStartThing &s : kWorldStartThings) {
+			assert(s.game >= 0 && s.game < games && !worldHome(s.game) && s.object > 0 && s.room > 0 && worldStartThing(s.game, s.object) == &s && !worldStartThing(s.game + 1, s.object));
+			const WorldMap *map = worldMap(s.game);
+			assert(map);
+			for (int i = 0; i < map->roomCount; ++i) assert(map->rooms[i].room != s.room && map->rooms[i].resource != s.room);
+			assert(worldStartGivenValue(s.game, kWorldStartGiven) && !worldStartGivenValue(s.game, kWorldStartGiven + 1) && !worldKeptValue(s.game, kWorldStartGiven) && !worldHeldValue(s.game, kWorldStartGiven));
+		}
+		assert(kWorldStartGiven != kWorldHeld && kWorldStartGiven != kWorldHeldFor && kWorldStartGiven != kWorldKidsNeed && kWorldStartGiven < kWorldClassValue);
+		for (const WorldValueArrival &w : kWorldValueArrivals) assert(w.need >= 0 && w.need < kWorldPersonThing && w.need != kWorldArrivalAnswer);
+		int dott = -1;
+		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "tentacle")) dott = g;
+		assert(dott >= 0 && worldStartThing(dott, 709) && worldStartThing(dott, 710) && worldStartThing(dott, 711) && worldStartThing(dott, 711)->room == 61 && !worldStartThing(dott, 712));
+		assert(!worldStartGivenValue(0, kWorldStartGiven) && !worldStartGivenValue(1, kWorldStartGiven) && !worldStartGivenValue(10, kWorldStartGiven));
+		const int wine = 0x8000 + 6;
+		int past = 0, capsule = 0, vinegar = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (v.game != dott || v.reads != wine) continue;
+			past += v.room == 13 && (v.object == 84 || v.object == 85) && v.with == 128 && (v.kind == kWorldVerbUse || (v.kind == kWorldVerbGive && v.object == 85)) && !v.need;
+			capsule += v.room == 44 && v.object == 441 && v.kind == kWorldVerbUse && v.with == 711 && !v.need;
+			vinegar += v.room == 44 && v.object == 442 && (v.kind == kWorldVerbPickUp || v.kind == kWorldVerbPull) && !v.with && v.need == 441;
+		}
+		assert(past == 3 && capsule == 1 && vinegar == 2 && worldKeptValue(dott, wine) && !worldKeptValue(0, wine) && worldKeptValueAs(dott, wine, 1) == 1 && worldKeptValueAs(dott, wine, 2) == -1);
+		const WorldValueArrival *future = worldValueArrival(dott, 44);
+		assert(future && future->var == wine && future->first == 1 && future->last == 1 && future->need == 441 && !worldValueArrival(dott, 13));
+		assert(worldValueArrival(0, 28) && !worldValueArrival(0, 28)->need && worldExportVersion("tentacle") >= 36);
+	}
+	std::puts("PASS: what a game's start gives its players from a room no place exports (its rows, the value kept given; Day of the Tentacle's kids' own), a place arrived at with a thing of it in its picture 1 too, Day of the Tentacle's time capsule and vinegar in the catalog");
 	return 0;
 }

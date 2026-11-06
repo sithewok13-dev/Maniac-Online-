@@ -9277,3 +9277,152 @@ pushed; the engine tree is exactly 0001-0302.
 - Next: run the five suites above on 0302; then those two again from the
   start, and Monkey Island 2's other talks (Mad Marty's, over 256 menus
   as exported), the rest of the bra's way, and the woodsmith's return (362).
+
+## Patch 0303 — Day of the Tentacle's kids' own things from its start carried in the new engine, what they open and show played as a player plays them (the horse's dentures, Oozo's box), and its time capsule's vinegar by the wine put in (tentacle export version 36)
+
+From 0294's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- Survey. The 59 things its scripts ever carry (its boot script, global
+  script 1, hands every one out on a debug start) against its things file
+  as exported (0302's, "tentacle-v35"): 28 could be had in the new engine
+  (lying touchable with an answer that takes them, made touchable by an
+  answer and then taken, or given by one), 31 were dead ends. Of those, the
+  kids' own three and the three things only they lead to are this patch's;
+  the rest are below ("not done").
+- What the original does. The end of its opening (global script 55) picks
+  up 709, 710 and 711 from room 61 and gives them to Laverne (2), Bernard (1)
+  and Hoagie (3): the scalpel, the textbook and the can-opener. Room 61 is
+  no place (a room of the kids' inventory things only), and the export
+  carried only what the start leaves lying in a place exported, so none of
+  them was ever carried. The textbook used on the horse of room 21 (145:
+  its verb 23, which 710's Use hands on to) plays local script 202 while bit
+  104 is clear: the glass (146) shown with the dentures (147) in it, 147 no
+  longer untouchable; picked up, they are taken and the glass shown
+  without them. The scalpel used on Oozo (room 26, 186: its verb 49) plays
+  local script 201: Oozo popped, his box (185) and 191 made touchable. In
+  the past (room 13) the wine (128) used with the time capsule (84) or with
+  Thomas Jefferson (85), or given to him (his verb 13 hands each to the
+  capsule's verb 60), is put in the capsule: the wine gone, bit 6 set. In
+  the future (room 44) its capsule (441) is opened only by the can-opener:
+  441's verb 13 hands that Use, while it is shut, to local script 200, which
+  opens it and, with bit 6 set, shows the vinegar (442) and makes it
+  touchable; the room's entry, with bit 6 set and the capsule open, shows it
+  likewise (and with bit 6 clear hides it, untouchable); the vinegar's Pick
+  up (and its Pull, which hands on to it) clears bit 6 and takes it. The
+  vinegar is one of the three things Red Edison (room 16, his local script
+  205, once given the paper: bit 7, local 208) takes for his battery.
+- New kWorldStartThings (common/scummverse_world_catalog.h): a thing a
+  game's start gives one of its players where its code lies in a room no
+  place exports; Day of the Tentacle's three from room 61. The export
+  carries each in its answers of two as any thing carried, the one played
+  there's (one its start left in another kid's hands given to them, as its
+  toilets' flushes give them; else an answer with Laverne's scalpel in the
+  present is filed as using it up), named for its things file's icons; each
+  row checked against its game's start (one of its players has it, or no
+  one: the export's start has the lead's, Bernard's, hands emptied for its
+  panel, his textbook too; its code in that room, which is none of the
+  places): a mismatch fails tools/export_worlds.py. The new engine carries
+  them, by their names, the first time one of the game's places is shown,
+  once (kept as the value kWorldStartGiven of the game, "SVS9"; a state of
+  before 0303 given them then; a damaged state's at another value let go),
+  never two of one; not on the tour, for a close-up, nor while self-testing
+  but in its own check.
+- The vinegar: bit 6 kept (kWorldKeptValues) and read by six rows of
+  kWorldValueReaders (the wine with 84 and 85 and given to 85; the
+  can-opener on 441; 442's Pick up and Pull with 441 open). New
+  kWorldValueArrivals `need`, a thing of the place its entry also wants in
+  its picture 1, as a value reader's: room 44 arrived at with bit 6 and the
+  capsule open shows the vinegar; the new engine shows the place so only
+  while that thing is in its picture 1 too. The export's value-reader runs
+  file a thing the answer shows in a picture of its own that the place as
+  exported has away, and the arrival with the value left touchable already,
+  as made touchable by it: the entry with bit 6 set and the capsule shut
+  leaves 442 touchable unseen, and the new engine shows the place as
+  exported then (no arrival so), where 442 is untouchable.
+- The kids and the Chron-O-Johns in the new engine. Each kid is one of the
+  cast in a place of their own time (Hoagie in room 7, Bernard in 26,
+  Laverne in 44); the one played is whoever the player chooses (any of the
+  cast, a visitor, one of the kids), and kWorldPlayedIn only says whose
+  lines its export records where. What is carried goes with the one played
+  to every place of the game, so no flushing is needed to hand a thing to
+  another time. The three Chron-O-Johns are doors of its map: the past's
+  (room 11, 50) to the present's (29, 216) and back, the future's (57, 593)
+  to the past's; no door leads into the future, whose places are reached
+  from the game's list (its landmark 46). The original's toilets (51, 217,
+  591), its kid switching and its time travel's battery and diamond are not
+  played, and none of them stands in the way of a thing here: no step of
+  time travel was needed for these dead ends.
+- Results: Day of the Tentacle's things file "SVOB" (was "SVOA"): 9965
+  answers (was 8928: 970 of two with the kids' own things, 30 of theirs used
+  with another carried, 37 of the things they show, from the pictures they
+  leave them in: the dentures, Oozo's box and 191, the vinegar, Nurse
+  Edna's 206 once she is read the textbook in room 28), 53 by a value kept
+  (the wine's 12, the can-opener's 4, the vinegar's 8, room 44's arrival
+  and 28 answers of its things so), 3 icons (the kids' own, carried by
+  their names); its scenes, characters and verb panel byte for byte as
+  before; every other file of every game byte for byte as before (1137 files
+  exported from nothing, the mansion's included); two exports identical;
+  the reversed order the same answers. Now 25 of the 59 are dead ends: the
+  scalpel, the textbook, the can-opener, the dentures, Oozo's box and the
+  vinegar can be had.
+- Not done (traced, by number): the quill pen (room 13, 82: its Pick up
+  only with 216 at 5, the founding fathers' story of global scripts 21 and
+  22 and room 13's local scripts) and the blanket (88: bits 11 and 47, the
+  same story); so Red Edison's battery (114: local 210 after the paper, the
+  oil, the vinegar and the pen, bits 7 and 140 to 142, 213 counted; then its
+  Pick up, local 212) and its charge by Ben Franklin's kite (room 9, 34 and
+  the lab coat, global script 11) are not played; the lab coat (room 16,
+  112: its Pick up only once class 6 is cleared, local 204, the sign of room
+  34, 300, given to Red Edison; its game starts it with that class, which a
+  value kept as a class, 0 as the game starts, cannot say yet); the dime of
+  room 34 (309, global script 56, the gum 307 freed by the crowbar 364: no
+  answer of two with the crowbar is recorded, its runs left out); the wine
+  given to Thomas Jefferson in room 11 (48, bit 6 too: he is not there as it
+  is exported). One thing's answers that read who has a kid's own thing
+  (room 26's Oozo opened, 186's verb 2, by Bernard with the scalpel; room
+  50's local 201 by Laverne's) are still recorded as the start has them.
+  Not traced: 121, 163, 182, 184, 187, 252, 267, 275, 305, 337, 347, 423,
+  439, 508, 513, 533, 586, 613; 576 and 577 lie in room 55, which no place
+  exports.
+- Tests: a new verbs self-test line "Day of the Tentacle's things" (4 of
+  4: the kids' own things given at 2 from a damaged state let go, none given
+  while self-testing, all three carried by their names once on showing a
+  place, through a save and a load, not again on showing another nor once
+  one is gone; the textbook read to the horse, the dentures made touchable
+  and taken, the glass so, through a save and a load; the scalpel on Oozo,
+  his box made touchable and taken, the scalpel kept; the wine taken and put
+  in the past's capsule, bit 6 at 2 from a damaged state let go, the
+  future's capsule shut and its vinegar unseen, Open not opening it, the
+  can-opener opening it (kept) and the vinegar shown, taken, bit 6 let go,
+  through a save and a load, not shown again; the capsule opened first,
+  nothing shown, nor on entering again, the wine given to Thomas Jefferson,
+  the vinegar shown on entering, pulled, bit 6 let go, not shown again; the
+  wine in with the capsule shut, nothing shown) and
+  tools/test_sandbox_engine.py's check of it, gated on tentacle-v36 (with
+  its records with the kids' own things replayed: one in fifty untried at
+  most, 18 things revealed at least); test_panel (a new case: the rows, the
+  value kept given, an arrival's need, the time capsule's rows), test_world,
+  test_stage and test_talks under ASan/UBSan; every other verbs line as
+  before but Day of the Tentacle's counts of its new answers and, as the
+  random draws and the state its replays leave go, the sword fighting's
+  fights won and The Curse of Monkey Island's untapped held things (0, was
+  4); with 0302's worlds every verbs line as before but the version-gated
+  ones (the new one 0 of 0; the revealed line's exports of 0281, 7 of 7:
+  the tentacle marker is v35 there); the all, doors and keep then resume
+  self-tests as before; 19 mutations caught: 6 of the export's (a row's
+  check turned: tools/export_worlds.py fails; a kid's thing not given to the
+  one played, the arrival's need not set, the touch not filed, the icons not
+  written: the new check, the arrival's once its vinegar's picture is
+  checked too; the rows not carried at all: the python check), 6 of the
+  catalog's (the Pull and Give rows, room 44's need: the new check; a row,
+  the given value at kWorldHeld, a need of the cast: test_panel), 7 of the
+  new engine's (the start's things not given, given while self-testing, the
+  arrival's need not read, the given value at 2 kept or at 1 not kept, never
+  kept so: the new check; the two-thing replay without them: the python
+  check); one not caught (the revealed check's replay without them: its
+  answers 133 to 111, not playable 4 to 7, counted, not asserted) and one
+  equivalent with today's export (none carried twice: all three are always
+  given at once); the python check run on the verbs output as it is and
+  changed (a failure, fewer cases, no line, fewer revealed, many untried):
+  each caught; test_startup, test_world_setup and the full data suite.
+  Not tested on an iPhone.

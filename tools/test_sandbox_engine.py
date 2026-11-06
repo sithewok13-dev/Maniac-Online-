@@ -1078,6 +1078,32 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Monkey Island 2\'s conversations not as its game plays them (export Monkey Island 2 again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {mc.group(1)} of Monkey Island 2\'s conversations played as a player plays them (the antique dealer\'s sale of the saw by the money carried, '
               f'the woodsmith called away, the dealer talked to, the laundry\'s bucket), {mc.group(3)} choices tapped, {mc.group(4)} kept')
+        # (From 0303) Day of the Tentacle's things as a player plays them,
+        # where its export is 0303's (tentacle-v36): the kids' own things its
+        # start gives them in a room no place exports (the scalpel, the
+        # textbook, the can-opener) carried by their names once, the first
+        # time one of its places is shown (none while the other checks run);
+        # the textbook read to the horse, its dentures taken; the scalpel on
+        # Oozo, his box taken; the wine put in the past's time capsule (or
+        # given to Thomas Jefferson) and the future's capsule opened with the
+        # can-opener, in either order, its vinegar shown and taken (picked up
+        # or pulled), not shown again; through saves and loads. Before, none
+        # of the kids' own things was ever carried, and the vinegar, the
+        # dentures and Oozo's box never had.
+        dt = re.search(r"selftest Day of the Tentacle's things: (\d+) of (\d+) played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        dottCases = 4 if exported_since(worlds, 'tentacle', 36) and all((worlds/f'tentacle-{room}.svw').exists() for room in (13, 19, 21, 26, 44)) else 0
+        if not dt or dt.group(4) != '0' or dt.group(1) != dt.group(2) or dt.group(3) != dt.group(1) or int(dt.group(2)) < dottCases:
+            raise SystemExit('FAIL: Day of the Tentacle\'s things as a player plays them (export Day of the Tentacle again: tools/export_worlds.py)\n' + output[-2000:])
+        # (And its replays carry the kids' own things into the records that use
+        # them: its records of two tried but one in fifty at most, and the
+        # three things they make touchable, the dentures, Oozo's box and his
+        # 191, among those revealed: 18 at least.)
+        dtwo = re.search(r"selftest Day of the Tentacle two things: (\d+) of (\d+) records of two things as its own sentences answer \((\d+) not tried", output)
+        drev = re.search(r"selftest revealed Day of the Tentacle: (\d+) things made touchable, (\d+) with answers of their own", output)
+        if dottCases and (not dtwo or 50 * int(dtwo.group(3)) > int(dtwo.group(2)) or not drev or int(drev.group(1)) < 18):
+            raise SystemExit('FAIL: Day of the Tentacle\'s records with the kids\' own things not replayed\n' + output[-2000:])
+        print(f'PASS: {dt.group(1)} of Day of the Tentacle\'s things played as a player plays them (the kids\' own things from its start carried, the dentures by '
+              f'the textbook, Oozo\'s box by the scalpel, the time capsule\'s vinegar by the wine put in, either order), {dt.group(3)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

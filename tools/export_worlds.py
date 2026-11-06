@@ -90,11 +90,13 @@ def main():
         # (From 0300: a thing a place's entry draws each time, or a class a
         # value kept comes with, not as its scripts have them, told by the
         # export.)
+        # (From 0303 also a thing its start gives in a room no place exports
+        # not as its start gives it, kWorldStartThings.)
         rows = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world things' in line and
-                ('(kWorldEntryPictures)' in line or '(kWorldValueClasses)' in line or '(kWorldPutBacks)' in line)]
+                ('(kWorldEntryPictures)' in line or '(kWorldValueClasses)' in line or '(kWorldPutBacks)' in line or '(kWorldStartThings' in line)]
         if rows:
-            print('\n'.join(rows) + '\nFAIL: a place\'s entry, a freeing or a thing put back not as its scripts have it (common/scummverse_world_catalog.h, '
-                  'kWorldEntryPictures, kWorldValueClasses, kWorldPutBacks)')
+            print('\n'.join(rows) + '\nFAIL: a place\'s entry, a freeing, a thing put back or one its start gives not as its scripts have it (common/scummverse_world_catalog.h, '
+                  'kWorldEntryPictures, kWorldValueClasses, kWorldPutBacks, kWorldStartThings)')
             return 1
         return 0 if exported else 1
 
