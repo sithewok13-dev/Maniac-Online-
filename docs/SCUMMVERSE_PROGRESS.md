@@ -9426,3 +9426,29 @@ descumm, nothing copied).
   changed (a failure, fewer cases, no line, fewer revealed, many untried):
   each caught; test_startup, test_world_setup and the full data suite.
   Not tested on an iPhone.
+
+## Paused after 0303 (work in flight, not in any patch)
+
+Paused at the user's word. Everything through 0303 is committed and
+pushed; the engine tree is exactly 0001-0303.
+- 0303's data suite was stopped after 45 of 50 had passed (the sandbox
+  test among them, and the bootstrap check): test_story_engine,
+  test_story_differential, test_playthrough_engine, test_playthrough_zak and
+  test_scene_authenticity were not run on it.
+- Ready but not integrated (in the session's scratch folder only, not
+  kept if the machine is reclaimed): 0304, Monkey Island 2's money earned
+  in play (the rat trapped in room 14's box and put in the kitchen's soup,
+  bit 74; the cook fired, bit 71; the bartender's job, room 9, paying 420;
+  the saw bought with it; talks file "SVQ2": talks reading up to three
+  more values, steps that take the one played elsewhere). Its review was
+  stopped before it reported.
+- Stopped mid-work: the review fixes of 0303 (Oozo's box drawn, room 26's
+  185 in picture 1 while touchable; bit 104 kept so the horse's sleep is
+  not played twice; Oozo, costume 107, gone once popped; each start thing
+  recorded as given by itself), planned as 0305 (tentacle v37); and
+  Monkey Island after its three trials (the dock's cut-scenes, the
+  governor's mansion, the crew and Stan's ship, the purse 194), planned
+  as 0306.
+- Next: the five suites above on 0303; review and integrate 0304 (or redo
+  it from its doc if the scratch is gone); then the 0303 review fixes and
+  Monkey Island after its trials again.
