@@ -9268,6 +9268,7 @@ pushed; the engine tree is exactly 0001-0302.
   test among them, and the bootstrap check): test_story_engine,
   test_story_differential, test_playthrough_engine, test_playthrough_zak and
   test_scene_authenticity were not run on it. 0301 passed all 50.
+  Resumed: those five then passed on 0302 too, so 0302 has passed all 50.
 - Two agents were stopped mid-work; their drafts were in the session's
   scratch folder only and are not kept: Day of the Tentacle's things shown
   only by story state (planned as 0303) and Monkey Island 2's money (the
