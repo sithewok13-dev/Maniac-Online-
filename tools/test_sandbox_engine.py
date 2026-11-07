@@ -251,6 +251,35 @@ def cycles_of(path):
     return [struct.unpack_from('<HBBB', data, p + 1 + i * 5) for i in range(data[p])]
 
 
+def object_pictures(path):
+    """(From 0308) A scene file's objects' pictures: {id: (x, y,
+    width, height, shown, [pictures])}, each picture its rectangle's palette
+    indices (picture 0 the place without it); {} before SVW5."""
+    data = path.read_bytes()
+    if data[:2] == b'\x1f\x8b':
+        data = gzip.decompress(data)
+    if data[:4] != b'SVW5':
+        return {}
+    width, height, boxes = struct.unpack_from('<HH', data, 6) + (data[10],)
+    p = 12 + 768 + width * height + boxes * 18
+    objects = struct.unpack_from('<H', data, p)[0]
+    ids = [struct.unpack_from('<H', data, p + 2 + i * 16)[0] for i in range(objects)]
+    p += 2 + objects * 16 + boxes * 2 + boxes * boxes
+    p += 1 + data[p] * 5
+    found = {}
+    for obj in ids:
+        p += 1 + data[p]
+        pictures = data[p]
+        p += 1
+        if not pictures:
+            continue
+        shown, x, y, w, h = struct.unpack_from('<BhhHH', data, p)
+        p += 9
+        found[obj] = (x, y, w, h, shown, [data[p + k * w * h:p + (k + 1) * w * h] for k in range(pictures)])
+        p += pictures * w * h
+    return found
+
+
 def things_of(path):
     """A things file: {room: {object: (picture, answers)}} ("SVO1"; from
     export version 23 "SVO3" with no effects, then what each is inside;
@@ -1100,9 +1129,15 @@ if __name__ == '__main__':
         # can-opener, in either order, its vinegar shown and taken (picked up
         # or pulled), not shown again; through saves and loads. Before, none
         # of the kids' own things was ever carried, and the vinegar, the
-        # dentures and Oozo's box never had.
+        # dentures and Oozo's box never had. (From 0308 each of
+        # the kids' own given once, a state of 0303 read as all three given;
+        # where its export is 0308's (tentacle-v37) a fifth: the
+        # horse asleep kept, read to again only a line, the dentures not back
+        # in the glass; Oozo gone once popped, at once and on entering again,
+        # his box drawn in its picture 1 and carried from it.)
         dt = re.search(r"selftest Day of the Tentacle's things: (\d+) of (\d+) played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
-        dottCases = 4 if exported_since(worlds, 'tentacle', 36) and all((worlds/f'tentacle-{room}.svw').exists() for room in (13, 19, 21, 26, 44)) else 0
+        dottRooms = all((worlds/f'tentacle-{room}.svw').exists() for room in (13, 19, 21, 26, 44))
+        dottCases = 0 if not dottRooms else 5 if exported_since(worlds, 'tentacle', 37) else 4 if exported_since(worlds, 'tentacle', 36) else 0
         if not dt or dt.group(4) != '0' or dt.group(1) != dt.group(2) or dt.group(3) != dt.group(1) or int(dt.group(2)) < dottCases:
             raise SystemExit('FAIL: Day of the Tentacle\'s things as a player plays them (export Day of the Tentacle again: tools/export_worlds.py)\n' + output[-2000:])
         # (And its replays carry the kids' own things into the records that use
@@ -1113,8 +1148,28 @@ if __name__ == '__main__':
         drev = re.search(r"selftest revealed Day of the Tentacle: (\d+) things made touchable, (\d+) with answers of their own", output)
         if dottCases and (not dtwo or 50 * int(dtwo.group(3)) > int(dtwo.group(2)) or not drev or int(drev.group(1)) < 18):
             raise SystemExit('FAIL: Day of the Tentacle\'s records with the kids\' own things not replayed\n' + output[-2000:])
-        print(f'PASS: {dt.group(1)} of Day of the Tentacle\'s things played as a player plays them (the kids\' own things from its start carried, the dentures by '
-              f'the textbook, Oozo\'s box by the scalpel, the time capsule\'s vinegar by the wine put in, either order), {dt.group(3)} kept')
+        # (From 0308, its export of 0308's: Oozo's box,
+        # room 26's 185, drawn in its picture 1 as its game draws it, in
+        # costume 116: there that picture shows more than what 191, popped
+        # Oozo, shows over the place in its own picture 1, as 185's own image
+        # did: nothing.)
+        if dottCases >= 5:
+            scene = object_pictures(worlds/'tentacle-26.svw')
+            box, oozo = scene.get(185), scene.get(191)
+            drawn = 0
+            if box and oozo and len(box[5]) > 1 and len(oozo[5]) > 1:
+                x, y, w, h = box[:4]
+                ox, oy, ow, oh = oozo[:4]
+                for i in range(w * h):
+                    if box[5][1][i] == box[5][0][i]:
+                        continue
+                    sx, sy = x + i % w - ox, y + i // w - oy
+                    drawn += not (0 <= sx < ow and 0 <= sy < oh) or oozo[5][1][sy * ow + sx] != box[5][1][i]
+            if drawn < 32:
+                raise SystemExit(f'FAIL: Day of the Tentacle\'s Oozo\'s box not drawn as its game draws it (room 26, 185\'s picture 1: {drawn} pixels of its own; '
+                                 'export Day of the Tentacle again: tools/export_worlds.py)')
+        print(f'PASS: {dt.group(1)} of Day of the Tentacle\'s things played as a player plays them (the kids\' own things from its start carried, each once, the dentures by '
+              f'the textbook, the horse asleep after, Oozo\'s box by the scalpel, Oozo gone and his box drawn, the time capsule\'s vinegar by the wine put in, either order), {dt.group(3)} kept')
         # (From 0305) The Last Crusade's things shown by what its game keeps,
         # as a player plays them, where its export is 0305's (indy3-v32):
         # Henry's house's table cloth pulled (or picked up) off once its plant

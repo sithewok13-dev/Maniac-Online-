@@ -95,12 +95,14 @@ def main():
         # value kept comes with, not as its scripts have them, told by the
         # export.)
         # (From 0303 also a thing its start gives in a room no place exports
-        # not as its start gives it, kWorldStartThings.)
+        # not as its start gives it, kWorldStartThings; from 0308
+        # a thing its game draws as an actor not drawn so, kWorldActorThings.)
         rows = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world things' in line and
-                ('(kWorldEntryPictures)' in line or '(kWorldValueClasses)' in line or '(kWorldPutBacks)' in line or '(kWorldStartThings' in line)]
+                ('(kWorldEntryPictures)' in line or '(kWorldValueClasses)' in line or '(kWorldPutBacks)' in line or '(kWorldStartThings' in line or
+                 '(kWorldActorThings)' in line)]
         if rows:
-            print('\n'.join(rows) + '\nFAIL: a place\'s entry, a freeing, a thing put back or one its start gives not as its scripts have it (common/scummverse_world_catalog.h, '
-                  'kWorldEntryPictures, kWorldValueClasses, kWorldPutBacks, kWorldStartThings)')
+            print('\n'.join(rows) + '\nFAIL: a place\'s entry, a freeing, a thing put back, one its start gives or one drawn as an actor not as its scripts have it '
+                  '(common/scummverse_world_catalog.h, kWorldEntryPictures, kWorldValueClasses, kWorldPutBacks, kWorldStartThings, kWorldActorThings)')
             return 1
         return 0 if exported else 1
 

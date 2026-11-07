@@ -2626,9 +2626,11 @@ int main() {
 			const WorldMap *map = worldMap(s.game);
 			assert(map);
 			for (int i = 0; i < map->roomCount; ++i) assert(map->rooms[i].room != s.room && map->rooms[i].resource != s.room);
-			assert(worldStartGivenValue(s.game, kWorldStartGiven) && !worldStartGivenValue(s.game, kWorldStartGiven + 1) && !worldKeptValue(s.game, kWorldStartGiven) && !worldHeldValue(s.game, kWorldStartGiven));
+			assert(worldStartGivenValue(s.game, kWorldStartGiven) && worldStartGivenValue(s.game, kWorldStartGivenRows) && !worldStartGivenValue(s.game, kWorldStartGivenRows + 1));
+			assert(!worldKeptValue(s.game, kWorldStartGiven) && !worldHeldValue(s.game, kWorldStartGiven) && !worldKeptValue(s.game, kWorldStartGivenRows) && !worldHeldValue(s.game, kWorldStartGivenRows));
 		}
 		assert(kWorldStartGiven != kWorldHeld && kWorldStartGiven != kWorldHeldFor && kWorldStartGiven != kWorldKidsNeed && kWorldStartGiven < kWorldClassValue);
+		assert(kWorldStartGivenRows != kWorldHeld && kWorldStartGivenRows != kWorldHeldFor && kWorldStartGivenRows != kWorldKidsNeed && kWorldStartGivenRows < kWorldClassValue && kWorldStartGivenRows != kWorldStartGiven);
 		for (const WorldValueArrival &w : kWorldValueArrivals) assert(w.need >= 0 && w.need < kWorldPersonThing && w.need != kWorldArrivalAnswer);
 		int dott = -1;
 		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "tentacle")) dott = g;
@@ -2819,5 +2821,62 @@ int main() {
 		assert(late && worldExportVersion("atlantis") >= 34);
 	}
 	std::puts("PASS: a value reader answered with its thing carried, Fate of Atlantis's Tikal temple in the catalog (its classes kept as their negatives)");
+	// (From 0308) Each start's thing given kept apart: a bit a
+	// row of its game, in order, 31 at most; its game's rows' bits and 0303's
+	// (from the review of 0308 Sam & Max's Max among them, 0306's);
+	// read back (worldKeptValueAs) only as bits of its rows, 0303's one value
+	// only at 1. A thing its game draws as an actor (kWorldActorThings): a
+	// later game's thing of a place exported, a costume, found by its game,
+	// room and number alone. Day of the Tentacle's: Oozo's box (26, 185) in
+	// costume 116; Oozo (costume 107) of the cast, gone with 191 (room 26)
+	// so; the horse asleep (bit 104) kept, read by the textbook read to the
+	// horse and its Talk, and by the glass's five verbs.
+	{
+		using namespace WorldCatalog;
+		const int games = (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0]));
+		for (int g = 0; g < games; ++g) {
+			int k = 0, before0308 = 0;
+			for (const WorldStartThing &s : kWorldStartThings) {
+				if (s.game != g) continue;
+				assert(worldStartBit(g, s.object) == k);
+				if (s.before0308) before0308 |= 1 << k;
+				++k;
+			}
+			assert(k <= 31 && worldStartRows(g) == (k ? (int)((1u << k) - 1) : 0) && worldStartRows(g, true) == before0308);
+			if (!k) assert(!worldStartGivenValue(g, kWorldStartGivenRows) && worldKeptValueAs(g, kWorldStartGivenRows, 1) == -1);
+		}
+		int dott = -1;
+		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "tentacle")) dott = g;
+		assert(worldStartRows(dott) == 7 && worldStartRows(dott, true) == 7 && worldStartBit(dott, 710) == 1 && worldStartBit(dott, 712) == -1 && worldStartBit(dott + 1, 710) == -1);
+		assert(worldKeptValueAs(dott, kWorldStartGivenRows, 5) == 5 && worldKeptValueAs(dott, kWorldStartGivenRows, 8) == -1 && worldKeptValueAs(dott, kWorldStartGivenRows, -1) == -1);
+		assert(worldKeptValueAs(dott, kWorldStartGiven, 1) == 1 && worldKeptValueAs(dott, kWorldStartGiven, 2) == -1 && worldKeptValueAs(dott, kWorldStartGiven, 0) == -1);
+		// (Sam & Max's Max, of 0306: its own bit; from the review of 0308 of
+		// before 0308, as the value of before has him given.)
+		int snm = -1;
+		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "samnmax")) snm = g;
+		assert(snm >= 0 && worldStartRows(snm) == 1 && worldStartRows(snm, true) == 1 && worldStartBit(snm, 35) == 0 && worldStartThing(snm, 35)->before0308);
+		assert(worldKeptValueAs(snm, kWorldStartGivenRows, 1) == 1 && worldKeptValueAs(snm, kWorldStartGivenRows, 2) == -1);
+		for (const WorldActorThing &t : kWorldActorThings) {
+			assert(t.game >= 0 && t.game < games && !worldHome(t.game) && t.object > 0 && t.costume > 0 && t.x >= 0 && t.y >= 0 && (t.facing == 0 || t.facing == 90 || t.facing == 180 || t.facing == 270));
+			assert(worldActorThing(t.game, t.room, t.object) == &t && !worldActorThing(t.game, t.room + 1, t.object) && !worldActorThing(t.game + 1, t.room, t.object));
+			const WorldMap *map = worldMap(t.game);
+			bool place = false;
+			for (int i = 0; map && i < map->roomCount; ++i) place = place || map->rooms[i].room == t.room;
+			assert(place);
+		}
+		assert(worldActorThing(dott, 26, 185) && worldActorThing(dott, 26, 185)->costume == 116 && !worldActorThing(dott, 26, 186));
+		bool oozo = false, cast = false;
+		for (const WorldCastThing &t : kWorldCastThings) oozo = oozo || (t.game == dott && t.costume == 107 && t.room == 26 && t.object == 191);
+		for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == dott && c.room == 26 && c.guest.costume == 107);
+		const int asleep = 0x8000 + 104;
+		int horse = 0, glass = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (v.game != dott || v.reads != asleep) continue;
+			horse += v.room == 21 && v.object == 145 && ((v.kind == kWorldVerbUse && v.with == 710) || (v.kind == kWorldVerbTalk && !v.with));
+			glass += v.room == 21 && v.object == 146 && !v.with && (v.kind == kWorldVerbLook || v.kind == kWorldVerbPickUp || v.kind == kWorldVerbPush || v.kind == kWorldVerbPull || v.kind == kWorldVerbUse);
+		}
+		assert(oozo && cast && horse == 2 && glass == 5 && worldKeptValue(dott, asleep) && worldKeptValueAs(dott, asleep, 1) == 1 && worldKeptValueAs(dott, asleep, 2) == -1 && worldExportVersion("tentacle") >= 37);
+	}
+	std::puts("PASS: each start's thing given kept apart (its rows' bits, 0303's one value), a thing its game draws as an actor, Day of the Tentacle's Oozo, his box and its horse asleep in the catalog");
 	return 0;
 }

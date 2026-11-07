@@ -10061,3 +10061,148 @@ original's scripts (read with descumm, nothing copied).
   check_given_through, check_lit_people) on the export: each passes
   (check_arrivals failed before the fix: Give in the sub); test_startup,
   test_world_setup and the full data suite. Not tested on an iPhone.
+
+## Patch 0308 — Day of the Tentacle's Oozo popped as its game shows it (his box drawn, he gone), its horse asleep for good once read to, and each of its kids' own things given by itself (tentacle export version 37)
+
+From the review of 0303, against the original's scripts (read with
+descumm, nothing copied).
+- Oozo's box. What the original does: the scalpel used on Oozo (room 26,
+  186) plays local script 201, which makes 185 and 191 touchable (186
+  untouchable) and starts local 209, as the room's entry does: with 191
+  touchable it shows 191 in its picture 1 (popped Oozo) and 186 in its
+  picture 0, and while 185 is touchable it puts actor 10 in costume 116 at
+  115, 139, turned right (its animation 249); 185's Pick up takes that actor
+  away (putActorInXY to 0) and picks 185 up. No script ever shows 185 in a
+  picture of its own: its own picture 1 (24 by 16) is a part of popped Oozo
+  that 191's picture 1 shows too, pixel for pixel (79 of 79). Before, the
+  export left 185 in its picture 0 after the scalpel (only made touchable),
+  so the box was touchable but never drawn, and carried by its name.
+- Now kWorldActorThings (common/scummverse_world_catalog.h): a thing its
+  game draws as an actor in a costume while it is touchable in its place,
+  never in an image of its own; Day of the Tentacle's 185 in costume 116 at
+  its spot. The scene export draws its picture 1 as that costume standing
+  there over the place, within its rectangle (by an actor in no room, as the
+  engine starts it again after: else it would stay in the room, shown
+  whenever it is entered later in the export, though nothing exported today
+  depends on it); a costume not drawn, or
+  mostly outside the rectangle, fails tools/export_worlds.py. The things
+  export files the thing in its picture 1 wherever it is touchable in its
+  place, 0 else (the scalpel's answers leave it so, with its touch; its own
+  answers are played from there; its Pick up leaves it in 0, carried, by
+  its picture). Box 116's 106 pixels, 17 by 10, 105 within 185's rectangle:
+  65 of them over what popped Oozo shows there. The new engine draws it as
+  any thing in a picture of its own, on top of 191 as its game's actor is.
+  A state of 0303's with Oozo popped (the box touchable in its picture 0) is
+  read back with the box in its picture 1, where its things file answers it
+  from there (not once carried, nor made untouchable).
+- Oozo himself (costume 107, the cast of room 26): a row of kWorldCastThings
+  (191, room 26): off the stage there for good once 191 is in its picture 1,
+  at once (the scalpel's answer takes him off, as an answer that takes the
+  thing does; now also ownAnswer's and pairOwn's that set it so) and on
+  every entry after, as the original's 209 takes his actor away; and, as the
+  row has every one of the cast so (0291's Purple Meteor), put first on room
+  26's stage till then and on no other. Before, he stood on beside what was
+  left of him.
+- The horse asleep. What the original does: room 21's local script 202
+  (the textbook read to the horse, 145's verb 23, which 710's Use hands on
+  to) sets bit 104 first; with 104 set 145's verb 23 is the one played's
+  line only, its Talk (verb 10) too (clear: local 203, the horse's talk), and
+  the glass's (146) Look, Pick up, Push, Pull and Use, through local 204
+  (all but Look after bit 137, its first time, not kept: played clear), the
+  one played's line, not 204's cut-scene and talk; its entry draws the horse
+  asleep. Before, 104 was not kept: read to again, the horse fell asleep
+  again, the glass was shown with the dentures in it and 147 touchable
+  again, though carried. Now 104 is kept (kWorldKeptValues) and read by
+  seven rows of kWorldValueReaders (145's Use with 710 and Talk, 146's five
+  verbs).
+- Each start thing given by itself. 0303 kept one value for all of a
+  game's kWorldStartThings (kWorldStartGiven, 0x4002): a row added later
+  would never be given to anyone whose state had it. Now the value
+  kWorldStartGivenRows (0x4003) of the game, bit k its k-th row there (a
+  game's rows only appended, 31 at most), set for each thing as it is given
+  (or is carried already); 0x4002 at 1, as 0303 to 0307 wrote it, is read
+  back as each of the rows marked `before0308` given (Day of the Tentacle's
+  three and Sam & Max's Max, 0306's row) and let go; a row added from now on
+  is given by its own bit; loadState reads both through worldKeptValueAs
+  (0x4003 only as bits of its game's rows, 0x4002 only at 1; else let go, as
+  a damaged state's). 0306's check of Max reads his bit now.
+- The verbs self-test's Day of the Tentacle check leaves the random draws,
+  the strolls' clock, the later steps, the keepers sent away and the way
+  back as it found them (it let them go before), and the check itself fails
+  if it does not.
+- Results: Day of the Tentacle's things file 9965 answers as before, 9 of
+  them changed (185's seven, now from its picture 1; the scalpel's two, 185
+  in its picture 1 with its touch), 81 by a value kept (was 53: 28 more, the
+  horse's and the glass's at 104 clear and set); its room 26 scene only
+  185's picture 1 changed; its other scenes, characters and verb panel byte
+  for byte as before; every other file of every game byte for byte as
+  0304's (1137 files exported from nothing, the mansion's included: only
+  tentacle-26.svw, tentacle-things.svo and the marker differ); two exports
+  identical; the reversed order the same answers; on 0307's tree (0305 to
+  0307 applied) Day of the Tentacle's files byte for byte as on 0304's, and
+  Sam & Max's (samnmax-v32), Fate of Atlantis's (atlantis-v34) and the Last
+  Crusade's (indy3-v32) byte for byte as without this patch.
+- From the review of 0308: Sam & Max's saves of 0306 and 0307 kept Max
+  given as 0x4002 at 1 (0306's startCarried wrote it), which 0308 first
+  read as Day of the Tentacle's rows only: dropped, so Max was carried again
+  on the next Sam & Max place shown (harmless today, nothing uses him up,
+  but wrong). Now the flag is `before0308` and Max's row has it: 0x4002 at 1
+  reads as his bit set, nothing given again. And the read-back of a 0303
+  state with Oozo popped (keptFromActorThings) left alone a box carried
+  away (its place's file missing as the state is read, so carry() failed and
+  it went to _carriedAway, isCarried false): before, it was put in its
+  picture 1 too, so once the file was back it was both carried and drawn.
+  Tests: Sam & Max's check (0306's value read back as Max's bit, Max not
+  given again on showing a place) and Day of the Tentacle's fifth case (a
+  box carried away not put in its picture 1); test_panel (Max's row of
+  before 0308); two mutations, each caught (Max's row not of before 0308:
+  the Sam & Max check and test_panel; the carried-away check dropped: the
+  Day of the Tentacle check).
+- Not done: the horse drawn asleep on entering once 104 is set (its entry's
+  animation; the cast's horse stands as before); a state of 0303's in which
+  the horse was read to (104 not kept then: read to again it falls asleep
+  again once more); the box's own costume animation (a still frame); the
+  other things 0303 left as dead ends. Not tested on an iPhone.
+- Tests: the verbs self-test line "Day of the Tentacle's things" 5 of 5 (was
+  4 of 4): its first case also 0303's one value read back as all three
+  given (none given again) and a state with two given giving the third
+  alone; a new fifth, where the export is of this version: the textbook read
+  to the horse (104 set, the dentures shown and taken), through a save and a
+  load read to again (104 kept, only a line: the dentures not back in the
+  glass, the textbook kept), its Talk and the glass answered by 104; Oozo
+  there before he is popped, gone at once once popped (191 in its picture
+  1), his box shown in its picture 1, through a save and a load and on
+  entering again, carried from its picture 1; a state of 0303's with Oozo
+  popped read back with the box in its picture 1 and carried from it, one
+  with the box made untouchable not. tools/test_sandbox_engine.py's check
+  of it gated on tentacle-v37 (five cases; room 26's 185's picture 1 showing
+  at least 32 pixels of its own over popped Oozo's: 65); with 0303's export
+  (v36) four of four, as before (and, as there, the version-gated lines of
+  revealed and goes). Sam & Max's check of Max (0306's) by his own bit, and
+  0306's value read back as his bit: Max not given again.
+  On 0307's tree every other verbs line as without this patch, the Last
+  Crusade's, Sam & Max's and Fate of Atlantis's 2 of 2 each, but Day of the
+  Tentacle's two things (5668 of 5709, 41 not tried, was 39: the textbook
+  read to the horse answered by 104 now) and, as the random draws and the
+  replays before them go, the sword fighting's fights and The Curse of
+  Monkey Island's two things (798 of 848, was 786; on 0304's tree 798
+  either way); on 0306's and 0304's trees likewise; the all, doors and keep
+  then resume self-tests as without it, on each tree; test_panel (a new case:
+  the rows' bits, the value of before, Sam & Max's row among them, the actor thing,
+  Oozo's row, the horse's rows), test_world, test_stage and test_talks under
+  ASan/UBSan. 19 mutations (on 0304's tree but the last), 18 caught: 8 of
+  the catalog's (the box's costume 0: tools/export_worlds.py fails and the
+  python check; Oozo's row, bit 104 not kept, the horse's Use, its Talk, the
+  glass's Look, the textbook not of 0303's, the rows' bits not checked: the
+  verbs line, each by test_panel too), 4 of the export's (185 not filed by
+  its touch, the box not drawn: the python check alone, 185 filed as
+  touched only; the drawing actor left in the room: equivalent with today's
+  export, its files byte for byte the same), 6 of the new engine's (Oozo not
+  taken off by a pair's answer, a later row never given once one was, 0303's
+  value let go, the bits not checked on loading, the random draws not put
+  back: the check of it, 0303's popped Oozo not read back), Sam & Max's row
+  taken as 0303's (the Sam & Max check and test_panel); the python check
+  run on the verbs output as it is and changed five ways (four of four, a
+  failure, no line, many untried, 0303's room 26 under a v37 marker): each
+  caught; test_startup, test_world_setup and the full data suite. Not
+  tested on an iPhone.
