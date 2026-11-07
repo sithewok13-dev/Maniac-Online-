@@ -9755,3 +9755,25 @@ copied), for the steps a player needs that the new engine could not play.
   elsewhere): there too the Last Crusade's export the same and the verbs
   self-test as above against that tree's own; test_startup,
   test_world_setup and the full data suite. Not tested on an iPhone.
+
+## Paused after 0305 (the agents' weekly usage limit reached)
+
+Everything through 0305 is committed and pushed; the engine tree is
+exactly 0001-0305. 0305's sandbox test and bootstrap check passed; the rest
+of its data suite was left running. Staged in the session's scratch folder
+only (not kept if the machine is reclaimed), each to be integrated, tested
+and reviewed in this order:
+- 0306, Sam & Max: Max (35, from room 1) carried from the start through
+  0303's start things, his box icon, his uses (the carnival tickets, 95,
+  from actor 4 in room 9); samnmax v32. Its review was cut off.
+- 0307, Fate of Atlantis: the Tikal temple (rooms 76, 77: the lamp lit while
+  carried, kWorldCarriedNeed; the spiral and the lamp kept as classes the
+  game starts with, 0305's negative encoding; the head, the nose, the tomb)
+  and its start's scroll script let go; atlantis v34. Not reviewed.
+- 0308, Day of the Tentacle, from the review of 0303: Oozo's box drawn
+  (kWorldActorThings), the horse's bit 104 kept, Oozo gone once popped, each
+  start thing recorded as given by itself (0x4003); tentacle v37. Its
+  rebase over 0307 was cut off.
+- Monkey Island after its three trials (planned 0309): in progress, cut off.
+- Next: when the limit resets, resume those agents, review 0306-0308 and
+  integrate them one by one.
