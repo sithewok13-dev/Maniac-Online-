@@ -268,3 +268,131 @@
   progression. Hostel/tram/pyramid branches and complete Mars behavior remain
   open. No iOS compilation, simulator/device acceptance, IPA or real networked
   multiplayer result is implied by these native checks.
+
+
+## Patch 0040 — conversation reliability (2026-10-16)
+
+- Environment: Linux container, no original game data, no iPhone or simulator,
+  Hugging Face blocked (no model weights). Real-model probes were compile-checked
+  only, not executed.
+- Unit-tested: `tools/test_conversation.cpp` (ASan/UBSan, -Werror): causal order
+  with queued sends, backpressure, stale/duplicate completion, departures,
+  rotating groups, classic exclusion from model context, bounds, ID monotonicity.
+- Runtime-tested: `python3 tools/test_talk_runtime.py` builds pinned llama.cpp
+  (CPU) and runs the real iOS dialogue runtime with a scripted provider under
+  ASan and TSan: load survival across room change, queued sends, fallback,
+  departure, ambient pre-emption, end/off mid-reply. The load-survival case
+  fails on the previous logic (verified) and passes with the fix.
+- `test_scene_talk.cpp` updated: no-model sends now succeed with classic lines;
+  bubble order, sanitization and ASCII conversion of smart quotes/emoji.
+- 40 patch prefixes, idempotence, local-edit preservation pass; a fresh
+  upstream checkout plus 0001–0040 reproduces the working tree exactly.
+  Null build and 11 startup tests pass (talk code is iOS-only).
+- NOT verified: UIKit compilation (pending Apple CI), keyboard, layout and
+  touch behaviour on a device, model reply quality or latency.
+
+## Patch 0041 — portrait layout v2
+
+- Unit-tested: 500 width/height/keyboard/aspect combinations (ASan/UBSan,
+  -Werror): same chat bottom edge, chat never smaller than v1, no reserved
+  letterbox band, height-limited and invalid-aspect cases identical to v1;
+  exact iPhone 14 / SE figures. Original 49 v1 cases unchanged.
+- 41 patch prefixes reconstruct; null build and 11 startup tests pass.
+- NOT verified: UIKit/renderer compilation (Apple CI), on-device appearance.
+
+## Apple CI for 0040–0042 (2026-10-16)
+
+- iOS run 38919709518 (0040) and 38920692079 (0040–0042, commit 7f373eb):
+  UIKit/renderer compile, arm64 IPA packaged. Artifact 12055045974.
+- Native runs 38919709561 and 38920691938: green, including runtime ASan/TSan.
+- Compiled is not device-tested: chat, layout and airport labels await iPhone checks.
+
+## Patch 0043 — with original data (2026-10-16)
+
+- Data: user-supplied English DOS V1 Maniac (00.LFL 7f45ddd6...) and Zak
+  (00.LFL 7020931d..., all 31 pinned room files match). Not committed.
+- `tools/test_all_data.py`: 26 data tests. All pass except the scene audit,
+  which fails only on rooms 64/65/97/98 (not in the original; patch 0044).
+- Scene audit: 55/71 exact (was 41/71); reference proven deterministic (two
+  runs byte-identical). It also caught a regression during development
+  (Mexico chamber colors), fixed before commit.
+- Pre-existing roaming timeout reproduced on the unmodified 0042 baseline;
+  cause was the probe missing the shared prelude (modal desktop dialog).
+- Native null build, startup tests and 43 patch prefixes pass.
+- NOT verified: iPhone, animation, scrolling frames beyond the camera minimum.
+
+## Patch 0044
+
+- `tools/test_all_data.py`: 26/26 data tests pass (scene audit included: all
+  audited rooms exact, retired rooms unreachable). Expansion probe checks every
+  pad command lands at its original site, out-of-range commands are ignored,
+  retired rooms are refused, and a pre-0044 save made inside a retired room
+  (with a second occupant in another) migrates both occupants and the view.
+- Perspective and chamber probes updated to non-retired rooms (Seattle chamber
+  92 now serves as the shared-resource-14 isolation check).
+- 44 patch prefixes, null build and startup pass. iOS panel compile: Apple CI.
+- NOT verified: iPhone; ASan run of the data probes for 0043/0044.
+
+## Patch 0045 and sanitizer coverage (2026-10-16)
+
+- 26/26 data tests pass; expansion probe checks The King's name and migration
+  of a legacy-named save; dialogue runtime tests pass.
+- AddressSanitizer engine build (build/asan, CXXFLAGS -fsanitize=address):
+  expansion seed 15, flights, chamber and scene audit pass with 0 ASan errors
+  on the 0044 state.
+- CI: native and iOS runs 38951831349/38951831639 green for 0043-0044.
+
+## Patch 0046
+
+- 26/26 data tests pass. Expansion probe: carving refuses walkers twice with
+  both original lines, feeder traversal lands at (61,51) on the ledge, five-step
+  eye/window/valley graph, Peru pad lands in eye chamber 98.
+- Scene audit 57/71 exact; 69/97/98 exact against 138/136/137.
+- ASan expansion (seed 15) clean. 46 patch prefixes; startup tests pass.
+
+- CI for 0046 (fdd7249): native and iOS run 38955494557 green; IPA artifact 12069933388.
+
+## Patches 0047–0050
+
+- 26/26 data tests pass (`tools/test_all_data.py`), scene audit 64/75 exact
+  with no failures; dialogue runtime tests pass; bootstrap reconstructs every
+  patch prefix. Expansion probe walks every link (now including logical scenes),
+  checks logical-scene save/load and the borrowed resident actor.
+- Not device-tested; not multiplayer-tested.
+
+## Patch 0051
+
+- 26/26 data tests pass. Airport probe: 100+ random NPC flights board seated,
+  land on their clock and reach every destination; NPC flight never blocks the
+  player; player flight never auto-lands. Zak-cast: released guests share one
+  NPC flight. Bus probe: an NPC rides the bus alone. Not device-tested.
+
+## Patches 0052–0053
+
+- 27/27 data tests pass (adds test_net_engine). tools/test_net.cpp passes under
+  ASan/UBSan and TSan (also in native CI). Talk runtime tests cover chips and
+  the nearby composer. Apple CI built the 0052 IPA (UIKit chat compiles).
+- Not device-tested; not tested between two devices or two engine processes.
+
+## Patch 0054
+
+- ASan build: expansion, net_engine, airport, worlds, bus, flights, flight_join,
+  companions, companion_presence, seating, zak_cast, portraits, walkboxes,
+  perspective, chamber, temple, mars and the scene audit run with 0 errors
+  (the 0049 overflow was found this way). test_exploration, test_safety,
+  test_roaming and test_ai_encounters have no --build option (not ASan-run).
+- 27/27 data tests pass on the normal build.
+
+## Patch 0055
+
+- 28/28 data tests pass (adds test_tram). Bus probe covers the boarding wait,
+  walking aboard and a late rider; expansion covers schema-4 bus migration.
+- Not device-tested.
+
+## Patches 0056–0057
+
+- 29/29 data tests pass (adds test_world_visit; it SKIPs without a cache).
+- tools/test_mobile_layout.cpp: 2,304 split-layout cases. tools/test_world.cpp
+  (synthetic scenes) in CI. tools/export_worlds.py exports 41/41 scenes from
+  the user's 7 games through the real binary; world-visit probe ASan clean.
+- Apple CI built 0056 (split chat). Not device-tested.

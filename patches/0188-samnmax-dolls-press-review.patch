@@ -1,0 +1,55 @@
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index d3022297..b567ac55 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -193,30 +193,37 @@ void ScummEngine::scummverseStoryPassGuard(int delta) {
+ // (vars 152 and 153) and lights its button (object 771). The clothes that
+ // page asks for are read from the game's own table (array 304: three
+ // letters a doll, six a page; Sam's clothes from object 715, Max's from 745)
+-// and put on, as the player would, and the button is pressed. (A wrong
+-// answer has one more chance, then the game quits.)
++// and put on, as the player would, and the button is pressed. A wrong
++// answer has one more chance (var 154), then the game quits: so after one,
++// or if the page's clothes are not all found, it is left to the player.
+ void ScummEngine::scummverseStoryDressDolls() {
+ 	const int page = readVar(152), doll = readVar(153);
+ 	const bool asked = readVar(151) == 0 && getState(771) == 1 && page >= 1 && page <= 10 && (doll == 0 || doll == 1);
+ 	if (asked) {
+ 		const int first = doll ? 745 : 715, last = doll ? 770 : 744;
++		int items[3];
+ 		for (int k = 0; k < 3; ++k) {
+-			const int item = first + scummverseArrayAt(304, (page - 1) * 6 + doll * 3 + k) - 'A';
+-			if (item >= first && item <= last && getObjectIndex(item) != -1 && !getState(item)) {
+-				putState(item, 1);
+-				markObjectRectAsDirty(item);
++			items[k] = first + scummverseArrayAt(304, (page - 1) * 6 + doll * 3 + k) - 'A';
++			if (readVar(154) != 0 || items[k] < first || items[k] > last || getObjectIndex(items[k]) == -1) {
++				_scummverseStoryGuardTries = 20;
++				warning("SCUMMVERSE story: %s copy protection left to the player", _targetName.c_str());
++				return;
++			}
++		}
++		for (int k = 0; k < 3; ++k) {
++			if (!getState(items[k])) {
++				putState(items[k], 1);
++				markObjectRectAsDirty(items[k]);
+ 			}
+ 		}
+ 	}
+-	// (Its button, where it is: a press there.)
++	// (Its button, where it is: a press there, as the next frame's input,
++	// in the game's own screen coordinates, whatever the render mode.)
+ 	const ObjectData &button = _objs[getObjectIndex(771)];
+ 	const VirtScreen &vs = _virtscr[kMainVirtScreen];
+-	Common::Event event;
+-	event.mouse = Common::Point(button.x_pos + button.width / 2 - vs.xstart, button.y_pos + button.height / 2 + vs.topline);
+-	event.type = Common::EVENT_LBUTTONDOWN;
+-	_system->getEventManager()->pushEvent(event);
+-	event.type = Common::EVENT_LBUTTONUP;
+-	_system->getEventManager()->pushEvent(event);
++	_mouse.x = button.x_pos + button.width / 2 - vs.xstart;
++	_mouse.y = button.y_pos + button.height / 2 + vs.topline;
++	_leftBtnPressed |= 2; // (Clicked: input.cpp's msClicked; not held.)
+ 	++_scummverseStoryGuardTries;
+ 	warning("SCUMMVERSE story: %s copy protection answered (%s)", _targetName.c_str(), asked ? "the dolls dressed" : "a press");
+ }

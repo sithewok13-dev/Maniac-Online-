@@ -1,0 +1,223 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 8b5b8d57..58ea774a 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -274,8 +274,12 @@ void Scene::seat(int n, Point at) {
+ 	a.at = at; a.route.clear(); a.moving = false;
+ }
+ 
+-void Scene::resize(int n, double factor) {
+-	if (n >= 0 && n < (int)_actors.size() && factor > 0) _actors[n].height *= factor;
++void Scene::resize(int n, double factor, double widthFactor) {
++	if (n < 0 || n >= (int)_actors.size() || factor <= 0) return;
++	Actor &a = _actors[n];
++	a.height *= factor;
++	// (As wide as asked: its pixels' shape changes by the difference.)
++	if (widthFactor > 0) a.pixelAspect *= factor / widthFactor;
+ }
+ 
+ void Scene::walkTo(int n, Point to) {
+@@ -821,7 +825,7 @@ int addActor(const unsigned char *data, size_t size, double height, double pixel
+ int actorCount() { return stage().actorCount(); }
+ void place(int actor, double x, double y) { stage().place(actor, {x, y}); }
+ void seat(int actor, double x, double y) { stage().seat(actor, {x, y}); }
+-void resize(int actor, double factor) { stage().resize(actor, factor); }
++void resize(int actor, double factor, double widthFactor) { stage().resize(actor, factor, widthFactor); }
+ void walkTo(int actor, double x, double y) { stage().walkTo(actor, {x, y}); }
+ bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
+ bool busy() {
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 96ff4e54..029ae73f 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -136,8 +136,9 @@ public:
+ 	// Exactly there, as it is (not moved into the walk boxes): someone
+ 	// seated where no one walks (a plane's seat).
+ 	void seat(int actor, Point at);
+-	// Drawn this many times as big as now (someone too big for a seat).
+-	void resize(int actor, double factor);
++	// Drawn this many times as tall as now, and `widthFactor` times as wide
++	// (-1: as `factor`): someone fitted to a seat.
++	void resize(int actor, double factor, double widthFactor = -1);
+ 	void walkTo(int actor, Point to);
+ 	// Standing, turned towards a point (left or right, else to the front or
+ 	// back, as walking there would); talking, its talk frames in turn.
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 58dff6a6..46ec6ab7 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -22,7 +22,7 @@ int addActor(const unsigned char *data, size_t size, double height, double pixel
+ int actorCount();
+ void place(int actor, double x, double y);     // feet, source pixels (moved into the walk boxes)
+ void seat(int actor, double x, double y);      // exactly there (someone seated where no one walks)
+-void resize(int actor, double factor);         // drawn this many times as big as now
++void resize(int actor, double factor, double widthFactor); // drawn this many times as tall (and wide: -1, as tall) as now
+ void walkTo(int actor, double x, double y);
+ bool moving(int actor);
+ bool busy();                                   // anyone walking (or talking, or lighting up)
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 4447fef2..88a86146 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2503,7 +2503,16 @@ void SandboxEngine::vanBoard() {
+ // Zak's plane cabin as exported (800 x 128).
+ static const int kCabinWidth = 800, kCabinHeight = 128;
+ static const int kCabinSeats[] = {63, 74, 52, 41, 30, 19};
+-static const int kCabinEmpty = 74, kCabinPainted = 52, kCabinHead = 49, kCabinFloor = 112;
++static const int kCabinEmpty = 74, kCabinPainted = 52, kCabinFloor = 112;
++// Seated as in Maniac's own engine (the same cabin, the same rows: its
++// kWorldSeat* values): the cushion's row; nobody taller than a seated
++// teenager or wider than the seat (else made smaller); anyone shorter than
++// kSeatSmall on the cushion (a fifth of them below it), the rest sunk to
++// their waist (kSeatWaist percent below it); nobody left of the seat's
++// back. The big ones (kWorldSeatFits) crammed in as listed there: from row
++// `top` (by the overhead bins) down, `sink` percent of them below the
++// cushion, at least `width` wide, from `back` right of the seat's left.
++static const int kCabinCushion = 80, kSeatTallest = 72, kSeatWidest = 44, kSeatSmall = 48, kSeatWaist = 53, kSeatBack = 2;
+ 
+ bool SandboxEngine::rideInside(int index) {
+ 	const WorldRide &ride = kWorldRides[index];
+@@ -2540,13 +2549,14 @@ bool SandboxEngine::rideInside(int index) {
+ // the game, those following in the empty one behind, then in the painted
+ // passengers' (each first given the empty seat's back and cushion over its
+ // passenger), each seen from the side, sitting (their seated pose where
+-// they have one, else as they stand), their head as high as the painted
+-// passengers'; the seat's front (the empty seat's, its row under the
++// they have one, else as they stand) as Maniac's own engine seats them
++// (the big ones crammed in, too big for the seat: the user's "hilariously
++// oversized"); the seat's front (the empty seat's, its row under the
+ // cushion dark as under a painted passenger, as Maniac's own engine has
+ // it: the user, 0096) over them. More than six aboard: the rest unseen.
+ // (The cabin's seats at these 8-pixel columns; a seat's back and cushion
+-// rows 48..95, its front and the floor before it 80..127; the painted
+-// passengers' heads' top at row 49. Constants above rideInside.)
++// rows 48..95, its front and the floor before it 80..127. Constants above
++// rideInside.)
+ void SandboxEngine::seatAboard() {
+ 	int seated = 0;
+ 	auto sit = [&](int n) {
+@@ -2557,22 +2567,39 @@ void SandboxEngine::seatAboard() {
+ 		StageBridge::stop(n);
+ 		StageBridge::pose(n, 1, kWorldSeatedKind, 0);
+ 		_seatedActors.push_back(n);
+-		// (Their head at the painted passengers': feet as far below as they
+-		// are tall there, in front of no seat's front; measured in view. Too
+-		// tall for that, made smaller till they fit.)
++		// (Measured as drawn, with the camera on the seat; fitted, then put
++		// where its top (and a big one's left) should be.)
+ 		StageBridge::lookAt(seat + 16);
+-		const double room = kCabinHeight - 1.0 - kCabinHead;
+-		double tall = 0;
+-		for (int tries = 0; tries < 3; ++tries) {
+-			StageBridge::seat(n, seat + 16, kCabinFloor);
++		double fx = seat + 16, fy = kCabinFloor;
++		StageBridge::seat(n, fx, fy);
++		auto measure = [&](double &left, double &top, double &right, double &bottom) {
+ 			int x0, y0, x1, y1;
+-			double top = kCabinHead, sx = 0;
+-			if (StageBridge::drawnRect(n, x0, y0, x1, y1)) StageBridge::toScene(x0, y0, sx, top);
+-			tall = kCabinFloor - top;
+-			if (tall <= room + 0.5) break;
+-			StageBridge::resize(n, room / tall);
++			if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return false;
++			StageBridge::toScene(x0, y0, left, top);
++			StageBridge::toScene(x1, y1, right, bottom);
++			return right > left && bottom > top;
++		};
++		double l, t, r, b;
++		if (measure(l, t, r, b)) {
++			const int key = _onStage[n];
++			const WorldSeatFit *fit = worldSeatFit(worldAppearanceGame(key), worldAppearanceCostume(key));
++			double tall = b - t, top, left = -1;
++			if (fit) {
++				const double total = (kCabinCushion - fit->top) * 100.0 / (100 - fit->sink);
++				const double hf = total / tall, wf = MAX(fit->width / (r - l), hf * 100 / fit->squash);
++				StageBridge::resize(n, hf, wf);
++				top = fit->top; left = seat + fit->back;
++			} else {
++				const double f = MIN(1.0, MIN(kSeatTallest / tall, kSeatWidest / (r - l)));
++				if (f < 1) { StageBridge::resize(n, f, -1); tall *= f; }
++				top = kCabinCushion - tall * (100 - (tall < kSeatSmall ? 20 : kSeatWaist)) / 100.0;
++			}
++			if (measure(l, t, r, b)) {
++				fy += top - t;
++				fx += left >= 0 ? left - l : MAX(0.0, seat + kSeatBack - l);
++			}
+ 		}
+-		StageBridge::seat(n, seat + 16, kCabinHead + MIN(tall, room));
++		StageBridge::seat(n, fx, MIN(fy, kCabinHeight - 1.0));
+ 		StageBridge::addPiece(kCabinEmpty * 8, 80, 40, 48, seat, 80, kCabinHeight);
+ 		StageBridge::addPiece(kCabinPainted * 8, 88, 40, 8, seat, 88, kCabinHeight);
+ 	};
+@@ -5524,7 +5551,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// without the one played. Taken as a player does.
+ 	_phone.placesBegin = FakePlaces::begin; _phone.placesItem = FakePlaces::item; _phone.placesShow = FakePlaces::show;
+ 	_phone.placesCancel = FakePlaces::cancelWith; _phone.placesHide = FakePlaces::hide;
+-	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0, cabins = 0, seatedFollowers = 0, seatedPoses = 0, toursHome = 0;
++	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0, cabins = 0, seatedFollowers = 0, seatedPoses = 0, toursHome = 0, crammed = 0;
+ 	auto board = [&](int game, int room, int object) {
+ 		Common::String problem;
+ 		if (!enter(game, room, 0, problem)) return false;
+@@ -5570,22 +5597,32 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if ((int)n != _player && !following(_onStage[n])) continue;
+ 			double x, y;
+ 			StageBridge::position(n, x, y);
+-			bool seat = false;
+-			for (int column : kCabinSeats) seat = seat || fabs(x - (column * 8 + 16)) < 1;
+-			for (uint k = 0; k < seatedAt.size(); k += 2) seat = seat && fabs(seatedAt[k] - x) >= 1;
++			// (In a seat's span, from its back to its armrest; one each.)
++			int seatAt = -1;
++			for (int k = 0; k < ARRAYSIZE(kCabinSeats); ++k) if (x >= kCabinSeats[k] * 8 && x < kCabinSeats[k] * 8 + 40) seatAt = k;
++			bool seat = seatAt >= 0;
++			for (uint k = 0; k < seatedAt.size(); k += 3) seat = seat && (int)seatedAt[k + 1] != seatAt;
+ 			if (!seat || StageBridge::hidden(n) || StageBridge::moving(n)) { fail("someone aboard not in a seat of their own"); return false; }
++			// (Sitting in it as Maniac's own engine seats them: a big one listed
++			// from its row by the bins, crammed; anyone else no taller than a
++			// seated teenager, sunk to the cushion or their waist.)
+ 			StageBridge::lookAt(x);
+ 			int x0, y0, x1, y1;
+-			double sx, top = -1;
+-			if (StageBridge::drawnRect(n, x0, y0, x1, y1)) StageBridge::toScene(x0, y0, sx, top);
+-			if (y < kCabinHeight - 1 && fabs(top - kCabinHead) > 1.5) { fail("someone aboard not with their head where the painted passengers' are"); return false; }
+-			if (!seen(n)) { fail("someone aboard not seen (covered)"); return false; }
++			double sx, top = -1, ex, bottom = -1;
++			if (StageBridge::drawnRect(n, x0, y0, x1, y1)) { StageBridge::toScene(x0, y0, sx, top); StageBridge::toScene(x1, y1, ex, bottom); }
+ 			const int key = _onStage[n];
++			const WorldSeatFit *fit = worldSeatFit(worldAppearanceGame(key), worldAppearanceCostume(key));
++			const double tall = bottom - top;
++			const bool sitting = fit ? fabs(top - fit->top) <= 1.5 && fabs(tall - (kCabinCushion - fit->top) * 100.0 / (100 - fit->sink)) <= 2 :
++				tall <= kSeatTallest + 1.5 && top < kCabinCushion && bottom > kCabinCushion && bottom <= kCabinHeight;
++			if (!sitting) { fail("someone aboard not sitting in the seat as Maniac's own engine seats them"); return false; }
++			if (fit) ++crammed;
++			if (!seen(n)) { fail("someone aboard not seen (covered)"); return false; }
+ 			if (worldSeatPose(worldAppearanceGame(key), worldAppearanceCostume(key))) {
+ 				if (StageBridge::shownKind(n) != kWorldSeatedKind) { fail("someone with a seated pose not seated in it"); return false; }
+ 				++seatedPoses;
+ 			}
+-			seatedAt.push_back(x); seatedAt.push_back(y);
++			seatedAt.push_back(x); seatedAt.push_back(seatAt); seatedAt.push_back(y);
+ 			followers += (int)n != _player;
+ 		}
+ 		StageBridge::lookAt(px);
+@@ -5607,8 +5644,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if ((int)n != _player && !following(_onStage[n])) continue;
+ 			double x, y;
+ 			StageBridge::position(n, x, y);
+-			if (fabs(x - seatedAt[k]) >= 1 || fabs(y - seatedAt[k + 1]) >= 1) return false;
+-			k += 2;
++			if (fabs(x - seatedAt[k]) >= 1 || fabs(y - seatedAt[k + 2]) >= 1) return false;
++			k += 3;
+ 		}
+ 		return true;
+ 	};
+@@ -5929,8 +5966,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d failed",
+-		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, toursHome, cockpits, failed);
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose, %d crammed in), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, crammed, toursHome, cockpits, failed);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

@@ -1,0 +1,396 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 9dd81cb0..24203e32 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -537,12 +537,13 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	if (!controller || controller.presentedViewController) return;
+ 	// The sandbox engine (preview) running: another game's places, or back.
+ 	if (scummverseSandboxActive()) {
+-		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere: Talk chats with anyone here. The character screen, camera and tour come next." preferredStyle:UIAlertControllerStyleAlert];
++		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere: Talk chats with anyone here; Play as someone else picks anyone from any game. The camera and tour come next." preferredStyle:UIAlertControllerStyleAlert];
+ 		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+ 			if (!scummverseSandboxGameInstalled(game)) continue;
+ 			[sandbox addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %s", game.title] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxGameRequest + i); }]];
+ 		}
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxCastRequest); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to the original engine" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:sandbox animated:YES completion:nil];
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index f6713c16..73594366 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -646,8 +646,11 @@ static const int kWorldVanSiteCount = sizeof(kWorldVanSites) / sizeof(kWorldVanS
+ static const int kWorldVanRequest = (1 << 24) + (1 << 20);
+ // A menu request to open the sandbox engine (engines/scummverse, preview;
+ // above every other request); + 1: back from it to Maniac Mansion; in it,
+-// kWorldSandboxGameRequest + a game: to that game's first named place.
++// kWorldSandboxCastRequest: its character screen (whose choices are
++// kWorldCastRequest + a key), kWorldSandboxGameRequest + a game: to that
++// game's first named place.
+ static const int kWorldSandboxRequest = 1 << 28;
++static const int kWorldSandboxCastRequest = kWorldSandboxRequest + 2;
+ static const int kWorldSandboxGameRequest = kWorldSandboxRequest + 16;
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e428822e..351e6fb5 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -32,6 +32,7 @@
+ #include "common/scummverse_panel_engine.h"
+ #include "common/scummverse_stage_engine.h"
+ #include "common/scummverse_wander_engine.h"
++#include "common/scummverse_world_engine.h"
+ #include "common/scummverse_world_catalog.h"
+ #include "common/stream.h"
+ #include "common/system.h"
+@@ -53,8 +54,10 @@ static const int kGameShare = 100000;
+ // How near a door's walk-to point the one played must stop to go through
+ // it (source pixels of a 320-wide game).
+ static const double kDoorReach = 12;
+-// The Worlds menu's requests: back to Maniac, then go to game n.
++// The Worlds menu's requests: back to Maniac, the character screen, then go
++// to game n.
+ static const int kBackRequest = kWorldSandboxRequest + 1;
++static const int kCastRequest = kWorldSandboxCastRequest;
+ static const int kGameRequest = kWorldSandboxGameRequest;
+ static const char *const kStateFile = "scummverse-sandbox.state";
+ // How long a press is held before Full Throttle's coin opens (ms; on the
+@@ -72,7 +75,8 @@ static bool walkable(int game, int room) {
+ }
+ 
+ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
+-	_talk = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick, scummverseTravelScene};
++	_phone = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick, scummverseTravelScene,
++		scummverseCastGame, scummverseCastMember, scummverseCastShow};
+ }
+ 
+ SandboxEngine::~SandboxEngine() {
+@@ -368,7 +372,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	default: break;
+ 	}
+ 	// (The chat choosing whom to talk to: someone tapped, picked.)
+-	if (_talk.pick(talkIdAt(screenX, screenY))) return;
++	if (_phone.pick(talkIdAt(screenX, screenY))) return;
+ 	// (Over the scene, the pointer is where the last tap was.)
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+@@ -656,22 +660,22 @@ void SandboxEngine::talkScene() {
+ 	if (_player < 0 || _game < 0) return;
+ 	// (A line put away elsewhere: its speaker quiet.)
+ 	if (_speech.empty() && _speaker >= 0) { StageBridge::talk(_speaker, false); _speaker = -1; }
+-	_talk.appearance(kTalkPlayer, _playerKey);
++	_phone.appearance(kTalkPlayer, _playerKey);
+ 	unsigned long long here = 0;
+ 	for (int s = 0; s < kTalkSlots; ++s) {
+ 		const int n = slotActor(s, _player);
+ 		const bool on = n < (int)_onStage.size();
+-		_talk.visitor(s, on ? _onStage[n] : 0);
++		_phone.visitor(s, on ? _onStage[n] : 0);
+ 		if (on) here |= 1ULL << (kTalkVisitor + s);
+ 	}
+ 	// (Maniac's rooms by their own numbers, as Maniac tells the chat; the
+ 	// other games' as places.)
+ 	const int room = !strcmp(kWorldGames[_game].gameid, "maniac") ? _room : worldPlaceKey(_game, _room);
+ 	// (As Maniac's each step: the chat's window starts afresh in a new place.)
+-	_talk.travel(room, kTalkPlayer, 0, 0, 0);
++	_phone.travel(room, kTalkPlayer, 0, 0, 0);
+ 	char line[600];
+ 	int speaker = 0;
+-	const unsigned long long chatting = _talk.scene(room, kTalkPlayer, here, _speech.empty(), speaker, line, sizeof(line));
++	const unsigned long long chatting = _phone.scene(room, kTalkPlayer, here, _speech.empty(), speaker, line, sizeof(line));
+ 	// Those in the conversation stand, facing the one played.
+ 	double px, py, x, y;
+ 	StageBridge::position(_player, px, py);
+@@ -697,13 +701,70 @@ void SandboxEngine::talkScene() {
+ void SandboxEngine::talkEnd() {
+ 	int speaker = 0;
+ 	char line[2];
+-	_talk.scene(0, 0, 0, false, speaker, line, sizeof(line));
+-	for (int s = 0; s < kTalkSlots; ++s) _talk.visitor(s, 0);
+-	_talk.appearance(kTalkPlayer, 0);
+-	_talk.travel(0, 0, 0, 0, 0);
++	_phone.scene(0, 0, 0, false, speaker, line, sizeof(line));
++	for (int s = 0; s < kTalkSlots; ++s) _phone.visitor(s, 0);
++	_phone.appearance(kTalkPlayer, 0);
++	_phone.travel(0, 0, 0, 0, 0);
+ 	_chatting = 0;
+ }
+ 
++// The mansion's box first (the screen starts afresh with slot 0), Zak's
++// second, then the other games' (2 + their number), as Maniac's screen.
++void SandboxEngine::castOffer() {
++	Common::Array<int> order;
++	for (const char *home : {"maniac", "zak"})
++		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, home)) order.push_back(g);
++	for (int g = 0; g < worldGameCount(); ++g) if (!worldHome(g)) order.push_back(g);
++	for (uint i = 0; i < order.size(); ++i) {
++		const int g = order[i], slot = worldHome(g) ? (int)i : 2 + g;
++		int lead = -1;
++		for (const WorldLead &l : kWorldLeads) if (l.game == g) lead = l.costume;
++		// Its lead's face from their own file (none: the game is not here).
++		byte face[64 * 64 * 4];
++		Common::Array<byte> data;
++		const bool here = lead >= 0 && hasCharacter(worldAppearanceKey(g, lead)) &&
++			read(Common::String::format("%s-c%d.svc", kWorldGames[g].gameid, lead), data) && WorldBridge::spritePortrait(data.data(), data.size(), 64, face);
++		_phone.castGame(slot, kWorldGames[g].title, kWorldGames[g].folder, here ? face : nullptr);
++		if (!here) continue;
++		// The lead first, then everyone of the game installed, once each by name.
++		Common::Array<Common::String> named;
++		auto add = [&](int costume, const char *name) {
++			const int key = worldAppearanceKey(g, costume);
++			for (const Common::String &n : named) if (n == name) return;
++			if (!hasCharacter(key)) return;
++			named.push_back(name);
++			_phone.castMember(slot, name, kWorldCastRequest + key);
++		};
++		for (const WorldCastGuest &cast : kWorldCast) if (cast.game == g && cast.guest.costume == lead) { add(lead, cast.guest.name); break; }
++		for (const WorldCastGuest &cast : kWorldCast) if (cast.game == g) add(cast.guest.costume, cast.guest.name);
++	}
++	_phone.castShow();
++}
++
++// Where they live (their place in the cast, else their game's first), as
++// them. (The wanderers carry on: whoever is played is passed by when people
++// come on the stage, so never shown twice.)
++bool SandboxEngine::castChoose(int key) {
++	const WorldGuest *who = worldAppearance(key);
++	if (!who || !hasCharacter(key) || _broken.contains(key)) return false;
++	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
++	int room = -1;
++	for (const WorldCastGuest &cast : kWorldCast)
++		if (room < 0 && cast.game == game && cast.guest.costume == costume && installed(game, cast.room) && walkable(game, cast.room)) room = cast.room;
++	if (room < 0 && !firstPlace(game, room)) return false;
++	const int fromGame = _game, fromRoom = _room, fromKey = _playerKey;
++	_playerKey = key;
++	Common::String problem;
++	if (enter(game, room, 0, problem)) {
++		if (!_testing) g_system->displayMessageOnOSD(Common::U32String(Common::String::format("You are playing %s.", who->name)));
++		return true;
++	}
++	warning("SCUMMVERSE sandbox: %s-%d not shown as %s (%s)", kWorldGames[game].gameid, room, who->name, problem.c_str());
++	_playerKey = fromKey;
++	if (fromGame >= 0) enter(fromGame, fromRoom, 0, problem);
++	return false;
++}
++
+ // The one in front under the tap (the lowest feet).
+ int SandboxEngine::talkIdAt(int screenX, int screenY) const {
+ 	int found = 0, front = -1;
+@@ -882,6 +943,11 @@ void SandboxEngine::back() {
+ 
+ void SandboxEngine::request(int code) {
+ 	if (code == kBackRequest) { back(); return; }
++	if (code == kCastRequest) { castOffer(); return; }
++	// A choice on the character screen. (The chat's own requests, a scene's
++	// token and a command, may fall in its range: no character's key.)
++	if (code >= kWorldCastRequest && code < kWorldCastActorRequest) { castChoose(code - kWorldCastRequest); return; }
++	if (code < kGameRequest) return;
+ 	const int game = code - kGameRequest;
+ 	int room;
+ 	Common::String problem;
+@@ -1082,13 +1148,13 @@ Common::Error SandboxEngine::run() {
+ 		Common::Event event;
+ 		// (Full Throttle's: a press held opens the coin, let go uses it.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+-			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_talk.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
++			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+ 		if (_press.down && !_press.held && g_system->getMillis() - _press.at >= kCoinHold) { hold(); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+-		if (const int code = scummverseWorldPoll()) if (code > kWorldSandboxRequest) { request(code); changed = true; }
++		if (const int code = scummverseWorldPoll()) { request(code); changed = true; }
+ 		const uint32 now = g_system->getMillis();
+ 		carry += (int)MIN<uint32>(now - last, 500) * 60; last = now;
+ 		if (carry >= 1000) {
+@@ -1740,7 +1806,8 @@ static bool pick(int actor) {
+ // while the chat asks whom (and is not a walk), and walks again after; a new
+ // place ends it; closing tells the chat no one is here. A picture of a line.
+ Common::Error SandboxEngine::talkTest() {
+-	_talk = {FakeTalk::appearance, FakeTalk::visitorOf, FakeTalk::scene, FakeTalk::isPicking, FakeTalk::pick, FakeTalk::travel};
++	_phone.appearance = FakeTalk::appearance; _phone.visitor = FakeTalk::visitorOf; _phone.scene = FakeTalk::scene;
++	_phone.picking = FakeTalk::isPicking; _phone.pick = FakeTalk::pick; _phone.travel = FakeTalk::travel;
+ 	_wanderers = false;
+ 	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, failed = 0;
+ 	bool maniac = false, shown = false;
+@@ -1884,9 +1951,120 @@ Common::Error SandboxEngine::talkTest() {
+ 	return Common::kNoError;
+ }
+ 
++// The "cast" check's stand-in for the iPhone's character screen: the boxes
++// (slot, title, how much of its face is drawn) and people it is given.
++namespace FakeCast {
++struct Box { int slot; Common::String title; int face; Common::Array<byte> rgba; };
++struct Member { int slot; Common::String name; int request; };
++static Common::Array<Box> boxes;
++static Common::Array<Member> members;
++static int shown = 0;
++static void game(int slot, const char *title, const char *, const unsigned char *rgba) {
++	if (slot == 0) { boxes.clear(); members.clear(); } // (as the screen's: afresh)
++	int face = 0;
++	for (int i = 0; rgba && i < 64 * 64; ++i) face += rgba[i * 4 + 3] != 0;
++	boxes.push_back({slot, title, face, rgba ? Common::Array<byte>(rgba, 64 * 64 * 4) : Common::Array<byte>()});
++}
++static void member(int slot, const char *name, int request) { members.push_back({slot, name, request}); }
++static void show() { ++shown; }
++} // End of namespace FakeCast
++
++// The character screen with a stand-in, from the Worlds menu's request: a box
++// for every game (the mansion's slot 0 first, Zak's 1, the others 2 + their
++// number), each game's lead's face where they are installed (and none where
++// not), its people installed, the lead first, once each by name; then, in
++// each game, the lead and the last of them chosen as the screen sends it:
++// played (and on the stage once), where they live (else the game's first
++// place), kept in the state; a request in its range that is no one's
++// changes nothing.
++Common::Error SandboxEngine::castTest() {
++	_phone.castGame = FakeCast::game; _phone.castMember = FakeCast::member; _phone.castShow = FakeCast::show;
++	_wanderers = false;
++	int failed = 0, faces = 0, listed = 0, played = 0, expected = 0;
++	auto fail = [&](const char *what, const char *where) { ++failed; warning("SCUMMVERSE sandbox cast: %s: %s", where, what); };
++	int game, room;
++	Common::String problem;
++	if (!startPlace(game, room) || !someoneToPlay(game) || !enter(game, room, 0, problem)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
++	request(kCastRequest);
++	if (FakeCast::shown != 1) fail("not shown", "screen");
++	if ((int)FakeCast::boxes.size() != worldGameCount() || FakeCast::boxes.empty() || FakeCast::boxes[0].slot != 0) fail("not a box for each game, the mansion's first", "screen");
++	const Common::Array<FakeCast::Member> members = FakeCast::members;
++	for (int g = 0; g < worldGameCount(); ++g) {
++		const char *id = kWorldGames[g].gameid;
++		const int slot = !strcmp(id, "maniac") ? 0 : !strcmp(id, "zak") ? 1 : 2 + g;
++		int lead = -1, boxes = 0, face = 0;
++		for (const WorldLead &l : kWorldLeads) if (l.game == g) lead = l.costume;
++		for (const FakeCast::Box &b : FakeCast::boxes) if (b.slot == slot) { ++boxes; face = b.face; if (b.title != kWorldGames[g].title) fail("titled otherwise", id); }
++		if (boxes != 1) { fail("not one box", id); continue; }
++		const bool here = lead >= 0 && hasCharacter(worldAppearanceKey(g, lead));
++		if (here != (face > 0)) fail(here ? "the lead's face not drawn" : "a face for a game not here", id);
++		faces += face > 0;
++		Common::Array<FakeCast::Member> people;
++		for (const FakeCast::Member &m : members) if (m.slot == slot) people.push_back(m);
++		if (!here && !people.empty()) fail("people for a game not here", id);
++		if (people.empty()) continue;
++		listed += people.size();
++		for (uint i = 0; i < people.size(); ++i) {
++			const int key = people[i].request - kWorldCastRequest;
++			if (worldAppearanceGame(key) != g || !hasCharacter(key)) fail("someone listed not installed", id);
++			for (uint j = 0; j < i; ++j) if (people[j].name == people[i].name) fail("listed twice", id);
++		}
++		for (const WorldCastGuest &cast : kWorldCast)
++			if (cast.game == g && cast.guest.costume == lead) { if (people[0].name != cast.guest.name) fail("the lead not first", id); break; }
++		// The lead, then the last of them, chosen as the screen sends it.
++		for (uint pick : {0u, people.size() - 1}) {
++			if (pick && people.size() < 2) break;
++			++expected;
++			const int key = people[pick].request - kWorldCastRequest;
++			request(people[pick].request);
++			step(1);
++			int home = -1, first = -1;
++			for (const WorldCastGuest &cast : kWorldCast)
++				if (home < 0 && cast.game == g && cast.guest.costume == worldAppearanceCostume(key) && installed(g, cast.room) && walkable(g, cast.room)) home = cast.room;
++			if (home < 0) firstPlace(g, first);
++			int times = 0;
++			for (int k : _onStage) times += k == key;
++			if (_playerKey != key || _game != g || _room != (home >= 0 ? home : first) || _onStage.empty() || _onStage[_player] != key || times != 1) { fail("not played where they live", people[pick].name.c_str()); continue; }
++			++played;
++		}
++	}
++	// Kept; and a request in the screen's range that is no one's (the chat's
++	// scene token) changes nothing.
++	const int key = _playerKey, atGame = _game, atRoom = _room;
++	// (The chat's Arrive in place key 10033, Monkey Island's room 33: its
++	// token is the place times 32 plus the one played, shifted a byte.)
++	const int token = ((10000 + 33) * 32 + kTalkPlayer) << 8;
++	if (token < kWorldCastRequest || token >= kWorldCastActorRequest) fail("the token not in the screen's range (the check is out of date)", "screen");
++	request(token | 24);
++	if (_playerKey != key || _game != atGame || _room != atRoom) fail("played by a request that is no one's", "screen");
++	saveState();
++	double x, y;
++	if (!loadState(game, room, x, y) || _playerKey != key || game != atGame || room != atRoom) fail("not kept", "state");
++	// A picture of the faces, in the boxes' order, three times their size.
++	if (ConfMan.hasKey("scummverse_shots")) {
++		for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF140320;
++		for (uint b = 0; b < FakeCast::boxes.size(); ++b) {
++			const Common::Array<byte> &f = FakeCast::boxes[b].rgba;
++			for (int y = 0; !f.empty() && y < 192; ++y)
++				for (int x = 0; x < 192; ++x) {
++					const byte *p = &f[((y / 3) * 64 + x / 3) * 4];
++					const int sx = 16 + (b % 6) * 208 + x, sy = 16 + (b / 6) * 208 + y;
++					if (p[3] && sx < _width && sy < _height) _frame[sy * _width + sx] = 0xFF000000u | p[0] << 16 | p[1] << 8 | p[2];
++				}
++		}
++		shot("cast.png");
++	}
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d failed", (int)FakeCast::boxes.size(), faces, listed, played, expected, failed);
++	if (failed || !faces || !listed || played != expected || played < 2) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
+ 	if (mode == "talk") return talkTest();
++	if (mode == "cast") return castTest();
+ 	int game, room;
+ 	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
+ 	if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nobody to play");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 9b310a6d..53184573 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -111,6 +111,11 @@ private:
+ 	// whom to talk to, a tap on someone picks them.
+ 	void talkScene();
+ 	void talkEnd(); // (leaving: no one here, no conversation)
++	// The character screen (step 4; the iPhone's, as Maniac offers it): a box
++	// per game (the mansion, Zak, then the others) with its lead's face, its
++	// people installed (the lead first); a choice plays them where they live.
++	void castOffer();
++	bool castChoose(int key);
+ 	int talkIdAt(int screenX, int screenY) const; // someone here under a tap (0: no one)
+ 	void showPicture(int object, int id, int picture);
+ 	bool carry(int game, int room, int id, const Common::String &name, int picture); // (in that picture)
+@@ -129,10 +134,12 @@ private:
+ 	// then leaves as the menu's Back to Maniac Mansion does, "doors" through
+ 	// every door of every place, "wander" half an hour with everyone out,
+ 	// "verbs" every verb of every game's panel used on the things there,
+-	// "talk" chat with a stand-in for the iPhone's.
++	// "talk" chat with a stand-in for the iPhone's, "cast" its character
++	// screen with one.
+ 	Common::Error selfTest(const Common::String &mode);
+ 	Common::Error verbsTest();
+ 	Common::Error talkTest();
++	Common::Error castTest();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;
+@@ -158,17 +165,21 @@ private:
+ 	int _speaker = -1;                      // (an actor; -1: no one)
+ 	int _speechClock = 0;
+ 	unsigned long long _chatting = 0;       // talk IDs in the conversation
+-	// The chat's calls (common/scummverse_ai.h; none on the desktop), a
+-	// stand-in's in the "talk" check.
+-	struct Talk {
++	// The iPhone's calls (common/scummverse_ai.h; none on the desktop): the
++	// chat's, and the character screen's; stand-ins' in the "talk" and
++	// "cast" checks.
++	struct Phone {
+ 		void (*appearance)(int actor, int key);
+ 		void (*visitor)(int slot, int key);
+ 		unsigned long long (*scene)(int room, int visitor, unsigned long long actors, bool canSpeak, int &speaker, char *line, int capacity);
+ 		bool (*picking)();
+ 		bool (*pick)(int actor);
+ 		void (*travel)(int room, int ego, unsigned companions, int from, unsigned arrivals); // (the place, for the chat's window)
++		void (*castGame)(int slot, const char *title, const char *folder, const unsigned char *rgba);
++		void (*castMember)(int slot, const char *name, int request);
++		void (*castShow)();
+ 	};
+-	Talk _talk;
++	Phone _phone;
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them

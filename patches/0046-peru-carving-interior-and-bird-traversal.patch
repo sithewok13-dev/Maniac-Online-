@@ -1,0 +1,187 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 65804bf4..f2507ef1 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -24,7 +24,7 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ // One list for drawing and VoiceOver labels, in airport/pad command order.
+ static const char *const scummverseFlightNames[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
+ // Original crystal-map sites, in engine pad order (commands 50+).
+-static const char *const scummversePadNames[]={"SEATTLE","MEXICO","NEPAL","EGYPT","MARS"};
++static const char *const scummversePadNames[]={"SEATTLE","MEXICO","PERU","EGYPT","MARS"};
+ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummversePadNames[0]);
+ @implementation ScummverseAirportView
+ - (void)drawRect:(CGRect)rect {
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index 0feb7c56..2403e28f 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -557,6 +557,8 @@ int ScummEngine::findObject(int x, int y) {
+ 			const ObjectData &o=_objs[i]; bool travel=zakPadObject(_currentRoom,o.obj_nr) ||
+ 				(zakAirport(_currentRoom) && zakAirportRole(scummverseOriginalObject(_currentRoom,o.obj_nr))!=kZakNoRole);
+ 			for(const auto &link:zakLinks) if(link.room==_currentRoom && link.object==o.obj_nr) travel=true;
++			for(const auto &way:zakTraversals) if(way.room==_currentRoom && way.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
++			for(const auto &refusal:zakRefusals) if(refusal.room==_currentRoom && refusal.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+ 			if(travel && x>=o.x_pos && y>=o.y_pos && x<o.x_pos+o.width && y<o.y_pos+o.height && o.width*o.height<area) { hit=o.obj_nr;area=o.width*o.height; }
+ 		}
+ 		if(hit) return hit;
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 36063ccb..3a3b1b4c 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -154,6 +154,14 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 				if(role==kZakTerminal) { scummverseAirportOffer(); return; }
+ 			}
+ 			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
++			const int original=scummverseOriginalObject(_currentRoom,object);
++			for(const auto &way : zakTraversals) if(way.room==_currentRoom && way.object==original) {
++				scummverseSay(VAR(VAR_EGO),way.line); scummverseTravel(way.destination-50,0,way.arrivalX,way.arrivalY); return;
++			}
++			for(const auto &refusal : zakRefusals) if(refusal.room==_currentRoom && refusal.object==original) {
++				// Original wording: the first attempt, then the repeat.
++				scummverseSay(VAR(VAR_EGO),(getState(object)&4) ? refusal.repeat : refusal.first); putState(object,getState(object)|4); return;
++			}
+ 		}
+ 
+ 		if (_currentRoom>=56 && (entry==13 || entry==11 || entry==1)) {
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 38761562..7cabd0af 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -14,7 +14,7 @@ static const ZakPlace zakPlaces[] = {
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Kathmandu airport, Nepal"},
+ 	{17, "9754dff5b01d21af693b39063ab96e36", "Kathmandu street"},
+ 	{19, "8ac86c0d58bd696acfbe23cddef15eb9", "Guru sanctuary"},
+-	{43, "1c7ca86176453c03d7c141c103bf452f", "Nepal mountain sanctuary"},
++	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving ledge"},
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Cairo airport"},
+ 	{21, "a6b1551f60dc73fcc76830a87e29e0f1", "Cairo"},
+ 	{20, "2b1b8bb52d3fcbdc64854328d26932b2", "Sphinx and pyramids"},
+@@ -42,8 +42,8 @@ static const ZakPlace zakPlaces[] = {
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Lima airport, Peru"},
+ 	{37, "b7179f02fc59661cf75ea23d5519bd42", "Peru jungle"},
+ 	{42, "009b72599e665c04a1092078ad332bf7", "Peru carving"},
+-	{39, "971834702c89ae68247b02a82df35f25", "Peru temple"},
+-	{14, "caa7d07c795408c189229f253bfe7447", "Peru crystal chamber"},
++	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving left eye"},
++	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving right eye"},
+ 	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 2"},
+ 	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 3"},
+ 	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 4"},
+@@ -112,8 +112,12 @@ static const ZakLink zakLinks[] = {
+ 	{67, 734, 66, 0},
+ 	{67, 735, 68, 0},
+ 	{68, 732, 67, 0},
+-	{68, 735, 69, 0},
+-	{69, 741, 67, 0},
++	// Inside Peru's giant carving (resource 43): ledge 138, eye chambers 136/137.
++	{69, 739, 97, 631},
++	{69, 740, 98, 631},
++	{69, 741, 96, 620},
++	{97, 738, 69, 636},
++	{98, 738, 69, 637},
+ 	{70, 733, 71, 0},
+ 	{71, 735, 70, 0},
+ 	{71, 737, 72, 0},
+@@ -272,22 +276,38 @@ static const ZakLink zakLinks[] = {
+ };
+ 
+ // Original crystal-map destinations (map objects 480-486, script 60):
+-// Seattle 129, Mexico 130, Nepal 137/43, Egypt 25, Mars 193, in map order.
++// Seattle 129, Mexico 130, Peru carving eye 137, Egypt 25, Mars 193, in map order.
+ // Arrival objects are each scene's original platform. Zaire and Peru have
+ // no crystal chamber in the original game.
+ struct ZakPad { int room, arrivalObject; };
+-static const ZakPad zakPads[]={{92,309},{89,309},{69,632},{76,437},{125,296}};
++static const ZakPad zakPads[]={{92,309},{89,309},{98,632},{76,437},{125,296}};
+ static const int kZakPadCount=sizeof(zakPads)/sizeof(zakPads[0]);
+ static bool zakPadObject(int room,int object) {
+ 	return ((room==89 || room==92 || room==125) && (object==734 || object==735)) ||
+-		(room==69 && object==734) || (room==76 && object==747);
++		(room==98 && object==734) || (room==76 && object==747);
+ }
+ // Sandbox rooms with no original counterpart (scene audit, patch 0044).
+ // Their IDs stay allocated for save compatibility; nothing links to them and
+ // saved occupants move to the original scene they stood in for.
+ static int zakRetiredRoomReplacement(int room) {
++	return room==64 || room==65 ? 63 : 0;
++}
++// Patch 0044 retired 64/65/97/98; 0046 reuses 97/98 for the carving eyes.
++// Saves older than scene schema 2 still hold the invented scenes there.
++static int zakSchema2Replacement(int room) {
+ 	return room==64 || room==65 ? 63 : room==97 || room==98 ? 96 : 0;
+ }
++// Original Peru carving (room 42): walkers cannot reach the eye; the bird
++// flies there (object 620 as bird -> logical 138 at 61,51). The sandbox has
++// no playable bird, so the feeder that lures it carries the visitor across.
++struct ZakTraversal { int room, object, destination, arrivalX, arrivalY; const char *line; };
++static const ZakTraversal zakTraversals[] = {
++ {96, 621, 69, 61, 51, "The bird swoops down and carries me over the valley!"},
++};
++struct ZakRefusal { int room, object; const char *first, *repeat; };
++static const ZakRefusal zakRefusals[] = {
++ {96, 620, "It's way across the valley!", "I don't have wings!"},
++};
+ 
+ // Audited DOS V1 sandbox scene setup, expressed in original resource IDs.
+ // Seattle's loose dirt (267) has original open-cave artwork in state bit 8.
+@@ -1137,6 +1157,43 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {477,176,24,0},
+   {70,320,24,1}
+  }},
++ // Inside Peru's carving: ledge 138 and eye chambers 136/137 (resource 43).
++ {69,138,480,480,5,10,{0,1,2},{0,0,0,128,0},{
++  {79,240,112,1},
++  {80,232,56,1},
++  {632,32,104,0},
++  {633,232,80,2},
++  {634,176,0,2},
++  {635,240,0,2},
++  {631,88,0,0},
++  {636,320,24,0},
++  {637,528,24,0},
++  {638,320,112,0}
++ }},
++ {97,136,160,160,5,10,{0,1,2},{0,0,0,128,128},{
++  {79,240,112,1},
++  {80,232,56,11},
++  {632,32,104,10},
++  {633,232,80,10},
++  {634,176,0,2},
++  {635,240,0,10},
++  {631,88,0,0},
++  {636,320,24,0},
++  {637,528,24,0},
++  {638,320,112,0}
++ }},
++ {98,137,160,160,5,10,{0,1,2},{0,0,0,128,128},{
++  {79,240,112,11},
++  {80,232,56,1},
++  {632,32,104,0},
++  {633,232,80,2},
++  {634,176,0,10},
++  {635,240,0,2},
++  {631,88,0,0},
++  {636,320,24,0},
++  {637,528,24,0},
++  {638,320,112,0}
++ }},
+ };
+ // Original room colors and camera bounds for imported rooms without a full
+ // setup (or whose sandbox adapters own object state, like the cabin seats).
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 6ca9d32a..58027760 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -840,10 +840,10 @@ void ScummEngine::scummverseRestoreTemple() {
+  if(_scummVars[528]<2) {
+   for(int id=1;id<_numActors;++id) {
+    Actor *a=derefActor(id,"retired room migration");
+-   if(int replacement=zakRetiredRoomReplacement(a->_room)) { a->stopActorMoving(); a->putActor(20,60,replacement); }
++   if(int replacement=zakSchema2Replacement(a->_room)) { a->stopActorMoving(); a->putActor(20,60,replacement); }
+   }
+   _scummVars[528]=2;
+-  if(int replacement=zakRetiredRoomReplacement(_currentRoom)) scummverseTravel(replacement-50);
++  if(int replacement=zakSchema2Replacement(_currentRoom)) scummverseTravel(replacement-50);
+  }
+  // Scene schema 3 (patch 0045): actor 17 wears Zak costume 27, which the
+  // original names "The King". Saved actor names carry the old label.

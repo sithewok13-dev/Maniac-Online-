@@ -1,0 +1,197 @@
+diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
+index 51eadfec..2bb96275 100644
+--- a/engines/scumm/input.cpp
++++ b/engines/scumm/input.cpp
+@@ -531,6 +531,7 @@ void ScummEngine::processInput() {
+ 	if (!lastKeyHit.ascii)
+ 		return;
+ 
++	scummverseStoryBeforeMenu(lastKeyHit); // (SCUMMVERSE: a story saved as the game's own menu opens.)
+ 	processKeyboard(lastKeyHit);
+ }
+ 
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 1d9ebe1e..534c72bc 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -140,6 +140,12 @@ bool ScummEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+ }
+ 
+ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
++	// SCUMMVERSE: an autosave asked for while the game is held still (the
++	// phone putting the app away: iOS's suspend loop, where no frame comes
++	// until the app is back, and it may be stopped first) is written now,
++	// outside the game's scripts, as the main loop would write it.
++	if (isAutosave && isPaused() && !_saveLoadFlag && _currentScript == 0xFF && canSaveGameStateCurrently())
++		return scummverseSaveNow(slot, desc) ? Common::kNoError : Common::kWritingFailed;
+ 	requestSave(slot, desc);
+ 	return Common::kNoError;
+ }
+@@ -623,6 +629,9 @@ bool ScummEngine::saveState(int slot, bool compat, Common::String &filename) {
+ 	else
+ 		debug(1, "State saved as '%s'", filename.c_str());
+ 
++	if (!saveFailed && !compat)
++		scummverseStoryCount(slot); // (SCUMMVERSE: a story's own saves, in the order written.)
++
+ 	return !saveFailed;
+ }
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 22cbbad9..2ddde440 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1702,6 +1702,10 @@ protected:
+ 	bool scummverseStoryReady(int game);
+ 	bool scummverseStoryChain(int game, Common::String &refusal);
+ 	bool scummverseStorySave(Common::String &problem);
++	bool scummverseSaveNow(int slot, const Common::String &description);
++	virtual void scummverseSaveThumbnail() {} // (The Curse's own picture of a save, as its own saves make it.)
++	void scummverseStoryCount(int slot);
++	void scummverseStoryBeforeMenu(const Common::KeyState &key);
+ 	void scummverseStoryQuit();
+ 	void scummverseUpdateStory(int delta);
+ 	void scummverseLeaveStory(int game);
+diff --git a/engines/scumm/scumm_v8.h b/engines/scumm/scumm_v8.h
+index 88c0db8c..c2b73502 100644
+--- a/engines/scumm/scumm_v8.h
++++ b/engines/scumm/scumm_v8.h
+@@ -233,6 +233,7 @@ protected:
+ 	void stampScreenShot(int slot, int boxX, int boxY, int boxWidth, int boxHeight, int brightness);
+ 	void saveLoadWithSerializer(Common::Serializer &s) override;
+ 	void createInternalSaveStateThumbnail();
++	void scummverseSaveThumbnail() override { createInternalSaveStateThumbnail(); } // (SCUMMVERSE: a save written at once, as its own are.)
+ 	bool fetchInternalSaveStateThumbnail(int slotId, bool isHeapSave);
+ 	uint32 *fetchScummVMSaveStateThumbnail(int slotId, bool isHeapSave, int brightness);
+ 
+diff --git a/engines/scumm/scummverse_story.inc b/engines/scumm/scummverse_story.inc
+index b567ac55..0dd155f2 100644
+--- a/engines/scumm/scummverse_story.inc
++++ b/engines/scumm/scummverse_story.inc
+@@ -6,17 +6,37 @@
+ // has a target of its own, kWorldStoryPrefix + its id (base/main.cpp sets
+ // them up from the folders in Documents, common/scummverse_story.h), and
+ // keeps its place in its story save (kWorldStorySlot, "Story"): saved there
+-// whenever it is left (the Worlds menu's way, its own Quit, ScummVM's menu),
+-// loaded from there when it is opened again, unless its autosave is newer
+-// (a game left where it could not be saved, or the app stopped in it). A
++// whenever it is left (the Worlds menu's way, its own Quit, ScummVM's menu)
++// and as a menu room of its own opens (where it cannot be saved), loaded
++// from there when it is opened again, unless its autosave is newer (a game
++// left where it could not be saved, or the app put away or stopped in it). A
+ // game left with nothing else to start goes back to the mansion where it was
+ // saved when the story was opened (base/main.cpp).
+ 
++// The number a story's save was given as it was written (its story save or
++// its autosave, scummverseStoryCount): 0 if none (written before these
++// numbers).
++static int scummverseStoryOrder(const Common::String &target, int slot) {
++	const Common::String key = Common::String::format("scummverse_story_order%d", slot);
++	return ConfMan.hasKey(key, target) ? ConfMan.getInt(key, target) : 0;
++}
++
++// A story's save written, in its story slot or as its autosave (any way:
++// the story's own, the game's menu, ScummVM's autosave): numbered after the
++// other, so the newer is known whatever the clock says; written to disk at
++// once, as the save is (the app may be stopped next).
++void ScummEngine::scummverseStoryCount(int slot) {
++	if (!_scummverseStory || (slot != kWorldStorySlot && slot != 0) || !ConfMan.hasGameDomain(_targetName)) return;
++	const int order = MAX(scummverseStoryOrder(_targetName, kWorldStorySlot), scummverseStoryOrder(_targetName, 0)) + 1;
++	ConfMan.setInt(Common::String::format("scummverse_story_order%d", slot), order, _targetName);
++	ConfMan.flushToDisk();
++}
++
+ // Where a game's story goes on from: the newer of its story save and its
+ // autosave (slot 0, ScummVM's own, also made when the phone puts the app
+ // away); -1 when it has neither (it starts from the beginning).
+ int ScummEngine::scummverseStorySlotOf(const Common::String &target) {
+-	int best = -1;
++	int best = -1, bestOrder = 0;
+ 	uint64 newest = 0;
+ 	uint32 newestPlayed = 0;
+ 	for (int slot : {kWorldStorySlot, 0}) {
+@@ -27,13 +47,16 @@ int ScummEngine::scummverseStorySlotOf(const Common::String &target) {
+ 		const bool found = ScummEngine::querySaveMetaInfos(target.c_str(), slot, 0, desc, thumbnail, when);
+ 		if (thumbnail) { thumbnail->free(); delete thumbnail; }
+ 		if (!found) continue;
+-		// (Year, month, day, hour, minute; then, in the same minute, the time
+-		// played, which grows as the one story goes on: the story save first
+-		// when alike.)
++		// (The number each was given as it was written. Else, a save from
++		// before those: year, month, day, hour, minute; then, in the same
++		// minute, the time played, which grows as the one story goes on: the
++		// story save first when alike.)
++		const int order = scummverseStoryOrder(target, slot);
+ 		const uint64 at = !when ? 1 : ((uint64)(infos.date & 0xFFFF) << 32) | ((uint64)((infos.date >> 16) & 0xFF) << 24) |
+ 			((uint64)(infos.date >> 24) << 16) | infos.time;
+ 		const uint32 played = when ? infos.playtime : 0;
+-		if (best < 0 || at > newest || (at == newest && played > newestPlayed)) { best = slot; newest = at; newestPlayed = played; }
++		const bool later = order > 0 && bestOrder > 0 ? order > bestOrder : (at > newest || (at == newest && played > newestPlayed));
++		if (best < 0 || later) { best = slot; newest = at; newestPlayed = played; bestOrder = order; }
+ 	}
+ 	return best;
+ }
+@@ -128,18 +151,55 @@ bool ScummEngine::scummverseStorySave(Common::String &problem) {
+ 	// mid-way through one is not where a story should go on from.)
+ 	if (_saveLoadFlag) { problem = "its own save or load is under way"; return false; }
+ 	if (_userPut <= 0) { problem = "the game has the controls just now"; return false; }
++	if (!scummverseSaveNow(kWorldStorySlot, "Story")) { problem = "its save could not be written"; return false; }
++	_scummverseStorySaved = true;
++	return true;
++}
++
++// A save written now, as the main loop writes one asked for
++// (scummLoop_handleSaveLoad), for those that cannot wait for a frame: a
++// story's own, an autosave while the game is held still. As there: a v6
++// game's own scripts run before and after it (Sam & Max keeps its cursor
++// so), The Curse's own picture of it made and its "game loaded" cleared.
++bool ScummEngine::scummverseSaveNow(int slot, const Common::String &description) {
++	if (_game.version == 8 && VAR_GAME_LOADED != 0xFF)
++		VAR(VAR_GAME_LOADED) = 0;
++	if (_game.version == 6 && VAR_PRE_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
++		runScript(VAR(VAR_PRE_SAVELOAD_SCRIPT), 0, 0, nullptr);
++	scummverseSaveThumbnail();
+ 	const bool temporary = _saveTemporaryState;
+-	const Common::String description = _saveLoadDescription;
+-	_saveLoadDescription = "Story";
++	const Common::String previous = _saveLoadDescription;
++	_saveLoadDescription = description;
+ 	_saveTemporaryState = false;
+ 	Common::String file;
+-	const bool saved = saveState(kWorldStorySlot, false, file);
++	const bool saved = saveState(slot, false, file);
+ 	_saveTemporaryState = temporary;
+-	_saveLoadDescription = description;
+-	if (!saved) { problem = "its save could not be written"; return false; }
+-	_lastSaveTime = _system->getMillis();
+-	_scummverseStorySaved = true;
+-	return true;
++	_saveLoadDescription = previous;
++	if (_game.version == 6 && VAR_POST_SAVELOAD_SCRIPT != 0xFF && _currentRoom != 0)
++		runScript(VAR(VAR_POST_SAVELOAD_SCRIPT), 0, 0, nullptr);
++	if (!saved) warning("SCUMMVERSE: %s not written (slot %d)", file.c_str(), slot);
++	else _lastSaveTime = _system->getMillis();
++	return saved;
++}
++
++// The game's own menu, as its key opens it: the save room of Maniac, Zak,
++// Indy3 and Loom (F5), The Curse's menu room (F1 or F5). It cannot be saved
++// there, and its own Quit is there: so its story is saved quietly first,
++// where it is, before its scripts see the key (a Quit there goes on from
++// here next time).
++void ScummEngine::scummverseStoryBeforeMenu(const Common::KeyState &key) {
++	if (!_scummverseStory || !isUsingOriginalGUI() || !key.hasFlags(0) || (_game.features & GF_DEMO)) return;
++	const bool menu = (_game.version <= 3 && key.keycode == Common::KEYCODE_F5) ||
++		(_game.id == GID_CMI && (key.keycode == Common::KEYCODE_F1 || key.keycode == Common::KEYCODE_F5));
++	if (!menu || !canSaveGameStateCurrently()) return; // (In the menu already, or a film.)
++	Common::String problem;
++	const bool leaving = _scummverseStorySaved;
++	if (scummverseStorySave(problem)) {
++		_scummverseStorySaved = leaving;
++		warning("SCUMMVERSE story: %s saved as its menu opens", _targetName.c_str());
++	} else {
++		warning("SCUMMVERSE story: %s not saved as its menu opens (%s)", _targetName.c_str(), problem.c_str());
++	}
+ }
+ 
+ // Leaving any other way (the game's own Quit, ScummVM's menu, the app's

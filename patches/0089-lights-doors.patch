@@ -1,0 +1,182 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 248b02c6..52eeb136 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -933,6 +933,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 	_sound->restoreAfterLoad();
+ 
+ 	scummverseMigrateTravelRecords();
++	scummverseLightsOn();
+  scummverseMigrateLegacyWorlds();
+  scummverseRestoreTemple();
+  scummverseRestoreSceneNavigation(true);
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index a4a83813..ebe629d2 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -158,7 +158,11 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 				const int original=scummverseOriginalObject(_currentRoom,object);
+ 				if(original==kZakTramObject || original==kZakTramButton) { scummverseTramRequest(VAR(VAR_EGO),original==kZakTramObject); return; }
+ 			}
+-			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination==54?1:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
++			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) {
++				scummverseOpenZakDoor(link.room,link.object);
++				if(scummverseTravel(link.destination==55?5:link.destination==54?1:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY)) scummverseOpenZakArrival(link.room);
++				return;
++			}
+ 			const int original=scummverseOriginalObject(_currentRoom,object);
+ 			for(const auto &way : zakTraversals) if(way.room==_currentRoom && way.object==original) {
+ 				scummverseSay(VAR(VAR_EGO),way.line); scummverseTravel(way.destination-50,0,way.arrivalX,way.arrivalY); return;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 761a6230..5f5f251e 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1713,6 +1713,7 @@ protected:
+ 	void scummverseTourWalkTo(Actor *a, int x, int y);
+ 	void scummverseTourLeave();
+ 	void scummverseTourPause(bool pause);
++	void scummverseTourOpenDoor(int index, int leg);
+ 	bool scummverseTourDoorOut(int &x, int &y);
+ 	void scummverseTourBuild();
+ 	void scummverseTourSegment(int kind, int game, const Common::Array<int> &rooms, const Common::Array<struct TourEdge> &edges);
+@@ -1889,6 +1890,11 @@ protected:
+ 	bool scummversePassage(int object, int verb);
+ 	bool scummverseDoorPoint(int room, int object, int &x, int &y);
+ 	void scummverseOpenPassage(int index, bool open);
++	void scummverseOpenZakDoor(int room, int object);
++	void scummverseOpenZakArrival(int from);
++	// Maniac Mansion's dark rooms lit once per game (var kScummverseLightsVar).
++	static const int kScummverseLightsVar = 619;
++	void scummverseLightsOn();
+ 	bool _shadowPalRemap = false;
+ 
+ 	// Indy4 Amiga specific
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 38154a97..83b8cbca 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -424,6 +424,17 @@ static const ZakLink zakLinks[] = {
+ 	{123, 735, 119, 565, -1, -1},
+ };
+ 
++// Zak's doors that open cleanly when someone goes through (room, imported
++// object): each one's open picture was checked by eye against its closed
++// one in the imported rooms. Others are left as drawn: their open pictures
++// come out garbled (the hut, the hostel corridor), reversed, or with
++// someone painted in the doorway (the guru's door). Scenes set up as the
++// original's own (zakSceneSetups: the Sphinx maze, the pyramids, the jail,
++// the hostel...) keep their doors as the original sets them.
++static const short zakOpenDoors[][2] = {
++	{55, 713}, {67, 734}, {79, 746}, {90, 734}, {91, 743}, {99, 740}, {101, 735}, {102, 734},
++};
++
+ // Original crystal-map destinations (map objects 480-486, script 60):
+ // Seattle 129, Mexico 130, Peru carving eye 137, Egypt 25, Mars 193, in map order.
+ // Arrival objects are each scene's original platform. Zaire and Peru have
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index e6c42f46..6f7b475e 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -156,6 +156,39 @@ void ScummEngine::scummverseOpenPassage(int index, bool open) {
+ 	_fullRedraw = true;
+ }
+ 
++// A Zak door opens as someone goes through it, when its open picture is
++// right (zakOpenDoors); it stays open until the room is entered again.
++void ScummEngine::scummverseOpenZakDoor(int room, int object) {
++	if (room != _currentRoom || getObjectIndex(object) < 0 || (getState(object) & kObjectStateIntrinsic)) return;
++	bool clean = false;
++	for (const auto &door : zakOpenDoors) clean = clean || (door[0] == room && door[1] == object);
++	if (!clean) return;
++	putState(object, (getState(object) | kObjectStateIntrinsic) & ~kObjectStateLocked);
++	markObjectRectAsDirty(object);
++	clearDrawObjectQueue();
++	_fullRedraw = true;
++}
++
++// Arrived from a Zak room: the door back there opens too.
++void ScummEngine::scummverseOpenZakArrival(int from) {
++	for (const auto &link : zakLinks) if (link.room == _currentRoom && link.destination == from) scummverseOpenZakDoor(link.room, link.object);
++}
++
++// Maniac Mansion's dark rooms start with their lights on (the six the
++// original starts dark: the phone hall, the basement by the reactor, the
++// wall-safe closet, the crawlspace, the medical office and the darkroom),
++// as the light switch in each would; once per game (old saves included).
++// kScummverseLightsVar marks it done.
++void ScummEngine::scummverseLightsOn() {
++	if (!_scummverseRoaming || _scummVars[kScummverseLightsVar]) return;
++	for (int room : {5, 8, 9, 15, 22, 23}) {
++		const int bit = 2816 + room; // the original's "this room's light is off"
++		_scummVars[bit >> 4] &= ~(1 << (bit & 15));
++	}
++	_scummVars[kScummverseLightsVar] = 1;
++	if (_currentRoom >= 1 && _currentRoom <= 52) runScript(55, false, false, nullptr); // the room's lights now
++}
++
+ bool ScummEngine::scummversePassage(int object, int verb) {
+ 	if (verb != 1 && verb != 2 && verb != 8 && verb != 10 && verb != 13) return false;
+ 	for (uint n = 0; n < ARRAYSIZE(mansionPassages); ++n) {
+@@ -219,6 +252,7 @@ void ScummEngine::scummverseStartRoaming() {
+ 	_scummverseRosterPending=true;
+ 	_scummverseLastEgo = VAR(VAR_EGO);
+ 	_scummVars[175] = 0;
++	scummverseLightsOn();
+ 	runScript(164, false, false, nullptr);
+ }
+ 
+@@ -427,7 +461,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12 && !((zakLinks[k].room==kVanCockpit || zakLinks[k].destination==kVanCockpit) && scummverseVanSite()!=0)) exits[count++]=k;
+ 				if(count) { if(!r.walking || r.exit<0 || r.exit>=(int)ARRAYSIZE(zakLinks) || zakLinks[r.exit].room!=a->_room) r.exit=exits[_rnd.getRandomNumber(count-1)]; const auto &link=zakLinks[r.exit];
+ 					if(link.destination<56 || scummverseMountExtra(link.destination)) {
+-						if(a->_room==_currentRoom && !r.walking) { int obj=getObjectIndex(link.object); if(obj>=0) { a->startWalkActor(_objs[obj].walk_x/8,_objs[obj].walk_y/2,-1); r.walking=true; r.wait=180; continue; } }
++						if(a->_room==_currentRoom && !r.walking) { int obj=getObjectIndex(link.object); if(obj>=0) { scummverseOpenZakDoor(link.room,link.object); a->startWalkActor(_objs[obj].walk_x/8,_objs[obj].walk_y/2,-1); r.walking=true; r.wait=180; continue; } }
+ 						Common::Point arrival(20,60);
+                         if(link.arrivalObject && !scummverseArrivalPoint(link.destination,link.arrivalObject,arrival)) {r.wait=600;continue;}
+                         if(link.arrivalX>=0 && link.arrivalY>=0) arrival=Common::Point(link.arrivalX,link.arrivalY);
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 3ef1774b..a61d4360 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -254,6 +254,7 @@ bool ScummEngine::scummverseTourThrough(int index, int leg) {
+ 		const ZakLink &link = zakLinks[door - 1];
+ 		through = scummverseTravel(link.destination == 55 ? 5 : link.destination == 54 ? 1 : link.destination - 50,
+ 			link.arrivalObject, link.arrivalX, link.arrivalY);
++		if (through) scummverseOpenZakArrival(link.room);
+ 	} else {
+ 		const WorldLink &link = worldMap(stop.game)->links[door - 1];
+ 		through = scummverseFollowLink(stop.game, link.room, link.target, link.arrival);
+@@ -425,6 +426,17 @@ void ScummEngine::scummverseTourLeave() {
+ 	_scummverseTourPhase = kTourEnter;
+ }
+ 
++// The door the guide sets off to opens, as a player would open it (Maniac
++// Mansion's on both sides; Zak's where its open picture is right; other
++// games' rooms are pictures with their doors drawn in).
++void ScummEngine::scummverseTourOpenDoor(int index, int leg) {
++	const ScummverseTourStop &stop = _scummverseTourStops[index];
++	if (leg < 0 || leg >= stop.legs) return;
++	const int door = _scummverseTourLegs[stop.firstLeg + leg].door;
++	if (stop.kind == kTourManiac) scummverseOpenPassage(door - 1, true);
++	else if (stop.kind == kTourZak) scummverseOpenZakDoor(zakLinks[door - 1].room, zakLinks[door - 1].object);
++}
++
+ // Walks the guide to the spot in the nearest walk box; a room without walk
+ // boxes (a map) has nowhere to walk (V1 would take the last room's spot).
+ void ScummEngine::scummverseTourWalkTo(Actor *a, int x, int y) {
+@@ -459,6 +471,7 @@ bool ScummEngine::scummverseTourAdvance(Actor *a, int delta, int total) {
+ 		int x, y;
+ 		_scummverseTourLegAt = 0;
+ 		if (_scummverseTourOnFoot && _scummverseTourStop == from && scummverseTourDoorPoint(_scummverseTourStop, 0, x, y)) {
++			scummverseTourOpenDoor(_scummverseTourStop, 0);
+ 			scummverseTourWalkTo(a, x, y);
+ 			_scummverseTourPhase = kTourToDoor; _scummverseTourWait = kTourWalk;
+ 			again = !a->_moving; // (already at the door)
+@@ -491,6 +504,7 @@ bool ScummEngine::scummverseTourAdvance(Actor *a, int delta, int total) {
+ 			again = _scummverseTourPhase == kTourArrived;
+ 			break;
+ 		}
++		scummverseTourOpenDoor(_scummverseTourStop, _scummverseTourLegAt);
+ 		scummverseTourWalkTo(a, x, y);
+ 		_scummverseTourWait = kTourWalk;
+ 		again = !a->_moving;

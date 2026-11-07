@@ -1,0 +1,1508 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 91883f13..c5bb239f 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -524,6 +524,14 @@ void scummverseAirportOffer(int actor) {
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 	UIViewController *controller = (UIViewController *)responder;
+ 	if (!controller || controller.presentedViewController) return;
++	// The sandbox engine (preview) running: only the way back for now.
++	if (scummverseSandboxActive()) {
++		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap where to walk. Doors, everyone out, chat and the rest come next." preferredStyle:UIAlertControllerStyleAlert];
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
++		[controller presentViewController:sandbox animated:YES completion:nil];
++		return;
++	}
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Connected worlds" message:[NSString stringWithFormat:@"%@\n\n%s\n\n%@", scummverseInstalledWorlds(), ScummverseLocalAI::worldStatus().c_str(), scummverseBuildStatus()] preferredStyle:UIAlertControllerStyleAlert];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Import Zak from this app" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] importLocalFrom:controller]; }];
+@@ -539,6 +547,7 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Tour every location (watch for bugs)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ scummverseShowTour(controller); }];
+ 	}]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"New engine (preview)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
+ 	}]];
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 512970f4..51af064c 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -626,6 +626,9 @@ unsigned long long scummverseTalkScene(int room, int visitor, unsigned long long
+ 
+ void scummverseWorldRequest(int destination) { ScummverseLocalAI::worldRequest.store(destination); }
+ int scummverseWorldPoll() { return ScummverseLocalAI::worldRequest.exchange(0); }
++static std::atomic<bool> scummverseSandboxOn{false};
++void scummverseSandboxActive(bool on) { scummverseSandboxOn.store(on); }
++bool scummverseSandboxActive() { return scummverseSandboxOn.load(); }
+ void scummverseTalkAppearance(int actor, int key) {
+ 	if (actor > 0 && actor < ScummverseLocalAI::kGuestActor) ScummverseLocalAI::appearances[actor].store(key);
+ }
+diff --git a/base/main.cpp b/base/main.cpp
+index 5d075f16..d0ea03e1 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -181,6 +181,13 @@ static void scummverseForgetExportTargets() {
+ }
+ 
+ static void reportStandaloneError(const Common::Error &result) {
++	if (ConfMan.get("engineid") == "scummverse") {
++		warning("SCUMMVERSE: could not start the sandbox: %s", result.getDesc().c_str());
++#ifndef USE_NULL_DRIVER
++		GUI::displayErrorDialog(result, _("SCUMMVERSE could not start the sandbox. Its places come from your own games in Documents, set up when Maniac Mansion starts."));
++#endif
++		return;
++	}
+ 	warning("SCUMMVERSE: could not start Maniac Mansion (original DOS V1): %s", result.getDesc().c_str());
+ #ifndef USE_NULL_DRIVER
+ 	GUI::displayErrorDialog(result, _("SCUMMVERSE could not run Maniac Mansion (original DOS V1). Check all original DOS V1 .LFL files, including 00.LFL, in Documents/maniac on iOS, or use --path on desktop, then relaunch."));
+@@ -586,9 +593,12 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	// iOS7_main has already changed cwd to the app's Documents directory.
+ 	if (command.empty())
+ 		command = "scumm:maniac";
++	// The sandbox engine (engines/scummverse) plays from the worlds cache.
++	const bool sandboxCommand = command.hasPrefix("scummverse:");
+ 	if (!settings.contains("path") && !ConfMan.hasGameDomain(command))
+-		settings["path"] = "maniac";
+-	settings["platform"] = "dos";
++		settings["path"] = sandboxCommand ? "worlds" : "maniac";
++	if (!sandboxCommand)
++		settings["platform"] = "dos";
+ 
+ 	if (Base::processSettings(command, settings, res)) {
+ 		if (res.getCode() != Common::kNoError)
+@@ -599,8 +609,9 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		return res.getCode();
+ 	}
+ 
+-	if (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac") {
+-		warning("SCUMMVERSE: only Maniac Mansion (original DOS V1) is supported");
++	const bool sandboxGame = ConfMan.getActiveDomain() && ConfMan.get("engineid") == "scummverse" && ConfMan.get("gameid") == "sandbox";
++	if (!sandboxGame && (!ConfMan.getActiveDomain() || ConfMan.get("engineid") != "scumm" || ConfMan.get("gameid") != "maniac")) {
++		warning("SCUMMVERSE: only Maniac Mansion (original DOS V1) and the sandbox are supported");
+ 		PluginManager::destroy();
+ 		return Common::kUnsupportedGameidError;
+ 	}
+@@ -834,13 +845,27 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	// FIXME: We're now looping the launcher. This, of course, doesn't
+ 	// work as well as it should. In theory everything should be destroyed
+ 	// cleanly, so this is now enabled to encourage people to fix bits :)
++	bool chainedRun = false; // (this run was chained from the one before)
+ 	while (nullptr != ConfMan.getActiveDomain()) {
+ 		const bool exportRun = scummverseExportTarget();
+-		if (!exportRun) {
+-			// Back to Maniac after any exports: its settings return.
+-			*ConfMan.getDomain(Common::ConfigManager::kTransientDomain) = maniacTransient;
+-			scummverseForgetExportTargets();
++		Common::ConfigManager::Domain *transient = ConfMan.getDomain(Common::ConfigManager::kTransientDomain);
++		if (!exportRun && ConfMan.getActiveDomainName() == maniacTarget) {
++			// Back to Maniac after any exports or the sandbox: its settings
++			// return, and where it was saved when the sandbox was opened.
++			const bool resume = transient->contains("save_slot");
++			const Common::String slot = resume ? transient->getVal("save_slot") : Common::String();
++			*transient = maniacTransient;
++			if (resume) transient->setVal("save_slot", slot);
++		} else if (!exportRun) {
++			// The sandbox (opened from Maniac): the phone's own way to play.
++			transient->setVal("gui_return_to_launcher_at_exit", "false");
++			transient->setVal("orientation_games", "auto");
++			transient->setVal("orientation_menus", "auto");
++			transient->setVal("touch_mode_2d_games", "direct");
+ 		}
++		if (!exportRun)
++			scummverseForgetExportTargets();
++		bool chained = false;
+ 		if (!exportRun)
+ 		saveLastLaunchedTarget(ConfMan.getActiveDomainName());
+ 
+@@ -962,6 +987,7 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+ 
+ 			if (!chainedGame.empty()) {
++				chained = true;
+ 				if (saveSlot != -1) {
+ 					ConfMan.setInt("save_slot", saveSlot, Common::ConfigManager::kTransientDomain);
+ 				}
+@@ -985,15 +1011,30 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 				continue;
+ 			}
+ 			reportStandaloneError(result);
++			// A game chained from another that cannot start (the sandbox
++			// opened from Maniac): on to the next (Maniac, where it was saved).
++			Common::String next;
++			int slot = -1;
++			if (chainedRun && ChainedGamesMan.pop(next, slot)) {
++				ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
++				if (slot != -1)
++					ConfMan.setInt("save_slot", slot, Common::ConfigManager::kTransientDomain);
++				ConfMan.setActiveDomain(next);
++				continue;
++			}
+ 
+ 			// Clear the active domain
+ 			ConfMan.setActiveDomain("");
+ 		}
+ 
+ 		// SCUMMVERSE: failure or return-to-launcher ends this session, except
+-		// along the world-export chain that ends with Maniac.
++		// along the world-export chain that ends with Maniac, and between
++		// Maniac and the sandbox (each chains the other).
+ 		// Preserve normal manager teardown below; never open a library.
+-		if (exportRun && ConfMan.getActiveDomain()) continue;
++		if ((exportRun || chained) && ConfMan.getActiveDomain()) {
++			chainedRun = chained;
++			continue;
++		}
+ 		break;
+ 	}
+ #ifdef USE_CLOUD
+diff --git a/common/module.mk b/common/module.mk
+index bffc6bcc..a3a09060 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -33,6 +33,7 @@ MODULE_OBJS := \
+ 	scummverse_wander.o \
+ 	scummverse_net.o \
+ 	scummverse_world.o \
++	scummverse_stage.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 08d65c25..3e1e508b 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -22,6 +22,9 @@ void scummversePublishGameRect(int x, int y, int w, int h);
+ bool scummverseGameRect(int &x, int &y, int &w, int &h);
+ int scummverseWorldPoll();
+ void scummverseWorldReport(const char *notice);
++// The sandbox engine running (set by it; the Worlds menu offers the way back).
++void scummverseSandboxActive(bool on);
++bool scummverseSandboxActive();
+ // Who is nearby and who is talking, as bits of talk IDs: sandbox characters
+ // 1..24, the scene's own characters 25..29 (kScummverseGuestActor), wanderers
+ // visiting 30..55 (kScummverseTalkVisitor + their slot).
+@@ -62,6 +65,8 @@ inline void scummversePublishGameRect(int, int, int, int) {}
+ inline bool scummverseGameRect(int &, int &, int &, int &) { return false; }
+ inline int scummverseWorldPoll() { return 0; }
+ inline void scummverseWorldReport(const char *) {}
++inline void scummverseSandboxActive(bool) {}
++inline bool scummverseSandboxActive() { return false; }
+ inline unsigned long long scummverseTalkScene(int, int, unsigned long long, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+ inline void scummverseTalkAppearance(int, int) {}
+ inline void scummverseTalkVisitor(int, int) {}
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+new file mode 100644
+index 00000000..7295b3bf
+--- /dev/null
++++ b/common/scummverse_stage.cpp
+@@ -0,0 +1,412 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse sandbox stage (see scummverse_stage.h). Plain C++, unit-tested by
++// tools/test_stage.cpp.
++#include "common/scummverse_stage.h"
++#include "common/scummverse_stage_engine.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++#include <cstring>
++#include <utility>
++
++namespace Scummverse {
++namespace Stage {
++
++View View::fit(int sourceWidth, int sourceHeight, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight) {
++	View v;
++	v.screenWidth = screenWidth; v.screenHeight = screenHeight;
++	if (sourceWidth <= 0 || sourceHeight <= 0 || screenWidth <= 0 || screenHeight <= 0) return v;
++	const double aspect = pixelAspect > 0 ? pixelAspect : 1;
++	v.rowScale = std::min((double)screenHeight / sourceHeight, screenWidth * aspect / std::max(1, gameScreenWidth));
++	v.colScale = v.rowScale / aspect;
++	v.width = (int)std::lround(sourceWidth * v.colScale);
++	v.height = (int)std::lround(sourceHeight * v.rowScale);
++	v.left = std::max(0, (screenWidth - v.width) / 2);
++	v.top = std::max(0, (screenHeight - v.height) / 2);
++	return v;
++}
++
++void View::follow(double sourceX) {
++	const int most = std::max(0, width - screenWidth);
++	camera = std::max(0, std::min(most, (int)std::lround(sourceX * colScale - screenWidth / 2.0)));
++}
++
++Point View::toScene(int screenX, int screenY) const {
++	Point p;
++	p.x = colScale > 0 ? (screenX - left + camera) / colScale : 0;
++	p.y = rowScale > 0 ? (screenY - top) / rowScale : 0;
++	return p;
++}
++
++Point View::toScreen(double sourceX, double sourceY) const {
++	Point p;
++	p.x = sourceX * colScale - camera + left;
++	p.y = sourceY * rowScale + top;
++	return p;
++}
++
++static double cross(Point a, Point b, Point p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); }
++static double distance(Point a, Point b) { return std::hypot(a.x - b.x, a.y - b.y); }
++static Point onSegment(Point a, Point b, Point p) {
++	const double dx = b.x - a.x, dy = b.y - a.y, length = dx * dx + dy * dy;
++	double t = length > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / length : 0;
++	t = std::max(0.0, std::min(1.0, t));
++	Point q; q.x = a.x + t * dx; q.y = a.y + t * dy;
++	return q;
++}
++
++static bool strictlyInside(const Box &box, Point p) {
++	bool negative = false, positive = false;
++	for (int i = 0; i < 4; ++i) {
++		const double c = cross(box.corner[i], box.corner[(i + 1) % 4], p);
++		negative = negative || c < 0; positive = positive || c > 0;
++	}
++	// (A flat box, a line or a point, holds nothing strictly: its edges do.)
++	return (negative || positive) && !(negative && positive);
++}
++
++Point closest(const Box &box, Point p) {
++	if (strictlyInside(box, p)) return p;
++	Point best = box.corner[0];
++	for (int i = 0; i < 4; ++i) {
++		const Point q = onSegment(box.corner[i], box.corner[(i + 1) % 4], p);
++		if (distance(q, p) < distance(best, p)) best = q;
++	}
++	return best;
++}
++
++bool inside(const Box &box, Point p, double slack) { return distance(closest(box, p), p) <= slack; }
++
++int boxAt(const std::vector<Box> &boxes, Point p) {
++	int best = -1; double near = 0;
++	for (size_t i = 0; i < boxes.size(); ++i) {
++		const double d = distance(closest(boxes[i], p), p);
++		if (d <= 0.5) return (int)i;
++		if (best < 0 || d < near) { best = (int)i; near = d; }
++	}
++	return best;
++}
++
++static double segmentGap(Point a, Point b, Point c, Point d) {
++	// (Crossing segments meet.)
++	const double d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
++	if (((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0)) && d1 && d2 && d3 && d4) return 0;
++	return std::min(std::min(distance(onSegment(c, d, a), a), distance(onSegment(c, d, b), b)),
++		std::min(distance(onSegment(a, b, c), c), distance(onSegment(a, b, d), d)));
++}
++
++bool touching(const Box &a, const Box &b) {
++	for (int i = 0; i < 4; ++i) if (strictlyInside(b, a.corner[i]) || strictlyInside(a, b.corner[i])) return true;
++	for (int i = 0; i < 4; ++i)
++		for (int j = 0; j < 4; ++j)
++			if (segmentGap(a.corner[i], a.corner[(i + 1) % 4], b.corner[j], b.corner[(j + 1) % 4]) <= 1.0) return true;
++	return false;
++}
++
++// Where to cross from box `from` into box `into`: a point of `into` within a
++// pixel of `from`, the best on the way from `at` to `goal`.
++static Point crossing(const Box &from, const Box &into, Point at, Point goal) {
++	Point best = closest(into, at);
++	double score = -1;
++	for (int i = 0; i < 4; ++i)
++		for (int k = 0; k <= 32; ++k) {
++			const Point a = into.corner[i], b = into.corner[(i + 1) % 4];
++			Point q; q.x = a.x + (b.x - a.x) * k / 32.0; q.y = a.y + (b.y - a.y) * k / 32.0;
++			if (!inside(from, q, 1.5)) continue;
++			const double s = distance(at, q) + distance(q, goal);
++			if (score < 0 || s < score) { score = s; best = q; }
++		}
++	return best;
++}
++
++std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to) {
++	std::vector<Point> route;
++	if (boxes.empty()) return route;
++	const int start = boxAt(boxes, from);
++	int end = boxAt(boxes, to);
++	// Breadth first over boxes that meet.
++	const int n = (int)boxes.size();
++	std::vector<int> came(n, -2), queue(1, start);
++	came[start] = -1;
++	for (size_t q = 0; q < queue.size() && came[end] == -2; ++q)
++		for (int j = 0; j < n; ++j)
++			if (came[j] == -2 && touching(boxes[queue[q]], boxes[j])) { came[j] = queue[q]; queue.push_back(j); }
++	// Cut off: as near as they can get, in the box they can reach nearest it.
++	if (came[end] == -2)
++		for (int b : queue)
++			if (came[end] == -2 || distance(closest(boxes[b], to), to) < distance(closest(boxes[end], to), to)) end = b;
++	to = closest(boxes[end], to);
++	std::vector<int> chain;
++	for (int b = end; b != -1; b = came[b]) chain.insert(chain.begin(), b);
++	Point at = from;
++	for (size_t i = 1; i < chain.size(); ++i) {
++		at = crossing(boxes[chain[i - 1]], boxes[chain[i]], at, to);
++		route.push_back(at);
++	}
++	route.push_back(to);
++	return route;
++}
++
++int scaleAt(const std::vector<Box> &boxes, Point p) {
++	const int b = boxAt(boxes, p);
++	if (b < 0) return 255;
++	const Box &box = boxes[b];
++	double top = box.corner[0].y, bottom = box.corner[0].y;
++	for (const Point &c : box.corner) { top = std::min(top, c.y); bottom = std::max(bottom, c.y); }
++	const double t = bottom > top ? std::max(0.0, std::min(1.0, (p.y - top) / (bottom - top))) : 1;
++	return std::max(1, std::min(255, (int)std::lround(box.scaleTop + (box.scaleBottom - box.scaleTop) * t)));
++}
++
++std::vector<Box> boxesOf(const World::SourceScene &scene) {
++	std::vector<Box> boxes;
++	for (const World::SourceBox &s : scene.boxes) {
++		if (s.flags & 0x80) continue; // (switched off)
++		// The games' placeholder box, far off at -32000 (nowhere to walk).
++		bool nowhere = false;
++		for (int i = 0; i < 4; ++i) nowhere = nowhere || std::abs(s.x[i]) > 8192 || std::abs(s.y[i]) > 8192;
++		if (nowhere) continue;
++		Box b;
++		for (int i = 0; i < 4; ++i) { b.corner[i].x = s.x[i]; b.corner[i].y = s.y[i]; }
++		b.scaleTop = s.scaleTop; b.scaleBottom = s.scaleBottom;
++		boxes.push_back(b);
++	}
++	return boxes;
++}
++
++bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
++	World::SourceScene source;
++	if (!World::parseScene(data, size, source, error)) return false;
++	_source = source; _boxes = boxesOf(_source); _actors.clear(); _follow = -1;
++	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
++	uint32_t colors[256];
++	for (int c = 0; c < 256; ++c)
++		colors[c] = 0xFF000000u | (uint32_t)_source.palette[c * 3] << 16 | (uint32_t)_source.palette[c * 3 + 1] << 8 | _source.palette[c * 3 + 2];
++	_scaled.assign((size_t)_view.width * _view.height, 0xFF000000u);
++	std::vector<int> columns(_view.width);
++	for (int x = 0; x < _view.width; ++x) columns[x] = std::min(_source.width - 1, (int)(x / _view.colScale));
++	for (int y = 0; y < _view.height; ++y) {
++		const uint8_t *row = &_source.pixels[(size_t)std::min(_source.height - 1, (int)(y / _view.rowScale)) * _source.width];
++		uint32_t *out = &_scaled[(size_t)y * _view.width];
++		for (int x = 0; x < _view.width; ++x) out[x] = colors[row[columns[x]]];
++	}
++	return true;
++}
++
++int Scene::addActor(const uint8_t *data, size_t size, double height, double pixelAspect, std::string &error) {
++	Actor a;
++	if (!World::parseSprite(data, size, a.sprite, error)) return -1;
++	a.height = height > 0 ? height : 1; a.pixelAspect = pixelAspect > 0 ? pixelAspect : 1;
++	for (int c = 0; c < 256; ++c)
++		a.colors[c] = 0xFF000000u | (uint32_t)a.sprite.palette[c * 3] << 16 | (uint32_t)a.sprite.palette[c * 3 + 1] << 8 | a.sprite.palette[c * 3 + 2];
++	if (!_boxes.empty()) a.at = closest(_boxes[boxAt(_boxes, a.at)], a.at);
++	_actors.push_back(a);
++	return (int)_actors.size() - 1;
++}
++
++void Scene::place(int n, Point at) {
++	if (n < 0 || n >= (int)_actors.size()) return;
++	Actor &a = _actors[n];
++	a.at = _boxes.empty() ? at : closest(_boxes[boxAt(_boxes, at)], at);
++	a.route.clear(); a.moving = false;
++}
++
++void Scene::walkTo(int n, Point to) {
++	if (n < 0 || n >= (int)_actors.size()) return;
++	Actor &a = _actors[n];
++	a.route = path(_boxes, a.at, to);
++	a.moving = !a.route.empty();
++}
++
++void Scene::follow(int n) { _follow = n; if (n >= 0 && n < (int)_actors.size()) _view.follow(_actors[n].at.x); }
++
++void Scene::update(int ticks) {
++	for (Actor &a : _actors) {
++		a.tick += ticks;
++		if (!a.moving) continue;
++		// Slower where smaller (further away), but never crawling.
++		double step = kWalkSpeed * ticks * std::max(kSlowest, scaleAt(_boxes, a.at) / 255.0);
++		while (step > 0 && !a.route.empty()) {
++			const Point goal = a.route.front();
++			const double dx = goal.x - a.at.x, dy = goal.y - a.at.y, left = std::hypot(dx, dy);
++			if (left > 0.01) a.dir = std::fabs(dx) >= std::fabs(dy) * 1.2 ? (dx < 0 ? 0 : 1) : (dy < 0 ? 3 : 2);
++			if (left <= step) { a.at = goal; a.route.erase(a.route.begin()); step -= left; continue; }
++			a.at.x += dx / left * step; a.at.y += dy / left * step; step = 0;
++		}
++		if (a.route.empty()) a.moving = false;
++	}
++	if (_follow >= 0 && _follow < (int)_actors.size()) _view.follow(_actors[_follow].at.x);
++}
++
++// The frame to show: that facing, pose and step, else the nearest there is.
++static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int kind, int tick) {
++	int count = 0;
++	for (const World::SourceFrame &f : s.frames) count += f.dir == dir && f.kind == kind;
++	if (count) {
++		const int index = kind == 1 ? (tick / 6) % count : 0;
++		int k = 0;
++		for (const World::SourceFrame &f : s.frames) if (f.dir == dir && f.kind == kind && k++ == index) return &f;
++	}
++	const int facings[] = {dir, dir == 0 ? 1 : dir == 1 ? 0 : 2, 2, 1, 0, 3};
++	for (int d : facings) for (const World::SourceFrame &f : s.frames) if (f.dir == d && f.kind == 0) return &f;
++	return s.frames.empty() ? nullptr : &s.frames.front();
++}
++
++// Where an actor's frame lands: its top left and size on screen, and the
++// screen pixels per frame pixel down and across.
++struct Placement { const World::SourceFrame *frame = nullptr; double x0 = 0, y0 = 0, down = 0, across = 0; };
++static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &boxes) {
++	Placement p;
++	p.frame = pick(a.sprite, a.dir, a.moving ? 1 : 0, a.tick);
++	if (!p.frame) return p;
++	p.down = v.rowScale * a.height * scaleAt(boxes, a.at) / 255.0;
++	p.across = p.down / a.pixelAspect;
++	const Point feet = v.toScreen(a.at.x, a.at.y);
++	p.x0 = feet.x + p.frame->dx * p.across; p.y0 = feet.y + p.frame->dy * p.down;
++	return p;
++}
++
++bool Scene::drawnRect(int n, int &x0, int &y0, int &x1, int &y1) const {
++	if (n < 0 || n >= (int)_actors.size()) return false;
++	const Placement p = placeOf(_actors[n], _view, _boxes);
++	if (!p.frame) return false;
++	x0 = std::max(0, (int)std::floor(p.x0)); y0 = std::max(0, (int)std::floor(p.y0));
++	x1 = std::min(_view.screenWidth, (int)std::ceil(p.x0 + p.frame->width * p.across));
++	y1 = std::min(_view.screenHeight, (int)std::ceil(p.y0 + p.frame->height * p.down));
++	return x0 < x1 && y0 < y1;
++}
++
++void Scene::render(uint32_t *pixels, int pitch) const {
++	const View &v = _view;
++	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
++	const int shown = std::min(v.width - v.camera, v.screenWidth - v.left);
++	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y)
++		std::memcpy(pixels + (size_t)(y + v.top) * pitch + v.left, &_scaled[(size_t)y * v.width + v.camera], shown * sizeof(uint32_t));
++	std::vector<int> order(_actors.size());
++	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
++	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return _actors[a].at.y < _actors[b].at.y; });
++	for (int n : order) {
++		const Actor &a = _actors[n];
++		const Placement p = placeOf(a, v, _boxes);
++		int x0, y0, x1, y1;
++		if (!p.frame || !drawnRect(n, x0, y0, x1, y1)) continue;
++		const World::SourceFrame &f = *p.frame;
++		for (int y = y0; y < y1; ++y) {
++			const int row = std::min(f.height - 1, (int)((y - p.y0) / p.down));
++			if (row < 0) continue;
++			uint32_t *out = pixels + (size_t)y * pitch;
++			for (int x = x0; x < x1; ++x) {
++				const int col = std::min(f.width - 1, (int)((x - p.x0) / p.across));
++				if (col < 0) continue;
++				const size_t i = (size_t)row * f.width + col;
++				if (f.mask[i]) out[x] = a.colors[f.pixels[i]];
++			}
++		}
++	}
++}
++
++std::vector<Point> Scene::spots(int n) const {
++	std::vector<Point> candidates, chosen;
++	for (const Box &b : _boxes)
++		for (int i = 1; i <= 3; ++i)
++			for (int j = 1; j <= 3; ++j) {
++				// Across the box (top edge to bottom edge), a quarter in from the sides.
++				const double s = i / 4.0, t = j / 4.0;
++				Point top, bottom, p;
++				top.x = b.corner[0].x + (b.corner[1].x - b.corner[0].x) * s; top.y = b.corner[0].y + (b.corner[1].y - b.corner[0].y) * s;
++				bottom.x = b.corner[3].x + (b.corner[2].x - b.corner[3].x) * s; bottom.y = b.corner[3].y + (b.corner[2].y - b.corner[3].y) * s;
++				p.x = top.x + (bottom.x - top.x) * t; p.y = top.y + (bottom.y - top.y) * t;
++				candidates.push_back(p);
++			}
++	if (candidates.empty()) { Point p; p.x = _source.width / 2.0; p.y = _source.height * 0.8; candidates.push_back(p); }
++	// The roomiest first (the middle of the biggest box), then each the
++	// farthest from those chosen.
++	double biggest = -1; size_t first = 0;
++	for (size_t b = 0; b < _boxes.size(); ++b) {
++		const Box &x = _boxes[b];
++		const double area = std::fabs(cross(x.corner[0], x.corner[1], x.corner[2])) + std::fabs(cross(x.corner[0], x.corner[2], x.corner[3]));
++		if (area > biggest) { biggest = area; first = b * 9 + 4; }
++	}
++	chosen.push_back(candidates[std::min(first, candidates.size() - 1)]);
++	while ((int)chosen.size() < n) {
++		double far = -1; Point best;
++		for (const Point &c : candidates) {
++			double near = 1e18;
++			for (const Point &d : chosen) near = std::min(near, distance(c, d));
++			if (near > far) { far = near; best = c; }
++		}
++		chosen.push_back(best);
++	}
++	chosen.resize(std::max(0, n));
++	return chosen;
++}
++
++} // End of namespace Stage
++
++// ---- The engine's one place on stage ----
++namespace StageBridge {
++namespace {
++Stage::Scene &stage() { static Stage::Scene s; return s; }
++void report(const std::string &problem, char *error, int capacity) {
++	if (!error || capacity <= 0) return;
++	const size_t n = std::min(problem.size(), (size_t)capacity - 1);
++	std::memcpy(error, problem.data(), n); error[n] = 0;
++}
++bool valid(int n) { return n >= 0 && n < stage().actorCount(); }
++} // End of anonymous namespace
++
++bool load(const unsigned char *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight,
++		char *error, int capacity) {
++	std::string problem;
++	Stage::Scene next;
++	if (!next.load(data, size, pixelAspect, gameScreenWidth, screenWidth, screenHeight, problem)) { report(problem, error, capacity); return false; }
++	stage() = std::move(next);
++	return true;
++}
++int addActor(const unsigned char *data, size_t size, double height, double pixelAspect, char *error, int capacity) {
++	std::string problem;
++	const int n = stage().addActor(data, size, height, pixelAspect, problem);
++	if (n < 0) report(problem, error, capacity);
++	return n;
++}
++int actorCount() { return stage().actorCount(); }
++void place(int actor, double x, double y) { stage().place(actor, {x, y}); }
++void walkTo(int actor, double x, double y) { stage().walkTo(actor, {x, y}); }
++bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
++bool busy() {
++	for (int n = 0; n < stage().actorCount(); ++n) if (stage().actor(n).moving) return true;
++	return false;
++}
++bool heading(int actor, double &x, double &y) {
++	if (!moving(actor) || stage().actor(actor).route.empty()) return false;
++	x = stage().actor(actor).route.back().x; y = stage().actor(actor).route.back().y;
++	return true;
++}
++void position(int actor, double &x, double &y) {
++	x = y = 0;
++	if (valid(actor)) { x = stage().actor(actor).at.x; y = stage().actor(actor).at.y; }
++}
++void follow(int actor) { stage().follow(actor); }
++void update(int ticks) { stage().update(ticks); }
++static_assert(sizeof(unsigned int) == sizeof(uint32_t), "the bridge's pixels are 32 bits");
++void render(unsigned int *pixels, int pitch) { if (pixels) stage().render(reinterpret_cast<uint32_t *>(pixels), pitch); }
++void toScene(int screenX, int screenY, double &x, double &y) {
++	const Stage::Point p = stage().view().toScene(screenX, screenY);
++	x = p.x; y = p.y;
++}
++void toScreen(double x, double y, int &screenX, int &screenY) {
++	const Stage::Point p = stage().view().toScreen(x, y);
++	screenX = (int)std::floor(p.x); screenY = (int)std::floor(p.y);
++}
++int spots(int n, double *xs, double *ys) {
++	const std::vector<Stage::Point> found = stage().spots(n);
++	for (size_t i = 0; i < found.size(); ++i) { xs[i] = found[i].x; ys[i] = found[i].y; }
++	return (int)found.size();
++}
++int sceneWidth() { return stage().source().width; }
++int sceneHeight() { return stage().source().height; }
++int boxCount() { return (int)stage().boxes().size(); }
++int camera() { return stage().view().camera; }
++bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().drawnRect(actor, x0, y0, x1, y1); }
++} // End of namespace StageBridge
++} // End of namespace Scummverse
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+new file mode 100644
+index 00000000..4bd46d47
+--- /dev/null
++++ b/common/scummverse_stage.h
+@@ -0,0 +1,121 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse sandbox stage: the new sandbox engine's view of a place (the
++// user: "a new game inside ScummVM, written just for the sandbox ... no
++// character limit, the iPhone's full resolution, full color, everyone is
++// equal"). A scene exported from the player's own copy of a game (".svw",
++// common/scummverse_world.h) is shown at full detail on a screen of any size
++// in true colour, its characters (".svc") drawn at their own detail and a
++// person's height wherever they stand, walking along the scene's walk boxes.
++// Plain C++ (no game data, no engine); the engine reaches it through
++// common/scummverse_stage_engine.h.
++#ifndef COMMON_SCUMMVERSE_STAGE_H
++#define COMMON_SCUMMVERSE_STAGE_H
++
++#include "common/scummverse_world.h"
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++namespace Stage {
++
++struct Point {
++	double x, y;
++	Point(double px = 0, double py = 0) : x(px), y(py) {}
++};
++
++// How a scene's pixels land on the screen: each source row is rowScale
++// screen pixels tall, each column colScale wide (art drawn for 320x200
++// screens has pixels 1.2 times taller than wide). The scene is as tall as
++// the screen allows, no wider than its own game's screen at that size;
++// wider rooms scroll (camera, the scaled scene's left edge).
++struct View {
++	int screenWidth = 0, screenHeight = 0;
++	double rowScale = 1, colScale = 1;
++	int width = 0, height = 0;   // the scaled scene
++	int left = 0, top = 0;       // where it starts on screen when narrower or shorter
++	int camera = 0;
++	// pixelAspect: a source pixel's height over its width; gameScreenWidth:
++	// the width of the game's own screen in source pixels.
++	static View fit(int sourceWidth, int sourceHeight, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight);
++	void follow(double sourceX);           // the camera centred there, within the scene
++	Point toScene(int screenX, int screenY) const;
++	Point toScreen(double sourceX, double sourceY) const;
++};
++
++// Walk boxes (quadrilaterals in source pixels, any winding) and paths along
++// them.
++struct Box {
++	Point corner[4];
++	int scaleTop = 255, scaleBottom = 255; // the game's own character scale at its top and bottom (1..255)
++};
++bool inside(const Box &box, Point p, double slack = 0.5);
++Point closest(const Box &box, Point p);
++// The box a point is in, else the nearest (-1: no boxes).
++int boxAt(const std::vector<Box> &boxes, Point p);
++// Boxes that meet (an edge along another's, within a pixel).
++bool touching(const Box &a, const Box &b);
++// From `from` to `to` (moved into the nearest box): the points to walk
++// through, ending at the destination, or as near to it as the boxes that
++// can be reached allow; empty when there are no boxes.
++std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to);
++// The game's character scale at a point (1..255; 255 without boxes).
++int scaleAt(const std::vector<Box> &boxes, Point p);
++// The scene's walkable boxes (not those switched off, nor the placeholder
++// some games keep far off at -32000).
++std::vector<Box> boxesOf(const World::SourceScene &scene);
++
++// A character on stage.
++struct Actor {
++	World::SourceSprite sprite;
++	double height = 1;      // its size against the scene's people (1: as tall as the scene's lead)
++	double pixelAspect = 1; // as the view's, for its own art
++	Point at;               // feet, source pixels of the scene
++	std::vector<Point> route;
++	int dir = 2;            // 0 left, 1 right, 2 front, 3 back
++	int tick = 0;
++	bool moving = false;
++	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
++};
++
++// The place on stage: the scene drawn once at the view's size, its people.
++class Scene {
++public:
++	bool load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error);
++	int addActor(const uint8_t *data, size_t size, double height, double pixelAspect, std::string &error); // its number, -1 on error
++	void place(int actor, Point at);
++	void walkTo(int actor, Point to);
++	void update(int ticks);              // walking and animation (60 ticks a second)
++	void follow(int actor);              // the camera keeps this one in view
++	// The screen (0xAARRGGBB, `pitch` pixels a row): the scene and everyone,
++	// far ones first.
++	void render(uint32_t *pixels, int pitch) const;
++	const View &view() const { return _view; }
++	const std::vector<Box> &boxes() const { return _boxes; }
++	const World::SourceScene &source() const { return _source; }
++	const Actor &actor(int n) const { return _actors[n]; }
++	int actorCount() const { return (int)_actors.size(); }
++	// Spots for people: inside the boxes, spread out (n of them).
++	std::vector<Point> spots(int n) const;
++	// The screen rectangle an actor covers (false when off screen).
++	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
++
++private:
++	View _view;
++	World::SourceScene _source;
++	std::vector<Box> _boxes;
++	std::vector<uint32_t> _scaled; // the scene at the view's size
++	std::vector<Actor> _actors;
++	int _follow = -1;
++};
++
++// Walking speed: source pixels a tick for someone at full scale; far away,
++// smaller, slower, but never below kSlowest of it.
++static const double kWalkSpeed = 1.6;
++static const double kSlowest = 0.25;
++
++} // End of namespace Stage
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+new file mode 100644
+index 00000000..136ba31f
+--- /dev/null
++++ b/common/scummverse_stage_engine.h
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse sandbox stage: engine-facing bridge (plain types only) for the
++// sandbox engine (engines/scummverse). Holds the one place on stage. See
++// common/scummverse_stage.h.
++#ifndef COMMON_SCUMMVERSE_STAGE_ENGINE_H
++#define COMMON_SCUMMVERSE_STAGE_ENGINE_H
++
++#include <stddef.h>
++
++namespace Scummverse {
++namespace StageBridge {
++
++// A scene (bytes of one .svw file, uncompressed) on a screen of that size;
++// pixelAspect: a source pixel's height over its width (1.2 for art made for
++// 320x200 screens); gameScreenWidth: the source game's screen width in its
++// own pixels. Everyone on stage leaves. False (with `error`) when malformed.
++bool load(const unsigned char *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight,
++	char *error, int capacity);
++// A character (bytes of a .svc file) `height` times the scene's people's
++// height; its number, -1 when malformed.
++int addActor(const unsigned char *data, size_t size, double height, double pixelAspect, char *error, int capacity);
++int actorCount();
++void place(int actor, double x, double y);     // feet, source pixels (moved into the walk boxes)
++void walkTo(int actor, double x, double y);
++bool moving(int actor);
++bool busy();                                   // anyone walking
++// Where a walking actor is going (the end of its way); false when standing.
++bool heading(int actor, double &x, double &y);
++void position(int actor, double &x, double &y);
++void follow(int actor);
++void update(int ticks);                        // 60 ticks a second
++// The screen as 0xAARRGGBB, `pitch` pixels a row.
++void render(unsigned int *pixels, int pitch);
++void toScene(int screenX, int screenY, double &x, double &y);
++void toScreen(double x, double y, int &screenX, int &screenY);
++// Spots for n people, spread over the walk boxes; returns how many.
++int spots(int n, double *xs, double *ys);
++int sceneWidth();
++int sceneHeight();
++int boxCount();
++int camera();                                  // the scaled scene's left edge on screen
++bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
++
++} // End of namespace StageBridge
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 809c34c1..954bc659 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -617,6 +617,9 @@ static const int kWorldVanSiteCount = sizeof(kWorldVanSites) / sizeof(kWorldVanS
+ // A menu request to land the van at a site: kWorldVanRequest + site (above
+ // place requests, below appearance requests).
+ static const int kWorldVanRequest = (1 << 24) + (1 << 20);
++// A menu request to open the sandbox engine (engines/scummverse, preview;
++// above every other request); + 1: back from it to Maniac Mansion.
++static const int kWorldSandboxRequest = 1 << 28;
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+ struct WorldLegacyPlace { int game, room; };
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index a783ebef..602c1b4c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1654,6 +1654,7 @@ protected:
+ 	int _scummverseWorldRoom = 0;
+ 	int _scummverseWorldKey = 0; // The place mounted there (game * 1024 + room + 1): a slot can be given to another.
+ 	Common::Path scummverseWorldCache() const;
++	void scummverseOpenSandbox();
+ 	bool scummverseWorldSceneInstalled(int game, int room) const;
+ 	bool scummverseMountWorld(int room);
+ 	void scummverseApplyWorldPalette();
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index ce708a2a..7ca59891 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -308,7 +308,9 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseCastOffer(); }
+ 	if(_scummverseWindowCall > 0 && (_scummverseWindowCall -= delta) <= 0) scummverseUpdateResident(); // Gone from the window.
+ 	int destination = scummverseWorldPoll();
+-	if (destination >= kWorldCastRequest) {
++	if (destination >= kWorldSandboxRequest) {
++		if (destination == kWorldSandboxRequest) scummverseOpenSandbox();
++	} else if (destination >= kWorldCastRequest) {
+ 		scummverseCastChoose(destination);
+ 	} else if (destination >= kWorldAppearanceRequest) {
+ 		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 4582acd5..17118bb9 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -80,6 +80,40 @@ Common::Path ScummEngine::scummverseWorldCache() const {
+ 	return Common::Path("worlds");
+ }
+ 
++// The sandbox engine (engines/scummverse, preview), from the Worlds menu:
++// Maniac is saved to the temporary slot and comes back where it was when the
++// sandbox is left (chained, as Day of the Tentacle's Maniac Mansion easter
++// egg does).
++void ScummEngine::scummverseOpenSandbox() {
++	static const char *const kSandboxTarget = "scummverse-sandbox";
++	if (!ChainedGamesMan.empty()) return; // (on its way already)
++	// Not in a WiFi game or the tour (leaving would end them), nor before
++	// another game's places are installed (the sandbox shows only those).
++	bool installed = false;
++	for (int g = 0; g < worldGameCount() && !installed; ++g)
++		for (int i = 0; i < kWorldGames[g].sceneCount && !installed; ++i)
++			installed = scummverseWorldSceneInstalled(g, kWorldGames[g].scenes[i].room);
++	const char *refusal = _scummverseNetOn ? "Not during a WiFi game." : _scummverseTouring ? "Not during the tour." :
++		!installed ? "I need another game in Documents first, like monkey." : nullptr;
++	// Saved now, so Maniac comes back exactly here.
++	Common::String file;
++	if (!refusal && !saveState(100, true, file)) refusal = "I couldn't save, so I'll stay here.";
++	if (refusal) {
++		scummverseSay(VAR(VAR_EGO), refusal);
++		return;
++	}
++	if (!ConfMan.hasGameDomain(kSandboxTarget)) ConfMan.addGameDomain(kSandboxTarget);
++	ConfMan.set("engineid", "scummverse", kSandboxTarget);
++	ConfMan.set("gameid", "sandbox", kSandboxTarget);
++	ConfMan.set("description", "Scummverse sandbox", kSandboxTarget);
++	ConfMan.setPath("path", scummverseWorldCache(), kSandboxTarget);
++	ChainedGamesMan.push(kSandboxTarget);
++	ChainedGamesMan.push(ConfMan.getActiveDomainName(), 100);
++	Common::Event event;
++	event.type = Common::EVENT_RETURN_TO_LAUNCHER;
++	_system->getEventManager()->pushEvent(event);
++}
++
+ // A game's room exported here. An empty scene is a room a later export
+ // found no place (one color), emptied in place of an older export's.
+ bool ScummEngine::scummverseWorldSceneInstalled(int game, int room) const {
+diff --git a/engines/scummverse/configure.engine b/engines/scummverse/configure.engine
+new file mode 100644
+index 00000000..a6f18621
+--- /dev/null
++++ b/engines/scummverse/configure.engine
+@@ -0,0 +1,3 @@
++# This file is included from the main "configure" script
++# add_engine [name] [desc] [build-by-default] [subengines] [base games] [deps]
++add_engine scummverse "Scummverse sandbox" no "" "" "highres 16bit"
+diff --git a/engines/scummverse/detection.cpp b/engines/scummverse/detection.cpp
+new file mode 100644
+index 00000000..6c08c665
+--- /dev/null
++++ b/engines/scummverse/detection.cpp
+@@ -0,0 +1,63 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#include "base/plugins.h"
++#include "common/fs.h"
++#include "scummverse/detection.h"
++
++namespace Scummverse {
++
++const PlainGameDescriptor sandboxGames[] = {
++	{ "sandbox", "Scummverse sandbox" },
++	{ nullptr, nullptr }
++};
++
++// No file names its own: a folder holding exported scenes is the sandbox
++// (fallbackDetect). The table only holds the description it returns.
++static const ADGameDescription sandboxDescription = {
++	"sandbox",
++	nullptr,
++	AD_ENTRY1("scummverse-sandbox.none", nullptr),
++	Common::UNK_LANG,
++	Common::kPlatformUnknown,
++	ADGF_NO_FLAGS,
++	GUIO1(GUIO_NOLAUNCHLOAD)
++};
++
++const ADGameDescription gameDescriptions[] = {
++	sandboxDescription,
++	AD_TABLE_END_MARKER
++};
++
++} // End of namespace Scummverse
++
++ScummverseMetaEngineDetection::ScummverseMetaEngineDetection() : AdvancedMetaEngineDetection(
++	Scummverse::gameDescriptions, Scummverse::sandboxGames) {
++}
++
++ADDetectedGame ScummverseMetaEngineDetection::fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const {
++	for (const Common::FSNode &file : fslist)
++		if (!file.isDirectory() && file.getName().hasSuffixIgnoreCase(".svw"))
++			return ADDetectedGame(&Scummverse::gameDescriptions[0]);
++	return ADDetectedGame();
++}
++
++REGISTER_PLUGIN_STATIC(SCUMMVERSE_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, ScummverseMetaEngineDetection);
+diff --git a/engines/scummverse/detection.h b/engines/scummverse/detection.h
+new file mode 100644
+index 00000000..7acfee34
+--- /dev/null
++++ b/engines/scummverse/detection.h
+@@ -0,0 +1,62 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++// The Scummverse sandbox: a game of its own inside ScummVM, made for the
++// sandbox (the user: "no character limit, the iPhone's full resolution, full
++// color; everyone is equal"). It shows the places and characters exported
++// from the player's own copies of the SCUMM games (the worlds cache, .svw
++// scenes and .svc characters) at the screen's full size in true colour.
++
++#ifndef SCUMMVERSE_DETECTION_H
++#define SCUMMVERSE_DETECTION_H
++
++#include "engines/advancedDetector.h"
++
++namespace Scummverse {
++
++extern const PlainGameDescriptor sandboxGames[];
++extern const ADGameDescription gameDescriptions[];
++
++} // End of namespace Scummverse
++
++class ScummverseMetaEngineDetection : public AdvancedMetaEngineDetection<ADGameDescription> {
++public:
++	ScummverseMetaEngineDetection();
++	~ScummverseMetaEngineDetection() override {}
++
++	const char *getName() const override {
++		return "scummverse";
++	}
++
++	const char *getEngineName() const override {
++		return "Scummverse sandbox";
++	}
++
++	const char *getOriginalCopyright() const override {
++		return "Scummverse sandbox (C) its contributors; the scenes and characters are the player's own games'";
++	}
++
++protected:
++	// A folder of exported scenes (the worlds cache) is the sandbox.
++	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra) const override;
++};
++
++#endif // SCUMMVERSE_DETECTION_H
+diff --git a/engines/scummverse/metaengine.cpp b/engines/scummverse/metaengine.cpp
+new file mode 100644
+index 00000000..81afc454
+--- /dev/null
++++ b/engines/scummverse/metaengine.cpp
+@@ -0,0 +1,47 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#include "engines/advancedDetector.h"
++
++#include "scummverse/detection.h"
++#include "scummverse/sandbox.h"
++
++class ScummverseMetaEngine : public AdvancedMetaEngine<ADGameDescription> {
++public:
++	const char *getName() const override {
++		return "scummverse";
++	}
++
++	Common::Error createInstance(OSystem *syst, Engine **engine, const ADGameDescription *desc) const override {
++		*engine = new Scummverse::SandboxEngine(syst, desc);
++		return Common::kNoError;
++	}
++
++	bool hasFeature(MetaEngineFeature f) const override {
++		return false;
++	}
++};
++
++#if PLUGIN_ENABLED_DYNAMIC(SCUMMVERSE)
++REGISTER_PLUGIN_DYNAMIC(SCUMMVERSE, PLUGIN_TYPE_ENGINE, ScummverseMetaEngine);
++#else
++REGISTER_PLUGIN_STATIC(SCUMMVERSE, PLUGIN_TYPE_ENGINE, ScummverseMetaEngine);
++#endif
+diff --git a/engines/scummverse/module.mk b/engines/scummverse/module.mk
+new file mode 100644
+index 00000000..b8ab8dc4
+--- /dev/null
++++ b/engines/scummverse/module.mk
+@@ -0,0 +1,16 @@
++MODULE := engines/scummverse
++
++MODULE_OBJS = \
++	metaengine.o \
++	sandbox.o
++
++# This module can be built as a plugin
++ifeq ($(ENABLE_SCUMMVERSE), DYNAMIC_PLUGIN)
++PLUGIN := 1
++endif
++
++# Include common rules
++include $(srcdir)/rules.mk
++
++# Detection objects
++DETECT_OBJS += $(MODULE)/detection.o
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+new file mode 100644
+index 00000000..e33eec94
+--- /dev/null
++++ b/engines/scummverse/sandbox.cpp
+@@ -0,0 +1,321 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++
++#include "scummverse/sandbox.h"
++
++#include "common/compression/deflate.h"
++#include "common/config-manager.h"
++#include "common/events.h"
++#include "common/file.h"
++#include "common/ptr.h"
++#include "common/scummverse_ai.h"
++#include "common/scummverse_stage_engine.h"
++#include "common/scummverse_world_catalog.h"
++#include "common/stream.h"
++#include "common/system.h"
++#include "common/textconsole.h"
++#include "engines/util.h"
++#include "graphics/blit.h"
++#include "graphics/surface.h"
++#include "image/png.h"
++
++namespace Scummverse {
++
++using namespace WorldCatalog;
++
++// The stage's pixels: 0xAARRGGBB in a native 32-bit word.
++static const Graphics::PixelFormat kStageFormat(4, 8, 8, 8, 8, 16, 8, 0, 24);
++
++SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc) {
++}
++
++SandboxEngine::~SandboxEngine() {
++}
++
++bool SandboxEngine::hasFeature(EngineFeature f) const {
++	return f == kSupportsReturnToLauncher;
++}
++
++bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data) const {
++	data.clear();
++	const Common::FSNode node = _folder.getChild(name);
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? Common::wrapCompressedReadStream(node.createReadStream()) : nullptr);
++	if (!in || in->size() <= 0) return false;
++	data.resize(in->size());
++	return in->read(data.data(), data.size()) == data.size();
++}
++
++bool SandboxEngine::installed(int game, int room) const {
++	if (game < 0 || game >= worldGameCount() || room <= 0) return false;
++	// (An empty scene is a room a later export found no place in.)
++	const Common::FSNode node = _folder.getChild(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
++	return in && in->size() > 0;
++}
++
++// scummverse_place ("monkey-33"), else the first named place installed.
++bool SandboxEngine::startPlace(int &game, int &room) const {
++	const Common::String asked = ConfMan.hasKey("scummverse_place") ? ConfMan.get("scummverse_place") : Common::String();
++	for (game = 0; game < worldGameCount() && !asked.empty(); ++game) {
++		const Common::String prefix = Common::String(kWorldGames[game].gameid) + "-";
++		if (asked.hasPrefix(prefix) && (room = atoi(asked.c_str() + prefix.size())) > 0 && installed(game, room)) return true;
++	}
++	if (!asked.empty()) warning("SCUMMVERSE sandbox: %s is not installed", asked.c_str());
++	for (game = 0; game < worldGameCount(); ++game)
++		for (int i = 0; i < kWorldGames[game].sceneCount; ++i)
++			if (installed(game, room = kWorldGames[game].scenes[i].room)) return true;
++	return false;
++}
++
++bool SandboxEngine::enter(int game, int room, Common::String &problem) {
++	const WorldGame &g = kWorldGames[game];
++	// Curse of Monkey Island draws square pixels at 640x480; the others drew
++	// for 320x200 screens, whose pixels are 1.2 times taller than wide.
++	const double aspect = g.version >= 8 ? 1.0 : 1.2;
++	Common::Array<byte> data;
++	char error[128];
++	if (!read(Common::String::format("%s-%d.svw", g.gameid, room), data)) { problem = "not installed"; return false; }
++	if (!StageBridge::load(data.data(), data.size(), aspect, g.version >= 8 ? 640 : 320, _width, _height, error, sizeof(error))) { problem = error; return false; }
++	_game = game; _room = room; _player = -1;
++	// Where the game shows its people as small figures on a map, so here.
++	const int kind = worldRoomKind(game, room);
++	const double figure = kind == kWorldMapRoom || kind == kWorldFloorPlan ? 0.3 : 1.0;
++	const WorldLead *lead = nullptr;
++	for (const WorldLead &l : kWorldLeads) if (l.game == game) lead = &l;
++	Common::Array<int> people;
++	for (const WorldCastGuest &cast : kWorldCast) {
++		if (cast.game != game || cast.room != room) continue;
++		if (!read(Common::String::format("%s-c%d.svc", g.gameid, cast.guest.costume), data)) continue;
++		const int n = StageBridge::addActor(data.data(), data.size(), figure, aspect, error, sizeof(error));
++		if (n < 0) { warning("SCUMMVERSE sandbox: %s not shown (%s)", cast.guest.name, error); continue; }
++		if (lead && cast.guest.costume == lead->costume) _player = n;
++		people.push_back(n);
++	}
++	if (_player < 0 && lead && read(Common::String::format("%s-c%d.svc", g.gameid, lead->costume), data)) {
++		_player = StageBridge::addActor(data.data(), data.size(), figure, aspect, error, sizeof(error));
++		if (_player >= 0) people.push_back(_player);
++	}
++	// Spread out, the one played in the roomiest spot.
++	for (uint i = 0; i < people.size(); ++i)
++		if (people[i] == _player) { people.remove_at(i); people.insert_at(0, _player); break; }
++	Common::Array<double> xs(people.size()), ys(people.size());
++	const int spots = people.empty() ? 0 : StageBridge::spots(people.size(), xs.data(), ys.data());
++	for (int i = 0; i < spots; ++i) StageBridge::place(people[i], xs[i], ys[i]);
++	_people = people.size();
++	StageBridge::follow(_player);
++	return true;
++}
++
++void SandboxEngine::tap(int screenX, int screenY) {
++	if (_player < 0) return;
++	double x, y;
++	StageBridge::toScene(screenX, screenY, x, y);
++	StageBridge::walkTo(_player, x, y);
++}
++
++void SandboxEngine::back() {
++	Common::Event event;
++	event.type = Common::EVENT_RETURN_TO_LAUNCHER;
++	g_system->getEventManager()->pushEvent(event);
++}
++
++void SandboxEngine::present() {
++	StageBridge::render(_frame.data(), _width);
++	if (_format == kStageFormat) {
++		g_system->copyRectToScreen(_frame.data(), _width * 4, 0, 0, _width, _height);
++		return;
++	}
++	Graphics::crossBlit(_converted.data(), (const byte *)_frame.data(), _width * _format.bytesPerPixel, _width * 4, _width, _height, _format, kStageFormat);
++	g_system->copyRectToScreen(_converted.data(), _width * _format.bytesPerPixel, 0, 0, _width, _height);
++}
++
++// A picture of the screen into scummverse_shots (PNG), for checks.
++bool SandboxEngine::shot(const Common::String &name) const {
++#ifdef USE_PNG
++	if (!ConfMan.hasKey("scummverse_shots")) return false;
++	Graphics::Surface surface;
++	surface.init(_width, _height, _width * 4, const_cast<uint32 *>(_frame.data()), kStageFormat);
++	Common::DumpFile out;
++	if (!out.open(ConfMan.getPath("scummverse_shots").appendComponent(name), true)) return false;
++	return Image::writePNG(out, surface);
++#else
++	return false;
++#endif
++}
++
++// The iPhone's Worlds menu knows the sandbox is running while this lives.
++struct SandboxActive {
++	SandboxActive() { scummverseSandboxActive(true); }
++	~SandboxActive() { scummverseSandboxActive(false); }
++};
++
++Common::Error SandboxEngine::run() {
++	const SandboxActive active;
++	_folder = Common::FSNode(ConfMan.getPath("path"));
++	// The device's own pixels, held sideways (at most 1440 rows; below 720,
++	// 1280x720); scummverse_screen ("WxH") overrides.
++	if (ConfMan.hasKey("scummverse_screen")) {
++		int w = 0, h = 0;
++		if (sscanf(ConfMan.get("scummverse_screen").c_str(), "%dx%d", &w, &h) == 2 && w >= 320 && h >= 200 && w <= 4096 && h <= 4096) { _width = w; _height = h; }
++	} else {
++		const int ow = g_system->getOverlayWidth(), oh = g_system->getOverlayHeight();
++		if (MIN(ow, oh) >= 720) {
++			_width = MAX(ow, oh); _height = MIN(ow, oh);
++			if (_height > 1440) { _width = _width * 1440 / _height; _height = 1440; }
++			_width &= ~1; _height &= ~1;
++		}
++	}
++	// True colour: the stage's own format where the screen has it, else the
++	// richest it offers.
++	_format = Graphics::PixelFormat();
++	const Common::List<Graphics::PixelFormat> formats = g_system->getSupportedFormats();
++	for (const Graphics::PixelFormat &f : formats) if (f == kStageFormat) _format = f;
++	for (const Graphics::PixelFormat &f : formats) if (_format.bytesPerPixel < 2 && f.bytesPerPixel == 4) _format = f;
++	for (const Graphics::PixelFormat &f : formats) if (_format.bytesPerPixel < 2 && f.bytesPerPixel >= 2) _format = f;
++	if (_format.bytesPerPixel < 2) return Common::Error(Common::kUnsupportedColorMode, "the sandbox needs a true-colour screen");
++	initGraphics(_width, _height, &_format);
++	if (g_system->getScreenFormat() != _format) return Common::Error(Common::kUnsupportedColorMode, "the screen did not take true colour");
++	_frame.resize(_width * _height);
++	_converted.resize(_width * _height * _format.bytesPerPixel);
++
++	if (ConfMan.hasKey("scummverse_selftest")) return selfTest(ConfMan.get("scummverse_selftest"));
++
++	int game, room;
++	Common::String problem;
++	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "no places are installed yet (add your games to Documents)");
++	if (!enter(game, room, problem)) return Common::Error(Common::kReadingFailed, problem);
++	uint32 last = g_system->getMillis();
++	int carry = 0;
++	bool changed = true;
++	while (!shouldQuit()) {
++		Common::Event event;
++		while (g_system->getEventManager()->pollEvent(event))
++			if (event.type == Common::EVENT_LBUTTONDOWN) { tap(event.mouse.x, event.mouse.y); changed = true; }
++		// The Worlds menu (iPhone): Back to Maniac Mansion.
++		if (scummverseWorldPoll() == kWorldSandboxRequest + 1) back();
++		const uint32 now = g_system->getMillis();
++		carry += (int)MIN<uint32>(now - last, 500) * 60; last = now;
++		if (carry >= 1000) {
++			// (Drawn again only while someone walks, and once when they stop.)
++			changed = changed || StageBridge::busy();
++			StageBridge::update(carry / 1000);
++			carry %= 1000;
++		}
++		if (changed) present();
++		changed = false;
++		g_system->updateScreen();
++		g_system->delayMillis(10);
++	}
++	return Common::kNoError;
++}
++
++
++Common::Error SandboxEngine::selfTest(const Common::String &mode) {
++	Common::Array<Common::String> places;
++	int game, room;
++	if (mode == "all") {
++		Common::FSList files;
++		_folder.getChildren(files, Common::FSNode::kListFilesOnly);
++		for (const Common::FSNode &file : files) if (file.getName().hasSuffix(".svw")) places.push_back(file.getName());
++		Common::sort(places.begin(), places.end());
++	} else if (startPlace(game, room)) { // "walk", "back"
++		places.push_back(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
++	}
++	int shown = 0, skipped = 0, failed = 0, people = 0, arrivedCount = 0, unreached = 0, colors = 0;
++	for (const Common::String &name : places) {
++		int g = -1, r = 0;
++		for (int i = 0; i < worldGameCount() && g < 0; ++i) {
++			const Common::String prefix = Common::String(kWorldGames[i].gameid) + "-";
++			if (name.hasPrefix(prefix) && (r = atoi(name.c_str() + prefix.size())) > 0) g = i;
++		}
++		if (g < 0 || !installed(g, r)) { ++skipped; continue; }
++		Common::String problem;
++		if (!enter(g, r, problem)) { warning("SCUMMVERSE sandbox: %s not shown (%s)", name.c_str(), problem.c_str()); ++failed; continue; }
++		++shown; people += _people;
++		present();
++		const bool one = places.size() == 1;
++		if (one) shot("sandbox-start.png");
++		// Walk to the spot farthest away, by tapping the screen there (the
++		// camera follows; the spot may be off screen at first: tap toward it).
++		if (_player >= 0) {
++			double fromX, fromY, x, y, toX = 0, toY = 0, best = -1;
++			StageBridge::position(_player, fromX, fromY);
++			double xs[16], ys[16];
++			const int n = StageBridge::spots(16, xs, ys);
++			for (int i = 0; i < n; ++i) {
++				const double d = (xs[i] - fromX) * (xs[i] - fromX) + (ys[i] - fromY) * (ys[i] - fromY);
++				if (d > best) { best = d; toX = xs[i]; toY = ys[i]; }
++			}
++			// Each tap: they walk all the way to where the boxes let them.
++			int ticks = 0;
++			bool stopped = false;
++			for (int leg = 0; leg < 8 && !stopped; ++leg) {
++				int sx, sy;
++				double endX = 0, endY = 0;
++				StageBridge::toScreen(toX, toY, sx, sy);
++				tap(CLIP(sx, 0, _width - 1), CLIP(sy, 0, _height - 1));
++				const bool going = StageBridge::heading(_player, endX, endY);
++				for (; StageBridge::moving(_player) && ticks < 20000; ++ticks) StageBridge::update(1);
++				StageBridge::position(_player, x, y);
++				if (going && (x - endX) * (x - endX) + (y - endY) * (y - endY) > 0.01) {
++					warning("SCUMMVERSE sandbox: %s: stopped at %.1f,%.1f on the way to %.1f,%.1f", name.c_str(), x, y, endX, endY);
++					stopped = true;
++				}
++				if ((x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25) break;
++			}
++			StageBridge::position(_player, x, y);
++			const bool arrived = (x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25;
++			arrivedCount += arrived; unreached += !arrived;
++			failed += stopped;
++			if (one) {
++				int x0, y0, x1, y1;
++				present();
++				shot("sandbox-walked.png");
++				warning("SCUMMVERSE sandbox walk: from %.1f,%.1f to %.1f,%.1f (asked %.1f,%.1f) in %d ticks; %s; drawn %s",
++					fromX, fromY, x, y, toX, toY, ticks, arrived ? "arrived" : "as near as it goes",
++					StageBridge::drawnRect(_player, x0, y0, x1, y1) ? "on screen" : "off screen");
++			}
++		}
++		if (one) {
++			// Colours on screen (true colour: more than one palette's worth
++			// where several characters stand in a scene).
++			Common::HashMap<uint32, bool> seen;
++			for (uint i = 0; i < _frame.size(); ++i) seen[_frame[i]] = true;
++			colors = seen.size();
++		}
++		if (ConfMan.hasKey("scummverse_shots") && !one && worldLandmark(g, r)) shot(name + ".png");
++	}
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest %s: %d shown, %d people, %d walked across, %d as near as they go, %d skipped, %d failed, %d colours, screen %dx%d %s",
++		mode.c_str(), shown, people, arrivedCount, unreached, skipped, failed, colors, _width, _height, _format.toString().c_str());
++	if (!shown || failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	if (mode == "back") {
++		back();
++		Common::Event event;
++		while (!shouldQuit() && g_system->getEventManager()->pollEvent(event)) {}
++		warning("SCUMMVERSE sandbox back: %s", shouldQuit() ? "leaving" : "still here");
++	}
++	return Common::kNoError;
++}
++
++} // End of namespace Scummverse
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+new file mode 100644
+index 00000000..804e06cd
+--- /dev/null
++++ b/engines/scummverse/sandbox.h
+@@ -0,0 +1,76 @@
++/* ScummVM - Graphic Adventure Engine
++ *
++ * ScummVM is the legal property of its developers, whose names
++ * are too numerous to list here. Please refer to the COPYRIGHT
++ * file distributed with this source distribution.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++
++#ifndef SCUMMVERSE_SANDBOX_H
++#define SCUMMVERSE_SANDBOX_H
++
++#include "common/array.h"
++#include "common/error.h"
++#include "common/fs.h"
++#include "common/str.h"
++#include "engines/advancedDetector.h"
++#include "engines/engine.h"
++#include "graphics/pixelformat.h"
++
++namespace Scummverse {
++
++// The sandbox: a place from one of the player's games on the whole screen
++// in true colour, its own people there, the game's lead walking where the
++// player taps (common/scummverse_stage.h does the work).
++class SandboxEngine : public Engine {
++public:
++	SandboxEngine(OSystem *syst, const ADGameDescription *desc);
++	~SandboxEngine() override;
++
++	Common::Error run() override;
++	bool hasFeature(EngineFeature f) const override;
++
++private:
++	// A file of the worlds cache (scenes are gzip-compressed; both read).
++	bool read(const Common::String &name, Common::Array<byte> &data) const;
++	bool installed(int game, int room) const;
++	bool startPlace(int &game, int &room) const;
++	// Puts a game's room on stage: its people, and the game's lead to play.
++	bool enter(int game, int room, Common::String &problem);
++	void tap(int screenX, int screenY);
++	// Leaves the sandbox: back to the game it was opened from (Maniac, where
++	// it was saved), else the app ends as Maniac's own quit does.
++	void back();
++	void present();
++	bool shot(const Common::String &name) const;
++	// Checks without anyone at the screen (scummverse_selftest): "walk" in
++	// the start place, "all" through every place installed, "back" walks
++	// then leaves as the menu's Back to Maniac Mansion does.
++	Common::Error selfTest(const Common::String &mode);
++
++	const ADGameDescription *_desc;
++	Common::FSNode _folder;
++	Graphics::PixelFormat _format;
++	int _width = 1280, _height = 720;
++	Common::Array<uint32> _frame;   // the stage, 0xAARRGGBB
++	Common::Array<byte> _converted; // the same in the screen's format
++	int _game = -1, _room = 0, _player = -1, _people = 0;
++};
++
++} // End of namespace Scummverse
++
++#endif // SCUMMVERSE_SANDBOX_H

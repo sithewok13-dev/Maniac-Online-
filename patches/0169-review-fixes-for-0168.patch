@@ -1,0 +1,196 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 2ffda010..ba59804a 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -31,12 +31,12 @@ static const int kWorldExportVersion = 22;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+ // file also says what each thing's verbs do; from 0161 read and pick up too,
+ // from 0162 not fix; from 0168 what each thing is inside, drawn with that
+-// one open): "maniac-v26", the rest as kWorldExportVersion, so only it is
+-// exported again.
++// one open; from 0169 one its state makes untouchable away): "maniac-v27",
++// the rest as kWorldExportVersion, so only it is exported again.
+ inline int worldExportVersion(const char *gameid) {
+ 	const char *mansion = "maniac";
+ 	while (*mansion && *gameid == *mansion) { ++mansion; ++gameid; }
+-	return kWorldExportVersion + (!*mansion && !*gameid ? 4 : 0);
++	return kWorldExportVersion + (!*mansion && !*gameid ? 5 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 877209e6..46396b6f 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -362,6 +362,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			}
+ 			if (any) answers |= Scummverse::PanelBridge::kThingAnswersAny;
+ 			if (getClass(o.obj_nr, kObjectClassUntouchable) || getOwner(o.obj_nr) != OF_OWNER_ROOM) answers |= Scummverse::PanelBridge::kThingAway;
++			// (From 0169: the oldest games' state's untouchable bit too, as
++			// their findObject: the letters not yet in the mailbox.)
++			if (_game.version >= 1 && _game.version <= 2 && (o.state & kObjectStateUntouchable)) answers |= Scummverse::PanelBridge::kThingAway;
+ 			things->push_back(o.obj_nr);
+ 			things->push_back(_game.version <= 2 ? (o.state & kObjectStateIntrinsic ? 1 : 0) : !o.state ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : o.state);
+ 			things->push_back(answers);
+@@ -1448,6 +1451,14 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 			else warning("SCUMMVERSE world export: %s %s skipped (%s)", game->gameid, guest->name, problem.c_str());
+ 		}
+ 	}
++	// (The mansion's things file goes with its places (what each thing is
++	// inside, from 0168): an older one is emptied before the marker, then
++	// written again below.)
++	if (written && !strcmp(game->gameid, "maniac")) {
++		const Common::Path things = dir.appendComponent(Common::String::format("%s-things.svo", game->gameid));
++		Common::DumpFile stale;
++		if (Common::FSNode(things).exists() && stale.open(things, true)) stale.finalize();
++	}
+ 	Common::DumpFile marker;
+ 	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, worldExportVersion(game->gameid))), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	// The verb panel last (its game's start changes the game), after the
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 1241432d..f97ee505 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -562,6 +562,12 @@ const char *SandboxEngine::openedOnlyBy(int room, int id) const {
+ 
+ bool SandboxEngine::doorAllowed(int room, int door) const {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return true;
++	// (Not one inside another shut: the grating behind the bushes, the hole
++	// behind the blotch of paint, the door behind its padlock.)
++	for (int o = 0; room == _room && o < StageBridge::objectCount(); ++o) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == door && insideShut(o)) return false;
++	}
+ 	for (const ManiacDoorNeeds &n : kManiacDoorNeeds) if (n.room == room && n.door == door && pictureOf(n.needRoom, n.needObject) != n.needPicture) return false;
+ 	return true;
+ }
+@@ -713,7 +719,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	Common::Array<int> candidates;
+ 	for (int i = 0; i < StageBridge::objectCount(); ++i) {
+ 		int id, ox, oy, w, h, wx, wy, state;
+-		if (isDoor(i) || (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id))) candidates.push_back(i);
++		if ((isDoor(i) && !insideShut(i)) || (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id))) candidates.push_back(i);
+ 	}
+ 	const int hit = StageBridge::objectAt(x, y, candidates.data(), candidates.size(), 4);
+ 	if (hit >= 0 && rideBoard(hit)) return;
+@@ -844,28 +850,37 @@ bool SandboxEngine::insideShut(int object) const {
+ 	return false;
+ }
+ 
+-// Drawn again from the outside in: each thing something is inside, and
+-// each inside one shown (over it) where all it is in are open; one inside
+-// one shut stays under it.
++// Drawn again as the original draws its room's objects (from the last to
++// the first, so the first is on top): each thing something is inside, each
++// such thing, and each other one over or under them; one inside one shut
++// not drawn, so that one covers it. A room with none of them: nothing.
+ void SandboxEngine::layInside() {
+ 	if (_game < 0) return;
+-	Common::Array<int> order[9];
+-	for (int o = 0; o < StageBridge::objectCount(); ++o) {
+-		int id, ox, oy, w, h, wx, wy, state, parent, picture, depth = 0;
+-		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
+-		const bool inside = PanelBridge::thingParent(_game, _room, id, parent, picture);
+-		bool holds = false;
+-		for (int k = 0; k < StageBridge::objectCount() && !holds; ++k) {
+-			int kid, kx, ky, kw, kh, kwx, kwy, ks, kparent, kpicture;
+-			holds = StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && PanelBridge::thingParent(_game, _room, kid, kparent, kpicture) && kparent == id;
++	const int count = StageBridge::objectCount();
++	Common::Array<bool> family(count, false);
++	bool any = false;
++	for (int o = 0; o < count; ++o) {
++		int id, ox, oy, w, h, wx, wy, state, parent, picture;
++		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || !PanelBridge::thingParent(_game, _room, id, parent, picture)) continue;
++		family[o] = any = true;
++		for (int k = 0; k < count; ++k) {
++			int kid, kx, ky, kw, kh, kwx, kwy, ks;
++			if (StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && kid == parent) family[k] = true;
++		}
++	}
++	if (!any) return;
++	// (And what overlaps them.)
++	Common::Array<bool> draw = family;
++	for (int o = 0; o < count; ++o) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (draw[o] || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
++		for (int k = 0; k < count && !draw[o]; ++k) {
++			int kid, kx, ky, kw, kh, kwx, kwy, ks;
++			draw[o] = family[k] && StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && ox < kx + kw && kx < ox + w && oy < ky + kh && ky < oy + h;
+ 		}
+-		if (!inside && !holds) continue;
+-		for (int up = id; depth < 8 && PanelBridge::thingParent(_game, _room, up, parent, picture); up = parent) ++depth;
+-		order[depth].push_back(o);
+ 	}
+-	for (const Common::Array<int> &level : order)
+-		for (int o : level)
+-			if (!insideShut(o)) StageBridge::showObject(o, StageBridge::objectShown(o));
++	for (int o = count - 1; o >= 0; --o)
++		if (draw[o] && StageBridge::objectPictures(o) > 0 && !insideShut(o)) StageBridge::showObject(o, StageBridge::objectShown(o));
+ 	_dirty = true;
+ }
+ 
+@@ -1538,7 +1553,7 @@ void SandboxEngine::reachDoor() {
+ // painted in the doorway.)
+ bool SandboxEngine::doorOpens(int index, int &picture, bool shut) const {
+ 	int id, ox, oy, w, h, wx, wy, state;
+-	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(index, id, ox, oy, w, h, wx, wy, state) || openedOnlyBy(_room, id)) return false;
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(index, id, ox, oy, w, h, wx, wy, state) || openedOnlyBy(_room, id) || insideShut(index)) return false;
+ 	const int pictures = StageBridge::objectPictures(index), shown = shut ? 0 : StageBridge::objectShown(index);
+ 	const bool differs = pictures > 1 && StageBridge::picturesDiffer(index, 0, 1);
+ 	int gamePicture, answers = -1;
+@@ -1572,7 +1587,7 @@ void SandboxEngine::arrivals() {
+ 		if (n < 0) continue;
+ 		_onStage.push_back(found[i]);
+ 		Common::Array<int> doors;
+-		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isDoor(o)) doors.push_back(o);
++		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isDoor(o) && !insideShut(o)) doors.push_back(o);
+ 		double xs[12], ys[12], x, y;
+ 		const int spots = StageBridge::spots(12, xs, ys);
+ 		if (!doors.empty()) {
+@@ -3560,7 +3575,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			const int parts[] = {115, 116, 117};
+ 			for (int part : parts) _pictures.erase(thingKey(maniac, 24, part));
+ 			auto all = [&](int picture) {
+-				for (int part : parts) if (thingIn(part) < 0 || StageBridge::objectShown(thingIn(part)) != picture) return false;
++				for (int part : parts) if (thingIn(part) < 0 || StageBridge::objectShown(thingIn(part)) != picture || !StageBridge::looksAs(thingIn(part), picture)) return false;
+ 				return true;
+ 			};
+ 			bool ok = enter(maniac, 24, 0, problem) && thingIn(279) >= 0 && all(1);
+@@ -3688,6 +3703,37 @@ Common::Error SandboxEngine::verbsTest() {
+ 			putBack(7, 90);
+ 			for (int id : {89, 90, 91}) _pictures.erase(thingKey(maniac, 7, id));
+ 		}
++		// The safe behind the painting: the envelope in it taken, gone (the
++		// quarter under it as the game draws it).
++		if (maniac >= 0 && installed(maniac, 9)) {
++			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
++			bool ok = enter(maniac, 9, 0, problem) && thingIn(218) >= 0 && thingIn(219) >= 0 && thingIn(222) >= 0 && !isThing(thingIn(219)) && !isThing(thingIn(222));
++			if (ok) setPicture(9, 218, 1);
++			ok = ok && isThing(thingIn(219)) && !isThing(thingIn(222));
++			if (ok) setPicture(9, 219, 1);
++			ok = ok && isThing(thingIn(222)) && StageBridge::looksAs(thingIn(222), StageBridge::objectShown(thingIn(222)));
++			ok = ok && doAt(kWorldVerbPickUp, thingIn(222)) && isCarried(maniac, 9, 222) && StageBridge::looksAs(thingIn(222), 1);
++			if (ok) setPicture(9, 218, 0);
++			ok = ok && !isThing(thingIn(219)) && StageBridge::looksAs(thingIn(218), 0);
++			if (!ok) fail("the envelope not in the safe behind the painting", maniac); else ++inside;
++			putBack(9, 222);
++			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
++		}
++		// The grating behind the bushes: no way through until they are
++		// pulled aside.
++		if (maniac >= 0 && installed(maniac, 1)) {
++			_pictures.erase(thingKey(maniac, 1, 52)); _pictures.erase(thingKey(maniac, 1, 53));
++			bool ok = enter(maniac, 1, 0, problem) && thingIn(52) >= 0 && thingIn(53) >= 0 && pictureOf(1, 52) == 0 && !doorAllowed(1, 53);
++			if (ok) setPicture(1, 52, 1);
++			ok = ok && doorAllowed(1, 53);
++			// (The mailbox opened: the letters not there yet, as its game has
++			// them until the mail comes.)
++			_pictures.erase(thingKey(maniac, 1, 50));
++			ok = ok && enter(maniac, 1, 0, problem) && thingIn(50) >= 0 && doAt(kWorldVerbOpen, thingIn(50)) && StageBridge::objectShown(thingIn(50)) == 1 &&
++				thingIn(58) >= 0 && thingIn(60) >= 0 && !isThing(thingIn(58)) && !isThing(thingIn(60));
++			if (!ok) fail("the grating not behind the bushes, or the letters in the mailbox before the mail", maniac); else ++inside;
++			for (int id : {50, 52, 53}) _pictures.erase(thingKey(maniac, 1, id));
++		}
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+ 			for (int id : {54, 55}) _pictures.erase(thingKey(maniac, 1, id));
+ 			bool ok = enter(maniac, 1, 0, problem) && thingIn(54) >= 0 && thingIn(55) >= 0 && !isThing(thingIn(55));

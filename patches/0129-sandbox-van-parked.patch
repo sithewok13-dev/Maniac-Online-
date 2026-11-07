@@ -1,0 +1,393 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index e61d7087..dbd149fe 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -227,7 +227,7 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
+ 	World::SourceScene source;
+ 	if (!World::parseScene(data, size, source, error)) return false;
+-	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _follow = -1; _cameraGoal = 0;
++	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _props.clear(); _follow = -1; _cameraGoal = 0;
+ 	_links = linksOf(_boxes, _source.boxNext, (int)_source.boxes.size());
+ 	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
+ 	for (int c = 0; c < 256; ++c)
+@@ -407,16 +407,53 @@ static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &
+ 	return p;
+ }
+ 
+-bool Scene::drawnRect(int n, int &x0, int &y0, int &x1, int &y1) const {
+-	if (n < 0 || n >= (int)_actors.size()) return false;
+-	const Placement p = placeOf(_actors[n], _view, _boxes);
++// A prop's: its picture standing on its bottom centre, `rows` tall at full
++// scale.
++static Placement placeOf(const World::SourceFrame &frame, Point at, double rows, double pixelAspect, const View &v, const std::vector<Box> &boxes) {
++	Placement p;
++	p.frame = &frame;
++	p.down = v.rowScale * rows / frame.height * scaleAt(boxes, at) / 255.0;
++	p.across = p.down / pixelAspect;
++	const Point feet = v.toScreen(at.x, at.y);
++	p.x0 = feet.x - frame.width * p.across / 2; p.y0 = feet.y - frame.height * p.down;
++	return p;
++}
++
++// The screen rectangle a placement covers (false when off screen).
++static bool rectOf(const Placement &p, const View &v, int &x0, int &y0, int &x1, int &y1) {
+ 	if (!p.frame) return false;
+ 	x0 = std::max(0, (int)std::floor(p.x0)); y0 = std::max(0, (int)std::floor(p.y0));
+-	x1 = std::min(_view.screenWidth, (int)std::ceil(p.x0 + p.frame->width * p.across));
+-	y1 = std::min(_view.screenHeight, (int)std::ceil(p.y0 + p.frame->height * p.down));
++	x1 = std::min(v.screenWidth, (int)std::ceil(p.x0 + p.frame->width * p.across));
++	y1 = std::min(v.screenHeight, (int)std::ceil(p.y0 + p.frame->height * p.down));
+ 	return x0 < x1 && y0 < y1;
+ }
+ 
++bool Scene::drawnRect(int n, int &x0, int &y0, int &x1, int &y1) const {
++	if (n < 0 || n >= (int)_actors.size()) return false;
++	return rectOf(placeOf(_actors[n], _view, _boxes), _view, x0, y0, x1, y1);
++}
++
++bool Scene::propRect(int n, int &x0, int &y0, int &x1, int &y1) const {
++	if (n < 0 || n >= (int)_props.size()) return false;
++	const Prop &prop = _props[n];
++	return rectOf(placeOf(prop.frame, prop.at, prop.rows, prop.pixelAspect, _view, _boxes), _view, x0, y0, x1, y1);
++}
++
++int Scene::addProp(const uint8_t *pixels, int width, int height, int none, const uint8_t *palette, Point at, double rows, double pixelAspect) {
++	if (!pixels || !palette || width <= 0 || height <= 0 || rows <= 0) return -1;
++	Prop prop;
++	prop.frame.width = width; prop.frame.height = height;
++	prop.frame.pixels.assign(pixels, pixels + (size_t)width * height);
++	prop.frame.mask.resize(prop.frame.pixels.size());
++	bool any = false;
++	for (size_t i = 0; i < prop.frame.pixels.size(); ++i) any |= (prop.frame.mask[i] = prop.frame.pixels[i] != none) != 0;
++	if (!any) return -1;
++	for (int c = 0; c < 256; ++c) prop.colors[c] = 0xFF000000u | (uint32_t)palette[c * 3] << 16 | (uint32_t)palette[c * 3 + 1] << 8 | palette[c * 3 + 2];
++	prop.at = at; prop.rows = rows; prop.pixelAspect = pixelAspect > 0 ? pixelAspect : 1;
++	_props.push_back(std::move(prop));
++	return (int)_props.size() - 1;
++}
++
+ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const View &v = _view;
+ 	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+@@ -426,14 +463,19 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 		uint32_t *out = pixels + (size_t)(y + v.top) * pitch + v.left;
+ 		for (int x = 0; x < shown; ++x) out[x] = _colors[in[x]];
+ 	}
+-	std::vector<int> order(_actors.size());
++	// Far ones first: the props (numbered after the people), then everyone,
++	// by the row they stand on; on the same row, a prop behind the people.
++	const int people = (int)_actors.size();
++	std::vector<int> order(people + _props.size());
+ 	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+-	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return _actors[a].at.y < _actors[b].at.y; });
++	auto rowOf = [&](int n) { return n < people ? _actors[n].at.y : _props[n - people].at.y; };
++	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rowOf(a) < rowOf(b) || (rowOf(a) == rowOf(b) && a >= people && b < people); });
+ 	for (int n : order) {
+-		const Actor &a = _actors[n];
+-		const Placement p = placeOf(a, v, _boxes);
++		const Prop *prop = n < people ? nullptr : &_props[n - people];
++		const Placement p = prop ? placeOf(prop->frame, prop->at, prop->rows, prop->pixelAspect, v, _boxes) : placeOf(_actors[n], v, _boxes);
++		const uint32_t *colors = prop ? prop->colors : _actors[n].colors;
+ 		int x0, y0, x1, y1;
+-		if (!p.frame || !drawnRect(n, x0, y0, x1, y1)) continue;
++		if (!rectOf(p, v, x0, y0, x1, y1)) continue;
+ 		const World::SourceFrame &f = *p.frame;
+ 		for (int y = y0; y < y1; ++y) {
+ 			const int row = std::min(f.height - 1, (int)((y - p.y0) / p.down));
+@@ -443,7 +485,7 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 				const int col = std::min(f.width - 1, (int)((x - p.x0) / p.across));
+ 				if (col < 0) continue;
+ 				const size_t i = (size_t)row * f.width + col;
+-				if (f.mask[i]) out[x] = a.colors[f.pixels[i]];
++				if (f.mask[i]) out[x] = colors[f.pixels[i]];
+ 			}
+ 		}
+ 	}
+@@ -738,5 +780,18 @@ int objectAt(double x, double y, const int *candidates, int count, double slack)
+ 	return stage().objectAt(Stage::Point(x, y), std::vector<int>(candidates, candidates + std::max(0, count)), slack);
+ }
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().drawnRect(actor, x0, y0, x1, y1); }
++int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect) {
++	return stage().addProp(pixels, width, height, none, palette, Stage::Point(x, y), rows, pixelAspect);
++}
++int propCount() { return stage().propCount(); }
++bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) { return stage().propRect(prop, x0, y0, x1, y1); }
++double depthAt(double x, double y) { return stage().depthAt(Stage::Point(x, y)); }
++bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette) {
++	World::SourceScene scene;
++	std::string problem;
++	if (!palette || !World::parseScene(data, size, scene, problem)) return false;
++	std::memcpy(palette, scene.palette, 768);
++	return true;
++}
+ } // End of namespace StageBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 1780cc33..74289f17 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -179,6 +179,18 @@ public:
+ 	// scene's objects): one under the tap beats one only within `slack`
+ 	// pixels of it (of those, the nearest), then the smallest; -1 when none.
+ 	int objectAt(Point tap, const std::vector<int> &candidates, double slack = 4) const;
++	// A still picture among the people (the Shuttle Bug parked): width x
++	// height palette indices (`none`: not drawn) in its own colours
++	// (`palette`, 768 bytes), its bottom centre at `at`, `rows` scene rows
++	// tall where people are full size (smaller where they are smaller), its
++	// pixels pixelAspect times taller than wide. Drawn among the people by
++	// the row it stands on (those on its row in front of it). Until another
++	// place is loaded; its number, -1 when empty.
++	int addProp(const uint8_t *pixels, int width, int height, int none, const uint8_t *palette, Point at, double rows, double pixelAspect);
++	int propCount() const { return (int)_props.size(); }
++	bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) const; // its screen rectangle (false when off screen)
++	// How big people are at a point against full size (the boxes' scale).
++	double depthAt(Point p) const { return scaleAt(_boxes, p) / 255.0; }
+ 
+ private:
+ 	View _view;
+@@ -202,6 +214,8 @@ private:
+ 	Picture _picture;
+ 	void rescale(int x, int y, int w, int h); // a rectangle of the scene into the scaled copy
+ 	std::vector<Actor> _actors;
++	struct Prop { World::SourceFrame frame; uint32_t colors[256] = {}; Point at; double rows = 1, pixelAspect = 1; };
++	std::vector<Prop> _props;
+ 	int _follow = -1;
+ 	int _cameraGoal = 0;
+ 	double _speedX = 8, _speedY = 2;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 38683ffa..3da62768 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -64,6 +64,18 @@ int boxCount();
+ int camera();                                  // the scaled scene's left edge on screen
+ void lookAt(double x);                         // the camera centred there (source pixels)
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
++// A still picture among the people (the Shuttle Bug parked): width x height
++// palette indices (`none`: not drawn) in its own colours (palette: 768
++// bytes), its bottom centre at x, y (source pixels), `rows` scene rows tall
++// where people are full size, its pixels pixelAspect times taller than
++// wide. Until another place is loaded; its number, -1 when empty.
++int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect);
++int propCount();
++bool propRect(int prop, int &x0, int &y0, int &x1, int &y1); // its screen rectangle (false off screen)
++// How big people are at a point against full size (the boxes' scale, 0..1).
++double depthAt(double x, double y);
++// A scene's colours (bytes of a .svw file; 768 bytes out); false when malformed.
++bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette);
+ // How everyone added from now on walks: source pixels a step across and up
+ // or down at full scale, ticks a step.
+ void setWalk(double speedX, double speedY, int stepTicks);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index f03e9460..cff32fe9 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -73,6 +73,11 @@ static const int kRideBoarded = 300, kRideTrip[] = {180, 180, 600, 600}; // (bus
+ static const int kRideAsk = 60 * 60; // (its list of where to unanswered: withdrawn)
+ // Where the van is parked (kept between launches: game * 1024 + room).
+ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
++static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
++// The van's picture as Maniac takes it at the landing site (its object 454
++// there; scummverse_van.inc): the people beside it there (the long shot's
++// spacesuits) are this tall, and its door is this far across it.
++static const double kVanKidHeight = 27.0, kVanDoorAcross = 112.0 / 144;
+ // How long a line no one sees is kept (ticks; the chat shows it).
+ static const int kUnseenLine = 30;
+ 
+@@ -274,6 +279,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	}
+ 	if (_selfie.on) selfieEnd();
+ 	rideOff(); // (a ride's own arrival has let it go already)
++	_vanProp = -1;
+ 	_pointerX = _pointerY = -1;
+ 	_press = Press();
+ 	_chosen = -1; _noteClock = 0;
+@@ -367,6 +373,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		if ((int)i != skip) StageBridge::place(n++, xs[i], ys[i]);
+ 	StageBridge::follow(_player);
+ 	tramShow();
++	vanShow();
+ 	_strollClock = 120 + _random.getRandomNumber(240);
+ 	if (!_testing) saveState();
+ 	return true;
+@@ -423,6 +430,11 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	// (A ride waited for goes on unless they walk off from it, in rideStep;
+ 	// one only walked to is given up.)
+ 	if (_riding.phase == kRideWalking) _riding = Riding();
++	// The Shuttle Bug parked here: walked to its door, boarded there.
++	if (_vanProp >= 0 && !_touring.on) {
++		int x0, y0, x1, y1;
++		if (StageBridge::propRect(_vanProp, x0, y0, x1, y1) && screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1) { vanWalk(); return; }
++	}
+ 	// A door of this room (shown there), or where a ride is boarded (Zak's
+ 	// bus, the Mars tram, a plane's gate: walked to, boarded there), under
+ 	// the tap, else near it; where they overlap, the one tapped most nearly.
+@@ -1444,6 +1456,66 @@ void SandboxEngine::rideSite(int site) {
+ 	announce("Liftoff in 5 seconds.");
+ }
+ 
++// Where it lands: beside the one played (saved, so it is there again).
++void SandboxEngine::vanPark() {
++	if (_player < 0) return;
++	double x, y;
++	StageBridge::position(_player, x, y);
++	_vanX = (int)x; _vanY = (int)y;
++	if (!_testing) { ConfMan.setInt(kVanXKey, _vanX); ConfMan.setInt(kVanYKey, _vanY); ConfMan.flushToDisk(); }
++}
++
++// Drawn where it is parked, away from its own landing site (whose picture
++// has it), from the picture Maniac takes of it there (zak-van.svv, in the
++// landing site's colours; none until Maniac has been there): beside where
++// the one played stood as it landed, on the side with more room, as much
++// taller than the people here as beside its long shot's spacesuits, as far
++// as the place has room above them and across (as Maniac parks it).
++void SandboxEngine::vanShow() {
++	if (_vanProp >= 0 || _player < 0 || _vanPlace != _game * 1024 + _room) return;
++	int van = -1;
++	for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) van = i;
++	if (van < 0 || (kWorldRides[van].game == _game && kWorldRides[van].room == _room)) return;
++	const WorldRide &ride = kWorldRides[van];
++	Common::Array<byte> picture, scene;
++	byte palette[768];
++	if (!read("zak-van.svv", picture) || picture.size() < 8 || READ_BE_UINT32(picture.data()) != MKTAG('S', 'V', 'V', '1')) return;
++	const int w = READ_LE_UINT16(&picture[4]), h = READ_LE_UINT16(&picture[6]);
++	if (w <= 0 || h <= 0 || picture.size() < 8 + (size_t)w * h) return;
++	if (!read(Common::String::format("%s-%d.svw", kWorldGames[ride.game].gameid, ride.room), scene) || !StageBridge::paletteOf(scene.data(), scene.size(), palette)) return;
++	if (_vanX < 0 || _vanY < 0) vanPark(); // (landed before its spot was kept)
++	const double depth = MAX(0.01, StageBridge::depthAt(_vanX, _vanY));
++	const double across = (double)w / h * pixelAspect(_game) / pixelAspect(ride.game); // (its width a row tall, in this place's columns)
++	double rows = h * kWorldGames[_game].heroHeight * depth / kVanKidHeight; // (as drawn)
++	rows = MIN(rows, MAX(16.0, _vanY - 4.0));
++	rows = MIN(rows, (screenWidthOf(_game) - 32.0) / across);
++	const double width = rows * across, gap = 12.0 * screenWidthOf(_game) / 320;
++	double left = _vanX * 2 > StageBridge::sceneWidth() ? _vanX - gap - width : _vanX + gap;
++	left = CLIP<double>(left, 0, MAX(0.0, StageBridge::sceneWidth() - width));
++	// (Its size there as worked out: the boxes' scale where it stands may
++	// not be theirs where the one played stood.)
++	const double there = MAX(0.01, StageBridge::depthAt(left + width / 2, _vanY));
++	_vanProp = StageBridge::addProp(&picture[8], w, h, 255, palette, left + width / 2, _vanY, rows / there, pixelAspect(ride.game));
++	_vanDoorX = left + width * kVanDoorAcross; _vanDoorY = _vanY;
++	StageBridge::walkable(_vanDoorX, _vanDoorY);
++	_dirty = true;
++}
++
++void SandboxEngine::vanWalk() {
++	int van = -1;
++	for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) van = i;
++	if (van < 0) return;
++	// (Tapped again while it asks or waits: walked back to, not boarded again.)
++	if (_riding.ride != van || _riding.phase == kRideWalking || _game != _riding.fromGame || _room != _riding.fromRoom) {
++		rideOff();
++		_riding.ride = van;
++		_riding.phase = kRideWalking;
++		_riding.fromGame = _game; _riding.fromRoom = _room;
++		_riding.x = _vanDoorX; _riding.y = _vanDoorY;
++	}
++	StageBridge::walkTo(_player, _riding.x, _riding.y);
++}
++
+ // Its list closed without a choice (or not shown at all): not taken.
+ void SandboxEngine::rideStay() {
+ 	if (_riding.ride < 0 || _riding.phase != kRideChoosing) return;
+@@ -1554,6 +1626,8 @@ void SandboxEngine::rideStep(int ticks) {
+ 	} else if (ride.kind == kWorldRideVan) {
+ 		_vanPlace = done.toGame * 1024 + done.toRoom;
+ 		if (!_testing) { ConfMan.setInt(kVanPlaceKey, _vanPlace); ConfMan.flushToDisk(); }
++		vanPark();
++		vanShow();
+ 		announce("The Shuttle Bug touches down.");
+ 	}
+ }
+@@ -1998,6 +2072,7 @@ Common::Error SandboxEngine::run() {
+ 	Tour::reset();
+ 	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
++	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
+ 
+ 	if (ConfMan.hasKey("scummverse_selftest")) {
+ 		_testing = true;
+@@ -3658,10 +3733,15 @@ Common::Error SandboxEngine::ridesTest() {
+ 		}
+ 	}
+ 	// The Shuttle Bug: boarded at its door on Mars, flown to a site of
+-	// another game (chosen from the list it asks with), boarded there from
+-	// the Worlds menu and flown home; asked for where it is not, it says
+-	// where it is.
+-	int vanFlights = 0;
++	// another game (chosen from the list it asks with); drawn there beside
++	// the one played (when Maniac has taken its picture: zak-van.svv), a
++	// tap on it boards it (else the Worlds menu) and it flies home, not
++	// drawn over its own landing site; from the menu there back to that
++	// site, drawn where it landed again; asked for where it is not, it
++	// says where it is. A picture of it parked: van.png.
++	int vanFlights = 0, vanTaps = 0;
++	Common::Array<byte> vanPicture;
++	const bool vanTaken = read("zak-van.svv", vanPicture);
+ 	const int monkey = 0, melee = 13, mars = 0; // (kWorldVanSites: Melee Island, the Mars landing site)
+ 	int meleeGame, meleeRoom, marsGame, marsRoom;
+ 	if (zak >= 0 && worldVanPlace(melee, meleeGame, meleeRoom) && worldVanPlace(mars, marsGame, marsRoom) && installed(marsGame, marsRoom) && installed(meleeGame, meleeRoom) && meleeGame == monkey) {
+@@ -3681,20 +3761,41 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (_game != game || _room != room || !hidden || StageBridge::hidden(_player) || _vanPlace != game * 1024 + room) { fail("the van not landed there"); return false; }
+ 			return true;
+ 		};
++		// (Drawn where it landed, beside the one played; tapped, boarded.)
++		auto parked = [&](bool boardIt) {
++			int x0, y0, x1, y1, px0, py0, px1, py1;
++			if (StageBridge::propCount() != 1 || _vanProp != 0 || !StageBridge::propRect(0, x0, y0, x1, y1) || !StageBridge::drawnRect(_player, px0, py0, px1, py1)) { fail("the van not drawn where it landed"); return false; }
++			const int feet = (px0 + px1) / 2;
++			if (MIN(ABS(x0 - feet), ABS(x1 - feet)) > (x1 - x0) / 2 || (y1 - y0) <= (py1 - py0)) fail("the van not beside the one played, taller");
++			if (ConfMan.hasKey("scummverse_shots")) { present(); shot("van.png"); }
++			if (!boardIt) return true;
++			tap((x0 + x1) / 2, (y0 + y1) / 2);
++			if (_riding.ride < 0 || _riding.phase != kRideWalking) { fail("the van not boarded by a tap on it"); return false; }
++			++vanTaps;
++			return true;
++		};
+ 		if (board(marsGame, marsRoom, 452) && fly(melee, meleeGame, meleeRoom)) ++vanFlights;
+-		// (From the Worlds menu where it stands; asked elsewhere, where it is.)
+-		request(kWorldSandboxVanRequest);
++		if (!vanTaken || !parked(true)) request(kWorldSandboxVanRequest); // (else the Worlds menu where it stands)
+ 		if (fly(mars, marsGame, marsRoom)) ++vanFlights;
++		if (StageBridge::propCount()) fail("the van drawn over its own landing site");
++		request(kWorldSandboxVanRequest);
++		if (fly(melee, meleeGame, meleeRoom)) ++vanFlights;
++		// (Gone and come back: drawn where it landed, the same.)
++		int x0, y0, x1, y1, a0 = 0, b0 = 0, a1 = 0, b1 = 0;
++		const bool first = vanTaken && StageBridge::propRect(0, a0, b0, a1, b1);
+ 		Common::String problem;
+-		if (enter(meleeGame, meleeRoom, 0, problem)) {
++		if (enter(marsGame, marsRoom, 0, problem)) {
+ 			_notice.clear();
+ 			request(kWorldSandboxVanRequest);
+-			if (_riding.ride >= 0 || !_notice.contains("MARS LANDING SITE")) fail("the van boarded where it is not");
++			if (_riding.ride >= 0 || !_notice.contains(kWorldVanSites[melee].label)) fail("the van boarded where it is not");
++		}
++		if (vanTaken && enter(meleeGame, meleeRoom, 0, problem)) {
++			if (!first || !parked(false) || !StageBridge::propRect(0, x0, y0, x1, y1) || y0 != b0 || y1 != b1 || x1 - x0 != a1 - a0) fail("the van not where it landed");
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d failed",
+-		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, failed);
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, failed);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 5a3a2011..cb778dc6 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -223,6 +223,12 @@ private:
+ 	// kWorldVanSites installed; boarded at its door on Mars, else from the
+ 	// Worlds menu where it stands (it is not drawn there yet).
+ 	int _vanPlace = 11 * 1024 + 185;
++	int _vanX = -1, _vanY = -1;  // where the one played stood as it landed there (-1: not known)
++	int _vanProp = -1;           // the van drawn here (a stage prop), else -1
++	double _vanDoorX = 0, _vanDoorY = 0;
++	void vanShow();              // drawn where it is parked (not its own landing site)
++	void vanPark();              // landed here: beside the one played
++	void vanWalk();              // a tap on it: walked to its door, boarded there
+ 	void vanBoard();
+ 	// An announcement over the place (the tram's), for a few seconds.
+ 	Common::String _notice;

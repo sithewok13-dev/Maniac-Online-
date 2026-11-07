@@ -1,0 +1,899 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index ee401237..c7313775 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -40,8 +40,10 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 	// button. "SVI3": a coin, its verbs' parts on it, and its box's arrows.)
+ 	const bool coin = data && size >= 4 && !std::memcmp(data, "SVI3", 4);
+ 	const bool over = coin || (data && size >= 4 && !std::memcmp(data, "SVI2", 4));
+-	if (!data || size < 12 || (!over && std::memcmp(data, "SVI1", 4))) { error = "not a verb panel"; return false; }
+-	out.over = over; out.coin = coin;
++	// ("SVI4": Loom's distaff, under the scene, its drafts after the letterings.)
++	const bool distaff = data && size >= 4 && !std::memcmp(data, "SVI4", 4);
++	if (!data || size < 12 || (!over && !distaff && std::memcmp(data, "SVI1", 4))) { error = "not a verb panel"; return false; }
++	out.over = over; out.coin = coin; out.distaff = distaff;
+ 	Reader r(data + 4, data + size);
+ 	out.screenWidth = r.u16(); out.screenHeight = r.u16(); out.top = r.u16(); out.rows = r.u16();
+ 	if (out.screenWidth < 8 || out.screenWidth > 1024 || out.rows < 1 || out.rows > 480 || out.top + out.rows > out.screenHeight) { error = "bad panel size"; return false; }
+@@ -62,7 +64,9 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 		r.bytes((size_t)v.rect.width * v.rect.height, v.lit);
+ 		if (!r.ok) break;
+ 		// (A coin's parts are on the coin: checked once it is read.)
+-		if (v.kind < kWalk || v.kind > kHand || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
++		if (v.kind < kWalk || v.kind > kNote || (v.kind == kNote) != distaff || (distaff && (v.id < 0 || v.id > 7)) || !within(v.rect, out.screenWidth, out.rows)) {
++			error = "bad verb"; return false;
++		}
+ 		out.verbs.push_back(v);
+ 	}
+ 	out.sentenceX = r.s16(); out.sentenceY = r.s16();
+@@ -92,6 +96,21 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 			f.glyphs[code] = g;
+ 		}
+ 	}
++	if (distaff && r.ok) {
++		out.icon = r.rect();
++		if (r.ok && !within(out.icon, out.screenWidth, out.rows)) { error = "bad icon"; return false; }
++		const int drafts = r.u8();
++		for (int i = 0; i < drafts && r.ok; ++i) {
++			Source::Draft d;
++			std::vector<uint8_t> name;
++			r.bytes(r.u8(), name);
++			d.name.assign(name.begin(), name.end());
++			const int notes = r.u16();
++			if (notes & ~0xFFF) { error = "bad draft"; return false; }
++			for (int k = 0; k < 4; ++k) d.notes[k] = notes >> (3 * k) & 7;
++			if (r.ok) out.drafts.push_back(d);
++		}
++	}
+ 	if (over && r.ok) {
+ 		// (A picture: u16 width, height, then its pixels and mask.)
+ 		auto picture = [&](Picture &p) {
+@@ -520,7 +539,7 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		for (int y = 0; y < v.rect.height; ++y)
+ 			for (int x = 0; x < v.rect.width; ++x) canvas[(size_t)(v.rect.y + y) * W + v.rect.x + x] = color(v.lit[(size_t)y * v.rect.width + x]);
+ 	}
+-	if (!_sentence.empty() && !_source.over) {
++	if (!_sentence.empty() && !_source.over && !_source.distaff) {
+ 		const int width = textWidth(0, _sentence);
+ 		const int x = _source.sentenceCentred ? _source.sentenceX - width / 2 : _source.sentenceX;
+ 		text(canvas, W, H, 0, _sentence, std::max(0, x), _source.sentenceY, color(_source.sentenceColor), W);
+@@ -532,17 +551,10 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		const Item &item = _items[i];
+ 		if (r.width <= 0 || r.height <= 0) continue;
+ 		if (_source.slotKind == 1) { text(canvas, W, H, 0, item.name, r.x, r.y, color(_source.slotColor), r.x + r.width); continue; }
+-		if (item.width <= 0 || item.height <= 0 || item.picture.size() != (size_t)item.width * item.height) continue;
+-		// A picture fitted to its slot (smaller only), centred.
+-		const double fit = std::min(1.0, std::min((double)r.width / item.width, (double)r.height / item.height));
+-		const int w = std::max(1, (int)(item.width * fit)), h = std::max(1, (int)(item.height * fit));
+-		const int x0 = r.x + (r.width - w) / 2, y0 = r.y + (r.height - h) / 2;
+-		for (int y = 0; y < h; ++y)
+-			for (int x = 0; x < w; ++x) {
+-				const uint32_t c = item.picture[(size_t)std::min(item.height - 1, (int)(y / fit)) * item.width + std::min(item.width - 1, (int)(x / fit))];
+-				if ((c >> 24) && x0 + x < W && y0 + y < H) canvas[(size_t)(y0 + y) * W + x0 + x] = c;
+-			}
++		fit(canvas, r, item);
+ 	}
++	// (Loom's: the thing chosen in its box.)
++	if (_source.distaff && _hasChosen) fit(canvas, _source.icon, _chosen);
+ 	// A coin's box shows its arrows where there is more that way.
+ 	for (int k = 0; k < 2 && _source.coin; ++k) {
+ 		const Picture &a = k ? _source.downPicture : _source.upPicture;
+@@ -569,6 +581,37 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 	}
+ }
+ 
++void Panel::fit(std::vector<uint32_t> &canvas, const Rect &r, const Item &item) const {
++	const int W = _source.screenWidth, H = _source.rows;
++	if (r.width <= 0 || r.height <= 0 || item.width <= 0 || item.height <= 0 || item.picture.size() != (size_t)item.width * item.height) return;
++	// A picture fitted to its rectangle (smaller only), centred.
++	const double scale = std::min(1.0, std::min((double)r.width / item.width, (double)r.height / item.height));
++	const int w = std::max(1, (int)(item.width * scale)), h = std::max(1, (int)(item.height * scale));
++	const int x0 = r.x + (r.width - w) / 2, y0 = r.y + (r.height - h) / 2;
++	for (int y = 0; y < h; ++y)
++		for (int x = 0; x < w; ++x) {
++			const uint32_t c = item.picture[(size_t)std::min(item.height - 1, (int)(y / scale)) * item.width + std::min(item.width - 1, (int)(x / scale))];
++			if ((c >> 24) && x0 + x < W && y0 + y < H) canvas[(size_t)(y0 + y) * W + x0 + x] = c;
++		}
++}
++
++int Panel::play(int verb) {
++	if (!distaff() || verb < 0 || verb >= (int)_source.verbs.size() || _source.verbs[verb].kind != kNote) return -1;
++	_selected = verb;
++	_played.push_back(_source.verbs[verb].id);
++	if (_played.size() < 4) return -1;
++	const std::vector<int> notes = _played;
++	_played.clear();
++	// (Its own draft first: one the same both ways is spun forwards.)
++	for (int back = 0; back < 2; ++back)
++		for (size_t i = 0; i < _source.drafts.size(); ++i) {
++			bool same = true;
++			for (int k = 0; k < 4; ++k) same = same && _source.drafts[i].notes[k] == notes[back ? 3 - k : k];
++			if (same) return (int)i + (back ? 16 : 0);
++		}
++	return -2;
++}
++
+ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+ 	if (!_loaded || !screen || (_source.over && !_open)) return;
+ 	std::vector<uint32_t> canvas;
+@@ -727,32 +770,67 @@ int itemCount() { return (int)panel().items().size(); }
+ int itemName(int item, char *name, int capacity) {
+ 	return copy(item >= 0 && item < itemCount() ? panel().items()[item].name : std::string(), name, capacity);
+ }
+-bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture, int without) {
++// A thing's picture from a scene (see addItem).
++static bool itemFrom(const unsigned char *scene, size_t size, int id, const char *name, int picture, int without, Panel::Item &item) {
+ 	World::SourceScene source;
+ 	std::string problem;
+ 	if (!World::parseScene(scene, size, source, problem)) return false;
+ 	for (const World::SourceObject &o : source.objects) {
+ 		if (o.id != id || o.pictures.empty()) continue;
+ 		// Its picture as the place showed it (the one asked, else the one
+-		// shown, else its last), against the place without it.
++		// shown, else its last), against the place without it. (Without
++		// one, -1: the one asked even where it is that, drawn whole.)
++		const bool whole = without < 0 && picture >= 0 && picture < (int)o.pictures.size() && picture == 0;
+ 		const int n = (int)o.pictures.size(), off = without > 0 && without < n ? without : 0;
+-		const int k = picture >= 0 && picture < n && picture != off ? picture : o.shown >= 0 && o.shown < n && o.shown != off ? o.shown : n - 1;
+-		Panel::Item item;
++		const int k = whole ? 0 : picture >= 0 && picture < n && picture != off ? picture : o.shown >= 0 && o.shown < n && o.shown != off ? o.shown : n - 1;
++		item = Panel::Item();
+ 		item.name = name ? name : o.name;
+ 		item.width = o.pictureWidth; item.height = o.pictureHeight;
+ 		const std::vector<uint8_t> &place = o.pictures[off], &with = o.pictures[k];
+ 		for (size_t i = 0; i < with.size(); ++i) {
+ 			const uint8_t *c = source.palette + 3 * with[i];
+ 			// (Only what differs from the place without it: the thing itself.)
+-			item.picture.push_back(with[i] == place[i] && k != off ? 0u : 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2]);
++			item.picture.push_back(with[i] == place[i] && k != off && !whole ? 0u : 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2]);
+ 		}
+-		std::vector<Panel::Item> items = panel().items();
+-		items.push_back(item);
+-		panel().setItems(items);
+ 		return true;
+ 	}
+ 	return false;
+ }
++bool addItem(const unsigned char *scene, size_t size, int id, const char *name, int picture, int without) {
++	Panel::Item item;
++	if (!itemFrom(scene, size, id, name, picture, without, item)) return false;
++	std::vector<Panel::Item> items = panel().items();
++	items.push_back(item);
++	panel().setItems(items);
++	return true;
++}
++bool distaff() { return panel().distaff(); }
++int play(int verb) { return panel().play(verb); }
++int playedNotes() { return panel().played(); }
++void clearPlayed() { panel().clearPlayed(); }
++int draftCount() { return (int)panel().source().drafts.size(); }
++int draftName(int draft, char *name, int capacity) {
++	return copy(draft >= 0 && draft < draftCount() ? panel().source().drafts[draft].name : std::string(), name, capacity);
++}
++bool draftNotes(int draft, int notes[4]) {
++	if (draft < 0 || draft >= draftCount()) return false;
++	for (int k = 0; k < 4; ++k) notes[k] = panel().source().drafts[draft].notes[k];
++	return true;
++}
++bool noteVerb(int note, int &verb) {
++	for (int v = 0; v < verbCount(); ++v)
++		if (panel().source().verbs[v].kind == Panel::kNote && panel().source().verbs[v].id == note) { verb = v; return true; }
++	return false;
++}
++bool choose(const unsigned char *scene, size_t size, int id, const char *name, int picture) {
++	Panel::Item item;
++	if (!panel().distaff() || !itemFrom(scene, size, id, name, picture, -1, item)) return false;
++	panel().choose(item);
++	return true;
++}
++void unchoose() { panel().unchoose(); }
++bool chosen() { return panel().hasChosen(); }
++bool iconRect(int &x, int &y, int &width, int &height) { return panel().distaff() && screenRect(panel().source().icon, x, y, width, height); }
+ void removeItem(int item) {
+ 	std::vector<Panel::Item> items = panel().items();
+ 	if (item < 0 || item >= (int)items.size()) return;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 5a53685d..30a2b0c2 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -11,7 +11,8 @@
+ // its panel as a box opened over the scene from a button, and its pointer
+ // as the verb (a right click the next). Full Throttle's ("SVI3") are a coin
+ // held over a thing, its parts the verbs, and its things in a box a right
+-// click opens.
++// click opens. Loom's ("SVI4") is its distaff under the scene: its notes
++// are the verbs, four of them a draft, the thing chosen shown in a box.
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+@@ -31,7 +32,8 @@ enum VerbKind {
+ 	kWalk = 1, kLook, kPickUp, kOpen, kClose, kPush, kPull, kUse, kGive, kTalk, kTurnOn, kTurnOff, kWhatIs,
+ 	kRead, kUnlock, kFix, kNewKid, kPutOn, kTakeOff, // (the oldest games' own)
+ 	kAct, // (one tap does what fits: The Dig's)
+-	kHand // (the hand: Full Throttle's)
++	kHand, // (the hand: Full Throttle's)
++	kNote // (a note of Loom's distaff, its id the note: 0 c .. 7 high C)
+ };
+ 
+ struct Rect {
+@@ -89,9 +91,15 @@ struct Source {
+ 	bool coin = false;
+ 	Picture coinPicture, upPicture, downPicture;
+ 	int nameX = 0, nameY = 0, nameInk = 0;
++	// Loom's distaff ("SVI4", under the scene): the verbs are its notes; its
++	// drafts (name, four notes); where the thing chosen is shown.
++	struct Draft { std::string name; int notes[4] = {0, 0, 0, 0}; };
++	bool distaff = false;
++	Rect icon;
++	std::vector<Draft> drafts;
+ };
+-// Bytes of an "SVI1", "SVI2" or "SVI3" file (uncompressed); false (with
+-// `error`) when malformed.
++// Bytes of an "SVI1", "SVI2", "SVI3" or "SVI4" file (uncompressed); false
++// (with `error`) when malformed.
+ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error);
+ 
+ // A thing carried: its name and picture (0xAARRGGBB, width * height).
+@@ -187,6 +195,17 @@ public:
+ 	void lightCoin(int verb) { _coinLit = _coinOpen && verb >= 0 && verb < (int)_source.verbs.size() ? verb : -1; }
+ 	int coinLit() const { return _coinLit; }
+ 	void renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const;
++	// Loom's distaff ("SVI4"): a note played (its verb), lit as chosen; at
++	// the fourth, the draft they spin (its index; 16 more played backwards;
++	// -2 none) and the notes let go; before, -1. The thing chosen is shown
++	// in its box (as a thing carried is in a slot).
++	bool distaff() const { return _loaded && _source.distaff; }
++	int play(int verb);
++	int played() const { return (int)_played.size(); }
++	void clearPlayed() { _played.clear(); }
++	void choose(const Item &thing) { _chosen = thing; _hasChosen = true; }
++	void unchoose() { _chosen = Item(); _hasChosen = false; }
++	bool hasChosen() const { return _hasChosen; }
+ 	// The button, and the pointer with its hot spot at (x, y), on a screen
+ 	// of 0xAARRGGBB at the layout's scale (under the scene: nothing).
+ 	void renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const;
+@@ -221,6 +240,8 @@ public:
+ private:
+ 	// (Onto a canvas `width` by `height`.)
+ 	void text(std::vector<uint32_t> &canvas, int width, int height, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
++	// (A thing's picture fitted to a rectangle of the panel, centred.)
++	void fit(std::vector<uint32_t> &canvas, const Rect &r, const Item &item) const;
+ 	// (Onto the screen at a scale, its pen at `pen`, its top at `y`; rows
+ 	// from `limit` on untouched.)
+ 	void line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
+@@ -230,6 +251,9 @@ private:
+ 	bool _loaded = false, _open = false, _coinOpen = false;
+ 	int _coinX = 0, _coinY = 0, _coinLit = -1; // (the coin's top left on screen)
+ 	std::string _coinName;
++	std::vector<int> _played; // (Loom's notes played, as their ids)
++	Item _chosen;
++	bool _hasChosen = false;
+ 	int _screenWidth = 0, _top = 0, _screenRows = 0, _left = 0, _columns = 0;
+ 	double _rowScale = 1, _colScale = 1;
+ 	int _selected = -1, _first = 0;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index cc4531cd..40da37f4 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -89,6 +89,24 @@ void removeItem(int item);
+ void clearItems();
+ void scroll(int by);
+ int firstItem();
++// Loom's distaff ("SVI4", under the scene): its verbs are its notes; one
++// played (its verb) is lit, and at the fourth the draft they spin is
++// returned (its index; 16 more played backwards; -2 none; -1 before the
++// fourth); the drafts (names, notes 0 c .. 7 high C); a note's verb; the
++// thing chosen shown in its box (from a scene, as addItem; its picture as
++// the place shows it, picture 0 drawn whole), and where that box is.
++bool distaff();
++int play(int verb);
++int playedNotes();
++void clearPlayed();
++int draftCount();
++int draftName(int draft, char *name, int capacity);
++bool draftNotes(int draft, int notes[4]);
++bool noteVerb(int note, int &verb);
++bool choose(const unsigned char *scene, size_t size, int id, const char *name, int picture = -1);
++void unchoose();
++bool chosen();
++bool iconRect(int &x, int &y, int &width, int &height);
+ // The panel's rows of a screen of 0xAARRGGBB, `pitch` pixels a row (over
+ // the scene: the box, while it is open).
+ void render(unsigned int *screen, int pitch, int screenHeight);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0b3d3b17..f6713c16 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 21;
++static const int kWorldExportVersion = 22;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -667,7 +667,8 @@ static const WorldLegacyPlace kWorldLegacyPlaces[] = {
+ // pictures) and their scroll arrows, and the room where its start waits
+ // for a typed answer (Monkey Island 2's copy protection; the engine takes
+ // any answer). Loom, Sam & Max and the later games have none of these
+-// (Sam & Max's controls: kWorldOverlays; Full Throttle's: kWorldCoins).
++// (Sam & Max's controls: kWorldOverlays; Full Throttle's: kWorldCoins;
++// Loom's distaff: kWorldDistaffs).
+ enum WorldVerbKind {
+ 	kWorldVerbWalk = 1, kWorldVerbLook, kWorldVerbPickUp, kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush,
+ 	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs,
+@@ -676,7 +677,9 @@ enum WorldVerbKind {
+ 	// One tap does what fits (The Dig's way: pick up, open, else look).
+ 	kWorldVerbAct,
+ 	// The hand (Full Throttle's): pick up, open, close, else it doesn't work.
+-	kWorldVerbHand
++	kWorldVerbHand,
++	// A note of Loom's distaff (its id the note, 0 c .. 7 high C).
++	kWorldVerbNote
+ };
+ // The verb a things file's answers count one under (bit k: kind k, 1..13):
+ // the oldest games' own verbs as the nearest of those.
+@@ -685,7 +688,7 @@ inline int worldVerbAnswerKind(int kind) {
+ 	case kWorldVerbRead: return kWorldVerbLook;
+ 	case kWorldVerbUnlock: return kWorldVerbOpen;
+ 	case kWorldVerbFix: case kWorldVerbPutOn: case kWorldVerbTakeOff: return kWorldVerbUse;
+-	case kWorldVerbNewKid: case kWorldVerbAct: case kWorldVerbHand: return 0;
++	case kWorldVerbNewKid: case kWorldVerbAct: case kWorldVerbHand: case kWorldVerbNote: return 0;
+ 	default: return kind;
+ 	}
+ }
+@@ -795,6 +798,33 @@ inline const WorldCoin *worldCoin(int game) {
+ 	for (const auto &c : kWorldCoins) if (c.game == game) return &c;
+ 	return nullptr;
+ }
++// Loom's distaff (the new engine's step 2f; "<game>-ui.svi" as "SVI4"):
++// under the scene as the game draws it once every note is known, after its
++// start's choice of how hard (the object `choice`: Practice, the notes'
++// letters on the staff). Its drafts are variables from `drafts` on, two
++// each, the first's notes three bits each from the lowest (the debugger's
++// "drafts"; Loom chooses them when a game starts); `learned` counts the
++// notes known and `redraw` is the script that draws the distaff. The notes
++// are its verbs 1 to 8, each lit in a frame of its glow (the verb `glow`
++// and every fifth on: its glow's fourth frame of five, its colour bright);
++// the thing chosen is shown in `icon` (x, y, width, height of the game's
++// screen).
++struct WorldDistaff { short game, choice, drafts, learned, redraw, glow; short icon[4]; };
++static const WorldDistaff kWorldDistaffs[] = {
++	{2, 877, 50, 122, 18, 12, {248, 152, 48, 40}},
++};
++inline const WorldDistaff *worldDistaff(int game) {
++	for (const auto &d : kWorldDistaffs) if (d.game == game) return &d;
++	return nullptr;
++}
++// Loom's sixteen drafts, in the order of their variables. Opening opens
++// what is chosen, and played backwards (Closing) shuts it; the others are
++// not taken up by the plain rules yet.
++static const char *const kWorldDrafts[16] = {
++	"Opening", "Straw into Gold", "Dyeing", "Night Vision", "Twisting", "Sleep", "Emptying", "Invisibility",
++	"Terror", "Sharpening", "Reflection", "Healing", "Silence", "Shaping", "Unmaking", "Transcendence"
++};
++static const int kWorldDraftOpening = 0;
+ inline int worldVerbKind(int game, int verb) {
+ 	for (const auto &v : kWorldVerbs) if (v.game == game && v.verb == verb) return v.kind;
+ 	return 0;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index b757fb18..30916906 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1655,6 +1655,8 @@ protected:
+ 	bool scummverseExportOverlay(int game, const Common::Path &file, Common::String &problem);
+ 	// (Full Throttle's coin and its box of things, drawn from their costumes.)
+ 	bool scummverseExportCoin(int game, const Common::Path &file, Common::String &problem);
++	// (Loom's distaff, every note known, and its drafts.)
++	bool scummverseExportDistaff(int game, const Common::Path &file, Common::String &problem);
+ 	bool scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Array<int> &blasts, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask, Common::Array<uint16> *shaded = nullptr);
+ 	void scummverseCaptureLetters(int slot, int charset, int ink, VirtScreen &vs, int top, int rows, ScummverseUiFont &font);
+ 	void scummverseCaptureLettersV7(int charset, int ink, ScummverseUiFont &font);
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index b343c3a4..02776d63 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1429,7 +1429,7 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	if (written && marker.open(dir.appendComponent(Common::String::format("%s-v%d.svx", game->gameid, kWorldExportVersion)), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	// The verb panel last (its game's start changes the game), after the
+ 	// marker: a start that fails costs the panel, never the places.
+-	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex) || worldCoin(gameIndex))) {
++	if (written && (worldPanel(gameIndex) || worldOverlay(gameIndex) || worldCoin(gameIndex) || worldDistaff(gameIndex))) {
+ 		Common::String problem;
+ 		const Common::Path ui = dir.appendComponent(Common::String::format("%s-ui.svi", game->gameid));
+ 		const Common::Path things = dir.appendComponent(Common::String::format("%s-things.svo", game->gameid));
+@@ -1528,7 +1528,7 @@ struct ScummverseUiFont { int height, ink, none; Common::Array<ScummverseUiGlyph
+ // leaves clear (mask 0), and a pointer's hot spot.)
+ struct ScummverseUiPicture { int x = 0, y = 0, width = 0, height = 0, hotX = 0, hotY = 0; Common::Array<byte> pixels, mask; };
+ struct ScummverseUi {
+-	int layout = 0; // 0: under the scene ("SVI1"); 1: over it ("SVI2", see kWorldOverlays); 2: a coin ("SVI3", kWorldCoins)
++	int layout = 0; // 0: under the scene ("SVI1"); 1: over it ("SVI2", see kWorldOverlays); 2: a coin ("SVI3", kWorldCoins); 3: Loom's distaff ("SVI4", kWorldDistaffs)
+ 	int width = 0, screenHeight = 0, top = 0, rows = 0;
+ 	const byte *palette = nullptr;
+ 	Common::Array<byte> image;
+@@ -1551,14 +1551,19 @@ struct ScummverseUi {
+ 	// its colour; the arrows' pictures, on their rectangles.)
+ 	ScummverseUiPicture coin, back, forward;
+ 	int nameX = 0, nameY = 0, nameInk = 0;
++	// (Loom's distaff: where the thing chosen is shown; its drafts, each
++	// four notes three bits each from the lowest.)
++	ScummverseUiRect icon = {0, 0, 0, 0};
++	Common::Array<Common::String> draftNames;
++	Common::Array<int> draftNotes;
+ };
+ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file, Common::String &problem) {
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	const bool over = ui.layout >= 1, coin = ui.layout == 2;
+-	out.write(coin ? "SVI3" : over ? "SVI2" : "SVI1", 4);
++	const bool over = ui.layout == 1 || ui.layout == 2, coin = ui.layout == 2, distaff = ui.layout == 3;
++	out.write(distaff ? "SVI4" : coin ? "SVI3" : over ? "SVI2" : "SVI1", 4);
+ 	for (int f : {ui.width, ui.screenHeight, ui.top, ui.rows}) scummverseWrite16(out, f);
+ 	out.write(ui.palette, 768);
+ 	out.write(ui.image.data(), ui.image.size());
+@@ -1586,6 +1591,15 @@ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file,
+ 			out.writeByte(g.width); out.writeByte(g.height); out.write(g.pixels.data(), g.pixels.size());
+ 		}
+ 	}
++	if (distaff) {
++		for (int f : {ui.icon.x, ui.icon.y, ui.icon.width, ui.icon.height}) scummverseWrite16(out, f);
++		out.writeByte(MIN<uint>(ui.draftNames.size(), 255));
++		for (uint i = 0; i < ui.draftNames.size() && i < 255; ++i) {
++			const uint length = MIN<uint>(ui.draftNames[i].size(), 255);
++			out.writeByte(length); out.write(ui.draftNames[i].c_str(), length);
++			scummverseWrite16(out, ui.draftNotes[i] & 0xFFF);
++		}
++	}
+ 	if (over) {
+ 		auto picture = [&](const ScummverseUiPicture &p) {
+ 			for (int f : {p.width, p.height}) scummverseWrite16(out, f);
+@@ -1697,11 +1711,16 @@ void ScummEngine::scummverseCaptureLetters(int slot, int charset, int ink, VirtS
+ // on the coin, and after the shade: the coin's anchor int16 x, y, u16 width,
+ // height, pixels, mask; the name's centre on it int16 x, y and u8 colour;
+ // each verb's lit mask (width * height, 1 where drawn); the arrows' (up,
+-// then down) pixels and mask, the size of their rectangles.
++// then down) pixels and mask, the size of their rectangles. "SVI4" (Loom's
++// distaff, scummverseExportDistaff) is "SVI1" whose verbs are its notes
++// (their ids 0 to 7), and after the letterings: where the thing chosen is
++// shown, int16 x, y, u16 width, height; u8 draft count and per draft u8
++// name length, name, u16 its notes (three bits each, from the lowest).
+ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldPanel *panel = worldPanel(gameIndex);
+ 	if (!panel && worldOverlay(gameIndex)) return scummverseExportOverlay(gameIndex, file, problem);
+ 	if (!panel && worldCoin(gameIndex)) return scummverseExportCoin(gameIndex, file, problem);
++	if (!panel && worldDistaff(gameIndex)) return scummverseExportDistaff(gameIndex, file, problem);
+ 	if (!panel) { problem = "no verb panel"; return false; }
+ 	if (_game.version <= 2) return scummverseExportPanelOld(gameIndex, file, problem);
+ 	// (Mac Indiana Jones draws its verbs in a window of its own, FM Towns on
+@@ -2421,6 +2440,129 @@ bool ScummEngine::scummverseExportCoin(int gameIndex, const Common::Path &file,
+ 	return scummverseWriteUi(ui, file, problem);
+ }
+ 
++// Loom's distaff ("<game>-ui.svi" as "SVI4", the new engine's step 2f; see
++// kWorldDistaffs): from its own start, its choice of how hard made (the
++// object tapped), run on until the player has the pointer in its first
++// place; then every note known and every draft learned, as the debugger's
++// "drafts learn" does, and the game's own script draws the distaff: the
++// panel as it draws it; each note's verb, lit in a frame of its glow; the
++// drafts as the start chose their notes;
++// the talk lettering.
++bool ScummEngine::scummverseExportDistaff(int gameIndex, const Common::Path &file, Common::String &problem) {
++	const WorldDistaff *distaff = worldDistaff(gameIndex);
++	if (!distaff) { problem = "no distaff"; return false; }
++	if (_game.version != 3 || _macGui || _game.platform == Common::kPlatformFMTowns || _game.platform == Common::kPlatformPCEngine) { problem = "its distaff is drawn its own way"; return false; }
++	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) { vm.slot[i].status = ssDead; vm.slot[i].cutsceneOverride = 0; vm.slot[i].freezeCount = 0; }
++	_currentScript = 0xFF; vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF;
++	memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
++	_EXCD_offs = 0;
++	initScreens(16, 144);
++	int args[NUM_SCRIPT_LOCAL];
++	memset(args, 0, sizeof(args));
++	args[0] = _bootParam;
++	_rnd.setSeed(0x5C0BE); // (The same start each time.)
++	runScript(1, 0, 0, args);
++	int frame = 0;
++	auto frames = [&](int count) {
++		for (int n = 0; n < count && !shouldQuit(); ++n, ++frame) {
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i)
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++			scummverseSkipCutscene();
++			if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++			_talkDelay = 0;
++			_scummverseMusicTimer = frame * 4;
++			scummLoop(4);
++			_sound->stopAllSounds();
++		}
++	};
++	auto ready = [&]() { return _userPut > 0 && _cursor.state > 0; };
++	VirtScreen &main = _virtscr[kMainVirtScreen], &vs = _virtscr[kVerbVirtScreen];
++	// (Its choice of how hard, tapped as the player does.)
++	int steady = 0;
++	while (frame < 3000 && !shouldQuit() && steady < 10) { frames(1); steady = ready() && getObjectIndex(distaff->choice) > 0 ? steady + 1 : 0; }
++	if (steady < 10 || shouldQuit()) { _scummverseMusicTimer = -1; problem = "its choice never showed"; return false; }
++	const int chosen = _currentRoom;
++	{
++		const ObjectData &o = _objs[getObjectIndex(distaff->choice)];
++		_mouse.x = o.x_pos + o.width / 2 - main.xstart; _mouse.y = o.y_pos + o.height / 2 + main.topline;
++		frames(3);
++		_leftBtnPressed = 1 | 2; frames(1); _leftBtnPressed = 0;
++	}
++	steady = 0;
++	while (frame < 6000 && !shouldQuit() && steady < 30) { frames(1); steady = ready() && _currentRoom != chosen ? steady + 1 : 0; }
++	if (steady < 30 || shouldQuit()) { _scummverseMusicTimer = -1; problem = "its first place never came"; return false; }
++	// Every note known, every draft learned; the distaff drawn by its script.
++	for (int i = 0; i < 16; ++i) VAR(distaff->drafts + 2 * i) |= 0x2000;
++	VAR(distaff->learned) = 8;
++	runScript(distaff->redraw, 0, 0, nullptr);
++	frames(20);
++	_scummverseMusicTimer = -1;
++	const int W = _screenWidth, top = vs.topline, rows = MIN<int>(vs.h, _screenHeight - top);
++	if (rows <= 0 || vs.w < W) { problem = "no verb screen"; return false; }
++	auto slotOf = [&](int id) { for (int i = 1; i < _numVerbs; ++i) if (_verbs[i].verbid == id) return i; return -1; };
++	const Common::Rect icon(distaff->icon[0], distaff->icon[1], distaff->icon[0] + distaff->icon[2], distaff->icon[1] + distaff->icon[3]);
++	// The panel as the script drew it (the staff's letters and notes are its
++	// own, not verbs), nothing chosen yet.
++	int shown = 0;
++	for (int i = 1; i < _numVerbs; ++i) {
++		if (!_verbs[i].verbid || _verbs[i].curmode != 1) continue;
++		if (icon.intersects(_verbs[i].curRect)) { problem = "a thing chosen at its start"; return false; }
++		++shown;
++	}
++	ScummverseUi ui;
++	ui.layout = 3; ui.width = W; ui.screenHeight = _screenHeight; ui.top = top; ui.rows = rows; ui.palette = _currentPalette;
++	ui.image.resize(W * rows);
++	for (int y = 0; y < rows; ++y) memcpy(&ui.image[y * W], vs.getPixels(0, y), W);
++	// Each note, and it lit in a frame of its glow (drawn over the panel).
++	for (int k = 0; k < 8; ++k) {
++		const int note = slotOf(k + 1), glow = slotOf(distaff->glow + 5 * k);
++		if (note < 0 || glow < 0 || _verbs[note].curmode != 1) { problem = "a note not shown"; return false; }
++		const Common::Rect &r = _verbs[note].curRect;
++		ScummverseUiVerb v;
++		v.kind = kWorldVerbNote; v.id = k; v.name = Common::String("cdefgabC"[k]);
++		v.x = r.left; v.y = r.top - top; v.width = r.width(); v.height = r.height();
++		if (v.x < 0 || v.y < 0 || v.width <= 0 || v.height <= 0 || v.x + v.width > W || v.y + v.height > rows) { problem = "a note off the panel"; return false; }
++		VerbSlot &g = _verbs[glow];
++		const int mode = g.curmode;
++		g.curmode = 1; drawVerb(glow, 0); g.curmode = mode;
++		bool lit = false;
++		for (int y = 0; y < v.height; ++y)
++			for (int x = 0; x < v.width; ++x) {
++				v.lit.push_back(*(byte *)vs.getPixels(v.x + x, v.y + y));
++				lit = lit || v.lit.back() != ui.image[(v.y + y) * W + v.x + x];
++			}
++		for (int y = 0; y < rows; ++y) memcpy(vs.getPixels(0, y), &ui.image[y * W], W);
++		if (!lit) { problem = "a note not lit"; return false; }
++		ui.verbs.push_back(v);
++	}
++	if (shown < 8) { problem = "its distaff never showed"; return false; }
++	ui.slotKind = 2;
++	ui.icon = {icon.left, icon.top - top, icon.width(), icon.height()};
++	if (ui.icon.y < 0 || ui.icon.x + ui.icon.width > W || ui.icon.y + ui.icon.height > rows) { problem = "its icon off the panel"; return false; }
++	for (int i = 0; i < 16; ++i) { ui.draftNames.push_back(kWorldDrafts[i]); ui.draftNotes.push_back(VAR(distaff->drafts + 2 * i) & 0xFFF); }
++	// The talk lettering, in the player's talk colour, drawn by a verb slot
++	// it borrows (the panel put back after).
++	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
++	ui.talk = ego > 0 && ego < _numActors ? _actors[ego]->_talkColor : 15;
++	int slot = -1;
++	for (int i = 1; i < _numVerbs && slot < 0; ++i) if (!_verbs[i].verbid) slot = i;
++	const int charset = _string[0]._default.charset;
++	if (slot < 0 || charset < 0 || charset >= _numCharsets || !getResourceAddress(rtCharset, charset)) { problem = "no lettering"; return false; }
++	{
++		VerbSlot &v = _verbs[slot];
++		const VerbSlot was = v;
++		v.verbid = 0x7FFF; v.type = kTextVerbType; v.saveid = 0; v.key = 0; v.prep = 0; v.imgindex = 0; v.origLeft = 0;
++		v.dimcolor = v.bkcolor = 0;
++		scummverseCaptureLetters(slot, charset, ui.talk, vs, top, rows, ui.fonts[1]);
++		v = was;
++		_res->nukeResource(rtVerb, slot);
++		for (int y = 0; y < rows; ++y) memcpy(vs.getPixels(0, y), &ui.image[y * W], W);
++	}
++	if (ui.fonts[1].glyphs.empty()) { problem = "no lettering"; return false; }
++	ui.fonts[0] = ui.fonts[1];
++	return scummverseWriteUi(ui, file, problem);
++}
++
+ // The oldest games' verb panel (as scummverseExportPanel writes it): the
+ // verbs their scripts set up (the mansion's from its script that does so,
+ // as the original engine's sandbox starts; else from the game's own start,
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 9addd98d..a1072a93 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -255,6 +255,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	}
+ 	_pointerX = _pointerY = -1;
+ 	_press = Press();
++	_chosen = -1; _noteClock = 0;
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
+ 	_action = 0; _target = -1; _speech.clear(); _speechClock = 0;
+ 	PanelBridge::select(-1);
+@@ -365,10 +366,18 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
+ 	_door = -1; _action = 0; _target = -1;
++	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
++	if (PanelBridge::distaff()) {
++		Common::Array<int> things;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i) && !isDoor(i)) things.push_back(i);
++		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
++		if (thing >= 0) { chooseThing(thing); return; }
++	}
+ 	// With a verb other than walking: the thing it is used on (named and
+ 	// shown here), walked to first; else walking.
+ 	// (Over the scene the pointer is the verb: The Dig's is always its tap.)
+-	const int verb = !PanelBridge::loaded() ? -1 : PanelBridge::over() ? PanelBridge::pointerVerb() : PanelBridge::selected();
++	// (Loom's lit note is no verb: its taps walk.)
++	const int verb = !PanelBridge::loaded() ? -1 : PanelBridge::over() ? PanelBridge::pointerVerb() : PanelBridge::distaff() ? -1 : PanelBridge::selected();
+ 	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	// (A panel's verb is used once; a pointer stays the verb it is.)
+ 	if (!PanelBridge::over()) PanelBridge::select(-1);
+@@ -497,6 +506,13 @@ void SandboxEngine::sentence(const Common::String &text) {
+ 
+ void SandboxEngine::chooseVerb(int verb) {
+ 	_action = 0; _target = -1; _door = -1;
++	// (Loom's notes: played, lit a moment; the fourth spins a draft.)
++	if (PanelBridge::distaff()) {
++		const int draft = PanelBridge::play(verb);
++		_noteClock = 30; _dirty = true;
++		if (draft != -1) spin(draft);
++		return;
++	}
+ 	// (Sam & Max's box: an icon is the pointer from then on; the box shuts.)
+ 	if (PanelBridge::over()) {
+ 		PanelBridge::select(PanelBridge::verbKind(verb) == kWorldVerbWalk ? -1 : verb);
+@@ -515,6 +531,35 @@ void SandboxEngine::chooseVerb(int verb) {
+ 	sentence(name);
+ }
+ 
++// Loom's: a thing tapped is chosen, its picture in the box, and walked to;
++// tapped again, examined (named).
++void SandboxEngine::chooseThing(int thing) {
++	int id, ox, oy, w, h, wx, wy, state;
++	char name[80];
++	if (!StageBridge::object(thing, id, ox, oy, w, h, wx, wy, state)) return;
++	StageBridge::objectName(thing, name, sizeof(name));
++	// (Chosen already, even one without a picture for the box: examined.)
++	if (thing == _chosen) { useOn(kWorldVerbLook, -1, thing); return; }
++	Common::Array<byte> data;
++	_chosen = thing;
++	if (!read(Common::String::format("%s-%d.svw", kWorldGames[_game].gameid, _room), data) ||
++		!PanelBridge::choose(data.data(), data.size(), id, name, StageBridge::objectShown(thing))) PanelBridge::unchoose();
++	_dirty = true;
++	double tx, ty;
++	doorPoint(thing, tx, ty);
++	StageBridge::walkTo(_player, tx, ty);
++}
++
++// Four notes played: Opening spins open the thing chosen (walked to), and
++// backwards shuts it; another of its drafts does nothing yet; notes that
++// spin no draft, nothing at all.
++void SandboxEngine::spin(int draft) {
++	if (draft < 0) return;
++	const int kind = draft == kWorldDraftOpening ? kWorldVerbOpen : draft == kWorldDraftOpening + 16 ? kWorldVerbClose : 0;
++	if (kind && _chosen >= 0 && isThing(_chosen)) { useOn(kind, -1, _chosen); return; }
++	say("Nothing happens.");
++}
++
+ // The next of the game's people (its cast's order), played where the one
+ // played stands. (The one before is not left standing there: who wanders is
+ // chosen when the engine starts, without the one played then.)
+@@ -587,6 +632,14 @@ void SandboxEngine::say(const Common::String &line) {
+ 
+ void SandboxEngine::showPicture(int object, int id, int picture) {
+ 	if (StageBridge::showObject(object, picture)) _pictures[thingKey(_game, _room, id)] = picture;
++	// (Loom's box shows the thing chosen as it is now.)
++	if (object == _chosen && PanelBridge::distaff()) {
++		Common::Array<byte> data;
++		char name[80];
++		StageBridge::objectName(object, name, sizeof(name));
++		if (!read(Common::String::format("%s-%d.svw", kWorldGames[_game].gameid, _room), data) ||
++			!PanelBridge::choose(data.data(), data.size(), id, name, StageBridge::objectShown(object))) PanelBridge::unchoose();
++	}
+ 	_dirty = true;
+ }
+ 
+@@ -729,6 +782,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_door >= 0 && !StageBridge::moving(_player)) reachDoor();
+ 	if (_action && !StageBridge::moving(_player)) act();
+ 	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); _dirty = true; }
++	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
+ }
+@@ -984,7 +1038,7 @@ Common::Error SandboxEngine::run() {
+ Common::Error SandboxEngine::verbsTest() {
+ 	int panels = 0, verbs = 0, chosen = 0, failed = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
+-	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0;
++	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+ 	auto tapRect = [&](int x, int y, int w, int h) { tap(x + w / 2, y + h / 2); };
+ 	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
+@@ -1045,10 +1099,39 @@ Common::Error SandboxEngine::verbsTest() {
+ 		settle();
+ 		return _speech != "I can't reach that.";
+ 	};
++	// Loom's distaff: looking is a second tap on a thing chosen; opening and
++	// shutting, its Opening draft played forwards and backwards on it.
++	auto useDistaff = [&](int kind, int object) {
++		int id, ox, oy, ow, oh, wx, wy, state, sx, sy, notes[4], verb;
++		if ((kind != kWorldVerbLook && kind != kWorldVerbOpen && kind != kWorldVerbClose) || isDoor(object) ||
++			!PanelBridge::draftNotes(kWorldDraftOpening, notes) || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		_speech.clear();
++		StageBridge::lookAt(ox + ow / 2.0);
++		StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++		if (sx < 0 || sx >= _width || sy < 0 || sy >= PanelBridge::top()) return false;
++		tap(sx, sy);
++		if (_chosen != object) return false;
++		settle();
++		if (kind == kWorldVerbLook) {
++			StageBridge::lookAt(ox + ow / 2.0);
++			StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++			tap(sx, sy);
++		} else {
++			for (int k = 0; k < 4; ++k) {
++				int x, y, w, h;
++				if (!PanelBridge::noteVerb(notes[kind == kWorldVerbOpen ? k : 3 - k], verb) || !PanelBridge::verbRect(verb, x, y, w, h)) return false;
++				tapRect(x, y, w, h);
++			}
++		}
++		if (_target != object) { _action = 0; _target = -1; return false; }
++		settle();
++		return _speech != "I can't reach that.";
++	};
+ 	// A verb used on an object: false when the panel has no such verb or a
+ 	// tap on the object's middle is for another one.
+ 	auto use = [&](int kind, int object) {
+ 		if (PanelBridge::coin()) return useCoin(kind, object);
++		if (PanelBridge::distaff()) return useDistaff(kind, object);
+ 		const int v = verbOf(kind);
+ 		int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
+ 		if (v < 0 || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
+@@ -1178,6 +1261,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int x, y, w, h;
+ 			if (!PanelBridge::verbRect(v, x, y, w, h)) continue;
+ 			++shownVerbs; ++verbs;
++			// (Loom's notes: each lit a moment, then not.)
++			if (PanelBridge::distaff()) {
++				PanelBridge::clearPlayed();
++				tapRect(x, y, w, h);
++				if (PanelBridge::selected() != v || PanelBridge::playedNotes() != 1) fail("a note not played", g); else ++chosen;
++				for (int t = 0; t < 60 && PanelBridge::selected() >= 0; ++t) step(1);
++				if (PanelBridge::selected() != -1) fail("a note lit on", g);
++				PanelBridge::clearPlayed();
++				continue;
++			}
+ 			if (over) {
+ 				// (Its icon: the pointer from then on, the box shut.)
+ 				if (!pick(v) || PanelBridge::selected() != v || PanelBridge::isOpen()) fail("a verb not chosen", g); else ++chosen;
+@@ -1203,7 +1296,37 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (PanelBridge::selected() != -1) fail("a verb not let go", g);
+ 		}
+ 		// (Over the scene: its icons, where it has more than its tap; a coin, its parts.)
+-		if (coin ? parts < 4 : over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < 9) fail("fewer verbs than the game has", g);
++		if (coin ? parts < 4 : over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < (PanelBridge::distaff() ? 8 : 9)) fail("fewer verbs than the game has", g);
++		// Loom's: its sixteen drafts; notes that spin none do nothing; a
++		// draft that is not taken up yet says so.
++		if (PanelBridge::distaff()) {
++			int notes[4], verb, x, y, w, h;
++			if (PanelBridge::draftCount() != 16) fail("not its sixteen drafts", g);
++			else {
++				// (Four notes that are no draft either way.)
++				int none[4] = {0, 0, 0, 0};
++				bool found = false;
++				for (int n = 0; n < 4096 && !found; ++n) {
++					for (int k = 0; k < 4; ++k) none[k] = n >> (3 * k) & 7;
++					found = true;
++					for (int d = 0; d < 16 && found; ++d) {
++						PanelBridge::draftNotes(d, notes);
++						bool forwards = true, backwards = true;
++						for (int k = 0; k < 4; ++k) { forwards = forwards && notes[k] == none[k]; backwards = backwards && notes[3 - k] == none[k]; }
++						found = !forwards && !backwards;
++					}
++				}
++				_speech.clear();
++				for (int k = 0; k < 4 && found; ++k) if (PanelBridge::noteVerb(none[k], verb) && PanelBridge::verbRect(verb, x, y, w, h)) tapRect(x, y, w, h);
++				if (!found || !_speech.empty() || _action || PanelBridge::playedNotes()) fail("notes that spin no draft did something", g);
++				// (Sleep, not taken up yet.)
++				PanelBridge::draftNotes(5, notes);
++				for (int k = 0; k < 4; ++k) if (PanelBridge::noteVerb(notes[k], verb) && PanelBridge::verbRect(verb, x, y, w, h)) tapRect(x, y, w, h);
++				if (_speech != "Nothing happens.") fail("a draft not taken up said nothing", g); else ++distaffs;
++				_speech.clear();
++				for (int t = 0; t < 60; ++t) step(1);
++			}
++		}
+ 		Common::Array<int> things;
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 		auto facts = [&](int o, int &id, int &pictures, int &shown, bool &door, bool &small) {
+@@ -1239,6 +1362,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			else ++looked;
+ 			break;
+ 		}
++		const int lookedBefore = looked, openedBefore = opened;
+ 		for (int o : things) {
+ 			if (tapOnly || (!use(kWorldVerbLook, o) && !use(kWorldVerbWhatIs, o))) continue;
+ 			if (_speech.empty()) { fail("looking said nothing", g); break; }
+@@ -1248,6 +1372,37 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (_speech.empty() && _dirty) ++gone; else fail("a line not gone", g);
+ 			break;
+ 		}
++		// (Loom's first place, its tents, has nothing named: its other
++		// places, its Opening draft spun on one and backwards, back after.)
++		if (PanelBridge::distaff()) {
++			Common::Array<int> others;
++			for (int i = 0; i < kWorldGames[g].sceneCount; ++i) others.push_back(kWorldGames[g].scenes[i].room);
++			if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->roomCount; ++i) others.push_back(map->rooms[i].room);
++			for (uint k = 0; k < others.size() && k < 80 && (looked == lookedBefore || opened == openedBefore); ++k) {
++				if (others[k] == room || !installed(g, others[k]) || !enter(g, others[k], 0, problem)) continue;
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					if (!isThing(o)) continue;
++					if (looked == lookedBefore && use(kWorldVerbLook, o)) {
++						if (_speech.empty()) fail("looking said nothing", g);
++						else {
++							++looked;
++							_dirty = false;
++							for (int t = 0; t < 600 && !_speech.empty(); ++t) step(1);
++							if (_speech.empty() && _dirty) ++gone; else fail("a line not gone", g);
++						}
++					}
++					const int pictures = StageBridge::objectPictures(o);
++					if (opened > openedBefore || pictures < 2 || StageBridge::objectShown(o) != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !use(kWorldVerbOpen, o)) continue;
++					if (StageBridge::objectShown(o) != 1) { fail("not opened by its draft", g); continue; }
++					++opened;
++					if (!use(kWorldVerbClose, o) || StageBridge::objectShown(o) != 0) fail("not closed by its draft backwards", g); else ++closed;
++				}
++			}
++			if (looked == lookedBefore || opened == openedBefore) fail("its drafts not spun on anything", g);
++			if (!enter(g, room, 0, problem)) { fail("its first place not shown again", g); continue; }
++			things.clear();
++			for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
++		}
+ 		// Open then close (one that shows none of its pictures), push.
+ 		for (int o : things) {
+ 			int id, pictures, shown; bool door, small;
+@@ -1341,6 +1496,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// the scene: the pointer, then the box open).
+ 		const int look = verbOf(kWorldVerbLook);
+ 		if (look >= 0) { PanelBridge::select(look); char name[40]; PanelBridge::verbName(look, name, sizeof(name)); sentence(name); }
++		// (Loom's: a note lit, the thing chosen in its box.)
++		if (PanelBridge::distaff()) PanelBridge::select(2);
+ 		_pointerX = _width / 2; _pointerY = _height / 2;
+ 		present();
+ 		if (ConfMan.hasKey("scummverse_shots")) shot(Common::String::format("verbs-%s.png", kWorldGames[g].gameid));
+@@ -1447,8 +1604,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index cb1e1e25..7ccd3d53 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -94,6 +94,10 @@ private:
+ 	void hold();
+ 	void drag(int screenX, int screenY);
+ 	void release(int screenX, int screenY);
++	// Loom's distaff (step 2f): a thing tapped is chosen (shown in the box,
++	// walked to), tapped again examined; four notes spin a draft on it.
++	void chooseThing(int thing);
++	void spin(int draft);
+ 	void act();
+ 	void say(const Common::String &line);
+ 	void showPicture(int object, int id, int picture);
+@@ -144,6 +148,7 @@ private:
+ 	Common::HashMap<int, int> _pictures;    // objects in another picture (thingKey; taken: 0)
+ 	struct Press { bool down = false, held = false; int x = 0, y = 0, object = -1, item = -1; uint32 at = 0; };
+ 	Press _press;                           // (a coin game's press)
++	int _chosen = -1, _noteClock = 0;       // (Loom's: the thing chosen; a note lit so long)
+ 	struct Carried { int game, room, id, picture; Common::String name; };
+ 	Common::Array<Carried> _carried;        // things carried, in order
+ 	Common::RandomSource _random;

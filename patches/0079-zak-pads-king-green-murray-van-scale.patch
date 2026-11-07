@@ -1,0 +1,387 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index bd3b3b2f..2009f113 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -30,7 +30,7 @@ struct ScummversePad { std::string label; int command, request; };
+ // One list for drawing and VoiceOver labels, in airport/pad command order.
+ static const char *const scummverseFlightNames[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
+ // Original crystal-map sites, in engine pad order (commands 50+).
+-static const char *const scummversePadNames[]={"SEATTLE","MEXICO","PERU","EGYPT","MARS"};
++static const char *const scummversePadNames[]={"SEATTLE","MEXICO","PERU","EGYPT","MARS FACE","ATLANTIS","MARS PYRAMID"};
+ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummversePadNames[0]);
+ // The pads also reach otherworldly places of the installed other worlds:
+ // each named place and story area of these games whose scene is exported.
+diff --git a/common/scummverse_world_cast.inc b/common/scummverse_world_cast.inc
+index 83e8c239..32e449a2 100644
+--- a/common/scummverse_world_cast.inc
++++ b/common/scummverse_world_cast.inc
+@@ -731,6 +731,9 @@ static const WorldCastGuest kWorldCast[] = {
+ 	{9, 26, 0, {154, "Cabana Boy",
+ 		"the snooty Brimstone Beach Club cabana boy who guards the towels and only serves members", 12,
+ 		{"Members only, I'm afraid.", "Towel? Membership card first.", "The club has standards."}}},
++	{9, 29, 0, {949, "Murray (green)",
++		"Murray, the disembodied talking skull, in the eerie green glow of the flooded ship's hold where he first washed up; certain he is the most terrifying evil being alive, and baffled that nobody runs", 10,
++		{"Behold! A skull of pure menace, glowing with evil!", "The green is my aura of doom. Also the bilge water.", "Flee, mortal! Slowly, so I can watch."}}},
+ 	{9, 30, 0, {167, "The Voodoo Lady",
+ 		"the Voodoo Lady, a mysterious and serene priestess who knows more about your future than you do", 13,
+ 		{"I have been expecting you.", "The spirits whisper about you.", "Your destiny is tangled, child."}}},
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index b8c71720..1b307ad0 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 11;
++static const int kWorldExportVersion = 12;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -144,10 +144,13 @@ inline const WorldGuest *worldGuestAt(int key, int slot) {
+ // Characters a game draws from another character's costume with its own
+ // animation set (e.g. Monkey Island's cannibals share one costume, each with
+ // a different mask): exported as a virtual costume number of that game.
+-struct WorldCostumeVariant { short game, costume, real, init, walk, stand, talkStart, talkStop; };
++// Frames -1 keep the costume's own; paletteRoom > 0 draws it in that room's
++// colors (Curse of Monkey Island's costumes take the room's palette).
++struct WorldCostumeVariant { short game, costume, real, init, walk, stand, talkStart, talkStop, paletteRoom; };
+ static const WorldCostumeVariant kWorldCostumeVariants[] = {
+-	{0, 906, 9, 6, 7, 8, 9, 8},     // Monkey Island cannibal, second mask
+-	{0, 911, 9, 11, 12, 13, 14, 13}, // Monkey Island cannibal, third mask
++	{0, 906, 9, 6, 7, 8, 9, 8, 0},     // Monkey Island cannibal, second mask
++	{0, 911, 9, 11, 12, 13, 14, 13, 0}, // Monkey Island cannibal, third mask
++	{9, 949, 49, -1, -1, -1, -1, -1, 11}, // Curse's Murray in the green of the ship's hold
+ };
+ inline const WorldCostumeVariant *worldCostumeVariant(int game, int costume) {
+ 	for (const auto &v : kWorldCostumeVariants) if (v.game == game && v.costume == costume) return &v;
+@@ -237,7 +240,7 @@ inline bool worldBreathes(int game, int costume) {
+ // Characters who float instead of walking (Murray, the talking skull; the
+ // Purple Meteor).
+ struct WorldHoverer { short game, costume; };
+-static const WorldHoverer kWorldHoverers[] = {{9, 49}, {kWorldManiacLooks, 16}};
++static const WorldHoverer kWorldHoverers[] = {{9, 49}, {9, 949}, {kWorldManiacLooks, 16}};
+ inline bool worldHovers(int game, int costume) {
+ 	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
+ 	return false;
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index cc5d67f1..e876922e 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2789,6 +2789,9 @@ void Actor::startAnimActor(int f) {
+ 			}
+ 		}
+ 		_vm->_costumeLoader->costumeDecodeData(this, f, (uint) - 1);
++		const int overlay = _vm->scummverseOverlayFrame(this, f);
++		if (overlay >= 0)
++			_vm->_costumeLoader->costumeDecodeData(this, overlay, (uint) - 1);
+ 		_frame = f;
+ 	}
+ 
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index b0e8caef..9d550460 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -82,13 +82,14 @@ static const int v1MMActorPalatte2[25] = {
+ 
+ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	const bool imported = _loaded._id >= 34 && _loaded._id <= 43;
+-	const bool distant = _vm->scummverseDistantScene();
++	int shotNumerator = 1, shotDenominator = 1;
++	const bool distant = _vm->scummverseDistantScene(&shotNumerator, &shotDenominator);
+ 	// Preserve source art and feet while applying the audited distant ratio.
+ 	// Imported costumes retain their existing 6:5 normalization elsewhere.
+ 	if (_vm->_game.id == GID_MANIAC && (imported || distant) && _loaded._format == 0x57) {
+ 		// Original chair masks fit original-size costumes, not normalized visitors.
+   const bool seated = _vm->scummverseSeated(_actorID) && !_vm->scummverseRenderingPortrait();
+-  const int numerator = distant ? 5 : seated ? 1 : 6, denominator = distant ? 23 : seated ? 1 : 5;
++  const int numerator = distant ? shotNumerator : seated ? 1 : 6, denominator = distant ? shotDenominator : seated ? 1 : 5;
+ 		auto scale = [numerator, denominator](int n) {
+ 			return n >= 0 ? n*numerator/denominator : -((-n*numerator+denominator-1)/denominator);
+ 		};
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index f30a25e9..77de1212 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1358,11 +1358,14 @@ public:
+ 	bool isLightOn() const;
+ 
+ 	virtual int getCurrentLights() const;
+-	bool scummverseDistantScene() const;
++	// A long shot, where people are drawn numerator/denominator of their size.
++	bool scummverseDistantScene(int *numerator = nullptr, int *denominator = nullptr) const;
+ 	bool scummverseRenderingPortrait() const { return _scummversePortrait; }
+ 	// The actor whose V1 colors a character wears (Maniac picks costume colors
+ 	// by actor): their own, or that of the Maniac character they play.
+ 	int scummverseColorActor(int id) const;
++	// A frame laid over this one of this actor (-1: none); see scummverse_worlds.inc.
++	int scummverseOverlayFrame(const Actor *a, int frame) const;
+ 	// In other worlds everyone is drawn at the scale of a person standing at
+ 	// that spot of the scene; guests from their exported frames
+ 	// (scummverse_world_play.inc). False: draw the actor as usual.
+@@ -1619,6 +1622,7 @@ protected:
+ 	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0, const Common::Array<byte> *depths = nullptr);
+ 	void scummverseBoxDepths(Common::Array<byte> &out);
+ 	int scummverseExportWorld(const Common::Path &dir);
++	bool scummverseTravelPad(int index);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	// Drops animation commands queued for the main loop (AKOS editions).
+ 	virtual void scummverseDropAnimCommands() {}
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 2c7e122b..b7c30ef4 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -138,6 +138,9 @@ static const char *zakSceneName(int room) {
+ // imported Zak costumes 26/22. Dialogue lines and personalities are newly
+ // authored, not original script text.
+ static const int kZakResidentActor = 15;
++// The King: Zak costume 27 (imported as 39) and its frame with his Elvis
++// quiff (the original ship's animation 24).
++static const int kZakKingCostume = 39, kZakKingQuiffFrame = 6;
+ struct ZakResident {
+ 	int room, costume, x, y, animation, color, talkColor;
+ 	const char *name, *personality, *lines[3];
+@@ -424,13 +427,21 @@ static const ZakLink zakLinks[] = {
+ // Original crystal-map destinations (map objects 480-486, script 60):
+ // Seattle 129, Mexico 130, Peru carving eye 137, Egypt 25, Mars 193, in map order.
+ // Arrival objects are each scene's original platform. Zaire and Peru have
+-// no crystal chamber in the original game.
+-struct ZakPad { int room, arrivalObject; };
+-static const ZakPad zakPads[]={{92,309},{89,309},{98,632},{76,437},{125,296}};
++// no crystal chamber in the original game. The map also shows Atlantis
++// (483) and the Mars pyramid (485), whose scripts lead nowhere: here
++// Atlantis is Fate of Atlantis's lost city (when that game is installed)
++// and the Mars pyramid the platform in its crystal room (original 327).
++// Appended, so pad commands keep their numbers.
++struct ZakPad { int room, arrivalObject; const char *name, *world; int worldRoom; };
++static const ZakPad zakPads[]={
++	{92,309,"Seattle",nullptr,0},{89,309,"Mexico",nullptr,0},{98,632,"Peru",nullptr,0},
++	{76,437,"Egypt",nullptr,0},{125,296,"Mars face",nullptr,0},
++	{0,0,"Atlantis","atlantis",36},{84,327,"Mars pyramid",nullptr,0},
++};
+ static const int kZakPadCount=sizeof(zakPads)/sizeof(zakPads[0]);
+ static bool zakPadObject(int room,int object) {
+ 	return ((room==89 || room==92 || room==125) && (object==734 || object==735)) ||
+-		(room==98 && object==734) || (room==76 && object==747);
++		(room==98 && object==734) || (room==76 && object==747) || (room==84 && object==745);
+ }
+ // Retired sandbox room IDs: nothing links to them, and saved occupants move
+ // to the original scene the room stood in for. Patch 0073 folded temple
+@@ -523,9 +534,15 @@ static bool zakAirless(int room) {
+ // The van's controls (original 490) in its cockpit, parked or in flight.
+ static bool zakVanControl(int room, int original) { return (room == 81 || room == 221) && original == 490; }
+ 
+-// Original 20/39 entry scripts select distant costume 9 (10px tall).
+-// Normal Zak standing front/back costume 1 spans 46px. Scale = 10/46.
+-static const int zakDistantCostumeRooms[] = {72, 87};
++// Long shots, where the original draws people small: everyone is drawn at
++// that size, numerator/denominator of their own. Original 20/39 entry
++// scripts select distant costume 9 (10px tall; normal Zak costume 1 spans
++// 46px: 5/23). On Mars the original's landing site panorama (resource 27:
++// the landing site 79 and the tram station 184) shows Melissa and Leslie in
++// long-shot spacesuit costume 7 (27px tall; costume 3 is 62px), beside its
++// painted van (original script 81).
++struct ZakLongShot { int room, numerator, denominator; };
++static const ZakLongShot zakDistantCostumeRooms[] = {{72, 5, 23}, {87, 5, 23}, {79, 27, 62}, {184, 27, 62}};
+ 
+ // Audited initialized logical scenes, not executable source scripts or artwork.
+ // Coordinates are pixels; original object identities are remapped only at import.
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 21c5c957..9c0d90d3 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -289,7 +289,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[command-40];
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+ 			} else if(command==62) scummverseTeleportOffer();
+-			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) scummverseTravel(zakPads[command-50].room-50,zakPads[command-50].arrivalObject);
++			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) scummverseTravelPad(command-50);
+ 			else if (command == 24 && _currentRoom == kVanFlightRoom) scummverseVanArrive();
+ 			else if (command == 24) scummverseArrive();
+ 			else if(command>=1 && command<=48) scummverseTravel(command);
+diff --git a/engines/scumm/scummverse_van.inc b/engines/scumm/scummverse_van.inc
+index cc86fc6c..cda79ba3 100644
+--- a/engines/scumm/scummverse_van.inc
++++ b/engines/scumm/scummverse_van.inc
+@@ -15,10 +15,13 @@
+ // kVanLiftoff, then kVanFlying), 617 riders, 618 its scale there (x100).
+ 
+ static const int kVanObject = 454, kVanDoor = 452, kVanCockpitDoor = 488, kVanControls = 490, kVanMeters = 491;
+-// A Zak kid's height in the original's art, against which the van is scaled;
+-// the van's own size there (object 454) until its picture is taken.
+-static const double kVanKidHeight = 62.0;
++// The height of the people beside the van in the original's art (the long
++// shot's spacesuit costume 7), against which it is scaled; the van's own
++// size there (object 454) until its picture is taken.
++static const double kVanKidHeight = 27.0;
+ static const int kVanWidth = 144, kVanHeight = 72;
++// A Maniac teenager's standing height (people in the mansion and Zak's places).
++static const double kVanManiacHeight = 72.0;
+ 
+ bool ScummEngine::scummverseVanFlying() const {
+ 	return _scummverseRoaming && _scummVars && _scummVars[kVanPhaseVar] > 0;
+@@ -281,11 +284,19 @@ bool ScummEngine::scummverseVanLand(int site) {
+ 		scummverseSay(ego, "We can't land there. Let's pick another spot."); return false;
+ 	}
+ 	if (site) {
+-		// Parked beside the player, on the side with more room, as tall as
+-		// people standing there.
+-		double scale = 1.0;
+-		if (s.game >= 0) scale = kWorldGames[s.game].heroHeight * WorldBridge::sceneScale() * scummverseWorldDepth(player) / kVanKidHeight;
+-		const int w = (int)((_scummverseVanW ? _scummverseVanW : kVanWidth) * scale), px = player->getRealPos().x * 8, py = player->getRealPos().y * 2;
++		// Parked beside the player, on the side with more room, as much
++		// taller than the people standing there as in the original (where
++		// they are its long shot's spacesuits), as far as the room has room
++		// above them and across.
++		int numerator = 1, denominator = 1;
++		scummverseDistantScene(&numerator, &denominator);
++		const double person = s.game >= 0 ? kWorldGames[s.game].heroHeight * WorldBridge::sceneScale() * scummverseWorldDepth(player)
++			: kVanManiacHeight * numerator / denominator;
++		const bool picture = scummverseLoadVan();
++		const int vanW = picture ? _scummverseVanW : kVanWidth, vanH = picture ? _scummverseVanH : kVanHeight;
++		const int px = player->getRealPos().x * 8, py = player->getRealPos().y * 2;
++		const double scale = MIN(person / kVanKidHeight, MIN((double)MAX(16, py - 4) / vanH, (_screenWidth - 32.0) / vanW));
++		const int w = (int)(vanW * scale);
+ 		int left = px * 2 > _roomWidth ? px - 12 - w : px + 12;
+ 		left = CLIP(left, 0, MAX(0, _roomWidth - w));
+ 		_scummVars[kVanSiteVar] = site; _scummVars[kVanPhaseVar] = 0;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 7c86557a..908c84ee 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -294,10 +294,24 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	Actor *a = _actors[1];
+ 	a->initActor(0);
+ 	a->setActorCostume(costume);
+-	if (variant) {
++	if (variant && variant->init >= 0) {
+ 		a->_initFrame = variant->init; a->_walkFrame = variant->walk; a->_standFrame = variant->stand;
+ 		a->_talkStartFrame = variant->talkStart; a->_talkStopFrame = variant->talkStop;
+ 	}
++	// In another room's colors: that room's palette, as the game sets it,
++	// and this room's again once the guest is written.
++	struct PaletteKeep {
++		ScummEngine *vm; byte saved[3 * 256]; bool kept;
++		~PaletteKeep() { if (kept) { memcpy(vm->_currentPalette, saved, sizeof(saved)); vm->setDirtyColors(0, 255); } }
++	} keep = {this, {}, false};
++	if (variant && variant->paletteRoom > 0 && variant->paletteRoom < _numRooms &&
++		(_game.version < 4 || _res->_types[rtRoom][variant->paletteRoom]._roomno)) {
++		memcpy(keep.saved, _currentPalette, sizeof(keep.saved)); keep.kept = true;
++		const int room = _roomResource;
++		_roomResource = variant->paletteRoom;
++		ensureResourceLoaded(rtRoom, _roomResource); setCurrentPalette(0);
++		_roomResource = room;
++	}
+ 	// Full size, unmasked, one animation step per call.
+ 	a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
+ 	putClass(a->_number, kObjectClassNeverClip, true);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 6bd87d28..e3b7808f 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -774,6 +774,18 @@ bool ScummEngine::scummverseWorldUnits(int game, int source, int x, int y, int &
+ 	return true;
+ }
+ 
++// A crystal pad's destination: a Zak scene's platform, or a place in
++// another world (Atlantis), reported like the Worlds menu's places.
++bool ScummEngine::scummverseTravelPad(int index) {
++	if (index < 0 || index >= kZakPadCount) return false;
++	const ZakPad &pad = zakPads[index];
++	if (!pad.world) return scummverseTravel(pad.room - 50, pad.arrivalObject);
++	const WorldGame *game = worldGame(pad.world);
++	const bool ok = game && scummverseTravelPlace((int)(game - kWorldGames), pad.worldRoom);
++	scummverseWorldReport(_scummverseWorldNotice.c_str());
++	return ok;
++}
++
+ bool ScummEngine::scummverseDigTramStop(int &line, int &end) const {
+ 	int source;
+ 	const int game = scummverseWorldGameOf(_currentRoom, source);
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 0e69ed93..51f7b6c2 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -253,7 +253,7 @@ void ScummEngine::scummverseInitVisitors() {
+ 		_scummVars[763] = 1;
+ 	}
+ 	if (!_scummVars[764] && scummverseMountZakCast()) {
+-		const int ids[]={8,17,18,19}, rooms[]={90,91,63,63}, colors[]={10,11,9,9};
++		const int ids[]={8,17,18,19}, rooms[]={90,91,63,63}, colors[]={10,1,9,9};
+ 		// Zak costume 27 is "The King" (original room 10 object script), not a pilot.
+ 		const char *names[]={"Caponian", "The King", "Zaire shaman", "Zaire villager"};
+ 		for(int i=0;i<4;++i) {
+@@ -264,6 +264,16 @@ void ScummEngine::scummverseInitVisitors() {
+ 		}
+ 		_scummVars[764]=1;
+ 	}
++	// The King as on the Caponians' ship (original room 10's button script):
++	// a white suit (color 1), with his Elvis quiff (scummverseOverlayFrame);
++	// also for characters set up earlier.
++	if (_scummVars[764]) {
++		Actor *king = derefActor(17, "The King");
++		if (king->_costume == kZakKingCostume && king->_talkColor != 1) {
++			king->setPalette(1, 1); king->_talkColor = 1;
++			if (!king->_moving) king->startAnimActor(king->_standFrame);
++		}
++	}
+ 	if (_scummverseStreetMounted && !_scummVars[762]) {
+ 		for (int i = 0; i < 20; ++i) { putState(712 + i, _scummverseStreetStates[i]); _objectOwnerTable[712+i] = OF_OWNER_ROOM; }
+ 		_scummVars[762] = 1; _fullRedraw = true;
+@@ -502,7 +512,8 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 			scummverseMountZakCast();
+ 		}
+ 	}
+-	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || ((!_scummVars[763] || !_scummVars[764]) && !_scummverseZakCastCostumes[0].empty()) || (_scummverseStreetMounted && !_scummVars[762]))) scummverseInitVisitors();
++	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || ((!_scummVars[763] || !_scummVars[764]) && !_scummverseZakCastCostumes[0].empty()) || (_scummverseStreetMounted && !_scummVars[762]) ||
++		(_scummVars[764] && _actors[17]->_costume == kZakKingCostume && _actors[17]->_talkColor != 1))) scummverseInitVisitors();
+ 	// A flight with nobody controlling it aboard lands on its own (var 795 is
+ 	// its saved clock); the player's own flight lands when they choose Arrive.
+ 	if (_scummVars[724] && derefActor(VAR(VAR_EGO), "flight clock")->_room != 56) {
+@@ -853,9 +864,9 @@ void ScummEngine::scummverseTeleportOffer() {
+ #else
+ 	GUI::ChooserDialog dialog(Common::U32String("Crystal teleport pads"));
+ 	Common::U32StringArray destinations;
+-	for(const auto &pad : zakPads) destinations.push_back(Common::U32String(zakPlaces[pad.room-56].name));
++	for(const auto &pad : zakPads) destinations.push_back(Common::U32String(pad.name));
+ 	dialog.setList(destinations); int choice=runDialog(dialog);
+-	if(choice>=0 && choice<kZakPadCount) scummverseTravel(zakPads[choice].room-50,zakPads[choice].arrivalObject);
++	if(choice>=0 && choice<kZakPadCount) scummverseTravelPad(choice);
+ #endif
+ }
+ 
+@@ -879,6 +890,8 @@ void ScummEngine::scummverseRosterOffer() {
+ 		// that were never on screen are not drawn without heads.
+ 		for(int frame : {a->_initFrame,a->_standFrame,a->_talkStopFrame})
+ 			_costumeLoader->costumeDecodeData(a,frame,(uint)-1);
++		const int overlay=scummverseOverlayFrame(a,a->_standFrame);
++		if(overlay>=0) _costumeLoader->costumeDecodeData(a,overlay,(uint)-1);
+ 		ClassicCostumeRenderer renderer(this); a->prepareDrawActorCostume(&renderer);
+ 		renderer._actorX=160; renderer._actorY=112; renderer._zbuf=0;
+ 		renderer.drawCostume(canvas,40,a,false);
+@@ -958,9 +971,23 @@ void ScummEngine::scummverseRestoreSceneNavigation(bool restoreActors) {
+ 	}
+ }
+ 
+-bool ScummEngine::scummverseDistantScene() const {
++// A frame drawn over another: The King (imported Zak costume 27) wears his
++// Elvis quiff, the frame the original's ship shows him in (its animation
++// 24), whenever he stands or stops talking. V1 frames set only their own
++// limbs, so the quiff goes over the standing body.
++int ScummEngine::scummverseOverlayFrame(const Actor *a, int frame) const {
++	if (!_scummverseRoaming || a->_costume != kZakKingCostume) return -1;
++	return frame == a->_standFrame || frame == a->_talkStopFrame || frame == a->_initFrame ? kZakKingQuiffFrame : -1;
++}
++
++bool ScummEngine::scummverseDistantScene(int *numerator, int *denominator) const {
+ 	if (!_scummverseRoaming || _scummversePortrait) return false;
+-	for (int room : zakDistantCostumeRooms) if (room==_currentRoom) return true;
++	for (const auto &shot : zakDistantCostumeRooms)
++		if (shot.room == _currentRoom) {
++			if (numerator) *numerator = shot.numerator;
++			if (denominator) *denominator = shot.denominator;
++			return true;
++		}
+ 	return false;
+ }
+ 

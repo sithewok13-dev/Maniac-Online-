@@ -1,0 +1,511 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index e3834fa5..b9ded73d 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -222,13 +222,18 @@ static const int kWorldExportVersion = 25;
+ // the chest under the cloth unlocked with it and opened, its old book taken,
+ // kWorldKeptClasses (one kept by the class its game starts it with taken);
+ // Venice's wine bottle given once looked at, carried in its answers of two,
+-// kWorldLateCarried): "indy3-v32".
++// kWorldLateCarried): "indy3-v32"; from 0306 Sam & Max's again (Max, whom
++// its start gives Sam in room 1, which no place exports, carried in its
++// answers of two, kWorldStartThings, his picture in its box its things file's
++// icon: the dead guy of room 9 turned inside out for the carnival tickets
++// among his uses): "samnmax-v32".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 15 : same(gameid, "tentacle") ? 11 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "indy3") ? 7 : // (from 0305)
+-		same(gameid, "samnmax") ? 6 : same(gameid, "loom") ? 2 : 0);
++		same(gameid, "samnmax") ? 7 : // (from 0306)
++		same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1443,8 +1448,17 @@ inline int worldPlayedIn(int game, int room) {
+ // checks each row against its game's start (one of its players has it, its
+ // code in that room, none of the places): a mismatch fails
+ // tools/export_worlds.py.
++// From 0306 Sam & Max's Max (35, room 1), whom its boot script (global script
++// 1, read with descumm, nothing copied) picks up for Sam: in the original he
++// lies in its box and is used on things and people as a thing held is. Its
++// export carries him in its answers of two as its box holds a thing, his
++// picture in the box as its start shows it (its things file's icon, by which
++// the new engine carries him). Before, none of his uses was ever played: the
++// dead guy of room 9 (actor 4: its local script 205) turned inside out for
++// the carnival tickets (95), and every other answer of his.
+ struct WorldStartThing { short game, room; int object; };
+-static const WorldStartThing kWorldStartThings[] = {{5, 61, 709}, {5, 61, 710}, {5, 61, 711}};
++static const WorldStartThing kWorldStartThings[] = {{5, 61, 709}, {5, 61, 710}, {5, 61, 711},
++	{6, 1, 35}}; // (from 0306: Sam & Max's Max)
+ static const int kWorldStartGiven = 0x4002;
+ inline const WorldStartThing *worldStartThing(int game, int object) {
+ 	for (const WorldStartThing &s : kWorldStartThings) if (s.game == game && s.object == object) return &s;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index db3627cd..1e379053 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4086,6 +4086,49 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		}
+ 		for (int o = 1; heldThing && o < (int)owners.size(); ++o)
+ 			if (owners[o] == ego && placeOf.contains(o) && !carryable.contains(o)) { carryable[o] = placeOf[o]; carriedOnes.push_back(o); ++pairStarted; }
++		// (From 0306 what its start gives the one played where its code lies
++		// in a room no place exports, kWorldStartThings, as Day of the
++		// Tentacle's kids' own (0303, scummverseExportOwnAnswers): carried as
++		// its start leaves it (in their hands, its code as its start gave it),
++		// held on each thing and person as any; its picture in the box as its
++		// start shows it (below). Each row checked against its start: the one
++		// played's then, in their hands, its code in that room, which is none
++		// of the places, lying in none; else told (tools/export_worlds.py
++		// fails). Sam & Max's Max (35, room 1: its boot script, global script
++		// 1, picks him up for Sam; read with descumm, nothing copied): before,
++		// none of his uses was ever played (the dead guy of room 9 turned
++		// inside out for the carnival tickets, 95, among them).)
++		auto codeIn = [&](int obj, int room) {
++			if (_game.version != 6 || room <= 0 || room >= _numRooms) return false;
++			const byte *roomptr = getResourceAddress(rtRoom, room);
++			const RoomHeader *roomhdr = roomptr ? (const RoomHeader *)findResourceData(MKTAG('R','M','H','D'), roomptr) : nullptr;
++			if (!roomhdr) return false;
++			const int numobj = READ_LE_UINT16(&roomhdr->old.numObjects);
++			ResourceIterator obcds(roomptr, false);
++			for (int i = 0; i < numobj; ++i) {
++				const byte *obcd = obcds.findNext(MKTAG('O','B','C','D'));
++				const CodeHeader *cdhd = obcd ? (const CodeHeader *)findResourceData(MKTAG('C','D','H','D'), obcd) : nullptr;
++				if (!cdhd) return false;
++				if (READ_LE_UINT16(&cdhd->v6.obj_id) == obj) return true;
++			}
++			return false;
++		};
++		Common::Array<int> startThings;
++		for (const WorldStartThing &s : kWorldStartThings) {
++			if (!heldThing || s.game != gameIndex) continue;
++			const int o = s.object;
++			bool exported = false;
++			for (const Room &r : found) exported = exported || r.room == s.room;
++			const bool asStarted = o > 0 && o < (int)owners.size() && owners[o] == ego && whereIsObject(o) == WIO_INVENTORY && !placeOf.contains(o) && !carryable.contains(o) &&
++				!exported && codeIn(o, s.room) && !scummverseObjectName(o).empty();
++			if (!asStarted) {
++				warning("SCUMMVERSE world things: %s %d not as its start gives it from room %d (kWorldStartThings: its owner %d, %s, %s, its code %s there)", kWorldGames[gameIndex].gameid, o, s.room,
++					o > 0 && o < (int)owners.size() ? owners[o] : -1, whereIsObject(o) == WIO_INVENTORY ? "in hand" : "in none's", placeOf.contains(o) ? "lying in a place" : "in none", codeIn(o, s.room) ? "found" : "not");
++				continue;
++			}
++			carryable[o] = s.room; carriedOnes.push_back(o); startThings.push_back(o);
++			debug(2, "SCUMMVERSE world things: %s %d its start gives from room %d carried (its owner %d, in hand)", kWorldGames[gameIndex].gameid, o, s.room, owners[o]);
++		}
+ 		// (Carried as its pick up leaves it, theirs.)
+ 		auto carryIn = [&](int obj) {
+ 			if (whereIsObject(obj) == WIO_INVENTORY) return true;
+@@ -4270,8 +4313,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		}
+ 		if (reversed) scummverseRunOrder(effects, heldBefore, heldEffectOrder);
+ 		if (heldThing)
+-			debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d things that can be carried, %d of them from its start, %d not carried; %d used on, %d of them people), %d answers (%d a thing held's own, %d usual; %d leaving the place or running on; %d own saying and changing nothing left out)",
+-				kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), pairStarted, pairUncarried, (int)heldOn.size(), people, pairOwn + pairUsual, pairOwn, pairUsual, pairLeft, pairSilent);
++			debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d things that can be carried, %d of them from its start, %d its start gives in a room no place exports, %d not carried; %d used on, %d of them people), %d answers (%d a thing held's own, %d usual; %d leaving the place or running on; %d own saying and changing nothing left out)",
++				kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), pairStarted, (int)startThings.size(), pairUncarried, (int)heldOn.size(), people, pairOwn + pairUsual, pairOwn, pairUsual, pairLeft, pairSilent);
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+ 		// (From 0258: each thing given, its game's own inventory picture, as
+@@ -4282,7 +4325,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// game puts in a cell then that it does not put there without the
+ 		// thing (its icon), drawn alone, with its name. One given that is in
+ 		// no place is kept (room 0) only with one.)
+-		if (!given.empty() && overlay && overlay->button > 0 && overlay->button < _numActors && overlay->box > 0 && overlay->stepX > 0 && overlay->stepY > 0) {
++		// (From 0306 also each thing its start gives in a room no place
++		// exports, kWorldStartThings (above): the picture its game puts in
++		// its box with it carried as its start leaves it that it does not put
++		// there with it let go.)
++		if ((!given.empty() || !startThings.empty()) && overlay && overlay->button > 0 && overlay->button < _numActors && overlay->box > 0 && overlay->stepX > 0 && overlay->stepY > 0) {
+ 			Actor *button = _actors[overlay->button];
+ 			VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 			const int W = _screenWidth, rows = MIN<int>(vs.h, _screenHeight - vs.topline);
+@@ -4303,8 +4350,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			auto ready = [&]() { return button->isInCurrentRoom() && button->_visible && _userPut > 0 && _cursor.state > 0; };
+ 			auto shown = [&](int obj) { return getObjectIndex(obj) > 0 && getState(obj) > 0; };
+ 			// (The box opened with what is carried then: the pictures in its
+-			// cells, by object; shut again.)
+-			auto boxed = [&](int thing, Common::Array<int> &in) {
++			// cells, by object; shut again. From 0306 `without` not 0, also
++			// in the row above its cells, its verbs' (Sam & Max's Max is
++			// drawn there after them), one carried let go first (above 0).)
++			auto boxed = [&](int thing, int without, Common::Array<int> &in) {
+ 				in.clear();
+ 				putBack(); quiet();
+ 				_rnd.setSeed(0x5C0BE + startRoom);
+@@ -4339,6 +4388,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					putOwner(thing, ego);
+ 					runInventoryScript(thing);
+ 				}
++				// (From 0306 one its start gives let go, as its game lets a thing
++				// go: its box then without it.)
++				if (without > 0 && whereIsObject(without) == WIO_INVENTORY) setOwnerOf(without, 0);
+ 				for (int n = 0; n < 300 && !ready() && !shouldQuit(); ++n) frames(1);
+ 				if (!ready()) return false;
+ 				frames(10);
+@@ -4359,11 +4411,34 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					const int x = o.x_pos - vs.xstart - overlay->cellX, y = o.y_pos - vs.topline - overlay->cellY;
+ 					if (o.obj_nr && o.fl_object_index && o.state && x >= 0 && y >= 0 && x % overlay->stepX == 0 && y % overlay->stepY == 0 &&
+ 						x / overlay->stepX < overlay->columns && y / overlay->stepY < overlay->rows) in.push_back(o.obj_nr);
++					else if (without && o.obj_nr && o.fl_object_index && o.state && x >= 0 && y == -overlay->stepY && x % overlay->stepX == 0 && x / overlay->stepX < overlay->columns) in.push_back(o.obj_nr);
+ 				}
+ 				return true;
+ 			};
+ 			Common::Array<int> before, in;
+-			const bool opened = boxed(0, before);
++			const bool opened = boxed(0, 0, before);
++			// (Its picture in its cell, drawn alone, with its name: as the box is
++			// open now.)
++			auto pictured = [&](int thing, int icon, Icon &c) {
++				Common::Array<byte> pixels;
++				const int i = icon ? getObjectIndex(icon) : -1;
++				if (i <= 0) return false;
++				const ObjectData &o = _objs[i];
++				const Common::Rect cell(o.x_pos - vs.xstart, o.y_pos - vs.topline, o.x_pos - vs.xstart + o.width, o.y_pos - vs.topline + o.height);
++				if (o.width > 0 && o.height > 0 && o.width <= Scummverse::PanelBridge::kMostIconSide && o.height <= Scummverse::PanelBridge::kMostIconSide &&
++					scummverseCaptureObjects(Common::Array<int>(1, icon), Common::Array<int>(), cell, pixels, c.mask) && (int)pixels.size() == o.width * o.height) {
++					c.id = thing; c.width = o.width; c.height = o.height; c.name = scummverseObjectName(thing);
++					bool any = false;
++					for (uint k = 0; k < pixels.size(); ++k) {
++						c.mask[k] = c.mask[k] == 1;
++						any = any || c.mask[k];
++						for (int ch = 0; ch < 3; ++ch) c.rgb.push_back(c.mask[k] ? _currentPalette[3 * pixels[k] + ch] : 0);
++					}
++					if (any) return true;
++					c.id = 0;
++				}
++				return false;
++			};
+ 			int unboxed = 0;
+ 			// (From 0284 by number: before, in the order the runs above first
+ 			// gave them, which their order decided.)
+@@ -4374,33 +4449,35 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				const int thing = given[g];
+ 				// (Only a picture new with it: its own.)
+ 				int icon = 0, icons_ = 0;
+-				if (boxed(thing, in))
++				if (boxed(thing, 0, in))
+ 					for (int obj : in) if (Common::find(before.begin(), before.end(), obj) == before.end()) { icon = obj; ++icons_; }
+ 				Icon c;
+-				Common::Array<byte> pixels;
+-				const int i = icon && icons_ == 1 ? getObjectIndex(icon) : -1;
+-				if (i > 0) {
+-					const ObjectData &o = _objs[i];
+-					const Common::Rect cell(o.x_pos - vs.xstart, o.y_pos - vs.topline, o.x_pos - vs.xstart + o.width, o.y_pos - vs.topline + o.height);
+-					if (o.width > 0 && o.height > 0 && o.width <= Scummverse::PanelBridge::kMostIconSide && o.height <= Scummverse::PanelBridge::kMostIconSide &&
+-						scummverseCaptureObjects(Common::Array<int>(1, icon), Common::Array<int>(), cell, pixels, c.mask) && (int)pixels.size() == o.width * o.height) {
+-						c.id = thing; c.width = o.width; c.height = o.height; c.name = scummverseObjectName(thing);
+-						bool any = false;
+-						for (uint k = 0; k < pixels.size(); ++k) {
+-							c.mask[k] = c.mask[k] == 1;
+-							any = any || c.mask[k];
+-							for (int ch = 0; ch < 3; ++ch) c.rgb.push_back(c.mask[k] ? _currentPalette[3 * pixels[k] + ch] : 0);
+-						}
+-						if (any) { icons.push_back(c); iconOrder.push_back(g); } else c.id = 0;
+-					}
+-				}
++				if (icons_ == 1 && pictured(thing, icon, c)) { icons.push_back(c); iconOrder.push_back(g); }
+ 				if (!c.id) ++unboxed;
+ 				debug(2, "SCUMMVERSE world things: %s thing %d given: icon %d (%d new in the box)", kWorldGames[gameIndex].gameid, thing, c.id ? icon : 0, icons_);
+ 			}
+ 			if (reversed) scummverseRunOrder(icons, 0, iconOrder);
++			// (From 0306 each its start gives, by number, after them: the one
++			// picture its box has with it, not with it let go. Else none: told,
++			// tools/export_worlds.py fails, as the new engine could not carry
++			// it.)
++			Common::sort(startThings.begin(), startThings.end());
++			int startIconed = 0;
++			for (int thing : startThings) {
++				if (!opened || (int)icons.size() >= Scummverse::PanelBridge::kMostIcons || shouldQuit()) break;
++				Common::Array<int> without;
++				int icon = 0, icons_ = 0;
++				if (boxed(0, thing, without) && boxed(0, -1, in))
++					for (int obj : in) if (Common::find(without.begin(), without.end(), obj) == without.end()) { icon = obj; ++icons_; }
++				Icon c;
++				if (icons_ == 1 && pictured(thing, icon, c)) { icons.push_back(c); ++startIconed; }
++				else warning("SCUMMVERSE world things: %s %d its start gives from room %d not in its box as its start shows it (kWorldStartThings: %d pictures with it only)", kWorldGames[gameIndex].gameid, thing,
++					carryable.contains(thing) ? carryable[thing] : 0, icons_);
++				debug(2, "SCUMMVERSE world things: %s thing %d its start gives: icon %d (%d in the box with it only)", kWorldGames[gameIndex].gameid, thing, c.id ? icon : 0, icons_);
++			}
+ 			_scummverseMusicTimer = -1;
+-			debug(1, "SCUMMVERSE world things: %s %d things given, %d with their inventory pictures (%d without; the box %s)",
+-				kWorldGames[gameIndex].gameid, (int)given.size(), (int)icons.size(), unboxed, opened ? "opened" : "never opened");
++			debug(1, "SCUMMVERSE world things: %s %d things given, %d with their inventory pictures (%d without; the box %s); %d of %d its start gives in a room no place exports with theirs",
++				kWorldGames[gameIndex].gameid, (int)given.size(), (int)icons.size() - startIconed, unboxed, opened ? "opened" : "never opened", startIconed, (int)startThings.size());
+ 			putBack(); quiet();
+ 			if (shouldQuit()) { problem = "stopped"; return false; }
+ 		}
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 31f5ccc6..ad069884 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -9692,6 +9692,185 @@ SandboxEngine::Indy3Things SandboxEngine::indy3ThingsPlayed() {
+ 	return c;
+ }
+ 
++// From 0306 the "verbs" check's (see verbsTest): Sam & Max's Max as a
++// player plays him, as its things file has him. Max (35), whom its start
++// gives Sam in room 1, which no place exports (kWorldStartThings): a damaged
++// state's given-so value (kWorldStartGiven) at 2 let go first; nothing
++// carried, a place of it shown while self-testing (as the other checks run:
++// none given), then as a player has it: Max carried by his name, once, his
++// picture in the box its things file's icon (drawn as the pointer when held);
++// through a save and a load; another place shown, not given again, nor once
++// he is gone. Max held from the box as the pointer through its own controls
++// (its use pointer chosen in the box, the box opened from its button, a tap
++// on his cell) and used on the dead guy of the street (room 9, actor 4, his
++// cast's costume 51: its local script 205, read with descumm, nothing
++// copied): its lines said in turn, the carnival tickets (95) carried by
++// their own picture, Max kept; through a save and a load; used on him again,
++// the tickets not carried twice. Before, Max was never carried, and none of
++// his uses could be played.
++SandboxEngine::SamnmaxThings SandboxEngine::samnmaxThingsPlayed() {
++	SamnmaxThings c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "samnmax")) g = k;
++	if (g >= 0) loadThings(g);
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++		PanelBridge::open(false); PanelBridge::select(-1);
++	};
++	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox Sam & Max's things: %s: %s", what, how); }
++		return ok;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto carriedCount = [&](int room, int id) {
++		int n = 0;
++		for (const Carried &k : _carried) n += k.game == g && k.room == room && k.id == id;
++		return n;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	// (As a player has it: its start's things given on showing one of its
++	// places.)
++	auto shownAsPlayed = [&](int room) {
++		_startGiving = true;
++		const bool ok = enter(g, room, 0, problem);
++		_startGiving = false;
++		return ok;
++	};
++	const WorldStartThing *maxRow = g >= 0 ? worldStartThing(g, 35) : nullptr;
++	auto maxOnce = [&]() { const int k = maxRow ? carriedAt(maxRow->room, 35) : -1; return k >= 0 && carriedCount(maxRow->room, 35) == 1 && !_carried[k].name.empty(); };
++	// (Held as a player holds it: its use pointer chosen in the box, then the
++	// box opened from its button and a tap on his cell.)
++	auto holdIt = [&](int item) {
++		int x, y, w, h, bx, by, bw, bh;
++		_holding = Pair(); _pairing = Pair(); PanelBridge::open(false); PanelBridge::select(-1);
++		int use = -1;
++		for (int v = 0; v < PanelBridge::verbCount(); ++v) if (PanelBridge::verbKind(v) == kWorldVerbUse) use = v;
++		if (use < 0 || !PanelBridge::buttonRect(bx, by, bw, bh)) return false;
++		tap(bx + bw / 2, by + bh / 2);
++		if (!PanelBridge::isOpen() || !PanelBridge::verbRect(use, x, y, w, h)) return false;
++		tap(x + w / 2, y + h / 2);
++		if (PanelBridge::pointerVerb() != use) return false;
++		tap(bx + bw / 2, by + bh / 2);
++		if (!PanelBridge::isOpen()) return false;
++		for (int turn = 0; turn < 64 && item - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++		if (!PanelBridge::slotRect(item - PanelBridge::firstItem(), x, y, w, h)) return false;
++		tap(x + w / 2, y + h / 2);
++		return _holding.kind == kWorldVerbUse && _holding.item == item && PanelBridge::heldItem() == item && !PanelBridge::isOpen();
++	};
++	// (Drawn as the pointer: his picture where the pointer is, not the
++	// pointer's own.)
++	auto pictureDrawn = [&](int item) {
++		int x, y, w, h;
++		if (_pointerX < 0 || PanelBridge::heldItem() != item || !PanelBridge::controlsBounds(_width, _height, _pointerX, _pointerY, true, x, y, w, h) || w <= 0 || h <= 0) return false;
++		Common::Array<uint32> withIt(_width * _height, 0), without(_width * _height, 0);
++		PanelBridge::renderControls(withIt.data(), _width, _width, _height, _pointerX, _pointerY, true);
++		PanelBridge::holdItem(-1);
++		PanelBridge::renderControls(without.data(), _width, _width, _height, _pointerX, _pointerY, true);
++		PanelBridge::holdItem(item);
++		bool differs = false;
++		for (int r = y; r < y + h && !differs; ++r) differs = memcmp(&withIt[r * _width + x], &without[r * _width + x], w * sizeof(uint32)) != 0;
++		return differs;
++	};
++	// (Someone of its cast here, by costume: on the stage, and a point of them
++	// a tap finds.)
++	auto personHere = [&](int costume) {
++		for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == worldAppearanceKey(g, costume)) return (int)i;
++		return -1;
++	};
++	auto personPoint = [&](int n, int &px, int &py) {
++		double x, y;
++		int x0, y0, x1, y1;
++		StageBridge::position(n, x, y);
++		StageBridge::lookAt(x);
++		if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return false;
++		for (int a = 1; a < 8; ++a)
++			for (int b = 1; b < 8; ++b) {
++				const int tx = x0 + (x1 - x0) * b / 8, ty = y0 + (y1 - y0) * a / 8;
++				int bx, by, bw, bh;
++				const bool button = PanelBridge::buttonRect(bx, by, bw, bh) && tx >= bx && tx < bx + bw && ty >= by && ty < by + bh;
++				if (tx >= 0 && tx < _width && ty >= 0 && ty < _height && !button && personAt(tx, ty) == n) { px = tx; py = ty; return true; }
++			}
++		return false;
++	};
++	const int deadGuy = 51, tickets = 95;
++	int after, flags, others[4 * 64], count, lines = 0;
++	const bool exported = g >= 0 && maxRow && installed(g, 7) && installed(g, 9) && installed(g, 15) && startUsed(g, 35) &&
++		PanelBridge::thingAnswer(g, 9, kWorldPersonThing + deadGuy, kWorldVerbGive, 0, 35, after, flags, others, count, 64, lines);
++	// (Max from its start.)
++	if (exported) {
++		what = "Sam & Max's Max from its start (room 1)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + kWorldStartGiven] = 2; // (as a damaged state has it: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + kWorldStartGiven) && _carried.empty(), "its start's things given at 2 kept from a damaged state, or something carried");
++		ok = ok && check(enter(g, 9, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGiven), "Max given while self-testing, as the other checks run");
++		ok = ok && check(shownAsPlayed(7) && maxOnce() && keptValue(g, kWorldStartGiven) == 1, "Max not carried by his name, once, the first time a place of it is shown");
++		const int item = maxRow ? carriedAt(maxRow->room, 35) : -1;
++		ok = ok && check(item >= 0 && holdIt(item) && pictureDrawn(item), "Max not held from the box through its own controls, or not drawn as the pointer by his picture");
++		letGo();
++		ok = ok && check(saved() && maxOnce() && keptValue(g, kWorldStartGiven) == 1 && shownAsPlayed(15) && maxOnce(), "Max not kept through a save and a load, or given again");
++		const int k = maxRow ? carriedAt(maxRow->room, 35) : -1;
++		if (ok && k >= 0) { PanelBridge::removeItem(k); _carried.remove_at(k); }
++		ok = ok && check(shownAsPlayed(9) && carriedCount(maxRow ? maxRow->room : 1, 35) == 0, "Max given again once gone");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (Max used on the dead guy of the street: the carnival tickets.)
++	if (exported) {
++		what = "Sam & Max's Max used on the dead guy of the street (room 9, costume 51)";
++		++c.cases;
++		fresh();
++		bool ok = check(shownAsPlayed(9) && maxOnce() && carriedCount(0, tickets) == 0, "Max not carried in the street, or the tickets carried from the start");
++		int n = personHere(deadGuy), sx = -1, sy = -1;
++		ok = ok && check(n >= 0 && personPoint(n, sx, sy), "the dead guy not in the street, or no tap finds him");
++		const int item = maxRow ? carriedAt(maxRow->room, 35) : -1;
++		ok = ok && check(item >= 0 && holdIt(item), "Max not held from the box through its own controls");
++		if (ok) { _speech.clear(); _saying.clear(); _notice.clear(); _speechClock = _noticeClock = 0; tap(sx, sy); }
++		ok = ok && check(_pairing.kind && _pairing.person == n && !_holding.kind && PanelBridge::heldItem() < 0, "Max held not used on him by a tap");
++		// (Walked up to him, then its lines in turn, each as its record has
++		// it.)
++		for (int t = 0; ok && t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1);
++		for (int l = 0; ok && l < lines; ++l) {
++			int speaker, costume, color;
++			char text[256];
++			if (l) { if (_speechClock > 0) _speechClock = 1; if (_noticeClock > 0) _noticeClock = 1; step(1); }
++			const Common::String said = !_speech.empty() ? _speech : _notice;
++			ok = check(PanelBridge::answerLine(g, 9, kWorldPersonThing + deadGuy, kWorldVerbGive, 0, 35, l, speaker, costume, color, text, sizeof(text)) && said == text, "a line of his answer not said in turn as its record has it");
++			c.said += ok;
++		}
++		settle();
++		ok = ok && check(lines > 1 && carriedCount(0, tickets) == 1 && maxOnce(), "the carnival tickets not carried, or Max not kept");
++		ok = ok && check(saved() && carriedCount(0, tickets) == 1 && maxOnce() && !_carried[carriedAt(0, tickets)].name.empty(), "the tickets or Max not kept through a save and a load");
++		// (Again: the tickets not carried twice.)
++		n = personHere(deadGuy);
++		const int again = maxRow ? carriedAt(maxRow->room, 35) : -1;
++		ok = ok && check(enter(g, 9, 0, problem) && (n = personHere(deadGuy)) >= 0 && personPoint(n, sx, sy) && again >= 0 && holdIt(again), "Max not held again in the street");
++		if (ok) { tap(sx, sy); settle(); }
++		ok = ok && check(carriedCount(0, tickets) == 1 && maxOnce(), "the tickets carried twice, or Max gone");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0302 the "verbs" check's (see verbsTest): Monkey Island 2's
+ // conversations as a player plays them (kWorldTalks; its talks file), each
+ // choice tapped where its list shows it, and what they lead to. The antique
+@@ -15521,7 +15700,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// right click, by a tap on the floor (walking there), by the box opened
+ 	// and by another place.
+ 	struct HeldRecords { int pairs = 0, seen = 0, away = 0, usual = 0, people = 0, usedUp = 0, noPicture = 0, thingAway = 0, untapped = 0, nobody = 0, several = 0, bySomeone = 0, given = 0, unpictured = 0, drawn = 0, letGo = 0, heldUsual = 0, touching = 0;
+-		int offStage = 0, overThem = 0; }; // (from 0270)
++		int offStage = 0, overThem = 0; // (from 0270)
++		int started = 0, startedSeen = 0; }; // (from 0306)
+ 	auto heldReplay = [&](int g, HeldRecords &c) {
+ 		Common::String problem;
+ 		loadThings(g);
+@@ -15550,6 +15730,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 			for (int i = 0; i < count; ++i)
+ 				if (others[3 * i + 2] == 2 && !carryable.contains(others[3 * i + 1])) { carryable[others[3 * i + 1]] = others[3 * i]; carriedOnes.push_back(others[3 * i + 1]); }
+ 		}
++		// (From 0306 what its start gives from a room no place exports,
++		// kWorldStartThings, where its records use it, as its export carries
++		// it into its answers of two: Sam & Max's Max.)
++		for (const WorldStartThing &st : kWorldStartThings)
++			if (st.game == g && !carryable.contains(st.object) && startUsed(g, st.object)) { carryable[st.object] = st.room; carriedOnes.push_back(st.object); }
+ 		// (Where a tap is the box's button or the way back's sign: not the scene's.)
+ 		auto controlAt = [&](int x, int y) {
+ 			int bx, by, bw, bh, x0, y0, x1, y1;
+@@ -15633,6 +15818,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int room, id, kind, from, with = 0;
+ 			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !with || (room && !installed(g, room)) || (!room && (!heldFirst || with != 0xFFFF))) continue;
+ 			++c.pairs;
++			c.started += with != 0xFFFF && worldStartThing(g, with); // (from 0306: Sam & Max's Max)
+ 			// (A thing held first's usual answer, filed under itself in no
+ 			// place: used on the first thing with no answer of its own to it
+ 			// nor a usual one that is a thing in its place, one in its picture 1
+@@ -15740,6 +15926,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				if (same) {
+ 					++c.seen; c.usual += !own; c.people += person; c.usedUp += own && (flags & 4); c.several += lines > 1; c.bySomeone += by; c.unpictured += unpictured;
++					c.startedSeen += aWith != 0xFFFF && worldStartThing(g, aWith);
+ 					c.offStage += offStage; c.overThem += overThem;
+ 					for (int i = 0; i < count; ++i) c.given += others[4 * i + 3];
+ 				} else {
+@@ -15802,6 +15989,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// (From 0270 who says them: as for one thing.)
+ 		warning("SCUMMVERSE sandbox selftest %s two things held speakers: %d lines by someone else said over them here, %d by someone not here told over the place in their colour, not by the one played",
+ 			kWorldGames[g].title, c.overThem, c.offStage);
++		// (From 0306 those with one its start gives held, kWorldStartThings:
++		// Sam & Max's Max.)
++		bool starts = false;
++		for (const WorldStartThing &st : kWorldStartThings) starts = starts || st.game == g;
++		if (starts)
++			warning("SCUMMVERSE sandbox selftest %s two things held from its start: %d records of two things with one its start gives held, %d of them through its own controls as its own sentences answer",
++				kWorldGames[g].title, c.started, c.startedSeen);
+ 	};
+ 	// Sam & Max's things as its own sentences answer (its things file, from
+ 	// 0247; from 0258 "SVO9", its answers whole): every record, the thing in
+@@ -17808,6 +18002,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest the Last Crusade's things: %d of %d played as a player plays them (Henry's house: the table cloth pulled by its plant moved, the sticky tape made the small key at Indy's office's jar, the chest under the cloth unlocked with it and opened, the old book in it taken; Venice's wine bottle given once looked at, used with the fountain), %d kept through saves and loads; %d failed",
+ 		house.played, house.cases, house.kept, house.failed);
+ 	failed += house.failed;
++	// (From 0306) Sam & Max's Max from its start, held from its box and used
++	// on the dead guy of its street, as a player plays him: see
++	// samnmaxThingsPlayed.
++	const SamnmaxThings snmThings = samnmaxThingsPlayed();
++	warning("SCUMMVERSE sandbox selftest Sam & Max's things: %d of %d played as a player plays them (Max from its start carried, his picture in its box, held from it and used on the dead guy of the street, the carnival tickets carried), %d lines said in turn, %d kept through saves and loads; %d failed",
++		snmThings.played, snmThings.cases, snmThings.said, snmThings.kept, snmThings.failed);
++	failed += snmThings.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index ceacdd20..2ed769dc 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -829,6 +829,13 @@ private:
+ 	// looked at). Counted; `failed` where one is not as its things file has it.)
+ 	struct Indy3Things { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	Indy3Things indy3ThingsPlayed();
++	// (From 0306 the "verbs" check's: Sam & Max's Max as a player plays him:
++	// carried from its start (his picture in its box), held from the box and
++	// used on the dead guy of its street, the carnival tickets carried.
++	// Counted; `failed` where one is not as its things file has it; `said` the
++	// lines said in turn.)
++	struct SamnmaxThings { int cases = 0, played = 0, kept = 0, failed = 0, said = 0; };
++	SamnmaxThings samnmaxThingsPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

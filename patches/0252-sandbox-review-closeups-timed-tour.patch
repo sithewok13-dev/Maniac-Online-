@@ -1,0 +1,248 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e5ea6d0b..160b3d83 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2354,7 +2354,7 @@ void SandboxEngine::closeUpTap(int screenX, int screenY) {
+ 	// film: from its scene on, a tap skips to its end, as the original's key
+ 	// does (marked all the same); before, nothing, its cursor off.)
+ 	if (_closeUp.film) { if (_closeUp.inScene) filmEnd(); return; }
+-	if (_closeUp.view) { closeUpLeave(); return; }
++	if (_closeUp.view) { viewEnd(); return; }
+ 	int scene, left, keys, presses;
+ 	if (!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
+ 	double x, y;
+@@ -2390,9 +2390,21 @@ void SandboxEngine::closeUpPress(int key) {
+ 	int picture;
+ 	char said[256];
+ 	if (!PanelBridge::closeUpAnswer(c.game, c.index, c.right, picture, said, sizeof(said))) { picture = -1; *said = 0; }
+-	if (!closeUpBack()) return;
+-	if (picture >= 0) setPicture(c.room, c.id, picture);
+-	if (*said) say(said);
++	// (From 0252, as filmEnd from a review of 0248: where it was shown from
++	// not shown again (its scene or the one played's file not read now),
++	// over all the same, once (not tried again at each key tapped, the one
++	// played hidden there): the thing as the keys leave it, then somewhere
++	// else as a launch would start (startElsewhere), its line said there.)
++	const bool back = closeUpBack();
++	if (!back) _closeUp = CloseUp();
++	if (picture >= 0) {
++		if (c.game == _game) setPicture(c.room, c.id, picture);
++		else _pictures[thingKey(c.game, c.room, c.id)] = picture;
++	}
++	Common::String problem;
++	const bool shown = back || startElsewhere(c.game, c.room, problem);
++	if (!shown) warning("SCUMMVERSE sandbox: nowhere to be after the close-up %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
++	if (shown && *said) say(said);
+ 	if (!_testing) saveState();
+ }
+ 
+@@ -2410,6 +2422,22 @@ bool SandboxEngine::closeUpBack() {
+ 	return true;
+ }
+ 
++// From 0252, a view's end (a tap, or its time), as a keypad's last key:
++// back where it was shown from; that place not shown again (its scene or
++// the one played's file not read now), over all the same, once (not tried
++// again at each tap, the one played hidden there), somewhere else as a
++// launch would start (startElsewhere).
++void SandboxEngine::viewEnd() {
++	const CloseUp c = _closeUp;
++	if (!c.view || c.index < 0) return;
++	if (!closeUpBack()) {
++		_closeUp = CloseUp();
++		Common::String problem;
++		if (!startElsewhere(c.game, c.room, problem)) warning("SCUMMVERSE sandbox: nowhere to be after the close-up %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
++	}
++	if (!_testing) saveState();
++}
++
+ // (Back, the close-up let go as any other place's entering lets it go. A
+ // film before its scene: here still, its thing as it was.)
+ void SandboxEngine::closeUpLeave() {
+@@ -2916,7 +2944,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_action && !StageBridge::moving(_player)) act();
+ 	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); StageBridge::talk(_speaker, false); _speaker = -1; _dirty = true; }
+ 	if (_noticeClock > 0 && (_noticeClock -= ticks) <= 0) { _notice.clear(); _dirty = true; }
+-	if (_closeUp.view && _closeUp.clock > 0 && (_closeUp.clock -= ticks) <= 0) closeUpLeave(); // (a view shown as long as its game shows it)
++	if (_closeUp.view && _closeUp.clock > 0 && (_closeUp.clock -= ticks) <= 0) viewEnd(); // (a view shown as long as its game shows it)
+ 	if (_closeUp.film) filmStep(ticks);
+ 	tramStep(ticks);
+ 	rideStep(ticks);
+@@ -3472,7 +3500,12 @@ void SandboxEngine::tourEnd(bool home) {
+ 	Common::String problem;
+ 	// (Home: its way back as it was.)
+ 	if (home && _touring.homeGame >= 0) _wayBack = _touring.homeWay;
++	// (From 0252 the way home starts no timed event either, as the tour's own
++	// ways: it leaves every place as it finds it. Stopped at the mansion's
++	// hall, begun upstairs, the package would be on its way.)
++	const Common::Array<Timed> timed = _timed;
+ 	if (home && _touring.homeGame >= 0 && enter(_touring.homeGame, _touring.homeRoom, 0, problem)) placePlayer(_touring.homeX, _touring.homeY);
++	_timed = timed;
+ 	wayBackKeep();
+ 	tourPublish();
+ 	Tour::publishPaused(false);
+@@ -4911,8 +4944,11 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			Timed t;
+ 			t.event = in->readByte(); t.phase = in->readByte(); t.left = in->readSint32LE();
+ 			// (Its ticks left within its waits: a damaged one, never come or at once, let go.)
++			// (From 0252 also one done for good that can come again (else never
++			// again), and one of an event already read (it would come twice).)
+ 			const WorldTimed *w = t.event < kWorldTimedCount && kWorldTimed[t.event].game == g ? &kWorldTimed[t.event] : nullptr;
+-			if (w && (t.phase == 2 || (t.phase == 1 && t.left > 0 && t.left <= MAX<int>(w->first, w->every)))) timed.push_back(t);
++			for (const Timed &read : timed) if (read.event == t.event) w = nullptr;
++			if (w && ((t.phase == 2 && w->once) || (t.phase == 1 && t.left > 0 && t.left <= MAX<int>(w->first, w->every)))) timed.push_back(t);
+ 		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+@@ -5817,8 +5853,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+ 	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
+-	int safes = 0, safesWrong = 0, safesLeft = 0, effectsCloseUp = 0;
+-	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0;
++	int safes = 0, safesWrong = 0, safesLeft = 0, safesFellBack = 0, effectsCloseUp = 0;
++	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0, scopeFellBack = 0;
+ 	int tvPowerOff = 0, tvOff = 0, tvFilms = 0, tvEvents = 0, tvEventCount = 0, tvLines = 0, tvMarked = 0, tvSkipped = 0, tvLeft = 0;
+ 	int typeRefused = 0, typeTyped = 0, typeAgain = 0, typeOther = 0, mailShut = 0, mailNoAddress = 0, mailAddressed = 0, readBlank = 0, readAddressed = 0, marksKept = 0, marksOlder = 0;
+ 	int mailRefused = 0, mailInside = 0, mailAlone = 0, mailWater = 0, mailSteamed = 0, mailOut = 0, mailOpened = 0, mailManuscript = 0, mailTyped = 0, mailPackage = 0, mailPackageTicks = 0, mailStampsGiven = 0;
+@@ -6392,6 +6428,28 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (ok) request(kGameRequest + maniac);
+ 			ok = ok && _closeUp.index < 0 && _game == maniac && _room == first && pictureOf(9, 219) == 0 && _notice.empty();
+ 			if (!ok) fail("the wall safe's keypad not left unanswered by a menu's choice", maniac); else ++safesLeft;
++			// (From 0252, as the film's from a review of 0248: the place it was
++			// shown from not shown again as the code's last key is pressed (the
++			// one played's file not read now): over once all the same, the safe
++			// open as the code leaves it, somewhere else as a launch starts,
++			// someone played there and not hidden, the keys typed no longer
++			// shown; not tried again after.)
++			const int presser = _playerKey;
++			ok = keypadShown(kWorldVerbOpen, x, y);
++			for (int i = 0; ok && i + 1 < presses; ++i) ok = tapKey(PanelBridge::closeUpCode(maniac, safe, i)) && _closeUp.index == safe && _room == keypad;
++			if (ok) {
++				_broken[presser] = true;
++				ok = tapKey(PanelBridge::closeUpCode(maniac, safe, presses - 1)) && _closeUp.index < 0 && pictureIn(maniac, 9, 219) == 1 && _game >= 0 &&
++					!worldCloseUpScene(_game, _room) && _player >= 0 && !StageBridge::hidden(_player) && _playerKey != presser && _notice.empty();
++				const int fellGame = _game, fellRoom = _room;
++				for (int k = 0; ok && k < 5; ++k) step(1);
++				ok = ok && _game == fellGame && _room == fellRoom && _closeUp.index < 0;
++				_broken.erase(presser);
++				castChoose(presser);
++			}
++			if (ok && _playerKey == presser) ++safesFellBack;
++			else fail("the wall safe's keypad not over once where the place it was shown from could not be shown again", maniac);
++			_broken.erase(presser);
+ 			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
+ 		}
+ 		// (From 0242) The telescope (room 28, 413), as a player has it, someone
+@@ -6611,6 +6669,33 @@ Common::Error SandboxEngine::verbsTest() {
+ 			else if (scopeCode) fail("the Shuttle Bug not boarded from the Worlds menu while the telescope's view is shown", maniac);
+ 			if (along) follow(along, false);
+ 			_followers.clear(); _leader = 0;
++			// (From 0252, as the keypad's: the place the code's view was shown
++			// from not shown again as a tap ends it, then as its time does (the
++			// one played's file not read now): over once all the same,
++			// somewhere else as a launch starts, someone played there and not
++			// hidden; not tried again after.)
++			for (int byTap = 1; byTap >= 0 && scopeCode; --byTap) {
++				const int viewer = _playerKey;
++				ok = PanelBridge::closeUpTurn(maniac, scope, target, targetPicture, value, room, left, ticks) && room && viewShown(room, left, marked) && _closeUp.index == scope;
++				if (ok) {
++					_broken[viewer] = true;
++					if (byTap) {
++						int vl, vt, vw, vh;
++						double rs, cs;
++						StageBridge::view(vl, vt, vw, vh, rs, cs);
++						tap(vl + vw / 2, vt + vh / 2);
++					} else for (int k = 0; k < ticks + 1 && _closeUp.index == scope; ++k) step(1);
++					ok = _closeUp.index < 0 && _game >= 0 && !worldCloseUpScene(_game, _room) && _player >= 0 && !StageBridge::hidden(_player) && _playerKey != viewer;
++					const int fellGame = _game, fellRoom = _room;
++					for (int k = 0; ok && k < 5; ++k) step(1);
++					ok = ok && _game == fellGame && _room == fellRoom && _closeUp.index < 0;
++					_broken.erase(viewer);
++					castChoose(viewer);
++				}
++				if (ok && _playerKey == viewer) ++scopeFellBack;
++				else fail("the telescope's view not over once where the place it was shown from could not be shown again", maniac);
++				_broken.erase(viewer);
++			}
+ 			_turned.erase(scopeKey); _pictures.erase(scopeSeenKey);
+ 			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
+ 		}
+@@ -7077,17 +7162,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 					bool same = loadState(g, r, kx, ky) && _timed.empty() && _marks.size() == now.size() && !now.empty();
+ 					for (const Mark &m : now) same = same && marked(m.game, m.mark, m.key);
+ 					if (same) ++mailOlder; else fail("an older state (SVS5: marks, no timed events) not read so", maniac);
+-					// (Damaged: its ticks left past its waits, none, or no such event: let go; within them, kept.)
++					// (Damaged: its ticks left past its waits, none, or no such event: let go; within them, kept.
++					// From 0252 also the pickup done for good (it can come again: else never again) and
++					// an event a second time (it would come twice): let go; the package done for good, kept.)
+ 					_timed.clear();
+-					const int damaged[][2] = {{1, 1 << 30}, {1, 0}, {1, -5}, {200, 77}, {1, pickup.first}};
+-					for (const int (&d)[2] : damaged) {
++					const int damaged[][3] = {{1, 1, 1 << 30}, {1, 1, 0}, {1, 1, -5}, {200, 1, 77}, {1, 2, 77}, {1, 1, pickup.first}, {1, 1, 77}, {0, 2, 0}, {0, 1, 77}};
++					for (const int (&d)[3] : damaged) {
+ 						Timed bad;
+-						bad.event = d[0]; bad.phase = 1; bad.left = d[1];
++						bad.event = d[0]; bad.phase = d[1]; bad.left = d[2];
+ 						_timed.push_back(bad);
+ 					}
+ 					saveState();
+ 					_timed.clear();
+-					if (loadState(g, r, kx, ky) && _timed.size() == 1 && _timed[0].event == 1 && _timed[0].left == pickup.first) ++mailDamaged;
++					if (loadState(g, r, kx, ky) && _timed.size() == 2 && _timed[0].event == 1 && _timed[0].phase == 1 && _timed[0].left == pickup.first &&
++						_timed[1].event == 0 && _timed[1].phase == 2) ++mailDamaged;
+ 					else fail("a damaged timed event in a state read as one", maniac);
+ 					_timed.clear();
+ 				}
+@@ -7424,9 +7512,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest interface: %d coins let go unmoved where they opened, nothing done; %d drafts spun after a stray note", unmoved, strayNotes);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others; %d taken whose pictures are the same)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside, sameTaken);
+ 	warning("SCUMMVERSE sandbox selftest Sam & Max: %d of %d records of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken, %d given, %d of them with no picture to carry), %d taken with its pointer from the box", ownSeen, ownAll, (int)ownThings.size(), ownAway, ownLines, ownPictures, ownTaken, ownGiven, ownUnpictured, ownPointer);
+-	warning("SCUMMVERSE sandbox selftest close-ups: %d records shown as close-ups; the wall safe: %d opened with its code key by key on its keypad, the envelope inside taken, shut again; %d not opened with a wrong code, the keypad closed, its line said; %d left by a menu's choice, unanswered", effectsCloseUp, safes, safesWrong, safesLeft);
+-	warning("SCUMMVERSE sandbox selftest telescope: %d of %d views shown as recorded (nobody there, kept as where it was used from, gone after their time, everyone back); %d pressed unpaid as its own script answers, %d turned towards the code's view a coin at a time (%d coins used up), %d at its end; %d showed the code's part with its things as recorded (%d marked), left by a tap, everyone back (%d following); left for %d custom character chosen there, %d Shuttle Bug boarded from the Worlds menu",
+-		scopeViews, scopeTurns, scopeUnpaid, scopeSteps, scopeCoins, scopeEnds, scopeCode, scopeMarked, scopeFollowing, scopeCustom, scopeVan);
++	warning("SCUMMVERSE sandbox selftest close-ups: %d records shown as close-ups; the wall safe: %d opened with its code key by key on its keypad, the envelope inside taken, shut again; %d not opened with a wrong code, the keypad closed, its line said; %d left by a menu's choice, unanswered; %d over once where the place it was shown from could not be shown again (elsewhere, open)", effectsCloseUp, safes, safesWrong, safesLeft, safesFellBack);
++	warning("SCUMMVERSE sandbox selftest telescope: %d of %d views shown as recorded (nobody there, kept as where it was used from, gone after their time, everyone back); %d pressed unpaid as its own script answers, %d turned towards the code's view a coin at a time (%d coins used up), %d at its end; %d showed the code's part with its things as recorded (%d marked), left by a tap, everyone back (%d following); left for %d custom character chosen there, %d Shuttle Bug boarded from the Worlds menu; %d over once where the place it was shown from could not be shown again (elsewhere)",
++		scopeViews, scopeTurns, scopeUnpaid, scopeSteps, scopeCoins, scopeEnds, scopeCode, scopeMarked, scopeFollowing, scopeCustom, scopeVan, scopeFellBack);
+ 	warning("SCUMMVERSE sandbox selftest TV: %d said its line with the main power off (no film), %d turned off as its own script answers; %d played its film as recorded "
+ 		"(%d of %d events on their ticks, %d lines said, the one there in their place and colour, nobody else in view, kept as where it was turned on from, back where they stood), "
+ 		"%d marked for the one played only; %d left unwatched by a menu's choice, %d skipped by a tap and marked; the typewriter: %d refused unwatched, %d typed the address "
+@@ -8850,6 +8938,26 @@ Common::Error SandboxEngine::tourTest() {
+ 	bool timedSame = _timed.size() == timedBefore.size();
+ 	for (uint i = 0; timedSame && i < _timed.size(); ++i) timedSame = _timed[i].event == timedBefore[i].event && _timed[i].phase == timedBefore[i].phase && _timed[i].left == timedBefore[i].left;
+ 	if (!timedSame) fail("a timed event started or moved on by the tour");
++	// (From 0252: begun upstairs in the mansion (room 38), stopped at its
++	// hall (room 12): the way home climbs no stairs, no timed event started
++	// (the package); then where it began, again.)
++	int maniacTour = -1, hallStop = -1;
++	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniacTour = g;
++	for (int i = 0; i < total && maniacTour >= 0; ++i) if (_touring.stops[i].game == maniacTour && _touring.stops[i].room == 12) hallStop = i;
++	if (hallStop >= 0 && installed(maniacTour, 38) && enter(maniacTour, 38, 0, problem)) {
++		const Common::Array<Timed> had = _timed;
++		_timed.clear();
++		Tour::request(Tour::kGoTo, hallStop + 1);
++		pump();
++		const bool atHall = _touring.on && _game == maniacTour && _room == 12;
++		Tour::request(Tour::kStop);
++		pump();
++		if (!atHall || _touring.on || _game != maniacTour || _room != 38 || !_timed.empty()) fail("a timed event started by the way home from a tour stopped");
++		else warning("SCUMMVERSE sandbox selftest tour: stopped at the mansion's hall, begun upstairs: home, no timed event started");
++		_timed = had;
++		if (enter(homeGame, homeRoom, 0, problem)) placePlayer(homeX, homeY);
++		else fail("not where it began again");
++	}
+ 	// Story mode chosen during the tour: home first, where it began kept
+ 	// (its own check opens Story mode; here only let go again).
+ 	Tour::request(Tour::kGoTo, 3);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index d4d4bd68..396ff149 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -271,6 +271,7 @@ private:
+ 	void closeUpPress(int key);             // (an index among its keys)
+ 	bool closeUpBack();                     // where it was shown from, everyone as they stood
+ 	void closeUpLeave();                    // (unanswered: someone else chosen to play there)
++	void viewEnd();                         // (a view's, from 0252: back, else elsewhere, once)
+ 	bool filmScene();                       // a film's scene shown, its lead over (false: back, not shown)
+ 	void filmStep(int ticks);
+ 	void filmEnd();                         // seen to its end, or skipped: back, its mark left

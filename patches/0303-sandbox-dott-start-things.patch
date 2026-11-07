@@ -1,0 +1,601 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 948b14d8..92192184 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -204,10 +204,16 @@ static const int kWorldExportVersion = 25;
+ // the bucket carried in its answers of two; the peg leg sawn, kept as its
+ // class, and the mud in the bucket, by values kept; its start's scroll
+ // script let go elsewhere, kWorldScrollStarts: no answer in the antique shop
+-// gives the map piece any more): "monkey2-v39".
++// gives the map piece any more): "monkey2-v39"; from 0303 Day of the
++// Tentacle's again (the things its start gives its kids in a room no place
++// exports carried, kWorldStartThings: the scalpel, the textbook and the
++// can-opener, in its answers of two and its things file's icons; the wine
++// put in the time capsule kept, bit 6, and the future's capsule opened with
++// the can-opener, its vinegar shown by it, kWorldValueReaders and
++// kWorldValueArrivals' `need`): "tentacle-v36".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 14 : same(gameid, "tentacle") ? 10 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 14 : same(gameid, "tentacle") ? 11 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -1402,6 +1408,37 @@ inline int worldPlayedIn(int game, int room) {
+ 	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == game && room >= p.first && room <= p.last) return p.actor;
+ 	return 0;
+ }
++// From 0303 a thing its game's start gives one of its players (the one it
++// plays, or another of kWorldPlayedIn) where its code lies in a room no
++// place exports (`room`): never carried before, as the export carried only
++// what the start leaves lying in a place exported. The export carries it in
++// its answers of two as any thing carried (the one played there's, as given
++// to them), named for its things file's icons; the new engine carries it, by
++// its name, the first time one of the game's places is shown (once: kept as
++// the value kWorldStartGiven of the game). Day of the Tentacle's (its global
++// script 55, the end of its opening, read with descumm, nothing copied):
++// Laverne's scalpel (709), Bernard's textbook (710) and Hoagie's can-opener
++// (711), each picked up from room 61 and given to its kid. Before, none was
++// ever carried: the textbook read to the horse of room 21 (145, its verb 23:
++// the dentures, 147, made touchable), the can-opener on the future's time
++// capsule (room 44, 441: its local script 200, which alone opens it), the
++// scalpel on Oozo (room 26, 186, its verb 49: his box, 185, made touchable)
++// never played. The export
++// checks each row against its game's start (one of its players has it, its
++// code in that room, none of the places): a mismatch fails
++// tools/export_worlds.py.
++struct WorldStartThing { short game, room; int object; };
++static const WorldStartThing kWorldStartThings[] = {{5, 61, 709}, {5, 61, 710}, {5, 61, 711}};
++static const int kWorldStartGiven = 0x4002;
++inline const WorldStartThing *worldStartThing(int game, int object) {
++	for (const WorldStartThing &s : kWorldStartThings) if (s.game == game && s.object == object) return &s;
++	return nullptr;
++}
++inline bool worldStartGivenValue(int game, int var) {
++	if (var != kWorldStartGiven) return false;
++	for (const WorldStartThing &s : kWorldStartThings) if (s.game == game) return true;
++	return false;
++}
+ // From 0293 a place's story state as a player has it standing there in
+ // control, set as the things export arrives there where it can't be arrived
+ // at otherwise (scummverseExportOwnAnswers' `asPlayer`): a variable (as
+@@ -1766,6 +1803,8 @@ inline const WorldKeptClass *worldKeptClass(int game, int var) {
+ 	if (k < 0 || k >= (int)(sizeof(kWorldKeptClasses) / sizeof(kWorldKeptClasses[0]))) return nullptr;
+ 	return kWorldKeptClasses[k].game == game ? &kWorldKeptClasses[k] : nullptr;
+ }
++// From 0303 Day of the Tentacle's wine put in the time capsule (bit 6: see
++// kWorldValueReaders).
+ // From 0301 Monkey Island 2's (its scripts read with descumm, nothing
+ // copied): the class its room 92's local script 201 gives 864 (see
+ // kWorldKeptClasses), and the woodsmith away from his shop (bit 361: room
+@@ -1779,7 +1818,8 @@ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {
+ 	{0, 236, {1, 2, 0, 0}}, {0, 195, {1, 2, 3, 0}}, // (from 0296)
+ 	{0, 0x8000 + 85, {1, 0, 0, 0}}, {0, 0x8000 + 86, {1, 0, 0, 0}}, {0, 0x8000 + 421, {1, 0, 0, 0}}, {0, 0x8000 + 76, {1, 0, 0, 0}}, {0, 0x8000 + 134, {1, 0, 0, 0}}, // (from 0297)
+ 	{1, kWorldClassValue + 0, {1, 0, 0, 0}}, {1, 0x8000 + 361, {1, 0, 0, 0}}, // (from 0301)
+-	{1, kWorldClassValue + 1, {1, 0, 0, 0}}, {1, 166, {1, 0, 0, 0}}, {1, 0x8000 + 367, {1, 0, 0, 0}}}; // (from 0302)
++	{1, kWorldClassValue + 1, {1, 0, 0, 0}}, {1, 166, {1, 0, 0, 0}}, {1, 0x8000 + 367, {1, 0, 0, 0}}, // (from 0302)
++	{5, 0x8000 + 6, {1, 0, 0, 0}}}; // (from 0303)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -1971,7 +2011,11 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	// (From 0302 Monkey Island 2's peg leg and mud: see below.)
+ 	{1, 14, 130, kWorldVerbUse, 540, 0, 0, 0, kWorldClassValue + 1, 0, 0, 0},
+ 	{1, 20, 211, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0}, {1, 20, 212, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0},
+-	{1, 20, 213, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0}};
++	{1, 20, 213, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0},
++	// (From 0303 Day of the Tentacle's time capsule and its vinegar: see below.)
++	{5, 13, 84, kWorldVerbUse, 128, 0, 0, 0, 0x8000 + 6, 0, 0, 0}, {5, 13, 85, kWorldVerbUse, 128, 0, 0, 0, 0x8000 + 6, 0, 0, 0},
++	{5, 13, 85, kWorldVerbGive, 128, 0, 0, 0, 0x8000 + 6, 0, 0, 0}, {5, 44, 441, kWorldVerbUse, 711, 0, 0, 0, 0x8000 + 6, 0, 0, 0},
++	{5, 44, 442, kWorldVerbPickUp, 0, 441, 0, 0, 0x8000 + 6, 0, 0, 0}, {5, 44, 442, kWorldVerbPull, 0, 441, 0, 0, 0x8000 + 6, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -2036,6 +2080,20 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // its local script 212 (the bucket filled: 367 set, the one played's line),
+ // at 1 their line. (The bucket's new name, and what the mud is for, the
+ // door of room 13 and its wait, not played.)
++// From 0303 Day of the Tentacle's time capsule and its vinegar (rooms 13 and
++// 44, read with descumm, nothing copied), by bit 6. In the past (room 13) the
++// wine (128) used with the time capsule (84) or with Thomas Jefferson (85),
++// or given to him (his verb 13 hands each to the capsule's verb 60): he puts
++// it in the capsule, the wine gone, bit 6 set (at 0 and 1 alike). In the
++// future (room 44) its time capsule (441) is opened only by the can-opener
++// (711, Hoagie's from the game's start: kWorldStartThings): 441's verb 13
++// hands that Use, while it is shut, to the room's local script 200, which
++// opens it and, at 1, shows the vinegar (442) and makes it touchable; open,
++// the one played's line. The vinegar's Pick up, the capsule open (`need`
++// 441), clears bit 6 and takes it; its Pull hands on to its Pick up.
++// Before, the can-opener was never carried, so the capsule could not be
++// opened, and nothing kept the wine put in: the vinegar was never shown (one
++// of the three things Red Edison, room 16, wants for his battery).
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+@@ -2069,8 +2127,16 @@ inline int worldValueNeed(const WorldValueReader &v) { return v.need || !v.kids
+ // (143) untouchable, its sign (144) shown and touchable, as the entry
+ // leaves them; his hammer and nails are answered by the bit
+ // (kWorldValueReaders).
+-struct WorldValueArrival { short game, room; int var; short first, last; };
+-static const WorldValueArrival kWorldValueArrivals[] = {{0, 28, 195, 3, 3}, {1, 15, 0x8000 + 361, 1, 1}};
++// From 0303 `need`, a thing of the place its entry also wants in its
++// picture 1 (0: none), as a value reader's: the export arrives with it so,
++// and the new engine shows the place so only while it is so too. Day of the
++// Tentacle's room 44 (its entry, read with descumm, nothing copied): with
++// the wine in the time capsule (bit 6 at 1) and the capsule there open (441
++// in its picture 1), the vinegar (442) shown and touchable, as when the
++// capsule is opened after the wine was put in (kWorldValueReaders); before,
++// a capsule opened first never showed it.
++struct WorldValueArrival { short game, room; int var; short first, last; int need; };
++static const WorldValueArrival kWorldValueArrivals[] = {{0, 28, 195, 3, 3, 0}, {1, 15, 0x8000 + 361, 1, 1, 0}, {5, 44, 0x8000 + 6, 1, 1, 441}};
+ static const int kWorldArrivalAnswer = 0xFFFE;
+ inline const WorldValueArrival *worldValueArrival(int game, int room) {
+ 	for (const WorldValueArrival &w : kWorldValueArrivals) if (w.game == game && w.room == room) return &w;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 2f092761..a4fd1121 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4483,6 +4483,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				const int o = e->others[k + 1];
+ 				if (e->others[k + 2] == kGiven && scummverseUnlistedNames().contains(o) && Common::find(unlistedGiven.begin(), unlistedGiven.end(), o) == unlistedGiven.end()) unlistedGiven.push_back(o);
+ 			}
++		// (From 0303 each thing its start gives in a room no place exports,
++		// kWorldStartThings, likewise, as its answers of two carry it.)
++		for (const WorldStartThing &s : kWorldStartThings)
++			if (s.game == gameIndex && scummverseUnlistedNames().contains(s.object) && Common::find(unlistedGiven.begin(), unlistedGiven.end(), s.object) == unlistedGiven.end()) unlistedGiven.push_back(s.object);
+ 		Common::sort(unlistedGiven.begin(), unlistedGiven.end());
+ 		for (int o : unlistedGiven) {
+ 			if ((int)icons.size() >= Scummverse::PanelBridge::kMostIcons) break;
+@@ -7028,6 +7032,53 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	int talkGiven = 0;
+ 	for (const WorldTalk &t : kWorldTalks)
+ 		if (!old && pairs && t.game == gameIndex && t.gives && placeOf.contains(t.gives) && !carryable.contains(t.gives)) { carryable[t.gives] = placeOf[t.gives]; carriedOnes.push_back(t.gives); ++talkGiven; }
++	// (From 0303 what its start gives one of its players where its code lies
++	// in a room no place exports, kWorldStartThings: carried from that room
++	// as any thing carried, the one played there's (one its start left in
++	// their hands given to them: carry). Each row checked against its start:
++	// one of its players has it (or none: the panel's export emptied the
++	// lead's hands, Day of the Tentacle's Bernard's textbook), its code in
++	// that room, which is none of the places, it lying in none; else told
++	// (tools/export_worlds.py fails). Named for its things file's icons, as
++	// one given that its place's scene lists not (scummverseExportThings).)
++	auto codeIn = [&](int obj, int room) {
++		if (_game.version < 5 || _game.version > 7 || (_game.features & GF_SMALL_HEADER) || room <= 0 || room >= _numRooms) return false;
++		const byte *roomptr = getResourceAddress(rtRoom, room);
++		const RoomHeader *roomhdr = roomptr ? (const RoomHeader *)findResourceData(MKTAG('R','M','H','D'), roomptr) : nullptr;
++		if (!roomhdr) return false;
++		const int numobj = _game.version == 7 ? READ_LE_UINT16(&roomhdr->v7.numObjects) : READ_LE_UINT16(&roomhdr->old.numObjects);
++		ResourceIterator obcds(roomptr, false);
++		for (int i = 0; i < numobj; ++i) {
++			const byte *obcd = obcds.findNext(MKTAG('O','B','C','D'));
++			const CodeHeader *cdhd = obcd ? (const CodeHeader *)findResourceData(MKTAG('C','D','H','D'), obcd) : nullptr;
++			if (!cdhd) return false;
++			if ((_game.version == 7 ? READ_LE_UINT16(&cdhd->v7.obj_id) : _game.version == 6 ? READ_LE_UINT16(&cdhd->v6.obj_id) : READ_LE_UINT16(&cdhd->v5.obj_id)) == obj) return true;
++		}
++		return false;
++	};
++	int startGiven = 0;
++	for (const WorldStartThing &s : kWorldStartThings) {
++		if (old || !pairs || s.game != gameIndex) continue;
++		putBack(); // (the game as it starts)
++		const int o = s.object;
++		const bool inHand = o > 0 && o < (int)owners.size() && whereIsObject(o) == WIO_INVENTORY;
++		const bool asStarted = o > 0 && o < (int)owners.size() && (inHand ? player(owners[o]) : !owners[o]) && !placeOf.contains(o) && !carryable.contains(o) &&
++			Common::find(rooms.begin(), rooms.end(), (int)s.room) == rooms.end() && codeIn(o, s.room);
++		Common::String name;
++		if (asStarted) {
++			if (!inHand) addObjectToInventory(o, s.room);
++			name = scummverseObjectName(o);
++			putBack();
++		}
++		if (!asStarted || name.empty()) {
++			warning("SCUMMVERSE world things: %s %d not as its start gives it from room %d (kWorldStartThings: its owner %d, %s, %s, its code %s there, named %d)", kWorldGames[gameIndex].gameid, o, s.room,
++				o > 0 && o < (int)owners.size() ? owners[o] : -1, inHand ? "in hand" : "in none's", placeOf.contains(o) ? "lying in a place" : "in none", codeIn(o, s.room) ? "found" : "not", (int)name.size());
++			continue;
++		}
++		carryable[o] = s.room; carriedOnes.push_back(o); ++startGiven;
++		scummverseUnlistedNames()[o] = name;
++		debug(2, "SCUMMVERSE world things: %s %d its start gives from room %d carried (its owner %d, %s)", kWorldGames[gameIndex].gameid, o, s.room, owners[o], inHand ? "in hand" : "in none's");
++	}
+ 	// (From 0269 a game whose box's things are held: only those its place's
+ 	// scene, as written, has pictures of to carry by (the new engine's carry:
+ 	// WorldBridge::objectPictured); one with none is never held there.)
+@@ -7060,7 +7111,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// with its script, in its picture 1, untouchable there; from 0260 a
+ 	// later game's, its class untouchable, as its pick up leaves it.)
+ 	auto carry = [&](int obj, int who) {
+-		if (whereIsObject(obj) == WIO_INVENTORY) return;
++		if (whereIsObject(obj) == WIO_INVENTORY) {
++			// (From 0303 one its start gives another of its players,
++			// kWorldStartThings: the one played's, as given to them.)
++			if (worldStartThing(gameIndex, obj) && getOwner(obj) != who) putOwner(obj, who);
++			return;
++		}
+ 		addObjectToInventory(obj, resourceOf(carryable[obj]));
+ 		putOwner(obj, who);
+ 		if (old) putState(obj, getState(obj) | kObjectStateIntrinsic | kObjectStateUntouchable);
+@@ -7575,6 +7631,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
+ 			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
+ 	if (talkGiven) debug(1, "SCUMMVERSE world things: %s %d things its talks give carried in its answers of two (kWorldTalks)", kWorldGames[gameIndex].gameid, talkGiven);
++	if (startGiven) debug(1, "SCUMMVERSE world things: %s %d things its start gives in a room no place exports carried in its answers of two (kWorldStartThings)", kWorldGames[gameIndex].gameid, startGiven);
+ 	// (From 0300 each thing of kWorldPutBacks some answer of two put back, as
+ 	// named, else warned: tools/export_worlds.py fails.)
+ 	for (const WorldPutBack &p : kWorldPutBacks) {
+@@ -7743,6 +7800,20 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					for (int s : set) if (!arrivedIn(s < 0 ? -s : s)) setBefore.push_back(s);
+ 					Common::Array<bool> wasBefore = was;
+ 					for (int o : placeObjects) if (arrivedIn(o)) wasBefore[o] = untouchable(o);
++					// (From 0303 one this answer shows in a picture of its own that
++					// the place as exported has away (untouchable) and its arrival
++					// with the value left touchable already: made touchable by it,
++					// as the new engine shows that place, which is as exported but
++					// where a value's arrival is so (kWorldValueArrivals). Day of
++					// the Tentacle's vinegar, room 44, 442: the entry with bit 6 set
++					// and the capsule shut leaves it touchable unseen, the
++					// can-opener's opening shows it; before, shown untouchable.)
++					for (int o : placeObjects) {
++						const uint32 at = (uint32)v.room << 16 | (uint16)o;
++						if (going || wasBefore[o] || untouchable(o) || pictureOf(o) <= 0 || !entryIn.contains(at) || Common::find(setBefore.begin(), setBefore.end(), o) == setBefore.end()) continue;
++						const uint ek = entryIn[at] >> 16, ei = entryIn[at] & 0xFFFF;
++						if (ek < things.size() && ei + 2 < things[ek].size() && (things[ek][ei + 2] & Scummverse::PanelBridge::kThingAway)) wasBefore[o] = true;
++					}
+ 					const uint most = 3 * (going ? 62 : 64);
+ 					e.after = pictureOf(v.object);
+ 					e.taken = getOwner(v.object) != owned[v.object] && getOwner(v.object) == ego;
+@@ -7914,7 +7985,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							ego = played > 0 && played < _numActors ? played : startEgo;
+ 							_rnd.setSeed(0x5C0BE + t.room);
+ 							_scummverseStepBudget = kRunSteps;
+-							if (const WorldValueArrival *w = worldValueArrival(gameIndex, t.room)) { valueSet.var = w->var; valueSet.value = w->first; }
++							if (const WorldValueArrival *w = worldValueArrival(gameIndex, t.room)) { valueSet.var = w->var; valueSet.value = w->first; valueSet.need = w->need; }
+ 							const bool freed = !t.holder && freedBy(t.reads); // (from 0300: the place arrived at so, its classes too)
+ 							if (freed) { valueSet.var = t.reads; valueSet.value = cs.read ? 1 : 0; }
+ 							const bool there = arrive(t.room, t.object) && getObjectIndex(t.object) > 0;
+@@ -8064,7 +8135,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			ego = played > 0 && played < _numActors ? played : startEgo;
+ 			_rnd.setSeed(0x5C0BE + w.room);
+ 			_scummverseStepBudget = kRunSteps;
+-			valueSet.var = w.var; valueSet.value = w.first;
++			valueSet.var = w.var; valueSet.value = w.first; valueSet.need = w.need; // (from 0303 its `need` in its picture 1 too)
+ 			const bool there = k < rooms.size() && k < things.size() && !worldRideScene(gameIndex, w.room) && arrive(w.room, 0) && _currentRoom == here(w.room);
+ 			valueSet = ValueSet();
+ 			_scummverseStepBudget = -1;
+@@ -8090,7 +8161,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (int o : shown)
+ 				for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn)
+ 					for (int fn = 0; fn < 2; ++fn) {
+-						valueSet.var = w.var; valueSet.value = w.first;
++						valueSet.var = w.var; valueSet.value = w.first; valueSet.need = w.need;
+ 						run(w.room, o, scummverseRunAt(fn, 2, reversed), scummverseRunAt(vn, kinds.size(), reversed), nullptr);
+ 						valueSet = ValueSet();
+ 					}
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 7757b643..b23056a4 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -540,6 +540,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
+ 	arrivalShown(); // (from 0296)
++	if (!_enteringCloseUp && !_touring.on && (!_testing || _startGiving)) startCarried(game); // (from 0303)
+ 	_going = Going(); // (from 0283: somewhere else now, an answer's way let go)
+ 	// (From 0298 a duel let go; the master back from her house.)
+ 	PanelBridge::clearChoices(); _duel = DuelPlay(); _duelGone = false; _duelPirates.clear();
+@@ -4247,6 +4248,33 @@ int SandboxEngine::keptValue(int game, int var) const {
+ 	return kept != _kept.end() ? kept->_value : 0;
+ }
+ 
++// From 0303 the things a game's start gives its players where their code
++// lies in a room no place exports (kWorldStartThings): carried, by their
++// names (its things file's icons), the first time one of its places is
++// shown, as its start gives them; once (kWorldStartGiven, kept: "SVS9"; a
++// state of before 0303, given then), all of them, else not kept so (an
++// export of before 0303 has none of their icons: given once one has them),
++// none carried twice. Day of the Tentacle's kids' own: Laverne's scalpel,
++// Bernard's textbook and Hoagie's can-opener (room 61). Before, none was
++// ever carried, and what each opens or shows could not be had.
++void SandboxEngine::startCarried(int game) {
++	if (game < 0 || game >= worldGameCount() || !worldStartGivenValue(game, kWorldStartGiven) || keptValue(game, kWorldStartGiven)) return;
++	bool all = true;
++	for (const WorldStartThing &s : kWorldStartThings)
++		if (s.game == game && !isCarried(game, s.room, s.object)) all = carry(game, s.room, s.object, "", 0) && all;
++	if (all) _kept[game * 65536 + kWorldStartGiven] = 1;
++}
++
++// (Whether a record of a game's things file is of that thing used with
++// another: one of kWorldStartThings an export of 0303's carries.)
++bool SandboxEngine::startUsed(int game, int id) const {
++	for (int k = 0; k < PanelBridge::effectCount(game); ++k) {
++		int room, thing, kind, from, with = 0;
++		if (PanelBridge::effectAt(game, k, room, thing, kind, from, &with) && with == id) return true;
++	}
++	return false;
++}
++
+ // From 0296 a place whose entry reads a value kept (kWorldValueArrivals),
+ // while it is so: the key its things file files its arrival so under (0
+ // and its row's `first`; the caller sets the need), else false.
+@@ -4255,6 +4283,9 @@ bool SandboxEngine::arrivedWith(int game, int room, int *key) const {
+ 	if (!w) return false;
+ 	const int value = keptValue(game, w->var);
+ 	if (value < w->first || value > w->last) return false;
++	// (From 0303 its `need` in its picture 1 too, as its entry wants it: Day
++	// of the Tentacle's future's time capsule open, room 44, 441.)
++	if (w->need && pictureIn(game, room, w->need) != 1) return false;
+ 	key[0] = 0; key[1] = w->first;
+ 	return true;
+ }
+@@ -7878,6 +7909,8 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		for (int i = 0; i < keptCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), var = in->readUint16LE();
+ 			int value = in->readSint32LE();
++			// (From 0303 its start's things given, kWorldStartThings: only 1.)
++			if (g >= 0 && g < worldGameCount() && worldStartGivenValue(g, var)) { if (value == 1) keptNow[g * 65536 + var] = 1; continue; }
+ 			// (From 0300 a holder's only one of its holders, its clock within its
+ 			// length: a damaged state's would hold it for good or overflow it.)
+ 			if (g >= 0 && g < worldGameCount() && worldHeldValue(g, var)) {
+@@ -9295,6 +9328,192 @@ SandboxEngine::Mi2Things SandboxEngine::mi2ThingsPlayed() {
+ 	return c;
+ }
+ 
++// From 0303 the "verbs" check's (see verbsTest): Day of the Tentacle's
++// things as a player plays them, as its things file has them. The kids'
++// own things its start gives them in room 61, which no place exports
++// (kWorldStartThings): a damaged state's given-so value (kWorldStartGiven)
++// at 2 let go first; nothing carried, a place of it shown while
++// self-testing (as the other checks run: none given), then as a player has
++// it: the scalpel, the textbook and the can-opener carried by their names,
++// once; through a save and a load; another place shown, none given again,
++// nor one gone since. The textbook read to the horse of room 21 (145): its
++// dentures (147) made touchable, taken, the glass (146) as their pick up
++// leaves it, through a save and a load. The scalpel on Oozo (room 26, 186):
++// his box (185) made touchable, taken, the scalpel kept. The vinegar of the
++// future's time capsule (rooms 13 and 44, bit 6: kWorldValueReaders,
++// kWorldValueArrivals): the wine (room 19, 128) picked up and used with the
++// past's time capsule (84), used up and kept put in; the future's capsule
++// (441) shut, its vinegar (442) unseen, not opened by Open, opened by the
++// can-opener (kept) and the vinegar shown in its picture 1, touchable;
++// picked up, carried, the bit
++// let go, through a save and a load, not shown again. The other way: the
++// capsule opened first, nothing in it, nor on entering again; the wine
++// given to Thomas Jefferson (85) after; the place entered again, the
++// vinegar shown with the capsule open, pulled (its Pull takes it too, as
++// its game's), the bit let go, not shown again; with the capsule shut and
++// the wine in, not shown on entering. A damaged state's bit at 2 let go
++// first. Before, none of the kids' own things was ever carried, the
++// capsule never opened, and the vinegar, the dentures and Oozo's box
++// never had.
++SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
++	TentacleThings c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "tentacle")) g = k;
++	if (g >= 0) loadThings(g);
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto shown = [&](int id) { const int o = thingIn(id); return o >= 0 && isThing(o); };
++	auto pictureHere = [&](int id) { return pictureIn(_game, _room, id); };
++	// (The vinegar seen, touchable in its picture 1, or none: not touchable,
++	// in its picture 0.)
++	auto vinegarSeen = [&]() { return shown(442) && pictureHere(442) == 1; };
++	auto vinegarNone = [&]() { return !shown(442) && pictureHere(442) == 0; };
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox Day of the Tentacle's things: %s: %s", what, how); }
++		return ok;
++	};
++	auto tap = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		_speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto carriedCount = [&](int room, int id) {
++		int n = 0;
++		for (const Carried &k : _carried) n += k.game == g && k.room == room && k.id == id;
++		return n;
++	};
++	auto useWith = [&](int kind, int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0 || !isThing(o)) return false;
++		Pair p;
++		p.kind = kind; p.item = item;
++		_holding = p;
++		_speech.clear(); _notice.clear(); _saying.clear();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	// (As a player has it: its start's things given on showing one of its
++	// places.)
++	auto shownAsPlayed = [&](int room) {
++		_startGiving = true;
++		const bool ok = enter(g, room, 0, problem);
++		_startGiving = false;
++		return ok;
++	};
++	// (Each start's thing carried once, by its name.)
++	auto ownOnce = [&]() {
++		bool all = true;
++		for (const WorldStartThing &s : kWorldStartThings)
++			if (s.game == g) { const int k = carriedAt(s.room, s.object); all = all && carriedCount(s.room, s.object) == 1 && k >= 0 && !_carried[k].name.empty(); }
++		return all;
++	};
++	const int wine = 0x8000 + 6;
++	const bool exported = g >= 0 && installed(g, 13) && installed(g, 19) && installed(g, 21) && installed(g, 26) && installed(g, 44) &&
++		PanelBridge::valueAnswered(g, 44, 441, kWorldVerbUse, 0, 711, 0, 1) && startUsed(g, 710);
++	// (The kids' own things from its start.)
++	if (exported) {
++		what = "Day of the Tentacle's kids' own things from its start (room 61)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + kWorldStartGiven] = 2; // (as a damaged state has it: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + kWorldStartGiven) && _carried.empty(), "its start's things given at 2 kept from a damaged state, or something carried");
++		ok = ok && check(enter(g, 26, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGiven), "its start's things given while self-testing, as the other checks run");
++		ok = ok && check(shownAsPlayed(26) && ownOnce() && keptValue(g, kWorldStartGiven) == 1, "the scalpel, the textbook and the can-opener not carried by their names, once, the first time a place of it is shown");
++		ok = ok && check(saved() && ownOnce() && keptValue(g, kWorldStartGiven) == 1 && shownAsPlayed(13) && ownOnce(), "its start's things not kept through a save and a load, or given again");
++		const int opener = carriedAt(61, 711);
++		if (ok && opener >= 0) { PanelBridge::removeItem(opener); _carried.remove_at(opener); }
++		ok = ok && check(shownAsPlayed(44) && carriedCount(61, 711) == 0 && carriedCount(61, 709) == 1, "one of its start's things given again once gone");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The textbook read to the horse, the dentures taken; the scalpel on
++	// Oozo, his box taken.)
++	if (exported) {
++		what = "Day of the Tentacle's dentures by the textbook (room 21) and Oozo's box by the scalpel (room 26)";
++		++c.cases;
++		fresh();
++		bool ok = check(shownAsPlayed(21) && ownOnce() && shown(145) && !shown(147), "the horse not there, its dentures touchable from the start, or the kids' own things not carried");
++		ok = ok && check(useWith(kWorldVerbUse, carriedAt(61, 710), 145) && carriedCount(61, 710) == 1 && shown(147) && pictureHere(146) == 1, "the textbook read to the horse not as its game's (the dentures made touchable, the glass so, the textbook kept)") &&
++			check(tap(kWorldVerbPickUp, 147) && carriedCount(21, 147) == 1 && pictureHere(146) == 0 && !shown(147), "the dentures not taken as their pick up takes them");
++		ok = ok && check(saved() && carriedCount(21, 147) == 1 && ownOnce() && enter(g, 21, 0, problem) && !shown(147) && pictureHere(146) == 0, "the dentures not kept through a save and a load, or shown again");
++		ok = ok && check(shownAsPlayed(26) && shown(186) && !shown(185) && useWith(kWorldVerbUse, carriedAt(61, 709), 186) && shown(185) && carriedCount(61, 709) == 1, "the scalpel used on Oozo not as its game's (Oozo's box made touchable, the scalpel kept)") &&
++			check(tap(kWorldVerbPickUp, 185) && carriedCount(26, 185) == 1 && !shown(185), "Oozo's box not taken as its pick up takes it");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The vinegar: the wine put in the past's capsule first.)
++	if (exported) {
++		what = "Day of the Tentacle's vinegar, the wine put in the time capsule first (rooms 19, 13 and 44)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + wine] = 2; // (as a damaged state has it: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + wine), "bit 6 at 2 kept from a damaged state");
++		ok = ok && check(shownAsPlayed(19) && tap(kWorldVerbPickUp, 128) && carriedCount(19, 128) == 1, "the wine not taken");
++		ok = ok && check(enter(g, 13, 0, problem) && shown(84) && useWith(kWorldVerbUse, carriedAt(19, 128), 84) && !carriedCount(19, 128) && keptValue(g, wine) == 1,
++			"the wine not put in the time capsule as its game puts it in (used up, bit 6 set)");
++		ok = ok && check(saved() && keptValue(g, wine) == 1 && enter(g, 44, 0, problem) && shown(441) && pictureHere(441) == 0 && vinegarNone(), "bit 6 not kept, or the future's time capsule not shut with its vinegar unseen") &&
++			check(tap(kWorldVerbOpen, 441) && pictureHere(441) == 0 && vinegarNone(), "the capsule opened without the can-opener") &&
++			check(useWith(kWorldVerbUse, carriedAt(61, 711), 441) && pictureHere(441) == 1 && vinegarSeen() && carriedCount(61, 711) == 1, "the capsule not opened with the can-opener (kept), or its vinegar not shown") &&
++			check(tap(kWorldVerbPickUp, 442) && carriedCount(44, 442) == 1 && keptValue(g, wine) == 0, "the vinegar not taken as its game's pick up takes it (bit 6 let go)");
++		ok = ok && check(saved() && carriedCount(44, 442) == 1 && enter(g, 13, 0, problem) && enter(g, 44, 0, problem) && pictureHere(441) == 1 && vinegarNone() && carriedCount(44, 442) == 1,
++			"the vinegar not kept through a save and a load, or shown again");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The other way: the future's capsule opened first, the wine given to
++	// Thomas Jefferson after.)
++	if (exported) {
++		what = "Day of the Tentacle's vinegar, the time capsule opened first (rooms 44 and 13)";
++		++c.cases;
++		fresh();
++		bool ok = check(shownAsPlayed(44) && useWith(kWorldVerbUse, carriedAt(61, 711), 441) && pictureHere(441) == 1 && vinegarNone() && carriedCount(61, 711) == 1, "the capsule not opened with the can-opener (kept), or a vinegar shown with no wine put in");
++		ok = ok && check(enter(g, 13, 0, problem) && enter(g, 44, 0, problem) && pictureHere(441) == 1 && vinegarNone(), "the vinegar shown on entering with no wine put in");
++		ok = ok && check(enter(g, 13, 0, problem) && carry(g, 19, 128, "", 0, false) && shown(85), "Thomas Jefferson not there, or the wine not carried") &&
++			check(useWith(kWorldVerbGive, carriedAt(19, 128), 85) && !carriedCount(19, 128) && keptValue(g, wine) == 1, "the wine not given to Thomas Jefferson as its game has him put it in the capsule (used up, bit 6 set)");
++		ok = ok && check(saved() && keptValue(g, wine) == 1 && enter(g, 44, 0, problem) && pictureHere(441) == 1 && vinegarSeen(), "the vinegar not shown on entering with the capsule open and the wine put in") &&
++			check(tap(kWorldVerbPull, 442) && carriedCount(44, 442) == 1 && keptValue(g, wine) == 0, "the vinegar not taken by its Pull as its game's takes it (bit 6 let go)");
++		ok = ok && check(saved() && enter(g, 13, 0, problem) && enter(g, 44, 0, problem) && vinegarNone() && carriedCount(44, 442) == 1, "the vinegar not kept, or shown again once taken");
++		// (The wine in, the capsule shut: nothing shown on entering.)
++		fresh();
++		_kept[g * 65536 + wine] = 1;
++		ok = ok && check(enter(g, 44, 0, problem) && pictureHere(441) == 0 && vinegarNone(), "the vinegar shown with the capsule shut");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0302 the "verbs" check's (see verbsTest): Monkey Island 2's
+ // conversations as a player plays them (kWorldTalks; its talks file), each
+ // choice tapped where its list shows it, and what they lead to. The antique
+@@ -10148,6 +10367,10 @@ SandboxEngine::Revealed SandboxEngine::revealedPlayed() {
+ 			if ((flags & 1) && !carryable.contains(id)) carryable[id] = room;
+ 			for (int i = 0; i < count; ++i) if (others[4 * i + 3] && others[4 * i] > 0 && !carryable.contains(others[4 * i + 1])) carryable[others[4 * i + 1]] = others[4 * i];
+ 		}
++		// (From 0303 what its start gives from a room no place exports,
++		// kWorldStartThings, as its export carries it into its answers of
++		// two: Day of the Tentacle's textbook, which shows the horse's dentures.)
++		for (const WorldStartThing &s : kWorldStartThings) if (s.game == g && !carryable.contains(s.object) && startUsed(g, s.object)) carryable[s.object] = s.room;
+ 		// (The record played as a player plays it, in its place, from where it
+ 		// was; false where that cannot be: its thing not there, or one carried
+ 		// it names that is never carried.)
+@@ -16324,6 +16547,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// talks file is, an export of 0302's.)
+ 			for (const WorldTalk &t : kWorldTalks)
+ 				if (t.game == g && t.gives && !carryable.contains(t.gives) && dialogLoad(g)) { carryable[t.gives] = t.room; carriedOnes.push_back(t.gives); }
++			// (From 0303 what its start gives its players from a room no place
++			// exports, as its export carries it into these: Day of the
++			// Tentacle's kids' own, kWorldStartThings, where its records use it.)
++			for (const WorldStartThing &s : kWorldStartThings)
++				if (s.game == g && !carryable.contains(s.object) && startUsed(g, s.object)) { carryable[s.object] = s.room; carriedOnes.push_back(s.object); }
+ 			for (int k = 0; k < c->count; ++k) {
+ 				const TouchedKept touchedKept{_touched, _touched}; // (from 0267)
+ 				int room, id, kind, from, with = 0;
+@@ -17293,6 +17521,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Monkey Island 2's conversations: %d of %d played as a player plays them (the antique dealer's sale of the saw by the money carried, the peg leg sawn and the woodsmith called away, the dealer talked to, the laundry's bucket asked for and filled), %d choices tapped, %d kept through saves and loads; %d failed",
+ 		talks.played, talks.cases, talks.choices, talks.kept, talks.failed);
+ 	failed += talks.failed;
++	// (From 0303) Day of the Tentacle's kids' own things from its start, what
++	// they show, and the vinegar of its time capsule, as a player plays them:
++	// see tentacleThingsPlayed.
++	const TentacleThings dott = tentacleThingsPlayed();
++	warning("SCUMMVERSE sandbox selftest Day of the Tentacle's things: %d of %d played as a player plays them (the kids' own things from its start carried, the horse's dentures by the textbook, Oozo's box by the scalpel, the vinegar of the future's time capsule by the wine put in the past's, either order), %d kept through saves and loads; %d failed",
++		dott.played, dott.cases, dott.kept, dott.failed);
++	failed += dott.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 6b88db1f..a17549b0 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -486,6 +486,14 @@ private:
+ 	struct Later { int game = -1, room = 0, id = 0, kind = 0, from = 0, with = 0, need = 0, value = 0, picture = 0, script = 0, at = 0; };
+ 	Common::Array<Later> _later;
+ 	void laterStep(int ticks);
++	// From 0303 what a game's start gives its players where their code lies
++	// in a room no place exports (kWorldStartThings): carried, by their names,
++	// the first time one of its places is shown (kWorldStartGiven). Not on the
++	// tour, for a close-up, nor while self-testing but in its own check
++	// (_startGiving: tentacleThingsPlayed).
++	void startCarried(int game);
++	bool startUsed(int game, int id) const;
++	bool _startGiving = false;
+ 	void keptFromOlder(); // (a state of before 0282: the record on the Victrola, as givenBack finds it)
+ 	void keptFromFilms(); // (from 0291, a state of before 0288: a value a film's end leaves, by the picture it left its thing in)
+ 	// From 0276 a thing carried an answer uses up: no longer carried, and
+@@ -804,6 +812,14 @@ private:
+ 	// where one is not as its talks file has it.)
+ 	struct Mi2Talks { int cases = 0, played = 0, kept = 0, failed = 0, choices = 0; };
+ 	Mi2Talks mi2TalksPlayed();
++	// (From 0303 the "verbs" check's: Day of the Tentacle's things as a
++	// player plays them: the kids' own things from its start carried (then
++	// the horse's dentures by the textbook, Oozo's box by the
++	// scalpel), and the vinegar of its future's time capsule by the wine put
++	// in the past's, either order. Counted; `failed` where one is not as its
++	// things file has it.)
++	struct TentacleThings { int cases = 0, played = 0, kept = 0, failed = 0; };
++	TentacleThings tentacleThingsPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

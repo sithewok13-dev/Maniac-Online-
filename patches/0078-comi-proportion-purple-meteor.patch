@@ -1,0 +1,703 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 1a778302..f65930f2 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -530,7 +530,7 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit other worlds" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseOtherWorldsFrom:controller]; }];
+ 	}]];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone from another world" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAsFrom:controller]; }];
+ 	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+@@ -575,10 +575,17 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ // Playing someone from another game: the character you control takes on a
+ // cast member's look, name and voice in chat (engine scummverseSetAppearance).
+ - (void)showScummversePlayAsFrom:(UIViewController *)controller {
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone from your other games: their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone else: the Purple Meteor or someone from your other games, with their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Be yourself again" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(0));
+ 	}]];
++	// Maniac's own (always here): drawn from the game itself.
++	for (const auto &look : Scummverse::WorldCatalog::kWorldManiacCast) {
++		const int key = Scummverse::WorldCatalog::worldAppearanceKey(Scummverse::WorldCatalog::kWorldManiacLooks, look.costume);
++		[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%s (Maniac Mansion)", look.name] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(key));
++		}]];
++	}
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+ 		const BOOL installed = scummverseWorldInstalled(game);
+ 		NSString *title = installed ? [NSString stringWithUTF8String:game.title] : [NSString stringWithFormat:@"%s (add Documents/%s)", game.title, game.folder];
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 1e6fdc8c..1fc005e5 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -147,14 +147,14 @@ bool fitPicture(const SourceScene &scene, const SourceScene &picture, const Sand
+ 		return snapped[key] = (uint8_t)(fitted.firstSlot + best);
+ 	};
+ 	// A sandbox pixel belongs to the picture when its source area changed.
+-	const double scale = fitted.scale;
+-	const int pad = fitted.padLeft, scaledWidth = (int)std::lround(scene.width * scale);
++	const double scale = fitted.scale, scaleX = fitted.scaleX;
++	const int pad = fitted.padLeft, scaledWidth = (int)std::lround(scene.width * scaleX);
+ 	std::vector<uint8_t> mask((size_t)fitted.width * fitted.height, 0);
+ 	int left = fitted.width, right = -1, top = fitted.height, bottom = -1;
+ 	for (int oy = 0; oy < fitted.height; ++oy)
+ 		for (int ox = 0; ox < scaledWidth && pad + ox < fitted.width; ++ox) {
+ 			const int y0 = (int)(oy / scale), y1 = std::min(scene.height, (int)std::ceil((oy + 1) / scale));
+-			const int x0 = (int)(ox / scale), x1 = std::min(scene.width, (int)std::ceil((ox + 1) / scale));
++			const int x0 = (int)(ox / scaleX), x1 = std::min(scene.width, (int)std::ceil((ox + 1) / scaleX));
+ 			bool hit = false;
+ 			for (int y = y0; y < y1 && !hit; ++y) for (int x = x0; x < x1 && !hit; ++x) hit = changed[(size_t)y * scene.width + x];
+ 			if (!hit) continue;
+@@ -176,8 +176,8 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	out = SandboxScene();
+ 	if (src.width <= 0 || src.height <= 0 || (int)src.pixels.size() != src.width * src.height) { error = "empty scene"; return false; }
+ 	if (targetHeight < 8 || targetHeight % 8 || firstSlot < 0 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
+-	const double scale = (double)targetHeight / src.height;
+-	const int scaledWidth = std::max(8, (int)std::lround(src.width * scale));
++	const double scale = (double)targetHeight / src.height, scaleX = scale * (src.widen > 0 ? src.widen : 1);
++	const int scaledWidth = std::max(8, (int)std::lround(src.width * scaleX));
+ 	const int fitted = (scaledWidth + 7) & ~7;
+ 	const int width = std::max(fitted, (minWidth + 7) & ~7);
+ 	// Narrow scenes are centered on whole 8-pixel columns.
+@@ -209,7 +209,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	std::vector<int> slotOf(256, -1);
+ 	for (int i = 0; i < (int)used.size(); ++i) slotOf[used[i]] = i;
+ 
+-	out.scale = scale;
++	out.scale = scale; out.scaleX = scaleX;
+ 	out.width = width; out.height = targetHeight; out.firstSlot = firstSlot; out.slotCount = (int)used.size();
+ 	out.pixels.assign((size_t)width * targetHeight, 0);
+ 	out.palette.resize(used.size() * 3);
+@@ -217,7 +217,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	// 16-color art (dithered EGA) keeps its pattern with point sampling;
+ 	// richer art is area-averaged and snapped back to its own colors.
+ 	const bool pointSample = frequency.size() && std::count_if(frequency.begin(), frequency.end(), [](long f) { return f > 0; }) <= 16;
+-	out.padLeft = pad;
++	out.padLeft = pad; out.contentWidth = std::min(scaledWidth, width - pad);
+ 	int darkest = 0;
+ 	for (int i = 1; i < (int)used.size(); ++i)
+ 		if (rgb(used[i], 0) + rgb(used[i], 1) + rgb(used[i], 2) < rgb(used[darkest], 0) + rgb(used[darkest], 1) + rgb(used[darkest], 2)) darkest = i;
+@@ -226,7 +226,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 		const double y0 = oy / scale, y1 = (oy + 1) / scale;
+ 		for (int ox = 0; ox < fitted; ++ox) {
+ 			const int sx = std::min(ox, scaledWidth - 1);
+-			const double x0 = sx / scale, x1 = (sx + 1) / scale;
++			const double x0 = sx / scaleX, x1 = (sx + 1) / scaleX;
+ 			int slot;
+ 			if (pointSample) {
+ 				const int px = std::min(src.width - 1, (int)((x0 + x1) / 2)), py = std::min(src.height - 1, (int)((y0 + y1) / 2));
+@@ -252,7 +252,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	}
+ 
+ 	// Boxes: scale, then V1 units (x/8, y/2). Disabled boxes are dropped.
+-	auto ux = [&](int x) { return std::max(0, std::min(255, (int)std::lround((x * scale + pad) / 8))); };
++	auto ux = [&](int x) { return std::max(0, std::min(255, (int)std::lround((x * scaleX + pad) / 8))); };
+ 	auto uy = [&](int y) { return std::max(0, std::min(targetHeight / 2, (int)std::lround(y * scale / 2))); };
+ 	for (const SourceBox &b : src.boxes) {
+ 		if (b.flags & 0x80) continue;
+@@ -274,8 +274,8 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	for (const SourceObject &o : src.objects) {
+ 		SandboxObject v;
+ 		v.id = o.id; v.state = o.state;
+-		v.x = (int)std::floor(o.x * scale) + pad; v.y = (int)std::floor(o.y * scale);
+-		v.width = std::max(1, (int)std::ceil(o.width * scale)); v.height = std::max(1, (int)std::ceil(o.height * scale));
++		v.x = (int)std::floor(o.x * scaleX) + pad; v.y = (int)std::floor(o.y * scale);
++		v.width = std::max(1, (int)std::ceil(o.width * scaleX)); v.height = std::max(1, (int)std::ceil(o.height * scale));
+ 		// Objects without a walk-to point (v7+ keep it in scripts) are reached
+ 		// at the bottom center of their rectangle.
+ 		const bool walk = o.walkX || o.walkY;
+@@ -378,7 +378,7 @@ bool fitSprites(const std::vector<SourceSprite> &sources, const std::vector<doub
+ 	}
+ 	for (size_t n = 0; n < sources.size(); ++n) {
+ 		const SourceSprite &src = sources[n];
+-		const double scale = scales[n];
++		const double scale = scales[n], scaleX = scale * (src.widen > 0 ? src.widen : 1);
+ 		SandboxSprite sprite;
+ 		sprite.firstSlot = firstSlot; sprite.slotCount = (int)used.size(); sprite.palette = palette;
+ 		int slotOfIndex[256];
+@@ -387,15 +387,15 @@ bool fitSprites(const std::vector<SourceSprite> &sources, const std::vector<doub
+ 			SpriteFrame o;
+ 			o.dir = f.dir; o.kind = f.kind; o.index = f.index;
+ 			// Edges stay anchored to the feet: scale the frame's corners.
+-			const int x0 = (int)std::floor(f.dx * scale), y0 = (int)std::floor(f.dy * scale);
+-			const int x1 = (int)std::ceil((f.dx + f.width) * scale), y1 = (int)std::ceil((f.dy + f.height) * scale);
++			const int x0 = (int)std::floor(f.dx * scaleX), y0 = (int)std::floor(f.dy * scale);
++			const int x1 = (int)std::ceil((f.dx + f.width) * scaleX), y1 = (int)std::ceil((f.dy + f.height) * scale);
+ 			o.dx = x0; o.dy = y0; o.width = std::max(1, x1 - x0); o.height = std::max(1, y1 - y0);
+ 			o.pixels.assign((size_t)o.width * o.height, 0);
+ 			for (int y = 0; y < o.height; ++y) {
+ 				const int sy = (int)std::floor((y0 + y + 0.5) / scale) - f.dy;
+ 				if (sy < 0 || sy >= f.height) continue;
+ 				for (int x = 0; x < o.width; ++x) {
+-					const int sx = (int)std::floor((x0 + x + 0.5) / scale) - f.dx;
++					const int sx = (int)std::floor((x0 + x + 0.5) / scaleX) - f.dx;
+ 					if (sx < 0 || sx >= f.width) continue;
+ 					const size_t i = (size_t)sy * f.width + sx;
+ 					if (!f.mask[i]) continue;
+@@ -494,10 +494,11 @@ static Mounted &current() { static Mounted m; return m; }
+ // outlive scene mounts so they can be shown in any room.
+ static std::vector<World::SandboxSprite> &characters() { static std::vector<World::SandboxSprite> c; return c; }
+ 
+-bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity) {
++bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity, double widen) {
+ 	World::SourceScene source; World::SandboxScene scene; std::string problem;
+-	const bool ok = World::parseScene(data, size, source, problem) &&
+-		World::fitScene(source, targetHeight, firstSlot, slotCount, scene, problem, 320);
++	bool ok = World::parseScene(data, size, source, problem);
++	source.widen = widen;
++	ok = ok && World::fitScene(source, targetHeight, firstSlot, slotCount, scene, problem, 320);
+ 	if (!ok) {
+ 		if (error && capacity > 0) { std::strncpy(error, problem.c_str(), capacity - 1); error[capacity - 1] = 0; }
+ 		return false;
+@@ -514,7 +515,9 @@ bool mountPicture(const unsigned char *data, size_t size, char *error, int capac
+ 	World::SourceScene source; World::ScenePicture picture; World::SandboxScene refit; std::string problem = m.ok ? "" : "no scene mounted";
+ 	// The scene again in colors chosen from the picture (its own plus the
+ 	// picture's), then the picture in those colors.
+-	const bool ok = m.ok && World::parseScene(data, size, source, problem) &&
++	bool ok = m.ok && World::parseScene(data, size, source, problem);
++	source.widen = m.source.widen;
++	ok = ok &&
+ 		World::fitScene(m.source, m.scene.height, m.scene.firstSlot, m.slotCapacity, refit, problem, 320, &source) &&
+ 		World::fitPicture(m.source, source, refit, picture, problem);
+ 	if (!ok) {
+@@ -544,12 +547,12 @@ void showPicture(int dx, int amount) {
+ 		}
+ 	}
+ }
+-bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity) {
++bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity, const double *widens) {
+ 	std::vector<World::SourceSprite> sources;
+ 	std::string problem = count > 0 ? "" : "no characters";
+ 	for (int i = 0; i < count && problem.empty(); ++i) {
+ 		World::SourceSprite source;
+-		if (World::parseSprite(data[i], sizes[i], source, problem)) sources.push_back(source);
++		if (World::parseSprite(data[i], sizes[i], source, problem)) { source.widen = widens ? widens[i] : 1; sources.push_back(source); }
+ 	}
+ 	std::vector<World::SandboxSprite> fitted;
+ 	if (!problem.empty() || !World::fitSprites(sources, std::vector<double>(scales, scales + count), firstSlot, slotCount, fitted, problem)) {
+@@ -564,8 +567,8 @@ bool mountGuests(const unsigned char *const *data, const size_t *sizes, int coun
+ 		if (error && capacity > 0) { std::strncpy(error, "no scene mounted", capacity - 1); error[capacity - 1] = 0; }
+ 		return false;
+ 	}
+-	const std::vector<double> scales(count > 0 ? count : 0, current().scene.scale);
+-	return mountCharacters(data, sizes, scales.data(), count, firstSlot, slotCount, error, capacity);
++	const std::vector<double> scales(count > 0 ? count : 0, current().scene.scale), widens(scales.size(), current().source.widen);
++	return mountCharacters(data, sizes, scales.data(), count, firstSlot, slotCount, error, capacity, widens.data());
+ }
+ void unmountGuests() { characters().clear(); }
+ int guestCount() { return (int)characters().size(); }
+@@ -600,6 +603,8 @@ int leftY() { return current().scene.leftY; }
+ int rightX() { return current().scene.rightX; }
+ int rightY() { return current().scene.rightY; }
+ double sceneScale() { return current().scene.scale; }
++int contentLeft() { return current().scene.padLeft; }
++int contentRight() { return current().scene.padLeft + current().scene.contentWidth; }
+ int objectState(int index) {
+ 	const auto &objects = current().scene.objects;
+ 	return index >= 0 && index < (int)objects.size() ? objects[index].state : 1;
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index 12561a06..e76cf9f4 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -33,6 +33,10 @@ struct SourceScene {
+ 	std::vector<uint8_t> pixels;     // width*height palette indices
+ 	std::vector<SourceBox> boxes;
+ 	std::vector<SourceObject> objects; // "SVW2" and later
++	// Shown this much wider than tall per pixel (set by the caller, not the
++	// file): a game drawn in square pixels beside 320x200 art that is
++	// displayed 1.2 times taller (Curse of Monkey Island) is widened 1.2.
++	double widen = 1;
+ };
+ 
+ // A room object in the sandbox: rectangle in sandbox pixels, walk-to point
+@@ -50,10 +54,12 @@ struct SandboxScene {
+ 	std::vector<V2Box> boxes;
+ 	std::vector<int8_t> next;        // boxes*boxes next-box table (-1 none)
+ 	int padLeft = 0;                 // pixels added on the left (centering)
++	int contentWidth = 0;            // pixels the source spans from padLeft
+ 	int spawnX = 0, spawnY = 0;      // V1 units, inside a walkable box
+ 	int leftX = -1, rightX = -1;     // V1 units of walkable edge points (-1 none)
+ 	int leftY = 0, rightY = 0;
+-	double scale = 1;                // sandbox pixels per source pixel
++	double scale = 1;                // sandbox pixels per source pixel (rows)
++	double scaleX = 1;               // the same across (scale times widen)
+ 	std::vector<SandboxObject> objects;
+ 	// Per box (as boxes): the source game's character scale at its top and
+ 	// bottom rows, 1..255.
+@@ -78,6 +84,7 @@ struct SourceSprite {
+ 	int costume = 0;
+ 	uint8_t palette[768] = {};
+ 	std::vector<SourceFrame> frames;
++	double widen = 1;                            // as SourceScene::widen
+ };
+ 
+ struct SpriteFrame {
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0ab8ef81..b8c71720 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 10;
++static const int kWorldExportVersion = 11;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -111,6 +111,10 @@ inline bool sameId(const char *a, const char *b) {
+ // by key, 10000 + game * 1000 + room.
+ static const int kWorldPlaceKeyBase = 10000;
+ inline int worldGameCount() { return (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])); }
++// Maniac and the 320x200 games are shown 1.2 times taller than drawn (the
++// screens they were made for); Curse of Monkey Island draws square pixels
++// at 640x480, so its scenes and characters are widened to match.
++inline double worldWiden(int game) { return game >= 0 && game < worldGameCount() && kWorldGames[game].version >= 8 ? 1.2 : 1.0; }
+ inline int worldPlaceKey(int game, int room) { return kWorldPlaceKeyBase + game * 1000 + room; }
+ // A menu request to travel to any place: kWorldPlaceRequest + game * 1024
+ // + room (above every scene-bound request, which fits in 21 bits).
+@@ -203,6 +207,16 @@ inline bool worldTramStop(int game, int room, int &line, int &end) {
+ 			if (kWorldTramLines[l].game == game && kWorldTramLines[l].ends[e].room == room) { line = l; end = e; return true; }
+ 	return false;
+ }
++// Maniac's own characters to play as: the sandbox costume itself, drawn by
++// its own renderer (not exported frames), in appearance keys of this
++// pseudo game. Personalities and lines are newly written.
++static const int kWorldManiacLooks = 1000;
++static const WorldGuest kWorldManiacCast[] = {
++	{16, "Purple Meteor",
++	 "the Purple Meteor, a glowing purple rock from deep space that crashed beside the Edison mansion twenty years ago and has been bossing Dr. Fred around ever since; grandiose, scheming, easily flattered, and secretly lonely", 13,
++	 {"I came from beyond the stars. Mind the carpet.", "Twenty years in a basement does things to a rock.", "Kneel before me! Or just wave. Waving is fine."}},
++};
++inline bool worldNativeLook(int key) { return key > 0 && (key - 1) / 1024 == kWorldManiacLooks; }
+ // Cast members who need no air on Mars (no fishbowl and tank there):
+ // tentacles, ghosts and skeletons, robots and aliens. Everyone else wears
+ // them, the talking skull and the monkeys included.
+@@ -214,14 +228,16 @@ static const WorldAirless kWorldAirless[] = {
+ 	{6, 219},                                               // maintenance droid
+ 	{8, 113}, {8, 128}, {8, 321}, {8, 183}, {8, 202}, {8, 258}, // Cocytus aliens
+ 	{9, 350}, {9, 354}, {9, 413},                           // ghost, skeleton, undead LeChuck
++	{kWorldManiacLooks, 16},                                // the Purple Meteor
+ };
+ inline bool worldBreathes(int game, int costume) {
+ 	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
+ 	return true;
+ }
+-// Characters who float instead of walking (Murray, the talking skull).
++// Characters who float instead of walking (Murray, the talking skull; the
++// Purple Meteor).
+ struct WorldHoverer { short game, costume; };
+-static const WorldHoverer kWorldHoverers[] = {{9, 49}};
++static const WorldHoverer kWorldHoverers[] = {{9, 49}, {kWorldManiacLooks, 16}};
+ inline bool worldHovers(int game, int costume) {
+ 	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
+ 	return false;
+@@ -234,6 +250,10 @@ inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1
+ inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
+ inline const WorldGuest *worldAppearance(int key) {
+ 	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
++	if (game == kWorldManiacLooks) {
++		for (const auto &look : kWorldManiacCast) if (look.costume == costume) return &look;
++		return nullptr;
++	}
+ 	if (game < 0 || game >= worldGameCount()) return nullptr;
+ 	for (const auto &cast : kWorldCast)
+ 		if (cast.game == game && cast.guest.costume == costume) return &cast.guest;
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index 06d1bade..d1898ea1 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -9,9 +9,10 @@
+ namespace Scummverse {
+ namespace WorldBridge {
+ 
+-// Parses and fits an exported scene (bytes of one .svw file). On failure the
++// Parses and fits an exported scene (bytes of one .svw file), `widen` times
++// wider per pixel than tall (see World::SourceScene::widen). On failure the
+ // previously mounted scene is kept and `error` explains why.
+-bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity);
++bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity, double widen = 1);
+ bool mounted();
+ // The mounted scene in another state (bytes of a .svw of the same room,
+ // e.g. a parked tram car): only what differs, fitted like the scene. The
+@@ -38,8 +39,12 @@ int leftX();                       // -1 when walking cannot reach the edge
+ int leftY();
+ int rightX();
+ int rightY();
+-// Sandbox pixels per source pixel of the mounted scene.
++// Sandbox pixels per source pixel of the mounted scene (rows).
+ double sceneScale();
++// Sandbox pixel columns the scene's own picture spans (a narrow scene is
++// centered between dark bands): contentLeft() <= x < contentRight().
++int contentLeft();
++int contentRight();
+ // The source game's character scale (1..255, 255 = full size) at row y
+ // (V1 units) of walk box `box`; 255 for an unknown box.
+ int boxScale(int box, int y);
+@@ -50,12 +55,13 @@ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &wa
+ // 0 when a script-built room left that object switched off (1 otherwise).
+ int objectState(int index);
+ // Characters to show (bytes of their .svc files), each scaled by its own
+-// factor and sharing slots firstSlot..; 0 is transparent. All or none. They
+-// stay mounted across scenes until replaced, so they can be shown anywhere
+-// (a scene's guests and players' chosen characters); index = order given.
+-bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity);
+-// The characters of the mounted scene, scaled like the scene (a scene must
+-// be mounted). Replaces any characters mounted before.
++// factor (and widened by its own, when given) and sharing slots
++// firstSlot..; 0 is transparent. All or none. They stay mounted across
++// scenes until replaced, so they can be shown anywhere (a scene's guests and
++// players' chosen characters); index = order given.
++bool mountCharacters(const unsigned char *const *data, const size_t *sizes, const double *scales, int count, int firstSlot, int slotCount, char *error, int capacity, const double *widens = nullptr);
++// The characters of the mounted scene, scaled and widened like the scene (a
++// scene must be mounted). Replaces any characters mounted before.
+ bool mountGuests(const unsigned char *const *data, const size_t *sizes, int count, int firstSlot, int slotCount, char *error, int capacity);
+ void unmountGuests();
+ int guestCount();
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index 673dcc69..b0e8caef 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -94,9 +94,10 @@ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 		};
+ 		const byte *src = _srcPtr;
+ 		byte palette[4] = {0, 0, 0, 0};
++		const int colors = _vm->scummverseColorActor(_actorID);
+ 		if (_vm->getCurrentLights() & LIGHTMODE_actor_use_colors) {
+-			palette[1] = _vm->_gdi->remapColorToRenderMode(imported || _actorID >= ARRAYSIZE(v1MMActorPalatte1) ? 8 : v1MMActorPalatte1[_actorID]);
+-			palette[2] = _vm->_gdi->remapColorToRenderMode(imported || _actorID >= ARRAYSIZE(v1MMActorPalatte2) ? _palette[1] : v1MMActorPalatte2[_actorID]);
++			palette[1] = _vm->_gdi->remapColorToRenderMode(imported || colors >= ARRAYSIZE(v1MMActorPalatte1) ? 8 : v1MMActorPalatte1[colors]);
++			palette[2] = _vm->_gdi->remapColorToRenderMode(imported || colors >= ARRAYSIZE(v1MMActorPalatte2) ? _palette[1] : v1MMActorPalatte2[colors]);
+ 		} else palette[2] = palette[3] = _vm->_gdi->remapColorToRenderMode(11);
+ 		int run = 0; bool repeat = false; byte color = 0;
+ 		int left = _out.w, right = 0, top = _out.h, bottom = 0;
+@@ -363,7 +364,7 @@ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	if (_loaded._format == 0x57) {
+ 		// The v1 costume renderer needs the actor number, which is
+ 		// the same thing as the costume renderer's _actorID.
+-		procC64(compData, _actorID);
++		procC64(compData, _vm->scummverseColorActor(_actorID));
+ 	} else if (newAmiCost)
+ 		proc3_ami(compData);
+ 	else if (pcEngCost)
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index d59008a5..f30a25e9 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1360,6 +1360,9 @@ public:
+ 	virtual int getCurrentLights() const;
+ 	bool scummverseDistantScene() const;
+ 	bool scummverseRenderingPortrait() const { return _scummversePortrait; }
++	// The actor whose V1 colors a character wears (Maniac picks costume colors
++	// by actor): their own, or that of the Maniac character they play.
++	int scummverseColorActor(int id) const;
+ 	// In other worlds everyone is drawn at the scale of a person standing at
+ 	// that spot of the scene; guests from their exported frames
+ 	// (scummverse_world_play.inc). False: draw the actor as usual.
+@@ -1613,7 +1616,8 @@ protected:
+ 	Common::Array<byte> _scummverseZakCastCostumes[9];
+ 	void scummverseUpdateResident();
+ 	// Other worlds (scummverse_world_export.inc): catalog scene export.
+-	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0);
++	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0, const Common::Array<byte> *depths = nullptr);
++	void scummverseBoxDepths(Common::Array<byte> &out);
+ 	int scummverseExportWorld(const Common::Path &dir);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	// Drops animation commands queued for the main loop (AKOS editions).
+@@ -1642,6 +1646,9 @@ protected:
+ 	// kScummverseAppearanceVar + id; they are drawn from that game's exported
+ 	// frames in any room, named after them and chat as them.
+ 	static const int kScummverseAppearanceVar = 640;
++	// Playing one of Maniac's own (a native look): the character's own costume
++	// meanwhile, kScummverseHomeCostumeVar + id (saved; 0 when not in use).
++	static const int kScummverseHomeCostumeVar = 665;
+ 	int scummverseAppearance(int id) const;
+ 	bool scummverseSetAppearance(int id, int key);
+ 	bool scummverseAppearancePortrait(int id, byte *rgba);
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index cfcca6a9..24c594b6 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 77; // 77: the van in flight (logical room 221)
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 78; // 78: Curse scenes widened, walk boxes kept on the picture
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 4ea2992c..7c86557a 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -27,7 +27,23 @@
+ 
+ static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
+ 
+-bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted, const short *shown, int shownCount) {
++// Per box, the character scale at its top and bottom edges (as written).
++void ScummEngine::scummverseBoxDepths(Common::Array<byte> &out) {
++	out.clear();
++	for (int b = 0; b < MIN<int>(getNumBoxes(), 255); ++b) {
++		const BoxCoords box = getBoxCoordinates(b);
++		const int x = (box.ul.x + box.ur.x + box.lr.x + box.ll.x) / 4;
++		const int top = MIN(box.ul.y, box.ur.y), bottom = MAX(box.ll.y, box.lr.y);
++		// Sam & Max's scripts scale characters on these boxes themselves.
++		const bool scripted = _game.id == GID_SAMNMAX && (getBoxFlags(b) & kBoxIgnoreScale);
++		for (int y : {top, bottom}) {
++			const int scale = scripted ? 255 : getScale(b, x, y);
++			out.push_back(scale >= 1 && scale <= 255 ? scale : 255);
++		}
++	}
++}
++
++bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted, const short *shown, int shownCount, const Common::Array<byte> *depths) {
+ 	// v3/v4 pseudo rooms (128+) are instances of a template room that their
+ 	// entry script furnishes; they are always exported with that script.
+ 	const bool pseudo = room >= 0x80 && _game.version <= 4;
+@@ -50,11 +66,21 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	if (VAR_ROOM_RESOURCE != 0xFF) VAR(VAR_ROOM_RESOURCE) = resource;
+ 	// Scale slots come from the room's own data; ones only its scripts would
+ 	// set stay unknown (full size) rather than leaking from the last room.
++	// A walk box on a slot nothing set reads the marker scale 1 at first.
+ 	for (auto &slot : _scaleSlots) slot = ScaleSlot();
+ 	ensureResourceLoaded(rtRoom, resource); clearRoomObjects(); setupRoomSubBlocks(); resetRoomSubBlocks();
+ 	for (int i = 1; i <= ARRAYSIZE(_scaleSlots); ++i) {
+ 		const ScaleSlot &slot = _scaleSlots[i - 1];
+-		if (slot.y1 == slot.y2 && slot.x1 == slot.x2) setScaleSlot(i, 0, 0, 255, 0, 199, 255);
++		if (slot.y1 == slot.y2 && slot.x1 == slot.x2) setScaleSlot(i, 0, 0, 1, 0, 199, 1);
++	}
++	// No depth of its own: every box full size or on an unknown slot.
++	Common::Array<byte> own;
++	scummverseBoxDepths(own);
++	bool flat = !own.empty();
++	for (byte scale : own) flat = flat && (scale == 1 || scale == 255);
++	for (int i = 1; i <= ARRAYSIZE(_scaleSlots); ++i) {
++		const ScaleSlot &slot = _scaleSlots[i - 1];
++		if (slot.y1 == 0 && slot.y2 == 199 && slot.scale1 == 1 && slot.scale2 == 1) setScaleSlot(i, 0, 0, 255, 0, 199, 255);
+ 	}
+ 	if (_roomHeight <= 0 || _roomHeight > _screenHeight || _roomWidth < _screenWidth) { problem = "unsupported room size"; return false; }
+ 	if (_virtscr[kMainVirtScreen].h != _roomHeight) {
+@@ -62,6 +88,40 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		initScreens(top, top + _roomHeight);
+ 	}
+ 	initBGBuffers(_roomHeight); resetRoomObjects();
++	// Curse of Monkey Island rooms whose entry script gives the walk boxes
++	// their depth scale (Puerto Pollo): run it for a few cycles and keep the
++	// scales it leaves, put back what else it changed in the game, and set
++	// the room up again. (The v7 games' rooms carry theirs, and some of
++	// their entry scripts need data export mode leaves out.)
++	if (flat && !depths && _game.version >= 8) {
++		const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
++		const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
++			owners(_objectOwnerTable, _numGlobalObjects);
++		const Common::Array<uint32> classes(_classData, _numGlobalObjects);
++		runEntryScript();
++		for (int cycle = 0; cycle < 16 && _currentRoom == room; ++cycle) {
++			bool running = false;
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) {
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++				running = running || vm.slot[i].status == ssRunning;
++			}
++			if (!running) break;
++			runAllScripts(); _sound->stopAllSounds();
++		}
++		Common::Array<byte> found;
++		if (_currentRoom == room && _roomResource == resource) scummverseBoxDepths(found);
++		if (found.size() != own.size()) found.clear(); // Left the room: the room's own, as without.
++		for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
++		_currentScript = 0xFF; vm.cutSceneStackPointer = 0;
++		stopTalk(); _sound->stopAllSounds();
++		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
++		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
++		memcpy(_bitVars, bits.data(), bits.size());
++		memcpy(_objectStateTable, states.data(), states.size());
++		memcpy(_objectOwnerTable, owners.data(), owners.size());
++		memcpy(_classData, classes.data(), classes.size() * sizeof(uint32));
++		return scummverseExportScene(room, file, problem, scripted, shown, shownCount, &found);
++	}
+ 	// A picture with some objects shown (a parked tram car's pictures).
+ 	for (int i = 1; i < _numLocalObjects; ++i)
+ 		for (int k = 0; k < shownCount; ++k) if (shown[k] && _objs[i].obj_nr == shown[k]) _objs[i].state = 1;
+@@ -157,7 +217,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		return same < (int)pixels.size() * 99 / 100; // Something besides one color.
+ 	};
+ 	// A v3/v4 room drawn entirely by its entry script comes out one color.
+-	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true, shown, shownCount);
++	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true, shown, shownCount, depths);
+ 	if (preset) {
+ 		// Their animations run: a light bridge is a stream of pulses, so the
+ 		// still keeps every pixel any step drew (one cycle, the latest wins).
+@@ -202,16 +262,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		for (int f : fields) scummverseWrite16(out, f);
+ 	}
+ 	// Per box, the scale the game gives characters at its top and bottom edges.
+-	for (int b = 0; b < boxes; ++b) {
+-		const BoxCoords box = getBoxCoordinates(b);
+-		const int x = (box.ul.x + box.ur.x + box.lr.x + box.ll.x) / 4;
+-		const int top = MIN(box.ul.y, box.ur.y), bottom = MAX(box.ll.y, box.lr.y);
+-		const bool scripted = _game.id == GID_SAMNMAX && (getBoxFlags(b) & kBoxIgnoreScale);
+-		for (int y : {top, bottom}) {
+-			const int scale = scripted ? 255 : getScale(b, x, y);
+-			out.writeByte(scale >= 1 && scale <= 255 ? scale : 255);
+-		}
+-	}
++	Common::Array<byte> scales;
++	if (depths && depths->size() == (uint)boxes * 2) scales = *depths; else scummverseBoxDepths(scales);
++	out.write(scales.data(), scales.size());
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+ 	return true;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 57116763..6bd87d28 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -97,7 +97,7 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	Common::Array<byte> data; data.resize(in->size());
+ 	if (in->read(data.data(), data.size()) != data.size()) { _scummverseWorldNotice = "The scene file could not be read."; return false; }
+ 	char problem[128];
+-	if (!WorldBridge::mount(data.data(), data.size(), 128, kWorldFirstColor, kWorldColors, problem, sizeof(problem))) {
++	if (!WorldBridge::mount(data.data(), data.size(), 128, kWorldFirstColor, kWorldColors, problem, sizeof(problem), worldWiden(gameIndex))) {
+ 		_scummverseWorldNotice = Common::String::format("%s could not be shown (%s). Export it again.", placeName.c_str(), problem);
+ 		return false;
+ 	}
+@@ -435,7 +435,9 @@ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ }
+ 
+ // Floating characters (Murray) hover a quarter of their height above their
+-// feet, bobbing gently, and keep their standing pose while they move.
++// feet, bobbing gently, and keep their standing pose while they move. The
++// Purple Meteor's own costume already floats; it bobs as one this tall.
++static const int kWorldNativeHover = 16;
+ static int worldHoverLift(int tick, int height) {
+ 	return (int)(height / 4 + 2 * sin(tick * 0.08) + 0.5);
+ }
+@@ -528,6 +530,12 @@ int ScummEngine::scummverseAppearance(int id) const {
+ 	return worldAppearance(key) ? key : 0;
+ }
+ 
++// Maniac's own costumes are numbered like their actors (the Meteor is 16).
++int ScummEngine::scummverseColorActor(int id) const {
++	const int look = scummverseAppearance(id);
++	return worldNativeLook(look) ? worldAppearanceCostume(look) : id;
++}
++
+ const byte *ScummEngine::scummverseAppearanceName(int id) const {
+ 	const WorldGuest *who = worldAppearance(scummverseAppearance(id));
+ 	return who ? (const byte *)who->name : nullptr;
+@@ -540,10 +548,20 @@ bool ScummEngine::scummverseSetAppearance(int id, int key) {
+ 	Actor *a = derefActor(id, "appearance");
+ 	const WorldGuest *who = worldAppearance(key);
+ 	if (key && !who) { _scummverseWorldNotice = "That character is not in the catalog."; return false; }
+-	if (who && scummverseCharacterFrames(worldAppearanceGame(key), who->costume).empty()) {
++	if (who && !worldNativeLook(key) && scummverseCharacterFrames(worldAppearanceGame(key), who->costume).empty()) {
+ 		_scummverseWorldNotice = Common::String::format("%s's game is not set up here. Add it to Documents/%s and restart.", who->name, kWorldGames[worldAppearanceGame(key)].folder);
+ 		return false;
+ 	}
++	// One of Maniac's own wears their own costume; the character's comes back
++	// with any other choice.
++	int &home = _scummVars[kScummverseHomeCostumeVar + id];
++	if (worldNativeLook(key)) {
++		if (!home) home = a->_costume;
++		a->setActorCostume(who->costume);
++	} else if (home) {
++		a->setActorCostume(home); home = 0;
++		a->setElevation(0);
++	}
+ 	_scummVars[kScummverseAppearanceVar + id] = who ? key : 0;
+ 	::scummverseTalkAppearance(id, who ? key : 0);
+ 	_scummverseCharactersKey.clear();
+@@ -573,7 +591,7 @@ void ScummEngine::scummverseMountCharacters() {
+ 	_scummverseCharactersKey = key;
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) ::scummverseTalkAppearance(id, scummverseAppearance(id));
+ 	const int most = kScummverseGuestSlots + kScummverseManiacActors;
+-	const byte *data[most]; size_t sizes[most]; double scales[most]; int count = 0;
++	const byte *data[most]; size_t sizes[most]; double scales[most], widens[most]; int count = 0;
+ 	Common::Array<byte> looks[kScummverseManiacActors];
+ 	for (int k = 0; k < kScummverseGuestSlots; ++k) {
+ 		_scummverseGuestSprite[k] = -1;
+@@ -582,7 +600,8 @@ void ScummEngine::scummverseMountCharacters() {
+ 		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		if (guest && key.contains(Common::String::format("=%d", worldAppearanceKey(gameIndex, guest->costume)))) continue;
+ 		_scummverseGuestSprite[k] = count;
+-		data[count] = _scummverseGuestData[k].data(); sizes[count] = _scummverseGuestData[k].size(); scales[count] = WorldBridge::sceneScale(); ++count;
++		data[count] = _scummverseGuestData[k].data(); sizes[count] = _scummverseGuestData[k].size();
++		scales[count] = WorldBridge::sceneScale(); widens[count] = worldWiden(gameIndex); ++count;
+ 	}
+ 	// As tall as a person standing here: this scene game's lead (fitted like
+ 	// the scene), or a Maniac teenager in the mansion and Zak's places.
+@@ -590,17 +609,18 @@ void ScummEngine::scummverseMountCharacters() {
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) {
+ 		_scummverseAvatarSprite[id] = 0;
+ 		const int look = scummverseAppearance(id);
+-		if (!look || _actors[id]->_room != _currentRoom) continue;
++		if (!look || worldNativeLook(look) || _actors[id]->_room != _currentRoom) continue;
+ 		looks[id] = scummverseCharacterFrames(worldAppearanceGame(look), worldAppearanceCostume(look));
+ 		if (looks[id].empty()) continue;
+ 		_scummverseAvatarSprite[id] = count + 1;
+ 		data[count] = looks[id].data(); sizes[count] = looks[id].size();
+-		scales[count] = CLIP(person / kWorldGames[worldAppearanceGame(look)].heroHeight, 0.06, 4.0); ++count;
++		scales[count] = CLIP(person / kWorldGames[worldAppearanceGame(look)].heroHeight, 0.06, 4.0);
++		widens[count] = worldWiden(worldAppearanceGame(look)); ++count;
+ 		_actors[id]->_needRedraw = true;
+ 	}
+ 	char problem[128];
+ 	if (!count) { WorldBridge::unmountGuests(); return; }
+-	if (!WorldBridge::mountCharacters(data, sizes, scales, count, kWorldGuestColor, kWorldGuestColors, problem, sizeof(problem))) {
++	if (!WorldBridge::mountCharacters(data, sizes, scales, count, kWorldGuestColor, kWorldGuestColors, problem, sizeof(problem), widens)) {
+ 		warning("SCUMMVERSE world: characters not shown (%s)", problem);
+ 		for (int &k : _scummverseGuestSprite) k = -1;
+ 		for (int &k : _scummverseAvatarSprite) k = 0;
+@@ -628,7 +648,10 @@ void ScummEngine::scummversePlaceGuest(int k, int place) {
+ 	// Spread out on both sides of the arrival point.
+ 	const int offset = (k / 2 + 1) * 5 * (k % 2 ? -1 : 1);
+ 	a->putActor(WorldBridge::spawnX(), WorldBridge::spawnY(), _currentRoom);
+-	AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, 1, WorldBridge::width() / 8 - 2), WorldBridge::spawnY() + k % 3);
++	// On the scene's own picture, clear of its sides (a narrow scene has dark
++	// bands beside it).
++	const int left = WorldBridge::contentLeft() / 8 + 2, right = MAX(left, WorldBridge::contentRight() / 8 - 3);
++	AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, left, right), WorldBridge::spawnY() + k % 3);
+ 	a->putActor(point.x, point.y, _currentRoom);
+ 	a->setDirection(180); a->startAnimActor(a->_standFrame); a->showActor();
+ 	_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false;
+@@ -636,6 +659,21 @@ void ScummEngine::scummversePlaceGuest(int k, int place) {
+ }
+ 
+ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
++	// Playing one of Maniac's own: their costume (whatever a script set
++	// meanwhile), and those who hover float with a slow bob.
++	for (int id = 1; id < kScummverseManiacActors; ++id) {
++		const int look = scummverseAppearance(id);
++		if (!worldNativeLook(look)) continue;
++		Actor *a = _actors[id];
++		const int costume = worldAppearanceCostume(look);
++		if (a->_costume != costume) {
++			if (!_scummVars[kScummverseHomeCostumeVar + id]) _scummVars[kScummverseHomeCostumeVar + id] = a->_costume;
++			a->setActorCostume(costume);
++		}
++		if (!worldHovers(kWorldManiacLooks, costume) || a->_room != _currentRoom) continue;
++		_scummverseAvatarTick[id] += delta;
++		a->setElevation(worldHoverLift(_scummverseAvatarTick[id], kWorldNativeHover));
++	}
+ 	scummverseMountCharacters();
+ 	// Characters playing someone else animate like guests.
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) {
+@@ -729,10 +767,10 @@ bool ScummEngine::scummverseWorldUnits(int game, int source, int x, int y, int &
+ 	if (!in || in->read(header, sizeof(header)) != sizeof(header)) return false;
+ 	const int width = READ_LE_UINT16(header + 6), height = READ_LE_UINT16(header + 8);
+ 	if (width <= 0 || height <= 0) return false;
+-	const double scale = 128.0 / height;
+-	const int scaled = MAX(8, (int)floor(width * scale + 0.5)), fitted = (scaled + 7) & ~7;
++	const double scale = 128.0 / height, scaleX = scale * worldWiden(game);
++	const int scaled = MAX(8, (int)floor(width * scaleX + 0.5)), fitted = (scaled + 7) & ~7;
+ 	const int pad = ((MAX(fitted, 320) - fitted) / 2) & ~7;
+-	ux = (int)floor((x * scale + pad) / 8 + 0.5); uy = (int)floor(y * scale / 2 + 0.5);
++	ux = (int)floor((x * scaleX + pad) / 8 + 0.5); uy = (int)floor(y * scale / 2 + 0.5);
+ 	return true;
+ }
+ 

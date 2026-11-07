@@ -21,7 +21,7 @@ def main():
                     *[str(source / name) for name in files], "-o", str(tool)], check=True)
     subprocess.run([str(tool), str(ROOT / "engine"), "--xcode", "--use-xcframework",
                     "--output-dir", str(output),
-                    "--disable-all-engines", "--enable-engine=scumm",
+                    "--disable-all-engines", "--enable-engine=scumm,scumm_7_8,scummverse",
                     "--disable-nasm", "--disable-taskbar", "--disable-tts"],
                    cwd=output, check=True)
     project = (output / "scummvm.xcodeproj/project.pbxproj").read_text()

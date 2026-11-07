@@ -1,0 +1,1016 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 24c03f6d..a3d617b9 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -295,7 +295,10 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 				f.costume = r.u16(); f.x = r.u16(); f.y = r.u16(); f.facing = r.u8(); f.color = r.u8();
+ 				const int events = r.u8();
+ 				if (events > kMostFilmEvents) { out = GameThings(); error = "bad close-up"; return false; }
+-				film = c.keys.empty() && c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty() && !c.right && !c.wrong && f.facing < 4 && f.leadPicture < 2;
++				// (From 0250 its lead no longer than it, nor than kMostFilmLead: a
++				// damaged one would leave its thing shown, taps waiting, for minutes.)
++				film = c.keys.empty() && c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty() && !c.right && !c.wrong && f.facing < 4 && f.leadPicture < 2 &&
++					f.lead <= f.length && f.lead <= kMostFilmLead;
+ 				for (int k = 0; k < events && r.ok; ++k) {
+ 					FilmEvent e;
+ 					e.tick = r.u16(); e.id = r.u16(); e.picture = r.u8(); line(e.line);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 507edbdc..3bcdd82c 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -181,7 +181,9 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // "SVO8" (from 0248): each close-up goes on with a film (none for a keypad or
+ // a view; a film has no keys, no code and no turns: the mansion's TV): u16
+ // its length (the game's ticks; 0: no film, nothing more), then u16 how long
+-// its thing's place shows first and u8 the thing's picture meanwhile, u16 the
++// its thing's place shows first (from 0250 at most its length and
++// kMostFilmLead, else the file is refused) and u8 the thing's picture
++// meanwhile, u16 the
+ // costume of the one there (0: nobody), u16 x and y of their feet (source
+ // pixels), u8 the way they face (0 left, 1 right, 2 front, 3 back), u8 their
+ // talk colour (an index into the panel's colours), u8 count of events, each
+@@ -246,7 +248,7 @@ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 3276
+ // (Its close-ups' limits are the engine bridge's, which the export keeps to.)
+ using PanelBridge::kMostCloseUps; using PanelBridge::kMostCloseUpKeys; using PanelBridge::kMostPresses;
+ using PanelBridge::kMostTurns; using PanelBridge::kMostButtons; using PanelBridge::kMostCoins;
+-using PanelBridge::kMostFilmEvents; using PanelBridge::kMostMarks; using PanelBridge::kMostMarked;
++using PanelBridge::kMostFilmEvents; using PanelBridge::kMostMarks; using PanelBridge::kMostMarked; using PanelBridge::kMostFilmLead;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 983b312b..818fe554 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -172,9 +172,11 @@ bool unpowered(int game, int room);
+ // (The most a things file's close-ups have: close-ups, keys and presses in
+ // one, from 0242 a view's turns, buttons and coins. A file with more is
+ // refused whole, so the export leaves out a close-up over them.)
+-// From 0248 a film's events, a file's marks and the answers that read them.
++// From 0248 a film's events, a file's marks and the answers that read them;
++// from 0250 a film's lead (ticks its thing shows first, taps waiting: the
++// mansion's TV's 126), no longer than the film either.
+ static const int kMostCloseUps = 16, kMostCloseUpKeys = 64, kMostPresses = 16, kMostTurns = 16, kMostButtons = 16, kMostCoins = 64;
+-static const int kMostFilmEvents = 64, kMostMarks = 8, kMostMarked = 1024;
++static const int kMostFilmEvents = 64, kMostMarks = 8, kMostMarked = 1024, kMostFilmLead = 600;
+ int closeUpCount(int game);
+ bool closeUpThing(int game, int index, int &room, int &id, int &kinds);
+ bool closeUpScene(int game, int index, int &room, int &left, int &keys, int &presses);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 260029b7..5c22c178 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -54,10 +54,12 @@ static const int kWorldExportVersion = 25;
+ // telescope's view, kWorldCloseUps: "maniac-v35"); from 0247 Sam & Max's (its
+ // things placed and what its verbs on them answer: "samnmax-v26"); from 0248
+ // the mansion's again (its TV's film and the marks it leaves, kWorldCloseUps
+-// and kWorldMarks: "maniac-v36").
++// and kWorldMarks: "maniac-v36"); from 0250 the mansion's again (the rest of
++// the envelope's way to the mailbox: more marks and the answers that read
++// them, kWorldMarks and kWorldMarkReaders: "maniac-v37").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 11 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1078,22 +1080,98 @@ static const WorldVerb kWorldVerbs[] = {
+ // wall safe addressed). The export finds which answers leave them (a film's
+ // end, an answer's) and plays each answer that reads them (kWorldMarkReaders)
+ // with each set and not; named here, as the export cannot tell which of the
+-// game's variables say so.
++// game's variables say so. At most eight a game (a things file's byte).
++// From 0250 the rest of the envelope's way (the mansion's scripts 58, 59,
++// 74, 78, 85 and 86 and its things' own in rooms 1, 7 and 9): steamed open in
++// the microwave (variable 81 at 1: the jar of water and the envelope in it,
++// turned on), torn open (81 at 2: opened unsteamed; its stamps and contents
++// refused for good), opened (84: the quarter inside given), the manuscript
++// put in (82 at 1; the cassette tape, 82 at 2, is not kept: no ninth mark),
++// stamped (83: the stamps from the package at the front door, only once
++// steamed) and the glass jar filled at the kitchen's running tap (166 at 1).
++// The mailbox reads 104, 83 and 82 (its pickup, kWorldTimed, 104 and 83);
++// the manuscript retyped (160) and the reply (101) are not kept.
+ struct WorldMark { short game, bit, var, value; };
+-static const WorldMark kWorldMarks[] = {{10, 2968, 0, 0}, {10, 0, 104, 1}};
++static const WorldMark kWorldMarks[] = {{10, 2968, 0, 0}, {10, 0, 104, 1},
++	{10, 0, 81, 1}, {10, 0, 81, 2}, {10, 0, 84, 1}, {10, 0, 82, 1}, {10, 0, 83, 1}, {10, 0, 166, 1}};
++// (The mansion's, by their index above: bit k of an answer's marks is mark k.)
++enum {
++	kManiacMarkWatched = 1 << 0, kManiacMarkAddressed = 1 << 1, kManiacMarkSteamed = 1 << 2, kManiacMarkTorn = 1 << 3,
++	kManiacMarkOpened = 1 << 4, kManiacMarkManuscript = 1 << 5, kManiacMarkStamped = 1 << 6, kManiacMarkWater = 1 << 7
++};
+ // An answer that reads a mark (from 0248): a verb kind on a thing of a room,
+ // with a second thing (`with`, one that can be carried; 0: none), and `need`
+ // (0: none), a thing of that room its script wants in its picture 1, put so
+ // as a player does first. The mansion's typewriter (room 27, 416) used with
+ // the envelope (222): it types the address only for a kid who watched the
+ // TV's film, once; the mailbox (room 1, 276), its door (50) open, takes the
+-// envelope only addressed (then it wants the stamps, which the new engine
+-// does not keep: its line); the envelope read, in the safe (room 9) or
+-// carried, and posted (room 1, 58), says whether it is addressed.
+-struct WorldMarkReader { short game, room, object, kind, with, need; };
++// envelope only addressed, stamped and with something in it (its line for
++// the first wanting, as its script asks in that order); the envelope read,
++// in the safe (room 9) or carried, and posted (room 1, 58), says whether it
++// is addressed.
++// From 0250 `reads`, the marks its script reads (bit k: mark k): the export
++// plays it with each set of those (not two values of one variable at once),
++// the others not set, and the new engine looks its answer up by those it
++// reads; `also`, a second thing of its room wanted in picture 1, and `var`
++// (0: none) at `value` as its game counts them then (the microwave's
++// contents). The rest of the envelope's way: in the kitchen (room 7) the
++// microwave (85) open takes the envelope (unless steamed or torn: their
++// lines) and the glass jar (132, only filled: else its line), shuts over
++// them, and turned on with both in steams the envelope open; the tap (88)
++// running fills the jar; the envelope (31) and the jar (83) taken out again;
++// the envelope opened carried (the quarter in it given; torn, unsteamed),
++// the manuscript (210) used with it (only opened, not torn: else its line);
++// the package (room 1, 57) opened gives its stamps (165), used with the
++// envelope only steamed; the envelope posted (58) taken back again.
++struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads; };
+ static const WorldMarkReader kWorldMarkReaders[] = {
+-	{10, 27, 416, kWorldVerbUse, 222, 0}, {10, 1, 276, kWorldVerbUse, 222, 50},
+-	{10, 9, 222, kWorldVerbRead, 0, 0}, {10, 1, 58, kWorldVerbRead, 0, 0}};
++	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed},
++	{10, 1, 276, kWorldVerbUse, 222, 50, 0, 0, 0, kManiacMarkAddressed | kManiacMarkStamped | kManiacMarkManuscript},
++	{10, 9, 222, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed}, {10, 1, 58, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed},
++	{10, 7, 85, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn},
++	{10, 7, 85, kWorldVerbUse, 132, 0, 0, 0, 0, kManiacMarkWater},
++	{10, 7, 85, kWorldVerbClose, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbTurnOn, 0, 31, 83, 85, 6, 0},
++	{10, 7, 88, kWorldVerbUse, 132, 0, 0, 0, 0, 0},
++	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0},
++	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript},
++	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript},
++	{10, 1, 57, kWorldVerbOpen, 0, 0, 0, 0, 0, 0},
++	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed},
++	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0}};
++inline const WorldMarkReader *worldMarkReader(int game, int room, int object, int kind, int with) {
++	for (const WorldMarkReader &r : kWorldMarkReaders)
++		if (r.game == game && r.room == room && r.object == object && r.kind == kind && r.with == with) return &r;
++	return nullptr;
++}
++// Timed events (from 0250): what a game's script does a while after the one
++// played leaves a place (`from`, for `to`; 0: anywhere else) with things of
++// it in pictures (`need`: a thing and its picture each; 0: none) and marks
++// of its game set (`marks`, bit k: mark k), which the new engine keeps on
++// its own clock (its ticks, 1/60 s, as the original's): `first` ticks
++// later, then every `every` until the one played is in neither of `away`
++// (0: none), things of `room` put in their pictures (`sets`), only while
++// `check` (0: none) is still in `checkPicture`; `once`: never again after it
++// started once. The mansion's package (script 111, started by the stairs of
++// room 12, 457, to room 38, the first time): 18000 and 300 ticks later,
++// then every 300, with no kid at the front door (room 1) or in Weird Ed's
++// room (26), at the front door (57 in its picture 0, its stamps inside);
++// Ed's coming down for it is not modelled (it stays). Its mail's pickup
++// (room 1's exit script and script 105): leaving the front door with the
++// envelope posted (58), the mailbox shut (50), its flag up (51), addressed
++// and stamped, 3600 and 1800 ticks later, then every 1800 with no kid
++// there, the envelope collected and the flag down. What follows is not
++// modelled: its cut-scene three minutes later (room 41, what was posted
++// read: no ending), then five minutes after that the reply (60) at the
++// front door, only for a manuscript retyped (variable 160) or a cassette
++// recorded (157; neither kept), and an ending only from that reply given to
++// the Purple Meteor (actor 16). The export checks the first delay against
++// that of the script that waits it (`script`; scummverseExportThings).
++struct WorldTimed { short game, from, to, need[3][2], marks, first, every, away[2], room, check, checkPicture, sets[2][2], once, script; };
++static const WorldTimed kWorldTimed[] = {
++	{10, 12, 38, {{0, 0}, {0, 0}, {0, 0}}, 0, 18300, 300, {1, 26}, 1, 0, 0, {{57, 0}, {0, 0}}, 1, 111},
++	{10, 1, 0, {{58, 1}, {50, 0}, {51, 1}}, kManiacMarkAddressed | kManiacMarkStamped, 5400, 1800, {1, 0}, 1, 58, 1, {{58, 0}, {51, 0}}, 0, 105}};
++static const int kWorldTimedCount = (int)(sizeof(kWorldTimed) / sizeof(kWorldTimed[0]));
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+ // oldest games' sentence line and inventory are the engine's own.)
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 9370c0e0..16670f9a 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1652,7 +1652,10 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // view), then the marks (kWorldMarks) and the answers that read them
+ // (kWorldMarkReaders), each played with each set of marks; see
+ // Scummverse::Panel::CloseUpFilm. A file with no film and no mark (Sam &
+-// Max's) is still "SVO7", the same bytes as before.
++// Max's) is still "SVO7", the same bytes as before. From 0250 (the same
++// "SVO8") more marks and answers that read them (the envelope's way to the
++// mailbox), each played with the sets of the marks it reads only, and the
++// timed events' delays (kWorldTimed) checked against their scripts'.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -2399,6 +2402,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				const bool played = playFilm(c, u);
+ 				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
+ 					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (more close-ups than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++				else if (played && (u.lead > Scummverse::PanelBridge::kMostFilmLead || u.lead > u.length))
++					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (its lead, %d ticks, longer than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, u.lead);
+ 				else if (played) closeUps.push_back(u);
+ 				else warning("SCUMMVERSE world things: %s film %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+ 				debug(1, "SCUMMVERSE world things: %s film %d (room %d object %d): %d ticks after %d (picture %d), costume %d at %d,%d facing %d, %d events, picture after %d, mark %d, %s",
+@@ -2463,21 +2468,37 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// thing it wants first in its picture 1, its second the kid's, the
+ 		// marks so; its script run until it ends (as the effects above): its
+ 		// line, its picture after, the others it sets, what the kid has then,
+-		// what is used up, and the marks it leaves set.)
++		// what is used up, and the marks it leaves set. From 0250 each set of
++		// the marks it reads only (the others not set), never two values of
++		// one variable at once; also its second thing wanted (picture 1) and
++		// the variable that counts them; one that can be carried, the kid's
++		// (in its inventory as taken, as the pairs above); the others it set
++		// only where their picture changed (what the microwave's door shuts
++		// over is still in it).)
++		auto clashes = [&](int set) {
++			for (uint a = 0; a < marks.size(); ++a)
++				for (uint b = a + 1; b < marks.size(); ++b)
++					if ((set & 1 << a) && (set & 1 << b) && !marks[a]->bit && !marks[b]->bit && marks[a]->var == marks[b]->var) return true;
++			return false;
++		};
+ 		for (const WorldMarkReader &m : kWorldMarkReaders) {
+ 			if (m.game != gameIndex || shouldQuit() || marks.empty()) continue;
+-			const int verb = verbOf(m.kind);
++			const int verb = verbOf(m.kind), reads = m.reads & ((1 << marks.size()) - 1);
+ 			for (int from = 0; from < 2 && verb; ++from)
+ 				for (int set = 0; set < 1 << marks.size() && (int)marked.size() < Scummverse::PanelBridge::kMostMarked; ++set) {
++					if ((set & ~reads) || clashes(set)) continue;
+ 					if (booted) restore(started); else putBack();
+ 					_rnd.setSeed(0x5C0BE + m.room);
+ 					if (!arrive(m.room) || !getVerbEntrypoint(m.object, verb)) break;
+ 					const int ego = VAR(VAR_EGO);
+ 					if (m.need) putState(m.need, getState(m.need) | kObjectStateIntrinsic);
++					if (m.also) putState(m.also, getState(m.also) | kObjectStateIntrinsic);
++					if (m.var > 0 && m.var < _numVariables) VAR(m.var) = m.value;
+ 					putState(m.object, from ? getState(m.object) | kObjectStateIntrinsic : getState(m.object) & ~kObjectStateIntrinsic);
++					if (carryable.contains(m.object)) { addObjectToInventory(m.object, m.room); putOwner(m.object, ego); }
+ 					if (m.with) putOwner(m.with, ego);
+ 					putMarks(set);
+-					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects);
++					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects), was(_objectStateTable, _numGlobalObjects);
+ 					Common::Array<int> setStates;
+ 					_scummverseStatesSet = &setStates;
+ 					VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = m.object; VAR(VAR_ACTIVE_OBJECT2) = m.with;
+@@ -2505,7 +2526,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					e.secondGone = m.with && m.with < (int)had.size() && had[m.with] == ego && getOwner(m.with) != ego;
+ 					Common::HashMap<int, bool> listed;
+ 					for (int other : setStates) {
+-						if (other == m.object || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64) continue;
++						if (other == m.object || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64 ||
++							!((was[other] ^ _objectStateTable[other]) & kObjectStateIntrinsic)) continue;
+ 						listed[other] = true;
+ 						e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(_objectStateTable[other] & kObjectStateIntrinsic ? 1 : 0);
+ 					}
+@@ -2518,6 +2540,34 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 			debug(1, "SCUMMVERSE world things: %s answers of room %d object %d by its marks: %d so far", kWorldGames[gameIndex].gameid, m.room, m.object, (int)marked.size());
+ 		}
++		// (From 0250: each timed event's first wait (kWorldTimed) as the
++		// script that waits it counts, from the game's own start, the place it
++		// is left for (else one of the game's not to be in), as it leaves
++		// things then (its needs, the marks), its script run alone by the
++		// game's loop's time until its first thing changes; told whether it is
++		// the one named.)
++		for (int t = 0; t < kWorldTimedCount && booted && !shouldQuit(); ++t) {
++			const WorldTimed &w = kWorldTimed[t];
++			if (w.game != gameIndex || !w.script || !w.sets[0][0]) continue;
++			int there = w.to;
++			for (uint r = 0; r < found.size() && !there; ++r)
++				if (found[r].room != w.from && found[r].room != w.away[0] && found[r].room != w.away[1] && !worldCloseUpScene(gameIndex, found[r].room)) there = found[r].room;
++			restore(started);
++			_rnd.setSeed(0x5C0BE + w.room);
++			if (!there || !arrive(there)) { warning("SCUMMVERSE world things: %s timed event %d not checked (no place to wait in)", kWorldGames[gameIndex].gameid, t); continue; }
++			for (const short (&n)[2] : w.need) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
++			putMarks(w.marks & ((1 << marks.size()) - 1));
++			const int watched = w.sets[0][0], before = getState(watched) & kObjectStateIntrinsic ? 1 : 0;
++			int args[NUM_SCRIPT_LOCAL];
++			memset(args, 0, sizeof(args));
++			runScript(w.script, false, false, args);
++			int at = 0;
++			while (at < 4 * 18000 && !shouldQuit() && isScriptRunning(w.script) && (getState(watched) & kObjectStateIntrinsic ? 1 : 0) == before) at += loopStep();
++			const bool same = (getState(watched) & kObjectStateIntrinsic ? 1 : 0) != before && at >= w.first - 15 && at <= w.first + 15;
++			if (same) debug(1, "SCUMMVERSE world things: %s timed event %d (script %d): %d ticks, as named (%d)", kWorldGames[gameIndex].gameid, t, w.script, at, w.first);
++			else warning("SCUMMVERSE world things: %s timed event %d (script %d): its thing changed after %d ticks, not %d as named", kWorldGames[gameIndex].gameid, t, w.script, at, w.first);
++			quiet();
++		}
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+ 	} else if (_game.id == GID_SAMNMAX && VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index dc5ab4cd..adeb788e 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -405,6 +405,10 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		problem = "the one played is not installed"; return false;
+ 	}
+ 	if (!read(Common::String::format("%s-%d.svw", g.gameid, room), data)) { problem = "not installed"; return false; }
++	// (From 0250: the timed events leaving here for there starts, as the place
++	// is now; started once the one played is there. Not a close-up's, nor
++	// the tour's: it leaves every place as it finds it, its clock waiting.)
++	const int leaving = _enteringCloseUp || _touring.on ? 0 : timedLeaving(game, room);
+ 	// The game's own verb panel under the scene, both at one scale, as the
+ 	// original's screen has them (the room above, the panel below).
+ 	Common::Array<byte> ui;
+@@ -474,6 +478,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		wayBackKeep();
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
++	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+ 	_cabinLeft = _cabinRight = 0;
+ 	_notice.clear(); _noticeClock = 0; // (what was told at the place before)
+@@ -636,6 +641,16 @@ struct ManiacOpenedBy { short room, door; const char *line; };
+ static const ManiacOpenedBy kManiacOpenedBy[] = {{10, 69, "There's no handle here!"}};
+ struct ManiacDoorNeeds { short room, door, needRoom, needObject, needPicture; };
+ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69, 10, 69, 1}};
++// From 0250: things its scripts make touchable only as they show them
++// (clearing their untouchable bit with their picture), away where its start
++// puts them: touchable while in another picture than that start's (an
++// answer's or a timed event's, kWorldTimed). The sealed envelope and the jar
++// of water put in the microwave (room 7, 31 and 83), the envelope posted in
++// the mailbox (room 1, 58) and the package at the front door (57).
++// Those put in the microwave are inside it as its script has them (no
++// parent of the game's): touchable only while it is open (85 in picture 1).
++struct ManiacShownLater { short room, object, inside, insidePicture; };
++static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85, 1}, {1, 58, 0, 0}, {1, 57, 0, 0}};
+ 
+ bool SandboxEngine::padlockOpen(int id) const {
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+@@ -709,13 +724,27 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	} else if (StageBridge::objectPictures(target) > 1) {
+ 		if (StageBridge::objectShown(target) != after) showPicture(target, id, after);
+ 	} else _pictures[thingKey(_game, _room, id)] = after;
+-	// (Not one carried: what is taken stays taken.)
+-	for (int k = 0; k < count; ++k)
+-		if (!isCarried(_game, others[3 * k], others[3 * k + 1])) setPicture(others[3 * k], others[3 * k + 1], others[3 * k + 2]);
++	// (Not one carried: what is taken stays taken. From 0250 one the kid has
++	// then (an answer by the marks: the envelope taken out of the
++	// microwave): carried, gone from its place.)
++	othersAfter(_game, others, count);
+ 	leaveMarks(_game, sets);
+ 	return true;
+ }
+ 
++// The others an answer sets (room, id, picture each): shown so, here or
++// kept; picture 2 one the kid has then (carried, gone from its place); not
++// one carried already.
++void SandboxEngine::othersAfter(int game, const int *others, int count) {
++	for (int k = 0; k < count; ++k) {
++		const int r = others[3 * k], o = others[3 * k + 1], picture = others[3 * k + 2];
++		if (isCarried(game, r, o)) continue;
++		if (picture == 2) { if (carry(game, r, o, "", 0)) _pictures[thingKey(game, r, o)] = 1; }
++		else if (game == _game) setPicture(r, o, picture);
++		else _pictures[thingKey(game, r, o)] = picture;
++	}
++}
++
+ // From 0247, a thing of Sam & Max's as its game's own sentence answers a
+ // verb of its pointer (its things file): from the picture it is in (0 or
+ // 1), the line said, its picture after, taken (carried, its place as the
+@@ -1167,8 +1196,13 @@ bool SandboxEngine::isThing(int object) const {
+ 	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state) || StageBridge::objectName(object, name, sizeof(name)) <= 0 || isCarried(_game, _room, id)) return false;
+ 	// (Not one inside another shut: the fridge's food, the key under the mat.)
+ 	if (insideShut(object)) return false;
+-	// (Not one its game has untouchable or away.)
+-	return !PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway);
++	// (Not one its game has untouchable or away; from 0250 one its script
++	// makes touchable as it shows it (kManiacShownLater) while shown so.)
++	if (!PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway)) return true;
++	if (strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	for (const ManiacShownLater &l : kManiacShownLater)
++		if (l.room == _room && l.object == id) return pictureOf(_room, id) != picture && (!l.inside || pictureOf(_room, l.inside) == l.insidePicture);
++	return false;
+ }
+ 
+ // Where a tap takes things before doors (Loom's distaff), a door wholly
+@@ -1621,6 +1655,21 @@ void SandboxEngine::useItem(int item, int kind) {
+ 			if (PanelBridge::thingEffect(c.game, c.room, c.id, kWorldVerbRead, from, after, others, count, 1, said, sizeof(said)) && *said) { say(said); return; }
+ 		}
+ 	}
++	// (From 0250 the mansion's, opened carried (the envelope, the package):
++	// as its script answers by the marks, where it reads them, as carried.)
++	if (kind == kWorldVerbOpen && item >= 0 && item < (int)_carried.size()) {
++		const Carried c = _carried[item];
++		loadThings(c.game);
++		int after, others[3 * 64], count, flags, sets;
++		char said[256];
++		if (markedEffect(c.game, c.room, c.id, kWorldVerbOpen, 1, 0, after, others, count, 64, said, sizeof(said), flags, sets)) {
++			if (*said) say(said);
++			othersAfter(c.game, others, count);
++			leaveMarks(c.game, sets);
++			if (!_testing) saveState();
++			return;
++		}
++	}
+ 	int picture;
+ 	char line[160];
+ 	const bool naming = kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbRead;
+@@ -2449,7 +2498,10 @@ void SandboxEngine::filmStep(int ticks) {
+ 
+ // Seen (or skipped): back where it was shown from, everyone as they stood,
+ // its thing in its picture after, its mark left for the one played (or the
+-// game).
++// game). From a review of 0248: where it was shown from not shown again
++// (its scene or the one played's file not read now), over all the same, once
++// (not tried again each frame, the one played hidden there): marked so, then
++// somewhere else as a launch would start (startElsewhere).
+ void SandboxEngine::filmEnd() {
+ 	const CloseUp c = _closeUp;
+ 	int length, lead, leadPicture, costume, fx, fy, facing, color, events, after = -1, mark = -1;
+@@ -2457,9 +2509,15 @@ void SandboxEngine::filmEnd() {
+ 	char off[8];
+ 	if (!c.film || c.index < 0) return;
+ 	if (!PanelBridge::closeUpFilm(c.game, c.index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off))) after = mark = -1;
+-	if (!closeUpBack()) return;
+-	if (after >= 0) setPicture(c.room, c.id, after);
++	const bool back = closeUpBack();
++	if (!back) _closeUp = CloseUp();
++	if (after >= 0) {
++		if (c.game == _game) setPicture(c.room, c.id, after);
++		else _pictures[thingKey(c.game, c.room, c.id)] = after;
++	}
+ 	if (mark >= 0) leaveMarks(c.game, 1 << mark);
++	Common::String problem;
++	if (!back && !startElsewhere(c.game, c.room, problem)) warning("SCUMMVERSE sandbox: nowhere to be after the film %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
+ 	if (!_testing) saveState();
+ }
+ 
+@@ -2488,13 +2546,77 @@ void SandboxEngine::leaveMarks(int game, int sets) {
+ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from, int with, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets) {
+ 	int need = 0;
+ 	if (game < 0 || !PanelBridge::markReader(game, room, id, kind, with, need)) return false;
+-	// (The thing it wants first so, as a player has it: else its answer as before.)
+-	if (need && (game != _game || pictureOf(room, need) != 1)) return false;
+-	if (!PanelBridge::markedAnswer(game, room, id, kind, from, with, marksNow(game), after, others, count, capacity, line, lineCapacity, flags, sets)) return false;
++	// (From 0250 the catalog's: a second thing it wants so, and the marks its
++	// script reads, those its answers were played with.)
++	const WorldMarkReader *reader = worldMarkReader(game, room, id, kind, with);
++	if (!reader) return false;
++	// (The things it wants first so, as a player has them: else its answer as before.)
++	if (need && (game != _game || _room != room || pictureOf(room, need) != 1)) return false;
++	if (reader->also && (game != _game || _room != room || pictureOf(room, reader->also) != 1)) return false;
++	if (!PanelBridge::markedAnswer(game, room, id, kind, from, with, marksNow(game) & reader->reads, after, others, count, capacity, line, lineCapacity, flags, sets)) return false;
+ 	flags |= 8; // (its own answer)
+ 	return true;
+ }
+ 
++// ---- Timed events (from 0250; kWorldTimed) ----
++
++int SandboxEngine::pictureIn(int game, int room, int id) const {
++	if (game == _game) return pictureOf(room, id);
++	const Common::HashMap<int, int>::const_iterator kept = _pictures.find(thingKey(game, room, id));
++	if (kept != _pictures.end()) return kept->_value;
++	int picture, answers;
++	return PanelBridge::gameThing(game, room, id, picture, answers) ? picture : 0;
++}
++
++// Leaving here for there: those whose place it is, for there (or anywhere
++// else), with its things in their pictures and its game's marks set, not
++// waiting already nor done for good.
++int SandboxEngine::timedLeaving(int game, int room) const {
++	int events = 0;
++	if (_game < 0 || _player < 0) return 0;
++	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
++		const WorldTimed &w = kWorldTimed[i];
++		if (w.game != _game || w.from != _room || (w.to ? game != w.game || room != w.to : game == w.game && room == w.from)) continue;
++		bool ok = (marksNow(w.game) & w.marks) == w.marks;
++		for (const short (&n)[2] : w.need) ok = ok && (!n[0] || pictureOf(w.from, n[0]) == n[1]);
++		for (const Timed &t : _timed) ok = ok && !(t.event == i && t.phase);
++		if (ok) events |= 1 << i;
++	}
++	return events;
++}
++
++void SandboxEngine::timedStart(int events) {
++	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
++		if (!(events & 1 << i)) continue;
++		Timed t;
++		t.event = i; t.phase = 1; t.left = kWorldTimed[i].first;
++		_timed.push_back(t);
++	}
++}
++
++// Its time come: with the one played in a place it waits out, again after a
++// while; else its things put so (where the one it checks is still so).
++void SandboxEngine::timedStep(int ticks) {
++	bool changed = false;
++	for (uint i = 0; i < _timed.size(); ++i) {
++		Timed &t = _timed[i];
++		if (t.phase != 1 || t.event < 0 || t.event >= kWorldTimedCount || (t.left -= ticks) > 0) continue;
++		const WorldTimed &w = kWorldTimed[t.event];
++		if (_game == w.game && ((w.away[0] && _room == w.away[0]) || (w.away[1] && _room == w.away[1]))) { t.left += MAX<int>(1, w.every); continue; }
++		t.phase = w.once ? 2 : 0;
++		loadThings(w.game);
++		if (w.check && pictureIn(w.game, w.room, w.check) != w.checkPicture) continue;
++		for (const short (&set)[2] : w.sets) {
++			if (!set[0]) continue;
++			if (w.game == _game) setPicture(w.room, set[0], set[1]);
++			else _pictures[thingKey(w.game, w.room, set[0])] = set[1];
++		}
++		changed = true;
++	}
++	for (uint i = _timed.size(); i-- > 0;) if (_timed[i].phase == 0) _timed.remove_at(i);
++	if (changed) { _dirty = true; if (!_testing) saveState(); }
++}
++
+ // The turn a view's thing is at (kept, else the one its game starts at; one
+ // no longer among its turns, an export later: that one too).
+ int SandboxEngine::viewTurn(int index) const {
+@@ -2787,6 +2909,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_closeUp.film) filmStep(ticks);
+ 	tramStep(ticks);
+ 	rideStep(ticks);
++	if (!_touring.on) timedStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+ 	cabinPan(ticks);
+@@ -4618,6 +4741,9 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // thing, u8 its turn as its game counts (255: the one it starts at), u8 the
+ // turns paid for). "SVS5" (0248) adds the marks (u16 count; s16 game, u8
+ // the mark, s32 the key of the one played it is for, 0: the game's).
++// "SVS6" (0250) adds the timed events started (u16 count; s16 game, u8 the
++// event, its index in kWorldTimed, u8 its phase, 1 waiting, 2 done for
++// good, s32 the ticks left).
+ // "SVS1" (0105, 0106) ends after everyone; "SVS2" after the things carried.
+ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
+ 	if (_game < 0 || _player < 0) return false;
+@@ -4651,7 +4777,7 @@ void SandboxEngine::saveState() const {
+ 	if (!keptPlace(game, room, x, y)) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+-	out->writeUint32BE(MKTAG('S', 'V', 'S', '5'));
++	out->writeUint32BE(MKTAG('S', 'V', 'S', '6'));
+ 	out->writeSint16LE(game); out->writeSint16LE(room); out->writeSint32LE(_playerKey);
+ 	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
+ 	const int values = _wanderers ? WanderBridge::packedCount() : 0;
+@@ -4687,6 +4813,11 @@ void SandboxEngine::saveState() const {
+ 	}
+ 	out->writeUint16LE(MIN<uint>(_marks.size(), 65535));
+ 	for (uint i = 0; i < _marks.size() && i < 65535; ++i) { out->writeSint16LE(_marks[i].game); out->writeByte(_marks[i].mark); out->writeSint32LE(_marks[i].key); }
++	out->writeUint16LE(MIN<uint>(_timed.size(), 65535));
++	for (uint i = 0; i < _timed.size() && i < 65535; ++i) {
++		const Timed &t = _timed[i];
++		out->writeSint16LE(t.event >= 0 && t.event < kWorldTimedCount ? kWorldTimed[t.event].game : -1); out->writeByte(t.event); out->writeByte(t.phase); out->writeSint32LE(t.left);
++	}
+ 	out->finalize();
+ }
+ 
+@@ -4694,7 +4825,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	if (kept) *kept = false;
+ 	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 	const uint32 tag = in ? in->readUint32BE() : 0;
+-	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4') && tag != MKTAG('S', 'V', 'S', '5')) return false;
++	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4') && tag != MKTAG('S', 'V', 'S', '5') && tag != MKTAG('S', 'V', 'S', '6')) return false;
+ 	game = in->readSint16LE(); room = in->readSint16LE();
+ 	const int key = in->readSint32LE();
+ 	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
+@@ -4717,7 +4848,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	}
+ 	// What was changed and taken, and what is carried (dropped as a whole
+ 	// when the file ends early).
+-	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear(); _marks.clear();
++	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear(); _marks.clear(); _timed.clear();
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && everyone) {
+ 		Common::HashMap<int, int> pictures;
+ 		const int changed = in->readUint16LE();
+@@ -4737,7 +4868,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The stains, from SVS3: dropped as a whole when the file ends early.)
+ 		Common::Array<Stain> stains;
+-		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
++		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < marks && !in->eos(); ++i) {
+ 			Stain s;
+ 			s.game = in->readSint16LE(); s.room = in->readSint16LE();
+@@ -4746,7 +4877,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The views' turns, from SVS4: likewise.)
+ 		Common::HashMap<int, Turned> turned;
+-		const int views = tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
++		const int views = tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < views && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), r = in->readSint16LE(), id = in->readUint16LE(), value = in->readByte(), paid = in->readByte();
+ 			Turned t;
+@@ -4755,18 +4886,30 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The marks, from SVS5: likewise.)
+ 		Common::Array<Mark> left;
+-		const int leftCount = tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
++		const int leftCount = tag == MKTAG('S', 'V', 'S', '5') || tag == MKTAG('S', 'V', 'S', '6') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < leftCount && !in->eos(); ++i) {
+ 			Mark m;
+ 			m.game = in->readSint16LE(); m.mark = in->readByte(); m.key = in->readSint32LE();
+ 			if (m.game >= 0 && m.game < worldGameCount() && m.mark < PanelBridge::kMostMarks && m.key >= 0) left.push_back(m);
+ 		}
++		// (The timed events, from SVS6: likewise; one no longer of its game's, let go.)
++		Common::Array<Timed> timed;
++		const int timedCount = tag == MKTAG('S', 'V', 'S', '6') ? in->readUint16LE() : 0;
++		for (int i = 0; i < timedCount && !in->eos(); ++i) {
++			const int g = in->readSint16LE();
++			Timed t;
++			t.event = in->readByte(); t.phase = in->readByte(); t.left = in->readSint32LE();
++			// (Its ticks left within its waits: a damaged one, never come or at once, let go.)
++			const WorldTimed *w = t.event < kWorldTimedCount && kWorldTimed[t.event].game == g ? &kWorldTimed[t.event] : nullptr;
++			if (w && (t.phase == 2 || (t.phase == 1 && t.left > 0 && t.left <= MAX<int>(w->first, w->every)))) timed.push_back(t);
++		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+ 			for (const Carried &c : carried) if (!carry(c.game, c.room, c.id, c.name, c.picture, false)) _carriedAway.push_back(c);
+ 			_stains = stains;
+ 			_turned = turned;
+ 			_marks = left;
++			_timed = timed;
+ 		}
+ 	}
+ 	return usable;
+@@ -5666,6 +5809,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0;
+ 	int tvPowerOff = 0, tvOff = 0, tvFilms = 0, tvEvents = 0, tvEventCount = 0, tvLines = 0, tvMarked = 0, tvSkipped = 0, tvLeft = 0;
+ 	int typeRefused = 0, typeTyped = 0, typeAgain = 0, typeOther = 0, mailShut = 0, mailNoAddress = 0, mailAddressed = 0, readBlank = 0, readAddressed = 0, marksKept = 0, marksOlder = 0;
++	int mailRefused = 0, mailInside = 0, mailAlone = 0, mailWater = 0, mailSteamed = 0, mailOut = 0, mailOpened = 0, mailManuscript = 0, mailTyped = 0, mailPackage = 0, mailPackageTicks = 0, mailStampsGiven = 0;
++	int mailStamped = 0, mailPosted = 0, mailRead = 0, mailBack = 0, mailNotDue = 0, mailDue = 0, mailKept = 0, mailCollected = 0, mailCollectedTicks = 0, mailWaited = 0, mailAfter = 0, mailTorn = 0, mailOlder = 0;
++	int mailDamaged = 0, mailFellBack = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -5985,6 +6131,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from);
+ 			else _pictures[thingKey(maniac, room, id)] = from;
+ 			(void)picture; (void)answers;
++			// (From 0250 an answer by the marks may leave one or give a thing (the
++			// envelope opened): as they were after, as the next starts afresh.)
++			const Common::Array<Mark> marksHad = _marks;
++			const uint carriedHad = _carried.size();
+ 			if (!PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said)) || !doAt(kind, o)) {
+ 				fail("a record not found again, or its thing not reached", maniac);
+ 				continue;
+@@ -6014,6 +6164,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 				PanelBridge::removeItem(c); _carried.remove_at(c); ++effectsTaken;
+ 				break;
+ 			}
++			for (uint c = _carried.size(); c-- > carriedHad;) {
++				_pictures.erase(thingKey(_carried[c].game, _carried[c].room, _carried[c].id));
++				PanelBridge::removeItem(c); _carried.remove_at(c);
++			}
++			_marks = marksHad;
+ 		}
+ 		// Things inside others (from 0168, their game's parents): the
+ 		// fridge's food not touched shut; opened, the cheese taken; shut over
+@@ -6480,9 +6635,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 			const int tvPowerKey = thingKey(maniac, tvPowerRoom, tvPowerId), tvKey = thingKey(maniac, tvRoom, tvThing);
+ 			int onKind = 0;
+ 			for (int k = 1; k < 16 && !onKind; ++k) if (tvKinds & 1 << k) onKind = k;
+-			// (The mark the typewriter leaves: the game's.)
++			// (The mark the typewriter leaves: the game's; from 0250 the second of
++			// those it reads, kManiacMarkAddressed.)
+ 			int addressed = -1;
+-			for (int k = 0; k < PanelBridge::markCount(maniac); ++k) if (k != mark && PanelBridge::markKind(maniac, k) == 1) addressed = k;
++			for (int k = 0; k < PanelBridge::markCount(maniac); ++k) if (k != mark && PanelBridge::markKind(maniac, k) == 1 && 1 << k == kManiacMarkAddressed) addressed = k;
+ 			// (Three of the mansion's own to play: the one played now, then two others.)
+ 			Common::Array<int> kids;
+ 			kids.push_back(_playerKey);
+@@ -6666,8 +6822,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 					Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 					if (in) { file.resize(in->size()); file.resize(in->read(file.data(), file.size())); }
+ 				}
+-				const uint tail = 2 + 7 * now.size();
+-				if (file.size() > tail + 4 && file[3] == '5') {
++				// (From 0250 "SVS6": its timed events after the marks, left out too.)
++				const uint tail = 2 + 7 * now.size() + (file.size() > 4 && file[3] == '6' ? 2 + 8 * _timed.size() : 0);
++				if (file.size() > tail + 4 && (file[3] == '5' || file[3] == '6')) {
+ 					file.resize(file.size() - tail); file[3] = '4';
+ 					Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 					if (out) { out->write(file.data(), file.size()); out->finalize(); }
+@@ -6677,6 +6834,277 @@ Common::Error SandboxEngine::verbsTest() {
+ 				else fail("an older state (no marks) not read", maniac);
+ 				_marks = now;
+ 			}
++			// (5) From 0250 the rest of the envelope's way, as a player has it,
++			// from afresh (no marks, the chain's things where its start puts
++			// them): each answer refusing before what its script wants, then as
++			// recorded. The stamps refused by the envelope unsteamed. In the
++			// kitchen (room 7) the microwave opened: the jar refused empty, the
++			// envelope put in, turned on with it alone: not steamed; the tap off,
++			// the jar not filled; running, filled; put in, the microwave shut
++			// over both (not touchable shut), turned on: steamed; opened, both
++			// taken out again (each touchable only while shown, the microwave
++			// open). The manuscript refused by the envelope
++			// unopened; opened carried: the quarter given, not torn. The TV
++			// watched (skipped by a tap), the address typed. The package not at
++			// the front door, nor its stamps; the stairs of room 12 climbed: there
++			// its time after with nobody at the front door (not a tick before),
++			// opened: its stamps given; climbed again: no second one; the stamps
++			// used with the envelope: stamped. The mailbox open: refused with
++			// nothing in the envelope; the manuscript put in, the envelope posted,
++			// read addressed. Due on leaving (the mailbox shut, its flag up),
++			// taken back before its time: then nothing, the flag still up;
++			// posted again, not due with the flag down, the mailbox open or a
++			// mark its exit script wants missing; due
++			// shut with the flag up, kept through a save and reload; back at the
++			// front door when it comes, it waits; gone again, collected its time
++			// after (the flag down); nothing after it (its cut-scene and reply
++			// not modelled). Torn open (opened unsteamed): the contents, the
++			// stamps and the microwave refuse it. An older state (SVS5: marks, no
++			// timed events) read so; damaged timed events let go. From a review
++			// of 0248: a film whose place is not shown again as it ends, over
++			// once, elsewhere, the one who watched marked.
++			if (ok && installed(maniac, 7) && installed(maniac, 12) && installed(maniac, 38) && installed(maniac, 2) && installed(maniac, 22) && installed(maniac, 36)) {
++				const Common::Array<Mark> marksTv = _marks;
++				_marks.clear(); _timed.clear();
++				static const int chainThings[][2] = {{9, 222}, {9, 221}, {22, 210}, {36, 132}, {1, 165}, {1, 57}, {1, 50}, {1, 51}, {1, 58}, {1, 60}, {1, 276},
++					{7, 31}, {7, 83}, {7, 85}, {7, 88}};
++				auto fresh = [&]() {
++					for (const int (&t)[2] : chainThings) { putBack(t[0], t[1]); _pictures.erase(thingKey(maniac, t[0], t[1])); }
++					_marks.clear(); _timed.clear();
++				};
++				auto carriedAt = [&](int room, int id) {
++					for (uint c = 0; c < _carried.size(); ++c) if (_carried[c].game == maniac && _carried[c].room == room && _carried[c].id == id) return (int)c;
++					return -1;
++				};
++				auto take = [&](int room, int id) { const int c = carriedAt(room, id); return c >= 0 ? c : carry(maniac, room, id, "", 0) ? (int)_carried.size() - 1 : -1; };
++				auto go = [&](int room) { return (_game == maniac && _room == room && _closeUp.index < 0) || enter(maniac, room, 0, problem); };
++				// (A thing carried used with one here, or with another carried.)
++				auto useOnThing = [&](int itemRoom, int itemId, int room, int id) {
++					if (!go(room)) return false;
++					const int item = take(itemRoom, itemId), o = thingIn(id);
++					if (item < 0 || o < 0) return false;
++					Pair p;
++					p.kind = kWorldVerbUse; p.item = item; p.withThing = o;
++					_speech.clear();
++					pairUp(p);
++					return true;
++				};
++				auto useItems = [&](int aRoom, int aId, int bRoom, int bId) {
++					const int a = take(aRoom, aId), b = take(bRoom, bId);
++					if (a < 0 || b < 0) return false;
++					Pair p;
++					p.kind = kWorldVerbUse; p.item = a; p.withItem = b;
++					_speech.clear();
++					pairUp(p);
++					return true;
++				};
++				auto said = [&](int room, int id, int kind, int from, int with, int set) {
++					Common::String line;
++					return answer(room, id, kind, from, with, set, line) >= 0 ? line : Common::String("(none)");
++				};
++				auto stepFor = [&](int ticks) { for (; ticks > 0; ticks -= MIN(ticks, 60)) step(MIN(ticks, 60)); };
++				const int steamedMark = kManiacMarkSteamed, tornMark = kManiacMarkTorn, openedMark = kManiacMarkOpened, manuscriptMark = kManiacMarkManuscript,
++					stampedMark = kManiacMarkStamped, waterMark = kManiacMarkWater, addressMark = kManiacMarkAddressed;
++				fresh();
++				// (The stamps (carried as if found) refused by the envelope unsteamed.)
++				bool chain = useItems(1, 165, 9, 222) && _speech == said(1, 165, kWorldVerbUse, 0, 222, 0) && !(marksNow(maniac) & stampedMark) && carriedAt(1, 165) >= 0;
++				if (chain) ++mailRefused; else fail("the stamps used with the envelope unsteamed not refused as its script answers", maniac);
++				putBack(1, 165);
++				_pictures.erase(thingKey(maniac, 1, 165));
++				chain = chain && go(7) && thingIn(85) >= 0 && thingIn(88) >= 0 && thingIn(31) >= 0 && thingIn(83) >= 0;
++				// (The kitchen: the jar refused empty, the envelope alone not steamed.)
++				chain = chain && doAt(kWorldVerbOpen, thingIn(85)) && pictureOf(7, 85) == 1 && !isThing(thingIn(31)) && !isThing(thingIn(83));
++				if (chain && useOnThing(36, 132, 7, 85) && _speech == said(7, 85, kWorldVerbUse, 1, 132, 0) && carriedAt(36, 132) >= 0 && pictureOf(7, 83) == 0) ++mailRefused;
++				else { chain = false; fail("the empty jar not refused by the microwave as its script answers", maniac); }
++				if (chain && useOnThing(9, 222, 7, 85) && carriedAt(9, 222) < 0 && pictureOf(7, 31) == 1 && isThing(thingIn(31)) && pictureOf(7, 85) == 1) ++mailInside;
++				else { chain = false; fail("the envelope not put in the open microwave", maniac); }
++				if (chain && doAt(kWorldVerbTurnOn, thingIn(85)) && !(marksNow(maniac) & steamedMark) && pictureOf(7, 31) == 1) ++mailAlone;
++				else { chain = false; fail("the microwave turned on with the envelope alone steamed it", maniac); }
++				if (chain && pictureOf(7, 85) == 0) doAt(kWorldVerbOpen, thingIn(85));
++				// (The tap: off, the jar not filled; running, filled.)
++				if (chain && pictureOf(7, 88) == 1 && useOnThing(36, 132, 7, 88) && !(marksNow(maniac) & waterMark)) ++mailRefused;
++				else { chain = false; fail("the jar filled at the tap turned off", maniac); }
++				chain = chain && doAt(kWorldVerbTurnOn, thingIn(88)) && pictureOf(7, 88) == 0;
++				if (chain && useOnThing(36, 132, 7, 88) && (marksNow(maniac) & waterMark) && marked(maniac, 7, 0) && carriedAt(36, 132) >= 0) ++mailWater;
++				else { chain = false; fail("the jar not filled at the running tap", maniac); }
++				if (chain && useOnThing(36, 132, 7, 85) && carriedAt(36, 132) < 0 && pictureOf(7, 83) == 1 && isThing(thingIn(83))) ++mailInside;
++				else { chain = false; fail("the jar of water not put in the open microwave", maniac); }
++				// (Shut over them, they are in it still; turned on: steamed.)
++				chain = chain && doAt(kWorldVerbClose, thingIn(85)) && pictureOf(7, 85) == 0 && pictureOf(7, 31) == 1 && pictureOf(7, 83) == 1 && !isThing(thingIn(31)) && !isThing(thingIn(83));
++				if (chain && doAt(kWorldVerbTurnOn, thingIn(85)) && (marksNow(maniac) & steamedMark) && marked(maniac, 2, 0) && !(marksNow(maniac) & tornMark)) ++mailSteamed;
++				else { chain = false; fail("the envelope not steamed open in the microwave turned on with the jar of water", maniac); }
++				chain = chain && doAt(kWorldVerbOpen, thingIn(85)) && pictureOf(7, 85) == 1 && isThing(thingIn(31)) && isThing(thingIn(83));
++				if (chain && doAt(kWorldVerbPickUp, thingIn(31)) && carriedAt(9, 222) >= 0 && pictureOf(7, 31) == 0 && !isThing(thingIn(31)) &&
++					doAt(kWorldVerbPickUp, thingIn(83)) && carriedAt(36, 132) >= 0 && pictureOf(7, 83) == 0 && !isThing(thingIn(83))) ++mailOut;
++				else { chain = false; fail("the envelope and the jar not taken out of the microwave again", maniac); }
++				// (The envelope: contents refused unopened; opened carried, the quarter given.)
++				if (chain && useItems(22, 210, 9, 222) && _speech == said(9, 222, kWorldVerbUse, 0, 210, 0) && carriedAt(22, 210) >= 0 && !(marksNow(maniac) & manuscriptMark)) ++mailRefused;
++				else { chain = false; fail("the manuscript not refused by the unopened envelope as its script answers", maniac); }
++				if (chain && carriedAt(9, 222) >= 0) { _speech.clear(); useItem(carriedAt(9, 222), kWorldVerbOpen); }
++				if (chain && (marksNow(maniac) & openedMark) && !(marksNow(maniac) & tornMark) && carriedAt(9, 221) >= 0 && _speech == said(9, 222, kWorldVerbOpen, 1, 0, steamedMark)) ++mailOpened;
++				else { chain = false; fail("the steamed envelope not opened carried as its script answers (the quarter given, not torn)", maniac); }
++				// (The TV watched (a tap skips its film, marked), the address typed.)
++				bool tvSeen = chain && filmShown() && (step(1), _closeUp.inScene);
++				if (tvSeen) tap(_width / 2, _height / 3);
++				if (tvSeen && marked(maniac, mark, _playerKey) && useWith(27, 416) && (marksNow(maniac) & addressMark)) ++mailTyped;
++				else { chain = false; fail("the address not typed after the TV watched", maniac); }
++				// (The package: not there, nor its stamps, until its time after the stairs.)
++				chain = chain && go(1) && thingIn(57) >= 0 && thingIn(165) >= 0;
++				if (!chain || isThing(thingIn(57)) || isThing(thingIn(165))) { chain = false; fail("the package at the front door before its time", maniac); }
++				const WorldTimed &package = kWorldTimed[0], &pickup = kWorldTimed[1];
++				chain = chain && go(12) && go(38) && _timed.size() == 1 && _timed[0].event == 0 && _timed[0].phase == 1 && _timed[0].left == package.first;
++				if (chain) { stepFor(package.first - 1); chain = pictureIn(maniac, 1, 57) != package.sets[0][1] && _timed[0].phase == 1; }
++				if (chain) { step(1); chain = pictureIn(maniac, 1, 57) == package.sets[0][1] && _timed.size() == 1 && _timed[0].phase == 2; }
++				if (chain && go(1) && isThing(thingIn(57)) && isThing(thingIn(165))) { ++mailPackage; mailPackageTicks = package.first; }
++				else { chain = false; fail("the package not at the front door its time after the stairs", maniac); }
++				if (chain && doAt(kWorldVerbOpen, thingIn(57)) && carriedAt(1, 165) >= 0 && _speech == said(1, 57, kWorldVerbOpen, 0, 0, 0)) ++mailStampsGiven;
++				else { chain = false; fail("the package's stamps not given when it is opened", maniac); }
++				// (Climbed again: no second package.)
++				chain = chain && go(12) && go(38) && _timed.size() == 1 && _timed[0].event == 0 && _timed[0].phase == 2 && go(1);
++				if (chain && useItems(1, 165, 9, 222) && (marksNow(maniac) & stampedMark) && carriedAt(1, 165) < 0 && _speech == said(1, 165, kWorldVerbUse, 0, 222, steamedMark)) ++mailStamped;
++				else { chain = false; fail("the steamed envelope not stamped", maniac); }
++				// (The mailbox: refused without the contents (shown first), posted with them.)
++				chain = chain && thingIn(276) >= 0 && thingIn(50) >= 0 && thingIn(51) >= 0 && thingIn(58) >= 0 && doAt(kWorldVerbOpen, thingIn(276)) && pictureOf(1, 50) == 1;
++				if (chain && useOnThing(9, 222, 1, 276) && _speech == said(1, 276, kWorldVerbUse, 0, 222, addressMark | stampedMark) && carriedAt(9, 222) >= 0 && pictureOf(1, 58) == 0) ++mailRefused;
++				else { chain = false; fail("the mailbox not refusing the envelope with nothing in it", maniac); }
++				if (chain && useItems(22, 210, 9, 222) && (marksNow(maniac) & manuscriptMark) && carriedAt(22, 210) < 0 && carriedAt(9, 222) >= 0) ++mailManuscript;
++				else { chain = false; fail("the manuscript not put in the opened envelope", maniac); }
++				if (chain && !isThing(thingIn(58)) && useOnThing(9, 222, 1, 276) && carriedAt(9, 222) < 0 && pictureOf(1, 58) == 1 && isThing(thingIn(58))) ++mailPosted;
++				else { chain = false; fail("the envelope not posted in the open mailbox", maniac); }
++				if (chain && doAt(kWorldVerbRead, thingIn(58)) && _speech == said(1, 58, kWorldVerbRead, 1, 0, addressMark)) ++mailRead;
++				else { chain = false; fail("the envelope posted not read as addressed", maniac); }
++				// (Due, then taken back before its time: then nothing, the flag up
++				// still; leaving again with it out, not due again; posted again.)
++				if (chain && doAt(kWorldVerbClose, thingIn(276)) && doAt(kWorldVerbPull, thingIn(51)) && pictureOf(1, 51) == 1 && go(2) && _timed.size() == 2 &&
++					go(1) && doAt(kWorldVerbOpen, thingIn(276)) && doAt(kWorldVerbPickUp, thingIn(58)) && carriedAt(9, 222) >= 0 && pictureOf(1, 58) == 0 && go(2) && _timed.size() == 2) {
++					stepFor(pickup.first);
++					if (_timed.size() == 1 && pictureIn(maniac, 1, 51) == 1 && pictureIn(maniac, 1, 58) == 0 && carriedAt(9, 222) >= 0 && go(1)) ++mailBack;
++					else { chain = false; fail("the pickup done with the envelope taken back", maniac); }
++				} else { chain = false; fail("the envelope posted not taken back, or its pickup not due", maniac); }
++				chain = chain && doAt(kWorldVerbOpen, thingIn(276)) && useOnThing(9, 222, 1, 276) && pictureOf(1, 58) == 1;
++				// (The flag down, or the mailbox open: no pickup; nor with a mark its
++				// exit script wants missing (no answer leaves that: the stamps' taken
++				// away here); shut, the flag up: due.)
++				bool notDue = chain && doAt(kWorldVerbPush, thingIn(51)) && pictureOf(1, 51) == 0 && doAt(kWorldVerbClose, thingIn(276)) && go(2) && _timed.size() == 1 &&
++					go(1) && doAt(kWorldVerbOpen, thingIn(276)) && doAt(kWorldVerbPull, thingIn(51)) && pictureOf(1, 51) == 1 && go(2) && _timed.size() == 1 && go(1);
++				if (notDue) {
++					const Common::Array<Mark> had = _marks;
++					for (uint k = _marks.size(); k-- > 0;) if (_marks[k].game == maniac && 1 << _marks[k].mark == stampedMark) _marks.remove_at(k);
++					notDue = doAt(kWorldVerbClose, thingIn(276)) && pictureOf(1, 50) == 0 && go(2) && _timed.size() == 1 && go(1) && doAt(kWorldVerbOpen, thingIn(276));
++					_marks = had;
++				}
++				if (notDue) ++mailNotDue;
++				else { chain = false; fail("the pickup due with the flag down, the mailbox open or a mark missing", maniac); }
++				chain = chain && doAt(kWorldVerbClose, thingIn(276)) && pictureOf(1, 50) == 0 && go(2);
++				if (chain && _timed.size() == 2 && _timed[1].event == 1 && _timed[1].phase == 1 && _timed[1].left == pickup.first) ++mailDue;
++				else { chain = false; fail("the pickup not due on leaving the front door with the envelope posted", maniac); }
++				// (Kept: saved and read back mid-way.)
++				if (chain) {
++					stepFor(pickup.first / 2);
++					const Common::Array<Mark> now = _marks;
++					const Common::Array<Timed> due = _timed;
++					int g, r;
++					double kx, ky;
++					saveState();
++					_marks.clear(); _timed.clear();
++					bool same = loadState(g, r, kx, ky) && _marks.size() == now.size() && _timed.size() == due.size();
++					for (const Mark &m : now) same = same && marked(m.game, m.mark, m.key);
++					for (uint i = 0; same && i < due.size(); ++i) same = _timed[i].event == due[i].event && _timed[i].phase == due[i].phase && _timed[i].left == due[i].left;
++					if (same && _timed[1].left == pickup.first - pickup.first / 2) ++mailKept; else { chain = false; fail("the marks or the pickup due not kept through a save and reload", maniac); }
++				}
++				// (Back at the front door as it is due: it waits; gone again, collected.)
++				if (chain) {
++					stepFor(pickup.first / 2 - 600);
++					chain = go(1);
++					stepFor(600);
++					chain = chain && pictureOf(1, 58) == 1 && _timed.size() == 2 && _timed[1].left == pickup.every;
++					stepFor(600);
++					chain = chain && go(2);
++					stepFor(pickup.every - 600 - 1);
++					chain = chain && pictureIn(maniac, 1, 58) == 1 && pictureIn(maniac, 1, 51) == 1;
++					step(1);
++					if (chain && pictureIn(maniac, 1, 58) == 0 && pictureIn(maniac, 1, 51) == 0 && _timed.size() == 1) { ++mailCollected; ++mailWaited; mailCollectedTicks = pickup.first + pickup.every; }
++					else { chain = false; fail("the envelope posted not collected its time after leaving, waiting while there", maniac); }
++				}
++				// (Nothing after it: its cut-scene and its reply not modelled.)
++				if (chain) {
++					stepFor(18000 + 10800 + 1800);
++					if (pictureIn(maniac, 1, 60) == 0 && go(1) && !isThing(thingIn(58)) && !isThing(thingIn(60)) && pictureOf(1, 51) == 0) ++mailAfter;
++					else fail("something after the pickup", maniac);
++				}
++				// (Torn open: opened unsteamed, the contents, the stamps and the microwave refuse it.)
++				fresh();
++				int item = take(9, 222);
++				if (item >= 0) { _speech.clear(); useItem(item, kWorldVerbOpen); }
++				bool tornOk = item >= 0 && (marksNow(maniac) & tornMark) && (marksNow(maniac) & openedMark) && !(marksNow(maniac) & steamedMark) && _speech == said(9, 222, kWorldVerbOpen, 1, 0, 0);
++				tornOk = tornOk && useItems(22, 210, 9, 222) && _speech == said(9, 222, kWorldVerbUse, 0, 210, tornMark | openedMark) && carriedAt(22, 210) >= 0 && !(marksNow(maniac) & manuscriptMark);
++				tornOk = tornOk && useItems(1, 165, 9, 222) && _speech == said(1, 165, kWorldVerbUse, 0, 222, 0) && carriedAt(1, 165) >= 0 && !(marksNow(maniac) & stampedMark);
++				tornOk = tornOk && go(7) && doAt(kWorldVerbOpen, thingIn(85)) && useOnThing(9, 222, 7, 85) && _speech == said(7, 85, kWorldVerbUse, 1, 222, tornMark) && carriedAt(9, 222) >= 0 && pictureOf(7, 31) == 0;
++				if (tornOk) ++mailTorn; else fail("the envelope torn open (unsteamed) not refused by the contents, the stamps or the microwave", maniac);
++				// (An older state, SVS5: the marks read, no timed events.)
++				{
++					_timed.clear();
++					Timed t;
++					t.event = 1; t.phase = 1; t.left = 77;
++					_timed.push_back(t);
++					const Common::Array<Mark> now = _marks;
++					saveState();
++					Common::Array<byte> file;
++					{
++						Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
++						if (in) { file.resize(in->size()); file.resize(in->read(file.data(), file.size())); }
++					}
++					const uint tail = 2 + 8;
++					if (file.size() > tail + 4 && file[3] == '6') {
++						file.resize(file.size() - tail); file[3] = '5';
++						Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
++						if (out) { out->write(file.data(), file.size()); out->finalize(); }
++					}
++					int g, r;
++					double kx, ky;
++					bool same = loadState(g, r, kx, ky) && _timed.empty() && _marks.size() == now.size() && !now.empty();
++					for (const Mark &m : now) same = same && marked(m.game, m.mark, m.key);
++					if (same) ++mailOlder; else fail("an older state (SVS5: marks, no timed events) not read so", maniac);
++					// (Damaged: its ticks left past its waits, none, or no such event: let go; within them, kept.)
++					_timed.clear();
++					const int damaged[][2] = {{1, 1 << 30}, {1, 0}, {1, -5}, {200, 77}, {1, pickup.first}};
++					for (const int (&d)[2] : damaged) {
++						Timed bad;
++						bad.event = d[0]; bad.phase = 1; bad.left = d[1];
++						_timed.push_back(bad);
++					}
++					saveState();
++					_timed.clear();
++					if (loadState(g, r, kx, ky) && _timed.size() == 1 && _timed[0].event == 1 && _timed[0].left == pickup.first) ++mailDamaged;
++					else fail("a damaged timed event in a state read as one", maniac);
++					_timed.clear();
++				}
++				// (From a review of 0248: the place a film was shown from not
++				// shown again as it ends (the one played's file not read now):
++				// over once all the same, the one who watched marked, the TV off,
++				// somewhere else as a launch starts; not tried again each frame.)
++				{
++					const int watcher = _playerKey;
++					_marks.clear();
++					bool fellBack = filmShown() && (step(1), _closeUp.inScene);
++					if (fellBack) {
++						_broken[watcher] = true;
++						tap(_width / 2, _height / 3);
++						fellBack = _closeUp.index < 0 && marked(maniac, mark, watcher) && pictureIn(maniac, tvRoom, tvThing) == filmAfter && _game >= 0 &&
++							!worldCloseUpScene(_game, _room) && _player >= 0 && !StageBridge::hidden(_player) && _playerKey != watcher;
++						const int fellGame = _game, fellRoom = _room;
++						for (int k = 0; fellBack && k < 5; ++k) step(1);
++						fellBack = fellBack && _game == fellGame && _room == fellRoom && _closeUp.index < 0;
++						_broken.erase(watcher);
++						castChoose(watcher);
++					}
++					if (fellBack && _playerKey == watcher) ++mailFellBack;
++					else fail("a film whose place is not shown again as it ends not over once, elsewhere", maniac);
++					_broken.erase(watcher);
++				}
++				fresh();
++				_marks = marksTv;
++			}
+ 			putBack(9, 222);
+ 			for (int id : {tvThing}) _pictures.erase(thingKey(maniac, tvRoom, id));
+ 			for (int id : {50, 276}) _pictures.erase(thingKey(maniac, 1, id));
+@@ -6854,6 +7282,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"once watched (%d already addressed, %d for another who watched); the mailbox: %d shut as before, open %d without the address, %d with it; the envelope read: %d blank, %d addressed; "
+ 		"%d marks kept through a save and reload (%d older states read with none)",
+ 		tvPowerOff, tvOff, tvFilms, tvEvents, tvEventCount, tvLines, tvMarked, tvLeft, tvSkipped, typeRefused, typeTyped, typeAgain, typeOther, mailShut, mailNoAddress, mailAddressed, readBlank, readAddressed, marksKept, marksOlder);
++	warning("SCUMMVERSE sandbox selftest mail: %d refused before what their scripts want, as recorded (the empty jar, the tap off, the contents unopened, the stamps unsteamed, "
++		"the mailbox with nothing in the envelope); the kitchen: %d jar filled at the running tap, %d put in the microwave with the envelope, %d steamed open (%d not with "
++		"the envelope alone), %d taken out again; %d opened carried (the quarter given, not torn), %d manuscript put in, %d addressed after the TV; %d package at the front "
++		"door %d ticks after the stairs (not before; %d stamps given by it), %d stamped; %d posted (%d read addressed, %d taken back with no pickup), %d not due with the "
++		"flag down, the mailbox open or a mark missing, %d due on leaving the mailbox shut with its flag up; %d kept through a save and reload, %d collected %d ticks after leaving (%d "
++		"waited while at the front door), %d nothing after it; %d torn open (the contents, the stamps and the microwave refusing it); %d older states read (marks, no "
++		"timed events), %d with damaged timed events read without them; %d film over once where its place could not be shown again (elsewhere, marked)",
++		mailRefused, mailWater, mailInside, mailSteamed, mailAlone, mailOut, mailOpened, mailManuscript, mailTyped, mailPackage, mailPackageTicks, mailStampsGiven, mailStamped,
++		mailPosted, mailRead, mailBack, mailNotDue, mailDue, mailKept, mailCollected, mailCollectedTicks, mailWaited, mailAfter, mailTorn, mailOlder, mailDamaged, mailFellBack);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+@@ -8232,6 +8669,7 @@ Common::Error SandboxEngine::tourTest() {
+ 	pump();
+ 	const int unreachedBefore = _touring.unreached, acrossBefore = _touring.across;
+ 	const Common::HashMap<int, int> picturesBefore = _pictures; // (the tour leaves every place as it finds it)
++	const Common::Array<Timed> timedBefore = _timed;            // (from 0250: starting none, its clock waiting)
+ 	int visited = 0, onFoot = 0, warped = 0, refused = 0, last = -1, ticks = 0;
+ 	while (_touring.on && ticks < 4000000) {
+ 		if (_touring.stop != last) {
+@@ -8256,6 +8694,9 @@ Common::Error SandboxEngine::tourTest() {
+ 	for (Common::HashMap<int, int>::const_iterator it = _pictures.begin(); it != _pictures.end() && !changed; ++it)
+ 		changed = !picturesBefore.contains(it->_key) || picturesBefore[it->_key] != it->_value;
+ 	if (changed) fail("a place left changed by the tour (a door opened)");
++	bool timedSame = _timed.size() == timedBefore.size();
++	for (uint i = 0; timedSame && i < _timed.size(); ++i) timedSame = _timed[i].event == timedBefore[i].event && _timed[i].phase == timedBefore[i].phase && _timed[i].left == timedBefore[i].left;
++	if (!timedSame) fail("a timed event started or moved on by the tour");
+ 	// Story mode chosen during the tour: home first, where it began kept
+ 	// (its own check opens Story mode; here only let go again).
+ 	Tour::request(Tour::kGoTo, 3);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index ad289f34..d4d4bd68 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -287,6 +287,19 @@ private:
+ 	// second, 0 none) from a picture; false: none for it, or the thing it
+ 	// wants first not so.
+ 	bool markedEffect(int game, int room, int id, int kind, int from, int with, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets);
++	void othersAfter(int game, const int *others, int count); // (an answer's others: shown so, or carried)
++	// Timed events (from 0250; kWorldTimed): what a game's script does a
++	// while after the one played leaves a place so (the mansion's package at
++	// its front door, its mail's pickup), on this engine's clock as the
++	// original's script waits; kept. Phase 1 waiting (`left` ticks), 2 done
++	// for good (one that happens once). The tour starts none and its clock
++	// waits meanwhile (it leaves every place as it finds it).
++	struct Timed { int event = -1, phase = 0, left = 0; };
++	Common::Array<Timed> _timed;
++	int timedLeaving(int game, int room) const; // those leaving here for there starts (bit i: kWorldTimed[i])
++	void timedStart(int events);
++	void timedStep(int ticks);
++	int pictureIn(int game, int room, int id) const; // (a thing's picture now, in any game's place)
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;

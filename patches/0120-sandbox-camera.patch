@@ -1,0 +1,650 @@
+diff --git a/common/scummverse_camera.cpp b/common/scummverse_camera.cpp
+index 9391cbc5..428c6ffe 100644
+--- a/common/scummverse_camera.cpp
++++ b/common/scummverse_camera.cpp
+@@ -109,11 +109,12 @@ bool enlarge(const uint8_t *pixels, int pitch, int width, int height, const uint
+ 	return true;
+ }
+ 
+-Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view) {
+-	return frameSelfie(player, others.data(), (int)others.size(), view);
++Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view, double rowAspect) {
++	return frameSelfie(player, others.data(), (int)others.size(), view, rowAspect);
+ }
+ 
+-Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view) {
++Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view, double rowAspect) {
++	if (!(rowAspect > 0)) rowAspect = 1.2;
+ 	Rect group = player;
+ 	const int reach = std::max(16, player.h * 3 / 4);
+ 	for (int i = 0; i < count; ++i) {
+@@ -127,13 +128,13 @@ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &
+ 	const double h = std::max(group.h, 24);
+ 	double top = group.y - h * 0.22, bottom = group.bottom() + h * 0.08;
+ 	double left = group.x - h * 0.15, right = group.right() + h * 0.15;
+-	// Shown rows are 1.2 times taller: keep 4:5 to 4:3 as seen.
+-	const double shown = (right - left) / ((bottom - top) * 1.2);
++	// Shown rows are rowAspect times taller: keep 4:5 to 4:3 as seen.
++	const double shown = (right - left) / ((bottom - top) * rowAspect);
+ 	if (shown < 0.8) {
+-		const double grow = ((bottom - top) * 1.2 * 0.8 - (right - left)) / 2;
++		const double grow = ((bottom - top) * rowAspect * 0.8 - (right - left)) / 2;
+ 		left -= grow; right += grow;
+ 	} else if (shown > 4.0 / 3) {
+-		const double grow = ((right - left) / (4.0 / 3) / 1.2 - (bottom - top));
++		const double grow = ((right - left) / (4.0 / 3) / rowAspect - (bottom - top));
+ 		top -= grow * 0.75; bottom += grow * 0.25;
+ 	}
+ 	Rect r;
+@@ -193,6 +194,35 @@ bool shoot(const uint8_t *pixels, int pitch, int width, int height, const uint8_
+ 	return enlarge(pixels, pitch, width, height, palette, crop, kx, ky, picture) && deliver(picture, kind, shot, shots);
+ }
+ 
++void squareFactor(int width, int height, int &k) {
++	const int longer = std::max(width, height);
++	k = longer > 0 ? std::max(1, (int)std::ceil(kTarget / (double)longer)) : 1;
++	while (k > 1 && (width * k > kMaxSide || height * k > kMaxSide)) --k;
++}
++
++bool shootTrue(const uint32_t *pixels, int pitch, int width, int height, const Rect &area, int kind, int shot, int shots) {
++	Rect whole; whole.w = width; whole.h = height;
++	const Rect crop = intersect(area, whole);
++	if (!pixels || crop.empty()) return false;
++	int k;
++	squareFactor(crop.w, crop.h, k);
++	Picture picture;
++	picture.width = crop.w * k; picture.height = crop.h * k;
++	picture.rgba.assign((size_t)picture.width * picture.height * 4, 255);
++	std::vector<uint8_t> row((size_t)picture.width * 4);
++	for (int y = 0; y < crop.h; ++y) {
++		const uint32_t *src = pixels + (size_t)(crop.y + y) * pitch + crop.x;
++		for (int x = 0; x < crop.w; ++x)
++			for (int i = 0; i < k; ++i) {
++				uint8_t *d = &row[((size_t)x * k + i) * 4];
++				d[0] = (uint8_t)(src[x] >> 16); d[1] = (uint8_t)(src[x] >> 8); d[2] = (uint8_t)src[x]; d[3] = 255;
++			}
++		for (int j = 0; j < k; ++j)
++			std::copy(row.begin(), row.end(), picture.rgba.begin() + ((size_t)y * k + j) * picture.width * 4);
++	}
++	return deliver(picture, kind, shot, shots);
++}
++
+ // ---- Names ----
+ const char *kindName(int kind) {
+ 	return kind == kFull ? "full" : kind == kSelfie ? "selfie" : "clean";
+@@ -218,6 +248,16 @@ void setSink(Sink sink, void *context) {
+ 	g_sink = sink; g_sinkContext = context;
+ }
+ 
++static PlainSink g_plainSink = nullptr;
++static void plainSink(const Picture &picture, int kind, int shot, int shots, void *context) {
++	if (g_plainSink) g_plainSink(picture.rgba.data(), picture.width, picture.height, kind, shot, shots, context);
++}
++void setPlainSink(PlainSink sink, void *context) {
++	std::lock_guard<std::mutex> guard(g_sinkMutex);
++	g_plainSink = sink;
++	g_sink = sink ? plainSink : nullptr; g_sinkContext = context;
++}
++
+ bool deliver(const Picture &picture, int kind, int shot, int shots) {
+ 	std::lock_guard<std::mutex> guard(g_sinkMutex);
+ 	if (!g_sink || picture.rgba.empty()) return false;
+diff --git a/common/scummverse_camera.h b/common/scummverse_camera.h
+index 7baefba7..7888fe3c 100644
+--- a/common/scummverse_camera.h
++++ b/common/scummverse_camera.h
+@@ -16,10 +16,8 @@
+ namespace Scummverse {
+ namespace Camera {
+ 
+-// ---- Requests, from the interface ----
+-void requestPhoto(bool full);
+-void requestSelfie(int shots); // 1, 3 or 5 (others are brought into range)
+-void setHold(bool hold);
++// ---- Requests, from the interface (requestPhoto, requestSelfie and
++// setHold are in the plain-types part) ----
+ bool takeNote(std::string &text);
+ 
+ // ---- Pictures ----
+@@ -31,7 +29,7 @@ struct Picture {
+ // by ky, no smoothing. False if the crop misses the picture.
+ bool enlarge(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
+              Rect crop, int kx, int ky, Picture &out);
+-Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view);
++Rect frameSelfie(const Rect &player, const std::vector<Rect> &others, const Rect &view, double rowAspect = 1.2);
+ int planShot(uint32_t seed, int shot, int player, const std::vector<int> &xs, std::vector<Choice> &out);
+ 
+ // ---- Names: "SCUMMVERSE 2026-10-17 14.05.09 clean.png", a second photo
+diff --git a/common/scummverse_camera_engine.h b/common/scummverse_camera_engine.h
+index 7e653d13..2268768b 100644
+--- a/common/scummverse_camera_engine.h
++++ b/common/scummverse_camera_engine.h
+@@ -21,6 +21,10 @@ struct Request {
+ 	int shots = 1;
+ };
+ bool takeRequest(Request &request);
++// (Made by the interface, or a check.)
++void requestPhoto(bool full);
++void requestSelfie(int shots); // 1, 3 or 5 (others are brought into range)
++void setHold(bool hold);
+ // The game holds still (no scripts, no walking) while this is set: while
+ // iOS asks for access to Photos.
+ bool held();
+@@ -51,8 +55,9 @@ void factors(int width, int height, int &kx, int &ky);
+ 
+ // A selfie's frame: the player and whoever stands near them (within three
+ // quarters of the player's height, side to side), with head room, between
+-// 4:5 and 4:3 as shown (rows 1.2 times taller), inside the view.
+-Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view);
++// 4:5 and 4:3 as shown (rows rowAspect times taller than wide: the games'
++// 1.2; a picture already shown square, 1), inside the view.
++Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view, double rowAspect = 1.2);
+ 
+ // ---- Poses ----
+ // How each one in the room poses for a shot: facing the viewer, or left or
+@@ -77,6 +82,16 @@ int planShot(uint32_t seed, int shot, int player, const int *xs, int count, Choi
+ // the crop misses the picture or nobody takes it.
+ bool shoot(const uint8_t *pixels, int pitch, int width, int height, const uint8_t *palette,
+            const Rect &crop, int kind, int shot, int shots);
++// The crop of a true-colour picture already shown square (0xAARRGGBB words,
++// pitch in words: the sandbox engine's), each pixel k by k (the smallest
++// whole k that makes the longer side at least kTarget, at most kMaxSide on
++// either side), handed over likewise.
++void squareFactor(int width, int height, int &k);
++bool shootTrue(const uint32_t *pixels, int pitch, int width, int height, const Rect &crop, int kind, int shot, int shots);
++// Whoever saves photos, in plain types (an engine's own check): each
++// picture's RGBA bytes, top row first, the sink's only for the call.
++typedef void (*PlainSink)(const uint8_t *rgba, int width, int height, int kind, int shot, int shots, void *context);
++void setPlainSink(PlainSink sink, void *context);
+ 
+ } // namespace Camera
+ } // namespace Scummverse
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 199a6ba8..055cfd37 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -314,6 +314,17 @@ void Scene::face(int n, Point toward) {
+ 
+ void Scene::talk(int n, bool on) { if (n >= 0 && n < (int)_actors.size()) _actors[n].talking = on; }
+ 
++void Scene::pose(int n, int dir, int kind, int index) {
++	if (n < 0 || n >= (int)_actors.size()) return;
++	Actor &a = _actors[n];
++	a.posed = true;
++	a.poseDir = dir >= 0 && dir < 4 ? dir : -1;
++	a.poseKind = kind >= 0 && kind < 3 ? kind : -1;
++	a.poseIndex = std::max(0, index);
++}
++
++void Scene::unpose(int n) { if (n >= 0 && n < (int)_actors.size()) _actors[n].posed = false; }
++
+ void Scene::stop(int n) {
+ 	if (n < 0 || n >= (int)_actors.size()) return;
+ 	_actors[n].route.clear(); _actors[n].moving = false;
+@@ -378,9 +389,12 @@ static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int
+ struct Placement { const World::SourceFrame *frame = nullptr; double x0 = 0, y0 = 0, down = 0, across = 0; };
+ static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &boxes) {
+ 	Placement p;
+-	// (Walking, its steps; talking, a frame each kTalkTicks; else standing.)
+-	const int kind = a.moving ? 1 : a.talking ? 2 : 0;
+-	p.frame = pick(a.sprite, a.dir, kind, kind == 1 ? a.steps : a.tick / kTalkTicks);
++	// (Walking, its steps; talking, a frame each kTalkTicks; else standing.
++	// Posed, as posed.)
++	const int own = a.moving ? 1 : a.talking ? 2 : 0;
++	const int kind = a.posed && a.poseKind >= 0 ? a.poseKind : own;
++	const int index = a.posed && a.poseKind >= 0 ? a.poseIndex : own == 1 ? a.steps : a.tick / kTalkTicks;
++	p.frame = pick(a.sprite, a.posed && a.poseDir >= 0 ? a.poseDir : a.dir, kind, index);
+ 	if (!p.frame) return p;
+ 	p.down = v.rowScale * a.height * scaleAt(boxes, a.at) / 255.0;
+ 	p.across = p.down / a.pixelAspect;
+@@ -562,6 +576,9 @@ bool busy() {
+ void face(int actor, double x, double y) { stage().face(actor, {x, y}); }
+ void talk(int actor, bool on) { stage().talk(actor, on); }
+ void stop(int actor) { stage().stop(actor); }
++void pose(int actor, int dir, int kind, int index) { stage().pose(actor, dir, kind, index); }
++void unpose(int actor) { stage().unpose(actor); }
++bool posed(int actor) { return valid(actor) && stage().actor(actor).posed; }
+ bool talking(int actor) { return valid(actor) && stage().actor(actor).talking; }
+ bool heading(int actor, double &x, double &y) {
+ 	if (!moving(actor) || stage().actor(actor).route.empty()) return false;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index bcb3eea0..02701583 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -105,6 +105,10 @@ struct Actor {
+ 	int stepClock = 0;
+ 	int steps = 0;          // steps taken (the walk frame shown)
+ 	bool talking = false;   // standing, its talk frames in turn (kTalkTicks each)
++	// Posed (a photo): this way and this frame whatever they do (-1: their
++	// own way, their own pose), until let go.
++	bool posed = false;
++	int poseDir = -1, poseKind = -1, poseIndex = 0;
+ 	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
+ };
+ // Ticks a talk frame shows (the mouth moving about seven times a second).
+@@ -127,6 +131,11 @@ public:
+ 	void face(int actor, Point toward);
+ 	void talk(int actor, bool on);
+ 	void stop(int actor); // standing where they are now
++	// Posed: a way (0 left, 1 right, 2 front, 3 back; -1 their own) and a
++	// pose (0 standing, 1 walking, 2 talking; -1 their own) at its index-th
++	// frame, drawn so until let go (unpose).
++	void pose(int actor, int dir, int kind, int index);
++	void unpose(int actor);
+ 	void update(int ticks);              // walking and animation (60 ticks a second)
+ 	// The camera keeps this one in view: centred now, then scrolling only
+ 	// when they come near an edge (a quarter of the screen), as the games do.
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 59b6cb3d..5420ea93 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -30,6 +30,12 @@ void face(int actor, double x, double y);
+ void talk(int actor, bool on);
+ bool talking(int actor);
+ void stop(int actor);                          // standing where they are now
++// Posed for a photo: a way (0 left, 1 right, 2 front, 3 back; -1 their
++// own) and a pose (0 standing, 1 walking, 2 talking; -1 their own) at its
++// index-th frame, until let go.
++void pose(int actor, int dir, int kind, int index);
++void unpose(int actor);
++bool posed(int actor);
+ // Where a walking actor is going (the end of its way); false when standing.
+ bool heading(int actor, double &x, double &y);
+ void position(int actor, double &x, double &y);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 186a70bd..3d59f454 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -29,6 +29,7 @@
+ #include "common/ptr.h"
+ #include "common/savefile.h"
+ #include "common/scummverse_ai.h"
++#include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_panel_engine.h"
+ #include "common/scummverse_stage_engine.h"
+ #include "common/scummverse_wander_engine.h"
+@@ -998,6 +999,10 @@ void SandboxEngine::present() {
+ 		}
+ 		if (!over) PanelBridge::render(_frame.data(), _width, _height);
+ 	}
++	show();
++}
++
++void SandboxEngine::show() {
+ 	if (_format == kStageFormat) {
+ 		g_system->copyRectToScreen(_frame.data(), _width * 4, 0, 0, _width, _height);
+ 		return;
+@@ -1006,6 +1011,137 @@ void SandboxEngine::present() {
+ 	g_system->copyRectToScreen(_converted.data(), _width * _format.bytesPerPixel, 0, 0, _width, _height);
+ }
+ 
++// ---- The camera ----
++
++// The first shot waits a moment once everyone is posed; each stays on the
++// screen a little (the iPhone's flash goes off over it); the last a little
++// longer (as Maniac's).
++static const uint32 kSelfieSettle = 400, kSelfieNext = 300, kSelfieShow = 900;
++
++bool SandboxEngine::cameraStep() {
++	if (Camera::held()) return true;
++	if (_selfie.on) {
++		if ((int32)(g_system->getMillis() - _selfie.due) < 0) return true;
++		if (_selfie.showing) { selfieEnd(); return true; }
++		if (!selfieShoot()) {
++			Camera::note(_selfie.shot ? "Took only some of the selfie" : "Couldn't take the selfie");
++			_selfie.showing = true; _selfie.due = g_system->getMillis();
++			return true;
++		}
++		if (++_selfie.shot < _selfie.shots) {
++			selfiePose();
++			_selfie.due = g_system->getMillis() + kSelfieNext;
++		} else {
++			_selfie.showing = true;
++			_selfie.due = g_system->getMillis() + kSelfieShow;
++		}
++		return true;
++	}
++	Camera::Request request;
++	if (!Camera::takeRequest(request)) return false;
++	if (request.kind == Camera::kSelfie) return selfieBegin(request.shots);
++	if (!photo(request.kind)) Camera::note("Couldn't take the photo");
++	return false;
++}
++
++// The scene alone as it is now (no panel, no lines over heads), else the
++// screen as shown; its pixels already square, enlarged by whole pixels only.
++bool SandboxEngine::photo(int kind) {
++	if (_player < 0) return false;
++	Camera::Rect crop;
++	if (kind == Camera::kFull) {
++		present();
++		crop.w = _width; crop.h = _height;
++	} else {
++		StageBridge::render(_frame.data(), _width);
++		int left, top, width, height;
++		double rowScale, colScale;
++		StageBridge::view(left, top, width, height, rowScale, colScale);
++		crop.x = left; crop.y = top; crop.w = width; crop.h = height;
++		_dirty = true; // (the screen as it was, next)
++	}
++	return Camera::shootTrue(_frame.data(), _width, _width, _height, crop, kind, 0, 1);
++}
++
++bool SandboxEngine::selfieBegin(int shots) {
++	int x0, y0, x1, y1;
++	if (_player < 0 || !StageBridge::drawnRect(_player, x0, y0, x1, y1)) {
++		Camera::note("No selfie here");
++		return false;
++	}
++	_selfie = Selfie();
++	_selfie.on = true;
++	_selfie.shots = CLIP(shots, 1, (int)Camera::kMaxSelfies);
++	_selfie.seed = g_system->getMillis() * 2654435761u ^ (uint32)(_game * 1024 + _room) * 40503u ^ (uint32)_playerKey;
++	Camera::setBusy(true);
++	selfiePose();
++	_selfie.due = g_system->getMillis() + kSelfieSettle;
++	return true;
++}
++
++// Everyone faces the camera and strikes a pose from their own frames:
++// standing, mid-step or talking (now and then one hasn't noticed, or they
++// all stare at the one played); drawn so, the place held still.
++void SandboxEngine::selfiePose() {
++	const int count = StageBridge::actorCount();
++	Common::Array<int> xs(count);
++	Common::Array<Camera::Choice> choices(count);
++	for (int n = 0; n < count; ++n) {
++		double x, y;
++		int sy;
++		StageBridge::position(n, x, y);
++		StageBridge::toScreen(x, y, xs[n], sy);
++	}
++	Camera::planShot(_selfie.seed, _selfie.shot, _player, xs.data(), count, choices.data());
++	for (int n = 0; n < count; ++n) {
++		const Camera::Choice &c = choices[n];
++		const int dir = c.facing == Camera::kFaceViewer ? 2 : c.facing == Camera::kFaceLeft ? 0 : c.facing == Camera::kFaceRight ? 1 : -1;
++		const int kind = c.pose == Camera::kStand ? 0 : c.pose == Camera::kStep ? 1 : c.pose == Camera::kTalk ? 2 : -1;
++		StageBridge::pose(n, dir, kind, c.pose == Camera::kStep ? c.step : c.pose == Camera::kTalk ? _selfie.shot + n : 0);
++	}
++	StageBridge::render(_frame.data(), _width);
++	show();
++}
++
++// One shot: framed (the first time, then kept) on the one played and
++// whoever is near, from the scene as posed.
++bool SandboxEngine::selfieShoot() {
++	int left, top, width, height;
++	double rowScale, colScale;
++	StageBridge::view(left, top, width, height, rowScale, colScale);
++	Camera::Rect view;
++	view.x = left; view.y = top; view.w = width; view.h = height;
++	if (!_selfie.w) {
++		Camera::Rect player;
++		Common::Array<Camera::Rect> others;
++		for (int n = 0; n < StageBridge::actorCount(); ++n) {
++			int x0, y0, x1, y1;
++			if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) continue;
++			Camera::Rect r;
++			r.x = x0; r.y = y0; r.w = x1 - x0; r.h = y1 - y0;
++			r = Camera::intersect(r, view);
++			if (r.empty()) continue;
++			if (n == _player) player = r;
++			else others.push_back(r);
++		}
++		if (player.empty()) player = view;
++		// (The stage's pixels are shown square.)
++		const Camera::Rect f = Camera::frameSelfie(player, others.data(), others.size(), view, 1.0);
++		_selfie.x = f.x; _selfie.y = f.y; _selfie.w = f.w; _selfie.h = f.h;
++	}
++	Camera::Rect frame;
++	frame.x = _selfie.x; frame.y = _selfie.y; frame.w = _selfie.w; frame.h = _selfie.h;
++	return Camera::shootTrue(_frame.data(), _width, _width, _height, frame, Camera::kSelfie, _selfie.shot, _selfie.shots);
++}
++
++// Everyone as they were (drawn again next).
++void SandboxEngine::selfieEnd() {
++	for (int n = 0; n < StageBridge::actorCount(); ++n) StageBridge::unpose(n);
++	_selfie = Selfie();
++	Camera::setBusy(false);
++	_dirty = true;
++}
++
+ // A picture of the screen into scummverse_shots (PNG), for checks.
+ bool SandboxEngine::shot(const Common::String &name) const {
+ #ifdef USE_PNG
+@@ -1140,6 +1276,7 @@ Common::Error SandboxEngine::run() {
+ 	_wanderers = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
+ 	_verbs = !ConfMan.hasKey("scummverse_verbs") || ConfMan.getBool("scummverse_verbs");
+ 	PanelBridge::clearThings(); // (read afresh: the cache may have been exported again)
++	Camera::reset(); // (nothing from an earlier game)
+ 
+ 	if (ConfMan.hasKey("scummverse_selftest")) {
+ 		_testing = true;
+@@ -1164,6 +1301,17 @@ Common::Error SandboxEngine::run() {
+ 	bool changed = true;
+ 	while (!shouldQuit()) {
+ 		Common::Event event;
++		// (The camera's: the place held still, taps let go, for a selfie and
++		// while iOS asks for Photos.)
++		if (cameraStep()) {
++			while (g_system->getEventManager()->pollEvent(event)) {}
++			_press = Press();
++			last = g_system->getMillis();
++			g_system->updateScreen();
++			g_system->delayMillis(10);
++			continue;
++		}
++		if (_dirty) changed = true;
+ 		// (Full Throttle's: a press held opens the coin, let go uses it.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+ 			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+@@ -1197,6 +1345,8 @@ Common::Error SandboxEngine::run() {
+ 	}
+ 	saveState();
+ 	talkEnd();
++	if (_selfie.on) selfieEnd();
++	Camera::reset();
+ 	return Common::kNoError;
+ }
+ 
+@@ -2118,8 +2268,156 @@ Common::Error SandboxEngine::castTest() {
+ 	return Common::kNoError;
+ }
+ 
++// The "camera" check's stand-in for whoever saves photos (the iPhone's
++// Photos): each picture's size, kind and shot, a few of its pixels, and
++// the first selfie whole.
++namespace FakeCamera {
++struct Shot { int width, height, kind, shot, shots; uint32 first, middle, last; };
++static Common::Array<Shot> shots;
++static Common::Array<byte> selfie;
++static int selfieWidth = 0, selfieHeight = 0;
++static uint32 at(const uint8_t *rgba, int width, int x, int y) {
++	const uint8_t *p = rgba + ((size_t)y * width + x) * 4;
++	return 0xFF000000u | p[0] << 16 | p[1] << 8 | p[2];
++}
++static void sink(const uint8_t *rgba, int width, int height, int kind, int shot, int count, void *) {
++	shots.push_back({width, height, kind, shot, count, at(rgba, width, 0, 0), at(rgba, width, width / 2, height / 2), at(rgba, width, width - 1, height - 1)});
++	if (kind == Scummverse::Camera::kSelfie && selfie.empty()) { selfie = Common::Array<byte>(rgba, (size_t)width * height * 4); selfieWidth = width; selfieHeight = height; }
++}
++} // End of namespace FakeCamera
++
++// Photos and selfies through the camera's own requests (as the iPhone's
++// button makes them), in a place of the first game with someone else there:
++// a clean photo is the scene alone, whole pixels of it (its corners and
++// middle as drawn); a full one the screen with its panel; a selfie of three
++// holds the place still (nobody moves), poses everyone for each shot, takes
++// three of one frame (the one played in it, 4:5 to 4:3), and leaves everyone
++// as they were; while iOS asks for Photos the place holds still, then goes
++// on. Pictures: camera-full.png (the screen photographed), camera-selfie.png
++// (the first shot as saved).
++Common::Error SandboxEngine::cameraTest() {
++	Camera::reset();
++	Camera::setPlainSink(FakeCamera::sink, nullptr);
++	_wanderers = false;
++	int failed = 0;
++	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox camera: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "?", _room, what); };
++	Common::String problem;
++	bool entered = false;
++	for (int g = 0; g < worldGameCount() && !entered; ++g) {
++		if (!someoneToPlay(g)) continue;
++		for (int r = 1; r < 1024 && !entered; ++r) {
++			if (!installed(g, r) || !walkable(g, r)) continue;
++			bool others = false;
++			for (const WorldCastGuest &cast : kWorldCast)
++				others = others || (cast.game == g && cast.room == r && worldAppearanceKey(g, cast.guest.costume) != _playerKey && hasCharacter(worldAppearanceKey(g, cast.guest.costume)));
++			entered = others && enter(g, r, 0, problem) && _onStage.size() >= 2;
++		}
++	}
++	if (!entered) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: no place with people");
++	step(1);
++	present();
++	int left, top, width, height, k;
++	double rowScale, colScale;
++	StageBridge::view(left, top, width, height, rowScale, colScale);
++	// A clean photo: the scene alone, each pixel k by k.
++	Camera::requestPhoto(false);
++	if (cameraStep() || FakeCamera::shots.size() != 1) fail("no clean photo");
++	else {
++		const FakeCamera::Shot &c = FakeCamera::shots[0];
++		Camera::squareFactor(width, height, k);
++		if (c.kind != Camera::kClean || c.width != width * k || c.height != height * k) fail("a clean photo not the scene's size");
++		if (c.first != _frame[top * _width + left] || c.last != _frame[(top + height - 1) * _width + left + width - 1] ||
++			c.middle != _frame[(top + c.height / 2 / k) * _width + left + c.width / 2 / k]) fail("a clean photo not the scene as drawn");
++	}
++	// A full photo: the screen as shown, its panel too.
++	Camera::requestPhoto(true);
++	if (cameraStep() || FakeCamera::shots.size() != 2) fail("no full photo");
++	else {
++		const FakeCamera::Shot &f = FakeCamera::shots[1];
++		Camera::squareFactor(_width, _height, k);
++		if (f.kind != Camera::kFull || f.width != _width * k || f.height != _height * k) fail("a full photo not the screen's size");
++		if (f.last != _frame[(_height - 1) * _width + _width - 1] || f.middle != _frame[(f.height / 2 / k) * _width + f.width / 2 / k]) fail("a full photo not the screen as shown");
++	}
++	shot("camera-full.png");
++	// A selfie of three: nobody moves, everyone posed for each shot, one frame.
++	const int count = StageBridge::actorCount();
++	Common::Array<double> xs(count), ys(count);
++	double spotX[4], spotY[4];
++	const int spots = StageBridge::spots(4, spotX, spotY);
++	for (int n = 1; n < count && spots; ++n) StageBridge::walkTo(n, spotX[n % spots], spotY[n % spots]);
++	for (int n = 0; n < count; ++n) StageBridge::position(n, xs[n], ys[n]);
++	Camera::requestSelfie(3);
++	if (!cameraStep() || !_selfie.on || !Camera::busy()) fail("no selfie begun");
++	bool allPosed = true;
++	for (int n = 0; n < count; ++n) allPosed = allPosed && StageBridge::posed(n);
++	if (!allPosed) fail("someone not posed");
++	const uint32 began = g_system->getMillis();
++	while (_selfie.on && g_system->getMillis() - began < 10000) {
++		// (As the run loop: nothing else while the camera holds.)
++		if (!cameraStep()) step(1);
++		g_system->delayMillis(5);
++	}
++	const uint32 took = g_system->getMillis() - began;
++	Common::Array<FakeCamera::Shot> selfies;
++	for (uint i = 2; i < FakeCamera::shots.size(); ++i) selfies.push_back(FakeCamera::shots[i]);
++	if (_selfie.on || selfies.size() != 3) fail("not three shots");
++	for (uint i = 0; i < selfies.size(); ++i) {
++		const FakeCamera::Shot &e = selfies[i];
++		if (e.kind != Camera::kSelfie || e.shot != (int)i || e.shots != 3 || e.width != selfies[0].width || e.height != selfies[0].height) fail("a shot out of turn or of another frame");
++		if (e.width * 3 > e.height * 4 + 3 * k || e.width * 5 < e.height * 4 - 5 * k) fail("a shot not 4:5 to 4:3");
++	}
++	if (took < kSelfieSettle + 2 * kSelfieNext + kSelfieShow) fail("a selfie quicker than its shots are shown");
++	for (int n = 0; n < count; ++n) {
++		double x, y;
++		StageBridge::position(n, x, y);
++		if (x != xs[n] || y != ys[n]) { fail("someone moved during the selfie"); break; }
++		if (StageBridge::posed(n)) { fail("someone left posed"); break; }
++	}
++	if (Camera::busy()) fail("the camera left busy");
++#ifdef USE_PNG
++	if (ConfMan.hasKey("scummverse_shots") && !FakeCamera::selfie.empty()) {
++		// (Its RGBA bytes as the stage's words.)
++		Common::Array<uint32> words((size_t)FakeCamera::selfieWidth * FakeCamera::selfieHeight);
++		for (uint i = 0; i < words.size(); ++i) words[i] = FakeCamera::at(FakeCamera::selfie.data(), 1, i, 0);
++		Graphics::Surface surface;
++		surface.init(FakeCamera::selfieWidth, FakeCamera::selfieHeight, FakeCamera::selfieWidth * 4, words.data(), kStageFormat);
++		Common::DumpFile out;
++		if (out.open(ConfMan.getPath("scummverse_shots").appendComponent("camera-selfie.png"), true)) Image::writePNG(out, surface);
++	}
++#endif
++	// Held (iOS asking for Photos): the one played, sent the farthest way,
++	// does not move; let go, they walk on.
++	double hx, hy, px, py;
++	StageBridge::position(_player, hx, hy);
++	int far = -1;
++	for (int i = 0; i < spots; ++i)
++		if (far < 0 || (spotX[i] - hx) * (spotX[i] - hx) + (spotY[i] - hy) * (spotY[i] - hy) > (spotX[far] - hx) * (spotX[far] - hx) + (spotY[far] - hy) * (spotY[far] - hy)) far = i;
++	if (far >= 0) StageBridge::walkTo(_player, spotX[far], spotY[far]);
++	if (!StageBridge::moving(_player)) fail("no way to walk to hold");
++	else {
++		Camera::setHold(true);
++		for (int t = 0; t < 30; ++t) if (!cameraStep()) step(1);
++		StageBridge::position(_player, px, py);
++		if (px != hx || py != hy) fail("walked while held");
++		Camera::setHold(false);
++		for (int t = 0; t < 30; ++t) if (!cameraStep()) step(1);
++		StageBridge::position(_player, px, py);
++		if (px == hx && py == hy) fail("not walking once let go");
++	}
++	Camera::setPlainSink(nullptr, nullptr);
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest camera: clean %dx%d, full %dx%d, selfie %d shots %dx%d in %u ms, %d failed",
++		FakeCamera::shots.size() > 0 ? FakeCamera::shots[0].width : 0, FakeCamera::shots.size() > 0 ? FakeCamera::shots[0].height : 0,
++		FakeCamera::shots.size() > 1 ? FakeCamera::shots[1].width : 0, FakeCamera::shots.size() > 1 ? FakeCamera::shots[1].height : 0,
++		(int)selfies.size(), selfies.empty() ? 0 : selfies[0].width, selfies.empty() ? 0 : selfies[0].height, took, failed);
++	if (failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
++	if (mode == "camera") return cameraTest();
+ 	if (mode == "talk") return talkTest();
+ 	if (mode == "cast") return castTest();
+ 	int game, room;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 81e66ef5..0c3a2f4b 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -128,6 +128,25 @@ private:
+ 	void back();
+ 	void request(int code); // from the Worlds menu
+ 	void present();
++	void show(); // the frame onto the screen
++	// The iPhone's camera (step 4; common/scummverse_camera_engine.h, as
++	// Maniac's): a photo of the scene alone (clean) or of the screen as shown
++	// (full); a selfie of 1, 3 or 5 shots, everyone posed afresh for each in
++	// their own frames, framed on the one played and those near; the place
++	// held still meanwhile, and while iOS asks for Photos. True while held.
++	bool cameraStep();
++	bool photo(int kind);
++	bool selfieBegin(int shots);
++	void selfiePose();
++	bool selfieShoot();
++	void selfieEnd();
++	struct Selfie {
++		bool on = false, showing = false;
++		int shots = 1, shot = 0;
++		uint32 seed = 0, due = 0;
++		int x = 0, y = 0, w = 0, h = 0; // the frame (the first shot's, kept)
++	};
++	Selfie _selfie;
+ 	bool shot(const Common::String &name) const;
+ 	// Where the player is and where everyone is, kept between visits.
+ 	void saveState() const;
+@@ -138,11 +157,12 @@ private:
+ 	// every door of every place, "wander" half an hour with everyone out,
+ 	// "verbs" every verb of every game's panel used on the things there,
+ 	// "talk" chat with a stand-in for the iPhone's, "cast" its character
+-	// screen with one.
++	// screen with one, "camera" photos and selfies.
+ 	Common::Error selfTest(const Common::String &mode);
+ 	Common::Error verbsTest();
+ 	Common::Error talkTest();
+ 	Common::Error castTest();
++	Common::Error cameraTest();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

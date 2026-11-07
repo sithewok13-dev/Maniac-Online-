@@ -1,0 +1,233 @@
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index 4128ef2b..a26699ca 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -5,9 +5,11 @@
+ // no bundled artwork. Manual reference counting, like this file.
+ 
+ static NSMutableDictionary *scummverseCastTitles, *scummverseCastFolders, *scummverseCastFaces, *scummverseCastPeople;
+-// The list of places (below): the request its Cancel sends (0: none), and
+-// the list while it is shown.
+-static int scummversePlacesCancelRequest;
++// The list of places (below): the request its Cancel sends (0: none), the
++// list while it is shown, and which list it is (each list and each time one
++// is taken away is a later one; a list shown or still coming up for an
++// earlier one is not wanted).
++static int scummversePlacesCancelRequest, scummversePlacesGeneration;
+ static UINavigationController *scummversePlacesList;
+ 
+ static UIImage *scummverseCastImage(NSData *data) {
+@@ -66,13 +68,18 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+ 	const int request = [_people[indexPath.row][1] intValue];
+ 	if (_screen) { [_screen play:request]; return; }
+-	// Closed first, so whatever the arrival shows is not hidden behind it.
++	// Closed first, so whatever the arrival shows is not hidden behind it
++	// (its Cancel no longer answering meanwhile).
+ 	tableView.userInteractionEnabled = NO;
++	self.navigationItem.rightBarButtonItem.enabled = NO;
+ 	[self dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(request); }];
+ }
+ - (void)cancel {
+-	// (A list of places may say it was closed unchosen: a ride's.)
++	// (A list of places may say it was closed unchosen: a ride's. Nothing
++	// chosen in it meanwhile.)
+ 	const int request = _screen ? 0 : scummversePlacesCancelRequest;
++	self.tableView.userInteractionEnabled = NO;
++	self.navigationItem.rightBarButtonItem.enabled = NO;
+ 	[self dismissViewControllerAnimated:YES completion:^{ if (request) scummverseWorldRequest(request); }];
+ }
+ @end
+@@ -268,6 +275,7 @@ void scummversePlacesBegin(const char *title) {
+ 		if (!scummversePlaces) scummversePlaces = [[NSMutableArray alloc] init];
+ 		[scummversePlaces removeAllObjects];
+ 		scummversePlacesCancelRequest = 0;
++		++scummversePlacesGeneration;
+ 	});
+ }
+ void scummversePlacesCancel(int request) {
+@@ -281,13 +289,13 @@ void scummversePlacesItem(const char *name, int request) {
+ 		[place release];
+ 	});
+ }
+-static void scummversePlacesPresent(int tries) {
++static void scummversePlacesPresent(int tries, int generation) {
+ 	UIResponder *responder = [iOS7AppDelegate iPhoneView];
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 	UIViewController *controller = (UIViewController *)responder;
+-	if (!scummversePlaces.count) return; // (withdrawn, or nothing in it)
++	if (generation != scummversePlacesGeneration || !scummversePlaces.count) return; // (withdrawn or replaced, or nothing in it)
+ 	if (controller && controller.presentedViewController && tries > 0) {
+-		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummversePlacesPresent(tries - 1); });
++		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummversePlacesPresent(tries - 1, generation); });
+ 		return;
+ 	}
+ 	if (!controller || controller.presentedViewController) {
+@@ -304,16 +312,21 @@ static void scummversePlacesPresent(int tries) {
+ 	// away unheard.)
+ 	if (@available(iOS 13.0, *)) navigation.modalInPresentation = scummversePlacesCancelRequest != 0;
+ 	[scummversePlacesList release]; scummversePlacesList = [navigation retain];
+-	[controller presentViewController:navigation animated:YES completion:nil];
++	// (Taken away while it was coming up: closed once it is up.)
++	[controller presentViewController:navigation animated:YES completion:^{
++		if (generation != scummversePlacesGeneration && !navigation.isBeingDismissed) [navigation.presentingViewController dismissViewControllerAnimated:YES completion:nil];
++	}];
+ }
+ void scummversePlacesShow() {
+-	dispatch_async(dispatch_get_main_queue(), ^{ scummversePlacesPresent(5); });
++	dispatch_async(dispatch_get_main_queue(), ^{ scummversePlacesPresent(5, scummversePlacesGeneration); });
+ }
+ void scummversePlacesHide() {
+ 	dispatch_async(dispatch_get_main_queue(), ^{
++		++scummversePlacesGeneration;
+ 		[scummversePlaces removeAllObjects]; scummversePlacesCancelRequest = 0;
++		// (Still coming up: closed by its presentation's end, above.)
+ 		UIViewController *presenting = scummversePlacesList.presentingViewController;
+-		if (presenting && !scummversePlacesList.isBeingDismissed) [presenting dismissViewControllerAnimated:YES completion:nil];
++		if (presenting && !scummversePlacesList.isBeingDismissed && !scummversePlacesList.isBeingPresented) [presenting dismissViewControllerAnimated:YES completion:nil];
+ 		[scummversePlacesList release]; scummversePlacesList = nil;
+ 	});
+ }
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index dbd149fe..769397a2 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -439,6 +439,18 @@ bool Scene::propRect(int n, int &x0, int &y0, int &x1, int &y1) const {
+ 	return rectOf(placeOf(prop.frame, prop.at, prop.rows, prop.pixelAspect, _view, _boxes), _view, x0, y0, x1, y1);
+ }
+ 
++bool Scene::propHit(int n, int screenX, int screenY) const {
++	if (n < 0 || n >= (int)_props.size()) return false;
++	const Prop &prop = _props[n];
++	const Placement p = placeOf(prop.frame, prop.at, prop.rows, prop.pixelAspect, _view, _boxes);
++	int x0, y0, x1, y1;
++	if (!rectOf(p, _view, x0, y0, x1, y1) || screenX < x0 || screenX >= x1 || screenY < y0 || screenY >= y1) return false;
++	// (As render picks the pixel drawn there.)
++	const int row = std::min(prop.frame.height - 1, (int)((screenY - p.y0) / p.down));
++	const int col = std::min(prop.frame.width - 1, (int)((screenX - p.x0) / p.across));
++	return row >= 0 && col >= 0 && prop.frame.mask[(size_t)row * prop.frame.width + col];
++}
++
+ int Scene::addProp(const uint8_t *pixels, int width, int height, int none, const uint8_t *palette, Point at, double rows, double pixelAspect) {
+ 	if (!pixels || !palette || width <= 0 || height <= 0 || rows <= 0) return -1;
+ 	Prop prop;
+@@ -785,6 +797,7 @@ int addProp(const unsigned char *pixels, int width, int height, int none, const
+ }
+ int propCount() { return stage().propCount(); }
+ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) { return stage().propRect(prop, x0, y0, x1, y1); }
++bool propHit(int prop, int screenX, int screenY) { return stage().propHit(prop, screenX, screenY); }
+ double depthAt(double x, double y) { return stage().depthAt(Stage::Point(x, y)); }
+ bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette) {
+ 	World::SourceScene scene;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 74289f17..7f8a385d 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -189,6 +189,7 @@ public:
+ 	int addProp(const uint8_t *pixels, int width, int height, int none, const uint8_t *palette, Point at, double rows, double pixelAspect);
+ 	int propCount() const { return (int)_props.size(); }
+ 	bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) const; // its screen rectangle (false when off screen)
++	bool propHit(int prop, int screenX, int screenY) const;            // a pixel of it drawn there (not one left out)
+ 	// How big people are at a point against full size (the boxes' scale).
+ 	double depthAt(Point p) const { return scaleAt(_boxes, p) / 255.0; }
+ 
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 3da62768..ca5203b8 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -72,6 +72,7 @@ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
+ int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect);
+ int propCount();
+ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1); // its screen rectangle (false off screen)
++bool propHit(int prop, int screenX, int screenY);             // a pixel of it drawn there (not one left out)
+ // How big people are at a point against full size (the boxes' scale, 0..1).
+ double depthAt(double x, double y);
+ // A scene's colours (bytes of a .svw file; 768 bytes out); false when malformed.
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index cff32fe9..d18f4b33 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -430,11 +430,10 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	// (A ride waited for goes on unless they walk off from it, in rideStep;
+ 	// one only walked to is given up.)
+ 	if (_riding.phase == kRideWalking) _riding = Riding();
+-	// The Shuttle Bug parked here: walked to its door, boarded there.
+-	if (_vanProp >= 0 && !_touring.on) {
+-		int x0, y0, x1, y1;
+-		if (StageBridge::propRect(_vanProp, x0, y0, x1, y1) && screenX >= x0 && screenX < x1 && screenY >= y0 && screenY < y1) { vanWalk(); return; }
+-	}
++	// The Shuttle Bug parked here, tapped where it is drawn (what it leaves
++	// out around it is the place's, doors too): walked to its door, boarded
++	// there.
++	if (_vanProp >= 0 && !_touring.on && StageBridge::propHit(_vanProp, screenX, screenY)) { vanWalk(); return; }
+ 	// A door of this room (shown there), or where a ride is boarded (Zak's
+ 	// bus, the Mars tram, a plane's gate: walked to, boarded there), under
+ 	// the tap, else near it; where they overlap, the one tapped most nearly.
+@@ -1481,15 +1480,17 @@ void SandboxEngine::vanShow() {
+ 	byte palette[768];
+ 	if (!read("zak-van.svv", picture) || picture.size() < 8 || READ_BE_UINT32(picture.data()) != MKTAG('S', 'V', 'V', '1')) return;
+ 	const int w = READ_LE_UINT16(&picture[4]), h = READ_LE_UINT16(&picture[6]);
+-	if (w <= 0 || h <= 0 || picture.size() < 8 + (size_t)w * h) return;
++	if (w <= 0 || h <= 0 || w > 640 || h > 256 || picture.size() < 8 + (size_t)w * h) return; // (as Maniac reads it)
+ 	if (!read(Common::String::format("%s-%d.svw", kWorldGames[ride.game].gameid, ride.room), scene) || !StageBridge::paletteOf(scene.data(), scene.size(), palette)) return;
+ 	if (_vanX < 0 || _vanY < 0) vanPark(); // (landed before its spot was kept)
+-	const double depth = MAX(0.01, StageBridge::depthAt(_vanX, _vanY));
++	// (Maniac's pixels in this place's: Curse of Monkey Island's are half the size.)
++	const double unit = screenWidthOf(_game) / 320.0;
++	const double depth = MAX(0.01, StageBridge::depthAt(_vanX, _vanY)) * (walkable(_game, _room) ? 1.0 : 0.3); // (small on maps, as people are)
+ 	const double across = (double)w / h * pixelAspect(_game) / pixelAspect(ride.game); // (its width a row tall, in this place's columns)
+ 	double rows = h * kWorldGames[_game].heroHeight * depth / kVanKidHeight; // (as drawn)
+-	rows = MIN(rows, MAX(16.0, _vanY - 4.0));
+-	rows = MIN(rows, (screenWidthOf(_game) - 32.0) / across);
+-	const double width = rows * across, gap = 12.0 * screenWidthOf(_game) / 320;
++	rows = MIN(rows, MAX(16.0 * unit, _vanY - 4.0 * unit));
++	rows = MIN(rows, (screenWidthOf(_game) - 32.0 * unit) / across);
++	const double width = rows * across, gap = 12.0 * unit;
+ 	double left = _vanX * 2 > StageBridge::sceneWidth() ? _vanX - gap - width : _vanX + gap;
+ 	left = CLIP<double>(left, 0, MAX(0.0, StageBridge::sceneWidth() - width));
+ 	// (Its size there as worked out: the boxes' scale where it stands may
+@@ -1625,7 +1626,7 @@ void SandboxEngine::rideStep(int ticks) {
+ 		announce(Common::String::format("Welcome to %s.", to ? to->city : "your destination").c_str());
+ 	} else if (ride.kind == kWorldRideVan) {
+ 		_vanPlace = done.toGame * 1024 + done.toRoom;
+-		if (!_testing) { ConfMan.setInt(kVanPlaceKey, _vanPlace); ConfMan.flushToDisk(); }
++		if (!_testing) ConfMan.setInt(kVanPlaceKey, _vanPlace); // (kept with where it stands, by vanPark)
+ 		vanPark();
+ 		vanShow();
+ 		announce("The Shuttle Bug touches down.");
+@@ -3767,9 +3768,34 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (StageBridge::propCount() != 1 || _vanProp != 0 || !StageBridge::propRect(0, x0, y0, x1, y1) || !StageBridge::drawnRect(_player, px0, py0, px1, py1)) { fail("the van not drawn where it landed"); return false; }
+ 			const int feet = (px0 + px1) / 2;
+ 			if (MIN(ABS(x0 - feet), ABS(x1 - feet)) > (x1 - x0) / 2 || (y1 - y0) <= (py1 - py0)) fail("the van not beside the one played, taller");
++			// (Its size: as much taller than the people here as beside its long
++			// shot's spacesuits, unless the room has no room for that; as much
++			// wider than tall as its picture, where not cut by the screen's
++			// edges.)
++			int left, top, shownWidth, shownHeight;
++			double rowScale, colScale;
++			StageBridge::view(left, top, shownWidth, shownHeight, rowScale, colScale);
++			const double depth = StageBridge::depthAt(_vanX, _vanY);
++			const int vw = READ_LE_UINT16(&vanPicture[4]), vh = READ_LE_UINT16(&vanPicture[6]);
++			const double rows = MIN(vh * kWorldGames[_game].heroHeight * depth / kVanKidHeight, _vanY - 4.0 * screenWidthOf(_game) / 320);
++			if (fabs((y1 - y0) / rowScale - rows) > rows * 0.1 + 1) fail("the van not its size");
++			const double wide = (double)vw / vh / pixelAspect(kWorldRides[0].game); // (Zak's art: its pixels 1.2 times taller)
++			if (x0 > left && x1 < left + shownWidth && fabs((double)(x1 - x0) / (y1 - y0) - wide) > wide * 0.1) fail("the van not its shape");
+ 			if (ConfMan.hasKey("scummverse_shots")) { present(); shot("van.png"); }
+ 			if (!boardIt) return true;
+-			tap((x0 + x1) / 2, (y0 + y1) / 2);
++			// (Tapped where it leaves the place showing, around it: a walk.)
++			int clearX = -1, clearY = -1, drawnX = -1, drawnY = -1;
++			for (int y = y0; y < y1 && (clearX < 0 || drawnX < 0); y += 2)
++				for (int x = x0; x < x1; x += 2) {
++					if (StageBridge::propHit(0, x, y)) { if (drawnX < 0 && x > (x0 + x1) / 2) { drawnX = x; drawnY = y; } }
++					else if (clearX < 0 && y > y0 + 4) { clearX = x; clearY = y; }
++				}
++			if (clearX >= 0) {
++				tap(clearX, clearY);
++				if (_riding.ride >= 0) fail("the van boarded by a tap beside its picture");
++			}
++			if (drawnX < 0) { fail("no van drawn to tap"); return false; }
++			tap(drawnX, drawnY);
+ 			if (_riding.ride < 0 || _riding.phase != kRideWalking) { fail("the van not boarded by a tap on it"); return false; }
+ 			++vanTaps;
+ 			return true;

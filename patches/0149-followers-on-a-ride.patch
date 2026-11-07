@@ -1,0 +1,59 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index b1fe54e1..1d01f02a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -4321,7 +4321,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// without the one played. Taken as a player does.
+ 	_phone.placesBegin = FakePlaces::begin; _phone.placesItem = FakePlaces::item; _phone.placesShow = FakePlaces::show;
+ 	_phone.placesCancel = FakePlaces::cancelWith; _phone.placesHide = FakePlaces::hide;
+-	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0;
++	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0;
+ 	auto board = [&](int game, int room, int object) {
+ 		Common::String problem;
+ 		if (!enter(game, room, 0, problem)) return false;
+@@ -4382,8 +4382,33 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (_notice.empty() || _riding.phase < 1) { fail("no countdown"); continue; }
+ 			zakRides += ride(r.game, r.target, r.arrival, "a ride not off at the other end");
+ 		}
+-		// Walked off during the countdown (a tap away): gone without them.
++		// Someone following rides along: on the bus with the one played, off
++		// beside them at the other end (there once).
+ 		const WorldRide &bus = kWorldRides[0];
++		int companion = -1;
++		for (const WorldCastGuest &c : kWorldCast) {
++			const int k = worldAppearanceKey(c.game, c.guest.costume);
++			if (companion < 0 && c.game == zak && k != _playerKey && hasCharacter(k)) companion = k;
++		}
++		if (companion >= 0 && installed(bus.game, bus.room) && installed(bus.game, bus.target)) {
++			follow(companion, true);
++			if (!board(bus.game, bus.room, bus.object)) fail("the bus not boarded with someone following");
++			else {
++				for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
++				if (ride(bus.game, bus.target, bus.arrival, "the bus not ridden with someone following")) {
++					int times = 0, n = -1;
++					for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == companion) { ++times; n = i; }
++					double px, py, x = 0, y = 0;
++					StageBridge::position(_player, px, py);
++					if (n >= 0) StageBridge::position(n, x, y);
++					const double reach = 24.0 * screenWidthOf(_game) / 320;
++					if (times != 1 || (x - px) * (x - px) + (y - py) * (y - py) > 4 * reach * reach) fail("someone following not off the bus beside the one played");
++					else ++followedRides;
++				}
++			}
++			follow(companion, false);
++		}
++		// Walked off during the countdown (a tap away): gone without them.
+ 		if (installed(bus.game, bus.room) && installed(bus.game, bus.target) && board(bus.game, bus.room, bus.object)) {
+ 			for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
+ 			if (_riding.phase < 1 || !walkOff()) fail("no countdown to walk off from");
+@@ -4573,8 +4598,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d failed",
+-		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, failed);
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, failed);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

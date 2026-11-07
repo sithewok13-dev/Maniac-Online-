@@ -1,0 +1,58 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index eeccd3b1..a4d43615 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -32,7 +32,7 @@ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex)
+ 
+ static const char *actorName(int id) {
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+-	return id==8 ? "Caponian" : id==17 ? "Alien pilot" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
++	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
+ 	switch (id) {
+@@ -44,7 +44,7 @@ static const char *personality(int id) {
+ 	case 6: return "an aspiring writer collecting odd observations";
+ 	case 7: return "a laid-back surfer, surprised to be indoors";
+ 	case 8: return "a Caponian alien disguised as a telephone-company employee; evasive, bureaucratic, and comically suspicious";
+-	case 17: return "a Caponian spacecraft pilot; proud of alien technology and puzzled by human habits";
++	case 17: return "The King, a legendary rock-and-roll singer who has been living aboard an alien spacecraft in the Bermuda Triangle; warm, charming, nostalgic about touring, and grateful to his audience";
+ 	case 18: return "a knowledgeable shaman from the Zaire village, familiar with ancient crystals; observant and wry, speaking natural English without a caricature accent";
+ 	case 19: return "a resident of the Zaire village, curious about visitors and knowledgeable about the local jungle; friendly and practical, speaking natural English without a caricature accent";
+ 	case 9: return "an eccentric scientist distracted by experiments";
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 6df803af..6ca9d32a 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -223,7 +223,8 @@ void ScummEngine::scummverseInitVisitors() {
+ 	}
+ 	if (!_scummVars[764] && scummverseMountZakCast()) {
+ 		const int ids[]={8,17,18,19}, rooms[]={90,91,63,63}, colors[]={10,11,9,9};
+-		const char *names[]={"Caponian", "Alien pilot", "Zaire shaman", "Zaire villager"};
++		// Zak costume 27 is "The King" (original room 10 object script), not a pilot.
++		const char *names[]={"Caponian", "The King", "Zaire shaman", "Zaire villager"};
+ 		for(int i=0;i<4;++i) {
+ 			Actor *a=derefActor(ids[i],"Zak resident"); a->stopActorMoving(); a->setActorCostume(38+i);
+ 			a->setPalette(1,colors[i]); a->_talkColor=colors[i]; a->putActor(18+i*3,60,rooms[i]); a->startAnimActor(a->_standFrame);
+@@ -403,7 +404,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+-	_scummVars[527]=1; _scummVars[528]=2;
++	_scummVars[527]=1; _scummVars[528]=3;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+@@ -844,6 +845,12 @@ void ScummEngine::scummverseRestoreTemple() {
+   _scummVars[528]=2;
+   if(int replacement=zakRetiredRoomReplacement(_currentRoom)) scummverseTravel(replacement-50);
+  }
++ // Scene schema 3 (patch 0045): actor 17 wears Zak costume 27, which the
++ // original names "The King". Saved actor names carry the old label.
++ if(_scummVars[528]<3) {
++  if(_scummVars[764]) memcpy(_res->createResource(rtActorName,17,9),"The King",9);
++  _scummVars[528]=3;
++ }
+  if(const auto *scene=zakSceneSetup(_currentRoom)) {
+   VAR(VAR_CAMERA_MIN_X)=scene->cameraMin;VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+   for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];

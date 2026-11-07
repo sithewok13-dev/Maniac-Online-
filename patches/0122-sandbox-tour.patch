@@ -1,0 +1,573 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 24203e32..afed9cae 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -537,13 +537,16 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	if (!controller || controller.presentedViewController) return;
+ 	// The sandbox engine (preview) running: another game's places, or back.
+ 	if (scummverseSandboxActive()) {
+-		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere: Talk chats with anyone here; Play as someone else picks anyone from any game. The camera and tour come next." preferredStyle:UIAlertControllerStyleAlert];
++		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere: Talk chats with anyone here, Play as someone else picks anyone from any game, the camera takes photos and selfies, and the tour walks through every place." preferredStyle:UIAlertControllerStyleAlert];
+ 		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+ 			if (!scummverseSandboxGameInstalled(game)) continue;
+ 			[sandbox addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %s", game.title] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxGameRequest + i); }]];
+ 		}
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxCastRequest); }]];
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Tour every location (watch for bugs)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[controller dismissViewControllerAnimated:YES completion:^{ scummverseShowTour(controller); }];
++		}]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to the original engine" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:sandbox animated:YES completion:nil];
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6ba8b739..d08ddb0a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -32,6 +32,7 @@
+ #include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_panel_engine.h"
+ #include "common/scummverse_stage_engine.h"
++#include "common/scummverse_tour.h"
+ #include "common/scummverse_wander_engine.h"
+ #include "common/scummverse_world_engine.h"
+ #include "common/scummverse_world_catalog.h"
+@@ -770,6 +771,7 @@ bool SandboxEngine::castChoose(int key) {
+ 	};
+ 	int room;
+ 	if (!castHome(key, room)) return refuse();
++	if (_touring.on) tourEnd(false);
+ 	const int game = worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
+ 	double x = 0, y = 0;
+ 	if (_player >= 0) StageBridge::position(_player, x, y);
+@@ -951,6 +953,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
++	if (_touring.on) tourStep(ticks);
+ 	talkScene();
+ }
+ 
+@@ -962,6 +965,8 @@ void SandboxEngine::back() {
+ }
+ 
+ void SandboxEngine::request(int code) {
++	// (Somewhere else chosen: the tour ends there.)
++	if (_touring.on && (code == kBackRequest || code >= kGameRequest)) tourEnd(false);
+ 	if (code == kBackRequest) { back(); return; }
+ 	if (code == kCastRequest) { castOffer(); return; }
+ 	// A choice on the character screen. (The chat's own requests, a scene's
+@@ -1012,6 +1017,267 @@ void SandboxEngine::show() {
+ 	g_system->copyRectToScreen(_converted.data(), _width * _format.bytesPerPixel, 0, 0, _width, _height);
+ }
+ 
++// ---- The tour ----
++
++// In game ticks (as Maniac's): at most this long for each walk; every stop
++// shown at least this long (for its label to be read); a stop that could
++// not be shown says so this long.
++static const int kTourWalk = 600, kTourGlimpse = 60, kTourRefused = 60;
++enum { kTourAcross = 0, kTourToDoor, kTourRefusedStop };
++// Where a resumed tour starts (1 the first; kept between launches).
++static const char *const kTourResumeKey = "scummverse_sandbox_tour_stop";
++
++// A place's name: its landmark's, else its area's on the game's map.
++static Common::String placeName(int game, int room) {
++	if (const WorldScene *scene = worldLandmark(game, room)) return scene->name;
++	if (const WorldMap *map = worldMap(game))
++		for (int i = 0; i < map->areaCount; ++i) if (map->areas[i].room == room) return map->areas[i].name;
++	return "";
++}
++
++// Each game's places in walking order (the mansion's, Zak's, then the
++// others'): from its first place on foot to the nearest not yet visited (the
++// fewest doors, through places visited before), else, where no door leads
++// to one, on to the next not yet visited (a warp).
++void SandboxEngine::tourBuild() {
++	_touring.stops.clear();
++	Common::Array<int> order;
++	for (const char *home : {"maniac", "zak"})
++		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, home)) order.push_back(g);
++	for (int g = 0; g < worldGameCount(); ++g) if (!worldHome(g)) order.push_back(g);
++	for (int g : order) {
++		Common::Array<int> rooms;
++		int first = -1;
++		if (firstPlace(g, first)) rooms.push_back(first);
++		for (int r = 1; r < 1024; ++r) if (installed(g, r) && r != first) rooms.push_back(r);
++		const WorldMap *map = worldMap(g);
++		auto at = [&](int room) {
++			for (uint i = 0; i < rooms.size(); ++i) if (rooms[i] == room) return (int)i;
++			return -1;
++		};
++		Common::Array<bool> seen(rooms.size(), false);
++		int current = -1;
++		for (uint placed = 0; placed < rooms.size(); ++placed) {
++			int next = -1;
++			Common::Array<int> legs;
++			if (current >= 0 && map) {
++				// (Breadth first over the doors: the link each place is first reached by.)
++				Common::Array<int> came(rooms.size(), -2), queue;
++				queue.push_back(current); came[current] = -1;
++				for (uint q = 0; q < queue.size() && next < 0; ++q)
++					for (int e = 0; e < map->linkCount && next < 0; ++e) {
++						const WorldLink &l = map->links[e];
++						const int j = l.room == rooms[queue[q]] ? at(l.target) : -1;
++						if (j < 0 || came[j] != -2) continue;
++						came[j] = e; queue.push_back(j);
++						if (!seen[j]) next = j;
++					}
++				for (int j = next; j >= 0 && came[j] >= 0; j = at(map->links[came[j]].room)) legs.insert_at(0, came[j]);
++			}
++			for (uint j = 0; j < rooms.size() && next < 0; ++j) if (!seen[j]) next = j;
++			seen[next] = true;
++			TourStop stop;
++			stop.game = g; stop.room = rooms[next]; stop.legs = legs;
++			_touring.stops.push_back(stop);
++			current = next;
++		}
++	}
++	_touring.built = true;
++}
++
++// "Stop 12/740 · loom 21 · Loom Island" (the mansion's and Zak's as Maniac
++// names them: Maniac 12, Zak 84); warped there, or not shown, it says so.
++Common::String SandboxEngine::tourLabel(int index) const {
++	if (index < 0 || index >= (int)_touring.stops.size()) return "";
++	const TourStop &s = _touring.stops[index];
++	const char *id = kWorldGames[s.game].gameid;
++	const Common::String code = !strcmp(id, "maniac") ? "Maniac" : !strcmp(id, "zak") ? "Zak" : id;
++	Common::String label = Common::String::format("Stop %d/%d \xC2\xB7 %s %d", index + 1, (int)_touring.stops.size(), code.c_str(), s.room);
++	const Common::String name = placeName(s.game, s.room);
++	if (!name.empty()) label += " \xC2\xB7 " + name;
++	if (_touring.phase == kTourRefusedStop) label += " \xC2\xB7 could not be shown";
++	else if (_touring.warped) label += " \xC2\xB7 warped";
++	return label;
++}
++
++void SandboxEngine::tourPublish() {
++	Tour::publish(_touring.on, _touring.on ? tourLabel(_touring.stop).c_str() : "", (_touring.on ? _touring.stop : _touring.resume) + 1, _touring.stops.size());
++}
++
++bool SandboxEngine::tourDoor(int link, double &x, double &y) const {
++	const WorldMap *map = worldMap(_game);
++	if (!map || link < 0 || link >= map->linkCount || map->links[link].room != _room) return false;
++	for (int i = 0; i < StageBridge::objectCount(); ++i) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && id == map->links[link].object && isDoor(i)) return doorPoint(i, x, y);
++	}
++	return false;
++}
++
++void SandboxEngine::tourCommand(int command, int number) {
++	if (!_touring.built) tourBuild();
++	const int last = (int)_touring.stops.size() - 1;
++	switch (command) {
++	case Tour::kResume: tourStart(_touring.resume); break;
++	case Tour::kRestart: tourStart(0); break;
++	case Tour::kGoTo:
++		if (_touring.on) tourVisit(CLIP(number - 1, 0, MAX(0, last)), true);
++		else tourStart(number - 1);
++		break;
++	case Tour::kNext: if (_touring.on) tourVisit(MIN(_touring.stop + 1, last), true); break;
++	case Tour::kPrevious: if (_touring.on) tourVisit(MAX(_touring.stop - 1, 0), true); break;
++	case Tour::kStop: tourEnd(true); break;
++	case Tour::kPause:
++		if (!_touring.on || _touring.paused) break;
++		_touring.paused = true;
++		StageBridge::stop(_player);
++		Tour::publishPaused(true);
++		break;
++	case Tour::kPlay:
++		if (!_touring.on || !_touring.paused) break;
++		_touring.paused = false;
++		Tour::publishPaused(false);
++		if (_touring.phase != kTourRefusedStop) tourPlan();
++		break;
++	default: break;
++	}
++}
++
++// From where the one played stands now (kept to go back to), at a stop.
++void SandboxEngine::tourStart(int index) {
++	if (!_touring.built) tourBuild();
++	if (_touring.stops.empty() || _player < 0) { Tour::publish(false, "", 1, 0); return; }
++	if (!_touring.on) {
++		_touring.homeGame = _game; _touring.homeRoom = _room;
++		StageBridge::position(_player, _touring.homeX, _touring.homeY);
++		if (!_testing) saveState(); // (where it began, kept while touring)
++	}
++	_door = -1; _action = 0; _target = -1;
++	_touring.on = true; _touring.paused = false;
++	Tour::publishPaused(false);
++	tourVisit(CLIP(index, 0, (int)_touring.stops.size() - 1), true);
++}
++
++// Home: back where it began (else where the tour is, as when another place
++// is chosen meanwhile); the stop it was at is where it resumes.
++void SandboxEngine::tourEnd(bool home) {
++	if (!_touring.on) return;
++	_touring.on = false; _touring.paused = false;
++	if (_player >= 0) StageBridge::stop(_player);
++	Common::String problem;
++	if (home && _touring.homeGame >= 0 && enter(_touring.homeGame, _touring.homeRoom, 0, problem)) {
++		StageBridge::place(_player, _touring.homeX, _touring.homeY);
++		StageBridge::follow(_player);
++	}
++	tourPublish();
++	Tour::publishPaused(false);
++	if (!_testing) {
++		ConfMan.setInt(kTourResumeKey, _touring.resume + 1);
++		ConfMan.flushToDisk();
++		saveState();
++	}
++}
++
++void SandboxEngine::tourVisit(int index, bool warp) {
++	if (index < 0 || index >= (int)_touring.stops.size()) return;
++	const TourStop &s = _touring.stops[index];
++	_touring.stop = index; _touring.resume = index;
++	_touring.shown = 0; _touring.clock = 0; _touring.leg = 0;
++	_touring.warped = warp;
++	if (warp || _game != s.game || _room != s.room) {
++		Common::String problem;
++		if (!enter(s.game, s.room, 0, problem)) {
++			warning("SCUMMVERSE sandbox tour: %s-%d not shown (%s)", kWorldGames[s.game].gameid, s.room, problem.c_str());
++			_touring.phase = kTourRefusedStop;
++			tourPublish();
++			return;
++		}
++	}
++	_touring.phase = kTourAcross;
++	tourPublish();
++	if (_touring.paused) { StageBridge::stop(_player); return; }
++	tourPlan();
++}
++
++// Straight on to the door out, the next stop's first; first across to the
++// far end (the walkable spot farthest from where it came in) where that door
++// is near where it came in (a dead end, doors side by side: within a quarter
++// of the place's width) or there is none (a warp follows).
++void SandboxEngine::tourPlan() {
++	StageBridge::position(_player, _touring.cameX, _touring.cameY);
++	_touring.clock = 0; _touring.leg = 0;
++	const int next = _touring.stop + 1;
++	double dx, dy;
++	const bool door = next < (int)_touring.stops.size() && !_touring.stops[next].legs.empty() && tourDoor(_touring.stops[next].legs[0], dx, dy);
++	int left, top, width, height;
++	double rowScale, colScale;
++	StageBridge::view(left, top, width, height, rowScale, colScale);
++	if (door && fabs(dx - _touring.cameX) > width / MAX(0.01, colScale) / 4) {
++		_touring.phase = kTourToDoor;
++		StageBridge::walkTo(_player, dx, dy);
++		return;
++	}
++	_touring.phase = kTourAcross;
++	double xs[12], ys[12];
++	const int spots = StageBridge::spots(12, xs, ys);
++	int far = -1;
++	double farthest = -1;
++	for (int i = 0; i < spots; ++i) {
++		const double d = (xs[i] - _touring.cameX) * (xs[i] - _touring.cameX) + (ys[i] - _touring.cameY) * (ys[i] - _touring.cameY);
++		if (d > farthest) { farthest = d; far = i; }
++	}
++	if (far >= 0) StageBridge::walkTo(_player, xs[far], ys[far]);
++}
++
++void SandboxEngine::tourLeave() {
++	if (_touring.stop + 1 >= (int)_touring.stops.size()) { _touring.resume = 0; tourEnd(true); return; }
++	tourVisit(_touring.stop + 1, true);
++}
++
++void SandboxEngine::tourStep(int ticks) {
++	if (!_touring.on || _touring.paused || _player < 0) return;
++	_touring.clock += ticks; _touring.shown += ticks;
++	const bool walking = StageBridge::moving(_player) && _touring.clock < kTourWalk;
++	const int next = _touring.stop + 1;
++	const Common::Array<int> *legs = next < (int)_touring.stops.size() ? &_touring.stops[next].legs : nullptr;
++	double dx, dy;
++	switch (_touring.phase) {
++	case kTourRefusedStop:
++		if (_touring.shown >= kTourRefused) tourLeave();
++		return;
++	case kTourAcross:
++		if (walking) return;
++		StageBridge::stop(_player);
++		if (legs && !legs->empty() && tourDoor((*legs)[0], dx, dy)) {
++			_touring.phase = kTourToDoor; _touring.clock = 0;
++			StageBridge::walkTo(_player, dx, dy);
++			return;
++		}
++		if (_touring.shown >= kTourGlimpse) tourLeave();
++		return;
++	case kTourToDoor: {
++		if (walking || _touring.shown < kTourGlimpse) return;
++		StageBridge::stop(_player);
++		if (!legs || _touring.leg >= (int)legs->size()) { tourLeave(); return; }
++		// Through the door (as a player goes), into the place it leads to:
++		// the next stop, or one passed through on the way there.
++		const Common::Array<int> way = *legs;
++		const int leg = _touring.leg;
++		if (!travel(way[leg])) { tourVisit(next, true); return; }
++		if (leg + 1 < (int)way.size()) {
++			_touring.leg = leg + 1; _touring.clock = 0;
++			if (tourDoor(way[leg + 1], dx, dy)) StageBridge::walkTo(_player, dx, dy);
++			else tourVisit(next, true);
++			return;
++		}
++		tourVisit(next, false);
++		return;
++	}
++	default:
++		return;
++	}
++}
++
+ // ---- The camera ----
+ 
+ // The first shot waits a moment once everyone is posed; each stays on the
+@@ -1179,7 +1445,8 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // name).
+ // "SVS1" (0105, 0106) ends after everyone.
+ void SandboxEngine::saveState() const {
+-	if (_game < 0 || _player < 0) return;
++	// (Touring: where it began stays, the tour brings the one played back.)
++	if (_game < 0 || _player < 0 || _touring.on) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+ 	double x, y;
+@@ -1293,6 +1560,8 @@ Common::Error SandboxEngine::run() {
+ 	_verbs = !ConfMan.hasKey("scummverse_verbs") || ConfMan.getBool("scummverse_verbs");
+ 	PanelBridge::clearThings(); // (read afresh: the cache may have been exported again)
+ 	Camera::reset(); // (nothing from an earlier game)
++	Tour::reset();
++	_touring.resume = ConfMan.hasKey(kTourResumeKey) ? MAX(0, ConfMan.getInt(kTourResumeKey) - 1) : 0;
+ 
+ 	if (ConfMan.hasKey("scummverse_selftest")) {
+ 		_testing = true;
+@@ -1326,9 +1595,14 @@ Common::Error SandboxEngine::run() {
+ 			continue;
+ 		}
+ 		if (_dirty) changed = true;
+-		// (Full Throttle's: a press held opens the coin, let go uses it.)
++		// The tour's controls (the iPhone's label and bar).
++		int command, number;
++		while (Tour::takeRequest(command, number)) { tourCommand(command, number); changed = true; }
++		// (Full Throttle's: a press held opens the coin, let go uses it.
++		// Touring, taps wait: the one played is on autopilot.)
+ 		while (g_system->getEventManager()->pollEvent(event))
+-			if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
++			if (_touring.on && !_touring.paused && (event.type == Common::EVENT_LBUTTONDOWN || event.type == Common::EVENT_RBUTTONDOWN)) continue;
++			else if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+@@ -1341,7 +1615,8 @@ Common::Error SandboxEngine::run() {
+ 			// (Drawn again only while someone walks, and once when they stop.)
+ 			const int cameraBefore = StageBridge::camera(), roomBefore = _room, peopleBefore = _people;
+ 			changed = changed || StageBridge::busy();
+-			step(carry / 1000);
++			// (Touring, as fast as the tour's speed: 1 to 16 times.)
++			step(carry / 1000 * (_touring.on && !_touring.paused ? Tour::speed() : 1));
+ 			changed = changed || cameraBefore != StageBridge::camera() || roomBefore != _room || peopleBefore != _people;
+ 			// (And when colours move: water, fire, lights cycling; when a line
+ 			// is said or gone, a picture shown.)
+@@ -1357,10 +1632,18 @@ Common::Error SandboxEngine::run() {
+ 		g_system->updateScreen();
+ 		g_system->delayMillis(10);
+ 	}
++	// (Closed while touring: back where it began next time, the place saved
++	// as the tour started; it resumes at this stop.)
++	if (_touring.on) {
++		ConfMan.setInt(kTourResumeKey, _touring.resume + 1);
++		ConfMan.flushToDisk();
++	}
+ 	saveState();
++	_touring.on = false;
+ 	talkEnd();
+ 	if (_selfie.on) selfieEnd();
+ 	Camera::reset();
++	Tour::reset();
+ 	return Common::kNoError;
+ }
+ 
+@@ -2497,9 +2780,123 @@ Common::Error SandboxEngine::cameraTest() {
+ 	return Common::kNoError;
+ }
+ 
++// The tour through the iPhone's own requests: its stops, every place
++// installed once (each game's first place first; each on-foot way a chain
++// of doors from the stop before); Go to stop 3 (its label), paused (the one
++// played stands; Next and Previous go stop to stop and stay paused), played
++// again (walking on), stopped (back where it began, at the same spot, to
++// resume at stop 3); then the whole tour at 16 times the speed: every stop
++// visited in turn, most on foot, and back where it began at the end.
++Common::Error SandboxEngine::tourTest() {
++	Tour::reset();
++	_wanderers = false;
++	int failed = 0;
++	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox tour: %s-%d stop %d: %s", _game >= 0 ? kWorldGames[_game].gameid : "?", _room, _touring.stop + 1, what); };
++	auto pump = [&]() {
++		int command, number;
++		while (Tour::takeRequest(command, number)) tourCommand(command, number);
++	};
++	int game, room;
++	Common::String problem;
++	if (!startPlace(game, room) || !someoneToPlay(game) || !enter(game, room, 0, problem)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
++	double homeX, homeY;
++	StageBridge::position(_player, homeX, homeY);
++	const int homeGame = _game, homeRoom = _room;
++	// The stops.
++	tourBuild();
++	const int total = _touring.stops.size();
++	int places = 0;
++	for (int g = 0; g < worldGameCount(); ++g)
++		for (int r = 1; r < 1024; ++r) places += installed(g, r);
++	if (total != places) fail("not every place a stop");
++	Common::HashMap<int, bool> once;
++	for (int i = 0; i < total; ++i) {
++		const TourStop &t = _touring.stops[i];
++		if (once.contains(t.game * 1024 + t.room)) fail("a place twice");
++		once[t.game * 1024 + t.room] = true;
++		const bool firstOfGame = !i || _touring.stops[i - 1].game != t.game;
++		int first;
++		if (firstOfGame && firstPlace(t.game, first) && t.room != first) fail("a game not begun at its first place");
++		if (firstOfGame && !t.legs.empty()) fail("on foot into another game");
++		// (On foot: doors from the stop before, one after another, to this one.)
++		int at = i ? _touring.stops[i - 1].room : -1;
++		const WorldMap *map = worldMap(t.game);
++		for (int link : t.legs) {
++			if (!map || link < 0 || link >= map->linkCount || map->links[link].room != at) { fail("a way not of doors"); break; }
++			at = map->links[link].target;
++		}
++		if (!t.legs.empty() && at != t.room) fail("a way not ending there");
++	}
++	// Go to stop 3, through the iPhone's request; its label.
++	Tour::request(Tour::kGoTo, 3);
++	pump();
++	bool running = false;
++	char label[200];
++	int next = 0, count = 0;
++	Tour::status(running, label, sizeof(label), next, count);
++	if (!_touring.on || _touring.stop != 2 || _game != _touring.stops[2].game || _room != _touring.stops[2].room) fail("not at stop 3");
++	if (!running || strncmp(label, Common::String::format("Stop 3/%d ", total).c_str(), 8) || count != total || next != 3) fail("not labelled stop 3");
++	// Paused: standing; Next and Previous stay paused; played again, on.
++	Tour::request(Tour::kPause);
++	pump();
++	for (int t = 0; t < 120; ++t) step(1);
++	if (!_touring.paused || StageBridge::moving(_player) || !Tour::paused()) fail("walking while paused");
++	Tour::request(Tour::kNext);
++	pump();
++	for (int t = 0; t < 60; ++t) step(1);
++	if (_touring.stop != 3 || !_touring.paused || StageBridge::moving(_player)) fail("Next while paused not stop 4, standing");
++	Tour::request(Tour::kPrevious);
++	pump();
++	if (_touring.stop != 2 || !_touring.paused) fail("Previous while paused not stop 3");
++	Tour::request(Tour::kPlay);
++	pump();
++	int moved = 0;
++	for (int t = 0; t < 600 && _touring.stop == 2; ++t) { step(1); moved += StageBridge::moving(_player); }
++	if (_touring.paused || (!moved && _touring.stop == 2)) fail("not on again once played");
++	// Stopped: back where it began; resuming at the stop it was at.
++	const int at = _touring.stop;
++	Tour::request(Tour::kStop);
++	pump();
++	double x, y;
++	StageBridge::position(_player, x, y);
++	Tour::status(running, label, sizeof(label), next, count);
++	if (_touring.on || running || _game != homeGame || _room != homeRoom || fabs(x - homeX) > 1 || fabs(y - homeY) > 1) fail("not back where it began");
++	if (next != at + 1 || _touring.resume != at) fail("not resuming at the stop it was at");
++	// The whole tour, 16 times as fast.
++	Tour::request(Tour::kRestart);
++	pump();
++	int visited = 0, onFoot = 0, warped = 0, refused = 0, last = -1, ticks = 0;
++	while (_touring.on && ticks < 4000000) {
++		if (_touring.stop != last) {
++			if (_touring.stop != last + 1) { fail("a stop out of turn"); break; }
++			last = _touring.stop;
++			++visited;
++			if (_touring.phase == kTourRefusedStop) ++refused;
++			else if (_game != _touring.stops[last].game || _room != _touring.stops[last].room) fail("not where its stop is");
++			else if (_touring.warped) ++warped;
++			else ++onFoot;
++		}
++		step(16);
++		ticks += 16;
++	}
++	StageBridge::position(_player, x, y);
++	if (_touring.on) fail("not finished");
++	if (visited != total) fail("not every stop visited");
++	if (_game != homeGame || _room != homeRoom || fabs(x - homeX) > 1 || fabs(y - homeY) > 1) fail("not back where it began at the end");
++	if (_touring.resume != 0) fail("not starting over after the end");
++	if (onFoot * 2 < total) fail("most stops not reached on foot");
++	g_system->updateScreen();
++	warning("SCUMMVERSE sandbox selftest tour: %d stops (%d on foot, %d warped, %d not shown) in %d ticks, commands as asked, back where it began, %d failed",
++		total, onFoot, warped, refused, ticks, failed);
++	if (failed || !total) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest PASS");
++	return Common::kNoError;
++}
++
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	if (mode == "verbs") return verbsTest();
+ 	if (mode == "camera") return cameraTest();
++	if (mode == "tour") return tourTest();
+ 	if (mode == "talk") return talkTest();
+ 	if (mode == "cast") return castTest();
+ 	int game, room;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 7301c5a7..bcc563d3 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -142,6 +142,37 @@ private:
+ 	void selfiePose();
+ 	bool selfieShoot();
+ 	void selfieEnd();
++	// The tour (step 4; common/scummverse_tour.h, as Maniac's TOUR): the one
++	// played on autopilot through every place installed (the mansion's, Zak's,
++	// then the other games'), in one pass across each and on through a door
++	// where one leads to the next stop (through places seen before if need
++	// be), else warping there; a label names each stop (its number, its game
++	// and room, its name). Paused, the one played stands (and may be walked
++	// about); Next and Previous go from stop to stop. Stopped, back where it
++	// began; the stop it was at is where it resumes.
++	struct TourStop {
++		int game, room;
++		Common::Array<int> legs; // the doors (map links) there from the stop before; none: a warp
++	};
++	struct Touring {
++		bool on = false, paused = false, built = false, warped = false;
++		int stop = 0, resume = 0, leg = 0, phase = 0, clock = 0, shown = 0;
++		int homeGame = -1, homeRoom = 0;
++		double homeX = 0, homeY = 0, cameX = 0, cameY = 0;
++		Common::Array<TourStop> stops;
++	};
++	Touring _touring;
++	void tourBuild();
++	void tourCommand(int command, int stop);
++	void tourStart(int stop);
++	void tourEnd(bool home);
++	void tourVisit(int stop, bool warp);
++	void tourLeave(); // on to the next stop (the last: the tour ends)
++	void tourPlan();  // the walk across this stop, from where the one played stands
++	void tourStep(int ticks);
++	void tourPublish();
++	Common::String tourLabel(int stop) const;
++	bool tourDoor(int link, double &x, double &y) const; // a map link's door here: its point
+ 	struct Selfie {
+ 		bool on = false, showing = false;
+ 		int shots = 1, shot = 0;
+@@ -159,12 +190,13 @@ private:
+ 	// every door of every place, "wander" half an hour with everyone out,
+ 	// "verbs" every verb of every game's panel used on the things there,
+ 	// "talk" chat with a stand-in for the iPhone's, "cast" its character
+-	// screen with one, "camera" photos and selfies.
++	// screen with one, "camera" photos and selfies, "tour" every stop.
+ 	Common::Error selfTest(const Common::String &mode);
+ 	Common::Error verbsTest();
+ 	Common::Error talkTest();
+ 	Common::Error castTest();
+ 	Common::Error cameraTest();
++	Common::Error tourTest();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

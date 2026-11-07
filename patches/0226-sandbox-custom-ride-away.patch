@@ -1,0 +1,169 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 5af93925..2f268836 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -3111,7 +3111,7 @@ void SandboxEngine::rideStep(int ticks) {
+ 		}
+ 		if (phase > kRideBoarded) {
+ 			_door = -1; _action = 0; _target = -1;
+-			StageBridge::stop(_player);
++			rideAway();
+ 			// (Its inside on the way where exported, else out of sight here,
+ 			// those following too.)
+ 			if (!rideInside(_riding.ride)) { StageBridge::hide(_player, true); hideFollowers(true); }
+@@ -3248,7 +3248,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 			}
+ 			_tram.riding = true;
+ 			_door = -1; _action = 0; _target = -1; // (nothing of theirs goes on)
+-			StageBridge::stop(_player);
++			rideAway();
+ 			StageBridge::hide(_player, true);
+ 			hideFollowers(true);
+ 			_dirty = true;
+@@ -3440,6 +3440,20 @@ void SandboxEngine::haltWalk() {
+ 	_door = -1; _action = 0; _target = -1; _pairing = Pair();
+ }
+ 
++// (Not going on unseen: a pee's puddle spread on at the stop, he stepped off
++// the end of a move; a heckle about it is let go in heckleStep.)
++void SandboxEngine::rideAway() {
++	if (_player < 0) return;
++	if (StageBridge::acting(_player)) {
++		double x, y;
++		StageBridge::position(_player, x, y);
++		StageBridge::walkTo(_player, x, y); // (walking ends a move)
++	}
++	StageBridge::stop(_player);
++	_lTaps = 0;
++	if (_peeing.actor == _player) peeEnded();
++}
++
+ bool SandboxEngine::canMove(int actor) const {
+ 	return actor >= 0 && actor < (int)_onStage.size() && StageBridge::canLight(actor) &&
+ 		StageBridge::canAct(actor, StageBridge::kPoseSwing) && StageBridge::canAct(actor, StageBridge::kPoseZap);
+@@ -3671,7 +3685,9 @@ void SandboxEngine::heckleStep(int ticks) {
+ 	}
+ 	if (!h.phase) return;
+ 	const bool here = h.mover >= 0 && h.mover < (int)_onStage.size() && h.heckler < (int)_onStage.size();
+-	if (!here || h.mover == h.heckler) { h = Heckle(); return; }
++	// (Either of them gone out of sight on a ride meanwhile: let go, not said
++	// to or by someone who has left.)
++	if (!here || h.mover == h.heckler || StageBridge::hidden(h.mover) || (h.heckler >= 0 && StageBridge::hidden(h.heckler))) { h = Heckle(); return; }
+ 	auto name = [&](int n) { const WorldGuest *who = worldAppearance(_onStage[n]); return who ? who->name : "someone"; };
+ 	h.clock -= ticks;
+ 	switch (h.phase) {
+@@ -3744,8 +3760,10 @@ void SandboxEngine::heckleStep(int ticks) {
+ // The L key: the one played lights what it carries (Sith Ewok 2's saber:
+ // both paws on the hilt as it springs out, then carried lit in the right)
+ // or puts it out (the same backwards); nothing for those carrying none.
++// (Nor seated aboard, riding out of sight or posed, as the moves are not: it
++// would be lit unseen, and step off the plane lit.)
+ void SandboxEngine::lightKey() {
+-	if (_player < 0 || !StageBridge::canLight(_player)) return;
++	if (_player < 0 || !StageBridge::canLight(_player) || StageBridge::hidden(_player) || StageBridge::posed(_player)) return;
+ 	const bool on = !StageBridge::lit(_player);
+ 	StageBridge::light(_player, on, true);
+ 	_litKey = on ? _playerKey : 0;
+@@ -7655,6 +7673,9 @@ Common::Error SandboxEngine::movesTest() {
+ 	if (!castChoose(crispy2) || _player < 0 || !canPee(_player)) fail("Crispy 2 not played with his pee");
+ 	else {
+ 		_stains.clear(); enter(_game, _room, 0, problem);
++		// (No show meanwhile by Sith Ewok 3, here among the wanderers: the one
++		// played, heckling it, would be talking as his pose is looked at.)
++		_showOffClock = 1 << 30; _showOff = ShowOff(); _heckle = Heckle();
+ 		for (int way = 0; way < 2; ++way) {
+ 			// (Walking right, then left.)
+ 			double px, py, wx, wy;
+@@ -7751,10 +7772,74 @@ Common::Error SandboxEngine::movesTest() {
+ 			else ++own;
+ 		}
+ 	}
++	// Out of sight on a ride (Zak's bus and planes, where Zak's places are
++	// installed): Crispy 2's pee as the bus leaves ends at the stop, as big as
++	// it got (not spreading on unseen); Sith Ewok 3's lightning ends there too
++	// and a heckle about him is let go (not answered from the bus); Sith Ewok
++	// 2's L lights nothing seated aboard a plane (he does not step off lit).
++	int unseen = 0, zak = -1;
++	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "zak")) zak = g;
++	const bool zakRides = zak >= 0 && installed(zak, 3) && installed(zak, 145) && installed(zak, 141);
++	if (zakRides) {
++		// (Tapped as a player does, then waited at until a moment before it leaves.)
++		auto board = [&](int key, int at, int object, int until) {
++			_playerKey = key; _litKey = 0;
++			if (!enter(zak, at, 0, problem)) return false;
++			int id, ox, oy, w, h, wx, wy, state, sx, sy;
++			for (int o = 0; o < StageBridge::objectCount(); ++o)
++				if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == object) {
++					StageBridge::lookAt(ox + w / 2.0);
++					StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++					tap(sx, sy);
++					break;
++				}
++			for (int t = 0; t < 6000 && _riding.ride >= 0 && _riding.phase < until; ++t) step(1);
++			return _riding.ride >= 0 && _riding.phase >= until;
++		};
++		double mx, my, mw;
++		int age, grow;
++		if (!board(crispy2, 3, 142, kRideBoarded - 60)) fail("the bus not waited for");
++		else {
++			pressKey(water);
++			for (int t = 0; t < 200 && _riding.phase <= kRideBoarded; ++t) step(1);
++			const bool marked = StageBridge::markCount() > 0 && StageBridge::mark(StageBridge::markCount() - 1, mx, my, mw, age, grow);
++			if (!StageBridge::hidden(_player)) fail("not out of sight on the bus");
++			else if (StageBridge::acting(_player) || _peeing.actor >= 0 || !marked || grow >= kPeeTicks - StageBridge::kActTicks) fail("a pee going on out of sight on the bus");
++			else if (_stains.empty() || fabs(_stains.back().width - mw) > 1e-6 || _stains.back().grow >= kPeeTicks - StageBridge::kActTicks) fail("its stain not as big as it got");
++			else ++unseen;
++		}
++		if (!board(ewok, 3, 142, kRideBoarded - 30)) fail("the bus not waited for");
++		else {
++			pressKey(lightning);
++			for (int t = 0; t < 200 && _riding.phase <= kRideBoarded; ++t) step(1);
++			// (Someone left at the stop who heckled him: his answer not said.)
++			int other = -1;
++			for (int n = 0; n < (int)_onStage.size(); ++n) if (n != _player && !StageBridge::hidden(n)) other = n;
++			if (other < 0 && (other = addPerson(crispy)) >= 0) { _onStage.push_back(crispy); _people = _onStage.size(); }
++			_heckle = Heckle(); _heckle.phase = 4; _heckle.mover = _player; _heckle.heckler = other; _heckle.answer = kRetort[0]; _heckle.clock = kHeckleWait;
++			_speech.clear();
++			step(1);
++			if (!StageBridge::hidden(_player) || StageBridge::acting(_player)) fail("lightning going on out of sight on the bus");
++			else if (_heckle.phase || (_speaker == _player && !_speech.empty())) fail("a heckle answered from out of sight on the bus");
++			else ++unseen;
++		}
++		if (!board(worldAppearanceKey(kWorldCustomLooks, 9), 145, 190, kRideChoosing)) fail("no flight asked for");
++		else {
++			rideChosen(zak, 141);
++			for (int t = 0; t < 1000 && _riding.ride >= 0 && !_aboard && !StageBridge::hidden(_player); ++t) step(1);
++			pressKey(capital);
++			step(60);
++			const bool litAboard = StageBridge::lit(_player) || _litKey;
++			for (int t = 0; t < 2000 && _riding.ride >= 0; ++t) step(1);
++			if (litAboard) fail("Sith Ewok 2's saber lit unseen aboard");
++			else if (_room != 141 || StageBridge::lit(_player)) fail("Sith Ewok 2 stepped off the plane lit");
++			else ++unseen;
++		}
++	}
+ 	_wanderers = false;
+-	warning("SCUMMVERSE sandbox selftest moves: %d keys, %d walks stopped, %d heckled in written lines (%d answered, %d in Ewokese), %d with the model's lines, %d written when it is slow, %d waiting for others, %d shows (%d saber, %d lightning), %d held far away or walking; Crispy 2: %d pees (a walk stopped, from the side, a puddle behind him either way, dried to a stain), %d stains kept (back again, saved and read back, %d at most), %d on his own, %d cut short, entered again or played (as big as it got, none before the leg is up, drying on, his while begun again), %d failed",
+-		keys, stopped, written, answered, ewokese, modelLines, slowLines, waited, shows, saberShows, zapShows, held, pees, kept, (int)StageBridge::kMarks, own, cutShort, failed);
+-	if (failed || keys != 6 || !written || !waited || !modelLines || !slowLines || !saberShows || !zapShows || pees != 2 || kept != 3 || own != 1 || cutShort != 6) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest moves: %d keys, %d walks stopped, %d heckled in written lines (%d answered, %d in Ewokese), %d with the model's lines, %d written when it is slow, %d waiting for others, %d shows (%d saber, %d lightning), %d held far away or walking; Crispy 2: %d pees (a walk stopped, from the side, a puddle behind him either way, dried to a stain), %d stains kept (back again, saved and read back, %d at most), %d on his own, %d cut short, entered again or played (as big as it got, none before the leg is up, drying on, his while begun again); %d of %d out of sight on a ride (a pee and lightning ended at the stop, a heckle let go, no saber lit seated aboard), %d failed",
++		keys, stopped, written, answered, ewokese, modelLines, slowLines, waited, shows, saberShows, zapShows, held, pees, kept, (int)StageBridge::kMarks, own, cutShort, unseen, zakRides ? 3 : 0, failed);
++	if (failed || keys != 6 || !written || !waited || !modelLines || !slowLines || !saberShows || !zapShows || pees != 2 || kept != 3 || own != 1 || cutShort != 6 || unseen != (zakRides ? 3 : 0)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 3c6fa1e4..e3c35785 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -410,6 +410,10 @@ private:
+ 	bool canMove(int actor) const;          // has the moves (swing and lightning frames)
+ 	bool readyToMove(int actor) const;      // (standing free for a move or a pee now)
+ 	void haltWalk();                        // the one played stopped, its walk's goal let go
++	// The one played out of sight on a ride seen from outside (Zak's bus, the
++	// Mars tram, The Dig's tram): a move or a pee of theirs ends where they
++	// got on (its puddle as big as it got), an L waiting for a second let go.
++	void rideAway();
+ 	int _lTaps = 0, _lClock = 0;
+ 	// Not played: now and then (every three or four minutes, near the one
+ 	// played, standing, not following), a show: the saber taken up, a swing

@@ -1,0 +1,639 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index a4d43615..6de8f5b4 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -30,11 +30,16 @@ static bool follows(int id) { std::lock_guard<std::mutex> guard(worldMutex); ret
+ static std::string worldNotice = "Walk beyond the mansion grounds to reach the airport. Travel is free. Zak files belong in Documents/zak.";
+ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex); return worldNotice; }
+ 
++// Room whose resident currently occupies the borrowed actor slot.
++static std::atomic<int> residentRoom{0};
++static const ZakResident *sceneResident(int id) { return id == kZakResidentActor ? zakResident(residentRoom.load()) : nullptr; }
+ static const char *actorName(int id) {
++	if (const ZakResident *resident = sceneResident(id)) return resident->name;
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+ 	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
++	if (const ZakResident *resident = sceneResident(id)) return resident->personality;
+ 	switch (id) {
+ 	case 1: return "a relaxed keyboard player who notices sounds";
+ 	case 2: return "a bold punk singer with dry humor";
+@@ -79,7 +84,7 @@ static std::string classicReply(int id, unsigned turn) {
+ 	case 11: lines[0] = "Sounds suspicious. I'm watching you."; lines[1] = "Keep your voice down near the hamster."; lines[2] = "Report anything unusual to me."; break;
+ 	case 13: lines[0] = "Silence! I'm on a break."; lines[1] = "Bow before me. Then go away."; lines[2] = "One day tentacles will rule the world."; break;
+ 	case 14: lines[0] = "Cool! Want to hear my new song?"; lines[1] = "That makes me hungry for snacks."; lines[2] = "You seem nice. Mostly."; break;
+-	case 17: lines[0] = "Your human words amuse me."; lines[1] = "Our ships would answer that faster."; lines[2] = "Strange. Earthlings talk constantly."; break;
++	case 17: lines[0] = "Thank you. Thank you very much."; lines[1] = "I've played bigger rooms than this one."; lines[2] = "Those spaceships sure get lonely."; break;
+ 	case 18: lines[0] = "The crystals would tell you more."; lines[1] = "Listen carefully. The jungle remembers."; lines[2] = "Patience. Answers come in time."; break;
+ 	case 19: lines[0] = "Welcome. Mind the jungle paths."; lines[1] = "Visitors always ask that."; lines[2] = "The shaman would know better."; break;
+ 	case 20: lines[0] = "That fits with my research."; lines[1] = "Let's look for evidence first."; lines[2] = "The ancient builders knew something."; break;
+@@ -88,12 +93,13 @@ static std::string classicReply(int id, unsigned turn) {
+ 	case 23: lines[0] = "Thanks for coming to find me."; lines[1] = "Let's get far away from the lab."; lines[2] = "I'm not going back in that room."; break;
+ 	case 24: lines[0] = "That would make a great headline."; lines[1] = "Off the record? Sure."; lines[2] = "My editor will never believe this."; break;
+ 	}
++	if (const ZakResident *resident = sceneResident(id)) for (int i = 0; i < 3; ++i) lines[i] = resident->lines[i];
+ 	const char *line = lines[turn % 3] ? lines[turn % 3] : generic[turn % 3];
+ 	return line;
+ }
+ 
+ static const char *roomName(int room) {
+-	if(room>=56 && room<=98) return zakPlaces[room-56].name;
++	if(const char *scene=zakSceneName(room)) return scene;
+ 	switch (room) {
+ 	case 53: return "San Francisco airport, with free travel to Maniac Mansion and a free bus to Zak's street";
+ 	case 55: return "Zak's San Francisco street, with stairs to his apartment and a free bus to the airport";
+@@ -261,6 +267,7 @@ public:
+ 			}
+ 		}
+ 		sceneRoom = room; sceneVisitor = visitor; sceneMask = actors;
++		residentRoom = (actors & (1u << kZakResidentActor)) ? room : 0;
+ 		pumpChat();
+ 		if (conversation.participants() && canSpeak && capacity > 1) nextBubble(visitor, speaker, line, capacity);
+ 		return conversation.participants();
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index c2c695f6..8493c8ab 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -81,7 +81,7 @@ static const int v1MMActorPalatte2[25] = {
+ };
+ 
+ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+-	const bool imported = _loaded._id >= 34 && _loaded._id <= 41;
++	const bool imported = _loaded._id >= 34 && _loaded._id <= 43;
+ 	const bool distant = _vm->scummverseDistantScene();
+ 	// Preserve source art and feet while applying the audited distant ratio.
+ 	// Imported costumes retain their existing 6:5 normalization elsewhere.
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index 2403e28f..c8da2ef5 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -549,7 +549,7 @@ int ScummEngine::getObjActToObjActDist(int a, int b) {
+ }
+ 
+ int ScummEngine::findObject(int x, int y) {
+-	if(_scummverseRoamingReady && ScummverseContent::importedRoom(_currentRoom)) {
++	if(_scummverseRoamingReady && zakSceneSlotRoom(_currentRoom)) {
+ 		// Travel hotspots remain usable without original puzzle parent states.
+ 		// The smallest overlapping hotspot wins (e.g. a door within a hut).
+ 		int hit=0, area=0x7fffffff;
+diff --git a/engines/scumm/resource_v2.cpp b/engines/scumm/resource_v2.cpp
+index 5333f37b..519693a9 100644
+--- a/engines/scumm/resource_v2.cpp
++++ b/engines/scumm/resource_v2.cpp
+@@ -82,7 +82,7 @@ void ScummEngine_v2::readClassicIndexFile() {
+ 	// entries; consuming an extra entry would shift all costume/script tables.
+ 	const int nativeRoomCount = _numRooms;
+ 	const int nativeCostumeCount = _numCostumes;
+-	if (_scummverseRoaming) _numCostumes = 42;
++	if (_scummverseRoaming) _numCostumes = 44;
+ 	if (_scummverseRoaming) _numRooms = ScummverseContent::kRoomCount;
+ 	readMAXS(0);
+ 	allocateArrays();
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 3a3b1b4c..3c054a24 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -140,7 +140,7 @@ void ScummEngine::runScript(int script, bool freezeResistant, bool recursive, in
+ }
+ 
+ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, bool recursive, int *vars, int slot, int cycle) {
+-	if (_scummverseRoamingReady && (ScummverseContent::foreignRoom(_currentRoom))) {
++	if (_scummverseRoamingReady && (ScummverseContent::foreignRoom(_currentRoom) || zakLogicalRoom(_currentRoom))) {
+ 		if((entry==13 || entry==11) && zakPadObject(_currentRoom,object)) { scummverseTeleportOffer(); return; }
+         if(_currentRoom==56 && object==753 && entry==11 && _scummVars[724]) {
+             int &reservation=_scummVars[501+VAR(VAR_EGO)];
+@@ -153,7 +153,7 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 				if(role==kZakGate) { scummverseBoard(); return; }
+ 				if(role==kZakTerminal) { scummverseAirportOffer(); return; }
+ 			}
+-			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
++			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination==54?1:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
+ 			const int original=scummverseOriginalObject(_currentRoom,object);
+ 			for(const auto &way : zakTraversals) if(way.room==_currentRoom && way.object==original) {
+ 				scummverseSay(VAR(VAR_EGO),way.line); scummverseTravel(way.destination-50,0,way.arrivalX,way.arrivalY); return;
+@@ -275,7 +275,7 @@ int ScummEngine::getVerbEntrypoint(int obj, int entry) {
+ 	// Advertise adapter interactions to Maniac's native sentence dispatcher.
+ 	// runObjectScript intercepts these before any foreign bytecode is read.
+ 	if (_scummverseRoamingReady) {
+-		if (ScummverseContent::importedRoom(_currentRoom)) return (entry==13 || entry==11 || entry==1) ? 1 : 0;
++		if (zakSceneSlotRoom(_currentRoom)) return (entry==13 || entry==11 || entry==1) ? 1 : 0;
+ 		if ((_currentRoom == 55 && (obj == 712 || (obj >= 723 && obj <= 728))) ||
+ 			(_currentRoom == 53 && (obj == 683 || obj == 688))) {
+ 			if (entry == 13 || entry == 11 || entry == 1) return 1;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index a03cf6c1..de0a4376 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1366,7 +1366,7 @@ public:
+  bool scummverseReserveSeats(unsigned passengers, bool commit);
+  void scummverseRestoreSeats();
+  void scummverseRestoreSceneObjects();
+- bool scummverseImportedScene() const { return _scummverseRoaming && ScummverseContent::foreignRoom(_currentRoom); }
++ bool scummverseImportedScene() const { return _scummverseRoaming && (ScummverseContent::foreignRoom(_currentRoom) || _currentRoom >= 128); }
+  bool scummverseSandbox() const { return _scummverseRoaming; }
+ 
+ protected:
+@@ -1589,7 +1589,8 @@ protected:
+ 	byte _scummverseStreetStates[20];
+ 	void scummverseInitVisitors();
+ 	bool scummverseMountZakCast();
+-	Common::Array<byte> _scummverseZakCastCostumes[7];
++	Common::Array<byte> _scummverseZakCastCostumes[9];
++	void scummverseUpdateResident();
+ 	void scummverseAirportOffer();
+ 	void scummverseRosterOffer();
+ 	bool scummverseSwitchActor(int id);
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 7cabd0af..06141186 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -9,14 +9,14 @@ static const ZakPlace zakPlaces[] = {
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Kinshasa airport, Zaire"},
+ 	{37, "b7179f02fc59661cf75ea23d5519bd42", "Zaire jungle"},
+ 	{38, "0c701e2facdb1b2413d74ca2c9bdf3d6", "Zaire village"},
+-	{39, "971834702c89ae68247b02a82df35f25", "Zaire temple"},
+-	{14, "caa7d07c795408c189229f253bfe7447", "Zaire crystal chamber"},
++	{18, "f0cccc13d86047b6ba060ef3bbbfac86", "Kathmandu guard station"},
++	{4, "49d5e57fc1ab56a3b04e83faae000db4", "San Francisco phone company"},
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Kathmandu airport, Nepal"},
+ 	{17, "9754dff5b01d21af693b39063ab96e36", "Kathmandu street"},
+ 	{19, "8ac86c0d58bd696acfbe23cddef15eb9", "Guru sanctuary"},
+ 	{43, "1c7ca86176453c03d7c141c103bf452f", "Peru carving ledge"},
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Cairo airport"},
+-	{21, "a6b1551f60dc73fcc76830a87e29e0f1", "Cairo"},
++	{21, "a6b1551f60dc73fcc76830a87e29e0f1", "Mars pyramid entrance"},
+ 	{20, "2b1b8bb52d3fcbdc64854328d26932b2", "Sphinx and pyramids"},
+ 	{22, "7ce9ca6c97324588dc201fa1e566e716", "Pyramid entrance"},
+ 	{23, "5cf60128d7e51cf36f5d09ad07da930c", "Pyramid passages"},
+@@ -75,7 +75,52 @@ static const ZakPlace zakPlaces[] = {
+ };
+ // Original airports: big terminal resource 8 (logical 141-145) and regional
+ // resource 9 (146-149). Script 120 maps tickets to these logical rooms.
+-static bool zakAirport(int r) { return r==53 || (r>=56 && r<56+(int)(sizeof(zakPlaces)/sizeof(zakPlaces[0])) && (zakPlaces[r-56].file==8 || zakPlaces[r-56].file==9)); }
++// Logical scenes (rooms 128+) reuse an imported physical room's resource with
++// their own original setup, as original Zak does: the engine resolves them
++// through _resourceMapper. IDs are the original logical room numbers.
++struct ZakLogicalScene { int room, physical; const char *name; };
++static const ZakLogicalScene zakLogicalScenes[] = {
++	{134, 78, "Stonehenge"},
++	{135, 71, "Egypt pyramid passage"},
++	{151, 63, "Zaire shaman's hut"},
++	{181, 80, "Mars hostel bunks"},
++};
++// Imported physical room backing a scene (itself for rooms 56..126), or 0.
++static bool zakPhysicalRoom(int room) { return room >= 56 && room < 56 + (int)(sizeof(zakPlaces) / sizeof(zakPlaces[0])); }
++static int zakSceneSlotRoom(int room) {
++	if (zakPhysicalRoom(room)) return room;
++	for (const auto &scene : zakLogicalScenes) if (scene.room == room) return scene.physical;
++	return 0;
++}
++static bool zakLogicalRoom(int room) { return room >= 128 && zakSceneSlotRoom(room) != 0; }
++static const char *zakSceneName(int room) {
++	if (zakPhysicalRoom(room)) return zakPlaces[room-56].name;
++	for (const auto &scene : zakLogicalScenes) if (scene.room == room) return scene.name;
++	return nullptr;
++}
++// Original stationary residents (room entry scripts), shown through one
++// borrowed actor while their scene is viewed. Actor 15 is Maniac's Meteor
++// Police, used only by the mansion police-ending scripts. Costumes 42/43 are
++// imported Zak costumes 26/22. Dialogue lines and personalities are newly
++// authored, not original script text.
++static const int kZakResidentActor = 15;
++struct ZakResident {
++	int room, costume, x, y, animation, color, talkColor;
++	const char *name, *personality, *lines[3];
++};
++static const ZakResident zakResidents[] = {
++	{67, 42, 80, 11, 250, 4, 4, "Nepal guard",
++	 "a guard posted at the Guru's temple door in Kathmandu; formal, watchful, and politely firm that only devotees of the Guru may enter",
++	 {"Only devotees of the Guru may enter.", "Keep moving, traveler.", "The Guru sees visitors in his own time."}},
++	{68, 43, 60, 56, 251, 1, 15, "Guru",
++	 "the Guru of Kathmandu, a serene teacher who meditates above the floor and instructs devotees in the ways of the crystals; calm, cryptic, and kind",
++	 {"Patience. The crystal reveals itself slowly.", "You carry restless energy. Breathe.", "A clear mind travels farther than any plane."}},
++};
++static const ZakResident *zakResident(int room) {
++	for (const auto &resident : zakResidents) if (resident.room == room) return &resident;
++	return nullptr;
++}
++static bool zakAirport(int r) { const int slot=zakSceneSlotRoom(r); return r==53 || (slot && (zakPlaces[slot-56].file==8 || zakPlaces[slot-56].file==9)); }
+ // Airport interactions resolve by original object identity, not import order.
+ enum ZakAirportRole { kZakNoRole, kZakGate, kZakTerminal };
+ static ZakAirportRole zakAirportRole(int originalObject) {
+@@ -108,22 +153,34 @@ static const ZakLink zakLinks[] = {
+ 	{62, 736, 63, 0},
+ 	{62, 737, 63, 0},
+ 	{63, 732, 62, 0},
++	{63, 734, 151, 579},
++	{151, 735, 63, 578},
++	{151, 732, 62, 0},
+ 	{66, 733, 67, 0},
+-	{67, 734, 66, 0},
+-	{67, 735, 68, 0},
+-	{68, 732, 67, 0},
++	{67, 734, 64, 363},
++	{67, 739, 66, 218},
++	{64, 732, 67, 350},
++	{67, 735, 68, 375},
++	{68, 732, 67, 351},
+ 	// Inside Peru's giant carving (resource 43): ledge 138, eye chambers 136/137.
+ 	{69, 739, 97, 631},
+ 	{69, 740, 98, 631},
+ 	{69, 741, 96, 620},
+ 	{97, 738, 69, 636},
+ 	{98, 738, 69, 637},
+-	{70, 733, 71, 0},
+-	{71, 735, 70, 0},
+-	{71, 737, 72, 0},
+-	{71, 738, 72, 0},
+-	{72, 736, 71, 0},
+-	{72, 732, 73, 0},
++	// Original Egypt: Cairo airport <-> Sphinx; pyramid door -> passage 135.
++	{70, 733, 72, 390},
++	{72, 736, 70, 218},
++	{72, 732, 135, 397},
++	{72, 734, 73, 0},
++	{72, 735, 73, 0},
++	{135, 737, 72, 386},
++	{135, 738, 72, 386},
++	{135, 735, 74, 403},
++	// Mars pyramid entrance 183 (resource 21) from the landing site.
++	{71, 737, 79, 456},
++	{71, 738, 79, 456},
++	{71, 735, 84, 0},
+ 	{72, 733, 74, 0},
+ 	{73, 732, 72, 0},
+ 	{73, 735, 74, 0},
+@@ -133,14 +190,18 @@ static const ZakLink zakLinks[] = {
+ 	{75, 740, 74, 0},
+ 	{76, 732, 75, 0},
+ 	{77, 734, 78, 0},
++	{78, 738, 134, 652},
++	{134, 733, 78, 644},
++	{134, 732, 77, 0},
+ 	{78, 732, 77, 0},
+ 	{79, 743, 80, 0},
+ 	{79, 746, 80, 0},
+ 	{79, 747, 81, 0},
+-	{79, 752, 84, 0},
++	{79, 752, 71, 396},
+ 	{79, 753, 83, 534},
+-	{80, 732, 79, 0},
+-	{80, 734, 79, 0},
++	{80, 732, 79, 449},
++	{80, 748, 181, 464},
++	{181, 734, 80, 472},
+ 	{81, 739, 79, 0},
+ 	{84, 732, 83, 0},
+ 	{84, 742, 83, 0},
+@@ -153,10 +214,13 @@ static const ZakLink zakLinks[] = {
+ 	{87, 735, 99, 745},
+ 	{87, 736, 100, 745},
+ 	{89, 732, 108, 741},
+-	{90, 734, 91, 0},
+-	{90, 735, 55, 0},
++	{90, 734, 65, 155},
++	{90, 735, 91, 0},
++	{90, 750, 54, 0, 35, 56},
++	{65, 732, 55, 0, 59, 56},
++	{65, 741, 90, 329},
+ 	{91, 743, 90, 0},
+-	{55, 713, 90, 0},
++	{55, 713, 65, 151},
+ 	{94, 733, 95, 0},
+ 	{95, 734, 94, 0},
+ 	{95, 735, 96, 0},
+@@ -289,9 +353,7 @@ static bool zakPadObject(int room,int object) {
+ // Sandbox rooms with no original counterpart (scene audit, patch 0044).
+ // Their IDs stay allocated for save compatibility; nothing links to them and
+ // saved occupants move to the original scene they stood in for.
+-static int zakRetiredRoomReplacement(int room) {
+-	return room==64 || room==65 ? 63 : 0;
+-}
++static int zakRetiredRoomReplacement(int) { return 0; }
+ // Patch 0044 retired 64/65/97/98; 0046 reuses 97/98 for the carving eyes.
+ // Saves older than scene schema 2 still hold the invented scenes there.
+ static int zakSchema2Replacement(int room) {
+@@ -1194,6 +1256,115 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {637,528,24,0},
+   {638,320,112,0}
+  }},
++ {64,18,160,160,8,13,{0,1,2},{0,0,0,0,0,64,0,0},{
++  {363,0,40,0},
++  {60,32,48,1},
++  {364,64,8,0},
++  {365,40,80,0},
++  {368,256,40,0},
++  {367,272,40,0},
++  {369,72,32,0},
++  {371,96,48,0},
++  {374,80,48,2},
++  {373,64,24,2},
++  {370,160,56,0},
++  {372,168,16,0},
++  {366,152,16,0}
++ }},
++ {65,4,160,160,6,10,{255,3,11},{0,0,64,0,64,0},{
++  {151,0,40,0},
++  {152,152,56,0},
++  {30,40,56,1},
++  {159,296,48,0},
++  {153,280,80,0},
++  {154,184,80,0},
++  {156,88,56,0},
++  {157,88,56,2},
++  {158,104,80,0},
++  {155,224,24,0}
++ }},
++ {71,183,160,160,2,7,{255,2,9},{0,128},{
++  {393,184,56,2},
++  {394,184,56,2},
++  {395,184,56,2},
++  {392,120,32,4},
++  {391,104,56,4},
++  {396,0,0,0},
++  {397,304,0,0}
++ }},
++ {135,135,160,160,2,7,{255,9,8},{0,0},{
++  {393,184,56,2},
++  {394,184,56,2},
++  {395,184,56,2},
++  {392,120,32,12},
++  {391,104,56,14},
++  {396,0,0,0},
++  {397,304,0,0}
++ }},
++ {151,151,800,800,12,17,{255,6,9},{0,128,0,0,0,0,0,0,0,0,160,0},{
++  {576,608,0,0},
++  {577,24,80,0},
++  {578,48,56,0},
++  {579,936,40,0},
++  {580,88,72,0},
++  {581,32,8,0},
++  {591,408,0,0},
++  {592,520,0,0},
++  {582,240,88,2},
++  {583,240,88,2},
++  {584,240,88,2},
++  {585,240,88,2},
++  {590,736,72,0},
++  {586,904,40,0},
++  {587,728,40,0},
++  {588,816,40,0},
++  {589,872,48,0}
++ }},
++ {181,181,584,584,7,22,{255,10,15},{0,0,0,0,128,0,5},{
++  {463,536,24,8},
++  {468,736,80,0},
++  {464,720,48,0},
++  {465,632,24,8},
++  {466,624,64,0},
++  {467,720,32,0},
++  {469,632,40,0},
++  {471,632,80,3},
++  {64,632,80,1},
++  {470,632,80,4},
++  {67,112,56,9},
++  {68,192,64,0},
++  {478,208,64,0},
++  {69,104,56,1},
++  {479,72,72,0},
++  {473,0,72,0},
++  {472,0,40,0},
++  {474,8,24,0},
++  {475,72,32,0},
++  {476,96,32,0},
++  {477,176,24,0},
++  {70,320,24,1}
++ }},
++ {134,134,480,480,10,19,{255,11,12},{0,96,64,128,0,0,0,0,0,0},{
++  {639,0,0,0},
++  {652,592,0,0},
++  {641,264,40,0},
++  {640,72,72,0},
++  {642,40,72,2},
++  {643,256,16,0},
++  {644,96,40,0},
++  {81,432,72,3},
++  {653,432,72,2},
++  {655,432,72,2},
++  {645,432,72,2},
++  {646,448,72,2},
++  {656,416,32,2},
++  {647,416,24,10},
++  {648,408,80,0},
++  {654,368,8,2},
++  {649,368,8,2},
++  {650,368,8,2},
++  {651,368,8,2}
++ }},
+ };
+ // Original room colors and camera bounds for imported rooms without a full
+ // setup (or whose sandbox adapters own object state, like the cabin seats).
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 4e350b11..4d1f27bd 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -283,6 +283,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	for (int id : mansionCast)
+ 		if (id != VAR(VAR_EGO) && (!scummverseZakGuest(id) || _scummVars[763]) && derefActor(id, "talk roster")->_room == _currentRoom) talkMask |= 1u << id;
+ 	if (_scummVars[760] && derefActor(24, "Zak talk roster")->_room == _currentRoom) talkMask |= 1u << 24;
++	if (_scummVars[768] == _currentRoom && derefActor(kZakResidentActor, "resident talk roster")->_room == _currentRoom) talkMask |= 1u << kZakResidentActor;
+ 	char talkLine[600];
+ 	int talkSpeaker = 0;
+ 	unsigned chatting = scummverseTalkScene(_currentRoom, VAR(VAR_EGO), talkMask, !VAR(VAR_HAVE_MSG), talkSpeaker, talkLine, sizeof(talkLine));
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 471527f5..586684e4 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -187,14 +187,15 @@ bool ScummEngine::scummverseMountStreet() {
+ bool ScummEngine::scummverseMountZakCast() {
+ 	if (!_scummverseZakCastCostumes[0].empty()) return true;
+ 	if (!scummverseMountZak()) return false;
+-	Common::Array<byte> index, costumes[7];
++	Common::Array<byte> index, costumes[9];
+ 	Common::String problem;
+ 	auto directory = scummverseZakDirectory();
+ 	if (!readZakFile(directory,0,"7020931d5a2be0a49d68e7a1882363e4",index,problem)) return false;
+-	const int files[] = {6,28,28,4,10,38,38}, ids[] = {2,3,4,28,27,21,21};
+-	const char *hashes[] = {"1a79751f305b2fe6f8ee774de7108304","6282c2c0caa99bdbb38ba36051fb57d3","6282c2c0caa99bdbb38ba36051fb57d3","49d5e57fc1ab56a3b04e83faae000db4","7884b91ca526ffcd4d44bfe22816ec1e","0c701e2facdb1b2413d74ca2c9bdf3d6","0c701e2facdb1b2413d74ca2c9bdf3d6"};
++	// Sandbox costumes 35..43; the last two are the Nepal guard and the Guru.
++	const int files[] = {6,28,28,4,10,38,38,17,19}, ids[] = {2,3,4,28,27,21,21,26,22};
++	const char *hashes[] = {"1a79751f305b2fe6f8ee774de7108304","6282c2c0caa99bdbb38ba36051fb57d3","6282c2c0caa99bdbb38ba36051fb57d3","49d5e57fc1ab56a3b04e83faae000db4","7884b91ca526ffcd4d44bfe22816ec1e","0c701e2facdb1b2413d74ca2c9bdf3d6","0c701e2facdb1b2413d74ca2c9bdf3d6","9754dff5b01d21af693b39063ab96e36","8ac86c0d58bd696acfbe23cddef15eb9"};
+ 	const uint table = 2 + 775 + 61 * 3;
+-	for (int i=0;i<7;++i) {
++	for (int i=0;i<9;++i) {
+ 		Common::Array<byte> source;
+ 		if(!readZakFile(directory,files[i],hashes[i],source,problem)) { scummverseZakDiagnostic(directory,problem); return false; }
+ 		uint id=ids[i], offset=READ_LE_UINT16(index.data()+table+37+id*2);
+@@ -203,10 +204,35 @@ bool ScummEngine::scummverseMountZakCast() {
+ 		if(size<8 || offset+size>source.size()) return false;
+ 		costumes[i].resize(size); memcpy(costumes[i].data(),source.data()+offset,size);
+ 	}
+-	for(int i=0;i<7;++i) _scummverseZakCastCostumes[i]=costumes[i];
++	for(int i=0;i<9;++i) _scummverseZakCastCostumes[i]=costumes[i];
+ 	return true;
+ }
+ 
++// Saved var 768 is the scene currently holding the borrowed resident actor,
++// 769 the Maniac costume it is returned with. The actor is only borrowed
++// while unused by the mansion (room 0 or a resident scene).
++void ScummEngine::scummverseUpdateResident() {
++	Actor *a = derefActor(kZakResidentActor, "scene resident");
++	const ZakResident *resident = zakResident(_currentRoom);
++	if (_scummVars[768] && _scummVars[768] != _currentRoom) {
++		if (a->_room == _scummVars[768]) {
++			a->stopActorMoving(); a->putActor(0, 0, 0);
++			a->setActorCostume(_scummVars[769]);
++			memcpy(_res->createResource(rtActorName, kZakResidentActor, 1), "", 1);
++		}
++		_scummVars[768] = 0;
++	}
++	if (!resident || _scummVars[768] == _currentRoom || (a->_room != 0 && !zakResident(a->_room))) return;
++	if (!scummverseMountZakCast()) return;
++	_scummVars[769] = a->_costume;
++	a->stopActorMoving(); a->setActorCostume(resident->costume);
++	a->setPalette(1, resident->color); a->_talkColor = resident->talkColor;
++	const size_t length = strlen(resident->name) + 1;
++	memcpy(_res->createResource(rtActorName, kZakResidentActor, length), resident->name, length);
++	a->putActor(resident->x, resident->y, _currentRoom); a->animateActor(resident->animation);
++	_scummVars[768] = _currentRoom;
++}
++
+ void ScummEngine::scummverseInitVisitors() {
+ 	if (!_scummVars[763] && scummverseMountZakCast()) {
+ 		static const char *names[] = {"Annie Larris", "Melissa China", "Leslie Bennett"};
+@@ -257,6 +283,13 @@ void ScummEngine::scummverseInitVisitors() {
+ // The added sightseeing rooms share a scratch object namespace (732..764).
+ // Their original puzzle scripts never run; states are restored on room entry.
+ bool ScummEngine::scummverseMountExtra(int room) {
++	// Logical scenes resolve to their physical slot, as the V1 engine does for
++	// rooms 128+ through _resourceMapper (which saves with the game).
++	if (zakLogicalRoom(room)) {
++		const int physical = zakSceneSlotRoom(room);
++		_resourceMapper[room & 0x7F] = physical;
++		room = physical;
++	}
+ 	if (!ScummverseContent::importedRoom(room) || !scummverseMountZak()) return false;
+ 	int slot = room - 56;
+ 	if (!_scummverseExtraRooms[slot].empty()) return true;
+@@ -295,7 +328,7 @@ bool ScummEngine::scummverseMountExtra(int room) {
+ }
+ 
+ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+-	if (_scummverseRoaming && type == rtCostume && id >= 35 && id <= 41) {
++	if (_scummverseRoaming && type == rtCostume && id >= 35 && id <= 43) {
+ 		if (!scummverseMountZakCast()) return 0;
+ 		const auto &data = _scummverseZakCastCostumes[id-35];
+ 		memcpy(_res->createResource(type, id, data.size()), data.data(), data.size());
+@@ -330,7 +363,8 @@ void ScummEngine::scummverseMigrateTravelRecords() {
+ }
+ 
+ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arrivalX, int arrivalY) {
+-	if (!_scummverseRoamingReady || !_userPut || destination < 1 || destination >= ScummverseContent::kRoomCount - 50 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
++	if (!_scummverseRoamingReady || !_userPut || destination < 1 || VAR(VAR_EGO) < 1 || VAR(VAR_EGO) > 24) return false;
++	if (destination >= ScummverseContent::kRoomCount - 50 && !zakLogicalRoom(destination + 50)) return false;
+ 	if (zakRetiredRoomReplacement(destination + 50)) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
+@@ -356,9 +390,10 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 		room = _scummVars[key]; x = _scummVars[key + 1]; y = _scummVars[key + 2];
+ 		if (room < 1 || room > 52) { room = 1; x = 8; y = 64; }
+ 	}
+-	if (ScummverseContent::importedRoom(room)) {
+-		const auto &data = _scummverseExtraRooms[room-56];
+-		for (int i=0;i<data[20];++i) { putState(732+i,_scummverseExtraStates[room-56][i]); _objectOwnerTable[732+i]=OF_OWNER_ROOM; }
++	if (const int slot = zakSceneSlotRoom(room)) {
++		const auto &data = _scummverseExtraRooms[slot-56];
++		const auto *logical = zakLogicalRoom(room) ? zakSceneSetup(room) : nullptr;
++		for (int i=0;i<data[20];++i) { putState(732+i,logical ? logical->objects[i].state : _scummverseExtraStates[slot-56][i]); _objectOwnerTable[732+i]=OF_OWNER_ROOM; }
+ 
+ 		x = room == 56 ? 45 : room==88 ? 114 : zakSceneSetup(room) ? zakSceneSetup(room)->cameraMin/8 : 20; y=60;
+ 	}
+@@ -370,8 +405,8 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+     if(const auto *scene=zakSceneSetup(room)) {
+         VAR(VAR_CAMERA_MIN_X)=scene->cameraMin; VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+     }
+-    if(arrivalObject && ScummverseContent::importedRoom(room)) {
+-        for(int i=0;i<33;++i) if(_scummverseOriginalObjects[room-56][i]==arrivalObject) {
++    if(arrivalObject && zakSceneSlotRoom(room)) {
++        for(int i=0;i<33;++i) if(_scummverseOriginalObjects[zakSceneSlotRoom(room)-56][i]==arrivalObject) {
+             int index=getObjectIndex(732+i);
+             if(index>=0) {x=_objs[index].walk_x/8;y=_objs[index].walk_y/2;}
+             break;
+@@ -404,12 +439,13 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
++	scummverseUpdateResident();
+ 	_scummVars[527]=1; _scummVars[528]=3;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+ 		room == 54 ? "Zak's apartment. Walk through the door to reach the street and free airport bus." : "Back in Maniac Mansion.";
+-	if(room>=61) _scummverseWorldNotice=zakPlaces[room-56].name;
++	if(room>=61 && zakSceneName(room)) _scummverseWorldNotice=zakSceneName(room);
+ 	scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	return true;
+ }
+@@ -767,10 +803,12 @@ void ScummEngine::scummverseRestoreSceneNavigation(bool restoreActors) {
+ 	bool audited=zakSceneSetup(_currentRoom)!=nullptr;
+ 	for (int room : zakOriginalWalkboxRooms) if (room==_currentRoom) audited=true;
+ 	if (!audited || !scummverseMountExtra(_currentRoom)) return;
+-	const auto &data=_scummverseExtraRooms[_currentRoom-56];
++	const auto &data=_scummverseExtraRooms[zakSceneSlotRoom(_currentRoom)-56];
+ 	const uint offset=data[21];
+ 	if (offset>=data.size() || offset+1+data[offset]*8>data.size() || data[offset]!=getNumBoxes()) return;
+-	for (int box=0;box<getNumBoxes();++box) setBoxFlags(box,data[offset+1+box*8+7]);
++	// A logical scene keeps its own original box flags over the shared resource.
++	const auto *logical=zakLogicalRoom(_currentRoom) ? zakSceneSetup(_currentRoom) : nullptr;
++	for (int box=0;box<getNumBoxes();++box) setBoxFlags(box,logical && box<logical->boxCount ? logical->boxes[box] : data[offset+1+box*8+7]);
+ 	for (const auto &rule : zakWalkboxOverrides)
+ 		if (rule.room==_currentRoom && rule.box<getNumBoxes()) setBoxFlags(rule.box,rule.flags);
+ 	if (!restoreActors) return;
+@@ -794,16 +832,18 @@ bool ScummEngine::scummverseDistantScene() const {
+ }
+ 
+ void ScummEngine::scummverseRestoreSceneObjects() {
+- if(!_scummverseRoaming || !ScummverseContent::importedRoom(_currentRoom)) return;
++ const int slot=zakSceneSlotRoom(_currentRoom);
++ if(!_scummverseRoaming || !slot) return;
+  bool configured=zakSceneSetup(_currentRoom)!=nullptr;
+  for(const auto &rule : zakSceneObjectStates) if(rule.room==_currentRoom) configured=true;
+  if(!configured || !scummverseMountExtra(_currentRoom)) return;
+  // Imported puzzle objects are immutable sightseeing state. Repair old saves
+  // with the same edition-specific setup used on normal entry, without touching
+  // other scenes sharing the source resource or actor positions.
+- const auto &room=_scummverseExtraRooms[_currentRoom-56];
++ const auto &room=_scummverseExtraRooms[slot-56];
++ const auto *logical=zakLogicalRoom(_currentRoom) ? zakSceneSetup(_currentRoom) : nullptr;
+  for(int i=0;i<room[20];++i) {
+-  putState(732+i,_scummverseExtraStates[_currentRoom-56][i]);
++  putState(732+i,logical ? logical->objects[i].state : _scummverseExtraStates[slot-56][i]);
+   if(const auto *scene=zakSceneSetup(_currentRoom)) {
+    int n=getObjectIndex(732+i);
+    if(n<0) continue;
+@@ -869,16 +909,18 @@ void ScummEngine::scummverseRestoreTemple() {
+ 
+ // Original identity of an imported scratch object (732..764), or 0.
+ int ScummEngine::scummverseOriginalObject(int room, int object) const {
+- if(!ScummverseContent::importedRoom(room) || object<732 || object>=732+33) return 0;
+- return _scummverseOriginalObjects[room-56][object-732];
++ const int slot=zakSceneSlotRoom(room);
++ if(!slot || object<732 || object>=732+33) return 0;
++ return _scummverseOriginalObjects[slot-56][object-732];
+ }
+ 
+ // Resolve source doorway anchors without switching the displayed room. NPCs
+ // entering an offscreen logical variant must use that variant's object layout.
+ bool ScummEngine::scummverseArrivalPoint(int room, int originalObject, Common::Point &point) {
+- if(!ScummverseContent::importedRoom(room) || !scummverseMountExtra(room)) return false;
+- const auto &data=_scummverseExtraRooms[room-56];
+- for(int i=0;i<data[20];++i) if(_scummverseOriginalObjects[room-56][i]==originalObject) {
++ const int slot=zakSceneSlotRoom(room);
++ if(!slot || !scummverseMountExtra(room)) return false;
++ const auto &data=_scummverseExtraRooms[slot-56];
++ for(int i=0;i<data[20];++i) if(_scummverseOriginalObjects[slot-56][i]==originalObject) {
+   uint off=READ_LE_UINT16(data.data()+28+data[20]*2+i*2);
+   int x=data[off+11]*8, y=(data[off+12]&31)*8;
+   if(const auto *scene=zakSceneSetup(room)) {

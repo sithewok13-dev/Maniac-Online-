@@ -1,0 +1,220 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 947b8618..1ed416cd 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -425,10 +425,45 @@ static const unsigned kOpened = 1 << kWorldVerbOpen, kClosed = 1 << kWorldVerbCl
+ static const ManiacSets kManiacSets[] = {
+ 	{1, 276, kOpened, 1, 50, 1}, {1, 276, kClosed, 1, 50, 0},
+ 	{22, 380, kOpened, 22, 209, 1}, {22, 380, kClosed, 22, 209, 0},
+-	{6, 138, kOpened | 1 << kWorldVerbPull, 52, 108, 1}, {6, 138, kClosed, 52, 108, 0},
+-	{6, 138, kOpened | 1 << kWorldVerbPull, 16, 143, 1}, {6, 138, kClosed, 16, 143, 0},
+ 	{10, 351, 1 << kWorldVerbPush | 1 << kWorldVerbPull, 10, 69, 1},
+ };
++// From 0153: things its game moves as one, each row what one of them does
++// (tools/test_mansion_links.py again): on `hides` each of `parts` shows
++// its first picture (0), on `shows` its second (1); itself among them, all
++// of it is this. The bathroom's shower curtain (room 24): its three parts,
++// 115..117, drawn aside by opening or pulling any of them or its gathered
++// end, 279, and back by closing any (the wall behind says who to call for
++// a good time); its sink running without its second picture. The garden
++// gate: opened or pulled on the pool deck (138), all three of its sides
++// open; closed or pushed, all shut; from the garage (143) or the other
++// side (108), that side and the deck's.
++struct ManiacPart { short room, object; };
++struct ManiacTogether { short room, object; unsigned hides, shows; ManiacPart parts[3]; };
++static const unsigned kPulled = 1 << kWorldVerbPull, kPushed = 1 << kWorldVerbPush;
++static const ManiacTogether kManiacTogether[] = {
++	{24, 279, kOpened | kPulled, kClosed, {{24, 115}, {24, 116}, {24, 117}}},
++	{24, 115, kOpened | kPulled, kClosed, {{24, 115}, {24, 116}, {24, 117}}},
++	{24, 116, kOpened | kPulled, kClosed, {{24, 115}, {24, 116}, {24, 117}}},
++	{24, 117, kOpened | kPulled, kClosed, {{24, 115}, {24, 116}, {24, 117}}},
++	{24, 253, 1 << kWorldVerbTurnOn, 1 << kWorldVerbTurnOff, {{24, 253}}},
++	{6, 138, kClosed | kPushed, kOpened | kPulled, {{6, 138}, {16, 143}, {52, 108}}},
++	{16, 143, kClosed | kPushed, kOpened | kPulled, {{16, 143}, {6, 138}}},
++	{52, 108, kClosed | kPushed, kOpened | kPulled, {{52, 108}, {6, 138}}},
++};
++static bool maniacTogether(int room, int id) {
++	for (const ManiacTogether &t : kManiacTogether) if (t.room == room && t.object == id) return true;
++	return false;
++}
++// What one says to a verb (nothing: "", it does nothing), as its game's
++// script: the shower's tap turned on (its handle is in the garage).
++struct ManiacLine { short room, object, kind; const char *line; };
++static const ManiacLine kManiacLines[] = {
++	{24, 118, kWorldVerbTurnOn, "The handle's missing."}, {24, 118, kWorldVerbTurnOff, ""},
++};
++// The doors its game shuts behind the one going through (the hall's secret
++// door: on the stairs down, it closes).
++struct ManiacShuts { short room, door; };
++static const ManiacShuts kManiacShutsBehind[] = {{10, 69}};
+ struct ManiacOpenedBy { short room, door; const char *line; };
+ static const ManiacOpenedBy kManiacOpenedBy[] = {{10, 69, "There's no handle here!"}};
+ struct ManiacDoorNeeds { short room, door, needRoom, needObject, needPicture; };
+@@ -460,10 +495,15 @@ void SandboxEngine::thingFollows(int id, int picture) {
+ 	for (const ManiacFollows &f : kManiacFollows) if (f.room == _room && f.object == id) setPicture(f.otherRoom, f.other, picture);
+ }
+ 
+-bool SandboxEngine::thingSets(int id, int kind) {
+-	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+-	bool set = false;
+-	for (const ManiacSets &s : kManiacSets) if (s.room == _room && s.object == id && (s.kinds & 1u << kind)) { setPicture(s.otherRoom, s.other, s.picture); set = true; }
++int SandboxEngine::thingSets(int id, int kind) {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return 0;
++	int set = 0;
++	for (const ManiacSets &s : kManiacSets) if (s.room == _room && s.object == id && (s.kinds & 1u << kind)) { setPicture(s.otherRoom, s.other, s.picture); set = 1; }
++	for (const ManiacTogether &t : kManiacTogether) {
++		if (t.room != _room || t.object != id || !((t.hides | t.shows) & 1u << kind)) continue;
++		for (const ManiacPart &part : t.parts) if (part.object) setPicture(part.room, part.object, t.shows & 1u << kind ? 1 : 0);
++		set = 2;
++	}
+ 	return set;
+ }
+ 
+@@ -1273,9 +1313,17 @@ void SandboxEngine::act() {
+ 	if (acting && !near && result != 1) { say("I can't reach that."); return; }
+ 	// (A door its game opens only from something else: its own line.)
+ 	if ((kind == kWorldVerbOpen || kind == kWorldVerbClose || kind == kWorldVerbUnlock) && openedOnlyBy(_room, id)) { say(openedOnlyBy(_room, id)); return; }
++	// (Its game's own line to this verb, else nothing done.)
++	for (const ManiacLine &l : kManiacLines)
++		if (_game >= 0 && !strcmp(kWorldGames[_game].gameid, "maniac") && l.room == _room && l.object == id && l.kind == kind) { if (*l.line) say(l.line); return; }
++	// (Moved with others as one, as its game's script: pushed or pulled
++	// where that script answers only the other, it won't budge.)
++	if ((kind == kWorldVerbPush || kind == kWorldVerbPull) && answers >= 0 && !(answers & 1 << kind) && _game >= 0 &&
++		!strcmp(kWorldGames[_game].gameid, "maniac") && maniacTogether(_room, id)) { say("It won't budge."); return; }
+ 	// (Another thing shown so by this one, as its game's script: its own
+-	// answer then only if it has one.)
+-	if (thingSets(id, kind) && result != 2) { if (!_testing) saveState(); return; }
++	// answer then only if it has one; all of it, when it moves with them.)
++	const int sets = thingSets(id, kind);
++	if (sets && (result != 2 || sets == 2)) { if (!_testing) saveState(); return; }
+ 	// (A light of the mansion's: the place dark or lit, its picture as the game's.)
+ 	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && isLight(target)) {
+ 		lights(kind == kWorldVerbTurnOn);
+@@ -1302,7 +1350,7 @@ bool SandboxEngine::travel(int index) {
+ 	_door = -1;
+ 	// (Kept shut by its game until something is so: not gone through, but
+ 	// on the tour's way.)
+-	if (!_touring.on && !doorAllowed(link.room, link.object)) return false;
++	if ((!_touring.on || _touring.paused) && !doorAllowed(link.room, link.object)) return false;
+ 	if (!installed(_game, link.target)) {
+ 		if (!_testing) g_system->displayMessageOnOSD(Common::U32String("That way isn't installed yet."));
+ 		return false;
+@@ -1320,11 +1368,17 @@ bool SandboxEngine::travel(int index) {
+ 		int id, ox, oy, w, h, wx, wy, state, picture;
+ 		if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == link.object && doorOpens(o, picture, false)) opened = picture;
+ 	}
++	// (Opened as its game opens it: what moves with it too.)
++	if (opened >= 0) thingSets(link.object, kWorldVerbOpen);
+ 	if (enter(game, link.target, arrival, problem)) {
+ 		if (opened >= 0) _pictures[thingKey(game, from, link.object)] = opened;
++		// (Shut behind them, as its game does.)
++		bool shuts = false;
++		for (const ManiacShuts &d : kManiacShutsBehind) shuts |= !strcmp(kWorldGames[game].gameid, "maniac") && d.room == from && d.door == link.object;
++		if (shuts && !_touring.on) _pictures[thingKey(game, from, link.object)] = 0;
+ 		const WorldLink *back = arrival ? worldLinkFrom(game, link.target, arrival) : nullptr;
+ 		const bool openedBack = !_touring.on && back && back->target == from && openDoor(arrival);
+-		if ((opened >= 0 || openedBack) && !_testing && !_touring.on) saveState();
++		if ((opened >= 0 || openedBack || shuts) && !_testing && !_touring.on) saveState();
+ 		return true;
+ 	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[game].gameid, (int)link.target, problem.c_str());
+@@ -3318,7 +3372,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			return -1;
+ 		};
+ 		if (maniac >= 0 && ladder >= 0 && installed(maniac, 29) && installed(maniac, 6) && installed(maniac, 2)) {
+-			_pictures.erase(thingKey(maniac, 6, 139));
++			_pictures.erase(thingKey(maniac, 6, 139)); _pictures.erase(thingKey(maniac, 29, 66));
+ 			int valve = -1;
+ 			if (!enter(maniac, 29, 0, problem) || (valve = thingIn(66)) < 0 || !use(kWorldVerbOpen, valve) || StageBridge::objectShown(valve) != 1 || pictureOf(6, 139) != 1) fail("the valve not opened, or the pool not drained", maniac);
+ 			else if (!enter(maniac, 6, 0, problem) || thingIn(139) < 0 || StageBridge::objectShown(thingIn(139)) != 1) fail("the pool not shown drained", maniac);
+@@ -3346,10 +3400,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 		for (int i = 0; mansionMap && i < mansionMap->linkCount; ++i) if (mansionMap->links[i].room == 10 && mansionMap->links[i].object == 69) secret = i;
+ 		if (maniac >= 0 && secret >= 0 && installed(maniac, 10) && installed(maniac, 8)) {
+ 			_pictures.erase(thingKey(maniac, 10, 69));
+-			if (!enter(maniac, 10, 0, problem) || thingIn(69) < 0 || StageBridge::objectShown(thingIn(69)) != 0 || travel(secret) || _room != 10) fail("through the secret door shut", maniac);
++			// (Nor while a tour is paused: the player's own way.)
++			_touring.on = _touring.paused = true;
++			const bool pausedThrough = enter(maniac, 10, 0, problem) && travel(secret);
++			_touring.on = _touring.paused = false;
++			if (pausedThrough || !enter(maniac, 10, 0, problem) || thingIn(69) < 0 || StageBridge::objectShown(thingIn(69)) != 0 || travel(secret) || _room != 10) fail("through the secret door shut", maniac);
+ 			else if (!doAt(kWorldVerbOpen, thingIn(69)) || _speech != "There's no handle here!" || StageBridge::objectShown(thingIn(69)) != 0) fail("the secret door opened by its handle", maniac);
+ 			else if (!doAt(kWorldVerbPush, thingIn(351)) || StageBridge::objectShown(thingIn(69)) != 1) fail("the gargoyle not opening the secret door", maniac);
+-			else if (!travel(secret) || _room != 8) fail("not through the opened secret door", maniac);
++			else if (!enter(maniac, 10, 0, problem) || thingIn(69) < 0 || StageBridge::objectShown(thingIn(69)) != 1) fail("the opened secret door not kept", maniac);
++			// (Down the stairs, it shuts behind them, as in the original.)
++			else if (!travel(secret) || _room != 8 || pictureOf(10, 69) != 0) fail("not through the opened secret door, or it not shut behind", maniac);
+ 			else ++links;
+ 		}
+ 		if (maniac >= 0 && installed(maniac, 1) && installed(maniac, 22)) {
+@@ -3360,15 +3420,57 @@ Common::Error SandboxEngine::verbsTest() {
+ 			ok = ok && doAt(kWorldVerbOpen, thingIn(380)) && StageBridge::objectShown(thingIn(209)) == 1 && doAt(kWorldVerbClose, thingIn(380)) && StageBridge::objectShown(thingIn(209)) == 0;
+ 			if (!ok) fail("the mailbox or the desk not shown opened and closed", maniac); else ++links;
+ 		}
++		// The bathroom's shower curtain, as one: opened by a part, all of it
++		// drawn aside (the wall behind shown); closed from its gathered end,
++		// all of it back; pushed, it won't budge; pulled, aside again.
++		if (maniac >= 0 && installed(maniac, 24)) {
++			const int parts[] = {115, 116, 117};
++			for (int part : parts) _pictures.erase(thingKey(maniac, 24, part));
++			auto all = [&](int picture) {
++				for (int part : parts) if (thingIn(part) < 0 || StageBridge::objectShown(thingIn(part)) != picture) return false;
++				return true;
++			};
++			bool ok = enter(maniac, 24, 0, problem) && thingIn(279) >= 0 && all(1);
++			ok = ok && doAt(kWorldVerbOpen, thingIn(116)) && all(0);
++			if (ok && ConfMan.hasKey("scummverse_shots")) { present(); shot("shower-open.png"); }
++			ok = ok && doAt(kWorldVerbClose, thingIn(279)) && all(1);
++			ok = ok && doAt(kWorldVerbPush, thingIn(117)) && _speech == "It won't budge." && all(1);
++			ok = ok && doAt(kWorldVerbPull, thingIn(279)) && all(0) && doAt(kWorldVerbClose, thingIn(115)) && all(1);
++			// (Its sink runs without its second picture; its shower's tap has
++			// no handle, and turned off does nothing.)
++			_pictures.erase(thingKey(maniac, 24, 253)); _pictures.erase(thingKey(maniac, 24, 118));
++			ok = ok && enter(maniac, 24, 0, problem) && thingIn(253) >= 0 && thingIn(118) >= 0;
++			ok = ok && doAt(kWorldVerbTurnOn, thingIn(253)) && StageBridge::objectShown(thingIn(253)) == 0 && doAt(kWorldVerbTurnOff, thingIn(253)) && StageBridge::objectShown(thingIn(253)) == 1;
++			const int tap = thingIn(118), tapShown = tap >= 0 ? StageBridge::objectShown(tap) : -1;
++			ok = ok && doAt(kWorldVerbTurnOn, tap) && _speech == "The handle's missing." && doAt(kWorldVerbTurnOff, tap) && _speech.empty() && StageBridge::objectShown(tap) == tapShown;
++			if (!ok) fail("the shower curtain not drawn aside and back as one, or the sink or the tap not as the game", maniac); else ++links;
++		}
++		// The garden gate, as one: opened on the pool deck, all three of its
++		// sides open; pushed, all shut; pulled from the garage, that side and
++		// the deck's.
++		if (maniac >= 0 && installed(maniac, 6) && installed(maniac, 16) && installed(maniac, 52)) {
++			_pictures.erase(thingKey(maniac, 6, 138)); _pictures.erase(thingKey(maniac, 16, 143)); _pictures.erase(thingKey(maniac, 52, 108));
++			bool ok = enter(maniac, 6, 0, problem) && thingIn(138) >= 0;
++			ok = ok && doAt(kWorldVerbOpen, thingIn(138)) && StageBridge::objectShown(thingIn(138)) == 1 && pictureOf(16, 143) == 1 && pictureOf(52, 108) == 1;
++			ok = ok && doAt(kWorldVerbPush, thingIn(138)) && StageBridge::objectShown(thingIn(138)) == 0 && pictureOf(16, 143) == 0 && pictureOf(52, 108) == 0;
++			ok = ok && enter(maniac, 16, 0, problem) && thingIn(143) >= 0;
++			ok = ok && doAt(kWorldVerbPull, thingIn(143)) && StageBridge::objectShown(thingIn(143)) == 1 && pictureOf(6, 138) == 1 && pictureOf(52, 108) == 0;
++			ok = ok && doAt(kWorldVerbClose, thingIn(143)) && StageBridge::objectShown(thingIn(143)) == 0 && pictureOf(6, 138) == 0;
++			if (!ok) fail("the gate not moving as one", maniac); else ++links;
++		}
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+ 		const uint carried = _carried.size(), pictures = _pictures.size();
++		const Common::HashMap<int, int> shown = _pictures;
+ 		saveState();
+ 		_carried.clear(); _pictures.clear(); PanelBridge::clearItems();
+ 		int game, room;
+ 		double x, y;
+-		if (!loadState(game, room, x, y) || _carried.size() != carried || _pictures.size() != pictures || PanelBridge::itemCount() != (int)carried) fail("not kept", _game);
++		bool same = true;
++		const bool loaded = loadState(game, room, x, y);
++		for (Common::HashMap<int, int>::const_iterator i = shown.begin(); i != shown.end(); ++i) same &= _pictures.contains(i->_key) && _pictures[i->_key] == i->_value;
++		if (!loaded || !same || _carried.size() != carried || _pictures.size() != pictures || PanelBridge::itemCount() != (int)carried) fail("not kept", _game);
+ 		// The place again: what was taken stays gone.
+ 		Common::String problem;
+ 		for (const Carried &c : _carried) {
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 3a60a034..59043395 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -122,7 +122,7 @@ private:
+ 	int pictureOf(int room, int id) const;  // a thing's picture now, here or kept (else where its game puts it)
+ 	void setPicture(int room, int id, int picture);
+ 	void thingFollows(int id, int picture);
+-	bool thingSets(int id, int kind);       // another shown so by this one on this verb (true: done)
++	int thingSets(int id, int kind);        // another shown so by this one on this verb (1; 2: itself too, done)
+ 	const char *openedOnlyBy(int room, int id) const; // a door opened only from elsewhere: its line
+ 	bool doorAllowed(int room, int door) const;
+ 	bool meetDoorNeed(int room, int door);  // (the checks': as the game would)

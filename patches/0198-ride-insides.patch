@@ -1,0 +1,715 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 5baab910..8b5b8d57 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -268,6 +268,16 @@ void Scene::place(int n, Point at) {
+ 	a.route.clear(); a.moving = false;
+ }
+ 
++void Scene::seat(int n, Point at) {
++	if (n < 0 || n >= (int)_actors.size()) return;
++	Actor &a = _actors[n];
++	a.at = at; a.route.clear(); a.moving = false;
++}
++
++void Scene::resize(int n, double factor) {
++	if (n >= 0 && n < (int)_actors.size() && factor > 0) _actors[n].height *= factor;
++}
++
+ void Scene::walkTo(int n, Point to) {
+ 	if (n < 0 || n >= (int)_actors.size()) return;
+ 	Actor &a = _actors[n];
+@@ -320,7 +330,7 @@ void Scene::pose(int n, int dir, int kind, int index) {
+ 	Actor &a = _actors[n];
+ 	a.posed = true;
+ 	a.poseDir = dir >= 0 && dir < 4 ? dir : -1;
+-	a.poseKind = kind >= 0 && kind < 3 ? kind : -1;
++	a.poseKind = kind >= 0 && kind <= World::kGuestSeated ? kind : -1;
+ 	a.poseIndex = std::max(0, index);
+ }
+ 
+@@ -513,6 +523,26 @@ int Scene::addProp(const uint8_t *pixels, int width, int height, int none, const
+ 	return (int)_props.size() - 1;
+ }
+ 
++int Scene::addPiece(int x, int y, int w, int h, int toX, int toY, int over) {
++	if (w <= 0 || h <= 0 || x < 0 || y < 0 || x + w > _source.width || y + h > _source.height ||
++		toX < 0 || toY < 0 || toX + w > _source.width || toY + h > _source.height) return -1;
++	Prop prop;
++	prop.frame.width = w; prop.frame.height = h;
++	prop.frame.pixels.resize((size_t)w * h);
++	prop.frame.mask.assign((size_t)w * h, 1);
++	for (int row = 0; row < h; ++row)
++		std::copy_n(&_source.pixels[(size_t)(y + row) * _source.width + x], w, &prop.frame.pixels[(size_t)row * w]);
++	std::copy(_colors, _colors + 256, prop.colors);
++	// (Standing on its bottom centre, as tall at full scale as it is in the
++	// scene wherever it stands: drawn over the picture pixel for pixel.)
++	prop.at = Point(toX + w / 2.0, toY + h);
++	prop.rows = h * 255.0 / std::max(1, scaleAt(_boxes, prop.at));
++	prop.pixelAspect = _view.rowScale / std::max(1e-9, _view.colScale);
++	prop.order = over;
++	_props.push_back(std::move(prop));
++	return (int)_props.size() - 1;
++}
++
+ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const View &v = _view;
+ 	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+@@ -532,7 +562,7 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const int people = (int)_actors.size();
+ 	std::vector<int> order(people + _props.size());
+ 	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+-	auto rowOf = [&](int n) { return n < people ? _actors[n].at.y : _props[n - people].at.y; };
++	auto rowOf = [&](int n) { return n < people ? _actors[n].at.y : _props[n - people].order >= 0 ? _props[n - people].order : _props[n - people].at.y; };
+ 	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rowOf(a) < rowOf(b) || (rowOf(a) == rowOf(b) && a >= people && b < people); });
+ 	for (int n : order) {
+ 		const Prop *prop = n < people ? nullptr : &_props[n - people];
+@@ -790,6 +820,8 @@ int addActor(const unsigned char *data, size_t size, double height, double pixel
+ }
+ int actorCount() { return stage().actorCount(); }
+ void place(int actor, double x, double y) { stage().place(actor, {x, y}); }
++void seat(int actor, double x, double y) { stage().seat(actor, {x, y}); }
++void resize(int actor, double factor) { stage().resize(actor, factor); }
+ void walkTo(int actor, double x, double y) { stage().walkTo(actor, {x, y}); }
+ bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
+ bool busy() {
+@@ -893,6 +925,7 @@ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().d
+ int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect) {
+ 	return stage().addProp(pixels, width, height, none, palette, Stage::Point(x, y), rows, pixelAspect);
+ }
++int addPiece(int x, int y, int w, int h, int toX, int toY, int over) { return stage().addPiece(x, y, w, h, toX, toY, over); }
+ int propCount() { return stage().propCount(); }
+ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) { return stage().propRect(prop, x0, y0, x1, y1); }
+ bool propHit(int prop, int screenX, int screenY) { return stage().propHit(prop, screenX, screenY); }
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 9f19b521..96ff4e54 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -133,6 +133,11 @@ public:
+ 	bool load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error);
+ 	int addActor(const uint8_t *data, size_t size, double height, double pixelAspect, std::string &error); // its number, -1 on error
+ 	void place(int actor, Point at);
++	// Exactly there, as it is (not moved into the walk boxes): someone
++	// seated where no one walks (a plane's seat).
++	void seat(int actor, Point at);
++	// Drawn this many times as big as now (someone too big for a seat).
++	void resize(int actor, double factor);
+ 	void walkTo(int actor, Point to);
+ 	// Standing, turned towards a point (left or right, else to the front or
+ 	// back, as walking there would); talking, its talk frames in turn.
+@@ -140,7 +145,8 @@ public:
+ 	void talk(int actor, bool on);
+ 	void stop(int actor); // standing where they are now
+ 	// Posed: a way (0 left, 1 right, 2 front, 3 back; -1 their own) and a
+-	// pose (0 standing, 1 walking, 2 talking; -1 their own) at its index-th
++	// pose (0 standing, 1 walking, 2 talking, 3 seated (from 0198; as they
++	// stand when they have no seated frames); -1 their own) at its index-th
+ 	// frame, drawn so until let go (unpose).
+ 	void pose(int actor, int dir, int kind, int index);
+ 	void unpose(int actor);
+@@ -204,6 +210,15 @@ public:
+ 	// the row it stands on (those on its row in front of it). Until another
+ 	// place is loaded; its number, -1 when empty.
+ 	int addProp(const uint8_t *pixels, int width, int height, int none, const uint8_t *palette, Point at, double rows, double pixelAspect);
++	// A piece of the scene's own picture (the rectangle at x, y of width w
++	// and height h, source pixels) drawn as a prop at the scene's own scale
++	// with its top left at (toX, toY): over whoever is behind its bottom row
++	// (a seat's front over the one sitting in it), or elsewhere (an empty
++	// seat over a painted passenger). Its number, -1 when it is not inside
++	// the scene.
++	// (`over`: the row it is drawn among the people by, when not its bottom:
++	// a piece inside another drawn over the same ones.)
++	int addPiece(int x, int y, int w, int h, int toX, int toY, int over = -1);
+ 	int propCount() const { return (int)_props.size(); }
+ 	bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) const; // its screen rectangle (false when off screen)
+ 	bool propHit(int prop, int screenX, int screenY) const;            // a pixel of it drawn there (not one left out)
+@@ -245,7 +260,7 @@ private:
+ 	Picture _picture;
+ 	void rescale(int x, int y, int w, int h); // a rectangle of the scene into the scaled copy
+ 	std::vector<Actor> _actors;
+-	struct Prop { World::SourceFrame frame; uint32_t colors[256] = {}; Point at; double rows = 1, pixelAspect = 1; };
++	struct Prop { World::SourceFrame frame; uint32_t colors[256] = {}; Point at; double rows = 1, pixelAspect = 1, order = -1; };
+ 	std::vector<Prop> _props;
+ 	int _follow = -1;
+ 	int _cameraGoal = 0;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index e7e76801..58dff6a6 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -21,6 +21,8 @@ bool load(const unsigned char *data, size_t size, double pixelAspect, int gameSc
+ int addActor(const unsigned char *data, size_t size, double height, double pixelAspect, char *error, int capacity);
+ int actorCount();
+ void place(int actor, double x, double y);     // feet, source pixels (moved into the walk boxes)
++void seat(int actor, double x, double y);      // exactly there (someone seated where no one walks)
++void resize(int actor, double factor);         // drawn this many times as big as now
+ void walkTo(int actor, double x, double y);
+ bool moving(int actor);
+ bool busy();                                   // anyone walking (or talking, or lighting up)
+@@ -79,6 +81,9 @@ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
+ // where people are full size, its pixels pixelAspect times taller than
+ // wide. Until another place is loaded; its number, -1 when empty.
+ int addProp(const unsigned char *pixels, int width, int height, int none, const unsigned char *palette, double x, double y, double rows, double pixelAspect);
++// A piece of the scene's picture as a prop, its top left at (toX, toY),
++// drawn among the people by row `over` (-1: its bottom) (Scene::addPiece).
++int addPiece(int x, int y, int w, int h, int toX, int toY, int over);
+ int propCount();
+ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1); // its screen rectangle (false off screen)
+ bool propHit(int prop, int screenX, int screenY);             // a pixel of it drawn there (not one left out)
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 9fae4353..89f349c3 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -39,10 +39,11 @@ static const int kWorldExportVersion = 22;
+ // Monkey Island 2's (its tunnels' rooms in their run-time looks), from 0191
+ // Fate of Atlantis's (its labyrinth, rings and travel screens likewise);
+ // from 0195 the mansion's again (its main power: where it leaves the house
+-// dark).
++// dark); from 0198 Zak's (the insides of its plane and the Shuttle Bug,
++// kWorldRideScenes).
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 8 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 8 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -513,6 +514,20 @@ static const WorldAirport kWorldAirports[] = {
+ 	{11, 145, 190, "San Francisco"}, {11, 146, 217, "Cairo"}, {11, 147, 217, "Kinshasa"}, {11, 148, 217, "Kathmandu"},
+ 	{11, 149, 217, "Lima"},
+ };
++// The insides of rides, seen on the way (from 0198): exported with the
++// game's places but not places themselves (no door leads in; never listed
++// among the game's places or toured). Zak's own rooms: the plane's cabin,
++// the Shuttle Bug's cockpit.
++struct WorldRideScene { short game, room, kind; };
++static const WorldRideScene kWorldRideScenes[] = {{11, 11, kWorldRidePlane}, {11, 30, kWorldRideVan}};
++inline const WorldRideScene *worldRideScene(int game, int room) {
++	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == game && s.room == room) return &s;
++	return nullptr;
++}
++inline const WorldRideScene *worldRideInside(int game, int kind) {
++	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == game && s.kind == kind) return &s;
++	return nullptr;
++}
+ // The ride boarded at an object of a place, else null.
+ inline const WorldRide *worldRideAt(int game, int room, int object) {
+ 	for (const WorldRide &r : kWorldRides) if (r.game == game && r.room == room && r.object == object) return &r;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 18966074..5b04b8da 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1468,6 +1468,8 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 			for (int r : rooms) listed = listed || r == map->rooms[i].room;
+ 			if (!listed) rooms.push_back(map->rooms[i].room);
+ 		}
++	// (And the insides of its rides, seen on the way.)
++	for (const WorldRideScene &s : kWorldRideScenes) if (s.game == gameIndex) rooms.push_back(s.room);
+ 	Common::Array<int> costumes;
+ 	int written = 0;
+ 	for (int room : rooms) {
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index d7598c3a..4447fef2 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -130,7 +130,7 @@ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data)
+ // "<gameid>-<room>.svw" and "<gameid>-c<costume>.svc"; an empty scene is a
+ // room a later export found no place in.
+ void SandboxEngine::scan() {
+-	_rooms.clear(); _characters.clear();
++	_rooms.clear(); _characters.clear(); _insides.clear();
+ 	Common::FSList files;
+ 	_folder.getChildren(files, Common::FSNode::kListFilesOnly);
+ 	for (const Common::FSNode &file : files) {
+@@ -147,7 +147,7 @@ void SandboxEngine::scan() {
+ 				if (end && !strcmp(end, ".svc") && costume >= 0 && costume < 1024) _characters[worldAppearanceKey(game, (int)costume)] = true;
+ 			} else if (name.hasSuffix(".svw")) {
+ 				const long room = strtol(rest, &end, 10);
+-				if (end && !strcmp(end, ".svw") && room > 0 && room < 1024) _rooms[game * 1024 + (int)room] = true;
++				if (end && !strcmp(end, ".svw") && room > 0 && room < 1024) (worldRideScene(game, (int)room) ? _insides : _rooms)[game * 1024 + (int)room] = true;
+ 			}
+ 		}
+ 	}
+@@ -279,6 +279,8 @@ bool SandboxEngine::someoneToPlay(int game) {
+ 
+ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &problem) {
+ 	const WorldGame &g = kWorldGames[game];
++	// (A ride's inside only on the way, by rideInside.)
++	if (worldRideScene(game, room) && !_enteringInside) { problem = "the inside of a ride"; return false; }
+ 	Common::Array<byte> data;
+ 	char error[128];
+ 	// (The one played must be there before the stage changes.)
+@@ -340,7 +342,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		else if (PanelBridge::gameThing(game, room, id, picture, answers) && picture != StageBridge::objectShown(i) && picture < StageBridge::objectPictures(i))
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+-	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear();
++	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
+ 	// (What is inside another over it where that one is open, else under it.)
+ 	layInside();
+ 	// The games' own walk: 8 across and 2 up or down a step (Curse of
+@@ -1402,7 +1404,7 @@ int SandboxEngine::talkRoom() const {
+ void SandboxEngine::chatCommand(int command) {
+ 	const bool along = command >= 64 + kTalkVisitor && command < 64 + kTalkVisitor + kTalkSlots;
+ 	const bool stay = command >= 96 + kTalkVisitor && command < 96 + kTalkVisitor + kTalkSlots;
+-	if (!along && !stay) return;
++	if ((!along && !stay) || _aboard) return; // (aboard a ride: all stay seated)
+ 	const int n = slotActor(command - (along ? 64 : 96) - kTalkVisitor, _player);
+ 	if (n >= (int)_onStage.size() || n == _player || _player < 0) return;
+ 	follow(_onStage[n], along);
+@@ -1436,7 +1438,7 @@ double SandboxEngine::followOffset(int key) const {
+ }
+ 
+ void SandboxEngine::followStep(int ticks) {
+-	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty()) return;
++	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty() || _aboard) return;
+ 	_followClock = 20;
+ 	double px, py, x, y;
+ 	StageBridge::position(_player, px, py);
+@@ -1588,6 +1590,7 @@ bool SandboxEngine::castChoose(int key) {
+ 	if (_touring.on) tourEnd(false);
+ 	const bool custom = customArt(key);
+ 	const int game = custom ? _game : worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
++	const Riding riding = _riding; // (aboard: where it was boarded, should this fail)
+ 	double x = 0, y = 0;
+ 	const bool stood = _player >= 0;
+ 	if (stood) StageBridge::position(_player, x, y);
+@@ -1612,7 +1615,10 @@ bool SandboxEngine::castChoose(int key) {
+ 	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown as %s (%s)", kWorldGames[game].gameid, room, who->name, problem.c_str());
+ 	_playerKey = fromKey;
+-	if (fromGame >= 0 && enter(fromGame, fromRoom, 0, problem)) { StageBridge::place(_player, x, y); StageBridge::follow(_player); }
++	// (Back where it was: aboard a ride, its stop.)
++	int keptGame = fromGame, keptRoom = fromRoom;
++	if (fromGame >= 0 && worldRideScene(fromGame, fromRoom) && riding.fromGame >= 0) { keptGame = riding.fromGame; keptRoom = riding.fromRoom; x = riding.x; y = riding.y; }
++	if (keptGame >= 0 && enter(keptGame, keptRoom, 0, problem)) { StageBridge::place(_player, x, y); StageBridge::follow(_player); }
+ 	return refuse();
+ }
+ 
+@@ -1872,7 +1878,7 @@ void SandboxEngine::arrivals() {
+ }
+ 
+ void SandboxEngine::stroll(int ticks) {
+-	if ((_strollClock -= ticks) > 0 || _onStage.size() < 2) return;
++	if ((_strollClock -= ticks) > 0 || _onStage.size() < 2 || _aboard) return;
+ 	_strollClock = 180 + _random.getRandomNumber(420);
+ 	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
+ 	if (n == _player || StageBridge::moving(n) || following(_onStage[n]) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
+@@ -1949,10 +1955,13 @@ void SandboxEngine::request(int code) {
+ 	int room;
+ 	Common::String problem;
+ 	if (game < 0 || game >= worldGameCount() || !firstPlace(game, room)) return;
+-	const int fromGame = _game, fromRoom = _room;
++	int fromGame = -1, fromRoom = 0;
++	double fromX = 0, fromY = 0;
++	const bool kept = keptPlace(fromGame, fromRoom, fromX, fromY); // (aboard a ride: its stop)
++	const bool aboard = kept && worldRideScene(_game, _room);
+ 	if (enter(game, room, 0, problem)) return;
+ 	warning("SCUMMVERSE sandbox: %s not shown (%s)", kWorldGames[game].gameid, problem.c_str());
+-	if (fromGame >= 0) enter(fromGame, fromRoom, 0, problem);
++	if (kept && enter(fromGame, fromRoom, 0, problem) && aboard) { StageBridge::place(_player, fromX, fromY); StageBridge::follow(_player); }
+ }
+ 
+ void SandboxEngine::present() {
+@@ -2173,8 +2182,8 @@ void SandboxEngine::tourStart(int index) {
+ 	if (!_touring.built) tourBuild();
+ 	if (_touring.stops.empty() || _player < 0) { Tour::publish(false, "", 1, 0); return; }
+ 	if (!_touring.on) {
+-		_touring.homeGame = _game; _touring.homeRoom = _room;
+-		StageBridge::position(_player, _touring.homeX, _touring.homeY);
++		// (Aboard a ride: home is the stop it was boarded at.)
++		if (!keptPlace(_touring.homeGame, _touring.homeRoom, _touring.homeX, _touring.homeY)) { Tour::publish(false, "", 1, 0); return; }
+ 		if (!_testing) saveState(); // (where it began, kept while touring)
+ 	}
+ 	_door = -1; _action = 0; _target = -1;
+@@ -2469,7 +2478,7 @@ void SandboxEngine::rideOff() {
+ 
+ // Aboard where it is parked (the Worlds menu); elsewhere, where it is.
+ void SandboxEngine::vanBoard() {
+-	if (_player < 0 || _game < 0) return;
++	if (_player < 0 || _game < 0 || _aboard) return; // (aboard a ride already)
+ 	int van = -1;
+ 	for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) van = i;
+ 	if (van < 0) return;
+@@ -2491,6 +2500,88 @@ void SandboxEngine::vanBoard() {
+ 	rideAsk();
+ }
+ 
++// Zak's plane cabin as exported (800 x 128).
++static const int kCabinWidth = 800, kCabinHeight = 128;
++static const int kCabinSeats[] = {63, 74, 52, 41, 30, 19};
++static const int kCabinEmpty = 74, kCabinPainted = 52, kCabinHead = 49, kCabinFloor = 112;
++
++bool SandboxEngine::rideInside(int index) {
++	const WorldRide &ride = kWorldRides[index];
++	const WorldRideScene *inside = worldRideInside(ride.game, ride.kind);
++	if (!inside || !_insides.contains(inside->game * 1024 + inside->room)) return false;
++	// (The plane's seats are where they are in the cabin as exported: one of
++	// another size is not shown.)
++	Common::Array<byte> scene;
++	if (ride.kind == kWorldRidePlane && (!read(Common::String::format("%s-%d.svw", kWorldGames[inside->game].gameid, inside->room), scene) ||
++		scene.size() < 12 || READ_LE_UINT16(&scene[6]) != kCabinWidth || READ_LE_UINT16(&scene[8]) != kCabinHeight)) return false;
++	const Riding riding = _riding;
++	Common::String problem;
++	_enteringInside = true;
++	const bool shown = enter(inside->game, inside->room, 0, problem);
++	_enteringInside = false;
++	_riding = riding; // (entering lets a ride go: this one goes on)
++	if (!shown) {
++		warning("SCUMMVERSE sandbox: inside %s-%d not shown (%s)", kWorldGames[inside->game].gameid, inside->room, problem.c_str());
++		// (At the stop again, out of sight there as before.)
++		if (_game != riding.fromGame || _room != riding.fromRoom) {
++			if (enter(riding.fromGame, riding.fromRoom, 0, problem)) { StageBridge::place(_player, riding.x, riding.y); StageBridge::follow(_player); }
++			_riding = riding;
++		}
++		return false;
++	}
++	_aboard = true;
++	if (ride.kind == kWorldRidePlane) seatAboard();
++	else for (uint n = 0; n < _onStage.size(); ++n) if ((int)n == _player || following(_onStage[n])) StageBridge::hide(n, true);
++	_dirty = true;
++	return true;
++}
++
++// Aboard the plane (Zak's cabin): the one played in the seat Zak takes in
++// the game, those following in the empty one behind, then in the painted
++// passengers' (each first given the empty seat's back and cushion over its
++// passenger), each seen from the side, sitting (their seated pose where
++// they have one, else as they stand), their head as high as the painted
++// passengers'; the seat's front (the empty seat's, its row under the
++// cushion dark as under a painted passenger, as Maniac's own engine has
++// it: the user, 0096) over them. More than six aboard: the rest unseen.
++// (The cabin's seats at these 8-pixel columns; a seat's back and cushion
++// rows 48..95, its front and the floor before it 80..127; the painted
++// passengers' heads' top at row 49. Constants above rideInside.)
++void SandboxEngine::seatAboard() {
++	int seated = 0;
++	auto sit = [&](int n) {
++		if (seated >= ARRAYSIZE(kCabinSeats)) { StageBridge::hide(n, true); return; }
++		const int column = kCabinSeats[seated++], seat = column * 8;
++		// (Behind everyone, as the picture is.)
++		if (column != 63 && column != kCabinEmpty) StageBridge::addPiece(kCabinEmpty * 8, 48, 40, 48, seat, 48, 0);
++		StageBridge::stop(n);
++		StageBridge::pose(n, 1, kWorldSeatedKind, 0);
++		_seatedActors.push_back(n);
++		// (Their head at the painted passengers': feet as far below as they
++		// are tall there, in front of no seat's front; measured in view. Too
++		// tall for that, made smaller till they fit.)
++		StageBridge::lookAt(seat + 16);
++		const double room = kCabinHeight - 1.0 - kCabinHead;
++		double tall = 0;
++		for (int tries = 0; tries < 3; ++tries) {
++			StageBridge::seat(n, seat + 16, kCabinFloor);
++			int x0, y0, x1, y1;
++			double top = kCabinHead, sx = 0;
++			if (StageBridge::drawnRect(n, x0, y0, x1, y1)) StageBridge::toScene(x0, y0, sx, top);
++			tall = kCabinFloor - top;
++			if (tall <= room + 0.5) break;
++			StageBridge::resize(n, room / tall);
++		}
++		StageBridge::seat(n, seat + 16, kCabinHead + MIN(tall, room));
++		StageBridge::addPiece(kCabinEmpty * 8, 80, 40, 48, seat, 80, kCabinHeight);
++		StageBridge::addPiece(kCabinPainted * 8, 88, 40, 8, seat, 88, kCabinHeight);
++	};
++	if (_player >= 0) sit(_player);
++	for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && following(_onStage[n])) sit(n);
++	double px, py;
++	if (_player >= 0) { StageBridge::position(_player, px, py); StageBridge::lookAt(px); }
++}
++
+ void SandboxEngine::rideStep(int ticks) {
+ 	if (_riding.ride < 0 || _player < 0) return;
+ 	const WorldRide &ride = kWorldRides[_riding.ride];
+@@ -2539,7 +2630,8 @@ void SandboxEngine::rideStep(int ticks) {
+ 		if (phase > kRideBoarded) {
+ 			_door = -1; _action = 0; _target = -1;
+ 			StageBridge::stop(_player);
+-			StageBridge::hide(_player, true);
++			// (Its inside on the way where exported, else out of sight here.)
++			if (!rideInside(_riding.ride)) StageBridge::hide(_player, true);
+ 			_dirty = true;
+ 		}
+ 		return;
+@@ -2853,6 +2945,9 @@ void SandboxEngine::selfiePose() {
+ 	}
+ 	Camera::planShot(_selfie.seed, _selfie.shot, _player, xs.data(), count, choices.data());
+ 	for (int n = 0; n < count; ++n) {
++		bool seated = false;
++		for (int s : _seatedActors) seated = seated || s == n;
++		if (seated) continue; // (seated aboard: stays so)
+ 		const Camera::Choice &c = choices[n];
+ 		const int dir = c.facing == Camera::kFaceViewer ? 2 : c.facing == Camera::kFaceLeft ? 0 : c.facing == Camera::kFaceRight ? 1 : -1;
+ 		const int kind = c.pose == Camera::kStand ? 0 : c.pose == Camera::kStep ? 1 : c.pose == Camera::kTalk ? 2 : -1;
+@@ -2893,6 +2988,7 @@ bool SandboxEngine::selfieShoot() {
+ // Everyone as they were (drawn again next).
+ void SandboxEngine::selfieEnd() {
+ 	for (int n = 0; n < StageBridge::actorCount(); ++n) StageBridge::unpose(n);
++	for (int n : _seatedActors) StageBridge::pose(n, 1, kWorldSeatedKind, 0); // (seated aboard: so again)
+ 	_selfie = Selfie();
+ 	Camera::setBusy(false);
+ 	_dirty = true;
+@@ -2918,15 +3014,29 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // carried (u16 count; s16 game, room, u16 id, u8 picture, u8 name length,
+ // name).
+ // "SVS1" (0105, 0106) ends after everyone.
++bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
++	if (_game < 0 || _player < 0) return false;
++	if (worldRideScene(_game, _room)) {
++		if (_riding.fromGame < 0) return false;
++		game = _riding.fromGame; room = _riding.fromRoom; x = _riding.x; y = _riding.y;
++		return true;
++	}
++	game = _game; room = _room;
++	StageBridge::position(_player, x, y);
++	return true;
++}
++
+ void SandboxEngine::saveState() const {
+ 	// (Touring: where it began stays, the tour brings the one played back.)
+ 	if (_game < 0 || _player < 0 || _touring.on) return;
++	// (Aboard: where it was boarded, as if not yet gone.)
++	int game, room;
++	double x, y;
++	if (!keptPlace(game, room, x, y)) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+-	double x, y;
+-	StageBridge::position(_player, x, y);
+ 	out->writeUint32BE(MKTAG('S', 'V', 'S', '2'));
+-	out->writeSint16LE(_game); out->writeSint16LE(_room); out->writeSint32LE(_playerKey);
++	out->writeSint16LE(game); out->writeSint16LE(room); out->writeSint32LE(_playerKey);
+ 	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
+ 	const int values = _wanderers ? WanderBridge::packedCount() : 0;
+ 	out->writeUint32LE(_wanderers ? WanderBridge::signature() : 0);
+@@ -5414,7 +5524,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// without the one played. Taken as a player does.
+ 	_phone.placesBegin = FakePlaces::begin; _phone.placesItem = FakePlaces::item; _phone.placesShow = FakePlaces::show;
+ 	_phone.placesCancel = FakePlaces::cancelWith; _phone.placesHide = FakePlaces::hide;
+-	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0;
++	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0, cabins = 0, seatedFollowers = 0, seatedPoses = 0, toursHome = 0;
+ 	auto board = [&](int game, int room, int object) {
+ 		Common::String problem;
+ 		if (!enter(game, room, 0, problem)) return false;
+@@ -5429,10 +5539,90 @@ Common::Error SandboxEngine::ridesTest() {
+ 			}
+ 		return false;
+ 	};
++	// (Aboard a plane, where its cabin is exported: the one played and
++	// those following each in a seat of their own, their head where the
++	// painted passengers' are (unless too tall for it), seen (drawn, not
++	// all covered), seated in their seated pose where they have one;
++	// staying there; so again after a selfie.)
++	Common::Array<double> seatedAt;
++	auto seen = [&](int n) {
++		int x0, y0, x1, y1;
++		if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return false;
++		StageBridge::render(_frame.data(), _width);
++		Common::Array<uint32> with;
++		for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) with.push_back(_frame[y * _width + x]);
++		StageBridge::hide(n, true);
++		StageBridge::render(_frame.data(), _width);
++		StageBridge::hide(n, false);
++		uint i = 0;
++		bool differs = false;
++		for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) differs = differs || with[i++] != _frame[y * _width + x];
++		return differs;
++	};
++	auto aboard = [&]() {
++		const WorldRideScene *inside = worldRideScene(_game, _room);
++		if (!inside || inside->kind != kWorldRidePlane) { fail("a ride's inside not the plane's"); return false; }
++		seatedAt.clear();
++		int followers = 0;
++		double px, py;
++		StageBridge::position(_player, px, py);
++		for (uint n = 0; n < _onStage.size(); ++n) {
++			if ((int)n != _player && !following(_onStage[n])) continue;
++			double x, y;
++			StageBridge::position(n, x, y);
++			bool seat = false;
++			for (int column : kCabinSeats) seat = seat || fabs(x - (column * 8 + 16)) < 1;
++			for (uint k = 0; k < seatedAt.size(); k += 2) seat = seat && fabs(seatedAt[k] - x) >= 1;
++			if (!seat || StageBridge::hidden(n) || StageBridge::moving(n)) { fail("someone aboard not in a seat of their own"); return false; }
++			StageBridge::lookAt(x);
++			int x0, y0, x1, y1;
++			double sx, top = -1;
++			if (StageBridge::drawnRect(n, x0, y0, x1, y1)) StageBridge::toScene(x0, y0, sx, top);
++			if (y < kCabinHeight - 1 && fabs(top - kCabinHead) > 1.5) { fail("someone aboard not with their head where the painted passengers' are"); return false; }
++			if (!seen(n)) { fail("someone aboard not seen (covered)"); return false; }
++			const int key = _onStage[n];
++			if (worldSeatPose(worldAppearanceGame(key), worldAppearanceCostume(key))) {
++				if (StageBridge::shownKind(n) != kWorldSeatedKind) { fail("someone with a seated pose not seated in it"); return false; }
++				++seatedPoses;
++			}
++			seatedAt.push_back(x); seatedAt.push_back(y);
++			followers += (int)n != _player;
++		}
++		StageBridge::lookAt(px);
++		if (ConfMan.hasKey("scummverse_shots") && !cabins) { present(); shot("cabin.png"); }
++		// (A selfie aboard: everyone stays seated, and so after it.)
++		if (!cabins) {
++			const int kindBefore = StageBridge::shownKind(_player);
++			if (!selfieBegin(1)) { fail("no selfie aboard"); return false; }
++			if (StageBridge::shownKind(_player) != kindBefore) fail("the one played got up for a selfie aboard");
++			selfieEnd();
++			if (!StageBridge::posed(_player) || StageBridge::shownKind(_player) != kindBefore) fail("the one played not seated again after a selfie aboard");
++		}
++		seatedFollowers += followers;
++		return true;
++	};
++	auto stayed = [&]() {
++		uint k = 0;
++		for (uint n = 0; n < _onStage.size() && k < seatedAt.size(); ++n) {
++			if ((int)n != _player && !following(_onStage[n])) continue;
++			double x, y;
++			StageBridge::position(n, x, y);
++			if (fabs(x - seatedAt[k]) >= 1 || fabs(y - seatedAt[k + 1]) >= 1) return false;
++			k += 2;
++		}
++		return true;
++	};
+ 	// (Off at the other end, at its object, seen; nobody walked there.)
+ 	auto ride = [&](int game, int to, int arrival, const char *what) {
+-		bool hidden = false;
+-		for (int t = 0; t < 6000 && _riding.ride >= 0; ++t) { step(1); hidden = hidden || StageBridge::hidden(_player); }
++		bool hidden = false, inside = false, sat = true;
++		for (int t = 0; t < 6000 && _riding.ride >= 0; ++t) {
++			step(1);
++			hidden = hidden || StageBridge::hidden(_player);
++			if (_aboard && !inside) { inside = true; sat = aboard(); }
++			else if (_aboard && sat && !stayed()) { fail("someone aboard got up"); sat = false; }
++		}
++		if (inside && sat) ++cabins;
++		hidden = hidden || inside;
+ 		double px, py, ax = 0, ay = 0;
+ 		bool atArrival = false;
+ 		StageBridge::position(_player, px, py);
+@@ -5550,12 +5740,49 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (_riding.phase != -1) fail("a flight to a place no plane goes");
+ 			request(pick);
+ 			if (_riding.phase < 1 || !_notice.contains(a.city)) { fail("a destination not taken"); continue; }
++			// (On the first, those following: as many as the cabin seats with
++			// the one played, one with a seated pose among them where one is
++			// installed (Fate of Atlantis' camel); seated too, off beside
++			// them.)
++			Common::Array<int> crew;
++			if (!flights) {
++				const int camel = worldAppearanceKey(4, 93);
++				if (worldSeatPose(4, 93) && hasCharacter(camel) && camel != _playerKey) crew.push_back(camel);
++				for (const WorldCastGuest &c : kWorldCast) {
++					const int k = worldAppearanceKey(c.game, c.guest.costume);
++					bool taken = k == _playerKey;
++					for (int m : crew) taken = taken || m == k;
++					if (crew.size() < ARRAYSIZE(kCabinSeats) - 1 && c.game == zak && !taken && hasCharacter(k)) crew.push_back(k);
++				}
++				for (int k : crew) follow(k, true);
++				bringFollowers();
++			}
+ 			if (ride(zak, a.room, a.gate, "a flight not landed at its gate")) {
+ 				++flights;
+ 				if (!_notice.contains(a.city)) fail("no welcome");
+ 			}
++			for (int k : crew) follow(k, false);
+ 			from = a.room;
+ 		}
++		// A tour begun aboard (the Worlds menu's Tour mid-flight): home is
++		// the stop the plane left from, not the cabin.
++		if (_insides.contains(zak * 1024 + 11) && installed(zak, from)) {
++			const WorldAirport *here = worldAirport(zak, from);
++			int pickTo = -1;
++			if (here && board(zak, from, here->gate)) {
++				for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
++				for (const FakePlaces::Item &i : FakePlaces::items) if (pickTo < 0 && i.request != worldPlaceRequest(zak, from)) pickTo = i.request;
++				if (pickTo >= 0) request(pickTo);
++				for (int t = 0; t < 6000 && _riding.ride >= 0 && !_aboard; ++t) step(1);
++				if (!_aboard) fail("not aboard for the tour check");
++				else {
++					tourStart(0);
++					tourEnd(true);
++					if (_game != zak || _room != from || _riding.ride >= 0 || _aboard || StageBridge::hidden(_player)) fail("a tour begun aboard not home at the stop it left from");
++					else ++toursHome;
++				}
++			}
++		}
+ 		// A plane's list closed unchosen (its Cancel, or not shown): none
+ 		// taken, a late choice too; left unanswered, or walked off from, or
+ 		// somewhere else chosen meanwhile: withdrawn.
+@@ -5611,7 +5838,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// drawn over its own landing site; from the menu there back to that
+ 	// site, drawn where it landed again; asked for where it is not, it
+ 	// says where it is. A picture of it parked: van.png.
+-	int vanFlights = 0, vanTaps = 0;
++	int vanFlights = 0, vanTaps = 0, cockpits = 0;
+ 	Common::Array<byte> vanPicture;
+ 	const bool vanTaken = read("zak-van.svv", vanPicture);
+ 	const int monkey = 0, melee = 13, mars = 0; // (kWorldVanSites: Melee Island, the Mars landing site)
+@@ -5628,8 +5855,19 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (_riding.phase != -1 || !offered) { fail("the van's sites not asked"); return false; }
+ 			request(kWorldVanRequest + site);
+ 			if (_riding.phase < 1 || !_notice.contains("Liftoff")) { fail("no liftoff"); return false; }
+-			bool hidden = false;
+-			for (int t = 0; t < 6000 && _riding.ride >= 0; ++t) { step(1); hidden = hidden || StageBridge::hidden(_player); }
++			bool hidden = false, cockpit = false;
++			for (int t = 0; t < 6000 && _riding.ride >= 0; ++t) {
++				step(1);
++				hidden = hidden || StageBridge::hidden(_player);
++				// (Its cockpit on the way, where exported, the one played at its controls unseen.)
++				if (_aboard && !cockpit) {
++					const WorldRideScene *inside = worldRideScene(_game, _room);
++					cockpit = inside && inside->kind == kWorldRideVan && StageBridge::hidden(_player);
++					if (!cockpit) fail("the van's inside not its cockpit, the one played unseen");
++					else if (ConfMan.hasKey("scummverse_shots") && !cockpits) { present(); shot("cockpit.png"); }
++				}
++			}
++			cockpits += cockpit;
+ 			if (_game != game || _room != room || !hidden || StageBridge::hidden(_player) || _vanPlace != game * 1024 + room) { fail("the van not landed there"); return false; }
+ 			return true;
+ 		};
+@@ -5691,8 +5929,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d failed",
+-		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, failed);
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, toursHome, cockpits, failed);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+@@ -5934,6 +6172,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			const Common::String prefix = Common::String(kWorldGames[i].gameid) + "-";
+ 			if (name.hasPrefix(prefix) && (r = atoi(name.c_str() + prefix.size())) > 0) g = i;
+ 		}
++		if (g >= 0 && worldRideScene(g, r)) continue; // (a ride's inside: not a place)
+ 		if (g < 0 || !installed(g, r)) { ++skipped; continue; }
+ 		if (!enter(g, r, 0, problem)) { warning("SCUMMVERSE sandbox: %s not shown (%s)", name.c_str(), problem.c_str()); ++failed; continue; }
+ 		++shown; people += _people;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 52a8b0bb..e0b3a570 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -287,6 +287,18 @@ private:
+ 	void rideSite(int site);             // (the van's)
+ 	void rideStay();                     // (its list closed unchosen)
+ 	void rideOff();                      // none taken (its list withdrawn)
++	// A ride's inside on the way (kWorldRideScenes, where exported; from
++	// 0198): the plane's cabin, everyone aboard seated; the Shuttle Bug's
++	// cockpit, everyone at its controls out of sight. _aboard while it is
++	// shown (no one walks); entered only so (_enteringInside), and never
++	// kept as where the one played is (the stop it was boarded at is).
++	bool rideInside(int ride); // (a kWorldRides index)
++	void seatAboard();
++	bool _aboard = false, _enteringInside = false;
++	Common::Array<int> _seatedActors; // (stage actors seated aboard: posed so again after a selfie)
++	// Where the one played is, as kept: aboard a ride, the stop it was
++	// boarded at (false: nowhere).
++	bool keptPlace(int &game, int &room, double &x, double &y) const;
+ 	// The Shuttle Bug (the van) flies from wherever it is parked to any of
+ 	// kWorldVanSites installed; boarded at its door on Mars, else from the
+ 	// Worlds menu where it stands (it is not drawn there yet).
+@@ -338,6 +350,7 @@ private:
+ 	Common::Array<byte> _converted; // the same in the screen's format
+ 	Common::HashMap<int, bool> _rooms;      // installed: game * 1024 + room
+ 	Common::HashMap<int, bool> _characters; // installed: appearance key
++	Common::HashMap<int, bool> _insides;    // rides' insides exported: game * 1024 + room (not places)
+ 	Common::HashMap<int, bool> _broken;     // characters that could not be shown
+ 	bool _wanderers = false;
+ 	bool _testing = false;

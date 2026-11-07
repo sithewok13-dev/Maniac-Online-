@@ -1,0 +1,1203 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 43563cc8..9380245e 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -549,14 +549,35 @@ int Panel::coinVerb(int screenX, int screenY) const {
+ 	return best;
+ }
+ 
++// (A rectangle, where nothing more is drawn, taken in.)
++static void grow(Rect &bounds, int x0, int y0, int x1, int y1) {
++	if (x0 >= x1 || y0 >= y1) return;
++	if (bounds.width <= 0 || bounds.height <= 0) { bounds = Rect(x0, y0, x1 - x0, y1 - y0); return; }
++	const int right = std::max(bounds.x + bounds.width, x1), bottom = std::max(bounds.y + bounds.height, y1);
++	bounds.x = std::min(bounds.x, x0); bounds.y = std::min(bounds.y, y0);
++	bounds.width = right - bounds.x; bounds.height = bottom - bounds.y;
++}
++
+ void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const {
+-	if (!_coinOpen || !screen) return;
++	if (screen) renderCoin(screen, pitch, screenWidth, screenHeight, nullptr);
++}
++
++Rect Panel::coinBounds(int screenWidth, int screenHeight) const {
++	Rect bounds;
++	renderCoin(nullptr, 0, screenWidth, screenHeight, &bounds);
++	return bounds;
++}
++
++void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight, Rect *bounds) const {
++	if (!_coinOpen || (!screen && !bounds)) return;
+ 	const Picture &c = _source.coinPicture;
+ 	const int W = c.rect.width, H = c.rect.height;
++	const Rect on = coinOnScreen();
++	if (bounds) grow(*bounds, std::max(0, on.x), std::max(0, on.y), std::min(screenWidth, on.x + on.width), std::min(screenHeight, on.y + on.height));
+ 	// (0: the scene shows.)
+-	std::vector<uint32_t> canvas((size_t)W * H, 0u);
++	std::vector<uint32_t> canvas(bounds ? 0 : (size_t)W * H, 0u);
+ 	for (size_t i = 0; i < canvas.size(); ++i) if (c.mask[i]) canvas[i] = color(c.pixels[i]);
+-	if (_coinLit >= 0) {
++	if (_coinLit >= 0 && !bounds) {
+ 		const Verb &v = _source.verbs[_coinLit];
+ 		for (int y = 0; y < v.rect.height; ++y)
+ 			for (int x = 0; x < v.rect.width; ++x) {
+@@ -564,8 +585,7 @@ void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenH
+ 				canvas[(size_t)(v.rect.y + y) * W + v.rect.x + x] = v.litMask[at] ? color(v.lit[at]) : 0u;
+ 			}
+ 	}
+-	const Rect on = coinOnScreen();
+-	for (int sy = std::max(0, on.y); sy < std::min(screenHeight, on.y + on.height); ++sy) {
++	for (int sy = std::max(0, on.y); sy < std::min(screenHeight, on.y + on.height) && !bounds; ++sy) {
+ 		const int y = std::min(H - 1, (int)((sy - on.y) / _rowScale));
+ 		for (int sx = std::max(0, on.x); sx < std::min(screenWidth, on.x + on.width); ++sx) {
+ 			const uint32_t v = canvas[(size_t)y * W + std::min(W - 1, (int)((sx - on.x) / _colScale))];
+@@ -579,16 +599,17 @@ void Panel::renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenH
+ 	if (_source.sentenceCentred && _source.sentenceY > 0) {
+ 		const Rect at = onScreen(Rect(_source.sentenceX, _source.sentenceY, 1, 1));
+ 		const double pen = std::max(0.0, std::min(screenWidth - width, at.x - width / 2));
+-		line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, at.y, _rowScale, _colScale, color(_source.nameInk));
++		line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, at.y, _rowScale, _colScale, color(_source.nameInk), bounds);
+ 		return;
+ 	}
+ 	const double pen = std::max(0.0, std::min(screenWidth - width, on.x + _source.nameX * _colScale - width / 2));
+-	line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, on.y + (int)std::lround(_source.nameY * _rowScale), _rowScale, _colScale, color(_source.nameInk));
++	line(screen, pitch, screenWidth, screenHeight, 0, _coinName, pen, on.y + (int)std::lround(_source.nameY * _rowScale), _rowScale, _colScale, color(_source.nameInk), bounds);
+ }
+ 
+-void Panel::picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const {
++void Panel::picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y, Rect *bounds) const {
+ 	if (p.rect.width <= 0 || p.rect.height <= 0 || _rowScale <= 0 || _colScale <= 0) return;
+ 	const int w = (int)std::lround(p.rect.width * _colScale), h = (int)std::lround(p.rect.height * _rowScale);
++	if (bounds) { grow(*bounds, std::max(0, x), std::max(0, y), std::min(screenWidth, x + w), std::min(screenHeight, y + h)); return; }
+ 	for (int sy = std::max(0, y); sy < std::min(screenHeight, y + h); ++sy) {
+ 		const int ry = std::min(p.rect.height - 1, (int)((sy - y) / _rowScale));
+ 		for (int sx = std::max(0, x); sx < std::min(screenWidth, x + w); ++sx) {
+@@ -599,14 +620,24 @@ void Panel::picture(uint32_t *screen, int pitch, int screenWidth, int screenHeig
+ }
+ 
+ void Panel::renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const {
+-	if (!over() || !screen) return;
++	if (screen) renderControls(screen, pitch, screenWidth, screenHeight, pointerX, pointerY, pointer, nullptr);
++}
++
++Rect Panel::controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const {
++	Rect bounds;
++	renderControls(nullptr, 0, screenWidth, screenHeight, pointerX, pointerY, pointer, &bounds);
++	return bounds;
++}
++
++void Panel::renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer, Rect *bounds) const {
++	if (!over() || (!screen && !bounds)) return;
+ 	const Rect b = buttonOnScreen();
+-	if (b.width > 0 && b.height > 0) picture(screen, pitch, screenWidth, screenHeight, _source.button, b.x, b.y);
++	if (b.width > 0 && b.height > 0) picture(screen, pitch, screenWidth, screenHeight, _source.button, b.x, b.y, bounds);
+ 	// (A coin game's pointer is its one.)
+ 	const int v = coin() ? 0 : pointerVerb();
+ 	if (!pointer || v < 0 || v >= (int)_source.cursors.size()) return;
+ 	const Picture &c = _source.cursors[v];
+-	picture(screen, pitch, screenWidth, screenHeight, c, pointerX - (int)std::lround(c.hotX * _colScale), pointerY - (int)std::lround(c.hotY * _rowScale));
++	picture(screen, pitch, screenWidth, screenHeight, c, pointerX - (int)std::lround(c.hotX * _colScale), pointerY - (int)std::lround(c.hotY * _rowScale), bounds);
+ }
+ 
+ int Panel::kindOf(int verb) const { return verb >= 0 && verb < (int)_source.verbs.size() ? _source.verbs[verb].kind : kWalk; }
+@@ -799,6 +830,15 @@ int Panel::play(int verb) {
+ 	return -2;
+ }
+ 
++Rect Panel::renderBounds(int screenHeight) const {
++	if (!_loaded || (_source.over && !_open)) return Rect();
++	Rect bounds;
++	// (Under the scene, its rows across the screen; over it, only the box's columns.)
++	const int x0 = _source.over ? std::max(0, _left) : 0, x1 = _source.over ? std::min(_screenWidth, _left + _columns) : _screenWidth;
++	grow(bounds, x0, std::max(0, _top), x1, std::min(screenHeight, _top + _screenRows));
++	return bounds;
++}
++
+ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+ 	if (!_loaded || !screen || (_source.over && !_open)) return;
+ 	std::vector<uint32_t> canvas;
+@@ -806,12 +846,19 @@ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+ 	const int W = _source.screenWidth;
+ 	// (Over the scene: only where the box is drawn.)
+ 	const bool over = _source.over;
++	// (The panel's column at each screen column: worked out once, as each
++	// pixel would.)
++	std::vector<int> columns(std::max(0, _columns));
++	for (int x = std::max(0, _left); x < std::min(_screenWidth, _left + _columns); ++x) columns[x - _left] = std::min(W - 1, (int)((x - _left) / _colScale));
++	int above = -1; // (under the scene, a row from the same panel row as the one above it is the same: copied)
+ 	for (int row = _top; row < std::min(screenHeight, _top + _screenRows); ++row) {
+ 		uint32_t *out = screen + (size_t)row * pitch;
+ 		const int y = std::min(_source.rows - 1, (int)((row - _top) / _rowScale));
++		if (!over && y == above && row > 0) { std::memcpy(out, out - pitch, (size_t)std::max(0, _screenWidth) * sizeof(uint32_t)); continue; }
++		above = y;
+ 		for (int x = 0; x < _screenWidth; ++x) {
+ 			if (x < _left || x >= _left + _columns) { if (!over) out[x] = 0xFF000000u; continue; }
+-			const size_t at = (size_t)y * W + std::min(W - 1, (int)((x - _left) / _colScale));
++			const size_t at = (size_t)y * W + columns[x - _left];
+ 			if (!over || _source.mask[at] == 1 || (_source.mask[at] == 2 && (canvas[at] >> 24))) out[x] = canvas[at];
+ 			else if (_source.mask[at] == 2) {
+ 				// (Darkened as the game's shadow colours darken: by its shade.)
+@@ -824,7 +871,18 @@ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+ 
+ void Panel::say(uint32_t *screen, int pitch, int screenWidth, int limit, const std::string &text, int centreX, int bottomY,
+ 	double rowScale, double colScale, uint32_t ink) const {
+-	if (!_loaded || !screen || rowScale <= 0 || colScale <= 0) return;
++	if (screen) say(screen, pitch, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, ink, nullptr);
++}
++
++Rect Panel::sayBounds(int screenWidth, int limit, const std::string &text, int centreX, int bottomY, double rowScale, double colScale) const {
++	Rect bounds;
++	say(nullptr, 0, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, 0, &bounds);
++	return bounds;
++}
++
++void Panel::say(uint32_t *screen, int pitch, int screenWidth, int limit, const std::string &text, int centreX, int bottomY,
++	double rowScale, double colScale, uint32_t ink, Rect *bounds) const {
++	if (!_loaded || (!screen && !bounds) || rowScale <= 0 || colScale <= 0) return;
+ 	const Font &f = _source.fonts[1];
+ 	const std::vector<std::string> lines = wrap(1, text, _source.screenWidth * 3 / 4);
+ 	const int lineHeight = std::max(1, f.height);
+@@ -832,13 +890,13 @@ void Panel::say(uint32_t *screen, int pitch, int screenWidth, int limit, const s
+ 	y = std::max(0, y);
+ 	for (const std::string &each : lines) {
+ 		const int width = (int)std::lround(textWidth(1, each) * colScale);
+-		line(screen, pitch, screenWidth, limit, 1, each, std::max(0, std::min(screenWidth - width, centreX - width / 2)), y, rowScale, colScale, ink);
++		line(screen, pitch, screenWidth, limit, 1, each, std::max(0, std::min(screenWidth - width, centreX - width / 2)), y, rowScale, colScale, ink, bounds);
+ 		y += (int)std::lround(lineHeight * rowScale);
+ 	}
+ }
+ 
+ void Panel::line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
+-	double rowScale, double colScale, uint32_t ink) const {
++	double rowScale, double colScale, uint32_t ink, Rect *bounds) const {
+ 	const Font &f = _source.fonts[font & 1];
+ 	for (unsigned char c : text) {
+ 		if (!f.has[c]) continue;
+@@ -850,6 +908,7 @@ void Panel::line(uint32_t *screen, int pitch, int screenWidth, int limit, int fo
+ 				const uint32_t c2 = v == f.ink ? ink : color(v);
+ 				const int x0 = (int)std::lround(pen + (g.x + gx) * colScale), x1 = (int)std::lround(pen + (g.x + gx + 1) * colScale);
+ 				const int y0 = (int)std::lround(y + (g.y + gy) * rowScale), y1 = (int)std::lround(y + (g.y + gy + 1) * rowScale);
++				if (bounds) { grow(*bounds, std::max(0, x0), std::max(0, y0), std::min(screenWidth, x1), std::min(limit, y1)); continue; }
+ 				for (int py = std::max(0, y0); py < std::min(limit, y1); ++py)
+ 					for (int px = std::max(0, x0); px < std::min(screenWidth, x1); ++px) screen[(size_t)py * pitch + px] = c2;
+ 			}
+@@ -1044,6 +1103,26 @@ void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char
+ 	if (!panel().loaded() || !text) return;
+ 	panel().say(screen, pitch, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, talkColor(color));
+ }
++static bool boundsOf(const Panel::Rect &r, int &x, int &y, int &width, int &height) {
++	x = r.x; y = r.y; width = std::max(0, r.width); height = std::max(0, r.height);
++	return width > 0 && height > 0;
++}
++bool renderBounds(int screenHeight, int &x, int &y, int &width, int &height) { return boundsOf(panel().renderBounds(screenHeight), x, y, width, height); }
++bool coinBounds(int screenWidth, int screenHeight, int &x, int &y, int &width, int &height) { return boundsOf(panel().coinBounds(screenWidth, screenHeight), x, y, width, height); }
++bool controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer, int &x, int &y, int &width, int &height) {
++	return boundsOf(panel().controlsBounds(screenWidth, screenHeight, pointerX, pointerY, pointer), x, y, width, height);
++}
++bool sayBounds(int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int &x, int &y, int &width, int &height) {
++	if (!panel().loaded() || !text) return boundsOf(Panel::Rect(), x, y, width, height);
++	return boundsOf(panel().sayBounds(screenWidth, limit, text, centreX, bottomY, rowScale, colScale), x, y, width, height);
++}
++int composed(unsigned int *canvas, int capacity) {
++	if (!panel().loaded()) return 0;
++	std::vector<uint32_t> c;
++	panel().compose(c);
++	if (canvas && capacity >= (int)c.size()) std::copy(c.begin(), c.end(), canvas);
++	return (int)c.size();
++}
+ namespace {
+ std::vector<std::pair<int, Panel::GameThings> > &gameThings() { static std::vector<std::pair<int, Panel::GameThings> > g; return g; }
+ } // End of anonymous namespace
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 92fe6250..4df0857e 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -302,6 +302,13 @@ public:
+ 	void say(uint32_t *screen, int pitch, int screenWidth, int limit, const std::string &text, int centreX, int bottomY,
+ 		double rowScale, double colScale, uint32_t ink) const;
+ 	uint32_t color(int index) const;
++	// Where render, renderCoin, renderControls and say (with the same
++	// arguments) would draw (from 0243, for the screen drawn in parts): a
++	// rectangle round every pixel they may write (empty: none), nothing drawn.
++	Rect renderBounds(int screenHeight) const;
++	Rect coinBounds(int screenWidth, int screenHeight) const;
++	Rect controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const;
++	Rect sayBounds(int screenWidth, int limit, const std::string &text, int centreX, int bottomY, double rowScale, double colScale) const;
+ 
+ private:
+ 	// (Onto a canvas `width` by `height`.)
+@@ -316,9 +323,14 @@ private:
+ 	int pageSize() const;
+ 	// (Onto the screen at a scale, its pen at `pen`, its top at `y`; rows
+ 	// from `limit` on untouched.)
++	// (Each with `bounds`: only where it would draw, taken into it.)
+ 	void line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
+-		double rowScale, double colScale, uint32_t ink) const;
+-	void picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y) const;
++		double rowScale, double colScale, uint32_t ink, Rect *bounds = nullptr) const;
++	void picture(uint32_t *screen, int pitch, int screenWidth, int screenHeight, const Picture &p, int x, int y, Rect *bounds = nullptr) const;
++	void renderCoin(uint32_t *screen, int pitch, int screenWidth, int screenHeight, Rect *bounds) const;
++	void renderControls(uint32_t *screen, int pitch, int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer, Rect *bounds) const;
++	void say(uint32_t *screen, int pitch, int screenWidth, int limit, const std::string &text, int centreX, int bottomY,
++		double rowScale, double colScale, uint32_t ink, Rect *bounds) const;
+ 	Source _source;
+ 	bool _loaded = false, _open = false, _coinOpen = false;
+ 	int _coinX = 0, _coinY = 0, _coinLit = -1; // (the coin's top left on screen)
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index d0219bd3..569c9276 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -115,6 +115,16 @@ void render(unsigned int *screen, int pitch, int screenHeight);
+ // speaker's own: an index into the panel's colours; -1: the player's),
+ // centred on `centreX`, ending at `bottomY`, rows from `limit` on untouched.
+ void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int talkColor = -1);
++// Where render, renderCoin, renderControls and say (the same arguments)
++// would draw (from 0243, for the screen drawn in parts): x y width height
++// round every pixel they may write (false: none), nothing drawn. composed:
++// the panel as render composes it now, at its own size (columns() by
++// rows(), 0xAARRGGBB): its pixel count, copied when `capacity` takes them.
++bool renderBounds(int screenHeight, int &x, int &y, int &width, int &height);
++bool coinBounds(int screenWidth, int screenHeight, int &x, int &y, int &width, int &height);
++bool controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer, int &x, int &y, int &width, int &height);
++bool sayBounds(int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int &x, int &y, int &width, int &height);
++int composed(unsigned int *canvas, int capacity);
+ unsigned int talkColor(int index); // (that colour as 0xAARRGGBB; -1: the player's)
+ // What verb `kind` does to a thing in the scene (Panel::decide; `answers`
+ // the verbs its game's script answers, -1 not known): 0 nothing, 1 say
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index edf8537c..1d7884d6 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -405,6 +405,7 @@ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameS
+ 	for (const World::SourceObject &o : _source.objects) _showing.push_back(o.shown);
+ 	_shown = false; _loaded = _source.pixels; _bare.clear(); _bareOrder = -1; _bareHidden.clear();
+ 	_picture = Picture();
++	_seen = Seen(); _scaledChanged = Rect(); _tileColors.clear(); _tilesAcross = _tilesDown = 0;
+ 	_scaled.assign((size_t)_view.width * _view.height, 0);
+ 	_columns.resize(_view.width); _rows.resize(_view.height);
+ 	for (int x = 0; x < _view.width; ++x) _columns[x] = std::min(_source.width - 1, (int)(x / _view.colScale));
+@@ -833,48 +834,246 @@ int Scene::addPiece(int x, int y, int w, int h, int toX, int toY, int over) {
+ }
+ 
+ void Scene::render(uint32_t *pixels, int pitch) const {
++	render(pixels, pitch, std::vector<Rect>(1, Rect(0, 0, _view.screenWidth, _view.screenHeight)));
++}
++
++void Scene::render(uint32_t *pixels, int pitch, const std::vector<Rect> &clips) const {
+ 	const View &v = _view;
+-	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+-	const int shown = _dark && !_beam.on ? 0 : std::min(v.width - v.camera, v.screenWidth - v.left);
+-	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y) {
+-		const uint8_t *in = &_scaled[(size_t)y * v.width + v.camera];
+-		uint32_t *out = pixels + (size_t)(y + v.top) * pitch + v.left;
+-		if (!_dark) { for (int x = 0; x < shown; ++x) out[x] = _colors[in[x]]; continue; }
+-		// (In the dark, only what the flashlight shows.)
+-		const int sy = _rows[y];
+-		if (sy < _beam.y || sy >= _beam.y + _beam.h) continue;
+-		for (int x = 0; x < shown; ++x)
+-			if (beamShows(_columns[v.camera + x], sy)) out[x] = _colors[in[x]];
+-	}
+-	// (Marks on the floor, under everyone.)
+-	if (!_dark) for (const Mark &m : _marks) drawMark(m, pixels, pitch);
+-	// Far ones first: the props (numbered after the people), then everyone.
++	// Far ones first: the props (numbered after the people), then everyone;
++	// where each lands, once for every rectangle.
+ 	const int people = (int)_actors.size();
+-	for (int n : drawOrder()) {
++	const std::vector<int> order = drawOrder();
++	std::vector<Placement> placed(order.size());
++	for (size_t k = 0; k < order.size(); ++k) {
++		const int n = order[k];
+ 		const Prop *prop = n < people ? nullptr : &_props[n - people];
+ 		if (prop && _dark) continue;
+ 		const Placement p = prop ? placeOf(prop->frame, prop->at, prop->rows, prop->pixelAspect, v, _boxes) : placeOf(_actors[n], v, _boxes);
+ 		if (!prop) _actors[n].drawnFrame = p.frame ? (int)(p.frame - _actors[n].sprite.frames.data()) : -1;
+-		const uint32_t *colors = prop ? prop->colors : _actors[n].colors;
+-		int x0, y0, x1, y1;
+-		if (!rectOf(p, v, x0, y0, x1, y1)) continue;
+-		const World::SourceFrame &f = *p.frame;
+-		for (int y = y0; y < y1; ++y) {
+-			const int row = std::min(f.height - 1, (int)((y - p.y0) / p.down));
+-			if (row < 0) continue;
+-			uint32_t *out = pixels + (size_t)y * pitch;
+-			for (int x = x0; x < x1; ++x) {
+-				const int col = std::min(f.width - 1, (int)((x - p.x0) / p.across));
+-				if (col < 0) continue;
+-				const size_t i = (size_t)row * f.width + col;
+-				const uint8_t mask = f.mask[i];
+-				// (A glow: its light added to what is behind; a lit blade
+-				// shows even in the dark.)
+-				if (mask == 2) out[x] = added(out[x], colors[f.pixels[i]]);
+-				else if (mask) out[x] = _dark && mask != 3 ? _darkColor : colors[f.pixels[i]];
++		placed[k] = p;
++	}
++	const int shown = _dark && !_beam.on ? 0 : std::min(v.width - v.camera, v.screenWidth - v.left);
++	const int rows = std::min(v.height, v.screenHeight - v.top);
++	for (const Rect &area : clips) {
++		const Rect clip(std::max(0, area.x0), std::max(0, area.y0), std::min(v.screenWidth, area.x1), std::min(v.screenHeight, area.y1));
++		if (clip.empty()) continue;
++		// Black where the scene is not shown, then the scene (its columns
++		// sx0..sx1 in the clip, at v.left on); in the dark, only what the
++		// flashlight shows.
++		const int sx0 = std::max(0, clip.x0 - v.left), sx1 = std::min(shown, clip.x1 - v.left);
++		for (int y = clip.y0; y < clip.y1; ++y) {
++			uint32_t *row = pixels + (size_t)y * pitch;
++			const int sy = y - v.top;
++			const bool scene = sy >= 0 && sy < rows && sx0 < sx1;
++			// (A row drawn from the same row of the scene as the one above it
++			// is the same: copied.)
++			if (scene && y > clip.y0 && sy > 0 && _rows[sy] == _rows[sy - 1]) { std::memcpy(row + clip.x0, row - pitch + clip.x0, (size_t)(clip.x1 - clip.x0) * sizeof(uint32_t)); continue; }
++			if (!scene || _dark) { std::fill(row + clip.x0, row + clip.x1, 0xFF000000u); if (!scene) continue; }
++			else { std::fill(row + clip.x0, row + v.left + sx0, 0xFF000000u); std::fill(row + v.left + sx1, row + clip.x1, 0xFF000000u); }
++			const uint8_t *in = &_scaled[(size_t)sy * v.width + v.camera];
++			uint32_t *out = row + v.left;
++			if (!_dark) { for (int x = sx0; x < sx1; ++x) out[x] = _colors[in[x]]; continue; }
++			const int src = _rows[sy];
++			if (src < _beam.y || src >= _beam.y + _beam.h) continue;
++			for (int x = sx0; x < sx1; ++x)
++				if (beamShows(_columns[v.camera + x], src)) out[x] = _colors[in[x]];
++		}
++		// (Marks on the floor, under everyone.)
++		if (!_dark) for (const Mark &m : _marks) drawMark(m, pixels, pitch, clip);
++		for (size_t k = 0; k < order.size(); ++k) {
++			const int n = order[k];
++			const Placement &p = placed[k];
++			int x0, y0, x1, y1;
++			if (!rectOf(p, v, x0, y0, x1, y1)) continue;
++			x0 = std::max(x0, clip.x0); y0 = std::max(y0, clip.y0); x1 = std::min(x1, clip.x1); y1 = std::min(y1, clip.y1);
++			if (x0 >= x1 || y0 >= y1) continue;
++			const uint32_t *colors = n < people ? _actors[n].colors : _props[n - people].colors;
++			const World::SourceFrame &f = *p.frame;
++			// (The frame's column at each screen column: worked out once,
++			// as each pixel would.)
++			_cols.resize(x1 - x0);
++			for (int x = x0; x < x1; ++x) _cols[x - x0] = std::min(f.width - 1, (int)((x - p.x0) / p.across));
++			for (int y = y0; y < y1; ++y) {
++				const int row = std::min(f.height - 1, (int)((y - p.y0) / p.down));
++				if (row < 0) continue;
++				uint32_t *out = pixels + (size_t)y * pitch;
++				const uint8_t *masks = &f.mask[(size_t)row * f.width], *indices = &f.pixels[(size_t)row * f.width];
++				for (int x = x0; x < x1; ++x) {
++					const int col = _cols[x - x0];
++					if (col < 0) continue;
++					const uint8_t mask = masks[col];
++					// (A glow: its light added to what is behind; a lit blade
++					// shows even in the dark.)
++					if (mask == 2) out[x] = added(out[x], colors[indices[col]]);
++					else if (mask) out[x] = _dark && mask != 3 ? _darkColor : colors[indices[col]];
++				}
++			}
++		}
++	}
++}
++
++// ---- Drawn in parts ----
++
++void join(std::vector<Rect> &rects, int screenWidth, int screenHeight) {
++	std::vector<Rect> kept;
++	for (Rect r : rects) {
++		r.x0 = std::max(0, r.x0); r.y0 = std::max(0, r.y0); r.x1 = std::min(screenWidth, r.x1); r.y1 = std::min(screenHeight, r.y1);
++		if (!r.empty()) kept.push_back(r);
++	}
++	const long long screen = (long long)std::max(0, screenWidth) * std::max(0, screenHeight);
++	// (Two joined where their joint rectangle is little more than both: a
++	// quarter more, or 64 by 64 pixels; again while any are.)
++	for (bool joined = true; joined && kept.size() <= 256;) {
++		joined = false;
++		for (size_t i = 0; i < kept.size(); ++i)
++			for (size_t j = i + 1; j < kept.size();) {
++				const Rect &a = kept[i], &b = kept[j];
++				const Rect u(std::min(a.x0, b.x0), std::min(a.y0, b.y0), std::max(a.x1, b.x1), std::max(a.y1, b.y1));
++				const long long both = a.area() + b.area();
++				if (u.area() > both + std::max(64LL * 64, both / 4)) { ++j; continue; }
++				kept[i] = u; kept.erase(kept.begin() + j); joined = true;
++				j = i + 1; // (it grew: the others looked at again)
++			}
++	}
++	long long total = 0;
++	for (const Rect &r : kept) total += r.area();
++	// (Most of the screen, or too many: all of it.)
++	if (kept.size() > 256 || total * 5 >= screen * 3) { kept.clear(); if (screen) kept.push_back(Rect(0, 0, screenWidth, screenHeight)); }
++	rects.swap(kept);
++}
++
++Rect Scene::onScreen(int x0, int y0, int x1, int y1) const {
++	const View &v = _view;
++	const int shown = std::min(v.width - v.camera, v.screenWidth - v.left), rows = std::min(v.height, v.screenHeight - v.top);
++	const Rect r(std::max(x0 - v.camera, 0) + v.left, std::max(y0, 0) + v.top, std::min(x1 - v.camera, shown) + v.left, std::min(y1, rows) + v.top);
++	return r.empty() ? Rect() : r;
++}
++
++Rect Scene::sourceOnScreen(int sx, int sy, int sw, int sh) const {
++	// (The scaled columns and rows drawn from it, as rescale finds them.)
++	const int x0 = (int)(std::lower_bound(_columns.begin(), _columns.end(), sx) - _columns.begin());
++	const int x1 = (int)(std::lower_bound(_columns.begin(), _columns.end(), sx + sw) - _columns.begin());
++	const int y0 = (int)(std::lower_bound(_rows.begin(), _rows.end(), sy) - _rows.begin());
++	const int y1 = (int)(std::lower_bound(_rows.begin(), _rows.end(), sy + sh) - _rows.begin());
++	return onScreen(x0, y0, x1, y1);
++}
++
++void Scene::tileColors(int sx, int sy, int sw, int sh) {
++	if (_tileColors.empty()) return;
++	const int tx0 = std::max(0, sx / kTile), ty0 = std::max(0, sy / kTile);
++	const int tx1 = std::min(_tilesAcross, (sx + sw + kTile - 1) / kTile), ty1 = std::min(_tilesDown, (sy + sh + kTile - 1) / kTile);
++	for (int ty = ty0; ty < ty1; ++ty)
++		for (int tx = tx0; tx < tx1; ++tx) {
++			uint64_t *bits = &_tileColors[((size_t)ty * _tilesAcross + tx) * 4];
++			bits[0] = bits[1] = bits[2] = bits[3] = 0;
++			for (int y = ty * kTile; y < std::min(_source.height, (ty + 1) * kTile); ++y)
++				for (int x = tx * kTile; x < std::min(_source.width, (tx + 1) * kTile); ++x) {
++					const uint8_t c = _source.pixels[(size_t)y * _source.width + x];
++					bits[c >> 6] |= 1ULL << (c & 63);
++				}
++		}
++}
++
++// (The same but for the camera: the scene's place on the screen the same.)
++static bool sameView(const View &a, const View &b) {
++	return a.screenWidth == b.screenWidth && a.screenHeight == b.screenHeight && a.rowScale == b.rowScale && a.colScale == b.colScale &&
++		a.width == b.width && a.height == b.height && a.left == b.left && a.top == b.top;
++}
++
++void Scene::changes(std::vector<Rect> &rects) {
++	rects.clear();
++	const View &v = _view;
++	// Where each one is drawn now, and how.
++	auto drawn = [&](const Placement &p) {
++		Drawn d;
++		if (!p.frame) return d;
++		d.x0 = p.x0; d.y0 = p.y0; d.down = p.down; d.across = p.across;
++		rectOf(p, v, d.rect.x0, d.rect.y0, d.rect.x1, d.rect.y1);
++		return d;
++	};
++	std::vector<Drawn> actors(_actors.size()), props(_props.size());
++	for (size_t n = 0; n < _actors.size(); ++n) {
++		const Placement p = placeOf(_actors[n], v, _boxes);
++		actors[n] = drawn(p);
++		if (p.frame) actors[n].frame = (int)(p.frame - _actors[n].sprite.frames.data());
++		_actors[n].drawnFrame = actors[n].frame; // (as render notes it, drawn or not)
++	}
++	for (size_t n = 0; n < _props.size() && !_dark; ++n) {
++		const Prop &prop = _props[n];
++		props[n] = drawn(placeOf(prop.frame, prop.at, prop.rows, prop.pixelAspect, v, _boxes));
++		props[n].frame = 0;
++	}
++	std::vector<DrawnMark> marks(_marks.size());
++	for (size_t i = 0; i < _marks.size() && !_dark; ++i) {
++		DrawnMark &d = marks[i];
++		if (!markLook(_marks[i], d.size, d.wet, d.rect)) continue;
++		d.x = _marks[i].at.x; d.y = _marks[i].at.y; d.width = _marks[i].width;
++	}
++	const bool all = !_seen.valid || !sameView(_seen.view, v) || _seen.dark != _dark || (_dark && _seen.darkColor != _darkColor);
++	if (all) rects.push_back(Rect(0, 0, v.screenWidth, v.screenHeight));
++	else {
++		// (The camera moved: all of the scene where it was and is shown,
++		// not the bars beside or under it.)
++		if (_seen.view.camera != v.camera) {
++			rects.push_back(onScreen(v.camera, 0, v.width, v.height));
++			const int shownBefore = std::min(v.width - _seen.view.camera, v.screenWidth - v.left), rows = std::min(v.height, v.screenHeight - v.top);
++			if (shownBefore > 0 && rows > 0) rects.push_back(Rect(v.left, v.top, v.left + shownBefore, v.top + rows));
++		}
++		// (The scene drawn on: where.)
++		if (!_scaledChanged.empty()) rects.push_back(onScreen(_scaledChanged.x0, _scaledChanged.y0, _scaledChanged.x1, _scaledChanged.y1));
++		// (Colours moved: the tiles that use them, a run of them at a time.)
++		uint64_t moved[4] = {0, 0, 0, 0};
++		for (int c = 0; c < 256; ++c) if (_colors[c] != _seen.colors[c]) moved[c >> 6] |= 1ULL << (c & 63);
++		if (moved[0] | moved[1] | moved[2] | moved[3]) {
++			if (_tileColors.empty() && !_source.pixels.empty()) {
++				_tilesAcross = (_source.width + kTile - 1) / kTile; _tilesDown = (_source.height + kTile - 1) / kTile;
++				_tileColors.assign((size_t)_tilesAcross * _tilesDown * 4, 0);
++				tileColors(0, 0, _source.width, _source.height);
++			}
++			for (int ty = 0; ty < _tilesDown; ++ty) {
++				int from = -1;
++				for (int tx = 0; tx <= _tilesAcross; ++tx) {
++					const uint64_t *bits = tx < _tilesAcross ? &_tileColors[((size_t)ty * _tilesAcross + tx) * 4] : nullptr;
++					const bool uses = bits && ((bits[0] & moved[0]) | (bits[1] & moved[1]) | (bits[2] & moved[2]) | (bits[3] & moved[3]));
++					if (uses && from < 0) from = tx;
++					if (uses || from < 0) continue;
++					rects.push_back(sourceOnScreen(from * kTile, ty * kTile, (tx - from) * kTile, kTile));
++					from = -1;
++				}
++			}
++		}
++		// (The flashlight moved in the dark: where it was and is.)
++		const Beam &was = _seen.beam;
++		if (_dark && (was.on != _beam.on || was.x != _beam.x || was.y != _beam.y || was.w != _beam.w || was.h != _beam.h)) {
++			if (was.on) rects.push_back(sourceOnScreen(was.x, was.y, was.w, was.h));
++			if (_beam.on) rects.push_back(sourceOnScreen(_beam.x, _beam.y, _beam.w, _beam.h));
++		}
++		// (Everyone, each prop and mark: where it was and is, if anything
++		// about it changed; new ones, and those gone.)
++		auto compare = [&](const std::vector<Drawn> &before, const std::vector<Drawn> &now) {
++			for (size_t n = 0; n < std::max(before.size(), now.size()); ++n) {
++				const Drawn *a = n < before.size() ? &before[n] : nullptr, *b = n < now.size() ? &now[n] : nullptr;
++				if (a && b && a->frame == b->frame && a->x0 == b->x0 && a->y0 == b->y0 && a->down == b->down && a->across == b->across) continue;
++				if (a) rects.push_back(a->rect);
++				if (b) rects.push_back(b->rect);
+ 			}
++		};
++		compare(_seen.actors, actors);
++		compare(_seen.props, props);
++		for (size_t i = 0; i < std::max(_seen.marks.size(), marks.size()); ++i) {
++			const DrawnMark *a = i < _seen.marks.size() ? &_seen.marks[i] : nullptr, *b = i < marks.size() ? &marks[i] : nullptr;
++			if (a && b && a->x == b->x && a->y == b->y && a->width == b->width && a->size == b->size && a->wet == b->wet &&
++				a->rect.x0 == b->rect.x0 && a->rect.y0 == b->rect.y0 && a->rect.x1 == b->rect.x1 && a->rect.y1 == b->rect.y1) continue;
++			if (a) rects.push_back(a->rect);
++			if (b) rects.push_back(b->rect);
+ 		}
+ 	}
++	_scaledChanged = Rect();
++	_seen.valid = true; _seen.view = v;
++	std::copy(_colors, _colors + 256, _seen.colors);
++	_seen.dark = _dark; _seen.darkColor = _darkColor; _seen.beam = _beam;
++	_seen.actors.swap(actors); _seen.props.swap(props); _seen.marks.swap(marks);
++	join(rects, v.screenWidth, v.screenHeight);
+ }
+ 
+ bool Scene::artPoint(int n, double dx, double dy, Point &at, double &perColumn) const {
+@@ -929,23 +1128,35 @@ static uint32_t mixed(uint32_t under, int r, int g, int b, double amount) {
+ // little uneven; spreading out (most of it in the first half), then drying
+ // smaller into a stain: the floor tinted a dull yellow-brown there (seen on
+ // dark floors and light ones alike).
+-void Scene::drawMark(const Mark &m, uint32_t *pixels, int pitch) const {
+-	if (m.age < 0 || m.width <= 0) return;
++bool Scene::markLook(const Mark &m, double &size, double &wet, Rect &rect) const {
++	size = 1; wet = 1;
++	if (m.age < 0 || m.width <= 0) return false;
+ 	const View &v = _view;
+-	double size = 1, wet = 1;
+ 	if (m.age < m.grow) size = 0.3 + 0.7 * std::min(1.0, 2.0 * m.age / m.grow);
+ 	else {
+ 		const double dry = std::min(1.0, (double)(m.age - m.grow) / kPuddleTicks);
+ 		size = 1 - 0.2 * dry; wet = 1 - dry;
+ 	}
+ 	const double rx = m.width / 2 * size * v.colScale, ry = std::max(1.5, rx * 0.32);
+-	if (rx < 0.5) return;
++	if (rx < 0.5) return false;
+ 	const Point c = v.toScreen(m.at.x, m.at.y);
+ 	// (Only over the place: not the bars beside or under it.)
+ 	const int left = std::max(v.left, 0), right = std::min(v.left + v.width - v.camera, v.screenWidth);
+ 	const int top = std::max(v.top, 0), bottom = std::min(v.top + v.height, v.screenHeight);
+-	const int x0 = std::max(left, (int)std::floor(c.x - rx * 1.3)), x1 = std::min(right, (int)std::ceil(c.x + rx * 1.3));
+-	const int y0 = std::max(top, (int)std::floor(c.y - ry * 1.3)), y1 = std::min(bottom, (int)std::ceil(c.y + ry * 1.3));
++	rect.x0 = std::max(left, (int)std::floor(c.x - rx * 1.3)); rect.x1 = std::min(right, (int)std::ceil(c.x + rx * 1.3));
++	rect.y0 = std::max(top, (int)std::floor(c.y - ry * 1.3)); rect.y1 = std::min(bottom, (int)std::ceil(c.y + ry * 1.3));
++	if (rect.empty()) rect = Rect();
++	return true;
++}
++
++void Scene::drawMark(const Mark &m, uint32_t *pixels, int pitch, const Rect &clip) const {
++	double size, wet;
++	Rect r;
++	if (!markLook(m, size, wet, r)) return;
++	const View &v = _view;
++	const double rx = m.width / 2 * size * v.colScale, ry = std::max(1.5, rx * 0.32);
++	const Point c = v.toScreen(m.at.x, m.at.y);
++	const int x0 = std::max(r.x0, clip.x0), x1 = std::min(r.x1, clip.x1), y0 = std::max(r.y0, clip.y0), y1 = std::min(r.y1, clip.y1);
+ 	const double seed = std::fmod(m.at.x * 0.37 + m.at.y * 1.13, 6.283);
+ 	for (int y = y0; y < y1; ++y) {
+ 		uint32_t *out = pixels + (size_t)y * pitch;
+@@ -1089,6 +1300,12 @@ void Scene::rescale(int sx, int sy, int sw, int sh) {
+ 		uint8_t *out = &_scaled[(size_t)y * _view.width];
+ 		for (int x = x0; x < x1; ++x) out[x] = row[_columns[x]];
+ 	}
++	// (Drawn again there next; the colours used there as they are now.)
++	if (x0 < x1 && y0 < y1) {
++		Rect &c = _scaledChanged;
++		c = c.empty() ? Rect(x0, y0, x1, y1) : Rect(std::min(c.x0, x0), std::min(c.y0, y0), std::max(c.x1, x1), std::max(c.y1, y1));
++	}
++	tileColors(sx, sy, sw, sh);
+ }
+ 
+ bool Scene::mountPicture(const uint8_t *data, size_t size, std::string &error) {
+@@ -1368,6 +1585,32 @@ void follow(int actor) { stage().follow(actor); }
+ void update(int ticks) { stage().update(ticks); }
+ static_assert(sizeof(unsigned int) == sizeof(uint32_t), "the bridge's pixels are 32 bits");
+ void render(unsigned int *pixels, int pitch) { if (pixels) stage().render(reinterpret_cast<uint32_t *>(pixels), pitch); }
++static std::vector<Stage::Rect> rectsOf(const int *rects, int count) {
++	std::vector<Stage::Rect> out;
++	for (int i = 0; rects && i < count; ++i) out.push_back(Stage::Rect(rects[4 * i], rects[4 * i + 1], rects[4 * i + 2], rects[4 * i + 3]));
++	return out;
++}
++static int rectsTo(const std::vector<Stage::Rect> &found, int *rects, int most) {
++	if ((int)found.size() > most || (!rects && !found.empty())) return -1;
++	for (size_t i = 0; i < found.size(); ++i) { rects[4 * i] = found[i].x0; rects[4 * i + 1] = found[i].y0; rects[4 * i + 2] = found[i].x1; rects[4 * i + 3] = found[i].y1; }
++	return (int)found.size();
++}
++int changes(int *rects, int most) {
++	std::vector<Stage::Rect> found;
++	stage().changes(found);
++	const Stage::View &v = stage().view();
++	if (found.size() == 1 && found[0].x0 == 0 && found[0].y0 == 0 && found[0].x1 == v.screenWidth && found[0].y1 == v.screenHeight) return -1;
++	return rectsTo(found, rects, most);
++}
++void forget() { stage().forget(); }
++void render(unsigned int *pixels, int pitch, const int *rects, int count) {
++	if (pixels && count > 0) stage().render(reinterpret_cast<uint32_t *>(pixels), pitch, rectsOf(rects, count));
++}
++int join(int *rects, int count, int screenWidth, int screenHeight) {
++	std::vector<Stage::Rect> found = rectsOf(rects, count);
++	Stage::join(found, screenWidth, screenHeight);
++	return rectsTo(found, rects, std::max(count, 1));
++}
+ void toScene(int screenX, int screenY, double &x, double &y) {
+ 	const Stage::Point p = stage().view().toScene(screenX, screenY);
+ 	x = p.x; y = p.y;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index a7b6775d..9d09858e 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -148,6 +148,20 @@ static const double kSlowest = 0.25;
+ // The camera's scroll: source pixels a tick (faster than anyone walks).
+ static const double kCameraSpeed = 2;
+ 
++// A rectangle of the screen: x0, y0 in it, x1, y1 just past it.
++struct Rect {
++	int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
++	Rect() {}
++	Rect(int ax0, int ay0, int ax1, int ay1) : x0(ax0), y0(ay0), x1(ax1), y1(ay1) {}
++	bool empty() const { return x0 >= x1 || y0 >= y1; }
++	long long area() const { return empty() ? 0 : (long long)(x1 - x0) * (y1 - y0); }
++	bool meets(const Rect &o) const { return !empty() && !o.empty() && x0 < o.x1 && o.x0 < x1 && y0 < o.y1 && o.y0 < y1; }
++};
++// Rectangles of a screen joined where joining them draws little more
++// (overlapping or near ones), empty ones dropped, each kept on the screen;
++// one of the whole screen when they come to most of it.
++void join(std::vector<Rect> &rects, int screenWidth, int screenHeight);
++
+ // The place on stage: the scene drawn once at the view's size, its people.
+ class Scene {
+ public:
+@@ -215,6 +229,17 @@ public:
+ 	// The screen (0xAARRGGBB, `pitch` pixels a row): the scene and everyone,
+ 	// far ones first.
+ 	void render(uint32_t *pixels, int pitch) const;
++	// Only the pixels in these rectangles, each exactly as render draws it
++	// (nothing outside them touched).
++	void render(uint32_t *pixels, int pitch, const std::vector<Rect> &clips) const;
++	// Drawn in parts (from 0243): where the screen has changed since the
++	// last call (all of it the first time, after forget, and when the view
++	// moved), joined; drawing those again (render with a clip) onto the
++	// screen as it was drawn then makes it what render draws now. (Someone
++	// moved or posed: where they were and are; colours moving: only where
++	// the scene shows them; a picture shown: its rectangle; a mark: its.)
++	void changes(std::vector<Rect> &rects);
++	void forget() { _seen.valid = false; }
+ 	const View &view() const { return _view; }
+ 	const std::vector<Box> &boxes() const { return _boxes; }
+ 	// The group of boxes a point is in (as boxAt; -1: no boxes).
+@@ -340,7 +365,6 @@ private:
+ 	std::vector<int> drawOrder() const; // people and props (numbered after them), far ones first
+ 	std::vector<Mark> _marks;
+ 	void trimMarks(); // (past kMarks there: the oldest there let go)
+-	void drawMark(const Mark &m, uint32_t *pixels, int pitch) const;
+ 	int _follow = -1;
+ 	int _cameraGoal = 0;
+ 	bool _dark = false;
+@@ -348,6 +372,35 @@ private:
+ 	struct Beam { bool on = false; int x = 0, y = 0, w = 0, h = 0; };
+ 	Beam _beam;
+ 	bool beamShows(int sx, int sy) const; // (a source pixel inside the beam, its corners rounded)
++	// (What changes last saw drawn, to tell what is new: the view, the
++	// colours, the dark and the beam, and where each one of the people, the
++	// props and the marks was drawn and how.)
++	struct Drawn { int frame = -1; double x0 = 0, y0 = 0, down = 0, across = 0; Rect rect; };
++	struct DrawnMark { double x = 0, y = 0, width = 0, size = 0, wet = 0; Rect rect; };
++	struct Seen {
++		bool valid = false;
++		View view;
++		uint32_t colors[256] = {};
++		bool dark = false;
++		uint32_t darkColor = 0;
++		Beam beam;
++		std::vector<Drawn> actors, props;
++		std::vector<DrawnMark> marks;
++	};
++	Seen _seen;
++	Rect _scaledChanged; // (of the scaled scene: rescaled since changes looked)
++	Rect onScreen(int x0, int y0, int x1, int y1) const; // (a rectangle of the scaled scene, where it shows)
++	Rect sourceOnScreen(int sx, int sy, int sw, int sh) const; // (of the scene's own pixels, as rescale scales them)
++	// (The colours each tile of the scene uses, kTile by kTile of its own
++	// pixels, 256 bits each: where colours moving show. Made when first
++	// needed, kept as the scene is drawn on.)
++	static const int kTile = 8;
++	std::vector<uint64_t> _tileColors;
++	int _tilesAcross = 0, _tilesDown = 0;
++	void tileColors(int sx, int sy, int sw, int sh);
++	bool markLook(const Mark &m, double &size, double &wet, Rect &rect) const; // (as drawMark draws it; false: nothing)
++	void drawMark(const Mark &m, uint32_t *pixels, int pitch, const Rect &clip) const;
++	mutable std::vector<int> _cols; // (render's: the frame column at each screen column)
+ 	double _speedX = 8, _speedY = 2;
+ 	int _stepTicks = 6;
+ 	double _cameraSpeed = kCameraSpeed;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 8c612e25..0b0f987c 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -84,6 +84,15 @@ void follow(int actor);
+ void update(int ticks);                        // 60 ticks a second
+ // The screen as 0xAARRGGBB, `pitch` pixels a row.
+ void render(unsigned int *pixels, int pitch);
++// Drawn in parts (from 0243; Scene::changes): where the screen changed since
++// asked last, as x0 y0 x1 y1 (x1 y1 just past it) each, at most `most` of
++// them (-1: more, or all of it: draw it all); forget: all of it next time.
++// render with rectangles draws only those (each pixel as render draws it);
++// join joins them (Stage::join, in place) and says how many there are now.
++int changes(int *rects, int most);
++void forget();
++void render(unsigned int *pixels, int pitch, const int *rects, int count);
++int join(int *rects, int count, int screenWidth, int screenHeight);
+ void toScene(int screenX, int screenY, double &x, double &y);
+ void toScreen(double x, double y, int &screenX, int &screenY);
+ // Spots for n people, spread over the walk boxes (where the picture is, with
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 8c6fa068..0df7fc8b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -440,6 +440,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_press = Press();
+ 	_chosen = -1; _noteClock = 0;
+ 	for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF000000;
++	frameTouched();
+ 	_action = 0; _target = -1; _speech.clear(); _speaker = -1; _speechClock = 0;
+ 	// (A move's show or heckle, an L waiting for a second, and a walk to
+ 	// pee, end here.)
+@@ -2639,65 +2640,268 @@ void SandboxEngine::request(int code) {
+ 	if (kept && enter(fromGame, fromRoom, 0, problem) && aboard) placePlayer(fromX, fromY);
+ }
+ 
+-void SandboxEngine::present() {
+-	aimFlashlight();
+-	StageBridge::render(_frame.data(), _width);
++// The pieces drawn over the stage, in the order present() draws them.
++enum { kOverSign, kOverBox, kOverCoin, kOverControls, kOverSpeech, kOverNotice, kOverPanel };
++
++bool SandboxEngine::Overlay::sameAs(const Overlay &o) const {
++	// (The coin, while held, is drawn again each time.)
++	return kind == o.kind && kind != kOverCoin && x0 == o.x0 && y0 == o.y0 && x1 == o.x1 && y1 == o.y1 && text == o.text &&
++		from == o.from && across == o.across && limit == o.limit && centreX == o.centreX && bottomY == o.bottomY && color == o.color &&
++		signX0 == o.signX0 && signY0 == o.signY0 && signX1 == o.signX1 && signY1 == o.signY1 &&
++		pointerX == o.pointerX && pointerY == o.pointerY && verb == o.verb && top == o.top && rows == o.rows && pointer == o.pointer &&
++		rowScale == o.rowScale && colScale == o.colScale && canvas == o.canvas;
++}
++
++void SandboxEngine::overlays(Common::Array<Overlay> &out) const {
++	out.clear();
++	int x, y, w, h;
++	auto bounds = [&](Overlay &o, bool any) { if (any) { o.x0 = x; o.y0 = y; o.x1 = x + w; o.y1 = y + h; } };
++	// (The panel as composed now, and where it is.)
++	auto panel = [&](Overlay &o) {
++		bounds(o, PanelBridge::renderBounds(_height, x, y, w, h));
++		o.top = PanelBridge::top(); o.rows = PanelBridge::screenRows();
++		o.canvas.resize(PanelBridge::composed(nullptr, 0));
++		PanelBridge::composed(o.canvas.data(), o.canvas.size());
++	};
+ 	// (No way back from here: the arrow back, at the place's left, the place
+ 	// darkened under it.)
+ 	int bx0, by0, bx1, by1;
+ 	if (backSign(bx0, by0, bx1, by1)) {
+-		for (int y = MAX(0, by0); y < MIN(_height, by1); ++y)
+-			for (int x = MAX(0, bx0); x < MIN(_width, bx1); ++x) {
+-				uint32 &c = _frame[y * _width + x];
++		Overlay o;
++		o.kind = kOverSign; o.signX0 = bx0; o.signY0 = by0; o.signX1 = bx1; o.signY1 = by1;
++		o.x0 = MAX(0, bx0); o.y0 = MAX(0, by0); o.x1 = MIN(_width, bx1); o.y1 = MIN(_height, by1);
++		out.push_back(o);
++	}
++	if (!PanelBridge::loaded()) return;
++	// Over the scene (Sam & Max): its box while open, else its button and
++	// the pointer where the last tap was.
++	const bool over = PanelBridge::over();
++	if (over && PanelBridge::isOpen()) { Overlay o; o.kind = kOverBox; panel(o); out.push_back(o); }
++	// (Full Throttle's coin over the scene, under the pointer.)
++	{ Overlay o; o.kind = kOverCoin; bounds(o, PanelBridge::coinBounds(_width, _height, x, y, w, h)); out.push_back(o); }
++	if (over && !PanelBridge::isOpen()) {
++		Overlay o;
++		o.kind = kOverControls; o.pointerX = _pointerX; o.pointerY = _pointerY; o.pointer = _pointerX >= 0; o.verb = PanelBridge::pointerVerb();
++		bounds(o, PanelBridge::controlsBounds(_width, _height, o.pointerX, o.pointerY, o.pointer, x, y, w, h));
++		out.push_back(o);
++	}
++	// Speech over the speaker's head, at the scene's scale.
++	int x0, y0, x1, y1;
++	if (!_speech.empty() && _speaker >= 0 && StageBridge::drawnRect(_speaker, x0, y0, x1, y1)) {
++		int left, top, width, height;
++		double rowScale, colScale;
++		StageBridge::view(left, top, width, height, rowScale, colScale);
++		Overlay o;
++		o.kind = kOverSpeech; o.text = _speech; o.rowScale = rowScale; o.colScale = colScale;
++		// (Kept within the scene's picture, as the games keep it on their screen.)
++		o.from = CLIP(left, 0, _width); o.across = CLIP(width, 1, _width - o.from); o.limit = over ? _height : PanelBridge::top();
++		// (The mansion's and Zak's people each in their own colour, as their
++		// games show them: the cast's, in the panel's colours.)
++		const WorldGuest *who = _speaker < (int)_onStage.size() ? worldAppearance(_onStage[_speaker]) : nullptr;
++		o.color = worldHome(_game) && who && worldHome(worldAppearanceGame(_onStage[_speaker])) ? who->talkColor : -1;
++		o.centreX = (x0 + x1) / 2 - o.from; o.bottomY = y0 - (int)(4 * rowScale);
++		if (PanelBridge::sayBounds(o.across, o.limit, o.text.c_str(), o.centreX, o.bottomY, rowScale, colScale, x, y, w, h)) { x += o.from; bounds(o, true); }
++		out.push_back(o);
++	}
++	// An announcement (the tram's) at the top of the place, in its middle.
++	if (!_notice.empty()) {
++		int left, top, width, height;
++		double rowScale, colScale;
++		StageBridge::view(left, top, width, height, rowScale, colScale);
++		Overlay o;
++		o.kind = kOverNotice; o.text = _notice; o.rowScale = rowScale; o.colScale = colScale;
++		o.from = CLIP(left, 0, _width); o.across = CLIP(width, 1, _width - o.from); o.limit = over ? _height : PanelBridge::top();
++		o.centreX = o.across / 2; o.bottomY = top + 1;
++		if (PanelBridge::sayBounds(o.across, o.limit, o.text.c_str(), o.centreX, o.bottomY, rowScale, colScale, x, y, w, h)) { x += o.from; bounds(o, true); }
++		out.push_back(o);
++	}
++	if (!over) { Overlay o; o.kind = kOverPanel; panel(o); out.push_back(o); }
++}
++
++void SandboxEngine::drawOverlay(const Overlay &o, uint32 *pixels) const {
++	switch (o.kind) {
++	case kOverSign:
++		for (int y = o.y0; y < o.y1; ++y)
++			for (int x = o.x0; x < o.x1; ++x) {
++				uint32 &c = pixels[y * _width + x];
+ 				c = 0xFF000000u | ((c >> 1) & 0x7F7F7Fu);
+-				const int ax = x - bx0, ay = y - by0, w = bx1 - bx0, h = by1 - by0;
++				const int ax = x - o.signX0, ay = y - o.signY0, w = o.signX1 - o.signX0, h = o.signY1 - o.signY0;
+ 				// (A triangle pointing left, a fifth in from each side.)
+ 				const int half = (h * 3 / 10) * (ax - w / 5) / MAX(1, w * 3 / 5);
+ 				if (ax >= w / 5 && ax < w * 4 / 5 && abs(ay - h / 2) <= half) c = 0xFFFFFFFFu;
+ 			}
++		break;
++	case kOverBox:
++	case kOverPanel:
++		PanelBridge::render(pixels, _width, _height);
++		break;
++	case kOverCoin:
++		PanelBridge::renderCoin(pixels, _width, _width, _height);
++		break;
++	case kOverControls:
++		PanelBridge::renderControls(pixels, _width, _width, _height, o.pointerX, o.pointerY, o.pointer);
++		break;
++	case kOverSpeech:
++	case kOverNotice:
++		PanelBridge::say(pixels + o.from, _width, o.across, o.limit, o.text.c_str(), o.centreX, o.bottomY, o.rowScale, o.colScale, o.color);
++		break;
++	default:
++		break;
+ 	}
+-	if (PanelBridge::loaded()) {
+-		// Over the scene (Sam & Max): its box while open, else its button and
+-		// the pointer where the last tap was.
+-		const bool over = PanelBridge::over();
+-		if (over && PanelBridge::isOpen()) PanelBridge::render(_frame.data(), _width, _height);
+-		// (Full Throttle's coin over the scene, under the pointer.)
+-		PanelBridge::renderCoin(_frame.data(), _width, _width, _height);
+-		if (over && !PanelBridge::isOpen()) PanelBridge::renderControls(_frame.data(), _width, _width, _height, _pointerX, _pointerY, _pointerX >= 0);
+-		// Speech over the speaker's head, at the scene's scale.
+-		int x0, y0, x1, y1;
+-		if (!_speech.empty() && _speaker >= 0 && StageBridge::drawnRect(_speaker, x0, y0, x1, y1)) {
+-			int left, top, width, height;
+-			double rowScale, colScale;
+-			StageBridge::view(left, top, width, height, rowScale, colScale);
+-			// (Kept within the scene's picture, as the games keep it on their screen.)
+-			const int from = CLIP(left, 0, _width), across = CLIP(width, 1, _width - from);
+-			// (The mansion's and Zak's people each in their own colour, as their
+-			// games show them: the cast's, in the panel's colours.)
+-			const WorldGuest *who = _speaker < (int)_onStage.size() ? worldAppearance(_onStage[_speaker]) : nullptr;
+-			const int talkColor = worldHome(_game) && who && worldHome(worldAppearanceGame(_onStage[_speaker])) ? who->talkColor : -1;
+-			PanelBridge::say(_frame.data() + from, _width, across, over ? _height : PanelBridge::top(), _speech.c_str(), (x0 + x1) / 2 - from, y0 - (int)(4 * rowScale), rowScale, colScale, talkColor);
+-		}
+-		// An announcement (the tram's) at the top of the place, in its middle.
+-		if (!_notice.empty()) {
+-			int left, top, width, height;
+-			double rowScale, colScale;
+-			StageBridge::view(left, top, width, height, rowScale, colScale);
+-			const int from = CLIP(left, 0, _width), across = CLIP(width, 1, _width - from);
+-			PanelBridge::say(_frame.data() + from, _width, across, over ? _height : PanelBridge::top(), _notice.c_str(), across / 2, top + 1, rowScale, colScale);
++}
++
++void SandboxEngine::present() {
++	aimFlashlight();
++	Common::Array<Overlay> now;
++	overlays(now);
++	// What to draw again (x0 y0 x1 y1 each): where the stage changed, ...
++	static const int kMostParts = 256;
++	int found[4 * kMostParts];
++	const int screenChange = g_system->getScreenChangeID();
++	bool all = !_frameShown || screenChange != _screenChange;
++	if (all) StageBridge::forget();
++	int count = StageBridge::changes(found, kMostParts);
++	all = all || count < 0;
++	Common::Array<int> parts;
++	Common::Array<bool> drawn(now.size(), false);
++	if (!all) {
++		for (int i = 0; i < 4 * count; ++i) parts.push_back(found[i]);
++		auto add = [&](const Overlay &o) {
++			if (o.x0 >= o.x1 || o.y0 >= o.y1) return;
++			parts.push_back(o.x0); parts.push_back(o.y0); parts.push_back(o.x1); parts.push_back(o.y1);
++		};
++		// ... each piece over it that changed where it was and is, one gone
++		// where it was, ...
++		for (uint k = 0; k < now.size(); ++k) {
++			const Overlay *was = nullptr;
++			for (const Overlay &p : _overlays) if (p.kind == now[k].kind) was = &p;
++			if (was && was->sameAs(now[k])) continue;
++			if (was) add(*was);
++			add(now[k]);
++			drawn[k] = true;
++		}
++		for (const Overlay &p : _overlays) {
++			bool still = false;
++			for (const Overlay &o : now) still = still || o.kind == p.kind;
++			if (!still) add(p);
++		}
++		// ... and all of each other piece where any of that is (until none is).
++		for (bool more = true; more && !all;) {
++			more = false;
++			count = StageBridge::join(parts.data(), parts.size() / 4, _width, _height);
++			parts.resize(4 * MAX(0, count));
++			all = count == 1 && parts[0] <= 0 && parts[1] <= 0 && parts[2] >= _width && parts[3] >= _height;
++			for (uint k = 0; k < now.size() && !all; ++k) {
++				const Overlay &o = now[k];
++				if (drawn[k] || o.x0 >= o.x1 || o.y0 >= o.y1) continue;
++				for (uint i = 0; i < parts.size() && !drawn[k]; i += 4)
++					if (o.x0 < parts[i + 2] && parts[i] < o.x1 && o.y0 < parts[i + 3] && parts[i + 1] < o.y1) { add(o); drawn[k] = more = true; }
++			}
++		}
++	}
++	if (all) {
++		StageBridge::render(_frame.data(), _width);
++		for (const Overlay &o : now) drawOverlay(o, _frame.data());
++		show();
++	} else if (!parts.empty()) {
++		StageBridge::render(_frame.data(), _width, parts.data(), parts.size() / 4);
++		for (uint k = 0; k < now.size(); ++k) if (drawn[k]) drawOverlay(now[k], _frame.data());
++		show(parts.data(), parts.size() / 4);
++	}
++	_overlays = now;
++	_frameShown = true; _screenChange = screenChange;
++	if (_checkFrames) checkFrame();
++}
++
++// The stage's pixels in the screen's format as crossBlit converts them (each
++// 8-bit channel shortened to the format's bits, then put in its place), for
++// two and four bytes a pixel without a call a pixel.
++static void convertPart(byte *dst, int dstPitch, const uint32 *src, int srcPitch, int w, int h, const Graphics::PixelFormat &f) {
++	if (f.bytesPerPixel != 2 && f.bytesPerPixel != 4) {
++		Graphics::crossBlit(dst, (const byte *)src, dstPitch, srcPitch * 4, w, h, f, kStageFormat);
++		return;
++	}
++	const uint32 aLoss = f.aLoss, rLoss = f.rLoss, gLoss = f.gLoss, bLoss = f.bLoss, aShift = f.aShift, rShift = f.rShift, gShift = f.gShift, bShift = f.bShift;
++	// (The screens' own: OpenGL's red first in memory (the iPhone's), and
++	// red highest, alpha lowest; the same as below, in fewer steps.)
++	const bool eight = f.bytesPerPixel == 4 && !aLoss && !rLoss && !gLoss && !bLoss;
++	const bool redFirst = eight && rShift == 0 && gShift == 8 && bShift == 16 && aShift == 24;
++	const bool alphaLast = eight && rShift == 24 && gShift == 16 && bShift == 8 && aShift == 0;
++	for (int y = 0; y < h; ++y) {
++		const uint32 *in = src + (size_t)y * srcPitch;
++		if (redFirst) {
++			uint32 *out = (uint32 *)(dst + (size_t)y * dstPitch);
++			for (int x = 0; x < w; ++x) { const uint32 c = in[x]; out[x] = (c & 0xFF00FF00u) | (c >> 16 & 0xFFu) | (c & 0xFFu) << 16; }
++		} else if (alphaLast) {
++			uint32 *out = (uint32 *)(dst + (size_t)y * dstPitch);
++			for (int x = 0; x < w; ++x) { const uint32 c = in[x]; out[x] = c << 8 | c >> 24; }
++		} else if (f.bytesPerPixel == 4) {
++			uint32 *out = (uint32 *)(dst + (size_t)y * dstPitch);
++			for (int x = 0; x < w; ++x) {
++				const uint32 c = in[x];
++				out[x] = ((c >> 24) >> aLoss) << aShift | ((c >> 16 & 255) >> rLoss) << rShift | ((c >> 8 & 255) >> gLoss) << gShift | ((c & 255) >> bLoss) << bShift;
++			}
++		} else {
++			uint16 *out = (uint16 *)(dst + (size_t)y * dstPitch);
++			for (int x = 0; x < w; ++x) {
++				const uint32 c = in[x];
++				out[x] = (uint16)(((c >> 24) >> aLoss) << aShift | ((c >> 16 & 255) >> rLoss) << rShift | ((c >> 8 & 255) >> gLoss) << gShift | ((c & 255) >> bLoss) << bShift);
++			}
+ 		}
+-		if (!over) PanelBridge::render(_frame.data(), _width, _height);
+ 	}
+-	show();
+ }
+ 
+ void SandboxEngine::show() {
+-	if (_format == kStageFormat) {
+-		g_system->copyRectToScreen(_frame.data(), _width * 4, 0, 0, _width, _height);
+-		return;
+-	}
+-	Graphics::crossBlit(_converted.data(), (const byte *)_frame.data(), _width * _format.bytesPerPixel, _width * 4, _width, _height, _format, kStageFormat);
+-	g_system->copyRectToScreen(_converted.data(), _width * _format.bytesPerPixel, 0, 0, _width, _height);
++	const int all[4] = {0, 0, _width, _height};
++	show(all, 1);
++}
++
++void SandboxEngine::show(const int *rects, int count) {
++	const int bytes = _format.bytesPerPixel;
++	for (int i = 0; i < count; ++i) {
++		const int x0 = CLIP(rects[4 * i], 0, _width), y0 = CLIP(rects[4 * i + 1], 0, _height);
++		const int x1 = CLIP(rects[4 * i + 2], 0, _width), y1 = CLIP(rects[4 * i + 3], 0, _height);
++		if (x0 >= x1 || y0 >= y1) continue;
++		const uint32 *from = _frame.data() + y0 * _width + x0;
++		const byte *sent = (const byte *)from;
++		int pitch = _width * 4;
++		if (_format != kStageFormat) {
++			byte *to = _converted.data() + (y0 * _width + x0) * bytes;
++			convertPart(to, _width * bytes, from, _width, x1 - x0, y1 - y0, _format);
++			sent = to; pitch = _width * bytes;
++		}
++		g_system->copyRectToScreen(sent, pitch, x0, y0, x1 - x0, y1 - y0);
++		// (Checking: what the screen has now.)
++		for (int y = 0; y < y1 - y0 && _sent.size() == _frame.size() * bytes; ++y)
++			memcpy(&_sent[((y0 + y) * _width + x0) * bytes], sent + y * pitch, (x1 - x0) * bytes);
++	}
++}
++
++// (scummverse_check_frames.) The frame drawn whole, as it was before the
++// screen was drawn in parts (over the frame as it is: rows nothing draws on,
++// between the place and its panel, stay as they are), and converted whole
++// as crossBlit converts it: the frame drawn in parts and the screen as sent
++// must be the same.
++void SandboxEngine::checkFrame() {
++	_whole = _frame;
++	StageBridge::render(_whole.data(), _width);
++	Common::Array<Overlay> now;
++	overlays(now);
++	for (const Overlay &o : now) drawOverlay(o, _whole.data());
++	++_framesChecked;
++	int at = -1;
++	for (uint i = 0; i < _whole.size() && at < 0; ++i) if (_whole[i] != _frame[i]) at = i;
++	const int bytes = _format.bytesPerPixel;
++	Common::Array<byte> whole(_whole.size() * bytes);
++	// (Converted as crossBlit converts, every 32nd; else as show converts.)
++	if (_format == kStageFormat) memcpy(whole.data(), _whole.data(), whole.size());
++	else if (!(_framesChecked % 32)) Graphics::crossBlit(whole.data(), (const byte *)_whole.data(), _width * bytes, _width * 4, _width, _height, _format, kStageFormat);
++	else convertPart(whole.data(), _width * bytes, _whole.data(), _width, _width, _height, _format);
++	const bool sent = whole == _sent;
++	if (at < 0 && sent) return;
++	if (++_framesDiffer <= 5)
++		warning("SCUMMVERSE sandbox frames: drawn in parts not as drawn whole (%s) in %s-%d, first at %d,%d", at >= 0 ? "the frame" : "the screen as sent",
++			_game >= 0 ? kWorldGames[_game].gameid : "-", _room, at >= 0 ? at % _width : -1, at >= 0 ? at / _width : -1);
+ }
+ 
+ // ---- The tour ----
+@@ -3689,6 +3893,7 @@ bool SandboxEngine::photo(int kind) {
+ 		crop.w = _width; crop.h = _height;
+ 	} else {
+ 		StageBridge::render(_frame.data(), _width);
++		frameTouched();
+ 		shown(crop.x, crop.y, crop.w, crop.h);
+ 		_dirty = true; // (the screen as it was, next)
+ 	}
+@@ -4110,6 +4315,7 @@ void SandboxEngine::selfiePose() {
+ 		StageBridge::pose(n, dir, kind, c.pose == Camera::kStep ? c.step : c.pose == Camera::kTalk ? _selfie.shot + n : 0);
+ 	}
+ 	StageBridge::render(_frame.data(), _width);
++	frameTouched();
+ 	show();
+ }
+ 
+@@ -4350,6 +4556,9 @@ Common::Error SandboxEngine::run() {
+ 	if (g_system->getScreenFormat() != _format) return Common::Error(Common::kUnsupportedColorMode, "the screen did not take true colour");
+ 	_frame.resize(_width * _height);
+ 	_converted.resize(_width * _height * _format.bytesPerPixel);
++	_frameShown = false;
++	_checkFrames = keptBool("scummverse_check_frames", false);
++	if (_checkFrames) _sent.resize(_width * _height * _format.bytesPerPixel);
+ 	scan();
+ 	_wanderers = keptBool("scummverse_wanderers", true);
+ 	_verbs = keptBool("scummverse_verbs", true);
+@@ -4375,7 +4584,9 @@ Common::Error SandboxEngine::run() {
+ 	// (The "resume" check starts as a launch starts, below.)
+ 	if (ConfMan.hasKey("scummverse_selftest") && ConfMan.get("scummverse_selftest") != "resume") {
+ 		_testing = true;
+-		return selfTest(ConfMan.get("scummverse_selftest"));
++		const Common::Error result = selfTest(ConfMan.get("scummverse_selftest"));
++		if (_checkFrames) warning("SCUMMVERSE sandbox frames: %d checked, %d drawn in parts not as drawn whole", _framesChecked, _framesDiffer);
++		return result;
+ 	}
+ 
+ 	// Where the player was last time, else the start place as its lead.
+@@ -4406,7 +4617,11 @@ Common::Error SandboxEngine::run() {
+ 	}
+ 	if (resumed) { placePlayer(x, y); saveState(); }
+ 	tourReady();
+-	if (ConfMan.hasKey("scummverse_selftest")) return resumeTest(resumed);
++	if (ConfMan.hasKey("scummverse_selftest")) {
++		const Common::Error result = resumeTest(resumed);
++		if (_checkFrames) warning("SCUMMVERSE sandbox frames: %d checked, %d drawn in parts not as drawn whole", _framesChecked, _framesDiffer);
++		return result;
++	}
+ 	uint32 last = g_system->getMillis();
+ 	int carry = 0, palette = StageBridge::paletteVersion();
+ 	bool changed = true;
+@@ -5207,6 +5422,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			StageBridge::view(left, top, width, height, rowScale, colScale);
+ 			aimFlashlight(); // (as present: the flashlight's beam, where it is on)
+ 			StageBridge::render(_frame.data(), _width);
++			frameTouched();
+ 			lit = grey = 0;
+ 			for (int y = MAX(0, top); y < MIN(_height, top + height); ++y)
+ 				for (int x = MAX(0, left); x < MIN(_width, left + width); ++x) {
+@@ -6998,6 +7214,7 @@ Common::Error SandboxEngine::castTest() {
+ 	// A picture of the faces, in the boxes' order, three times their size.
+ 	if (ConfMan.hasKey("scummverse_shots")) {
+ 		for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF140320;
++		frameTouched();
+ 		for (uint b = 0; b < FakeCast::boxes.size(); ++b) {
+ 			const Common::Array<byte> &f = FakeCast::boxes[b].rgba;
+ 			for (int y = 0; !f.empty() && y < 192; ++y)
+@@ -7663,6 +7880,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 		int x0, y0, x1, y1;
+ 		if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return false;
+ 		StageBridge::render(_frame.data(), _width);
++		frameTouched();
+ 		Common::Array<uint32> with;
+ 		for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) with.push_back(_frame[y * _width + x]);
+ 		StageBridge::hide(n, true);
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 6ecf9277..2ffa916c 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -270,6 +270,32 @@ private:
+ 	void request(int code); // from the Worlds menu
+ 	void present();
+ 	void show(); // the frame onto the screen
++	// The screen drawn in parts (from 0243): the stage where it changed
++	// (StageBridge::changes) and each piece drawn over it (the way back's
++	// sign, the panel, the coin, the pointer, lines said) where it is or was
++	// when it changed, or where what is under it changed, all of it drawn
++	// again there in order; only those parts converted and sent to the
++	// screen. The frame stays the screen as present() drew it last unless
++	// something else draws on it (frameTouched: all of it next time).
++	// scummverse_check_frames: each frame also drawn whole and compared, and
++	// what the screen was sent too (_framesDiffer counts those not the same).
++	struct Overlay {
++		int kind = 0;
++		int x0 = 0, y0 = 0, x1 = 0, y1 = 0; // (where it may draw: x1 y1 just past it)
++		Common::String text;                // (what: a line said, at)
++		int from = 0, across = 0, limit = 0, centreX = 0, bottomY = 0, color = -1;
++		int signX0 = 0, signY0 = 0, signX1 = 0, signY1 = 0; // (the way back's sign, unclipped)
++		int pointerX = -1, pointerY = -1, verb = -1, top = 0, rows = 0;
++		bool pointer = false;
++		double rowScale = 0, colScale = 0;
++		Common::Array<uint32> canvas;       // (the panel as composed)
++		bool sameAs(const Overlay &o) const;
++	};
++	void overlays(Common::Array<Overlay> &out) const;
++	void drawOverlay(const Overlay &o, uint32 *pixels) const;
++	void show(const int *rects, int count); // (x0 y0 x1 y1 each)
++	void frameTouched() { _frameShown = false; }
++	void checkFrame();
+ 	// The iPhone's camera (step 4; common/scummverse_camera_engine.h, as
+ 	// Maniac's): a photo of the scene alone (clean) or of the screen as shown
+ 	// (full); a selfie of 1, 3 or 5 shots, everyone posed afresh for each in
+@@ -434,6 +460,13 @@ private:
+ 	int _width = 1280, _height = 720;
+ 	Common::Array<uint32> _frame;   // the stage, 0xAARRGGBB
+ 	Common::Array<byte> _converted; // the same in the screen's format
++	bool _frameShown = false;       // (the frame as present() drew it last, the screen so)
++	int _screenChange = 0;          // (the backend's screen change id then)
++	Common::Array<Overlay> _overlays; // (drawn over it then)
++	bool _checkFrames = false;
++	int _framesDiffer = 0, _framesChecked = 0;
++	Common::Array<uint32> _whole;   // (checking: the frame drawn whole)
++	Common::Array<byte> _sent;      // (checking: the screen as sent)
+ 	Common::HashMap<int, bool> _rooms;      // installed: game * 1024 + room
+ 	Common::HashMap<int, bool> _characters; // installed: appearance key
+ 	Common::HashMap<int, bool> _insides;    // rides' insides exported: game * 1024 + room (not places)

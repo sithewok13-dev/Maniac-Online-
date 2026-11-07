@@ -1,0 +1,449 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index fde4c5ec..5af93925 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1359,7 +1359,7 @@ void SandboxEngine::newKid() {
+ 	double x, y;
+ 	StageBridge::position(_player, x, y);
+ 	const int before = _playerKey, fromGame = _game, fromRoom = _room, here = place(_game, _room);
+-	const Common::Array<Left> kept = customLeft();
++	const Common::Array<Left> kept = customLeft(), others = standing();
+ 	Common::String problem;
+ 	// (One who cannot be shown is passed over for the next.)
+ 	for (uint step = 1; step <= keys.size(); ++step) {
+@@ -1388,6 +1388,7 @@ void SandboxEngine::newKid() {
+ 			if (left < 0 && (left = addPerson(before)) >= 0) { _onStage.push_back(before); _people = _onStage.size(); }
+ 			if (shown >= 0) StageBridge::place(_player, kx, ky);
+ 			keepOthersNear();
++			standBack(others); // (everyone else too, not where the place puts people arriving)
+ 			double px, py;
+ 			StageBridge::position(_player, px, py);
+ 			if (left >= 0) StageBridge::place(left, shown < 0 && fabs(px - x) < 8 && fabs(py - y) < 8 ? x + 24 : x, y);
+@@ -1787,6 +1788,24 @@ void SandboxEngine::customBack(const Common::Array<Left> &left) {
+ 	}
+ }
+ 
++Common::Array<SandboxEngine::Left> SandboxEngine::standing() const {
++	Common::Array<Left> stood;
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player) continue;
++		Left l;
++		l.key = _onStage[n];
++		StageBridge::position(n, l.x, l.y);
++		stood.push_back(l);
++	}
++	return stood;
++}
++
++void SandboxEngine::standBack(const Common::Array<Left> &stood) {
++	for (const Left &l : stood)
++		for (uint n = 0; n < _onStage.size(); ++n)
++			if ((int)n != _player && _onStage[n] == l.key) StageBridge::place(n, l.x, l.y);
++}
++
+ // Where they live, as them; refused aloud when they cannot be (not for a
+ // request that is no one's: the chat's in this range). Not shown there, the
+ // one played before stays, where they stood.
+@@ -1799,11 +1818,22 @@ bool SandboxEngine::castChoose(int key) {
+ 	};
+ 	int room;
+ 	if (!castHome(key, room)) return refuse();
+-	if (_touring.on) tourEnd(false);
+ 	const bool custom = customArt(key);
+-	const int game = custom ? _game : worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
++	const int game = custom ? _game : worldAppearanceGame(key);
++	// (The one played chosen again where they live: as they are, everyone
++	// else too, as Maniac's screen leaves its kid chosen again.)
++	if (key == _playerKey && _player >= 0 && game == _game && room == _room) {
++		if (!_testing) g_system->displayMessageOnOSD(Common::U32String(Common::String::format("You are playing %s.", who->name)));
++		return true;
++	}
++	if (_touring.on) tourEnd(false);
++	const int fromGame = _game, fromRoom = _room, fromKey = _playerKey;
+ 	const Riding riding = _riding; // (aboard: where it was boarded, should this fail)
+-	const Common::Array<Left> left = customLeft();
++	// (Aboard a ride's inside: kept as at the stop it was boarded at.)
++	int keptGame = fromGame, keptRoom = fromRoom;
++	const bool aboard = fromGame >= 0 && worldRideScene(fromGame, fromRoom) && riding.fromGame >= 0;
++	if (aboard) { keptGame = riding.fromGame; keptRoom = riding.fromRoom; }
++	const Common::Array<Left> left = customLeft(), others = standing();
+ 	double x = 0, y = 0, kx = 0, ky = 0;
+ 	const bool stood = _player >= 0;
+ 	if (stood) StageBridge::position(_player, x, y);
+@@ -1811,9 +1841,12 @@ bool SandboxEngine::castChoose(int key) {
+ 	int shown = -1;
+ 	for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == key) shown = n;
+ 	if (shown >= 0) StageBridge::position(shown, kx, ky);
+-	// (The one before stays, out among the wanderers here.)
+-	const int here = _wanderers && fromKey != key && fromGame >= 0 ? place(fromGame, fromRoom) : 0;
++	// (The one before stays, out among the wanderers here; aboard, at the
++	// stop, those following them too, not wherever their own wandering took
++	// them meanwhile.)
++	const int here = _wanderers && fromKey != key && keptGame >= 0 ? place(keptGame, keptRoom) : 0;
+ 	if (here) WanderBridge::send(fromKey, here);
++	if (here && aboard) for (int k : _followers) if (following(k)) WanderBridge::send(k, here);
+ 	_playerKey = key;
+ 	Common::String problem;
+ 	if (enter(game, room, 0, problem)) {
+@@ -1821,17 +1854,15 @@ bool SandboxEngine::castChoose(int key) {
+ 		int beside = -1;
+ 		for (uint n = 0; same && n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == fromKey) beside = n;
+ 		if (same && beside < 0 && here && (beside = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
+-		if (custom && same) {
+-			// (A custom one where the one before stood, they beside.)
+-			StageBridge::place(_player, x, y);
+-			keepOthersNear();
+-			if (beside >= 0) StageBridge::place(beside, x + 24, y);
+-			StageBridge::follow(_player);
+-		} else if (same) {
+-			// (Someone else here: where they stood, else where the place puts
+-			// them; the one before where they stood, not on them.)
++		if (same) {
++			// (Someone else here: where they stood, else (a custom one new
++			// here) where the one before stood, else where the place puts
++			// them; everyone else where they stood, not where the place puts
++			// people arriving; the one before where they stood, not on them.)
+ 			if (shown >= 0) StageBridge::place(_player, kx, ky);
++			else if (custom) StageBridge::place(_player, x, y);
+ 			keepOthersNear();
++			standBack(others);
+ 			double px, py;
+ 			StageBridge::position(_player, px, py);
+ 			if (beside >= 0) StageBridge::place(beside, fabs(px - x) < 8 && fabs(py - y) < 8 ? x + 24 : x, y);
+@@ -1845,8 +1876,7 @@ bool SandboxEngine::castChoose(int key) {
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown as %s (%s)", kWorldGames[game].gameid, room, who->name, problem.c_str());
+ 	_playerKey = fromKey;
+ 	// (Back where it was: aboard a ride, its stop.)
+-	int keptGame = fromGame, keptRoom = fromRoom;
+-	if (fromGame >= 0 && worldRideScene(fromGame, fromRoom) && riding.fromGame >= 0) { keptGame = riding.fromGame; keptRoom = riding.fromRoom; x = riding.x; y = riding.y; }
++	if (aboard) { x = riding.x; y = riding.y; }
+ 	if (keptGame >= 0 && enter(keptGame, keptRoom, 0, problem)) placePlayer(x, y);
+ 	return refuse();
+ }
+@@ -3355,6 +3385,10 @@ bool SandboxEngine::photo(int kind) {
+ 
+ bool SandboxEngine::selfieBegin(int shots) {
+ 	int x0, y0, x1, y1;
++	// (Off the screen, not out of sight: the plane's cabin panning across
++	// more seated than a screen of another shape shows. The camera on them
++	// for it; the pan goes on after.)
++	if (_player >= 0 && !StageBridge::hidden(_player) && !StageBridge::drawnRect(_player, x0, y0, x1, y1)) StageBridge::follow(_player);
+ 	if (_player < 0 || !StageBridge::drawnRect(_player, x0, y0, x1, y1)) {
+ 		Camera::note("No selfie here");
+ 		return false;
+@@ -5686,6 +5720,27 @@ Common::Error SandboxEngine::castTest() {
+ 	_wanderers = false;
+ 	int failed = 0, faces = 0, listed = 0, played = 0, expected = 0, newKids = 0, newKidsHere = 0;
+ 	auto fail = [&](const char *what, const char *where) { ++failed; warning("SCUMMVERSE sandbox cast: %s: %s", where, what); };
++	// Where everyone on the stage stands, by key; how many of them (but
++	// `skip`) are not there now (gone, or moved).
++	auto everyone = [&]() {
++		Common::Array<Left> all;
++		for (uint n = 0; n < _onStage.size(); ++n) { Left l; l.key = _onStage[n]; StageBridge::position(n, l.x, l.y); all.push_back(l); }
++		return all;
++	};
++	auto moved = [&](const Common::Array<Left> &was, int skip) {
++		int count = 0;
++		for (const Left &l : was) {
++			if (l.key == skip) continue;
++			bool there = false;
++			for (uint n = 0; n < _onStage.size() && !there; ++n) {
++				double x, y;
++				StageBridge::position(n, x, y);
++				there = _onStage[n] == l.key && fabs(x - l.x) <= 1 && fabs(y - l.y) <= 1;
++			}
++			count += !there;
++		}
++		return count;
++	};
+ 	int game, room;
+ 	Common::String problem;
+ 	if (!startPlace(game, room) || !someoneToPlay(game) || !enter(game, room, 0, problem)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
+@@ -5800,12 +5855,29 @@ Common::Error SandboxEngine::castTest() {
+ 		else {
+ 			const int atGame = _game, atRoom = _room;
+ 			WanderBridge::send(next, place(_game, _room));
++			// (Two from another game here too.)
++			int sent = 0;
++			for (const WorldCastGuest &c : kWorldCast) {
++				const int k = worldAppearanceKey(c.game, c.guest.costume);
++				if (sent < 2 && c.game != _game && hasCharacter(k) && WanderBridge::where(k) != place(_game, _room) && WanderBridge::send(k, place(_game, _room))) ++sent;
++			}
+ 			enter(_game, _room, 0, problem);
+ 			int shown = -1;
+ 			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == next) shown = n;
+ 			double fx, fy, nx = 0, ny = 0;
+ 			StageBridge::position(_player, fx, fy);
+ 			if (shown >= 0) StageBridge::position(shown, nx, ny);
++			// (Everyone else moved off the spot the place gave them: there still
++			// after.)
++			for (uint n = 0; n < _onStage.size(); ++n) {
++				if ((int)n == _player || (int)n == shown) continue;
++				double ex, ey;
++				StageBridge::position(n, ex, ey);
++				ex += 9 + 5 * (n % 4);
++				StageBridge::walkable(ex, ey);
++				StageBridge::place(n, ex, ey);
++			}
++			const Common::Array<Left> was = everyone();
+ 			newKid();
+ 			int nexts = 0, firsts = 0, left = -1;
+ 			for (uint n = 0; n < _onStage.size(); ++n) { nexts += _onStage[n] == next; firsts += _onStage[n] == first; if (_onStage[n] == first) left = n; }
+@@ -5817,6 +5889,7 @@ Common::Error SandboxEngine::castTest() {
+ 			else if (fabs(px - nx) > 1 || fabs(py - ny) > 1) fail("the next not where they stood", "new kid here");
+ 			else if (nexts != 1 || firsts != 1 || left == _player || fabs(lx - fx) > 1 || fabs(ly - fy) > 1) fail("the one before not once where they stood", "new kid here");
+ 			else if ((int)_onStage.size() != StageBridge::actorCount() || _people != (int)_onStage.size()) fail("the stage and the actors out of step", "new kid here");
++			else if ((int)was.size() < 3 || moved(was, first)) fail("someone else here moved", "new kid here");
+ 			else ++newKidsHere;
+ 		}
+ 	}
+@@ -5826,6 +5899,7 @@ Common::Error SandboxEngine::castTest() {
+ 	// the player is, standing where the one before stood, as tall against
+ 	// the lead as drawn to be (Crispy about a third of a person).
+ 	int customs = 0, customsAmong = 0, lighters = 0, canLighters = 0, roamers = 0, customsLeft = 0, herePlayed = 0;
++	int sameAgain = 0, othersKept = 0, customAgain = 0, aboardTried = 0, aboardLeft = 0;
+ 	bool roamedHere = false;
+ 	double tall = 0;
+ 	{
+@@ -5983,7 +6057,23 @@ Common::Error SandboxEngine::castTest() {
+ 				if (at >= 0) StageBridge::position(at, sx, sy);
+ 				if (times != 1 || at == _player || fabs(sx - fx) > 1 || fabs(sy - fy) > 1) fail("one who does not roam gone at the next switch", "custom left here");
+ 				else if ((int)_onStage.size() != StageBridge::actorCount() || _people != (int)_onStage.size()) fail("the stage and the actors out of step", "custom left here");
+-				else ++customsLeft;
++				else {
++					++customsLeft;
++					// (Chosen again: played from where he stands, the one before
++					// where they stood.)
++					double tx, ty, cx = -1, cy = -1, bx2 = -1, by2 = -1;
++					StageBridge::position(_player, tx, ty);
++					if (!castChoose(crispy)) fail("not played again", "custom left here chosen again");
++					else {
++						int thirds = 0;
++						for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == third && (int)n != _player) { ++thirds; StageBridge::position(n, bx2, by2); }
++						StageBridge::position(_player, cx, cy);
++						const bool apart = fabs(sx - tx) >= 8 || fabs(sy - ty) >= 8;
++						if (_playerKey != crispy || fabs(cx - sx) > 1 || fabs(cy - sy) > 1) fail("not played from where he stood", "custom left here chosen again");
++						else if (thirds != 1 || (apart && (fabs(bx2 - tx) > 1 || fabs(by2 - ty) > 1))) fail("the one before not where they stood", "custom left here chosen again");
++						else ++customAgain;
++					}
++				}
+ 			}
+ 		}
+ 		// Someone of the game's own who lives here played: the one before
+@@ -6008,6 +6098,95 @@ Common::Error SandboxEngine::castTest() {
+ 				}
+ 			}
+ 		}
++		// The one played chosen again where they live: nothing changes (they
++		// and everyone else where they stand), as Maniac's screen leaves its
++		// kid chosen again.
++		if (!castChoose(leadKey)) fail("not played", "the one played chosen again");
++		else {
++			double xs[12], ys[12], px0, py0;
++			StageBridge::position(_player, px0, py0);
++			const int spots = StageBridge::spots(12, xs, ys);
++			int far = -1;
++			for (int i = 0; i < spots; ++i) if (far < 0 || fabs(xs[i] - px0) + fabs(ys[i] - py0) > fabs(xs[far] - px0) + fabs(ys[far] - py0)) far = i;
++			if (far >= 0) StageBridge::place(_player, xs[far], ys[far]); // (away from where the place puts them)
++			const Common::Array<Left> was = everyone();
++			const int gameWas = _game, roomWas = _room;
++			if (!castChoose(leadKey)) fail("not played again", "the one played chosen again");
++			else if (_playerKey != leadKey || _game != gameWas || _room != roomWas || moved(was, -1)) fail("not as they were", "the one played chosen again");
++			else ++sameAgain;
++		}
++		// Someone else played here: everyone else stays where they stood (not
++		// put where the place puts people arriving), the one before beside.
++		if (castChoose(leadKey)) {
++			const int here = place(_game, _room);
++			int other = -1, sent = 0;
++			for (const WorldCastGuest &c : kWorldCast) {
++				const int k = worldAppearanceKey(c.game, c.guest.costume);
++				int home;
++				if (other < 0 && c.game == _game && k != leadKey && hasCharacter(k) && castHome(k, home) && home == _room) other = k;
++			}
++			Common::Array<int> sentKeys;
++			for (const WorldCastGuest &c : kWorldCast) {
++				const int k = worldAppearanceKey(c.game, c.guest.costume);
++				bool again = false;
++				for (int s : sentKeys) again = again || s == k;
++				if (sent < 3 && here && !again && k != leadKey && k != other && c.game != _game && hasCharacter(k) && WanderBridge::send(k, here)) { ++sent; sentKeys.push_back(k); }
++			}
++			Common::String problem3;
++			if (other >= 0 && sent && enter(_game, _room, 0, problem3)) {
++				// (Each moved off the spot the place gave them.)
++				for (uint n = 0; n < _onStage.size(); ++n) {
++					if ((int)n == _player) continue;
++					double x, y;
++					StageBridge::position(n, x, y);
++					x += 9 + 5 * (n % 4);
++					StageBridge::walkable(x, y);
++					StageBridge::place(n, x, y);
++				}
++				const Common::Array<Left> was = everyone();
++				if ((int)was.size() < 3) fail("too few here", "everyone else kept");
++				else if (!castChoose(other)) fail("not played", "everyone else kept");
++				else if (moved(was, leadKey)) fail("someone else here moved", "everyone else kept");
++				else ++othersKept;
++			}
++		}
++		// Aboard (the plane's cabin, where exported): someone else chosen, the
++		// one before is left at the airport it was boarded at, out among the
++		// wanderers there (not wherever their own wandering had taken them).
++		{
++			int plane = -1;
++			for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) {
++				const WorldRide &r = kWorldRides[i];
++				const WorldRideScene *inside = worldRideInside(r.game, r.kind);
++				if (plane < 0 && r.kind == kWorldRidePlane && installed(r.game, r.room) && inside && _insides.contains(inside->game * 1024 + inside->room)) plane = i;
++			}
++			const WorldRide *r = plane >= 0 ? &kWorldRides[plane] : nullptr;
++			Common::String problem3;
++			int flyer = -1, other = -1;
++			for (const WorldLead &l : kWorldLeads) if (r && l.game == r->game && hasCharacter(worldAppearanceKey(l.game, l.costume))) flyer = worldAppearanceKey(l.game, l.costume);
++			if (flyer >= 0 && leadKey != flyer) other = leadKey;
++			if (r && flyer >= 0 && other >= 0 && castChoose(flyer) && enter(r->game, r->room, 0, problem3)) {
++				_riding = Riding();
++				_riding.ride = plane; _riding.phase = kRideBoarded + 1;
++				_riding.fromGame = r->game; _riding.fromRoom = r->room;
++				StageBridge::position(_player, _riding.x, _riding.y);
++				_riding.toGame = r->game; _riding.toRoom = r->room;
++				const int stop = place(r->game, r->room);
++				// (Their own wandering elsewhere meanwhile.)
++				int elsewhere = 0;
++				for (int g = 0; g < worldGameCount() && !elsewhere; ++g) {
++					int first;
++					if (g != r->game && firstPlace(g, first) && place(g, first)) elsewhere = place(g, first);
++				}
++				if (rideInside(plane) && _aboard && elsewhere && WanderBridge::send(flyer, elsewhere)) {
++					++aboardTried;
++					if (!castChoose(other)) fail("not played", "chosen aboard");
++					else if (_aboard || _playerKey != other || WanderBridge::where(flyer) != stop) fail("the one before not left at the stop it was boarded at", "chosen aboard");
++					else ++aboardLeft;
++				}
++				_riding = Riding();
++			}
++		}
+ 		_wanderers = false;
+ 	}
+ 	// Kept; and a request in the screen's range that is no one's (the chat's
+@@ -6060,10 +6239,11 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d; %d left here kept), %d of the game's own here played (the one before kept), %d failed",
+-		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, roamers, (int)roamedHere, customsLeft, herePlayed, failed);
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d; %d left here kept), %d of the game's own here played (the one before kept), %d chosen again where they live as they were, %d played here with everyone else where they stood, %d custom chosen again where he stood, %d of %d chosen aboard left at the stop, %d failed",
++		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, roamers, (int)roamedHere, customsLeft, herePlayed,
++		sameAgain, othersKept, customAgain, aboardLeft, aboardTried, failed);
+ 	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast) || customsAmong != 1 || lighters != canLighters ||
+-		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere || customsLeft != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere || customsLeft != 1 || sameAgain != 1 || othersKept != 1 || customAgain != 1 || aboardLeft != aboardTried) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -6271,14 +6451,54 @@ Common::Error SandboxEngine::cameraTest() {
+ 			if (ratio > 4.0 / 3 * 1.02 || ratio < 0.8 * 0.98) fail("a selfie not 4:5 to 4:3 (scrolled)"); else ++wideShots;
+ 		} else fail("no selfie (scrolled)");
+ 	}
++	const Common::String widePlace = wide ? Common::String::format("%s-%d", kWorldGames[_game].gameid, _room) : Common::String("none");
++	// Aboard the plane (where its cabin is exported), the camera panned away
++	// from the one played (more seated than a screen of another shape shows):
++	// a selfie all the same, framed on them.
++	int aboardTried = 0, aboardShots = 0;
++	{
++		int plane = -1;
++		for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) {
++			const WorldRide &r = kWorldRides[i];
++			const WorldRideScene *inside = worldRideInside(r.game, r.kind);
++			if (plane < 0 && r.kind == kWorldRidePlane && installed(r.game, r.room) && inside && _insides.contains(inside->game * 1024 + inside->room)) plane = i;
++		}
++		if (plane >= 0 && someoneToPlay(kWorldRides[plane].game) && enter(kWorldRides[plane].game, kWorldRides[plane].room, 0, problem)) {
++			const WorldRide &r = kWorldRides[plane];
++			_riding = Riding();
++			_riding.ride = plane; _riding.phase = kRideBoarded + 1;
++			_riding.fromGame = r.game; _riding.fromRoom = r.room; _riding.toGame = r.game; _riding.toRoom = r.room;
++			StageBridge::position(_player, _riding.x, _riding.y);
++			if (rideInside(plane) && _aboard) {
++				// (The cabin's far end from their seat.)
++				double seatX, seatY;
++				int x0, y0, x1, y1;
++				StageBridge::position(_player, seatX, seatY);
++				StageBridge::lookAt(seatX < StageBridge::sceneWidth() / 2 ? StageBridge::sceneWidth() : 0);
++				if (StageBridge::drawnRect(_player, x0, y0, x1, y1)) fail("the one played still on the screen panned away (the check is out of date)");
++				else {
++					++aboardTried;
++					const uint before = FakeCamera::shots.size();
++					const int kindBefore = StageBridge::shownKind(_player);
++					Camera::requestSelfie(1);
++					const uint32 at = g_system->getMillis();
++					while (cameraHold() && g_system->getMillis() - at < 5000) g_system->delayMillis(5);
++					if (FakeCamera::shots.size() != before + 1 || FakeCamera::shots.back().kind != Camera::kSelfie) fail("no selfie aboard, the camera panned away");
++					else if (!StageBridge::posed(_player) || StageBridge::shownKind(_player) != kindBefore) fail("not seated again after a selfie aboard");
++					else ++aboardShots;
++				}
++			}
++			_riding = Riding();
++		}
++	}
+ 	Camera::setPlainSink(nullptr, nullptr);
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest camera: clean %dx%d, full %dx%d, selfie %d shots %dx%d in %u ms, %d in a scrolled place (%s), %d failed",
++	warning("SCUMMVERSE sandbox selftest camera: clean %dx%d, full %dx%d, selfie %d shots %dx%d in %u ms, %d in a scrolled place (%s), %d of %d aboard with the camera panned away, %d failed",
+ 		FakeCamera::shots.size() > 0 ? FakeCamera::shots[0].width : 0, FakeCamera::shots.size() > 0 ? FakeCamera::shots[0].height : 0,
+ 		FakeCamera::shots.size() > 1 ? FakeCamera::shots[1].width : 0, FakeCamera::shots.size() > 1 ? FakeCamera::shots[1].height : 0,
+ 		(int)selfies.size(), selfies.empty() ? 0 : selfies[0].width, selfies.empty() ? 0 : selfies[0].height, took, wideShots,
+-		wide ? Common::String::format("%s-%d", kWorldGames[_game].gameid, _room).c_str() : "none", failed);
+-	if (failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		widePlace.c_str(), aboardShots, aboardTried, failed);
++	if (failed || aboardShots != aboardTried) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -7280,6 +7500,15 @@ Common::Error SandboxEngine::movesTest() {
+ 	int near = -1;
+ 	for (int n = 0; n < (int)_onStage.size(); ++n) if (_onStage[n] == crispy) near = n;
+ 	if (near < 0) fail("Crispy not left beside him");
++	else {
++		// (Beside him again: his walks may have taken him away from where he
++		// was left.)
++		double hx, hy;
++		StageBridge::position(_player, hx, hy);
++		hx += 24 * screenWidthOf(_game) / 320.0;
++		StageBridge::walkable(hx, hy);
++		StageBridge::place(near, hx, hy);
++	}
+ 	auto among = [](const Common::String &line, const char *const *lines, int count) {
+ 		for (int i = 0; i < count; ++i) if (line == lines[i]) return true;
+ 		return false;
+@@ -7397,8 +7626,13 @@ Common::Error SandboxEngine::movesTest() {
+ 			++shows;
+ 			heckleOver();
+ 		}
+-		// (None far away, or walking.)
+-		StageBridge::place(him, px + screenWidthOf(_game), py);
++		// (None far away, or walking. Far: a screen's width to the side
++		// with more room, as the walk boxes allow.)
++		double fx = px + screenWidthOf(_game), fy = py, gx = px - screenWidthOf(_game), gy = py;
++		StageBridge::walkable(fx, fy);
++		StageBridge::walkable(gx, gy);
++		if (fabs(gx - px) > fabs(fx - px)) { fx = gx; fy = gy; }
++		StageBridge::place(him, fx, fy);
+ 		_showOffClock = 1;
+ 		step(1);
+ 		if (_showOff.actor >= 0) fail("a show far away"); else ++held;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 78d44c8f..3c6fa1e4 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -205,6 +205,11 @@ private:
+ 	struct Left { int key; double x, y; };
+ 	Common::Array<Left> customLeft() const;
+ 	void customBack(const Common::Array<Left> &left);
++	// Everyone here but the one played, where they stand; and back there
++	// once the place is entered again for someone else played here (not
++	// where the place puts people arriving).
++	Common::Array<Left> standing() const;
++	void standBack(const Common::Array<Left> &stood);
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;

@@ -1,0 +1,407 @@
+// Wanderers (common/scummverse_wander.cpp): places and doors, everyone out
+// (mostly in their own game), moving along doors, jumps, gathering, toward
+// the player, the crowd and small ones, away ones (never in their own
+// game), never two of anyone (the same name in two games, or someone
+// standing there), weights, saving, the game's side, two sets on two threads.
+// c++ -std=c++14 -Wall -Wextra -Werror -fsanitize=address,undefined -Iengine
+//   tools/test_wander.cpp engine/common/scummverse_wander.cpp
+#include "common/scummverse_wander.h"
+#include <algorithm>
+#include <cassert>
+#include <cstdio>
+#include <set>
+#include <thread>
+#include <vector>
+using namespace Scummverse::Wander;
+
+// Two games: a ring of twelve rooms (game 3), a corridor of four Maniac
+// rooms (game 0), and one Zak room with no doors (game 1).
+static Map world() {
+	Map map;
+	for (int r = 1; r <= 12; ++r) map.add(placeCode(kWorld, 3, r), 1, 5);
+	for (int r = 1; r <= 12; ++r) map.link(placeCode(kWorld, 3, r), placeCode(kWorld, 3, r % 12 + 1));
+	for (int r = 1; r <= 4; ++r) map.add(placeCode(kManiac, 0, r), 3, 0);
+	for (int r = 1; r < 4; ++r) { map.link(placeCode(kManiac, 0, r), placeCode(kManiac, 0, r + 1)); map.link(placeCode(kManiac, 0, r + 1), placeCode(kManiac, 0, r)); }
+	map.add(placeCode(kZak, 0, 55), 12, 1);
+	return map;
+}
+
+int main() {
+	// Places: codes round trip, never 0, below 65536; doors once, only
+	// between added places; games keep their places.
+	for (int kind : {kManiac, kZak, kWorld}) for (int game : {0, 9}) for (int room : {0, 1, 200, 1023}) {
+		const int code = placeCode(kind, game, room);
+		assert(code > 0 && code < 65536 && placeKind(code) == kind && placeGame(code) == game && placeRoom(code) == room);
+	}
+	Map map = world();
+	assert(map.places.size() == 17 && map.find(placeCode(kZak, 0, 55)) == 16 && map.find(placeCode(kZak, 0, 56)) < 0);
+	map.link(placeCode(kWorld, 3, 1), placeCode(kWorld, 3, 2)); map.link(placeCode(kWorld, 3, 1), placeCode(kZak, 0, 99));
+	assert(map.doors[0].size() == 1 && map.add(placeCode(kWorld, 3, 1), 9, 2) == 0 && map.weights[0] == 1 && map.groups[0] == 5);
+	assert(map.members[5].size() == 12 && map.members[0].size() == 4 && map.members[1].size() == 1 && map.total == 12 + 12 + 12);
+	puts("PASS: places, doors and games");
+
+	// Random: the same seed, the same numbers; picks by weight and in a game.
+	{
+		Random a(7), b(7), c(0);
+		for (int i = 0; i < 100; ++i) { const int x = a.below(10); assert(x == b.below(10) && x >= 0 && x < 10); }
+		assert(c.below(0) == 0 && c.state != 0);
+		Random r(11); int zak = 0;
+		for (int n = 0; n < 3000; ++n) zak += map.pick(r) == placeCode(kZak, 0, 55);
+		assert(zak > 800 && zak < 1200); // one place weighing a third of the map
+		for (int n = 0; n < 50; ++n) assert(placeGame(map.pickIn(5, r)) == 3 && map.pickIn(1, r) == placeCode(kZak, 0, 55));
+		assert(map.pickIn(4, r) == 0 && map.pickIn(99, r) == 0 && Map().pick(r) == 0);
+	}
+	puts("PASS: random; by weight; within a game");
+
+	// A cast of 60 in game 3 (some living nowhere known), 20 in the Maniac
+	// game; four small ones.
+	Cast cast;
+	for (int i = 0; i < 60; ++i) cast.add(1000 + i, i % 5 ? map.places[i % 12] : 0, 5, 1, i < 4);
+	for (int i = 0; i < 20; ++i) cast.add(2000 + i, placeCode(kManiac, 0, 1 + i % 4), 0);
+	cast.add(1000, 0, 5); cast.add(0, 0, 5); // once each; nobody 0
+	assert(cast.size() == 80 && cast.find(1007) == 7 && cast.find(5) < 0 && cast.small[3] && !cast.small[4]);
+	{
+		Cast again = cast; assert(again.signature() == cast.signature() && again.signature() & 1);
+		again.add(3000, 0); assert(again.signature() != cast.signature());
+	}
+
+	// Everyone out: each somewhere known, anywhere at all (every game an
+	// equal share); leaning to their own game keeps most there.
+	Wanderers everyone; Random random(42); Rules rules;
+	assert(!everyone.started() && everyone.where(0) == 0 && rules.lean == 0);
+	auto own = [&](const Wanderers &w) {
+		int n = 0;
+		for (int i = 0; i < 80; ++i) { assert(map.find(w.where(i)) >= 0); n += map.groups[map.find(w.where(i))] == cast.games[i]; }
+		return n;
+	};
+	everyone.start(cast, map, rules, random);
+	{
+		assert(everyone.started() && own(everyone) < 45); // a third of the map's weight each: about 27 of 80
+		int ids[80]; const int n = everyone.at(everyone.where(5), ids, 80);
+		assert(n >= 1 && std::find(ids, ids + std::min(n, 80), 5) != ids + std::min(n, 80) && everyone.at(0, ids, 80) == 0);
+		Wanderers homely; Rules lean; lean.lean = 75; Random r(8);
+		homely.start(cast, map, lean, r);
+		assert(own(homely) > 55);
+	}
+	puts("PASS: everyone out anywhere; a lean keeps them home");
+
+	// Moving: along doors only (no jumps, joins or pull); the player's place
+	// keeps those there; the rest move on within a few hops' time.
+	{
+		Rules doors; doors.jump = 0; doors.join = 0; doors.toward = 0;
+		const int here = everyone.where(10);
+		int before[80]; for (int i = 0; i < 80; ++i) before[i] = everyone.where(i);
+		for (int t = 0; t < 40; ++t) {
+			int last[80]; for (int i = 0; i < 80; ++i) last[i] = everyone.where(i);
+			everyone.advance(60 * 10, here, cast, map, doors, random);
+			for (int i = 0; i < 80; ++i) {
+				if (last[i] == here) assert(everyone.where(i) == here); // kept while the player watches
+				else if (everyone.where(i) != last[i]) {
+					const int from = map.find(last[i]);
+					bool door = false;
+					for (int d : map.doors[from]) door = door || map.places[d] == everyone.where(i);
+					// (A place with no doors moves anywhere.)
+					assert(door || map.doors[from].empty());
+				}
+			}
+		}
+		int moved = 0;
+		for (int i = 0; i < 80; ++i) if (before[i] != here) moved += before[i] != everyone.where(i);
+		assert(moved > 40);
+	}
+	puts("PASS: moving through doors; the player's place keeps them");
+
+	// Jumps reach anywhere (the Zak room, with no doors in); joining gathers.
+	{
+		Rules jumps; jumps.jump = 1000; jumps.join = 0; jumps.toward = 0;
+		bool zak = false;
+		for (int t = 0; t < 200 && !zak; ++t) {
+			everyone.advance(60 * 30, 0, cast, map, jumps, random);
+			zak = everyone.at(placeCode(kZak, 0, 55), nullptr, 0) > 0;
+		}
+		assert(zak);
+		auto spread = [&]() { std::set<int> s; for (int i = 0; i < 80; ++i) s.insert(everyone.where(i)); return (int)s.size(); };
+		const int wide = spread();
+		Rules gather; gather.join = 1000; gather.jump = 0; gather.toward = 0;
+		for (int t = 0; t < 400; ++t) everyone.advance(60 * 30, 0, cast, map, gather, random);
+		assert(spread() < wide);
+	}
+	puts("PASS: jumps reach anywhere; joining gathers");
+
+	// Toward the player: to a room next to the player's, and on through its
+	// doors in, while fewer than a crowd (small ones aside) are there.
+	{
+		Wanderers some; Random r(3); some.start(cast, map, rules, r);
+		const int here = placeCode(kManiac, 0, 2), at = map.find(here);
+		for (int i = 0; i < 80; ++i) if (some.where(i) == here) some.place(i, placeCode(kManiac, 0, 4));
+		Rules pull; pull.jump = 0; pull.join = 0; pull.toward = 1000;
+		int moved = 0;
+		for (int t = 0; t < 20; ++t) {
+			int last[80]; for (int i = 0; i < 80; ++i) last[i] = some.where(i);
+			some.advance(60 * 200, here, cast, map, pull, r);
+			for (int i = 0; i < 80; ++i) {
+				if (some.where(i) == last[i]) continue;
+				++moved;
+				bool next = false;
+				for (int d : map.doors[at]) next = next || map.places[d] == some.where(i);
+				assert(next);
+			}
+		}
+		assert(moved > 40);
+		pull.toward = 0;
+		for (int t = 0; t < 60; ++t) some.advance(60 * 200, here, cast, map, pull, r);
+		assert(some.crowdAt(here, cast) <= pull.crowd && some.crowdAt(here, cast) > 0);
+		int small = 0; for (int i = 0; i < 4; ++i) small += some.where(i) == here;
+		assert(some.at(here, nullptr, 0) == some.crowdAt(here, cast) + small);
+	}
+	{
+		// A critter comes in whoever is there; nobody else once four are.
+		Map rooms; const int hall = placeCode(kManiac, 0, 1), side = placeCode(kManiac, 0, 2);
+		rooms.add(hall); rooms.add(side); rooms.link(side, hall); rooms.link(hall, side);
+		Cast critters;
+		for (int i = 0; i < 4; ++i) critters.add(4000 + i, hall);
+		critters.add(5000, side, 0, 1, true); critters.add(5001, side);
+		Wanderers w; Random r(5); Rules doors; doors.jump = 0; doors.join = 0; doors.toward = 0;
+		w.start(critters, rooms, doors, r);
+		for (int i = 0; i < 4; ++i) w.place(i, hall);
+		w.place(4, side); w.place(5, side);
+		for (int t = 0; t < 40; ++t) w.advance(60 * 200, hall, critters, rooms, doors, r);
+		assert(w.where(4) == hall && w.where(5) == side);
+	}
+	puts("PASS: toward the player; the crowd; small ones always fit");
+
+	// Away ones (the mansion's and Zak's people): never in their own game's
+	// places, set out, through doors, joining, jumping or toward the player
+	// there; with nowhere else, nowhere (at home).
+	{
+		Random r(13); int seen[64] = {};
+		assert(map.sums.size() > 5 && map.sums[5] == 12 && map.sums[0] == 12 && map.sums[1] == 12);
+		for (int n = 0; n < 3000; ++n) {
+			const int p = map.find(map.pickOutside(0, r)); assert(p >= 0 && map.groups[p] != 0); ++seen[map.groups[p]];
+		}
+		assert(seen[5] > 1300 && seen[1] > 1300 && map.pickOutside(42, r) != 0);
+		Cast homes = cast;
+		for (int i = 0; i < 30; ++i) homes.add(6000 + i, placeCode(kManiac, 0, 1), 0, 1, i < 2, true);
+		for (int i = 0; i < 10; ++i) homes.add(7000 + i, placeCode(kZak, 0, 55), 1, 1, false, true);
+		assert(homes.size() == 120 && homes.away.size() == 120 && !homes.away[79] && homes.away[80] && homes.away[119]);
+		auto inside = [&](const Wanderers &w) {
+			int n = 0;
+			for (int i = 80; i < 120; ++i) { const int p = map.find(w.where(i)); assert(p >= 0); n += map.groups[p] == homes.games[i]; }
+			return n;
+		};
+		Wanderers w; Rules lean; lean.lean = 100;
+		w.start(homes, map, lean, r);
+		assert(inside(w) == 0);
+		const int player = placeCode(kManiac, 0, 2);
+		for (int pass = 0; pass < 4; ++pass) {
+			Rules mix; mix.jump = pass == 0 ? 1000 : 0; mix.join = pass == 1 ? 1000 : 0; mix.toward = pass == 2 ? 1000 : 0;
+			for (int t = 0; t < 80; ++t) { w.advance(60 * 60, player, homes, map, mix, r); assert(inside(w) == 0); }
+		}
+		int out = 0; for (int i = 0; i < 80; ++i) out += map.groups[map.find(w.where(i))] == 0;
+		assert(out > 0); // (the others still come by)
+		Map mansion; for (int k = 1; k <= 3; ++k) mansion.add(placeCode(kManiac, 0, k), 1, 0);
+		mansion.link(placeCode(kManiac, 0, 1), placeCode(kManiac, 0, 2));
+		Wanderers alone; alone.start(homes, mansion, rules, r);
+		assert(alone.where(80) == 0 && alone.where(0) != 0 && mansion.pickOutside(0, r) == 0);
+		alone.advance(60 * 600, 0, homes, mansion, rules, r);
+		assert(alone.where(80) == 0 && alone.where(119) != 0); // (Zak's people may go to the mansion)
+	}
+	puts("PASS: away ones never in their own game");
+
+	// The same person by name: case, punctuation and a leading "the" aside,
+	// or with a family name after; never a number after, a description or
+	// a part in brackets with a family name, nor two of different names.
+	{
+		const char *same[][2] = {{"Guybrush Threepwood", "guybrush  threepwood"}, {"Wally B. Feed", "Wally B Feed"}, {"Voodoo Lady", "The Voodoo Lady"},
+			{"Dr Fred", "Dr. Fred Edison"}, {"Weird Ed Edison", "Weird Ed"}, {"Bernard", "Bernard Bernoulli"}, {"Li'l Todd", "Lil Todd"},
+			{"Cook (SCUMM Bar)", "cook (scumm bar)"}, {"Rum Rogers Jr.", "Rum Rogers Jr"}};
+		const char *apart[][2] = {{"Suzy", "Suzy 4"}, {"Suzy 3", "Suzy 4"}, {"Crispy 2", "Crispy"}, {"The King", "King Andre"}, {"Cook (SCUMM Bar)", "Cook (Bloody Lip)"},
+			{"Cook (SCUMM Bar)", "Cook"}, {"Murray", "Murray (green)"}, {"Henry Jones", "Indiana Jones"}, {"Guybrush's father", "Guybrush Threepwood"},
+			{"Weird Ed Edison", "Weird Ved Edison"}, {"Bernard Bernoulli", "Bernard Smith"}, {"Dr Fred", "Dr Fred Edison Senior"}, {"", ""}, {"Stan", "Stu"}};
+		for (auto &p : same) assert(samePerson(p[0], p[1]) && samePerson(p[1], p[0]));
+		for (auto &p : apart) assert(!samePerson(p[0], p[1]) && !samePerson(p[1], p[0]));
+		assert(!samePerson(nullptr, "Stan") && !samePerson(Name(), Name()) && samePerson(Name("STAN!"), Name("stan")));
+		// In a cast: twins by name, never small ones (two parrots are two
+		// birds) nor one with itself.
+		Cast named;
+		named.add(1, 0, 2, 1, false, false, "Guybrush Threepwood"); named.add(2, 0, 3, 1, false, false, "Guybrush Threepwood");
+		named.add(3, 0, 4, 1, true, false, "Parrot"); named.add(4, 0, 5, 1, true, false, "Parrot");
+		named.add(5, 0, 6, 1, false, false, "Bernard Bernoulli"); named.add(6, 0, 0, 1, false, true, "Bernard");
+		named.add(7, 0, 6, 1, true, false, "Monkey"); named.add(8, 0, 7, 1, true, false, "Monkey deckhand"); named.add(9, 0, 7);
+		named.add(10, 0, 8, 1, false, false, "Ghost"); named.add(11, 0, 9, 1, true, false, "Ghost");
+		assert(named.size() == 11 && named.names.size() == 11 && named.twins.size() == 11);
+		assert(named.twins[0] == std::vector<int>{1} && named.twins[1] == std::vector<int>{0} && named.twins[4] == std::vector<int>{5});
+		for (int i : {2, 3, 6, 7, 8, 9, 10, 11}) assert(named.twins[i].empty());
+	}
+	puts("PASS: the same person by name (case, punctuation, a family name), small ones apart");
+
+	// Never two of anyone: three Guybrushes (three games), two Ednas (one the
+	// mansion's own, away from it) and a crowd, gathering, jumping, along
+	// doors and toward the player: never two of a name in one place, set out
+	// or moved, though the others gather; nobody moves in where the same
+	// person stands (the one played, a place's own people), a small one
+	// standing aside.
+	int checked = 0;
+	{
+		Cast people = cast;
+		const int guy[3] = {8000, 8001, 8002};
+		for (int i = 0; i < 3; ++i) people.add(guy[i], 0, i == 2 ? 1 : 5, 1, false, false, i == 1 ? "guybrush threepwood" : "Guybrush Threepwood");
+		people.add(8003, 0, 5, 1, false, false, "Nurse Edna"); people.add(8004, placeCode(kManiac, 0, 1), 0, 1, false, true, "Nurse Edna");
+		people.add(8005, 0, 5, 1, true, false, "Parrot"); people.add(8006, 0, 1, 1, true, false, "Parrot");
+		assert(people.size() == 87 && people.twins[80].size() == 2 && people.twins[83] == std::vector<int>{84} && people.twins[85].empty());
+		// (A small map: the five places of three games, so they would meet.)
+		Map small;
+		auto twice = [&](const Wanderers &w) {
+			for (int code : small.places) {
+				++checked;
+				for (size_t i = 0; i < people.size(); ++i)
+					for (int t : people.twins[i]) if (w.where((int)i) == code && w.where(t) == code) return true;
+			}
+			return false;
+		};
+		for (int r = 1; r <= 3; ++r) small.add(placeCode(kWorld, 3, r), 1, 5);
+		small.add(placeCode(kManiac, 0, 1), 1, 0); small.add(placeCode(kZak, 0, 55), 1, 1);
+		for (int r = 1; r <= 3; ++r) small.link(placeCode(kWorld, 3, r), placeCode(kWorld, 3, r % 3 + 1));
+		small.link(placeCode(kWorld, 3, 1), placeCode(kManiac, 0, 1)); small.link(placeCode(kManiac, 0, 1), placeCode(kZak, 0, 55));
+		for (uint32_t seed : {3u, 4u, 5u, 6u}) {
+			Wanderers w; Random r(seed);
+			w.start(people, small, rules, r);
+			for (int i : {80, 81, 82}) for (int j : {80, 81, 82}) assert(i == j || w.where(i) != w.where(j));
+			assert(w.where(83) != w.where(84) && w.where(84) != placeCode(kManiac, 0, 1));
+			for (int pass = 0; pass < 4; ++pass) {
+				Rules mix; mix.jump = pass == 0 ? 1000 : 0; mix.join = pass == 1 ? 1000 : 0; mix.toward = pass == 2 ? 1000 : 0;
+				for (int t = 0; t < 60; ++t) {
+					w.advance(60 * 60, t % 3 ? 0 : placeCode(kWorld, 3, 2), people, small, mix, r);
+					assert(!twice(w));
+				}
+			}
+			// (The others still gather: the parrots too, two birds.)
+			int together = 0; for (int i = 0; i < 80; ++i) together += w.where(i) == w.where(0);
+			assert(together > 1);
+		}
+		// Standing: Edna in her own room of the mansion, Guybrush played in the
+		// Zak room; everyone pulled there and gathering. Neither of them moves
+		// in; the others do; a parrot standing stands for no parrot.
+		{
+			Wanderers w; Random r(21);
+			w.start(people, small, rules, r);
+			const int ward = placeCode(kManiac, 0, 1), street = placeCode(kZak, 0, 55);
+			const int rooms[][2] = {{80, 3}, {81, 1}, {82, 2}, {83, 3}, {84, 2}, {85, 1}, {86, 3}};
+			for (auto &p : rooms) w.place(p[0], placeCode(kWorld, 3, p[1]));
+			w.stand("Nurse Edna", ward); w.stand("The Guybrush Threepwood", street); w.stand("Guybrush Threepwood", 0);
+			w.stand("Parrot", street, true); w.stand("Nurse Edna", street, true);
+			assert(w.taken(83, ward, people) && !w.taken(84, street, people) && w.taken(81, street, people) && !w.taken(85, street, people) && !w.taken(0, ward, people));
+			Rules pull; pull.jump = 500; pull.join = 0; pull.toward = 0; pull.crowd = 1000;
+			int wardVisits = 0, streetVisits = 0, parrots = 0;
+			for (int t = 0; t < 300; ++t) {
+				w.advance(60 * 60, street, people, small, pull, r);
+				assert(w.where(83) != ward && w.where(84) != ward && !twice(w));
+				for (int i : {80, 81, 82}) assert(w.where(i) != street);
+				wardVisits += w.at(ward, nullptr, 0); streetVisits += w.at(street, nullptr, 0); parrots += w.where(85) == street || w.where(86) == street;
+				++checked;
+			}
+			assert(wardVisits > 0 && streetVisits > 0 && parrots > 0);
+			w.clearStanding();
+			assert(!w.taken(83, ward, people) && !w.taken(80, street, people));
+		}
+	}
+	printf("PASS: never two of anyone: %d places checked with nobody twice\n", checked);
+
+	// The same seed moves them the same way; an empty map moves nobody.
+	{
+		Wanderers one, two; Random r1(9), r2(9);
+		one.start(cast, map, rules, r1); two.start(cast, map, rules, r2);
+		for (int t = 0; t < 100; ++t) {
+			one.advance(60 * 20, map.places[0], cast, map, rules, r1);
+			two.advance(60 * 20, map.places[0], cast, map, rules, r2);
+		}
+		for (int i = 0; i < 80; ++i) assert(one.where(i) == two.where(i));
+		Map none; Wanderers lost; lost.start(cast, none, rules, r1);
+		assert(lost.where(3) == 0 && !lost.advance(600, 0, cast, none, rules, r1));
+	}
+	puts("PASS: deterministic; an empty map moves nobody");
+
+	// No state shared between sets of wanderers: two on two threads at once
+	// (each with its own map, cast and random source; TSan sees no race)
+	// move exactly as the same seed does alone.
+	{
+		auto run = [&](uint32_t seed, std::vector<int> &out) {
+			const Map m = world(); Cast c = cast; Rules r; Random random(seed); Wanderers w;
+			for (int i = 0; i < 3; ++i) c.add(8000 + i, 0, 5, 1, false, false, "Stan");
+			w.start(c, m, r, random);
+			w.stand("Stan", m.places[1]);
+			for (int t = 0; t < 200; ++t) w.advance(60 * 20, m.places[t % m.places.size()], c, m, r, random);
+			out.clear();
+			for (size_t i = 0; i < c.size(); ++i) out.push_back(w.where((int)i));
+			for (int i = 80; i < 83; ++i) for (int j = 80; j < 83; ++j) assert(i == j || out[i] != out[j]);
+		};
+		std::vector<int> alone9, alone10, one, two;
+		run(9, alone9); run(10, alone10);
+		std::thread first([&] { run(9, one); }), second([&] { run(10, two); });
+		first.join(); second.join();
+		assert(one == alone9 && two == alone10 && alone9 != alone10);
+	}
+	puts("PASS: two sets of wanderers on two threads, each as alone");
+
+	// The game's side: everyone out, saved two places to a value and read
+	// back; a character sent somewhere; small ones known.
+	{
+		namespace B = Scummverse::WanderBridge;
+		B::reset(5);
+		for (size_t p = 0; p < map.places.size(); ++p) B::addPlace(map.places[p], map.weights[p], map.groups[p]);
+		for (size_t p = 0; p < map.places.size(); ++p) for (int d : map.doors[p]) B::addDoor(map.places[p], map.places[d]);
+		for (size_t c = 0; c < cast.size(); ++c) B::addCast(cast.who[c], cast.homes[c], cast.games[c], cast.weights[c], cast.small[c]);
+		assert(B::places() == 17 && B::cast() == 80 && B::signature() == cast.signature() && B::packedCount() == 40);
+		{
+			// (An away one through the game's side: never in the mansion.)
+			B::addCast(9000, 0, 0, 1, false, true); B::start();
+			for (int t = 0; t < 50; ++t) { B::advance(60 * 60, placeCode(kManiac, 0, 1)); assert(placeKind(B::where(9000)) != kManiac); }
+			B::reset(5);
+			for (size_t p = 0; p < map.places.size(); ++p) B::addPlace(map.places[p], map.weights[p], map.groups[p]);
+			for (size_t p = 0; p < map.places.size(); ++p) for (int d : map.doors[p]) B::addDoor(map.places[p], map.places[d]);
+			for (size_t c = 0; c < cast.size(); ++c) B::addCast(cast.who[c], cast.homes[c], cast.games[c], cast.weights[c], cast.small[c]);
+		}
+		assert(!B::started() && B::where(1000) == 0 && !B::advance(60, 0) && !B::send(1000, map.places[0]));
+		{
+			// (Named ones through the game's side: twins never in one place, nor
+			// where the same person stands.)
+			B::addCast(9001, 0, 5, 1, false, false, "Elaine Marley"); B::addCast(9002, 0, 0, 1, false, false, "elaine marley");
+			B::addCast(9003, 0, 1, 1, true, false, "Seagull"); B::addCast(9004, 0, 5, 1, true, false, "Seagull");
+			assert(B::twins(9001, 9002) && B::twins(9002, 9001) && !B::twins(9003, 9004) && !B::twins(9001, 9001) && !B::twins(9001, 77));
+			assert(Scummverse::Wander::samePerson("The Voodoo Lady", "voodoo lady") && !Scummverse::Wander::samePerson("Seagull", "Seagulls"));
+			const int stage = placeCode(kManiac, 0, 2);
+			B::clearStanding(); B::stand("Elaine", stage); B::stand("Elaine Marley", stage);
+			assert(B::taken(9001, stage) && B::taken(9002, stage) && !B::taken(9003, stage) && !B::taken(77, stage) && !B::taken(9001, placeCode(kManiac, 0, 3)));
+			B::start();
+			assert(B::taken(9001, B::where(9002)) && B::taken(9002, B::where(9001)) && !B::taken(9001, B::where(9001)));
+			for (int t = 0; t < 100; ++t) {
+				B::advance(60 * 60, placeCode(kManiac, 0, 3));
+				assert(B::where(9001) != B::where(9002) && B::where(9001) != stage && B::where(9002) != stage);
+			}
+			B::clearStanding();
+			B::reset(5);
+			for (size_t p = 0; p < map.places.size(); ++p) B::addPlace(map.places[p], map.weights[p], map.groups[p]);
+			for (size_t p = 0; p < map.places.size(); ++p) for (int d : map.doors[p]) B::addDoor(map.places[p], map.places[d]);
+			for (size_t c = 0; c < cast.size(); ++c) B::addCast(cast.who[c], cast.homes[c], cast.games[c], cast.weights[c], cast.small[c]);
+		}
+		B::start(); assert(B::started() && B::where(1000) && B::small(1000) && !B::small(1004) && !B::small(7));
+		bool moved = false;
+		for (int t = 0; t < 50; ++t) moved = B::advance(60 * 60, B::where(1010)) || moved;
+		int seen = 0; for (int code : map.places) seen += B::at(code, nullptr, 0);
+		assert(moved && seen == 80);
+		int saved[40]; for (int i = 0; i < 40; ++i) saved[i] = B::packed(i);
+		const int kept = B::where(2019);
+		assert(B::send(2019, placeCode(kWorld, 9, 400)) && B::where(2019) == placeCode(kWorld, 9, 400) && !B::send(77, map.places[0]));
+		for (int i = 0; i < 40; ++i) B::unpack(i, saved[i]);
+		assert(B::where(2019) == kept);
+		int here[80]; const int n = B::at(B::where(1020), here, 80);
+		assert(n > 0 && std::count(here, here + std::min(n, 80), 1020) == 1);
+	}
+	puts("PASS: the game's side (saved, read back, sent, small)");
+
+	// Capacity: by floor width, less residents, within the pool.
+	assert(capacity(320, 0, 26) == 8 && capacity(320, 3, 26) == 5 && capacity(320, 9, 26) == 0);
+	assert(capacity(2000, 2, 26) == 26 && capacity(60, 0, 26) == 1 && capacity(0, 0, 26) == 0 && capacity(320, 0, 26, 0) == 0);
+	puts("PASS: capacity");
+	return 0;
+}

@@ -1,0 +1,193 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index fc60ed1a..1650a0fa 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -380,6 +380,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		wayBackKeep();
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
++	_cabinLeft = _cabinRight = 0;
+ 	_notice.clear(); _noticeClock = 0; // (what was told at the place before)
+ 	// (What is inside another over it where that one is open, else under it.)
+ 	layInside();
+@@ -1539,7 +1540,8 @@ int SandboxEngine::talkRoom() const {
+ void SandboxEngine::chatCommand(int command) {
+ 	const bool along = command >= 64 + kTalkVisitor && command < 64 + kTalkVisitor + kTalkSlots;
+ 	const bool stay = command >= 96 + kTalkVisitor && command < 96 + kTalkVisitor + kTalkSlots;
+-	if ((!along && !stay) || _aboard) return; // (aboard a ride: all stay seated)
++	// (Aboard a ride, or riding one out of sight: all stay with the one played.)
++	if ((!along && !stay) || _aboard || _tram.riding || _riding.phase > kRideBoarded) return;
+ 	const int n = slotActor(command - (along ? 64 : 96) - kTalkVisitor, _player);
+ 	if (n >= (int)_onStage.size() || n == _player || _player < 0) return;
+ 	follow(_onStage[n], along);
+@@ -2219,6 +2221,7 @@ void SandboxEngine::step(int ticks) {
+ 	rideStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
++	cabinPan();
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
+ 	followStep(ticks);
+@@ -2789,9 +2792,40 @@ void SandboxEngine::vanShow() {
+ 	double rows = h * kWorldGames[_game].heroHeight * depth / kVanKidHeight; // (as drawn)
+ 	rows = MIN(rows, MAX(16.0 * unit, _vanY - 4.0 * unit));
+ 	rows = MIN(rows, (screenWidthOf(_game) - 32.0 * unit) / across);
+-	const double width = rows * across, gap = 12.0 * unit;
+-	double left = _vanX * 2 > StageBridge::sceneWidth() ? _vanX - gap - width : _vanX + gap;
+-	left = CLIP<double>(left, 0, MAX(0.0, StageBridge::sceneWidth() - width));
++	// (Not over a door or where a ride is boarded, where it can help it: the
++	// spot nearest beside the one played covering the fewest of their middles,
++	// then the least of them; none clear at its size, smaller, down to half.)
++	double width = rows * across, left = 0;
++	const double gap = 12.0 * unit;
++	auto covered = [&](double at, double wide, double tall, int &middles) {
++		double area = 0;
++		middles = 0;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, ow, oh, wx, wy, state;
++			if (!StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state) || !((isDoor(o) && !insideShut(o)) || worldRideAt(_game, _room, id))) continue;
++			const double x0 = MAX<double>(at, ox), x1 = MIN<double>(at + wide, ox + ow), y0 = MAX<double>(_vanY - tall, oy), y1 = MIN<double>(_vanY, oy + oh);
++			if (x1 > x0 && y1 > y0) area += (x1 - x0) * (y1 - y0);
++			const double mx = ox + ow / 2.0, my = oy + oh / 2.0;
++			middles += mx >= at && mx < at + wide && my >= _vanY - tall && my < _vanY;
++		}
++		return area;
++	};
++	for (const double shrink : {1.0, 0.8, 0.65, 0.5}) {
++		const double wide = rows * shrink * across, tall = rows * shrink;
++		double at = _vanX * 2 > StageBridge::sceneWidth() ? _vanX - gap - wide : _vanX + gap;
++		at = CLIP<double>(at, 0, MAX(0.0, StageBridge::sceneWidth() - wide));
++		const double room = MAX(0.0, StageBridge::sceneWidth() - wide), step = MAX(1.0, wide / 8);
++		int middles, bestMiddles;
++		double best = covered(at, wide, tall, bestMiddles), bestAt = at;
++		for (double x = 0; (bestMiddles || best > 0) && x <= room + 0.5; x += step) {
++			const double area = covered(MIN(x, room), wide, tall, middles);
++			if (middles < bestMiddles || (middles == bestMiddles && (area < best || (area == best && fabs(MIN(x, room) - at) < fabs(bestAt - at))))) {
++				best = area; bestMiddles = middles; bestAt = MIN(x, room);
++			}
++		}
++		if (shrink == 1.0 || !bestMiddles) { rows = tall; width = wide; left = bestAt; }
++		if (!bestMiddles) break;
++	}
+ 	// (Its size there as worked out: the boxes' scale where it stands may
+ 	// not be theirs where the one played stood.)
+ 	const double there = MAX(0.01, StageBridge::depthAt(left + width / 2, _vanY));
+@@ -2968,8 +3002,29 @@ void SandboxEngine::seatAboard() {
+ 	};
+ 	if (_player >= 0) sit(_player);
+ 	for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && following(_onStage[n])) sit(n);
+-	double px, py;
+-	if (_player >= 0) { StageBridge::position(_player, px, py); StageBridge::lookAt(px); }
++	// (The camera on everyone seated, not the one played alone; more than
++	// the screen shows, it pans across them: cabinPan.)
++	_cabinLeft = _cabinRight = 0; _cabinClock = 0;
++	for (int i = 0; i < MIN<int>(seated, ARRAYSIZE(kCabinSeats)); ++i) {
++		const double l = kCabinSeats[i] * 8.0, r = l + 32;
++		if (!i || l < _cabinLeft) _cabinLeft = l;
++		if (!i || r > _cabinRight) _cabinRight = r;
++	}
++	if (_cabinRight > _cabinLeft) StageBridge::lookAt((_cabinLeft + _cabinRight) / 2);
++}
++
++void SandboxEngine::cabinPan() {
++	if (!_aboard || _cabinRight <= _cabinLeft) return;
++	int left, top, width, height;
++	double rowScale, colScale;
++	StageBridge::view(left, top, width, height, rowScale, colScale);
++	const double shown = MIN(_width, width) / MAX(1e-9, colScale), span = _cabinRight - _cabinLeft;
++	if (span <= shown) return;
++	// (From the middle to one end, the other and back in a flight's ten
++	// seconds.)
++	const double swing = (span - shown) / 2 + 8;
++	StageBridge::lookAt((_cabinLeft + _cabinRight) / 2 + swing * sin(++_cabinClock * 2 * 3.14159265358979 / 600));
++	_dirty = true;
+ }
+ 
+ void SandboxEngine::rideStep(int ticks) {
+@@ -6584,7 +6639,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// without the one played. Taken as a player does.
+ 	_phone.placesBegin = FakePlaces::begin; _phone.placesItem = FakePlaces::item; _phone.placesShow = FakePlaces::show;
+ 	_phone.placesCancel = FakePlaces::cancelWith; _phone.placesHide = FakePlaces::hide;
+-	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0, cabins = 0, seatedFollowers = 0, seatedPoses = 0, toursHome = 0, crammed = 0;
++	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0, followedRides = 0, cabins = 0, seatedFollowers = 0, seatedPoses = 0, toursHome = 0, crammed = 0, cabinsAllSeen = 0;
+ 	auto board = [&](int game, int room, int object) {
+ 		Common::String problem;
+ 		if (!enter(game, room, 0, problem)) return false;
+@@ -6685,13 +6740,28 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// (Off at the other end, at its object, seen; nobody walked there.)
+ 	auto ride = [&](int game, int to, int arrival, const char *what) {
+ 		bool hidden = false, inside = false, sat = true;
++		Common::HashMap<int, bool> wholeOnScreen;
++		int seatedHere = 0;
+ 		for (int t = 0; t < 6000 && _riding.ride >= 0; ++t) {
+ 			step(1);
+ 			hidden = hidden || StageBridge::hidden(_player);
+ 			if (_aboard && !inside) { inside = true; sat = aboard(); }
+ 			else if (_aboard && sat && !stayed()) { fail("someone aboard got up"); sat = false; }
++			// (Each one seated seen whole at some time in the flight: the
++			// camera across them when more than the screen shows.)
++			int seatedNow = 0;
++			for (int st : _seatedActors) seatedNow += _aboard && !StageBridge::hidden(st);
++			seatedHere = MAX(seatedHere, seatedNow);
++			for (uint n = 0; _aboard && n < _onStage.size(); ++n) {
++				int x0, y0, x1, y1;
++				if (((int)n == _player || following(_onStage[n])) && !StageBridge::hidden(n) && StageBridge::drawnRect(n, x0, y0, x1, y1) && x0 > 0 && x1 < _width) wholeOnScreen[n] = true;
++			}
++		}
++		if (inside && sat) {
++			++cabins;
++			if ((int)wholeOnScreen.size() < seatedHere) fail("someone seated aboard never seen whole in the flight");
++			else cabinsAllSeen += seatedHere > 1;
+ 		}
+-		if (inside && sat) ++cabins;
+ 		hidden = hidden || inside;
+ 		double px, py, ax = 0, ay = 0;
+ 		bool atArrival = false;
+@@ -7026,8 +7096,33 @@ Common::Error SandboxEngine::ridesTest() {
+ 		else ++vanRefused;
+ 	}
+ 	g_system->updateScreen();
++	// (The Shuttle Bug parked at each of its sites: no door's middle, nor a
++	// ride's, under it.)
++	int vanClear = 0, vanSites = 0;
++	{
++		const int placeBefore = _vanPlace, xBefore = _vanX, yBefore = _vanY;
++		for (int i = 0; i < kWorldVanSiteCount; ++i) {
++			int g, r;
++			if (!worldVanPlace(i, g, r) || !installed(g, r)) continue;
++			_vanPlace = g * 1024 + r; _vanX = _vanY = -1;
++			Common::String problem;
++			if (!enter(g, r, 0, problem) || _vanProp < 0) continue;
++			++vanSites;
++			bool clear = true;
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
++				if (!StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state) || !((isDoor(o) && !insideShut(o)) || worldRideAt(g, r, id))) continue;
++				StageBridge::lookAt(ox + ow / 2.0);
++				StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++				if (StageBridge::propHit(_vanProp, sx, sy)) { clear = false; warning("SCUMMVERSE sandbox rides: %s-%d door %d under the van", kWorldGames[g].gameid, r, id); }
++			}
++			vanClear += clear;
++		}
++		_vanPlace = placeBefore; _vanX = xBefore; _vanY = yBefore;
++	}
+ 	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose, %d crammed in), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d van checks (not on the way on another, called home), %d trams with someone following, %d failed",
+ 		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, crammed, toursHome, cockpits, vanRefused, tramFollowed, failed);
++	warning("SCUMMVERSE sandbox selftest rides seen: %d flights with everyone seated seen whole, %d of %d van sites with no door's middle under the van", cabinsAllSeen, vanClear, vanSites);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index d8c962fe..c84ce5fa 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -257,6 +257,9 @@ private:
+ 	};
+ 	Touring _touring;
+ 	int _tourSpeed = 1;                     // (as chosen, kept)
++	double _cabinLeft = 0, _cabinRight = 0; // the plane cabin's seats taken (scene columns)
++	int _cabinClock = 0;
++	void cabinPan();                        // the camera across them, more than the screen shows
+ 	void tourBuild();
+ 	void tourReady(); // (at the start: the iPhone's menu told the stops)
+ 	void tourKeep();  // where it resumes, kept

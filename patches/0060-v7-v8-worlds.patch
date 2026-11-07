@@ -1,0 +1,178 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 555df543..4c045794 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -19,6 +19,10 @@ struct WorldGuest {
+ };
+ static const int kWorldMaxGuests = 5;
+ struct WorldScene { int room; const char *name; const WorldGuest *guests[kWorldMaxGuests]; };
++// Scenes are sandbox logical rooms 200..255 (one-byte room numbers), so the
++// catalog holds at most 56; existing scenes keep their order so saves made
++// inside them stay valid. New games are appended.
++static const int kWorldMaxScenes = 56;
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+ static const int kWorldExportVersion = 2;
+@@ -227,6 +231,57 @@ SCUMMVERSE_GUEST(kPerformer, 67, "Turbaned performer", 5,
+ SCUMMVERSE_GUEST(kGolfAttendant, 109, "Gator Golf attendant", 2,
+ 	"the attendant at Gator Golf who hands out balls and warns players about the alligators; bored but conscientious",
+ 	"Keep your hands away from the gators.", "Lost balls stay lost.", "Next tee time's in five minutes.")
++// Full Throttle (few names in its scripts; matched by eye and by scene)
++SCUMMVERSE_GUEST(kBen, 12, "Ben", 8,
++	"Ben, the gruff leader of the Polecats biker gang; laconic, tough, loyal to his gang and his bike, and allergic to small talk",
++	"I'm Ben. This is my bike. Don't touch it.", "Nothing on this highway scares me.", "Polecats ride together.")
++SCUMMVERSE_GUEST(kTorque, 22, "Father Torque", 14,
++	"Father Torque, the grizzled elder of the Polecats who has ridden every road there is; calm, wise and fond of advice about bikes and life",
++	"Every road teaches you something, kid.", "Keep your engine clean and your conscience cleaner.", "The Polecats look out for each other.")
++SCUMMVERSE_GUEST(kMo, 70, "Maureen", 13,
++	"Maureen, a brilliant motorcycle mechanic who runs a garage and fixes anything with an engine; practical, sharp, and short on patience for fools",
++	"Hand me that wrench, would you?", "Your bike sounds terrible. Leave it with me.", "I can fix anything with an engine.")
++SCUMMVERSE_GUEST(kCorley, 3, "Malcolm Corley", 15,
++	"Malcolm Corley, the elderly founder of Corley Motors, the last motorcycle maker; warm, nostalgic, and proud of the bikers who ride his machines",
++	"There's nothing like the open road.", "I built my first bike in a barn.", "Bikers keep this country moving.")
++SCUMMVERSE_GUEST(kRipburger, 2, "Adrian Ripburger", 5,
++	"Adrian Ripburger, the scheming vice president of Corley Motors who wants to build minivans instead of motorcycles; smooth, condescending and ruthless",
++	"Minivans are the future, my friend.", "I'm a businessman. Nothing personal.", "Corley Motors needs a fresh direction.")
++SCUMMVERSE_GUEST(kBiker, 344, "Biker", 6,
++	"a road-worn biker resting at a roadside cafe; friendly enough, full of stories about breakdowns and rival gangs",
++	"Coffee's terrible, but it's hot.", "Watch out for the Vultures on the canyon road.", "Nice day for a ride.")
++// The Dig
++SCUMMVERSE_GUEST(kLowSuit, 1, "Boston Low", 15,
++	"Commander Boston Low, a veteran astronaut leading a mission to an asteroid on a collision course with Earth; steady, dry and quietly determined",
++	"Stay close. We don't know what's out here.", "Mission first. Questions later.", "This asteroid is not what it seemed.")
++SCUMMVERSE_GUEST(kMaggieSuit, 2, "Maggie Robbins", 13,
++	"Maggie Robbins, a journalist and linguist on the asteroid mission; curious, confident and quick to decode strange symbols",
++	"I'm here to report. And to translate.", "These markings look like a language.", "Somebody built all this.")
++SCUMMVERSE_GUEST(kBrinkSuit, 3, "Ludger Brink", 14,
++	"Ludger Brink, a geologist and archaeologist on the asteroid mission; sharp, impatient and fascinated by alien crystals",
++	"Let me look at that rock first.", "These crystals are extraordinary.", "I've waited my whole career for this.")
++SCUMMVERSE_GUEST(kBrink, 15, "Ludger Brink", 14,
++	"Ludger Brink, a geologist stranded on an alien world who has grown obsessed with its life-giving crystals; brilliant, prickly and suspicious",
++	"Don't touch my crystals.", "This planet is full of answers.", "We should split up and explore.")
++SCUMMVERSE_GUEST(kMaggie, 18, "Maggie Robbins", 13,
++	"Maggie Robbins, a journalist stranded on an alien world, deciphering its language; resourceful, outspoken and determined to get home",
++	"I think I can read these symbols now.", "We need a way off this planet.", "Every wall here tells a story.")
++SCUMMVERSE_GUEST(kLow, 14, "Boston Low", 15,
++	"Commander Boston Low, stranded on an alien world and trying to keep his crew together; calm, practical and stubborn",
++	"Let's keep moving.", "Nobody gets left behind.", "This place gives me the creeps.")
++// The Curse of Monkey Island (names matched by eye and by scene)
++SCUMMVERSE_GUEST(kGuybrush3, 2, "Guybrush Threepwood", 15,
++	"Guybrush Threepwood, a mighty pirate who accidentally turned his fiancee Elaine into a gold statue and is trying to lift the curse; cheerful and quick-witted",
++	"Have you seen a gold statue of a woman? Long story.", "I'm Guybrush Threepwood, mighty pirate. Mostly.", "Plunder Island is lovely this time of year.")
++SCUMMVERSE_GUEST(kHaggis, 111, "Haggis McMutton", 12,
++	"Haggis McMutton, a burly Scottish pirate and caber-tossing champion; proud, loud and never turns down a challenge",
++	"Fancy a caber-tossing contest?", "Nobody tosses a caber like a McMutton.", "Ye look a wee bit puny, laddie.")
++SCUMMVERSE_GUEST(kLemonhead, 286, "Lemonhead", 14,
++	"Lemonhead, a cheerful villager of Blood Island with a large lemon-shaped head who worships the island's volcano; friendly and enthusiastic",
++	"Welcome to our village!", "The volcano is in a good mood today.", "Have you tried the fruit? It's very fresh.")
++SCUMMVERSE_GUEST(kGhostBride, 350, "Ghost bride", 11,
++	"a ghostly bride who haunts the Blood Island cemetery, waiting for a wedding that never happened; wistful, dramatic and sad",
++	"He promised he would come back.", "The cemetery is so quiet at night.", "Have you seen my groom?")
+ #undef SCUMMVERSE_GUEST
+ static const WorldScene kWorldMonkey[] = {
+ 	{33, "Melee Island town", {&kStan, &kTroll, &kFettucini, &kLookout}},
+@@ -263,6 +318,19 @@ static const WorldScene kWorldSamnmax[] = {
+ 	{9, "Sam & Max's street", {&kSam, &kMax}}, {12, "Snuckey's", {}}, {15, "Carnival midway", {&kCarnySunglasses, &kCarnyRed, &kPerformer}},
+ 	{24, "Gator Golf", {&kGolfAttendant}}, {27, "World's largest ball of twine", {}}, {58, "Mount Rushmore", {}}, {59, "Dinosaur park", {}},
+ };
++static const WorldScene kWorldFt[] = {
++	{6, "Outside the Kickstand", {&kBen}}, {7, "The Kickstand bar", {&kTorque}}, {17, "Garage workshop", {&kMo}},
++	{43, "Roadside cafe", {&kBiker}}, {51, "Highway at night", {&kCorley, &kRipburger}},
++};
++static const WorldScene kWorldDig[] = {
++	{5, "Asteroid surface", {&kLowSuit, &kMaggieSuit, &kBrinkSuit}}, {18, "Field of crashed spaceships", {&kBrink}}, {22, "Crystal shore", {&kMaggie}},
++	{31, "Spire at sunset", {&kLow}},
++};
++static const WorldScene kWorldComi[] = {
++	{14, "Plunder Island beach", {&kGuybrush3}}, {15, "Puerto Pollo", {}}, {22, "Caber-tossing clearing", {&kHaggis}},
++	{55, "Blood Island village", {&kLemonhead}},
++	{67, "Blood Island cemetery", {&kGhostBride}}, {86, "Carnival of the Damned", {}},
++};
+ #define SCUMMVERSE_WORLD(id, title, folder, version, scenes) \
+ 	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0]))}
+ static const WorldGame kWorldGames[] = {
+@@ -273,6 +341,9 @@ static const WorldGame kWorldGames[] = {
+ 	SCUMMVERSE_WORLD("atlantis", "Indiana Jones and the Fate of Atlantis", "atlantis", 5, kWorldAtlantis),
+ 	SCUMMVERSE_WORLD("tentacle", "Day of the Tentacle", "tentacle", 6, kWorldTentacle),
+ 	SCUMMVERSE_WORLD("samnmax", "Sam & Max Hit the Road", "samnmax", 6, kWorldSamnmax),
++	SCUMMVERSE_WORLD("ft", "Full Throttle", "ft", 7, kWorldFt),
++	SCUMMVERSE_WORLD("dig", "The Dig", "dig", 7, kWorldDig),
++	SCUMMVERSE_WORLD("comi", "The Curse of Monkey Island", "comi", 8, kWorldComi),
+ };
+ #undef SCUMMVERSE_WORLD
+ inline bool sameId(const char *a, const char *b) {
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index b08fb248..55246468 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -1757,8 +1757,9 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+ 		_imuseDigital->disableEngine();
+ 	}
+ 
+-	// Create FT INSANE object
+-	if (_game.id == GID_FT)
++	// Create FT INSANE object (not for a SCUMMVERSE other-world export, which
++	// runs no scripts or videos and needs only the room and costume files)
++	if (_game.id == GID_FT && !ConfMan.hasKey("scummverse_world_export"))
+ 		_insane = new Insane(this);
+ 	else
+ 		_insane = nullptr;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 7689b3d4..2364b354 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -39,13 +39,17 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	if (VAR_ROOM_WIDTH != 0xFF && VAR_ROOM_HEIGHT != 0xFF) { VAR(VAR_ROOM_WIDTH) = _roomWidth; VAR(VAR_ROOM_HEIGHT) = _roomHeight; }
+ 	if (VAR_CAMERA_MIN_X != 0xFF) VAR(VAR_CAMERA_MIN_X) = _screenWidth / 2;
+ 	if (VAR_CAMERA_MAX_X != 0xFF) VAR(VAR_CAMERA_MAX_X) = _roomWidth - _screenWidth / 2;
++	if (VAR_CAMERA_MIN_Y != 0xFF) VAR(VAR_CAMERA_MIN_Y) = _screenHeight / 2;
++	if (VAR_CAMERA_MAX_Y != 0xFF) VAR(VAR_CAMERA_MAX_Y) = MAX(_screenHeight / 2, _roomHeight - _screenHeight / 2);
+ 	camera._mode = kNormalCameraMode;
+ 	const int W = _roomWidth, H = _roomHeight;
+ 	Common::Array<byte> pixels; pixels.resize(W * H);
+ 	// Render one screen at a time across the room (camera centers).
+ 	for (int center = _screenWidth / 2;; center += _screenWidth) {
+ 		const int c = MIN(center, W - _screenWidth / 2);
+-		setCameraAt(c, 0); camera._cur.x = camera._dest.x = c; cameraMoved();
++		// v7+ cameras also track a vertical center within the screen.
++		camera._cur.y = camera._dest.y = _screenHeight / 2;
++		setCameraAt(c, _screenHeight / 2); camera._cur.x = camera._dest.x = c; cameraMoved();
+ 		_fullRedraw = true; scummLoop_handleDrawing();
+ 		const int left = c - _screenWidth / 2, xs = _virtscr[kMainVirtScreen].xstart;
+ 		for (int y = 0; y < H; ++y)
+@@ -94,6 +98,9 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	// Full size, unmasked, one animation step per call.
+ 	a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
+ 	putClass(a->_number, kObjectClassNeverClip, true);
++	// v7+ costumes mark shadow pixels (color 13): drawn as shaded background
++	// they differ between the two fills and are left out.
++	if (_game.version >= 7) a->_shadowMode = 1;
+ 	a->_visible = true;
+ 	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation();
+ 	Common::Array<byte> pass[2];
+@@ -134,7 +141,7 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 			a->animateCostume();
+ 		}
+ 	}
+-	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false);
++	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false); a->_shadowMode = 0;
+ 	a->_ignoreBoxes = false;
+ 	if (frames.empty()) { problem = "costume draws nothing"; return false; }
+ 	Common::DumpFile out;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index ef457257..c601fe99 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -284,7 +284,11 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		}
+ 		if (getTalkingActor() == a->_number && VAR(VAR_HAVE_MSG)) continue;
+ 		if (a->_moving || (_scummverseGuestIdle[k] -= delta) > 0) continue;
+-		// A short stroll inside the scene's walk boxes.
++		// A short stroll inside the scene's walk boxes, for characters whose
++		// game drew them walking (others would slide).
++		// (Facing 1 = right, 0 = left; kind 1 = walking.)
++		if (WorldBridge::guestFrames(_scummverseGuestSprite[k], 1, 1) < 2 &&
++			WorldBridge::guestFrames(_scummverseGuestSprite[k], 0, 1) < 2) { _scummverseGuestIdle[k] = 600; continue; }
+ 		_scummverseGuestIdle[k] = 300 + _rnd.getRandomNumber(600);
+ 		const int x = CLIP<int>(a->getRealPos().x + (int)_rnd.getRandomNumber(16) - 8, 1, WorldBridge::width() / 8 - 2);
+ 		const int y = CLIP<int>(a->getRealPos().y + (int)_rnd.getRandomNumber(8) - 4, 1, WorldBridge::height() / 2 - 1);

@@ -1,0 +1,38 @@
+diff --git a/backends/platform/ios7/ios7_osys_video.mm b/backends/platform/ios7/ios7_osys_video.mm
+index 4ebf6d09..4f386938 100644
+--- a/backends/platform/ios7/ios7_osys_video.mm
++++ b/backends/platform/ios7/ios7_osys_video.mm
+@@ -101,6 +101,8 @@ void OSystem_iOS7::engineInit() {
+ 	// Automatically open the keyboard when starting a game and in portrait mode.
+ 	// This is preferred for text input games and there's a lot of screen space to
+ 	// utilize for the keyboard anyway.
++	// SCUMMVERSE uses that space for the conversation and its own message field.
++#ifndef SCUMMVERSE_LOCAL_AI
+ 	if (_screenOrientation == kScreenOrientationPortrait ||
+ 		_screenOrientation == kScreenOrientationFlippedPortrait) {
+ 		execute_on_main_thread(^ {
+@@ -108,6 +110,7 @@ void OSystem_iOS7::engineInit() {
+ 		});
+ 	}
+ #endif
++#endif
+ }
+ 
+ void OSystem_iOS7::engineDone() {
+diff --git a/base/main.cpp b/base/main.cpp
+index 39394704..99a6de03 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -573,8 +573,10 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	}
+ 	ConfMan.setBool("gui_return_to_launcher_at_exit", false, Common::ConfigManager::kTransientDomain);
+ 	ConfMan.setBool("filtering", false, Common::ConfigManager::kSessionDomain);
+-	ConfMan.set("orientation_games", "landscape", Common::ConfigManager::kTransientDomain);
+-	ConfMan.set("orientation_menus", "landscape", Common::ConfigManager::kTransientDomain);
++	// Follow the phone: landscape plays full width, portrait puts the picture
++	// on top and the conversation below (layout contract v3).
++	ConfMan.set("orientation_games", "auto", Common::ConfigManager::kTransientDomain);
++	ConfMan.set("orientation_menus", "auto", Common::ConfigManager::kTransientDomain);
+ 	ConfMan.set("touch_mode_2d_games", "direct", Common::ConfigManager::kTransientDomain);
+ 	int standaloneExitCode = Common::kNoError;
+ 	// Exports run with Maniac's command-line settings set aside (they would

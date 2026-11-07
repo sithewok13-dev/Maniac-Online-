@@ -1,0 +1,13 @@
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index d6356df1..f544ce21 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -114,7 +114,7 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 		UILabel *hint = [[[UILabel alloc] init] autorelease]; hint.tag = 202; hint.textAlignment = NSTextAlignmentCenter;
+ 		hint.textColor = [UIColor colorWithWhite:0.75 alpha:1]; hint.font = [UIFont systemFontOfSize:11]; hint.adjustsFontSizeToFitWidth = YES; hint.minimumScaleFactor = 0.6;
+ 		// (No folder: nothing to add, the custom characters'.)
+-		hint.text = here || !scummverseCastFolders[slot].length ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
++		hint.text = here || ![scummverseCastFolders[slot] length] ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
+ 		// Holding a box runs this ring round it until the list of everyone opens.
+ 		CAShapeLayer *ring = [CAShapeLayer layer]; ring.name = @"hold"; ring.hidden = !here;
+ 		ring.fillColor = UIColor.clearColor.CGColor; ring.strokeColor = [UIColor colorWithRed:0.20 green:0.90 blue:0.35 alpha:1].CGColor;

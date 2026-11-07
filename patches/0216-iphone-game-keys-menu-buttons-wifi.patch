@@ -1,0 +1,490 @@
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index fdb94ac8..c1f5d7de 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -112,5 +112,9 @@ Common::String iOS7_getZakDirectory();
+ Common::String iOS7_getConnectedWorldsDir();
+ Common::String iOS7_getAppBundleDir();
+ TouchMode iOS7_getCurrentTouchMode();
++// keyboard_fn_bar for the keyboard (ios7_keyboard.mm), set from the game's
++// thread whenever it reads its settings: the UI's thread does not read
++// ConfMan.
++void iOS7_setKeyboardFnBar(bool on);
+ 
+ #endif
+diff --git a/backends/platform/ios7/ios7_keyboard.mm b/backends/platform/ios7/ios7_keyboard.mm
+index c0208659..2fa01b8e 100644
+--- a/backends/platform/ios7/ios7_keyboard.mm
++++ b/backends/platform/ios7/ios7_keyboard.mm
+@@ -20,12 +20,22 @@
+  */
+ 
+ #include "backends/platform/ios7/ios7_keyboard.h"
++#include <atomic> // (Before ScummVM's headers and their forbidden symbols.)
++#include "backends/platform/ios7/ios7_common.h"
+ #include "common/keyboard.h"
+ #include "common/config-manager.h"
+ #ifdef __IPHONE_14_0
+ #include <GameController/GameController.h>
+ #endif
+ 
++// keyboard_fn_bar as the game's thread last read it (iOS7_setKeyboardFnBar):
++// the keyboard works on the UI's thread, which does not read ConfMan while
++// the game's may be writing it. (The iOS default until it is read.)
++static std::atomic<bool> keyboardFnBar(true);
++void iOS7_setKeyboardFnBar(bool on) {
++	keyboardFnBar.store(on);
++}
++
+ @interface UITextInputTraits
+ - (void)setAutocorrectionType:(int)type;
+ - (void)setAutocapitalizationType:(int)type;
+@@ -769,7 +779,7 @@
+ }
+ 
+ - (void)textFieldDidBeginEditing:(UITextField *)textField {
+-	if (ConfMan.getBool("keyboard_fn_bar"))
++	if (keyboardFnBar.load())
+ 		[inputView attachAccessoryView];
+ }
+ - (void)textFieldDidEndEditing:(UITextField *)textField {
+@@ -797,7 +807,7 @@
+ 	if (@available(iOS 14.0, tvOS 14.0, *)) {
+ 		if ([inputView isFirstResponder] &&
+ 			GCKeyboard.coalescedKeyboard != nil) {
+-			if (ConfMan.getBool("keyboard_fn_bar")) {
++			if (keyboardFnBar.load()) {
+ 				[inputView attachAccessoryView];
+ 			}
+ 			return;
+@@ -812,7 +822,7 @@
+ 	if (@available(iOS 14.0, tvOS 14.0, *)) {
+ 		if ([inputView isFirstResponder] &&
+ 			GCKeyboard.coalescedKeyboard != nil) {
+-			if (!ConfMan.getBool("keyboard_fn_bar")) {
++			if (!keyboardFnBar.load()) {
+ 				[inputView detachAccessoryView];
+ 			}
+ 			return;
+diff --git a/backends/platform/ios7/ios7_options.mm b/backends/platform/ios7/ios7_options.mm
+index f2b987b1..f55f3526 100644
+--- a/backends/platform/ios7/ios7_options.mm
++++ b/backends/platform/ios7/ios7_options.mm
+@@ -531,6 +531,7 @@ void OSystem_iOS7::registerDefaultSettings(const Common::String &target) const {
+ }
+ 
+ void OSystem_iOS7::applyBackendSettings() {
++	iOS7_setKeyboardFnBar(ConfMan.getBool("keyboard_fn_bar"));
+ 	virtualController(ConfMan.getBool("gamepad_controller"));
+ 	// _currentTouchMode is applied by the graphic manager
+ 
+diff --git a/backends/platform/ios7/ios7_osys_main.cpp b/backends/platform/ios7/ios7_osys_main.cpp
+index ba974c4a..fdd2e0ad 100644
+--- a/backends/platform/ios7/ios7_osys_main.cpp
++++ b/backends/platform/ios7/ios7_osys_main.cpp
+@@ -143,6 +143,8 @@ void OSystem_iOS7::initBackend() {
+ 	setTimerCallback(&OSystem_iOS7::timerHandler, 10);
+ 
+ 	ConfMan.registerDefault("iconspath", Common::Path("/"));
++	// (Before the keyboard first shows: a hardware keyboard takes it at once.)
++	iOS7_setKeyboardFnBar(ConfMan.getBool("keyboard_fn_bar"));
+ 
+ 	EventsBaseBackend::initBackend();
+ }
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 37ea91f1..bdb5a634 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -105,6 +105,20 @@ void scummverseAirportOffer(int actor) {
+ 		[controller presentViewController:menu animated:NO completion:nil];
+ 	});
+ }
++
++// Local WiFi play's status as the engine publishes it, said briefly over the
++// game and to VoiceOver whenever it changes: hosting, joined, someone come
++// or gone, a host that stopped answering, play off. (Worlds > Play together
++// on WiFi shows it in full.) Not what it was at launch.
++static void scummverseNetNotice() {
++	static std::string said = Scummverse::Net::status();
++	const std::string now = Scummverse::Net::status();
++	if (now == said) return;
++	said = now;
++	NSString *text = [NSString stringWithUTF8String:now.c_str()];
++	scummverseCameraMessage(text);
++	if (text.length) UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, text);
++}
+ #endif
+ 
+ @interface iPhoneView (ScummverseGestures) <UIGestureRecognizerDelegate>
+@@ -448,13 +462,9 @@ void scummverseAirportOffer(int actor) {
+ 	_scummverseCameraButton = scummverseInstallCamera(self);
+ 	scummverseInstallTour(self);
+ 	scummverseInstallTalk(self);
+-	// A game's story: the original game's own controls, without the chat,
+-	// its settings or the camera over it (the Worlds button stays, to leave;
+-	// none of them over Story mode's list, where no game is playing).
+ 	[NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *) {
+-		const int playing = scummverseStoryPlaying();
+-		for (UIView *button in @[_scummverseAIButton, _scummverseTalkButton, _scummverseCameraButton]) button.hidden = playing >= 0;
+-		_scummverseWorldsButton.hidden = playing == Scummverse::WorldCatalog::kWorldStoryListShowing;
++		[self updateScummverseButtons];
++		scummverseNetNotice();
+ 	}];
+ 	[[ScummverseAISettings shared] foreground:nil];
+ #endif
+@@ -616,7 +626,7 @@ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"New engine (preview)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Story mode (the original games)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryModeRequest); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Play together on WiFi" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller]; }];
++		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller hint:nil]; }];
+ 	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Go to airport" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(3); }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit Zak's apartment" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(1); }]];
+@@ -692,10 +702,13 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 
+ // Local WiFi play: one device hosts, the others join by its address. The
+ // engine applies requests on its own thread (common/scummverse_net.h).
+-- (void)showScummverseNetworkFrom:(UIViewController *)controller {
++// (hint: why it is shown again, first; nil the first time. Hosting,
++// joining, someone come or gone and a drop are then said over the game,
++// scummverseNetNotice.)
++- (void)showScummverseNetworkFrom:(UIViewController *)controller hint:(NSString *)hint {
+ 	static NSString *lastAddress = nil;
+ 	NSString *state = [NSString stringWithUTF8String:Scummverse::Net::status().c_str()];
+-	NSString *message = [NSString stringWithFormat:@"%@\n\nThis device: %s\n\nEveryone needs this app version and their own Maniac Mansion and Zak files, on the same WiFi. One person hosts; the others enter the host's address. Each person plays a different character.", state, Scummverse::Net::localAddresses().c_str()];
++	NSString *message = [NSString stringWithFormat:@"%@%@\n\nThis device: %s\n\nEveryone needs this app version and their own Maniac Mansion and Zak files, on the same WiFi. One person hosts; the others enter the host's address. Each person plays a different character.", hint.length ? [hint stringByAppendingString:@"\n\n"] : @"", state, Scummverse::Net::localAddresses().c_str()];
+ 	__block UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play together on WiFi" message:message preferredStyle:UIAlertControllerStyleAlert];
+ 	[menu addTextFieldWithConfigurationHandler:^(UITextField *field) {
+ 		field.placeholder = @"Host address, like 192.168.1.20";
+@@ -709,7 +722,11 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	}]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Join" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		NSString *address = [menu.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+-		if (!address.length) return;
++		// (No address: asked again, saying so, rather than closed on nothing.)
++		if (!address.length) {
++			[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseNetworkFrom:controller hint:@"To join, type the host's address first: on the host's phone it is in this window, after \"This device\"."]; }];
++			return;
++		}
+ 		[lastAddress release]; lastAddress = [address copy];
+ 		Scummverse::Net::Request request; request.kind = Scummverse::Net::Request::Join; request.text = address.UTF8String;
+ 		Scummverse::Net::postRequest(request);
+@@ -766,10 +783,21 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ #endif
+ 
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
++// A game's story: the original game's own controls, without the chat,
++// its settings or the camera over it (the Worlds button stays, to leave;
++// none of them over Story mode's list, where no game is playing). None
++// over ScummVM's own menus and dialogs either, which fill the view: there
++// only its two buttons stay, in their own corner (the layouts below).
++- (void)updateScummverseButtons {
++	const int playing = scummverseStoryPlaying();
++	for (UIView *button in @[_scummverseAIButton, _scummverseTalkButton, _scummverseCameraButton]) button.hidden = playing >= 0 || scummverseSystemMenu;
++	_scummverseWorldsButton.hidden = playing == Scummverse::WorldCatalog::kWorldStoryListShowing || scummverseSystemMenu;
++}
+ // Landscape: the button column hugs the right edge of the game half (the
+ // whole view unless the conversation sits on the right).
+ - (void)layoutScummverseLandscapeButtons:(CGFloat)right {
+  if(self.bounds.size.width < self.bounds.size.height) return;
++ [self updateScummverseButtons];
+  const CGFloat margin = right >= self.bounds.size.width - 1 && self.safeAreaInsets.right > 0 ? self.safeAreaInsets.right/4 : 10;
+  const CGFloat x = right - margin;
+  const CGSize touch = _toggleTouchModeButton.imageView.image.size, menu = _menuButton.imageView.image.size;
+@@ -782,6 +810,17 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ }
+ - (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height {
+  if(self.bounds.size.width >= self.bounds.size.height) return;
++ [self updateScummverseButtons];
++ if(scummverseSystemMenu) {
++  // ScummVM's menu over the whole view: its two buttons in their stock
++  // corner, not across its middle where the toolbar row would be.
++  const CGFloat margin = self.safeAreaInsets.right > 0 ? self.safeAreaInsets.right/4 : 10;
++  const CGSize touch = _toggleTouchModeButton.imageView.image.size, menu = _menuButton.imageView.image.size;
++  _toggleTouchModeButton.frame = CGRectMake(self.bounds.size.width - touch.width - margin, margin, touch.width, touch.height);
++  _menuButton.frame = CGRectMake(self.bounds.size.width - menu.width - margin, touch.height + margin, menu.width, menu.height);
++  _toggleTouchModeButton.alpha = _menuButton.alpha = 1;
++  return;
++ }
+  const CGFloat y=top+4;
+  _toggleTouchModeButton.frame=CGRectMake(8,y,32,32);
+  _menuButton.frame=CGRectMake(48,y,32,32);
+diff --git a/backends/platform/ios7/scummverse_camera_ui.inc b/backends/platform/ios7/scummverse_camera_ui.inc
+index 5279c850..a0f87800 100644
+--- a/backends/platform/ios7/scummverse_camera_ui.inc
++++ b/backends/platform/ios7/scummverse_camera_ui.inc
+@@ -363,6 +363,7 @@ static void scummverseCameraWithAccess(void (^go)(void)) {
+ // ---- The options: CLEAN or FULL, and how many selfies ----
+ @interface ScummverseCameraOptions : UIControl {
+ 	UIView *_panel;
++	UIView *_button; // (not retained: the game's view keeps it)
+ 	CGSize _shownIn;
+ }
+ - (void)showBelow:(UIView *)button inView:(UIView *)view;
+@@ -371,8 +372,11 @@ static void scummverseCameraWithAccess(void (^go)(void)) {
+ @implementation ScummverseCameraOptions
+ - (id)initWithFrame:(CGRect)frame {
+ 	if ((self = [super initWithFrame:frame])) {
+-		// Tapping anywhere else closes it; so does turning the phone.
++		// Tapping anywhere else closes it; so does turning the phone. With
++		// VoiceOver, only the panel is read while it is open, and the escape
++		// gesture (two fingers, a Z) closes it.
+ 		self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++		self.accessibilityViewIsModal = YES;
+ 		[self addTarget:self action:@selector(tapped:event:) forControlEvents:UIControlEventTouchUpInside];
+ 		_panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 196, 104)];
+ 		_panel.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.9];
+@@ -422,7 +426,9 @@ static void scummverseCameraWithAccess(void (^go)(void)) {
+ 	x = MAX(4, MIN(x, view.bounds.size.width - size.width - 4));
+ 	_panel.frame = CGRectMake(x, MAX(4, y), size.width, size.height);
+ 	_shownIn = view.bounds.size;
++	_button = button;
+ 	[view addSubview:self];
++	UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, _panel.subviews.firstObject);
+ }
+ - (void)tapped:(id)sender event:(UIEvent *)event {
+ 	UITouch *touch = event.allTouches.anyObject;
+@@ -434,7 +440,18 @@ static void scummverseCameraWithAccess(void (^go)(void)) {
+ 	[super layoutSubviews];
+ 	if (self.superview && !CGSizeEqualToSize(self.superview.bounds.size, _shownIn)) [self close];
+ }
+-- (void)close { [self removeFromSuperview]; }
++- (BOOL)accessibilityPerformEscape {
++	[self close];
++	return YES;
++}
++// (Kept to the end of this event: its view may be the last to hold it.
++// VoiceOver goes back to the camera button.)
++- (void)close {
++	[[self retain] autorelease];
++	const BOOL shown = self.superview != nil;
++	[self removeFromSuperview];
++	if (shown) UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, _button);
++}
+ @end
+ 
+ // Makes the button and starts taking the game's pictures.
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index f544ce21..a0f7e2fb 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -56,7 +56,10 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ - (void)dealloc { [_people release]; [super dealloc]; }
+ - (void)viewDidLoad {
+ 	[super viewDidLoad];
+-	self.navigationItem.rightBarButtonItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancel)] autorelease];
++	// (Story mode's list is over no game: no Cancel, which could only bring
++	// it back; Explore mode is one of its rows.)
++	if (_screen || scummverseStoryPlaying() != Scummverse::WorldCatalog::kWorldStoryListShowing)
++		self.navigationItem.rightBarButtonItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancel)] autorelease];
+ }
+ - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)_people.count; }
+ - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+@@ -68,6 +71,17 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+ 	const int request = [_people[indexPath.row][1] intValue];
+ 	if (_screen) { [_screen play:request]; return; }
++	// (No request: a place that cannot be chosen yet, a game's story that
++	// needs a file, its name saying which. Said; the list stays.)
++	if (!request) {
++		[tableView deselectRowAtIndexPath:indexPath animated:YES];
++		UIAlertController *alert = [UIAlertController alertControllerWithTitle:_people[indexPath.row][0]
++			message:@"This game can't start yet: that file is missing from its folder in Documents. Copy it there from your own copy of the game, then restart the app."
++			preferredStyle:UIAlertControllerStyleAlert];
++		[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
++		[self presentViewController:alert animated:YES completion:nil];
++		return;
++	}
+ 	// Closed first, so whatever the arrival shows is not hidden behind it
+ 	// (its Cancel no longer answering meanwhile).
+ 	tableView.userInteractionEnabled = NO;
+@@ -212,10 +226,11 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 	navigation.modalPresentationStyle = UIModalPresentationFormSheet;
+ 	[self presentViewController:navigation animated:YES completion:nil];
+ }
+-// Closes the screen and anything over it (the list).
++// Closes the screen and anything over it (the list); a hardware keyboard's
++// keys go to the game again (scummverse_roster_ui.inc).
+ - (void)done {
+ 	UIViewController *below = self.presentingViewController;
+-	[(below ? below : self) dismissViewControllerAnimated:NO completion:nil];
++	[(below ? below : self) dismissViewControllerAnimated:NO completion:^{ scummverseGameKeysBack(); }];
+ }
+ @end
+ 
+@@ -259,7 +274,9 @@ static void scummverseCastPresent(int tries) {
+ 		if (tries > 0) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummverseCastPresent(tries - 1); });
+ 		return;
+ 	}
+-	ScummverseLocalAI::runtime().endTalk(); [[iOS7AppDelegate iPhoneView] endEditing:YES];
++	// (Only the message field lets go: the game's key field is the screen's
++	// to take and given back as it closes.)
++	ScummverseLocalAI::runtime().endTalk(); [scummverseTalkBar endEditing:YES];
+ 	ScummverseCastController *screen = [[[ScummverseCastController alloc] init] autorelease];
+ 	[controller presentViewController:screen animated:NO completion:nil];
+ }
+diff --git a/backends/platform/ios7/scummverse_roster_ui.inc b/backends/platform/ios7/scummverse_roster_ui.inc
+index c7b6b25f..83cc34df 100644
+--- a/backends/platform/ios7/scummverse_roster_ui.inc
++++ b/backends/platform/ios7/scummverse_roster_ui.inc
+@@ -1,5 +1,25 @@
+ // Original-data portraits are rendered by the engine; no bundled game artwork.
+ static NSMutableDictionary *scummverseFaces;
++// A hardware keyboard: the game's keys back once a screen over the game has
++// closed (this one, or the character screen, scummverse_cast_ui.inc), as the
++// message field gives them back when it lets go. The hidden key field loses
++// its focus while a full-screen screen is up, and L, F and P would reach
++// nothing until a pinch. Not while a field types, nor while something is
++// still over the game.
++static void scummverseGameKeysBack() {
++#ifdef __IPHONE_14_0
++	if (@available(iOS 14.0, tvOS 14.0, *)) {
++		if (GCKeyboard.coalescedKeyboard == nil) return;
++		dispatch_async(dispatch_get_main_queue(), ^{
++			iPhoneView *view=[iOS7AppDelegate iPhoneView];
++			UIResponder *responder=view;
++			while(responder && ![responder isKindOfClass:UIViewController.class]) responder=responder.nextResponder;
++			if(!view.window || ((UIViewController *)responder).presentedViewController || scummverseFieldTyping(view.window)) return;
++			[view showKeyboard];
++		});
++	}
++#endif
++}
+ @interface ScummverseRosterController : UIViewController {
+ 	UIScrollView *_grid;
+ 	int _token;
+@@ -38,7 +58,7 @@ static NSMutableDictionary *scummverseFaces;
+ 	_grid.contentSize=CGSizeMake(_grid.bounds.size.width,((i+cols-1)/cols)*140);
+ }
+ - (void)choose:(UIButton *)button { scummverseWorldRequest(_token | (128+(int)button.tag)); [self done]; }
+-- (void)done { [self dismissViewControllerAnimated:NO completion:nil]; }
++- (void)done { [self dismissViewControllerAnimated:NO completion:^{ scummverseGameKeysBack(); }]; }
+ @end
+ void scummverseRosterFace(int actor,const unsigned char *rgba) {
+ 	NSData *data=[[NSData alloc] initWithBytes:rgba length:64*64*4];
+@@ -55,7 +75,9 @@ void scummverseRosterShow(int token,unsigned mask) {
+ 		UIResponder *responder=[iOS7AppDelegate iPhoneView];
+ 		while(responder && ![responder isKindOfClass:UIViewController.class]) responder=responder.nextResponder;
+ 		UIViewController *controller=(UIViewController *)responder; if(!controller || controller.presentedViewController) return;
+-		ScummverseLocalAI::runtime().endTalk(); [[iOS7AppDelegate iPhoneView] endEditing:YES];
++		// (Only the message field lets go: the game's key field is the
++		// screen's to take and given back as it closes.)
++		ScummverseLocalAI::runtime().endTalk(); [scummverseTalkBar endEditing:YES];
+ 		ScummverseRosterController *menu=[[[ScummverseRosterController alloc] initWithToken:token mask:mask] autorelease];
+ 		[controller presentViewController:menu animated:NO completion:nil];
+ 	});
+diff --git a/base/main.cpp b/base/main.cpp
+index 89c7bc81..430ebef6 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -241,8 +241,11 @@ static void scummverseStoryList(const Common::String &maniacTarget, Common::Stri
+ 	scummverseWorldPoll(); // (a request left from a game: not for the list)
+ 	for (;;) {
+ 		scummversePlacesBegin("Story mode");
+-		for (uint i = 0; i < games.size(); ++i) scummversePlacesItem(labels[i].c_str(), kWorldStoryRequest + games[i]);
++		// (A game that needs a file is listed with no request: tapped, the
++		// list says why and stays.)
++		for (uint i = 0; i < games.size(); ++i) scummversePlacesItem(labels[i].c_str(), ready[i] ? kWorldStoryRequest + games[i] : 0);
+ 		scummversePlacesItem("Explore mode (the mansion, other worlds)", kWorldStoryExploreRequest);
++		// (Sent only when the list cannot be shown: no Cancel over no game.)
+ 		scummversePlacesCancel(kWorldStoryHomeRequest);
+ 		scummversePlacesShow();
+ 		int request = 0;
+@@ -256,7 +259,7 @@ static void scummverseStoryList(const Common::String &maniacTarget, Common::Stri
+ 		for (uint i = 0; i < games.size(); ++i)
+ 			if (kWorldStoryRequest + games[i] == request && ready[i]) chosen = games[i];
+ 		if (chosen >= 0) break;
+-		// (Closed unchosen, or a game that needs files: the list again.)
++		// (Not shown, something else over it: the list again.)
+ 		g_system->delayMillis(300);
+ 	}
+ 	// (Withdrawn, chosen or not: a list still coming up never appears later.)
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index 7d9f5e18..dbd642df 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -16,6 +16,7 @@
+ #include <fcntl.h>
+ #include <ifaddrs.h>
+ #include <mutex>
++#include <net/if.h>
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
+ #include <poll.h>
+@@ -513,21 +514,38 @@ std::string Session::describe() const {
+ 	}
+ }
+ 
++std::vector<std::string> reachableAddresses(const std::vector<Interface> &interfaces) {
++	// (0: WiFi, 1: the hotspot a phone shares, 2: anything else up.)
++	auto rank = [](const std::string &name) { return name.compare(0, 2, "en") == 0 ? 0 : name.compare(0, 6, "bridge") == 0 ? 1 : 2; };
++	std::vector<const Interface *> usable;
++	for (const Interface &i : interfaces)
++		if (i.up && i.running && !i.loopback && !i.pointToPoint && i.address && (i.address >> 24) != 127) usable.push_back(&i);
++	std::stable_sort(usable.begin(), usable.end(), [&](const Interface *a, const Interface *b) { return rank(a->name) < rank(b->name); });
++	std::vector<std::string> out;
++	for (const Interface *i : usable) {
++		const uint32_t a = i->address;
++		const std::string text = std::to_string(a >> 24) + "." + std::to_string((a >> 16) & 0xFF) + "." + std::to_string((a >> 8) & 0xFF) + "." + std::to_string(a & 0xFF);
++		if (std::find(out.begin(), out.end(), text) == out.end()) out.push_back(text);
++	}
++	return out;
++}
++
+ std::string localAddresses() {
+-	std::string out;
+ 	ifaddrs *list = nullptr;
+ 	if (getifaddrs(&list) != 0) return "this device";
++	std::vector<Interface> interfaces;
+ 	for (ifaddrs *i = list; i; i = i->ifa_next) {
+ 		if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET) continue;
+-		const sockaddr_in *a = (const sockaddr_in *)i->ifa_addr;
+-		if ((ntohl(a->sin_addr.s_addr) >> 24) == 127) continue;
+-		char text[INET_ADDRSTRLEN];
+-		if (!inet_ntop(AF_INET, &a->sin_addr, text, sizeof(text))) continue;
+-		if (out.find(text) != std::string::npos) continue;
+-		if (!out.empty()) out += ", ";
+-		out += text;
++		Interface found;
++		found.name = i->ifa_name ? i->ifa_name : "";
++		found.address = ntohl(((const sockaddr_in *)i->ifa_addr)->sin_addr.s_addr);
++		found.up = (i->ifa_flags & IFF_UP) != 0; found.running = (i->ifa_flags & IFF_RUNNING) != 0;
++		found.loopback = (i->ifa_flags & IFF_LOOPBACK) != 0; found.pointToPoint = (i->ifa_flags & IFF_POINTOPOINT) != 0;
++		interfaces.push_back(found);
+ 	}
+ 	freeifaddrs(list);
++	std::string out;
++	for (const std::string &address : reachableAddresses(interfaces)) out += (out.empty() ? "" : ", ") + address;
+ 	return out.empty() ? "this device" : out;
+ }
+ 
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index fcde7744..ac69bcd4 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -91,9 +91,23 @@ private:
+ 	Session &operator=(const Session &) = delete;
+ };
+ 
+-// IPv4 addresses of this device's network interfaces, for the host to share.
++// IPv4 addresses of this device's network interfaces, for the host to share
++// (reachableAddresses of the system's list, joined by ", "; "this device"
++// when there is none).
+ std::string localAddresses();
+ 
++// One IPv4 interface as the system lists it (getifaddrs).
++struct Interface {
++	std::string name;      // "en0", "bridge100", "pdp_ip0", "utun2"...
++	uint32_t address = 0;  // Host byte order.
++	bool up = false, running = false, loopback = false, pointToPoint = false;
++};
++// The addresses others on the same WiFi can reach, best first: interfaces
++// up and running, not loopback or point-to-point (cellular, VPN); WiFi (en*)
++// then the hotspot (bridge*) then the rest, each in the system's order;
++// each address once (whole addresses: 192.168.1.2 is not 192.168.1.20).
++std::vector<std::string> reachableAddresses(const std::vector<Interface> &interfaces);
++
+ // Tests only: session time moves on by this much (silences without waiting).
+ void advanceClockForTests(int milliseconds);
+ 

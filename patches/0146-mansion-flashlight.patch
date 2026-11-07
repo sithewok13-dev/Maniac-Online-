@@ -1,0 +1,335 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 8b057c0c..804448a5 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -227,7 +227,7 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
+ 	World::SourceScene source;
+ 	if (!World::parseScene(data, size, source, error)) return false;
+-	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _props.clear(); _follow = -1; _cameraGoal = 0; _dark = false;
++	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _props.clear(); _follow = -1; _cameraGoal = 0; _dark = false; _beam = Beam();
+ 	_links = linksOf(_boxes, _source.boxNext, (int)_source.boxes.size());
+ 	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
+ 	for (int c = 0; c < 256; ++c)
+@@ -469,11 +469,16 @@ int Scene::addProp(const uint8_t *pixels, int width, int height, int none, const
+ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const View &v = _view;
+ 	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+-	const int shown = _dark ? 0 : std::min(v.width - v.camera, v.screenWidth - v.left);
++	const int shown = _dark && !_beam.on ? 0 : std::min(v.width - v.camera, v.screenWidth - v.left);
+ 	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y) {
+ 		const uint8_t *in = &_scaled[(size_t)y * v.width + v.camera];
+ 		uint32_t *out = pixels + (size_t)(y + v.top) * pitch + v.left;
+-		for (int x = 0; x < shown; ++x) out[x] = _colors[in[x]];
++		if (!_dark) { for (int x = 0; x < shown; ++x) out[x] = _colors[in[x]]; continue; }
++		// (In the dark, only what the flashlight shows.)
++		const int sy = _rows[y];
++		if (sy < _beam.y || sy >= _beam.y + _beam.h) continue;
++		for (int x = 0; x < shown; ++x)
++			if (beamShows(_columns[v.camera + x], sy)) out[x] = _colors[in[x]];
+ 	}
+ 	// Far ones first: the props (numbered after the people), then everyone,
+ 	// by the row they stand on; on the same row, a prop behind the people.
+@@ -504,6 +509,28 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	}
+ }
+ 
++void Scene::setFlashlight(bool on, Point at, int width, int height) {
++	_beam = Beam();
++	if (!on || width <= 0 || height <= 0) return;
++	_beam.on = true;
++	_beam.w = std::min(width, _source.width); _beam.h = std::min(height, _source.height);
++	_beam.x = std::max(0, std::min(_source.width - _beam.w, ((int)std::floor(at.x) & ~7) - _beam.w / 2));
++	_beam.y = std::max(0, std::min(_source.height - _beam.h, ((int)std::floor(at.y) & ~1) - _beam.h / 2));
++}
++
++bool Scene::flashlight(int &x, int &y, int &width, int &height) const {
++	x = _beam.x; y = _beam.y; width = _beam.w; height = _beam.h;
++	return _beam.on;
++}
++
++bool Scene::beamShows(int sx, int sy) const {
++	const int px = sx - _beam.x, py = sy - _beam.y;
++	if (!_beam.on || px < 0 || py < 0 || px >= _beam.w || py >= _beam.h) return false;
++	// (Rounded within four pixels of each corner.)
++	const int r = 4, dx = r - std::min(px, _beam.w - 1 - px), dy = r - std::min(py, _beam.h - 1 - py);
++	return dx <= 0 || dy <= 0 || dx * dx + dy * dy <= r * r;
++}
++
+ bool Scene::showObject(int object, int picture) {
+ 	if (object < 0 || object >= (int)_source.objects.size()) return false;
+ 	const World::SourceObject &o = _source.objects[object];
+@@ -802,6 +829,8 @@ bool propHit(int prop, int screenX, int screenY) { return stage().propHit(prop,
+ double depthAt(double x, double y) { return stage().depthAt(Stage::Point(x, y)); }
+ void setDark(bool dark) { stage().setDark(dark); }
+ bool dark() { return stage().dark(); }
++void setFlashlight(bool on, double x, double y) { stage().setFlashlight(on, Stage::Point(x, y)); }
++bool flashlight(int &x, int &y, int &width, int &height) { return stage().flashlight(x, y, width, height); }
+ bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette) {
+ 	World::SourceScene scene;
+ 	std::string problem;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 7bfe2dad..42f64f22 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -197,6 +197,13 @@ public:
+ 	// place is loaded.
+ 	void setDark(bool dark, uint32_t color = kDarkColor) { _dark = dark; _darkColor = color; }
+ 	bool dark() const { return _dark; }
++	// A flashlight in the dark (the oldest games' own): the place shown in a
++	// width x height rectangle of source pixels round a point (as theirs: its
++	// left on a multiple of 8, its top of 2, kept inside the place, its
++	// corners rounded), the rest still dark. Until another place is loaded.
++	void setFlashlight(bool on, Point at = Point(), int width = kBeamWidth, int height = kBeamHeight);
++	bool flashlight(int &x, int &y, int &width, int &height) const; // (its source rectangle, when on)
++	static const int kBeamWidth = 48, kBeamHeight = 32; // (Maniac's and Zak's: six strips by four)
+ 	static const uint32_t kDarkColor = 0xFF555555u; // (the games' dark grey)
+ 
+ private:
+@@ -227,6 +234,9 @@ private:
+ 	int _cameraGoal = 0;
+ 	bool _dark = false;
+ 	uint32_t _darkColor = kDarkColor;
++	struct Beam { bool on = false; int x = 0, y = 0, w = 0, h = 0; };
++	Beam _beam;
++	bool beamShows(int sx, int sy) const; // (a source pixel inside the beam, its corners rounded)
+ 	double _speedX = 8, _speedY = 2;
+ 	int _stepTicks = 6;
+ 	double _cameraSpeed = kCameraSpeed;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 503e20b1..a38762fe 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -79,6 +79,10 @@ double depthAt(double x, double y);
+ // another place is loaded).
+ void setDark(bool dark);
+ bool dark();
++// A flashlight in the dark round a point (source pixels): the place shown in
++// the oldest games' 48 x 32 rectangle there; its rectangle (false when off).
++void setFlashlight(bool on, double x, double y);
++bool flashlight(int &x, int &y, int &width, int &height);
+ // A scene's colours (bytes of a .svw file; 768 bytes out); false when malformed.
+ bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette);
+ // How everyone added from now on walks: source pixels a step across and up
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6d25aa2c..d935de62 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -86,6 +86,7 @@ static const int kRideAsk = 60 * 60; // (its list of where to unanswered: withdr
+ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
+ static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
+ static const char *const kDarkKey = "scummverse_sandbox_dark"; // (the mansion's places with their lights off)
++static const char *const kFlashlightKey = "scummverse_sandbox_flashlight"; // (the mansion's flashlight on)
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -398,6 +399,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	tramShow();
+ 	vanShow();
+ 	StageBridge::setDark(_dark.contains(game * 1024 + room));
++	_beamX = _beamY = -1;
+ 	_strollClock = 120 + _random.getRandomNumber(240);
+ 	if (!_testing) saveState();
+ 	return true;
+@@ -427,6 +429,30 @@ void SandboxEngine::lights(bool on) {
+ 	if (changed && !_testing) lightsSave(true);
+ }
+ 
++// The mansion's flashlight, carried and turned on: in a dark place its
++// beam where the pointer last was (as the original's follows the cursor),
++// else round the one played.
++bool SandboxEngine::isFlashlight(const Carried &c) const {
++	Common::String name = c.name;
++	name.toLowercase();
++	return c.game >= 0 && c.game < worldGameCount() && !strcmp(kWorldGames[c.game].gameid, "maniac") && name.contains("flashlight");
++}
++
++bool SandboxEngine::flashlightLit() const {
++	if (!_flashlight || !StageBridge::dark()) return false;
++	for (const Carried &c : _carried) if (isFlashlight(c)) return true;
++	return false;
++}
++
++void SandboxEngine::aimFlashlight() {
++	const bool on = flashlightLit();
++	double x = _beamX, y = _beamY;
++	int x0, y0, x1, y1;
++	if (on && x < 0 && _player >= 0 && StageBridge::drawnRect(_player, x0, y0, x1, y1)) StageBridge::toScene((x0 + x1) / 2, (y0 + y1) / 2, x, y);
++	else if (on && x < 0 && _player >= 0) StageBridge::position(_player, x, y);
++	StageBridge::setFlashlight(on, x, y);
++}
++
+ void SandboxEngine::lightsSave(bool flush) const {
+ 	ConfMan.set(kDarkKey, lightsKept());
+ 	if (flush) ConfMan.flushToDisk();
+@@ -477,6 +503,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
++	_beamX = x; _beamY = y; // (the flashlight where the pointer is)
+ 	const int wasOpening = _opening, wasDoor = _door;
+ 	_door = -1; _action = 0; _target = -1; _opening = 0;
+ 	// (Loom's: a thing, not a door, is chosen, or examined when it was.)
+@@ -789,6 +816,13 @@ void SandboxEngine::useItem(int item, int kind) {
+ 	else if (kind == kWorldVerbWalk || kind == kWorldVerbAct) kind = kWorldVerbLook;
+ 	if (kind == kWorldVerbWalk) { sentence(name); return; }
+ 	sentence("");
++	// (The mansion's flashlight, on or off.)
++	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && item >= 0 && item < (int)_carried.size() && isFlashlight(_carried[item])) {
++		_flashlight = kind == kWorldVerbTurnOn;
++		_dirty = true;
++		if (!_testing) { ConfMan.setBool(kFlashlightKey, _flashlight); ConfMan.flushToDisk(); }
++		return;
++	}
+ 	int picture;
+ 	char line[160];
+ 	const bool naming = kind == kWorldVerbLook || kind == kWorldVerbWhatIs || kind == kWorldVerbRead;
+@@ -1239,6 +1273,7 @@ void SandboxEngine::request(int code) {
+ }
+ 
+ void SandboxEngine::present() {
++	aimFlashlight();
+ 	StageBridge::render(_frame.data(), _width);
+ 	if (PanelBridge::loaded()) {
+ 		// Over the scene (Sam & Max): its box while open, else its button and
+@@ -2301,6 +2336,7 @@ Common::Error SandboxEngine::run() {
+ 	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
+ 	if (ConfMan.hasKey(kDarkKey)) lightsRead(ConfMan.get(kDarkKey));
++	if (ConfMan.hasKey(kFlashlightKey)) _flashlight = ConfMan.getBool(kFlashlightKey);
+ 	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+ 	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
+ 
+@@ -2347,6 +2383,8 @@ Common::Error SandboxEngine::run() {
+ 			else if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
++			// (A flashlight in the dark follows the pointer, as the original's.)
++			else if (event.type == Common::EVENT_MOUSEMOVE && flashlightLit()) { StageBridge::toScene(event.mouse.x, event.mouse.y, _beamX, _beamY); changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+ 		if (_press.down && !_press.held && g_system->getMillis() - _press.at >= kCoinHold) { hold(); changed = true; }
+ 		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
+@@ -2947,7 +2985,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -2956,6 +2994,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int left, top, width, height;
+ 			double rowScale, colScale;
+ 			StageBridge::view(left, top, width, height, rowScale, colScale);
++			aimFlashlight(); // (as present: the flashlight's beam, where it is on)
+ 			StageBridge::render(_frame.data(), _width);
+ 			lit = grey = 0;
+ 			for (int y = MAX(0, top); y < MIN(_height, top + height); ++y)
+@@ -2995,9 +3034,65 @@ Common::Error SandboxEngine::verbsTest() {
+ 				seen(lit, grey);
+ 				if (StageBridge::dark() || !lit || !lightsKept().empty()) { fail(("not lit when turned on: " + what).c_str(), maniac); continue; }
+ 				++lightsOn;
++				if (lightRoom < 0) lightRoom = room;
+ 			}
+ 		}
+ 		if (maniac >= 0 && installed(maniac, 1) && !lightsOff) fail("no light turned off", maniac);
++		// The flashlight, taken where it lies and turned on (its verb, then a
++		// tap on it carried) in a place made dark: a lit window round where
++		// the last tap was, the rest dark; off, all dark again.
++		auto findThing = [&](bool light) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				char name[80];
++				StageBridge::objectName(o, name, sizeof(name));
++				Common::String lower(name);
++				lower.toLowercase();
++				if (light ? isLight(o) : lower.contains("flashlight")) return o;
++			}
++			return -1;
++		};
++		auto tapCarried = [&](int kind, int index) {
++			for (int turn = 0; turn < 64 && index - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++			for (int turn = 0; turn < 64 && index < PanelBridge::firstItem(); ++turn) PanelBridge::scroll(-1);
++			int x, y, w, h;
++			if (verbOf(kind) < 0 || !pick(verbOf(kind)) || !PanelBridge::slotRect(index - PanelBridge::firstItem(), x, y, w, h)) return false;
++			tapRect(x, y, w, h);
++			return true;
++		};
++		int torchRoom = -1;
++		for (int room = 1; maniac >= 0 && lightRoom >= 0 && torchRoom < 0 && room < 1024; ++room)
++			if (installed(maniac, room) && walkable(maniac, room) && enter(maniac, room, 0, problem) && findThing(false) >= 0) torchRoom = room;
++		if (lightRoom >= 0 && torchRoom < 0) fail("no flashlight found", maniac);
++		else if (lightRoom >= 0) {
++			// (Taken already, by the taking above: as it is.)
++			auto carriedAt = [&]() { int at = -1; for (uint i = 0; i < _carried.size(); ++i) if (isFlashlight(_carried[i])) at = i; return at; };
++			int carried = carriedAt();
++			if (carried < 0 && use(kWorldVerbPickUp, findThing(false))) carried = carriedAt();
++			int lamp = -1, lit, grey, bx, by, bw, bh;
++			if (carried < 0) fail("the flashlight not taken", maniac);
++			else if (!enter(maniac, lightRoom, 0, problem) || (lamp = findThing(true)) < 0 || !use(kWorldVerbTurnOff, lamp) || !StageBridge::dark()) fail("no place made dark for the flashlight", maniac);
++			else if (!tapCarried(kWorldVerbTurnOn, carried) || !_flashlight) fail("the flashlight not turned on", maniac);
++			else {
++				// (A tap on the place, as a player's: the beam there.)
++				int left, top, width, height;
++				double rowScale, colScale, tx, ty;
++				StageBridge::view(left, top, width, height, rowScale, colScale);
++				const int sx = left + width / 2, sy = top + height / 2;
++				tap(sx, sy);
++				StageBridge::toScene(sx, sy, tx, ty);
++				seen(lit, grey);
++				if (!StageBridge::flashlight(bx, by, bw, bh) || tx < bx || tx >= bx + bw || ty < by || ty >= by + bh || !lit) fail("no lit window where the tap was", maniac);
++				else if (lit > bw * bh * rowScale * colScale * 1.1) fail("more lit than the flashlight's window", maniac);
++				else if (ConfMan.hasKey("scummverse_shots") && (present(), !shot("flashlight.png"))) fail("no picture of the flashlight", maniac);
++				else if (!tapCarried(kWorldVerbTurnOff, carried) || _flashlight) fail("the flashlight not turned off", maniac);
++				else {
++					seen(lit, grey);
++					if (lit || StageBridge::flashlight(bx, by, bw, bh)) fail("lit with the flashlight off", maniac);
++					else ++flashlit;
++				}
++			}
++			if (lamp >= 0 && StageBridge::dark()) use(kWorldVerbTurnOn, lamp);
++		}
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -3020,8 +3115,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again, %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight), %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a51a2e8e..785aab5c 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -118,6 +118,8 @@ private:
+ 	bool isLight(int object) const;         // one of the mansion's lights, turned on and off
+ 	void lights(bool on);                   // here lit, or dark (kept)
+ 	void lightsSave(bool flush) const;      // (into the settings)
++	bool flashlightLit() const;             // the mansion's flashlight carried, on, in the dark
++	void aimFlashlight();                   // its beam where the pointer last was (else round the one played)
+ 	Common::String lightsKept() const;
+ 	void lightsRead(const Common::String &kept);
+ 	void castOffer();
+@@ -321,6 +323,8 @@ private:
+ 	};
+ 	Phone _phone;
+ 	Common::HashMap<int, bool> _dark;       // places with their lights off (game * 1024 + room)
++	bool _flashlight = false;               // the mansion's flashlight on (kept)
++	double _beamX = -1, _beamY = -1;        // where its beam points (source pixels; -1: round the one played)
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them
+@@ -330,6 +334,7 @@ private:
+ 	int _chosen = -1, _noteClock = 0;       // (Loom's: the thing chosen; a note lit so long)
+ 	struct Carried { int game, room, id, picture; Common::String name; };
+ 	Common::Array<Carried> _carried;        // things carried, in order
++	bool isFlashlight(const Carried &c) const;
+ 	Common::RandomSource _random;
+ };
+ 

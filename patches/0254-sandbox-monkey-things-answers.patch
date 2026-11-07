@@ -1,0 +1,232 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 5b3cc8c4..31c15587 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -59,10 +59,12 @@ static const int kWorldExportVersion = 25;
+ // them, kWorldMarks and kWorldMarkReaders: "maniac-v37"); from 0251 The Dig's
+ // and Full Throttle's (their things placed and what their own verbs on them
+ // answer: "dig-v26", "ft-v26"); from 0253 Day of the Tentacle's (what its
+-// verbs on its things answer, each kid in their own time: "tentacle-v26").
++// verbs on its things answer, each kid in their own time: "tentacle-v26");
++// from 0254 Monkey Island's and Monkey Island 2's (what their panels' verbs
++// on their things answer: "monkey-v26", "monkey2-v27").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "monkey2") ? 2 : same(gameid, "monkey") || same(gameid, "comi") || same(gameid, "loom") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1102,7 +1104,10 @@ inline int worldPlayedIn(int game, int room) {
+ // the Tentacle's verb script (120) asks "use ... with" for a thing of class
+ // 1 to 4 (its prepositions); giving always asks "to whom".
+ struct WorldWantsSecond { short game, kind, first, last; };
+-static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}};
++// From 0254 Monkey Island's and Monkey Island 2's giving, which asks "to
++// whom" (their verb scripts' "use ... with" is not known: their Use on one
++// thing is played as their sentence scripts answer it).
++static const WorldWantsSecond kWorldWantsSecond[] = {{5, kWorldVerbUse, 1, 4}, {5, kWorldVerbGive, 0, 0}, {0, kWorldVerbGive, 0, 0}, {1, kWorldVerbGive, 0, 0}};
+ // Marks (from 0248): what a game's script leaves for others' to read later,
+ // which the new engine keeps: the kid's own (`bit`, plus the kid's number,
+ // of its game's bit variables: the mansion's TV's film watched, by that kid
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 55f7a373..c6906961 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -2721,11 +2721,13 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			kWorldGames[gameIndex].gameid, runs, (int)effects.size(), left, beyond, silent, past);
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+-	} else if ((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE) && VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
++	} else if ((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE || !strcmp(kWorldGames[gameIndex].gameid, "monkey") || !strcmp(kWorldGames[gameIndex].gameid, "monkey2")) &&
++		VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+ 		// (From 0251, The Dig's and Full Throttle's, "SVO7" with effects as
+ 		// Sam & Max's: what their own verbs answer, see
+ 		// scummverseExportOwnAnswers; from 0253 Day of the Tentacle's, its
+-		// verb panel's.)
++		// verb panel's; from 0254 Monkey Island's and Monkey Island 2's,
++		// theirs.)
+ 		Common::Array<int> placeRooms;
+ 		Common::Array<Common::Array<int> > placeThings;
+ 		for (const Room &r : found) { placeRooms.push_back(r.room); placeThings.push_back(r.things); }
+@@ -2877,6 +2879,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ // tap), each played as the kid of that place's time (kWorldPlayedIn: their
+ // own lines, their own clothes put back), none its game wants a second
+ // thing for (kWorldWantsSecond: giving, and using one of its "with" things).
++// From 0254 Monkey Island's and Monkey Island 2's likewise, their panels'
++// verbs but walking and giving, with the verbs put back after each run too
++// (a talk stopped half way leaves its answers' verbs), a message box passed
++// over (ScummEngine::showMessageDialog) and each answer's line chosen by who
++// says it (see ownLines).
+ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<int> &rooms, const Common::Array<Common::Array<int> > &things, Common::Array<ScummverseAnswer> &answers) {
+ 	// (The one played: its start's, else the one of that place, from 0253.)
+ 	const int startEgo = VAR(VAR_EGO);
+@@ -2894,6 +2901,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	Common::HashMap<int, int> clothes;
+ 	clothes[startEgo] = _actors[startEgo]->_costume;
+ 	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == gameIndex && p.actor > 0 && p.actor < _numActors) clothes[p.actor] = _actors[p.actor]->_costume;
++	// (From 0254 the verbs too: a talk stopped half way (Monkey Island's)
++	// leaves the panel's saved and its answers' made, and they run out.)
++	const Common::Array<VerbSlot> verbSlots(_verbs, _numVerbs);
+ 	auto putBack = [&]() {
+ 		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+ 		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
+@@ -2908,6 +2918,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (!_res->isResourceLoaded(rtString, i)) _res->createResource(rtString, i, arrays[i].size());
+ 			memcpy(_res->_types[rtString][i]._address, arrays[i].data(), arrays[i].size());
+ 		}
++		for (int i = 1; i < _numVerbs; ++i) {
++			if (!verbSlots[i].verbid && _verbs[i].verbid) _res->nukeResource(rtVerb, i);
++			_verbs[i] = verbSlots[i];
++		}
+ 		_sentenceNum = 0; _drawObjectQueNr = 0;
+ 	};
+ 	auto quiet = [&]() {
+@@ -2932,6 +2946,17 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
+ 		return line;
+ 	};
++	// (The lines said so far: the one played's first, anyone's, and any at
++	// all, a sound's word too (said by nobody); each once.)
++	auto said = [&](Common::String &theirs, Common::String &someone, Common::String &anything) {
++		const int talker = getTalkingActor();
++		if (!_charsetBuffer[0] || (!theirs.empty() && !someone.empty() && !anything.empty())) return;
++		const Common::String line = lineOf();
++		if (line.empty()) return;
++		if (theirs.empty() && talker == ego) theirs = line;
++		if (someone.empty() && talker > 0 && talker < _numActors) someone = line;
++		if (anything.empty()) anything = line;
++	};
+ 	auto arrive = [&](int room) {
+ 		quiet();
+ 		// (In the clothes they had; the place's entry scripts dress them for
+@@ -2987,6 +3012,13 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// scripts' too: one spent, its scripts stop and it is none; see
+ 	// executeScript.)
+ 	const int32 kRunSteps = 4000000;
++	// (From 0254, Monkey Island's and Monkey Island 2's, the line is the one
++	// played's first, as a record's line is shown as theirs (someone talking
++	// near by, or a sound's word, is not their answer); where they say none,
++	// the first another says (a shopkeeper's "keep off"). Talking to one, the
++	// first anyone says (the one talked to answering), a sound's word only
++	// where nobody does.)
++	const bool ownLines = !strcmp(kWorldGames[gameIndex].gameid, "monkey") || !strcmp(kWorldGames[gameIndex].gameid, "monkey2");
+ 	int runs = 0, left = 0, beyond = 0, silent = 0, past = 0, overran = 0, unnamed = 0;
+ 	Common::HashMap<int, int> byKind;
+ 	// (From 0253, a verb its game wants a second thing for on this one, a
+@@ -3028,6 +3060,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					doSentence(verbs[v], obj, 0);
+ 					ScummverseAnswer e;
+ 					e.room = room; e.id = obj; e.kind = kinds[v]; e.from = from;
++					Common::String theirs, someone, anything;
+ 					for (int frame = 0; frame < 600 && _currentRoom == room && !shouldQuit(); ++frame) {
+ 						checkAndRunSentenceScript();
+ 						bool running = _sentenceNum > 0;
+@@ -3035,7 +3068,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
+ 							running = running || vm.slot[s].status == ssRunning;
+ 						}
+-						if (e.line.empty()) e.line = lineOf();
++						if (ownLines) said(theirs, someone, anything);
++						else if (e.line.empty()) e.line = lineOf();
+ 						if (!running && frame > 1) break;
+ 						// (Lines need no waiting, nor animations: the actors
+ 						// here animated on as a frame does, and taken as drawn
+@@ -3049,7 +3083,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
+ 						scummverseDropAnimCommands();
+ 					}
+-					if (e.line.empty()) e.line = lineOf();
++					if (ownLines) {
++						said(theirs, someone, anything);
++						e.line = e.kind == kWorldVerbTalk ? (someone.empty() ? anything : someone) : theirs.empty() ? anything : theirs;
++					} else if (e.line.empty()) e.line = lineOf();
+ 					_scummverseStatesSet = nullptr;
+ 					const bool spent = _scummverseStepBudget == 0;
+ 					_scummverseStepBudget = -1;
+diff --git a/engines/scumm/string.cpp b/engines/scumm/string.cpp
+index b7edea54..292c6362 100644
+--- a/engines/scumm/string.cpp
++++ b/engines/scumm/string.cpp
+@@ -156,6 +156,15 @@ void ScummEngine::showMessageDialog(const byte *msg) {
+ 	if (_string[3].color == 0)
+ 		_string[3].color = 4;
+ 
++	// SCUMMVERSE (from 0254): while exporting, a message box (one a room's
++	// script out of its story's order shows: Monkey Island's) is told and
++	// passed over, no key pressed: else it waits for a player for ever.
++	if (_scummverseExporting) {
++		warning("SCUMMVERSE world export: message passed over (room %d, script %d)", _currentRoom, _currentScript != 0xFF ? vm.slot[_currentScript].number : -1);
++		VAR(VAR_KEYPRESS) = 0;
++		return;
++	}
++
+ 	if (isUsingOriginalGUI()) {
+ 		if (_game.version > 4)
+ 			VAR(VAR_KEYPRESS) = showBannerAndPause(0, -1, (const char *)msg).ascii;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 4edab225..50c277b1 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -109,10 +109,11 @@ static int screenWidthOf(int game) { return squarePixels(game) ? 640 : 320; }
+ // A game whose things answer as its own sentences do (its things file's
+ // effects, played by its own scripts: ownAnswer): Sam & Max's from 0247, The
+ // Dig's (its tap) and Full Throttle's (its coin's verbs) from 0251, Day of
+-// the Tentacle's (its verb panel's) from 0253.
++// the Tentacle's (its verb panel's) from 0253, Monkey Island's and Monkey
++// Island 2's (their panels') from 0254.
+ static bool ownSentences(int game) {
+ 	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "samnmax") || sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft") ||
+-		sameId(kWorldGames[game].gameid, "tentacle"));
++		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2"));
+ }
+ static bool walkable(int game, int room) {
+ 	const int kind = worldRoomKind(game, room);
+@@ -5689,8 +5690,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 		PanelBridge::select(-1);
+ 		// Pushing and picking up where the game has such things: here, else
+ 		// in its other places (the named ones first). (Not Sam & Max's, The
+-		// Dig's or Full Throttle's: their things answer as their own sentences
+-		// do, each record checked below.)
++		// Dig's, Full Throttle's or, from 0253 and 0254, Day of the Tentacle's
++		// and Monkey Island's and Monkey Island 2's: their things answer as
++		// their own sentences do, each record checked below.)
+ 		const bool ownAnswers = ownSentences(g);
+ 		// (From 0253, one whose things so answer with its verb panel under the
+ 		// scene, Day of the Tentacle's: not pushed or refused here, but one
+@@ -7373,10 +7375,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 	struct OwnRecords { int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0; int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things; };
+ 	// (From 0253 Day of the Tentacle's likewise, its verb panel's verbs; one
+ 	// taken with its verb chosen on the panel and a tap on it, seen among its
+-	// panel's things.)
+-	OwnRecords ownDig, ownFt, ownDott;
++	// panel's things. From 0254 Monkey Island's and Monkey Island 2's so too.)
++	OwnRecords ownDig, ownFt, ownDott, ownMonkey, ownMonkey2;
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+-		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : sameId(kWorldGames[g].gameid, "tentacle") ? &ownDott : nullptr;
++		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : sameId(kWorldGames[g].gameid, "tentacle") ? &ownDott :
++			sameId(kWorldGames[g].gameid, "monkey") ? &ownMonkey : sameId(kWorldGames[g].gameid, "monkey2") ? &ownMonkey2 : nullptr;
+ 		if (!c) continue;
+ 		loadThings(g);
+ 		c->game = g; c->all = PanelBridge::effectCount(g);
+@@ -7457,7 +7460,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			int found, answers;
+ 			if (!PanelBridge::gameThing(g, room, id, found, answers) || found != from || !enter(g, room, 0, problem)) continue;
+ 			const int o = thingIn(id), before = PanelBridge::itemCount();
+-			if (o < 0 || !isThing(o) || !use(kind, o)) continue;
++			// (From 0254 not one with no picture of its own: never taken here.)
++			if (o < 0 || !isThing(o) || !StageBridge::objectPictures(o) || !use(kind, o)) continue;
+ 			int bx, by, bw, bh, x, y, w, h;
+ 			bool boxed = PanelBridge::itemCount() == before + 1;
+ 			// (From 0253 a verb panel's things are on it, always shown.)
+@@ -7576,7 +7580,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 		(ownAll && (ownSeen + ownAway != ownAll || !ownSeen || !ownTaken || ownPointer != 1)) ||
+ 		(ownDig.all && (ownDig.seen + ownDig.away != ownDig.all || !ownDig.seen || !ownDig.taken || ownDig.controls != 1 || ownDig.shown != ownDig.hidden)) ||
+ 		(ownFt.all && (ownFt.seen + ownFt.away != ownFt.all || !ownFt.seen || !ownFt.taken || ownFt.controls != 1)) ||
+-		(ownDott.all && (ownDott.seen + ownDott.away != ownDott.all || !ownDott.seen || !ownDott.taken || ownDott.controls != 1)))
++		(ownDott.all && (ownDott.seen + ownDott.away != ownDott.all || !ownDott.seen || !ownDott.taken || ownDott.controls != 1)) ||
++		(ownMonkey.all && (ownMonkey.seen + ownMonkey.away != ownMonkey.all || !ownMonkey.seen || !ownMonkey.taken || ownMonkey.controls != 1)) ||
++		(ownMonkey2.all && (ownMonkey2.seen + ownMonkey2.away != ownMonkey2.all || !ownMonkey2.seen || !ownMonkey2.taken || ownMonkey2.controls != 1)))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;

@@ -1,0 +1,998 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index cac758a7..75a0679a 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -63,10 +63,12 @@ static const int kWorldExportVersion = 25;
+ // from 0254 Monkey Island's and Monkey Island 2's (what their panels' verbs
+ // on their things answer: "monkey-v26", "monkey2-v27"); from 0256 Zak's
+ // (what its verbs on its things answer, and Use with a thing that can be
+-// carried: "zak-v27").
++// carried: "zak-v27"); from 0257 the mansion's again (its radio calling the
++// Meteor Police: kWorldCloseUps, kWorldVarThings, kWorldMarkReaders and
++// kWorldTimed: "maniac-v38").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 12 : same(gameid, "monkey2") || same(gameid, "zak") ? 2 : same(gameid, "monkey") || same(gameid, "comi") || same(gameid, "loom") || same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 13 : same(gameid, "monkey2") || same(gameid, "zak") ? 2 : same(gameid, "monkey") || same(gameid, "comi") || same(gameid, "loom") || same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "tentacle") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -581,14 +583,42 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ // watched it (kWorldMarks); with the power off, its line. The export plays
+ // it as the game's own loop does, tick by tick (scummverseExportThings,
+ // "SVO8": who is there and where, each line and picture when, how long).
+-struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen; };
+-static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218},
+-	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
++// From 0257 `from`, the picture its thing shows it from (0 before; a thing of
++// kWorldVarThings: its variable so), and `script`: a keypad's right answer
++// starts that script, which the export stops there (what it does is the
++// film of the same thing and script, then a timed event's, kWorldTimed); a
++// film played by that script so started, not by a verb (its record has its
++// keypad's verbs; the new engine shows it only after that keypad).
++// The mansion's radio in the hidden room (room 21, 399): on, Use shows the
++// keypad (room 43; its script copies the number its start chose, the one on
++// the wanted poster beside it, into the safe's code variables); the right
++// number calls the Meteor Police (script 42): their headquarters answer
++// (room 32, a film), and they come later (kWorldTimed).
++struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen, from, script; };
++static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218, 0, 0},
++	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 21, 399, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 1, 42}, {10, 21, 399, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 42}};
+ inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+ 	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && (c.closeUp == closeUp || (c.also && c.also == closeUp))) return &c;
+ 	return nullptr;
+ }
++// (A thing's close-up showing that room, from 0257: two can share one.)
++inline const WorldCloseUp *worldCloseUpOf(int game, int room, int object, int closeUp) {
++	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && c.room == room && c.object == object && (c.closeUp == closeUp || (c.also && c.also == closeUp))) return &c;
++	return nullptr;
++}
++// Things whose picture is a variable of their game (from 0257): one with no
++// picture of its own whose script keeps its state in `var` (0 off, else on),
++// not in its own. The export plays its answers with the variable as its
++// picture (put so first, read after), so the new engine keeps it as any
++// thing's picture. The hidden room's radio (room 21, 399): on (172).
++struct WorldVarThing { short game, room, object, var; };
++static const WorldVarThing kWorldVarThings[] = {{10, 21, 399, 172}};
++inline int worldVarThing(int game, int object) {
++	for (const WorldVarThing &v : kWorldVarThings) if (v.game == game && v.object == object) return v.var;
++	return 0;
++}
+ // The ride boarded at an object of a place, else null.
+ inline const WorldRide *worldRideAt(int game, int room, int object) {
+ 	for (const WorldRide &r : kWorldRides) if (r.game == game && r.room == room && r.object == object) return &r;
+@@ -1168,22 +1198,39 @@ enum {
+ // the manuscript (210) used with it (only opened, not torn: else its line);
+ // the package (room 1, 57) opened gives its stamps (165), used with the
+ // envelope only steamed; the envelope posted (58) taken back again.
+-struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads; };
++// From 0257 `kid`, the game's actor whose answer it is (0: anyone's): the
++// export plays it as that kid, and the new engine gives it only to the one
++// played who is them (the mansion's cast member of that costume), others
++// the thing's own answer (the export's kid's); `bare`, a thing of its room
++// wanted in its picture 0 first (one its script shows by clearing it); and
++// `powered`: with the main power off (kWorldMainPowers) it does nothing, as
++// its script checks. The radio's way (rooms 3 and 21): the radio tube (73,
++// in the old radio, 72, opened) taken, and put in the socket (398, used or
++// fixed with it: in place, 212 shown), only by Bernard (5); the radio (399)
++// turned on with the tube in and the power on (on: kWorldVarThings), Use
++// off says its line; the wanted poster (397) read: the number its start
++// chose (from the start the keypad's code is played from); the tube taken
++// out of the socket again (212), the radio on (172 at 1): off then.
++struct WorldMarkReader { short game, room, object, kind, with, need, also, var, value, reads, kid, bare, powered; };
+ static const WorldMarkReader kWorldMarkReaders[] = {
+-	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed},
+-	{10, 1, 276, kWorldVerbUse, 222, 50, 0, 0, 0, kManiacMarkAddressed | kManiacMarkStamped | kManiacMarkManuscript},
+-	{10, 9, 222, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed}, {10, 1, 58, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed},
+-	{10, 7, 85, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn},
+-	{10, 7, 85, kWorldVerbUse, 132, 0, 0, 0, 0, kManiacMarkWater},
+-	{10, 7, 85, kWorldVerbClose, 0, 0, 0, 0, 0, 0},
+-	{10, 7, 85, kWorldVerbTurnOn, 0, 31, 83, 85, 6, 0},
+-	{10, 7, 88, kWorldVerbUse, 132, 0, 0, 0, 0, 0},
+-	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0},
+-	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript},
+-	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript},
+-	{10, 1, 57, kWorldVerbOpen, 0, 0, 0, 0, 0, 0},
+-	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed},
+-	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0}};
++	{10, 27, 416, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkWatched | kManiacMarkAddressed, 0, 0, 0},
++	{10, 1, 276, kWorldVerbUse, 222, 50, 0, 0, 0, kManiacMarkAddressed | kManiacMarkStamped | kManiacMarkManuscript, 0, 0, 0},
++	{10, 9, 222, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0}, {10, 1, 58, kWorldVerbRead, 0, 0, 0, 0, 0, kManiacMarkAddressed, 0, 0, 0},
++	{10, 7, 85, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn, 0, 0, 0},
++	{10, 7, 85, kWorldVerbUse, 132, 0, 0, 0, 0, kManiacMarkWater, 0, 0, 0},
++	{10, 7, 85, kWorldVerbClose, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 7, 85, kWorldVerbTurnOn, 0, 31, 83, 85, 6, 0, 0, 0, 0},
++	{10, 7, 88, kWorldVerbUse, 132, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 7, 31, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 7, 83, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 9, 222, kWorldVerbOpen, 0, 0, 0, 0, 0, kManiacMarkSteamed | kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0},
++	{10, 9, 222, kWorldVerbUse, 210, 0, 0, 0, 0, kManiacMarkTorn | kManiacMarkOpened | kManiacMarkManuscript, 0, 0, 0},
++	{10, 1, 57, kWorldVerbOpen, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 1, 165, kWorldVerbUse, 222, 0, 0, 0, 0, kManiacMarkSteamed, 0, 0, 0},
++	{10, 1, 58, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 3, 73, kWorldVerbPickUp, 0, 0, 0, 0, 0, 0, 5, 0, 0},
++	{10, 21, 398, kWorldVerbUse, 73, 0, 0, 0, 0, 0, 5, 0, 0}, {10, 21, 398, kWorldVerbFix, 73, 0, 0, 0, 0, 0, 5, 0, 0},
++	{10, 21, 399, kWorldVerbTurnOn, 0, 0, 0, 0, 0, 0, 0, 212, 1}, {10, 21, 399, kWorldVerbUse, 0, 0, 0, 0, 0, 0, 0, 0, 0},
++	{10, 21, 397, kWorldVerbRead, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {10, 21, 212, kWorldVerbPickUp, 0, 0, 0, 172, 1, 0, 0, 0, 0}};
+ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, int kind, int with) {
+ 	for (const WorldMarkReader &r : kWorldMarkReaders)
+ 		if (r.game == game && r.room == room && r.object == object && r.kind == kind && r.with == with) return &r;
+@@ -1196,9 +1243,10 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // its own clock (its ticks, 1/60 s, as the original's): `first` ticks
+ // later, then every `every` until the one played is in neither of `away`
+ // (0: none), things of `room` put in their pictures (`sets`), only while
+-// `check` (0: none) is still in `checkPicture`; `once`: never again after it
+-// started once. The mansion's package (script 111, started by the stairs of
+-// room 12, 457, to room 38, the first time): 18000 and 300 ticks later,
++// `checks` (each a thing and its picture; 0: none) are still so; `once`: 1,
++// never again after it started once (from 0257 2: never again once its
++// things were put so). The mansion's package (script 111, started by the
++// stairs of room 12, 457, to room 38, the first time): 18000 and 300 ticks later,
+ // then every 300, with no kid at the front door (room 1) or in Weird Ed's
+ // room (26), at the front door (57 in its picture 0, its stamps inside);
+ // Ed's coming down for it is not modelled (it stays). Its mail's pickup
+@@ -1212,10 +1260,20 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // recorded (157; neither kept), and an ending only from that reply given to
+ // the Purple Meteor (actor 16). The export checks the first delay against
+ // that of the script that waits it (`script`; scummverseExportThings).
+-struct WorldTimed { short game, from, to, need[3][2], marks, first, every, away[2], room, check, checkPicture, sets[2][2], once, script; };
++// From 0257 `on`: a thing of `from` whose keypad's right answer starts it
++// instead (kWorldCloseUps; 0: leaving starts it). The Meteor Police called
++// on the radio (script 42, its film, then 136's wait and 43): they come to
++// the dungeon (room 4) and, with its outer door (160) and its inner door
++// (163) open, go through to the meteor and take it away, leaving the badge
++// (214) there; else they leave, and may be called again. What their coming
++// shows (a cut-scene through rooms 4, 31, 30 and 51) and takes away (the
++// Purple Meteor and its thing in room 51, the game's variable 162 that the
++// radio and the lab's switch read) is not modelled: the badge is shown.
++struct WorldTimed { short game, from, to, need[3][2], marks, first, every, away[2], room, checks[2][2], sets[2][2], once, script, on; };
+ static const WorldTimed kWorldTimed[] = {
+-	{10, 12, 38, {{0, 0}, {0, 0}, {0, 0}}, 0, 18300, 300, {1, 26}, 1, 0, 0, {{57, 0}, {0, 0}}, 1, 111},
+-	{10, 1, 0, {{58, 1}, {50, 0}, {51, 1}}, kManiacMarkAddressed | kManiacMarkStamped, 5400, 1800, {1, 0}, 1, 58, 1, {{58, 0}, {51, 0}}, 0, 105}};
++	{10, 12, 38, {{0, 0}, {0, 0}, {0, 0}}, 0, 18300, 300, {1, 26}, 1, {{0, 0}, {0, 0}}, {{57, 0}, {0, 0}}, 1, 111, 0},
++	{10, 1, 0, {{58, 1}, {50, 0}, {51, 1}}, kManiacMarkAddressed | kManiacMarkStamped, 5400, 1800, {1, 0}, 1, {{58, 1}, {0, 0}}, {{58, 0}, {51, 0}}, 0, 105, 0},
++	{10, 21, 0, {{0, 0}, {0, 0}, {0, 0}}, 0, 21258, 0, {0, 0}, 4, {{160, 1}, {163, 1}}, {{214, 0}, {0, 0}}, 2, 42, 399}};
+ static const int kWorldTimedCount = (int)(sizeof(kWorldTimed) / sizeof(kWorldTimed[0]));
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 53f01133..3e3c4681 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1655,7 +1655,14 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // Max's) is still "SVO7", the same bytes as before. From 0250 (the same
+ // "SVO8") more marks and answers that read them (the envelope's way to the
+ // mailbox), each played with the sets of the marks it reads only, and the
+-// timed events' delays (kWorldTimed) checked against their scripts'.
++// timed events' delays (kWorldTimed) checked against their scripts'. From
++// 0257 (the same "SVO8") the radio's way: a keypad shown from its thing's
++// picture 1 (kWorldCloseUps' `from`) whose right answer starts a script
++// (`script`, stopped there), the film that script plays (its keypad's verbs
++// in the record, none of its own), answers played as the one kid whose they
++// are (kWorldMarkReaders' `kid`), a thing whose picture is a variable of its
++// game (kWorldVarThings) and a timed event that keypad starts, measured
++// through what its script starts in turn.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1730,14 +1737,30 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			stopTalk(); _sound->stopAllSounds();
+ 		};
+ 		// (Arriving as a kid does: the room's own scripts, then nothing
+-		// running; the kids away but one, there.)
++		// running; the kids away but one, there. From 0257 that kid
++		// `arriving`, the third of those its start picks but for an answer of
++		// another's, kWorldMarkReaders.)
++		int arriving = 3;
+ 		auto arrive = [&](int room) {
+-			quiet(); VAR(VAR_EGO) = 3; startScene(room, nullptr, 0); quiet();
++			quiet(); VAR(VAR_EGO) = arriving; startScene(room, nullptr, 0); quiet();
+ 			for (int a = 1; a <= 7 && a < _numActors; ++a) _actors[a]->putActor(0, 0, 0);
+-			_actors[3]->setActorCostume(3); _actors[3]->putActor(160, 120, room);
++			_actors[arriving]->setActorCostume(arriving); _actors[arriving]->putActor(160, 120, room);
+ 			VAR(VAR_ACTOR_RANGE_MIN) = 1; VAR(VAR_ACTOR_RANGE_MAX) = 7; VAR(VAR_HAVE_MSG) = 0; _userPut = 1;
+ 			return _currentRoom == room;
+ 		};
++		// (From 0257 a thing whose picture is a variable of its game's,
++		// kWorldVarThings: put in a picture with it, its picture after read
++		// from it.)
++		auto putPicture = [&](int obj, int picture) {
++			putState(obj, picture ? getState(obj) | kObjectStateIntrinsic : getState(obj) & ~kObjectStateIntrinsic);
++			const int var = worldVarThing(gameIndex, obj);
++			if (var > 0 && var < _numVariables) VAR(var) = picture;
++		};
++		auto pictureAfter = [&](int obj) {
++			const int var = worldVarThing(gameIndex, obj);
++			if (var > 0 && var < _numVariables) return VAR(var) ? 1 : 0;
++			return getState(obj) & kObjectStateIntrinsic ? 1 : 0;
++		};
+ 		static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull,
+ 			kWorldVerbRead, kWorldVerbPickUp};
+ 		for (const Room &r : found) {
+@@ -1761,8 +1784,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					putBack();
+ 					_rnd.setSeed(0x5C0BE + r.room);
+ 					if (!arrive(r.room) || !getVerbEntrypoint(obj, verb)) break;
+-					const int state = getState(obj);
+-					putState(obj, from ? state | kObjectStateIntrinsic : state & ~kObjectStateIntrinsic);
++					putPicture(obj, from);
+ 					const int owner = getOwner(obj);
+ 					Common::Array<int> set;
+ 					_scummverseStatesSet = &set;
+@@ -1791,7 +1813,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 						VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
+ 					}
+ 					_scummverseStatesSet = nullptr;
+-					e.after = getState(obj) & kObjectStateIntrinsic ? 1 : 0;
++					e.after = pictureAfter(obj);
+ 					e.taken = getOwner(obj) != owner && getOwner(obj) == VAR(VAR_EGO);
+ 					// (Each thing it set, even as it was: a pool it fills is
+ 					// full after, however it was found.)
+@@ -1875,7 +1897,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					_rnd.setSeed(0x5C0BE + p.room);
+ 					const int ego = VAR(VAR_EGO);
+ 					if (carriedFirst) { addObjectToInventory(p.first, p.room); putOwner(p.first, ego); }
+-					else putState(p.first, from ? getState(p.first) | kObjectStateIntrinsic : getState(p.first) & ~kObjectStateIntrinsic);
++					else putPicture(p.first, from);
+ 					if (carryable.contains(second)) putOwner(second, ego);
+ 					Common::Array<byte> owners(_objectOwnerTable, _numGlobalObjects);
+ 					Common::Array<int> set;
+@@ -1908,7 +1930,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					// (One that leaves the place, starts a cut-scene or takes the
+ 					// kid away: none.)
+ 					const bool left = _currentRoom != p.room || scene || vm.cutSceneStackPointer > 0 || (ego > 0 && ego < _numActors && _actors[ego]->_room != p.room);
+-					e.after = getState(p.first) & kObjectStateIntrinsic ? 1 : 0;
++					e.after = pictureAfter(p.first);
+ 					e.taken = !carriedFirst && getOwner(p.first) != owners[p.first] && getOwner(p.first) == ego;
+ 					e.firstGone = owners[p.first] == ego && getOwner(p.first) != ego;
+ 					e.secondGone = second < (int)owners.size() && owners[second] == ego && getOwner(second) != ego;
+@@ -2050,6 +2072,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (booted) started = keep();
+ 			else warning("SCUMMVERSE world things: %s start not run past its kid picker", kWorldGames[gameIndex].gameid);
+ 		}
++		// (From 0257 from the picture its thing shows it from, `from`.)
+ 		auto showCloseUp = [&](const WorldCloseUp &c, int verb) {
+ 			if (booted) restore(started); else putBack();
+ 			_rnd.setSeed(0x5C0BE + c.room);
+@@ -2060,24 +2083,31 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				const int parent = _objs[_objs[up].parent].obj_nr;
+ 				putState(parent, _objs[up].parentstate & kObjectStateIntrinsic ? getState(parent) | kObjectStateIntrinsic : getState(parent) & ~kObjectStateIntrinsic);
+ 			}
+-			putState(c.object, getState(c.object) & ~kObjectStateIntrinsic);
++			putPicture(c.object, c.from);
+ 			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
+ 			runObjectScript(c.object, verb, false, false, nullptr);
+ 			for (int n = 0; n < 300 && !(_currentRoom == c.closeUp && VAR(c.pressed) == c.idle); ++n) oneFrame();
+ 			return _currentRoom == c.closeUp && VAR(c.pressed) == c.idle;
+ 		};
+ 		// (Pressed in turn as a player presses them, until the close-up takes
+-		// each; after the last, until it has gone and the place answers.)
+-		auto pressKeys = [&](const WorldCloseUp &c, const Common::Array<int> &keys, int &picture, Common::String &line) {
++		// each; after the last, until it has gone and the place answers. From
++		// 0257 the script its right answer starts (`script`, the radio's call)
++		// stopped as it starts, and told: what it does is recorded apart.)
++		auto pressKeys = [&](const WorldCloseUp &c, const Common::Array<int> &keys, int &picture, Common::String &line, bool &called) {
++			called = false;
++			auto frame = [&]() {
++				oneFrame();
++				if (c.script && isScriptRunning(c.script)) { stopScript(c.script); called = true; }
++			};
+ 			for (uint k = 0; k < keys.size() && _currentRoom == c.closeUp; ++k) {
+ 				VAR(VAR_ACTIVE_VERB) = pushVerb; VAR(VAR_ACTIVE_OBJECT1) = keys[k]; VAR(VAR_ACTIVE_OBJECT2) = 0;
+ 				runObjectScript(keys[k], pushVerb, false, false, nullptr);
+-				for (int n = 0; n < 300 && _currentRoom == c.closeUp && VAR(c.pressed) != c.idle; ++n) oneFrame();
++				for (int n = 0; n < 300 && _currentRoom == c.closeUp && VAR(c.pressed) != c.idle; ++n) frame();
+ 			}
+ 			if (_currentRoom == c.closeUp) return false;
+ 			_charsetBuffer[0] = 0;
+-			for (int n = 0; n < 240 && line.empty(); ++n) { oneFrame(); line = lineOf(); }
+-			picture = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
++			for (int n = 0; n < 240 && line.empty(); ++n) { frame(); line = lineOf(); }
++			picture = pictureAfter(c.object);
+ 			return _currentRoom == c.room;
+ 		};
+ 		// (From 0242, "SVO7": a view, a close-up with no keys (kWorldCloseUps:
+@@ -2260,6 +2290,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			VAR(VAR_HAVE_MSG) = _haveMsg;
+ 			return delta;
+ 		};
++		// (From 0257 the camera moved as the game's loop moves it, and its
++		// variable so: a script panning it waits for it there.)
++		auto pan = [&]() {
++			moveCamera();
++			VAR(VAR_CAMERA_POS_X) = _game.version <= 2 ? camera._cur.x >> V12_X_SHIFT : camera._cur.x;
++		};
+ 		// (The text from one point of the line to another: a break in it, a space.)
+ 		auto textOf = [&](int from, int to) {
+ 			Common::String line;
+@@ -2272,13 +2308,22 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
+ 			return line;
+ 		};
++		// (From 0257 one a keypad's right answer starts (`script`): that
++		// script run, its thing in its picture `from`; no verb shows it.)
+ 		auto filmStart = [&](const WorldCloseUp &c, int verb, bool powerOffFirst) {
+ 			restore(started);
+ 			_rnd.setSeed(0x5C0BE + c.room);
+-			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
++			if ((!verb && !c.script) || !arrive(c.room) || (!c.script && !getVerbEntrypoint(c.object, verb))) return false;
+ 			// (With the main power off, as its circuit breakers leave it.)
+ 			if (powerOffFirst) putState(powerId, powerOff ? getState(powerId) | kObjectStateIntrinsic : getState(powerId) & ~kObjectStateIntrinsic);
+-			putState(c.object, getState(c.object) & ~kObjectStateIntrinsic);
++			putPicture(c.object, c.from);
++			if (c.script) {
++				int args[NUM_SCRIPT_LOCAL];
++				memset(args, 0, sizeof(args));
++				_charsetBuffer[0] = 0;
++				runScript(c.script, false, false, args);
++				return true;
++			}
+ 			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
+ 			_charsetBuffer[0] = 0;
+ 			runObjectScript(c.object, verb, false, false, nullptr);
+@@ -2287,13 +2332,13 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		auto playFilm = [&](const WorldCloseUp &c, CloseUp &u) {
+ 			static const int filmKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
+ 			for (int kind : filmKinds) {
+-				if (!filmStart(c, verbOf(kind), false)) continue;
++				if (c.script || !filmStart(c, verbOf(kind), false)) continue;
+ 				for (int n = 0; n < 600 && _currentRoom != c.closeUp; ++n) oneFrame();
+ 				if (_currentRoom == c.closeUp) u.kinds |= 1 << kind;
+ 			}
+ 			int kind = 1;
+ 			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
+-			if (kind >= 16 || !filmStart(c, verbOf(kind), false)) return false;
++			if ((kind >= 16 && !c.script) || !filmStart(c, c.script ? 0 : verbOf(kind), false)) return false;
+ 			const int before = marksNow();
+ 			const int ego = VAR(VAR_EGO);
+ 			int tick = -1, shown = -1, pos = -1;
+@@ -2301,6 +2346,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			Common::HashMap<int, int> pictures, started0;
+ 			for (int n = 0, at = 0; n < 60 * 60 && !shouldQuit(); ++n) {
+ 				at += loopStep();
++				// (From 0257 one a keypad's answer starts: its camera panned as
++				// the game's loop pans it, its script waiting on it.)
++				if (c.script) pan();
+ 				if (_currentRoom != c.closeUp) {
+ 					if (tick >= 0) break;
+ 					continue;
+@@ -2315,6 +2363,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					started0 = pictures;
+ 				}
+ 				const int when = MIN(at - tick, 65535);
++				// (From 0257 one a keypad's answer starts: the part shown where its
++				// camera stands as its first line shows, its pan not modelled.)
++				if (c.script && u.events.empty()) u.left = MAX(0, camera._cur.x - _screenWidth / 2);
+ 				// (Who is there: the first actor of the room's but the kid, once seen.)
+ 				for (int a = 1; !u.costume && a < _numActors; ++a) {
+ 					Actor *who = _actors[a];
+@@ -2351,23 +2402,25 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (shown == 1 && u.events.size() / 3 < (uint)Scummverse::PanelBridge::kMostFilmEvents) {
+ 				u.events.push_back(u.length); u.events.push_back(0); u.events.push_back(0); u.eventLines.push_back(Common::String());
+ 			}
+-			for (int n = 0; n < 600 && !shouldQuit(); ++n) {
++			// (From 0257 not one a keypad's answer starts: what its script
++			// starts next is a timed event's, kWorldTimed.)
++			for (int n = 0; n < 600 && !shouldQuit() && !c.script; ++n) {
+ 				bool running = false;
+ 				for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) running = running || vm.slot[k].status == ssRunning || vm.slot[k].status == ssPaused;
+ 				if (!running) break;
+ 				oneFrame();
+ 			}
+-			u.filmAfter = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
++			u.filmAfter = pictureAfter(c.object);
+ 			const int left = marksNow() & ~before;
+ 			for (uint k = 0; k < marks.size() && u.mark < 0; ++k) if (left & 1 << k) u.mark = k;
+ 			stopTalk(); _sound->stopAllSounds();
+ 			// (With the main power off: shown, or its line.)
+-			if (powerId && filmStart(c, verbOf(kind), true)) {
++			if (powerId && filmStart(c, c.script ? 0 : verbOf(kind), true)) {
+ 				Common::String line = lineOf();
+ 				for (int n = 0; n < 300 && _currentRoom != c.closeUp; ++n) { oneFrame(); if (line.empty()) line = lineOf(); }
+ 				u.powered = _currentRoom != c.closeUp;
+ 				if (u.powered) u.offLine = line;
+-				stopTalk(); _sound->stopAllSounds();
++				quiet();
+ 			}
+ 			// (The film's room's things, in their pictures as it starts.)
+ 			bool listed = false;
+@@ -2399,7 +2452,14 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			CloseUp u;
+ 			u.room = c.room; u.id = c.object; u.closeUp = c.closeUp;
+ 			if (worldCloseUpFilm(c)) {
+-				const bool played = playFilm(c, u);
++				bool played = playFilm(c, u);
++				// (From 0257 one its keypad's right answer plays: shown by that
++				// keypad's verbs, the keypad played first; else left out.)
++				if (played && c.script) {
++					u.kinds = 0;
++					for (const CloseUp &k : closeUps) if (k.room == c.room && k.id == c.object && !k.code.empty()) u.kinds = k.kinds;
++					played = u.kinds != 0;
++				}
+ 				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
+ 					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (more close-ups than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+ 				else if (played && (u.lead > Scummverse::PanelBridge::kMostFilmLead || u.lead > u.length))
+@@ -2452,8 +2512,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				for (uint k = 0; k < u.keys.size(); ++k) if (u.values[k] == value) { right.push_back(u.keys[k]); break; }
+ 			for (uint k = 0; right.size() == u.code.size() && k < u.keys.size() && wrong.empty(); ++k)
+ 				if (u.values[k] != u.code[0]) { wrong = right; wrong[0] = u.keys[k]; }
+-			const bool played = !wrong.empty() && showCloseUp(c, verbOf(kind)) && pressKeys(c, right, u.right, u.rightLine) &&
+-				showCloseUp(c, verbOf(kind)) && pressKeys(c, wrong, u.wrong, u.wrongLine) && u.right != u.wrong;
++			// (From 0257 one whose right answer calls (`script`): the right
++			// number calls, a wrong one not.)
++			bool rightCalled = false, wrongCalled = false;
++			const bool played = !wrong.empty() && showCloseUp(c, verbOf(kind)) && pressKeys(c, right, u.right, u.rightLine, rightCalled) &&
++				showCloseUp(c, verbOf(kind)) && pressKeys(c, wrong, u.wrong, u.wrongLine, wrongCalled) &&
++				(c.script ? rightCalled && !wrongCalled : u.right != u.wrong);
+ 			// (More than a things file holds: left out, as the reader would
+ 			// refuse the whole file, every effect with it.)
+ 			if (played && ((int)u.keys.size() > Scummverse::PanelBridge::kMostCloseUpKeys || (int)u.code.size() > Scummverse::PanelBridge::kMostPresses || (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps))
+@@ -2489,16 +2553,23 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					if ((set & ~reads) || clashes(set)) continue;
+ 					if (booted) restore(started); else putBack();
+ 					_rnd.setSeed(0x5C0BE + m.room);
+-					if (!arrive(m.room) || !getVerbEntrypoint(m.object, verb)) break;
++					// (From 0257 as the kid whose answer it is, its `bare` thing
++					// in its picture 0.)
++					arriving = m.kid > 0 && m.kid <= 7 && m.kid < _numActors ? m.kid : 3;
++					const bool there = arrive(m.room);
++					arriving = 3;
++					if (!there || !getVerbEntrypoint(m.object, verb)) break;
+ 					const int ego = VAR(VAR_EGO);
+ 					if (m.need) putState(m.need, getState(m.need) | kObjectStateIntrinsic);
+ 					if (m.also) putState(m.also, getState(m.also) | kObjectStateIntrinsic);
++					if (m.bare) putState(m.bare, getState(m.bare) & ~kObjectStateIntrinsic);
+ 					if (m.var > 0 && m.var < _numVariables) VAR(m.var) = m.value;
+-					putState(m.object, from ? getState(m.object) | kObjectStateIntrinsic : getState(m.object) & ~kObjectStateIntrinsic);
++					putPicture(m.object, from);
+ 					if (carryable.contains(m.object)) { addObjectToInventory(m.object, m.room); putOwner(m.object, ego); }
+ 					if (m.with) putOwner(m.with, ego);
+ 					putMarks(set);
+ 					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects), was(_objectStateTable, _numGlobalObjects);
++					const Common::Array<int32> varsWere(_scummVars, _numVariables);
+ 					Common::Array<int> setStates;
+ 					_scummverseStatesSet = &setStates;
+ 					VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = m.object; VAR(VAR_ACTIVE_OBJECT2) = m.with;
+@@ -2520,7 +2591,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 						VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
+ 					}
+ 					_scummverseStatesSet = nullptr;
+-					e.after = getState(m.object) & kObjectStateIntrinsic ? 1 : 0;
++					e.after = pictureAfter(m.object);
+ 					e.taken = getOwner(m.object) != had[m.object] && getOwner(m.object) == ego;
+ 					e.firstGone = had[m.object] == ego && getOwner(m.object) != ego;
+ 					e.secondGone = m.with && m.with < (int)had.size() && had[m.with] == ego && getOwner(m.with) != ego;
+@@ -2533,6 +2604,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					}
+ 					for (int o = 1; o < (int)had.size() && e.others.size() < 3 * 64; ++o)
+ 						if (o != m.object && o != m.with && had[o] != ego && getOwner(o) == ego && placeOf.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(2); }
++					// (From 0257 a thing whose picture is a variable, kWorldVarThings,
++					// that variable changed: the tube taken out, the radio off.)
++					for (const WorldVarThing &v : kWorldVarThings)
++						if (v.game == gameIndex && v.object != m.object && v.var > 0 && v.var < _numVariables && placeOf.contains(v.object) && e.others.size() < 3 * 64 &&
++							(varsWere[v.var] != 0) != (VAR(v.var) != 0)) { e.others.push_back(placeOf[v.object]); e.others.push_back(v.object); e.others.push_back(VAR(v.var) ? 1 : 0); }
+ 					a.sets = marksNow() & ~set;
+ 					stopTalk(); _sound->stopAllSounds();
+ 					// (One that leaves the place or the kid's hands: none.)
+@@ -2546,23 +2622,34 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// things then (its needs, the marks), its script run alone by the
+ 		// game's loop's time until its first thing changes; told whether it is
+ 		// the one named.)
++		// (From 0257 one a keypad's right answer starts (`on`): from its place,
++		// its checks so, until its thing changes, through what its script
++		// starts (the call's 136, then 43).)
++		auto anyRunning = [&]() {
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status != ssDead && vm.slot[s].where == WIO_GLOBAL) return true;
++			return false;
++		};
+ 		for (int t = 0; t < kWorldTimedCount && booted && !shouldQuit(); ++t) {
+ 			const WorldTimed &w = kWorldTimed[t];
+ 			if (w.game != gameIndex || !w.script || !w.sets[0][0]) continue;
+-			int there = w.to;
++			int there = w.on ? w.from : w.to;
+ 			for (uint r = 0; r < found.size() && !there; ++r)
+ 				if (found[r].room != w.from && found[r].room != w.away[0] && found[r].room != w.away[1] && !worldCloseUpScene(gameIndex, found[r].room)) there = found[r].room;
+ 			restore(started);
+ 			_rnd.setSeed(0x5C0BE + w.room);
+ 			if (!there || !arrive(there)) { warning("SCUMMVERSE world things: %s timed event %d not checked (no place to wait in)", kWorldGames[gameIndex].gameid, t); continue; }
+ 			for (const short (&n)[2] : w.need) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
++			for (const short (&n)[2] : w.checks) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
+ 			putMarks(w.marks & ((1 << marks.size()) - 1));
+ 			const int watched = w.sets[0][0], before = getState(watched) & kObjectStateIntrinsic ? 1 : 0;
+ 			int args[NUM_SCRIPT_LOCAL];
+ 			memset(args, 0, sizeof(args));
+ 			runScript(w.script, false, false, args);
+ 			int at = 0;
+-			while (at < 4 * 18000 && !shouldQuit() && isScriptRunning(w.script) && (getState(watched) & kObjectStateIntrinsic ? 1 : 0) == before) at += loopStep();
++			while (at < 4 * 18000 && !shouldQuit() && anyRunning() && (getState(watched) & kObjectStateIntrinsic ? 1 : 0) == before) {
++				at += loopStep();
++				if (w.on) pan();
++			}
+ 			const bool same = (getState(watched) & kObjectStateIntrinsic ? 1 : 0) != before && at >= w.first - 15 && at <= w.first + 15;
+ 			if (same) debug(1, "SCUMMVERSE world things: %s timed event %d (script %d): %d ticks, as named (%d)", kWorldGames[gameIndex].gameid, t, w.script, at, w.first);
+ 			else warning("SCUMMVERSE world things: %s timed event %d (script %d): its thing changed after %d ticks, not %d as named", kWorldGames[gameIndex].gameid, t, w.script, at, w.first);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 7f4f3f6b..929cd14b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -659,8 +659,10 @@ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69,
+ // the mailbox (room 1, 58) and the package at the front door (57).
+ // Those put in the microwave are inside it as its script has them (no
+ // parent of the game's): touchable only while it is open (85 in picture 1).
++// From 0257 the radio tube in its socket (room 21, 212) and the badge the
++// Meteor Police leave in the dungeon (room 4, 214).
+ struct ManiacShownLater { short room, object, inside, insidePicture; };
+-static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85, 1}, {1, 58, 0, 0}, {1, 57, 0, 0}};
++static const ManiacShownLater kManiacShownLater[] = {{7, 31, 85, 1}, {7, 83, 85, 1}, {1, 58, 0, 0}, {1, 57, 0, 0}, {21, 212, 0, 0}, {4, 214, 0, 0}};
+ // From 0255: things The Dig's and Full Throttle's answers show in another
+ // picture that their scripts keep untouchable all the same (isThing's rule
+ // for those games, which takes the others so shown as made touchable;
+@@ -2246,9 +2248,10 @@ void SandboxEngine::act() {
+ 	if ((kind == kWorldVerbPush || kind == kWorldVerbPull) && answers >= 0 && !(answers & 1 << kind) && _game >= 0 &&
+ 		!strcmp(kWorldGames[_game].gameid, "maniac") && maniacTogether(_room, id)) { say("It won't budge."); return; }
+ 	// (From 0240: a close-up its game's script shows for this verb from the
+-	// picture it is in (the wall safe's keypad, shut): shown instead.)
++	// picture it is in (the wall safe's keypad, shut; from 0257 the radio's,
++	// on): shown instead.)
+ 	const int closeUp = door ? -1 : closeUpFor(id, kind);
+-	if (closeUp >= 0 && thingBit(target, id) == 0 && closeUpShow(closeUp, id)) return;
++	if (closeUp >= 0 && thingBit(target, id) == closeUpFrom(_game, closeUp) && closeUpShow(closeUp, id)) return;
+ 	// (From 0242: a button turning a view's thing here (the telescope's),
+ 	// a turn paid for: turned, its line said; none paid: as its own script
+ 	// answers, below.)
+@@ -2297,13 +2300,53 @@ void SandboxEngine::act() {
+ int SandboxEngine::closeUpFor(int id, int kind) const {
+ 	if (_game < 0 || _closeUp.index >= 0 || kind <= 0 || kind >= 16) return -1;
+ 	for (int i = 0; i < PanelBridge::closeUpCount(_game); ++i) {
+-		int room, thing, kinds, scene, left, keys, presses;
+-		if (PanelBridge::closeUpThing(_game, i, room, thing, kinds) && room == _room && thing == id && (kinds & 1 << kind) &&
+-			PanelBridge::closeUpScene(_game, i, scene, left, keys, presses) && _closeUps.contains(_game * 1024 + scene)) return i;
++		int room, thing, kinds, scene, left, keys, presses, script = 0;
++		if (!PanelBridge::closeUpThing(_game, i, room, thing, kinds) || room != _room || thing != id || !(kinds & 1 << kind) ||
++			!PanelBridge::closeUpScene(_game, i, scene, left, keys, presses) || !_closeUps.contains(_game * 1024 + scene)) continue;
++		// (From 0257 not a film its keypad's right answer plays: after it.)
++		closeUpFrom(_game, i, &script);
++		if (!script || presses) return i;
+ 	}
+ 	return -1;
+ }
+ 
++int SandboxEngine::closeUpFrom(int game, int index, int *script) const {
++	int room, thing, kinds, scene, left, keys, presses;
++	if (script) *script = 0;
++	if (game < 0 || !PanelBridge::closeUpThing(game, index, room, thing, kinds) || !PanelBridge::closeUpScene(game, index, scene, left, keys, presses)) return 0;
++	const WorldCloseUp *c = worldCloseUpOf(game, room, thing, scene);
++	if (!c) return 0;
++	if (script) *script = c->script;
++	return c->from;
++}
++
++// A keypad's right answer that calls (the radio's): those called waiting
++// (not already, nor done for good), then, in the place it was used from,
++// its film (the one of its thing and script), shown there as a verb shows
++// one; its way back failed, the call made all the same, its film only where
++// someone else is then played in that place.
++void SandboxEngine::closeUpCalled(const CloseUp &c) {
++	int script = 0;
++	closeUpFrom(c.game, c.index, &script);
++	if (!script) return;
++	int events = 0;
++	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
++		const WorldTimed &w = kWorldTimed[i];
++		bool ok = w.game == c.game && w.on && w.on == c.id && w.from == c.room;
++		for (const Timed &t : _timed) ok = ok && !(t.event == i && t.phase);
++		if (ok) events |= 1 << i;
++	}
++	timedStart(events);
++	if (c.game != _game || c.room != _room) return;
++	for (int i = 0; i < PanelBridge::closeUpCount(c.game); ++i) {
++		int room, thing, kinds, scene, left, keys, presses, called;
++		if (i == c.index || !PanelBridge::closeUpThing(c.game, i, room, thing, kinds) || room != c.room || thing != c.id ||
++			!PanelBridge::closeUpScene(c.game, i, scene, left, keys, presses) || presses || !_closeUps.contains(c.game * 1024 + scene)) continue;
++		closeUpFrom(c.game, i, &called);
++		if (called == script && closeUpShow(i, c.id)) return;
++	}
++}
++
+ // Its scene instead of the place: nobody in view (the one played, and those
+ // following, hidden there), the part its script shows. Kept meanwhile as
+ // where it was shown from (keptPlace), so set before the stage changes.
+@@ -2424,6 +2467,9 @@ void SandboxEngine::closeUpPress(int key) {
+ 	const bool shown = back || startElsewhere(c.game, c.room, problem);
+ 	if (!shown) warning("SCUMMVERSE sandbox: nowhere to be after the close-up %s-%d (%s)", kWorldGames[c.game].gameid, c.room, problem.c_str());
+ 	if (shown && *said) say(said);
++	// (From 0257 the right number on the radio's: the call, its film only
++	// back there.)
++	if (c.right) closeUpCalled(c);
+ 	if (!_testing) saveState();
+ }
+ 
+@@ -2611,11 +2657,26 @@ bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from,
+ 	// (The things it wants first so, as a player has them: else its answer as before.)
+ 	if (need && (game != _game || _room != room || pictureOf(room, need) != 1)) return false;
+ 	if (reader->also && (game != _game || _room != room || pictureOf(room, reader->also) != 1)) return false;
++	// (From 0257 one kid's answer: only the one played who is them, else the
++	// thing's own; its `bare` thing in its picture 0 first; with the main
++	// power off, as its script checks, nothing.)
++	if (reader->kid && playedKid(game) != reader->kid) return false;
++	if (reader->bare && (game != _game || _room != room || pictureOf(room, reader->bare) != 0)) return false;
+ 	if (!PanelBridge::markedAnswer(game, room, id, kind, from, with, marksNow(game) & reader->reads, after, others, count, capacity, line, lineCapacity, flags, sets)) return false;
++	int powerRoom, powerId, offPicture;
++	if (reader->powered && PanelBridge::mainPower(game, powerRoom, powerId, offPicture) && pictureIn(game, powerRoom, powerId) == offPicture) {
++		after = from; count = 0; flags = 0; sets = 0;
++		if (lineCapacity > 0) *line = 0;
++	}
+ 	flags |= 8; // (its own answer)
+ 	return true;
+ }
+ 
++int SandboxEngine::playedKid(int game) const {
++	const int g = worldAppearanceGame(_playerKey), costume = worldAppearanceCostume(_playerKey);
++	return worldManiacKid(game, costume) && (g == game || g == kWorldManiacLooks) ? costume : 0;
++}
++
+ // ---- Timed events (from 0250; kWorldTimed) ----
+ 
+ int SandboxEngine::pictureIn(int game, int room, int id) const {
+@@ -2634,7 +2695,8 @@ int SandboxEngine::timedLeaving(int game, int room) const {
+ 	if (_game < 0 || _player < 0) return 0;
+ 	for (int i = 0; i < kWorldTimedCount && i < 31; ++i) {
+ 		const WorldTimed &w = kWorldTimed[i];
+-		if (w.game != _game || w.from != _room || (w.to ? game != w.game || room != w.to : game == w.game && room == w.from)) continue;
++		// (From 0257 not one a keypad's answer starts: closeUpCalled.)
++		if (w.on || w.game != _game || w.from != _room || (w.to ? game != w.game || room != w.to : game == w.game && room == w.from)) continue;
+ 		bool ok = (marksNow(w.game) & w.marks) == w.marks;
+ 		for (const short (&n)[2] : w.need) ok = ok && (!n[0] || pictureOf(w.from, n[0]) == n[1]);
+ 		for (const Timed &t : _timed) ok = ok && !(t.event == i && t.phase);
+@@ -2661,14 +2723,19 @@ void SandboxEngine::timedStep(int ticks) {
+ 		if (t.phase != 1 || t.event < 0 || t.event >= kWorldTimedCount || (t.left -= ticks) > 0) continue;
+ 		const WorldTimed &w = kWorldTimed[t.event];
+ 		if (_game == w.game && ((w.away[0] && _room == w.away[0]) || (w.away[1] && _room == w.away[1]))) { t.left += MAX<int>(1, w.every); continue; }
+-		t.phase = w.once ? 2 : 0;
++		t.phase = w.once == 1 ? 2 : 0;
+ 		loadThings(w.game);
+-		if (w.check && pictureIn(w.game, w.room, w.check) != w.checkPicture) continue;
++		// (From 0257 each of its checks; once its things are put so, done for
++		// good where it is so once (the Meteor Police, once they found the way).)
++		bool still = true;
++		for (const short (&check)[2] : w.checks) still = still && (!check[0] || pictureIn(w.game, w.room, check[0]) == check[1]);
++		if (!still) continue;
+ 		for (const short (&set)[2] : w.sets) {
+ 			if (!set[0]) continue;
+ 			if (w.game == _game) setPicture(w.room, set[0], set[1]);
+ 			else _pictures[thingKey(w.game, w.room, set[0])] = set[1];
+ 		}
++		if (w.once == 2) t.phase = 2;
+ 		changed = true;
+ 	}
+ 	for (uint i = _timed.size(); i-- > 0;) if (_timed[i].phase == 0) _timed.remove_at(i);
+@@ -5905,6 +5972,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int mailRefused = 0, mailInside = 0, mailAlone = 0, mailWater = 0, mailSteamed = 0, mailOut = 0, mailOpened = 0, mailManuscript = 0, mailTyped = 0, mailPackage = 0, mailPackageTicks = 0, mailStampsGiven = 0;
+ 	int mailStamped = 0, mailPosted = 0, mailRead = 0, mailBack = 0, mailNotDue = 0, mailDue = 0, mailKept = 0, mailCollected = 0, mailCollectedTicks = 0, mailWaited = 0, mailAfter = 0, mailTorn = 0, mailOlder = 0;
+ 	int mailDamaged = 0, mailFellBack = 0;
++	int radioTubeRefused = 0, radioTube = 0, radioSocketRefused = 0, radioSocket = 0, radioRefused = 0, radioUnpowered = 0, radioOn = 0, radioOff = 0, radioPoster = 0;
++	int radioKeypadShown = 0, radioWrong = 0, radioCalled = 0, radioFilms = 0, radioFilmEvents = 0, radioShut = 0, radioTicks = 0, radioKept = 0, radioBadge = 0, radioOnce = 0, radioTubeOut = 0;
++	int radioFellBack = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -6228,7 +6298,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// envelope opened): as they were after, as the next starts afresh.)
+ 			const Common::Array<Mark> marksHad = _marks;
+ 			const uint carriedHad = _carried.size();
+-			if (!PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said)) || !doAt(kind, o)) {
++			bool found = PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said));
++			// (From 0257 where an answer by the marks takes its place (the wanted
++			// poster's number, from the game's own start): as that one.)
++			int markedFlags, markedSets;
++			if (found && markedEffect(maniac, room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), markedFlags, markedSets)) took = (markedFlags & 1) != 0;
++			if (!found || !doAt(kind, o)) {
+ 				fail("a record not found again, or its thing not reached", maniac);
+ 				continue;
+ 			}
+@@ -7257,6 +7332,264 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (_playerKey != kids[0]) castChoose(kids[0]);
+ 			_marks = marksBefore;
+ 		}
++		// (From 0257) The radio in the hidden room (room 21, 399) and the
++		// Meteor Police, as a player has them, from afresh (its things where
++		// the start puts them, no timed events). The old radio (room 3, 72)
++		// opened: its tube (73) refused to another kid, as recorded; taken by
++		// Bernard. The socket (398) used with it by another: refused, as
++		// recorded; fixed with it by Bernard: the tube used up, in its place
++		// (212 shown, touchable). The radio turned on without the tube, as its
++		// own script answers (off still); with it in and the main power off,
++		// nothing; on with the power on; off, and off again its line; Use
++		// off, its line. The wanted poster (397) read: the number the keypad
++		// wants, digit by digit. On, Use: its keypad (room 43; kept as where
++		// it was used from); a wrong number, back, nothing called; the right
++		// one, back: the Meteor Police called (waiting their time) and their
++		// film (room 32) as recorded, the one there in their place, to its
++		// end, back where they stood. At their time with the dungeon's doors
++		// shut: nothing (the badge away), the call over; called again (a tap
++		// skipping the film), kept through a save and reload; with both doors
++		// open, the badge shown at their time (touchable, taken), done for
++		// good: the next call starts nothing. The tube taken out again:
++		// carried, the radio off. As the wall safe's keypad (0252), where it
++		// was used from not shown again: over once, someone else played where
++		// a launch starts, called all the same (the film only there).
++		int radioKeypad = -1, radioFilm = -1, radioKeys = 0, radioPresses = 0, policeEvent = -1;
++		for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac); ++i) {
++			int r, thing, kinds, scene, left, keyCount, pressCount, script = 0;
++			if (!PanelBridge::closeUpThing(maniac, i, r, thing, kinds) || r != 21 || thing != 399 || !PanelBridge::closeUpScene(maniac, i, scene, left, keyCount, pressCount)) continue;
++			closeUpFrom(maniac, i, &script);
++			if (script && pressCount) { radioKeypad = i; radioKeys = keyCount; radioPresses = pressCount; }
++			else if (script && scene == 32) radioFilm = i;
++		}
++		for (int i = 0; maniac >= 0 && i < kWorldTimedCount; ++i) if (kWorldTimed[i].game == maniac && kWorldTimed[i].from == 21 && kWorldTimed[i].on == 399) policeEvent = i;
++		const int bernard = maniac >= 0 ? worldAppearanceKey(maniac, 5) : 0;
++		int otherKid = 0, home = 0;
++		for (int kid : {3, 1, 2, 4, 6, 7})
++			if (!otherKid && maniac >= 0 && hasCharacter(worldAppearanceKey(maniac, kid)) && castHome(worldAppearanceKey(maniac, kid), home)) otherKid = worldAppearanceKey(maniac, kid);
++		int radioPowerRoom = 0, radioPowerId = 0, radioOffPicture = 0;
++		if (radioKeypad >= 0 && radioFilm >= 0 && policeEvent >= 0 && otherKid && hasCharacter(bernard) && castHome(bernard, home) && installed(maniac, 3) && installed(maniac, 21) &&
++			installed(maniac, 4) && _closeUps.contains(maniac * 1024 + 43) && _closeUps.contains(maniac * 1024 + 32) && PanelBridge::mainPower(maniac, radioPowerRoom, radioPowerId, radioOffPicture)) {
++			const int playedBefore = _playerKey;
++			const Common::Array<Mark> marksBefore = _marks;
++			const Common::Array<Timed> timedBefore = _timed;
++			const WorldTimed &police = kWorldTimed[policeEvent];
++			static const int radioThings[][2] = {{3, 72}, {3, 73}, {21, 212}, {21, 399}, {4, 160}, {4, 163}, {4, 214}};
++			auto fresh = [&]() {
++				for (const int (&t)[2] : radioThings) { putBack(t[0], t[1]); _pictures.erase(thingKey(maniac, t[0], t[1])); }
++				_pictures.erase(thingKey(maniac, radioPowerRoom, radioPowerId));
++				_marks.clear(); _timed.clear();
++			};
++			auto carriedAt = [&](int room, int id) {
++				for (uint c = 0; c < _carried.size(); ++c) if (_carried[c].game == maniac && _carried[c].room == room && _carried[c].id == id) return (int)c;
++				return -1;
++			};
++			auto go = [&](int room) { return (_game == maniac && _room == room && _closeUp.index < 0) || enter(maniac, room, 0, problem); };
++			auto as = [&](int key) { return (_playerKey == key || castChoose(key)) && _playerKey == key; };
++			auto stepFor = [&](int ticks) { for (; ticks > 0; ticks -= MIN(ticks, 60)) step(MIN(ticks, 60)); };
++			// (The tube carried with the socket here: Use, the tube first; Fix, the socket first.)
++			auto tubeWith = [&](int kind) {
++				const int item = carriedAt(3, 73), o = thingIn(398);
++				if (item < 0 || o < 0) return false;
++				Pair p;
++				p.kind = kind;
++				if (kind == kWorldVerbUse) { p.item = item; p.withThing = o; } else { p.thing = o; p.withItem = item; }
++				_speech.clear();
++				pairUp(p);
++				return true;
++			};
++			auto line = [&](int room, int id, int kind, int from, int with, bool marked) {
++				int after, others[3 * 64], count, flags, sets;
++				char said[256] = "";
++				const bool found = marked ? PanelBridge::markedAnswer(maniac, room, id, kind, from, with, 0, after, others, count, 64, said, sizeof(said), flags, sets) :
++					with ? PanelBridge::pairEffect(maniac, room, id, kind, from, with, after, others, count, 64, said, sizeof(said), flags) :
++					PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said));
++				return found ? Common::String(said) : Common::String("(none)");
++			};
++			// (A key giving that value tapped where it is on the screen.)
++			auto tapKey = [&](int value) {
++				for (int k = 0; k < radioKeys; ++k) {
++					int key, v, id, ox, oy, w, h, wx, wy, state, sx, sy;
++					char keyLine[8];
++					if (!PanelBridge::closeUpKey(maniac, radioKeypad, k, key, v, keyLine, sizeof(keyLine)) || v != value || !StageBridge::object(thingIn(key), id, ox, oy, w, h, wx, wy, state)) continue;
++					StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
++					if (sx < 0 || sx >= _width || sy < 0 || sy >= _height) return false;
++					tap(sx, sy);
++					return true;
++				}
++				return false;
++			};
++			double rx = 0, ry = 0;
++			auto backAt = [&]() {
++				double px, py;
++				StageBridge::position(_player, px, py);
++				return _closeUp.index < 0 && _game == maniac && _room == 21 && !StageBridge::hidden(_player) && fabs(px - rx) < 1 && fabs(py - ry) < 1;
++			};
++			// (Use on the radio, on: its keypad shown, kept as where it was used from; then
++			// a number pressed: the right one, or one whose first value is another key's.)
++			auto dial = [&](bool right) {
++				bool ok = go(21) && thingIn(399) >= 0 && doorPoint(thingIn(399), rx, ry);
++				if (!ok) return false;
++				StageBridge::walkable(rx, ry);
++				int g, r, wrongFirst = -1;
++				double kx, ky;
++				ok = doAt(kWorldVerbUse, thingIn(399)) && _closeUp.index == radioKeypad && _room == 43 && StageBridge::hidden(_player) && keptPlace(g, r, kx, ky) && r == 21 &&
++					fabs(kx - rx) < 1 && fabs(ky - ry) < 1;
++				for (int k = 0; k < radioKeys && wrongFirst < 0; ++k) {
++					int key, value;
++					char keyLine[8];
++					if (PanelBridge::closeUpKey(maniac, radioKeypad, k, key, value, keyLine, sizeof(keyLine)) && value != PanelBridge::closeUpCode(maniac, radioKeypad, 0)) wrongFirst = value;
++				}
++				for (int i = 0; ok && i < radioPresses; ++i) {
++					ok = tapKey(!right && !i ? wrongFirst : PanelBridge::closeUpCode(maniac, radioKeypad, i));
++					ok = ok && (i + 1 < radioPresses ? _room == 43 : _game == maniac && _room == 21);
++				}
++				return ok;
++			};
++			int callLength, callLead, callLeadPicture, callCostume, callX, callY, callFacing, callColor, callEvents, callAfter, callMark;
++			bool callPowered;
++			char callOff[8];
++			const bool callRecorded = PanelBridge::closeUpFilm(maniac, radioFilm, callLength, callLead, callLeadPicture, callCostume, callX, callY, callFacing, callColor, callEvents, callAfter, callMark,
++				callPowered, callOff, sizeof(callOff)) && !callPowered && callLead > 0 && callLead < callLength;
++			if (!callRecorded) fail("the Meteor Police's film not recorded", maniac);
++			fresh();
++			// (1) The tube: inside the old radio shut; opened, refused to another kid, taken by Bernard.
++			bool ok = callRecorded && as(otherKid) && go(3) && thingIn(72) >= 0 && thingIn(73) >= 0 && !isThing(thingIn(73)) && doAt(kWorldVerbOpen, thingIn(72)) && pictureOf(3, 72) == 1 && isThing(thingIn(73));
++			if (ok && doAt(kWorldVerbPickUp, thingIn(73)) && _speech == line(3, 73, kWorldVerbPickUp, 0, 0, false) && !_speech.empty() && carriedAt(3, 73) < 0) ++radioTubeRefused;
++			else { ok = false; fail("the radio tube not refused to another kid as its script answers", maniac); }
++			if (ok && as(bernard) && go(3) && doAt(kWorldVerbPickUp, thingIn(73)) && carriedAt(3, 73) >= 0 && pictureOf(3, 73) == 1) ++radioTube;
++			else { ok = false; fail("the radio tube not taken by Bernard", maniac); }
++			// (2) The socket: refused to another kid with the tube, as recorded; Bernard puts it in.
++			if (ok && as(otherKid) && go(21) && thingIn(212) >= 0 && !isThing(thingIn(212)) && tubeWith(kWorldVerbUse) && _speech == line(21, 398, kWorldVerbUse, 0, 73, false) && !_speech.empty() &&
++				carriedAt(3, 73) >= 0 && pictureOf(21, 212) == 1) ++radioSocketRefused;
++			else { ok = false; fail("the radio tube not refused by the socket for another kid as its script answers", maniac); }
++			// (3) The radio turned on without the tube: as its own script answers, off still.
++			if (ok && doAt(kWorldVerbTurnOn, thingIn(399)) && _speech == line(21, 399, kWorldVerbTurnOn, 0, 0, false) && !_speech.empty() && pictureOf(21, 399) == 0) ++radioRefused;
++			else { ok = false; fail("the radio turned on without its tube not as its script answers", maniac); }
++			if (ok && as(bernard) && go(21) && tubeWith(kWorldVerbFix) && carriedAt(3, 73) < 0 && pictureOf(21, 212) == 0 && isThing(thingIn(212)) && _speech.empty()) ++radioSocket;
++			else { ok = false; fail("the radio tube not put in its socket by Bernard", maniac); }
++			// (With the main power off, nothing; on: on; off, and off again: its line; Use off: its line.)
++			_pictures[thingKey(maniac, radioPowerRoom, radioPowerId)] = radioOffPicture;
++			if (ok && doAt(kWorldVerbTurnOn, thingIn(399)) && _speech.empty() && pictureOf(21, 399) == 0) ++radioUnpowered;
++			else { ok = false; fail("the radio turned on with the main power off", maniac); }
++			_pictures.erase(thingKey(maniac, radioPowerRoom, radioPowerId));
++			if (ok && doAt(kWorldVerbTurnOn, thingIn(399)) && _speech.empty() && pictureOf(21, 399) == 1) ++radioOn;
++			else { ok = false; fail("the radio not turned on with its tube in and the power on", maniac); }
++			if (ok && doAt(kWorldVerbTurnOff, thingIn(399)) && pictureOf(21, 399) == 0 && doAt(kWorldVerbTurnOff, thingIn(399)) && _speech == line(21, 399, kWorldVerbTurnOff, 0, 0, false) &&
++				!_speech.empty() && doAt(kWorldVerbUse, thingIn(399)) && _closeUp.index < 0 && _speech == line(21, 399, kWorldVerbUse, 0, 0, true) && !_speech.empty()) ++radioOff;
++			else { ok = false; fail("the radio not turned off, or used off, as its script answers", maniac); }
++			// (The poster: the number the keypad wants, its values in order.)
++			if (ok && thingIn(397) >= 0 && doAt(kWorldVerbRead, thingIn(397)) && _speech == line(21, 397, kWorldVerbRead, 0, 0, true)) {
++				Common::String digits;
++				for (uint c = 0; c < _speech.size(); ++c) if (_speech[c] >= '0' && _speech[c] <= '9') digits += _speech[c];
++				Common::String code;
++				for (int i = 0; i < radioPresses; ++i) code += Common::String::format("%d", PanelBridge::closeUpCode(maniac, radioKeypad, i));
++				if (digits == code) ++radioPoster; else { ok = false; fail("the wanted poster's number not the radio keypad's", maniac); }
++			} else { ok = false; fail("the wanted poster not read as its script answers", maniac); }
++			// (4) On: its keypad; a wrong number: nothing called; the right one: called, its film.
++			ok = ok && doAt(kWorldVerbTurnOn, thingIn(399)) && pictureOf(21, 399) == 1;
++			if (ok && dial(false) && backAt() && _timed.empty() && _closeUp.index < 0 && pictureOf(21, 399) == 1) { ++radioKeypadShown; ++radioWrong; }
++			else { ok = false; fail("the radio's keypad not shown on, or a wrong number called", maniac); }
++			const Common::Array<Left> stood = standing();
++			if (ok && dial(true) && _timed.size() == 1 && _timed[0].event == policeEvent && _timed[0].phase == 1 && _timed[0].left == police.first &&
++				_closeUp.index == radioFilm && _closeUp.film && !_closeUp.inScene && _room == 21) ++radioCalled;
++			else { ok = false; fail("the right number on the radio not calling the Meteor Police, or their film not begun", maniac); }
++			// (Their film: a tap waits through its lead; then its scene, the one there in their place.)
++			if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index == radioFilm && !_closeUp.inScene; }
++			for (int k = 0; ok && k + 1 < callLead; ++k) { step(1); ok = _closeUp.index == radioFilm && !_closeUp.inScene && _room == 21; }
++			if (ok) step(1);
++			double px = -1, py = -1;
++			ok = ok && _closeUp.inScene && _room == 32 && !installed(maniac, 32) && StageBridge::hidden(_player);
++			if (ok && _closeUp.person >= 0) StageBridge::position(_closeUp.person, px, py);
++			ok = ok && (!callCostume || (_closeUp.person >= 0 && !StageBridge::hidden(_closeUp.person) && fabs(px - callX) < 1 && fabs(py - callY) < 1));
++			for (int t = 1; ok && t < callLength; ++t) {
++				step(1);
++				int due = 0;
++				for (int e = 0; e < callEvents; ++e) {
++					int tick, id, picture;
++					char eventLine[256];
++					if (PanelBridge::closeUpFilmEvent(maniac, radioFilm, e, tick, id, picture, eventLine, sizeof(eventLine)) && tick <= t) ++due;
++				}
++				ok = _closeUp.index == radioFilm && _closeUp.inScene && _room == 32 && _closeUp.event == due;
++				if (ok) radioFilmEvents = due;
++				if (ok && t == callLength / 2 && ConfMan.hasKey("scummverse_shots")) { present(); shot("radio-police.png"); }
++			}
++			if (ok) step(1);
++			bool same = ok && backAt() && pictureOf(21, 399) == callAfter;
++			const Common::Array<Left> after = standing();
++			same = same && after.size() == stood.size();
++			for (uint i = 0; same && i < after.size(); ++i) same = after[i].key == stood[i].key && fabs(after[i].x - stood[i].x) < 1 && fabs(after[i].y - stood[i].y) < 1;
++			if (same && radioFilmEvents == callEvents) ++radioFilms;
++			else { ok = false; fail("the Meteor Police's film not played as recorded, or not back where they stood", maniac); }
++			// (5) At their time, the dungeon shut: nothing, the call over (not a tick before).
++			const int played = callLead + callLength;
++			ok = ok && _timed.size() == 1 && _timed[0].left == police.first - played;
++			if (ok) { stepFor(police.first - played - 1); ok = _timed.size() == 1 && _timed[0].phase == 1 && pictureIn(maniac, 4, 214) == 1; }
++			if (ok) step(1);
++			if (ok && _timed.empty() && pictureIn(maniac, 4, 214) == 1 && go(4) && thingIn(214) >= 0 && !isThing(thingIn(214))) { ++radioShut; radioTicks = police.first; }
++			else { ok = false; fail("the Meteor Police found the way with the dungeon's doors shut", maniac); }
++			// (As the wall safe's keypad from 0252: the place it was used from not
++			// shown again as the right number's last key is pressed (the one
++			// played's file not read now): over once all the same, someone else
++			// played where a launch starts, not hidden; the Meteor Police called
++			// all the same, their film shown only there in the radio's place;
++			// not tried again after.)
++			if (ok) {
++				const int presser = _playerKey;
++				bool fell = go(21) && thingIn(399) >= 0 && doAt(kWorldVerbUse, thingIn(399)) && _closeUp.index == radioKeypad;
++				for (int i = 0; fell && i + 1 < radioPresses; ++i) fell = tapKey(PanelBridge::closeUpCode(maniac, radioKeypad, i)) && _closeUp.index == radioKeypad && _room == 43;
++				if (fell) {
++					_broken[presser] = true;
++					fell = tapKey(PanelBridge::closeUpCode(maniac, radioKeypad, radioPresses - 1)) && _game >= 0 && !worldCloseUpScene(_game, _room) && _player >= 0 &&
++						_playerKey != presser && _timed.size() == 1 && _timed[0].event == policeEvent && _timed[0].phase == 1 && _timed[0].left == police.first &&
++						(_game == maniac && _room == 21 ? _closeUp.index == radioFilm && !_closeUp.inScene : _closeUp.index < 0 && !StageBridge::hidden(_player));
++					const int fellGame = _game, fellRoom = _room, fellCloseUp = _closeUp.index;
++					for (int k = 0; fell && k < 5; ++k) step(1);
++					fell = fell && _game == fellGame && _room == fellRoom && _closeUp.index == fellCloseUp;
++					if (_closeUp.index >= 0) closeUpLeave();
++					_broken.erase(presser);
++					castChoose(presser);
++				}
++				_broken.erase(presser);
++				_timed.clear();
++				if (fell && _playerKey == presser) ++radioFellBack;
++				else { ok = false; fail("the radio's keypad not over once where the place it was used from could not be shown again, or the call not made", maniac); }
++			}
++			// (Called again: the film skipped by a tap in its scene; kept through a save and reload.)
++			if (ok && dial(true) && _closeUp.index == radioFilm && _timed.size() == 1 && _timed[0].left == police.first) {
++				stepFor(callLead);
++				ok = _closeUp.inScene && _room == 32;
++				if (ok) tap(_width / 2, _height / 3);
++				ok = ok && backAt();
++			} else ok = false;
++			if (ok) {
++				int g, r;
++				double kx, ky;
++				const Common::Array<Timed> due = _timed;
++				saveState();
++				_timed.clear();
++				ok = loadState(g, r, kx, ky) && _timed.size() == 1 && _timed[0].event == due[0].event && _timed[0].phase == 1 && _timed[0].left == due[0].left;
++				if (ok) ++radioKept;
++			}
++			if (!ok) fail("the Meteor Police not called again, or the call not kept through a save and reload", maniac);
++			// (Both doors open: the badge shown at their time, touchable, taken; done for good.)
++			if (ok) {
++				_pictures[thingKey(maniac, 4, 160)] = 1; _pictures[thingKey(maniac, 4, 163)] = 1;
++				stepFor(_timed[0].left);
++				ok = _timed.size() == 1 && _timed[0].phase == 2 && pictureIn(maniac, 4, 214) == 0 && go(4) && thingIn(214) >= 0 && isThing(thingIn(214)) &&
++					doAt(kWorldVerbPickUp, thingIn(214)) && carriedAt(4, 214) >= 0;
++				if (ok) ++radioBadge; else fail("the badge not left in the dungeon with its doors open", maniac);
++			}
++			if (ok && dial(true) && _timed.size() == 1 && _timed[0].phase == 2) { ++radioOnce; closeUpLeave(); closeUpLeave(); }
++			else if (ok) { ok = false; fail("the Meteor Police called again after they came", maniac); }
++			// (6) The tube taken out again: carried, the radio off.
++			if (ok && go(21) && isThing(thingIn(212)) && doAt(kWorldVerbPickUp, thingIn(212)) && carriedAt(3, 73) >= 0 && pictureOf(21, 212) == 1 && pictureOf(21, 399) == 0) ++radioTubeOut;
++			else if (ok) fail("the radio tube not taken out of its socket again (the radio off)", maniac);
++			putBack(4, 214);
++			fresh();
++			_marks = marksBefore; _timed = timedBefore;
++			if (_playerKey != playedBefore) castChoose(playedBefore);
++		}
+ 		// The grating behind the bushes: no way through until they are
+ 		// pulled aside.
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+@@ -7772,6 +8105,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"timed events), %d with damaged timed events read without them; %d film over once where its place could not be shown again (elsewhere, marked)",
+ 		mailRefused, mailWater, mailInside, mailSteamed, mailAlone, mailOut, mailOpened, mailManuscript, mailTyped, mailPackage, mailPackageTicks, mailStampsGiven, mailStamped,
+ 		mailPosted, mailRead, mailBack, mailNotDue, mailDue, mailKept, mailCollected, mailCollectedTicks, mailWaited, mailAfter, mailTorn, mailOlder, mailDamaged, mailFellBack);
++	warning("SCUMMVERSE sandbox selftest radio: the tube %d refused to another kid, %d taken by Bernard; the socket %d refused to another kid, %d the tube put in by Bernard; the radio %d refused "
++		"on without the tube, %d nothing with the main power off, %d on, %d off (its lines off and used off); %d poster read with the keypad's number; %d keypad shown on, %d wrong number "
++		"calling nothing, %d right number calling the Meteor Police (%d film played as recorded, %d events, back where they stood); their time %d ticks: %d with the dungeon shut "
++		"(nothing, called again), %d kept through a save and reload, %d with its doors open (the badge left, taken), %d not called again after; %d tube taken out again (the radio off); "
++		"%d keypad over once where its place could not be shown again (someone else played, called)",
++		radioTubeRefused, radioTube, radioSocketRefused, radioSocket, radioRefused, radioUnpowered, radioOn, radioOff, radioPoster, radioKeypadShown, radioWrong, radioCalled, radioFilms,
++		radioFilmEvents, radioTicks, radioShut, radioKept, radioBadge, radioOnce, radioTubeOut, radioFellBack);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 396ff149..02099fc8 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -275,6 +275,13 @@ private:
+ 	bool filmScene();                       // a film's scene shown, its lead over (false: back, not shown)
+ 	void filmStep(int ticks);
+ 	void filmEnd();                         // seen to its end, or skipped: back, its mark left
++	// From 0257 (kWorldCloseUps' `from` and `script`): the picture a close-up
++	// is shown from (the radio's keypad: on) and the script a keypad's right
++	// answer starts (0: none; the radio's call); that answer starts the timed
++	// events called (kWorldTimed's `on`) and the film it plays (the Meteor
++	// Police answering), shown by no verb itself.
++	int closeUpFrom(int game, int index, int *script = nullptr) const;
++	void closeUpCalled(const CloseUp &c);
+ 	// Marks (from 0248; kWorldMarks, the things file's "SVO8"): a game's mark
+ 	// left for one played (by their key) or for the game (key 0); the marks
+ 	// set for the one played now (bit k: mark k), and those an answer leaves.
+@@ -288,6 +295,7 @@ private:
+ 	// second, 0 none) from a picture; false: none for it, or the thing it
+ 	// wants first not so.
+ 	bool markedEffect(int game, int room, int id, int kind, int from, int with, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets);
++	int playedKid(int game) const; // (from 0257: the mansion's kid played, its actor's number; 0: someone else)
+ 	void othersAfter(int game, const int *others, int count); // (an answer's others: shown so, or carried)
+ 	// Timed events (from 0250; kWorldTimed): what a game's script does a
+ 	// while after the one played leaves a place so (the mansion's package at

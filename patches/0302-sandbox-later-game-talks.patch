@@ -1,0 +1,2250 @@
+diff --git a/common/module.mk b/common/module.mk
+index de16b37e..44953e20 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -37,6 +37,7 @@ MODULE_OBJS := \
+ 	scummverse_panel.o \
+ 	scummverse_restore.o \
+ 	scummverse_duel.o \
++	scummverse_talks.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_talks.cpp b/common/scummverse_talks.cpp
+new file mode 100644
+index 00000000..8698fc80
+--- /dev/null
++++ b/common/scummverse_talks.cpp
+@@ -0,0 +1,468 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: a person's or a shop's conversation as its game's scripts play
++// it (from 0302). See scummverse_talks.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_talks.h"
++#include "common/scummverse_talks_engine.h"
++
++#include <cstring>
++#include <map>
++
++namespace Scummverse {
++namespace Talks {
++
++bool Step::operator==(const Step &o) const {
++	if (lines.size() != o.lines.size() || leaves != o.leaves || money != o.money || given.size() != o.given.size() || taken != o.taken ||
++		pictures != o.pictures || next != o.next) return false;
++	for (size_t k = 0; k < lines.size(); ++k)
++		if (lines[k].speaker != o.lines[k].speaker || lines[k].costume != o.lines[k].costume || lines[k].color != o.lines[k].color || lines[k].text != o.lines[k].text) return false;
++	for (size_t k = 0; k < given.size(); ++k)
++		if (given[k].room != o.given[k].room || given[k].object != o.given[k].object || given[k].name != o.given[k].name) return false;
++	return true;
++}
++
++const Opening *Talk::opening(int value, int money) const {
++	for (const Opening &o : openings)
++		if (o.value == value && money >= o.moneyFrom && (o.moneyTo == kNoMost || money <= o.moneyTo)) return &o;
++	return nullptr;
++}
++
++std::string Money::name(int count) const {
++	if (!var || count <= 0) return std::string();
++	if (count == 1 && !one.empty()) return one;
++	return manyBefore + std::to_string(count) + manyAfter;
++}
++
++int Data::find(int room, int object, int kind, int costume) const {
++	for (size_t i = 0; i < talks.size(); ++i) {
++		const Talk &t = talks[i];
++		if (t.room == room && t.kind == kind && t.costume == costume && (costume ? true : t.object == object)) return (int)i;
++	}
++	return -1;
++}
++
++// ---- The file ("SVQ1", little-endian) ----
++// "SVQ1"; u16 money variable (0: none), u16 its thing's room, u16 its
++// thing, then its names (each u8 length and its bytes): for one, before the
++// count, after it; u8 talks, per talk u16 room, u16 object, u8 kind, u16
++// costume, u16 the value kept it reads (0: none), u16 menus, u8 openings
++// (per opening s16 value, s32 money from, s32 money to (-1: no end), a
++// step), its menus (per menu u8 choices, per choice u16 its number, its
++// text, a step).
++// A step: u8 lines (per line u8 speaker, u16 costume, s16 colour (-1 the
++// speaker's own), its text), u8 leaves (per leave u16 variable, s32 value),
++// s32 money, u8 given (per thing u16 room, u16 object, its name), u8 taken
++// (u16 each), u8 pictures (per thing u16 object, u8 picture), s16 next
++// (-1: the end). Nothing after.
++
++namespace {
++struct Reader {
++	const uint8_t *p, *end;
++	bool ok;
++	int u8() { if (p >= end) { ok = false; return 0; } return *p++; }
++	int u16() { const int lo = u8(); return lo | u8() << 8; }
++	int s16() { const int v = u16(); return v >= 0x8000 ? v - 0x10000 : v; }
++	int s32() {
++		uint32_t v = 0;
++		for (int k = 0; k < 4; ++k) v |= (uint32_t)u8() << (8 * k);
++		return (int)(int32_t)v;
++	}
++	// (A text: none longer than its byte, no zero in it; `empty` lets it be none.)
++	bool text(std::string &out, bool empty) {
++		const int length = u8();
++		if (!ok || end - p < length) { ok = false; return false; }
++		out.assign((const char *)p, length);
++		p += length;
++		return (empty || length > 0) && out.find('\0') == std::string::npos;
++	}
++};
++
++struct Writer {
++	std::vector<uint8_t> out;
++	void u8(int v) { out.push_back((uint8_t)v); }
++	void u16(int v) { u8(v & 0xFF); u8(v >> 8 & 0xFF); }
++	void s32(int v) { const uint32_t u = (uint32_t)v; for (int k = 0; k < 4; ++k) u8(u >> (8 * k) & 0xFF); }
++	void text(const std::string &t) {
++		const size_t n = t.size() < (size_t)kMostTextBytes ? t.size() : (size_t)kMostTextBytes;
++		u8((int)n);
++		out.insert(out.end(), t.begin(), t.begin() + n);
++	}
++};
++
++bool readStep(Reader &r, Step &s, int menus, std::string &error) {
++	s = Step();
++	const int lines = r.u8();
++	if (!r.ok || lines > kMostStepLines) { error = "a step's lines"; return false; }
++	for (int k = 0; k < lines; ++k) {
++		Line l;
++		l.speaker = r.u8(); l.costume = r.u16(); l.color = r.s16();
++		if (!r.text(l.text, false) || (l.speaker != kSpeakerPlayed && l.speaker != kSpeakerSomeone && l.speaker != kSpeakerNone) || l.color < -1 || l.color > 255 ||
++			(l.speaker == kSpeakerSomeone && !l.costume)) { error = "a line"; return false; }
++		s.lines.push_back(l);
++	}
++	const int leaves = r.u8();
++	if (!r.ok || leaves > kMostLeaves) { error = "a step's values"; return false; }
++	for (int k = 0; k < leaves; ++k) {
++		const int var = r.u16(), value = r.s32();
++		if (!var) { error = "a step's values"; return false; }
++		for (const auto &l : s.leaves) if (l.first == var) { error = "a step's values"; return false; }
++		s.leaves.push_back(std::make_pair(var, value));
++	}
++	s.money = r.s32();
++	const int given = r.u8();
++	if (!r.ok || given > kMostGiven) { error = "a step's things given"; return false; }
++	for (int k = 0; k < given; ++k) {
++		Given g;
++		g.room = r.u16(); g.object = r.u16();
++		if (!r.text(g.name, true) || !g.object) { error = "a thing given"; return false; }
++		s.given.push_back(g);
++	}
++	const int taken = r.u8();
++	if (!r.ok || taken > kMostTaken) { error = "a step's things taken"; return false; }
++	for (int k = 0; k < taken; ++k) {
++		const int object = r.u16();
++		if (!object) { error = "a thing taken"; return false; }
++		s.taken.push_back(object);
++	}
++	const int pictures = r.u8();
++	if (!r.ok || pictures > kMostPictures) { error = "a step's pictures"; return false; }
++	for (int k = 0; k < pictures; ++k) {
++		const int object = r.u16(), picture = r.u8();
++		if (!object) { error = "a step's pictures"; return false; }
++		s.pictures.push_back(std::make_pair(object, picture));
++	}
++	s.next = r.s16();
++	if (!r.ok || s.next < kEnd || s.next >= menus) { error = "a step's menu"; return false; }
++	return true;
++}
++
++void writeStep(Writer &w, const Step &s) {
++	w.u8((int)s.lines.size());
++	for (const Line &l : s.lines) { w.u8(l.speaker); w.u16(l.costume); w.u16(l.color & 0xFFFF); w.text(l.text); }
++	w.u8((int)s.leaves.size());
++	for (const auto &l : s.leaves) { w.u16(l.first); w.s32(l.second); }
++	w.s32(s.money);
++	w.u8((int)s.given.size());
++	for (const Given &g : s.given) { w.u16(g.room); w.u16(g.object); w.text(g.name); }
++	w.u8((int)s.taken.size());
++	for (int t : s.taken) w.u16(t);
++	w.u8((int)s.pictures.size());
++	for (const auto &p : s.pictures) { w.u16(p.first); w.u8(p.second); }
++	w.u16(s.next & 0xFFFF);
++}
++} // End of anonymous namespace
++
++bool parse(const uint8_t *data, size_t size, Data &out, std::string &error) {
++	out = Data();
++	if (!data || size < 4 || std::memcmp(data, "SVQ1", 4)) { error = "not a talks file"; return false; }
++	Reader r = {data + 4, data + size, true};
++	auto fail = [&](const char *why) { error = why; out = Data(); return false; };
++	Money &m = out.money;
++	m.var = r.u16(); m.room = r.u16(); m.object = r.u16();
++	if (!r.text(m.one, true) || !r.text(m.manyBefore, true) || !r.text(m.manyAfter, true) || (m.var && !m.object)) return fail("its money");
++	const int talks = r.u8();
++	if (!r.ok || talks > kMostTalks) return fail("its talks");
++	for (int i = 0; i < talks; ++i) {
++		Talk t;
++		t.room = r.u16(); t.object = r.u16(); t.kind = r.u8(); t.costume = r.u16(); t.reads = r.u16();
++		if (!r.ok || !t.object || t.kind < 1 || t.kind > 63 || out.find(t.room, t.object, t.kind, t.costume) >= 0) return fail("a talk");
++		const int menus = r.u16(), openings = r.u8();
++		if (!r.ok || menus > kMostMenus) return fail("a talk's menus");
++		if (openings < 1 || openings > kMostOpenings) return fail("a talk's openings");
++		for (int k = 0; k < openings; ++k) {
++			Opening o;
++			o.value = r.s16(); o.moneyFrom = r.s32(); o.moneyTo = r.s32();
++			std::string why;
++			if (!readStep(r, o.step, menus, why)) return fail(why.c_str());
++			if (o.moneyFrom < 0 || o.moneyTo < kNoMost || (o.moneyTo != kNoMost && o.moneyTo < o.moneyFrom)) return fail("a talk's openings");
++			for (const Opening &p : t.openings) {
++				const bool apart = (o.moneyTo != kNoMost && o.moneyTo < p.moneyFrom) || (p.moneyTo != kNoMost && p.moneyTo < o.moneyFrom);
++				if (p.value == o.value && !apart) return fail("a talk's openings overlap");
++			}
++			t.openings.push_back(o);
++		}
++		for (int k = 0; k < menus; ++k) {
++			Menu menu;
++			const int choices = r.u8();
++			if (!r.ok || choices < 1 || choices > kMostChoices) return fail("a menu");
++			for (int c = 0; c < choices; ++c) {
++				Choice ch;
++				ch.id = r.u16();
++				if (!r.text(ch.text, false)) return fail("a choice");
++				for (const Choice &x : menu.choices) if (x.id == ch.id) return fail("a choice twice");
++				std::string why;
++				if (!readStep(r, ch.step, menus, why)) return fail(why.c_str());
++				menu.choices.push_back(ch);
++			}
++			t.menus.push_back(menu);
++		}
++		out.talks.push_back(t);
++	}
++	if (!r.ok) return fail("cut short");
++	if (r.p != r.end) return fail("longer than it says");
++	return true;
++}
++
++std::vector<uint8_t> write(const Data &d) {
++	Writer w;
++	w.out.insert(w.out.end(), {'S', 'V', 'Q', '1'});
++	w.u16(d.money.var); w.u16(d.money.room); w.u16(d.money.object);
++	w.text(d.money.one); w.text(d.money.manyBefore); w.text(d.money.manyAfter);
++	w.u8((int)d.talks.size());
++	for (const Talk &t : d.talks) {
++		w.u16(t.room); w.u16(t.object); w.u8(t.kind); w.u16(t.costume); w.u16(t.reads);
++		w.u16((int)t.menus.size());
++		w.u8((int)t.openings.size());
++		for (const Opening &o : t.openings) { w.u16(o.value & 0xFFFF); w.s32(o.moneyFrom); w.s32(o.moneyTo); writeStep(w, o.step); }
++		for (const Menu &m : t.menus) {
++			w.u8((int)m.choices.size());
++			for (const Choice &c : m.choices) { w.u16(c.id); w.text(c.text); writeStep(w, c.step); }
++		}
++	}
++	return w.out;
++}
++
++bool Play::begin(const Talk &talk, int value, int money) {
++	end();
++	const Opening *o = talk.opening(value, money);
++	if (!o) return false;
++	_talk = &talk; _step = &o->step; _menu = o->step.next;
++	return true;
++}
++
++const Menu *Play::menu() const {
++	return _talk && _menu >= 0 && _menu < (int)_talk->menus.size() ? &_talk->menus[_menu] : nullptr;
++}
++
++bool Play::choose(int index) {
++	const Menu *m = menu();
++	if (!m || index < 0 || index >= (int)m->choices.size()) return false;
++	_step = &m->choices[index].step;
++	_menu = _step->next;
++	return true;
++}
++
++} // End of namespace Talks
++
++namespace TalksBridge {
++namespace {
++std::map<int, Talks::Data> &files() { static std::map<int, Talks::Data> f; return f; }
++struct Under { int game = -1; Talks::Play play; };
++Under &under() { static Under u; return u; }
++Talks::Data &building() { static Talks::Data d; return d; }
++bool &begun() { static bool b = false; return b; }
++Talks::Step &built() { static Talks::Step s; return s; }
++const Talks::Data *file(int game) {
++	auto it = files().find(game);
++	return it == files().end() ? nullptr : &it->second;
++}
++void copy(const std::string &from, char *text, int capacity) {
++	if (!text || capacity <= 0) return;
++	const size_t n = from.size() < (size_t)capacity - 1 ? from.size() : (size_t)capacity - 1;
++	std::memcpy(text, from.data(), n);
++	text[n] = 0;
++}
++const Talks::Step *step() { return under().play.active() ? under().play.step() : nullptr; }
++Talks::Menu *buildingMenu(int talk, int menu) {
++	Talks::Data &d = building();
++	if (!begun() || talk < 0 || talk >= (int)d.talks.size() || menu < 0 || menu >= (int)d.talks[talk].menus.size()) return nullptr;
++	return &d.talks[talk].menus[menu];
++}
++} // End of anonymous namespace
++
++// (Read into one of its own first; the game's file replaced only when it
++// is whole, none kept when it is not. A talk under way of that game ended
++// either way: it points at the talks it replaces.)
++bool load(int game, const unsigned char *data, size_t size, char *error, int capacity) {
++	if (under().game == game) under() = Under();
++	Talks::Data d;
++	std::string why;
++	if (!Talks::parse(data, size, d, why)) { files().erase(game); copy(why, error, capacity); return false; }
++	files()[game] = d;
++	return true;
++}
++
++bool loaded(int game) { return file(game) != nullptr; }
++void clear() { files().clear(); under() = Under(); }
++
++bool money(int game, int &var, int &room, int &object) {
++	const Talks::Data *f = file(game);
++	if (!f || !f->money.var) return false;
++	var = f->money.var; room = f->money.room; object = f->money.object;
++	return true;
++}
++
++bool moneyName(int game, int count, char *text, int capacity) {
++	const Talks::Data *f = file(game);
++	const std::string name = f ? f->money.name(count) : std::string();
++	copy(name, text, capacity);
++	return !name.empty();
++}
++
++int find(int game, int room, int object, int kind, int costume) {
++	const Talks::Data *f = file(game);
++	return f ? f->find(room, object, kind, costume) : -1;
++}
++
++int count(int game) {
++	const Talks::Data *f = file(game);
++	return f ? (int)f->talks.size() : 0;
++}
++
++bool talk(int game, int index, int &room, int &object, int &kind, int &costume, int &reads) {
++	const Talks::Data *f = file(game);
++	if (!f || index < 0 || index >= (int)f->talks.size()) return false;
++	const Talks::Talk &t = f->talks[index];
++	room = t.room; object = t.object; kind = t.kind; costume = t.costume; reads = t.reads;
++	return true;
++}
++
++bool begin(int game, int index, int value, int money) {
++	under() = Under();
++	const Talks::Data *f = file(game);
++	if (!f || index < 0 || index >= (int)f->talks.size() || !under().play.begin(f->talks[index], value, money)) return false;
++	under().game = game;
++	return true;
++}
++
++bool active() { return under().play.active(); }
++int stepLines() { return step() ? (int)step()->lines.size() : 0; }
++
++bool stepLine(int k, int &speaker, int &costume, int &color, char *text, int capacity) {
++	if (k < 0 || k >= stepLines()) return false;
++	const Talks::Line &l = step()->lines[k];
++	speaker = l.speaker; costume = l.costume; color = l.color;
++	copy(l.text, text, capacity);
++	return true;
++}
++
++int stepLeaves() { return step() ? (int)step()->leaves.size() : 0; }
++
++bool stepLeave(int k, int &var, int &value) {
++	if (k < 0 || k >= stepLeaves()) return false;
++	var = step()->leaves[k].first; value = step()->leaves[k].second;
++	return true;
++}
++
++int stepMoney() { return step() ? step()->money : 0; }
++int stepGiven() { return step() ? (int)step()->given.size() : 0; }
++
++bool stepGive(int k, int &room, int &object, char *name, int capacity) {
++	if (k < 0 || k >= stepGiven()) return false;
++	const Talks::Given &g = step()->given[k];
++	room = g.room; object = g.object;
++	copy(g.name, name, capacity);
++	return true;
++}
++
++int stepTaken() { return step() ? (int)step()->taken.size() : 0; }
++int stepTake(int k) { return k >= 0 && k < stepTaken() ? step()->taken[k] : 0; }
++int stepPictures() { return step() ? (int)step()->pictures.size() : 0; }
++
++bool stepPicture(int k, int &object, int &picture) {
++	if (k < 0 || k >= stepPictures()) return false;
++	object = step()->pictures[k].first; picture = step()->pictures[k].second;
++	return true;
++}
++
++bool menuUp() { return under().play.menu() != nullptr; }
++int menuIndex() { return menuUp() ? under().play.menuIndex() : Talks::kEnd; }
++int choices() { return menuUp() ? (int)under().play.menu()->choices.size() : 0; }
++
++bool choice(int k, int &id, char *text, int capacity) {
++	if (k < 0 || k >= choices()) return false;
++	const Talks::Choice &c = under().play.menu()->choices[k];
++	id = c.id;
++	copy(c.text, text, capacity);
++	return true;
++}
++
++bool choose(int k) { return under().play.choose(k); }
++void end() { under() = Under(); }
++
++void fileBegin(int moneyVar, int moneyRoom, int moneyObject, const char *one, const char *manyBefore, const char *manyAfter) {
++	building() = Talks::Data();
++	begun() = true;
++	Talks::Money &m = building().money;
++	m.var = moneyVar; m.room = moneyRoom; m.object = moneyObject;
++	m.one = one ? one : ""; m.manyBefore = manyBefore ? manyBefore : ""; m.manyAfter = manyAfter ? manyAfter : "";
++}
++
++int fileTalk(int room, int object, int kind, int costume, int reads) {
++	if (!begun() || (int)building().talks.size() >= Talks::kMostTalks) return -1;
++	Talks::Talk t;
++	t.room = room; t.object = object; t.kind = kind; t.costume = costume; t.reads = reads;
++	building().talks.push_back(t);
++	return (int)building().talks.size() - 1;
++}
++
++int fileMenu(int talk) {
++	Talks::Data &d = building();
++	if (!begun() || talk < 0 || talk >= (int)d.talks.size() || (int)d.talks[talk].menus.size() >= Talks::kMostMenus) return -1;
++	d.talks[talk].menus.push_back(Talks::Menu());
++	return (int)d.talks[talk].menus.size() - 1;
++}
++
++int fileChoice(int talk, int menu, int id, const char *text) {
++	Talks::Menu *m = buildingMenu(talk, menu);
++	if (!m || (int)m->choices.size() >= Talks::kMostChoices) return -1;
++	Talks::Choice c;
++	c.id = id; c.text = text ? text : "";
++	m->choices.push_back(c);
++	return (int)m->choices.size() - 1;
++}
++
++void stepNew() { built() = Talks::Step(); }
++
++void stepAddLine(int speaker, int costume, int color, const char *text) {
++	if ((int)built().lines.size() >= Talks::kMostStepLines || !text || !*text) return;
++	Talks::Line l;
++	l.speaker = speaker; l.costume = costume; l.color = color; l.text = text;
++	if (l.text.size() > (size_t)Talks::kMostTextBytes) l.text.resize(Talks::kMostTextBytes);
++	built().lines.push_back(l);
++}
++
++void stepAddLeave(int var, int value) { if ((int)built().leaves.size() < Talks::kMostLeaves) built().leaves.push_back(std::make_pair(var, value)); }
++void stepSetMoney(int money) { built().money = money; }
++
++void stepAddGiven(int room, int object, const char *name) {
++	if ((int)built().given.size() >= Talks::kMostGiven) return;
++	Talks::Given g;
++	g.room = room; g.object = object; g.name = name ? name : "";
++	built().given.push_back(g);
++}
++
++void stepAddTaken(int object) { if ((int)built().taken.size() < Talks::kMostTaken) built().taken.push_back(object); }
++void stepAddPicture(int object, int picture) { if ((int)built().pictures.size() < Talks::kMostPictures) built().pictures.push_back(std::make_pair(object, picture)); }
++void stepSetNext(int menu) { built().next = menu; }
++
++bool fileOpening(int talk, int value, int moneyFrom, int moneyTo) {
++	Talks::Data &d = building();
++	if (!begun() || talk < 0 || talk >= (int)d.talks.size() || (int)d.talks[talk].openings.size() >= Talks::kMostOpenings) return false;
++	Talks::Opening o;
++	o.value = value; o.moneyFrom = moneyFrom; o.moneyTo = moneyTo; o.step = built();
++	d.talks[talk].openings.push_back(o);
++	return true;
++}
++
++bool fileChoiceStep(int talk, int menu, int choice) {
++	Talks::Menu *m = buildingMenu(talk, menu);
++	if (!m || choice < 0 || choice >= (int)m->choices.size()) return false;
++	m->choices[choice].step = built();
++	return true;
++}
++
++// (Only a whole file: one that reads back as written.)
++int written(unsigned char *out, int capacity) {
++	if (!begun()) return 0;
++	const std::vector<uint8_t> bytes = Talks::write(building());
++	Talks::Data check;
++	std::string why;
++	if (!Talks::parse(bytes.data(), bytes.size(), check, why)) return 0;
++	if (out && capacity >= (int)bytes.size()) std::memcpy(out, bytes.data(), bytes.size());
++	return (int)bytes.size();
++}
++
++} // End of namespace TalksBridge
++} // End of namespace Scummverse
+diff --git a/common/scummverse_talks.h b/common/scummverse_talks.h
+new file mode 100644
+index 00000000..5003ecda
+--- /dev/null
++++ b/common/scummverse_talks.h
+@@ -0,0 +1,106 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: a person's or a shop's conversation as its game's scripts play
++// it (from 0302), for the new engine (engines/scummverse). Plain C++, no
++// ScummVM types; tools/test_talks.cpp.
++//
++// A talks file ("<game>-talks.svq", "SVQ1", written by the game's own SCUMM
++// engine as it exports its places, from its scripts: see
++// ScummEngine::scummverseExportTalks) is read by parse(); its lines, choices
++// and names are the game's own, from its data at export time (none are
++// written here).
++//
++// A talk (Talk) is what a verb on a thing of a place opens there (a shop's
++// sale picked up, a bucket asked for; a person's own thing talked to, its
++// `costume` theirs): the ways it begins (Opening: by the value its game keeps
++// that it reads, `reads`, and the money carried, from `moneyFrom` to
++// `moneyTo`), each a step; its menus (Menu: the choices its scripts offer
++// there, in the order they show them, each with its number in its game and
++// its text), each choice a step. A step (Step) is what its game does then
++// until the next menu is up or the talk is over (`next`, kEnd): the lines
++// said in turn (the one played's choice first, where its game has them say
++// it), the values kept it leaves (variable, value: for a value its game only
++// adds to, what it adds), the money it adds (paid: less than 0), the things
++// it gives the one played (their room, number and name) and takes from them,
++// and the things of its place it shows in a picture of their own. Menus are
++// told apart by everything their game has then (two the same are one menu,
++// so a talk that comes back to its questions comes back to the same menu);
++// a file's menus are a graph, never more than kMostMenus.
++//
++// Money (Money): the variable its game counts it in, the thing carried while
++// there is any (its room and number) and that thing's name for one and for
++// more (`manyBefore`, the count, `manyAfter`), as its game names it.
++#ifndef COMMON_SCUMMVERSE_TALKS_H
++#define COMMON_SCUMMVERSE_TALKS_H
++
++#include "common/scummverse_talks_engine.h"
++
++#include <stddef.h>
++#include <stdint.h>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace Scummverse {
++namespace Talks {
++
++struct Line { int speaker = kSpeakerNone, costume = 0, color = -1; std::string text; };
++struct Given { int room = 0, object = 0; std::string name; };
++struct Step {
++	std::vector<Line> lines;
++	std::vector<std::pair<int, int> > leaves; // (variable, value)
++	int money = 0;
++	std::vector<Given> given;
++	std::vector<int> taken;
++	std::vector<std::pair<int, int> > pictures; // (object, picture)
++	int next = kEnd;
++	bool operator==(const Step &o) const;
++};
++struct Choice { int id = 0; std::string text; Step step; };
++struct Menu { std::vector<Choice> choices; };
++struct Opening { int value = 0, moneyFrom = 0, moneyTo = kNoMost; Step step; };
++struct Talk {
++	int room = 0, object = 0, kind = 0, costume = 0, reads = 0;
++	std::vector<Opening> openings;
++	std::vector<Menu> menus;
++	// The way it begins with `value` read and `money` carried (null: none).
++	const Opening *opening(int value, int money) const;
++};
++struct Money {
++	int var = 0, room = 0, object = 0;
++	std::string one, manyBefore, manyAfter;
++	std::string name(int count) const; // (empty: none, or no money)
++};
++struct Data {
++	Money money;
++	std::vector<Talk> talks;
++	int find(int room, int object, int kind, int costume) const; // (-1: none)
++};
++// Bytes of a "SVQ1" file (uncompressed); false (with `error`) when malformed:
++// cut short, longer than it says, a count past its most, a menu led to that
++// is none, a choice's number twice in a menu, a line by no one known, a text
++// empty where it must not be or holding a zero, ways of beginning that overlap.
++bool parse(const uint8_t *data, size_t size, Data &out, std::string &error);
++// And written so (the export's and the tests'): parse(write(d)) gives d.
++std::vector<uint8_t> write(const Data &d);
++
++// A talk under way: begun (its opening the step just taken), then each choice
++// chosen at the menu up (its step the step just taken), until no menu is up.
++class Play {
++public:
++	bool begin(const Talk &talk, int value, int money);
++	bool active() const { return _talk != nullptr; }
++	const Step *step() const { return _step; }
++	const Menu *menu() const;
++	int menuIndex() const { return _menu; }
++	bool choose(int index);
++	void end() { _talk = nullptr; _step = nullptr; _menu = kEnd; }
++private:
++	const Talk *_talk = nullptr;
++	const Step *_step = nullptr;
++	int _menu = kEnd;
++};
++
++} // End of namespace Talks
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_talks_engine.h b/common/scummverse_talks_engine.h
+new file mode 100644
+index 00000000..43ebcfce
+--- /dev/null
++++ b/common/scummverse_talks_engine.h
+@@ -0,0 +1,101 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: a person's or a shop's conversation, engine-facing bridge
++// (plain types only; from 0302) for the new engine (engines/scummverse) and
++// the export (engines/scumm). Holds each game's talks file and the talk under
++// way. See common/scummverse_talks.h.
++#ifndef COMMON_SCUMMVERSE_TALKS_ENGINE_H
++#define COMMON_SCUMMVERSE_TALKS_ENGINE_H
++
++#include <stddef.h>
++
++namespace Scummverse {
++// (The file's numbers, for the new engine, the export and the module.)
++namespace Talks {
++
++// The most a file holds: talks, the ways one begins, menus of one, choices
++// of a menu, lines of a step (what an opening or a choice does), the values
++// kept it leaves, things it gives, takes or shows anew, a text's bytes.
++static const int kMostTalks = 64, kMostOpenings = 16, kMostMenus = 256, kMostChoices = 16, kMostStepLines = 48,
++	kMostLeaves = 8, kMostGiven = 8, kMostTaken = 8, kMostPictures = 16, kMostTextBytes = 255;
++// Who says a line: the one played, someone (by their costume, in their talk
++// colour), or no one (told over the place, in its colour); a step that ends
++// the talk leads to no menu.
++static const int kSpeakerPlayed = 0, kSpeakerSomeone = 1, kSpeakerNone = 255, kEnd = -1;
++// (No end to the money a way of beginning takes.)
++static const int kNoMost = -1;
++
++} // End of namespace Talks
++
++namespace TalksBridge {
++
++// A game's talks file (bytes of its "-talks.svq", uncompressed), kept per
++// game; false (with `error`), and none, when malformed.
++bool load(int game, const unsigned char *data, size_t size, char *error, int capacity);
++bool loaded(int game);
++void clear();
++// Its money (none: false): the variable its game keeps it in, the thing that
++// shows it carried (its room and number), and that thing's name for a count
++// (its game's own, from its data at export time; false: none).
++bool money(int game, int &var, int &room, int &object);
++bool moneyName(int game, int count, char *text, int capacity);
++// The talk a verb (its kind) on a thing of a room opens (`costume` the
++// person whose thing it is, talked to; 0 a thing's): its index, -1 none; the
++// value kept it reads (0 none).
++int find(int game, int room, int object, int kind, int costume);
++int count(int game);
++bool talk(int game, int index, int &room, int &object, int &kind, int &costume, int &reads);
++
++// The talk under way (one at a time): begun with the value it reads and the
++// money now (false: none, or no way of beginning so). The step just taken
++// (its opening, then each choice's): its lines in turn, the values kept it
++// leaves (variable, value), the money it adds, the things it gives (room,
++// number, name), takes and shows in a picture of their own (number,
++// picture); then its menu (none: over).
++bool begin(int game, int index, int value, int money);
++bool active();
++int stepLines();
++bool stepLine(int k, int &speaker, int &costume, int &color, char *text, int capacity);
++int stepLeaves();
++bool stepLeave(int k, int &var, int &value);
++int stepMoney();
++int stepGiven();
++bool stepGive(int k, int &room, int &object, char *name, int capacity);
++int stepTaken();
++int stepTake(int k);
++int stepPictures();
++bool stepPicture(int k, int &object, int &picture);
++// The menu up once the step's lines are said (none: the talk over): its
++// choices in order (their numbers in their game and texts), one chosen (its
++// step then the step just taken).
++bool menuUp();
++int menuIndex();
++int choices();
++bool choice(int k, int &id, char *text, int capacity);
++bool choose(int k);
++void end();
++
++// The export's (a file built up, then its bytes): begun with its money (var
++// 0: none); talks added, then their menus and choices; a step built (its
++// parts added in turn) and filed as a talk's way of beginning or a choice's;
++// written into `out` (returns its size, copied when `capacity` takes it; 0:
++// none begun, or not a whole file).
++void fileBegin(int moneyVar, int moneyRoom, int moneyObject, const char *one, const char *manyBefore, const char *manyAfter);
++int fileTalk(int room, int object, int kind, int costume, int reads);
++int fileMenu(int talk);
++int fileChoice(int talk, int menu, int id, const char *text);
++void stepNew();
++void stepAddLine(int speaker, int costume, int color, const char *text);
++void stepAddLeave(int var, int value);
++void stepSetMoney(int money);
++void stepAddGiven(int room, int object, const char *name);
++void stepAddTaken(int object);
++void stepAddPicture(int object, int picture);
++void stepSetNext(int menu);
++bool fileOpening(int talk, int value, int moneyFrom, int moneyTo);
++bool fileChoiceStep(int talk, int menu, int choice);
++int written(unsigned char *out, int capacity);
++
++} // End of namespace TalksBridge
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index bb89b6af..948b14d8 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -198,10 +198,16 @@ static const int kWorldExportVersion = 25;
+ // "monkey-v41", "monkey2-v37"; from 0301 Monkey Island 2's again (its things
+ // shown by a value its game keeps: the skull of room 92 by the class its
+ // scripts give 864, kWorldKeptClasses; the hammer and nails of room 15 with
+-// the woodsmith away, bit 361): "monkey2-v38".
++// the woodsmith away, bit 361): "monkey2-v38"; from 0302 Monkey Island 2's
++// again (its conversations, kWorldTalks: the antique dealer's sale of the
++// saw and his talk, the laundry's bucket, "monkey2-talks.svq"; the saw and
++// the bucket carried in its answers of two; the peg leg sawn, kept as its
++// class, and the mud in the bucket, by values kept; its start's scroll
++// script let go elsewhere, kWorldScrollStarts: no answer in the antique shop
++// gives the map piece any more): "monkey2-v39".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 13 : same(gameid, "tentacle") ? 10 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 14 : same(gameid, "tentacle") ? 10 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -1753,7 +1759,7 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // is the value, and the export reads it back after each answer to file what
+ // that answer leaves.)
+ struct WorldKeptClass { short game; int object; short cls; };
+-static const WorldKeptClass kWorldKeptClasses[] = {{1, 864, 19}};
++static const WorldKeptClass kWorldKeptClasses[] = {{1, 864, 19}, {1, 130, 6}}; // (from 0302 the peg leg sawn)
+ static const int kWorldClassValue = 0x5000;
+ inline const WorldKeptClass *worldKeptClass(int game, int var) {
+ 	const int k = var - kWorldClassValue;
+@@ -1772,7 +1778,8 @@ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {
+ 	{10, 160, {1, 2, 0, 0}}, {10, 108, {2, 0, 0, 0}}, {10, 162, {1, 2, 0, 0}}, // (from 0288)
+ 	{0, 236, {1, 2, 0, 0}}, {0, 195, {1, 2, 3, 0}}, // (from 0296)
+ 	{0, 0x8000 + 85, {1, 0, 0, 0}}, {0, 0x8000 + 86, {1, 0, 0, 0}}, {0, 0x8000 + 421, {1, 0, 0, 0}}, {0, 0x8000 + 76, {1, 0, 0, 0}}, {0, 0x8000 + 134, {1, 0, 0, 0}}, // (from 0297)
+-	{1, kWorldClassValue + 0, {1, 0, 0, 0}}, {1, 0x8000 + 361, {1, 0, 0, 0}}}; // (from 0301)
++	{1, kWorldClassValue + 0, {1, 0, 0, 0}}, {1, 0x8000 + 361, {1, 0, 0, 0}}, // (from 0301)
++	{1, kWorldClassValue + 1, {1, 0, 0, 0}}, {1, 166, {1, 0, 0, 0}}, {1, 0x8000 + 367, {1, 0, 0, 0}}}; // (from 0302)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -1960,7 +1967,11 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	{1, 92, 864, kWorldVerbPush, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0}, {1, 92, 865, kWorldVerbPush, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0},
+ 	{1, 92, 864, kWorldVerbPull, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0}, {1, 92, 865, kWorldVerbPull, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0},
+ 	{1, 92, 864, kWorldVerbTalk, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0}, {1, 92, 865, kWorldVerbTalk, 0, 0, 0, 0, kWorldClassValue + 0, 0, 0, 0},
+-	{1, 15, 140, kWorldVerbPickUp, 0, 0, 0, 0, 0x8000 + 361, 0, 0, 0}, {1, 15, 141, kWorldVerbPickUp, 0, 0, 0, 0, 0x8000 + 361, 0, 0, 0}};
++	{1, 15, 140, kWorldVerbPickUp, 0, 0, 0, 0, 0x8000 + 361, 0, 0, 0}, {1, 15, 141, kWorldVerbPickUp, 0, 0, 0, 0, 0x8000 + 361, 0, 0, 0},
++	// (From 0302 Monkey Island 2's peg leg and mud: see below.)
++	{1, 14, 130, kWorldVerbUse, 540, 0, 0, 0, kWorldClassValue + 1, 0, 0, 0},
++	{1, 20, 211, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0}, {1, 20, 212, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0},
++	{1, 20, 213, kWorldVerbUse, 124, 0, 0, 0, 0x8000 + 367, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -2010,10 +2021,21 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // away, kWorldValueArrivals): Pick up at 0 his refusal (his local script 202,
+ // his line), at 1 the thing taken. Before, the export played them only with
+ // him there, so they were never taken. (Bit 361 itself is set only by the one
+-// played leaving room 14 with its peg leg, 130, sawn: the well-polished saw,
++// played leaving room 14 with its peg leg, 130, sawn: the saw,
+ // room 48's 540, used on it, a saw its antique dealer sells only through his
+ // talk's choices and the pieces of eight, global variable 305; neither is
+ // played here, so in play the woodsmith is never away yet.)
++// From 0302 two more of Monkey Island 2's (rooms 14 and 20, read with
++// descumm, nothing copied), now that its saw and bucket are carried (the
++// antique dealer's sale and the laundry's bucket, kWorldTalks). The peg leg
++// of room 14 (130), by its class 6 (kWorldKeptClasses' second row: sawn):
++// the saw (540) used on it, at 0 its local script 221 (the cut-scene of the
++// sawing: 130 given class 6, 166 set, kept), at 1 the one played's line; the
++// way out of there with 166 set calls the woodsmith away (kWorldDoorValues).
++// The mud of room 20 (211, 212, 213) with the bucket (124), by bit 367: at 0
++// its local script 212 (the bucket filled: 367 set, the one played's line),
++// at 1 their line. (The bucket's new name, and what the mud is for, the
++// door of room 13 and its wait, not played.)
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+@@ -2243,6 +2265,101 @@ inline bool worldDuelValue(int game, int var) {
+ 		var == d->trained || var == d->won || var == 0x8000 + d->trialBit || var == d->wins || var == d->losses || var == d->fought || var == d->visits ||
+ 		var == d->introSeen || var == d->heardLong || var == d->lostOnce || var == d->met || var == d->secondAsked || var == d->lastType;
+ }
++// From 0302 a person's or a shop's conversation played as its game's
++// scripts play it (common/scummverse_talks.h; the talks file
++// "<game>-talks.svq", "SVQ1"): what a verb (`kind`) on a thing (`object`) of a
++// place (`room`) opens there; `costume`, the person of its game's cast whose
++// thing it is (a Talk to them is a Talk to it; 0: a thing's own), `reads` a
++// value kept it is played with at each of its values (kWorldKeptValues';
++// 0: none), `gives` a thing it gives the one played one way or another (0:
++// none), carried in its game's things export too (its answers of two played
++// with it). A game's own way of choosing (kWorldTalkChoices): its menus are
++// its verbs `first` to `last` shown, a tap on one taken by its verb script
++// into `choice`. The export (ScummEngine::scummverseExportTalks) plays each
++// from the game's own start, the place arrived at as a player arrives, the one
++// played at the thing (the person's), the verb as its game's sentence runs
++// it: every menu it shows, each choice of each tapped as a player taps it
++// (its verb script), menus told apart by everything their game has then but
++// what changes by itself while it waits (a talk that comes back to its
++// questions comes back to the same menu); each step's lines (the choice
++// said, where its game says it), the values kept it leaves, the money it
++// adds, the things it gives and takes and those of its place it shows anew,
++// to the next menu or its end. With the money (kWorldMoneys) none and
++// plenty, and where the two differ, the least that plays as plenty, the
++// sides of it each checked. More menus than a file holds, a choice a tap
++// does not take, a talk that never ends or leaves its place, money that is
++// not told apart so, or `gives` given by none fail tools/export_worlds.py.
++// Monkey Island 2's (read with descumm, nothing copied): the antique
++// dealer's sale of the saw (room 48, 540: Pick up, its local
++// script 211; the saw's price, 25 (its verb 32), not afforded without the
++// pieces of eight, 76, carried and at least that much in 305: his line;
++// else a choice of two, the first the saw given, 25 paid); the bucket of
++// the laundry (room 14, 124: Pick up and Use, its local script 211: three
++// choices, two of them the bucket given, the third nothing; the first asks
++// again up to fifteen times); the antique dealer himself (room 48, 545:
++// Talk, its local script 206, his cast's costume 40: his questions, back to
++// them after each answer, one set aside once asked, until the one played
++// goes). (Mad Marty's, room 14's 127, is none: his questions' ten bits, each
++// asked once, make more menus than a file holds, and the export fails.)
++struct WorldTalkChoices { short game; int choice; short first, last; };
++static const WorldTalkChoices kWorldTalkChoices[] = {{1, 175, 120, 128}};
++inline const WorldTalkChoices *worldTalkChoices(int game) {
++	for (const WorldTalkChoices &c : kWorldTalkChoices) if (c.game == game) return &c;
++	return nullptr;
++}
++struct WorldTalk { short game, room; int object; short kind, costume; int reads, gives; };
++static const WorldTalk kWorldTalks[] = {{1, 48, 540, kWorldVerbPickUp, 0, 0, 540},
++	{1, 14, 124, kWorldVerbPickUp, 0, 0, 124}, {1, 14, 124, kWorldVerbUse, 0, 0, 124},
++	{1, 48, 545, kWorldVerbTalk, 40, 0, 0}};
++inline bool worldTalks(int game) {
++	for (const WorldTalk &t : kWorldTalks) if (t.game == game) return true;
++	return false;
++}
++inline bool worldTalkGives(int game, int object) {
++	for (const WorldTalk &t : kWorldTalks) if (t.game == game && t.gives && t.gives == object) return true;
++	return false;
++}
++// From 0302 a game's money as its scripts count it (`var`, a value kept, any
++// count): its thing (`object`, of `room`) carried while there is any, named
++// for its count by that thing's verb `names` as its game names it (the
++// talks file has its names); what a talk's choices add or pay; kept
++// ("SVS9"). Monkey Island 2's pieces of eight (305; 76, its verb 250 giving
++// it to the one played while there is any).
++struct WorldMoney { short game; int var; short room; int object; short names; };
++static const WorldMoney kWorldMoneys[] = {{1, 305, 9, 76, 250}};
++inline const WorldMoney *worldMoney(int game) {
++	for (const WorldMoney &m : kWorldMoneys) if (m.game == game) return &m;
++	return nullptr;
++}
++inline bool worldMoneyValue(int game, int var) { const WorldMoney *m = worldMoney(game); return m && m->var == var; }
++// From 0302 a value kept that leaving a place by a door with it so changes, as
++// that door's own script does as the one played goes through (`var` at
++// `value`: `sets` to `to`, `var` back to 0), and one a place's entry sets each
++// time it is entered (kWorldEntryValues); the export plays both and checks
++// them (a mismatch fails tools/export_worlds.py). Monkey Island 2's laundry
++// (room 14, read with descumm, nothing copied): its peg leg (130) sawn with
++// the saw (its local script 221: 130 given class 6, kept as kWorldKeptClasses'
++// row, and 166 set), the one played leaving by the street (126) has its
++// local script 222 called (166 cleared): the woodsmith called away (bit 361,
++// as 0301's rows read it); its entry clears 166 each time.
++// From 0302 a game whose start keeps its place's own scroll script (a local
++// script of that room's, which its exit lets go): let go as the export
++// arrives anywhere else, where a script of that number is that place's own.
++// Monkey Island 2's (room 7's 207; in room 48 its 207 is the figurehead's
++// trade: every answer there moving the camera gave the map piece, 519).
++// (Fate of Atlantis's start keeps one too, as 0293 found: not listed, its
++// export as before; let go, it has 15 more answers of Give, in rooms 29 and
++// 66, not checked here.)
++struct WorldScrollStart { short game; };
++static const WorldScrollStart kWorldScrollStarts[] = {{1}};
++inline bool worldScrollStart(int game) {
++	for (const WorldScrollStart &w : kWorldScrollStarts) if (w.game == game) return true;
++	return false;
++}
++struct WorldDoorValue { short game, room; int door, var; short value; int sets; short to; };
++static const WorldDoorValue kWorldDoorValues[] = {{1, 14, 126, 166, 1, 0x8000 + 361, 1}};
++struct WorldEntryValue { short game, room; int var; short value; };
++static const WorldEntryValue kWorldEntryValues[] = {{1, 14, 166, 0}};
+ // Timed events (from 0250): what a game's script does a while after the one
+ // played leaves a place (`from`, for `to`; 0: anywhere else) with things of
+ // it in pictures (`need`: a thing and its picture each; 0: none) and marks
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 9bf7357f..8a8d9b2c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -26,6 +26,7 @@
+ #include "scumm/scummverse_content.h"
+ #include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_duel_engine.h" // (from 0298: the export of insult sword fighting)
++#include "common/scummverse_talks_engine.h" // (from 0302: the export of conversations)
+ 
+ #include "common/endian.h"
+ #include "common/events.h"
+@@ -1646,6 +1647,8 @@ protected:
+ 	bool scummverseExportThings(int game, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem);
+ 	// (From 0298 a game's insult sword fighting, kWorldDuels: "<game>-duel.svd".)
+ 	bool scummverseExportDuel(int game, const Common::Path &file, Common::String &problem);
++	// (From 0302 a game's conversations, kWorldTalks: "<game>-talks.svq".)
++	bool scummverseExportTalks(int game, const Common::Path &file, Common::String &problem);
+ 	// (From 0251, The Dig's and Full Throttle's things as their own verbs
+ 	// answer: each answer, from a picture, its line, picture after, taken,
+ 	// and others (room, object, picture; 2: given). From 0256 Zak's too, and
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 730ffa50..2f092761 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1861,6 +1861,13 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 				if (scummverseExportDuel(gameIndex, duel, problem)) warning("SCUMMVERSE_WORLD_DUEL %s", game->gameid);
+ 				else { warning("SCUMMVERSE world export: %s fights skipped (%s)", game->gameid, problem.c_str()); empty(duel); }
+ 			}
++			// (From 0302 its conversations, kWorldTalks, from the same start:
++			// "<game>-talks.svq".)
++			const Common::Path talks = dir.appendComponent(Common::String::format("%s-talks.svq", game->gameid));
++			if (worldTalks(gameIndex)) {
++				if (scummverseExportTalks(gameIndex, talks, problem)) warning("SCUMMVERSE_WORLD_TALKS %s", game->gameid);
++				else { warning("SCUMMVERSE world export: %s talks skipped (%s)", game->gameid, problem.c_str()); empty(talks); }
++			}
+ 		}
+ 	}
+ 	return written;
+@@ -5270,6 +5277,603 @@ bool ScummEngine::scummverseExportDuel(int gameIndex, const Common::Path &file,
+ 	return true;
+ }
+ 
++// From 0302 a person's or a shop's conversation as its game's scripts play
++// it (kWorldTalks; "<game>-talks.svq", common/scummverse_talks.h): each row
++// from the game's own start (the start the things export began from), its
++// place arrived at as on arriving (its entry and what it starts played until
++// they settle, cut-scenes skipped, nothing running then), the one played at
++// the thing, the row's verb on it as its game's sentence runs it, frames
++// played on (lines need no waiting, nor animations; walks walked, the camera
++// moved) until its game shows a menu (kWorldTalkChoices: one of its verbs
++// `first` to `last` shown, its choice variable 0) or nothing of the talk is
++// left running (scripts started with nothing but freeze-resistant ones:
++// a place's own animations), each menu's choices each played again from the
++// start as a tap on that choice (its game's verb script, as a click on it
++// runs that script), so every menu it shows and every choice of each, in
++// turn. Two menus are one where everything their game has then is the same
++// (its variables, bit variables, things' owners, pictures and classes, the
++// room, what runs of the talk, where and with what) but what changes by
++// itself while the menu waits (played two frames more to see): so a talk that
++// comes back to its questions comes back to one menu. A step's lines (who
++// says each: the one played, someone of its cast by their costume, or no one),
++// the values kept it leaves (kWorldKeptValues of the game; of one its game
++// only adds to, what it adds), the money it adds (kWorldMoneys), the things it
++// gives the one played and takes from them (the money's thing apart), and
++// those of its place it shows in another picture. Played with the value it
++// reads at each of its values (0 and kWorldKeptValues'), and with the money
++// none and plenty: where those two differ, the least money that plays as
++// plenty (found by halves), each side of it checked against them. A talk is
++// told as not as its scripts have it (warned; tools/export_worlds.py fails)
++// where a choice is not taken as a tap takes it, it leaves its place, it
++// never ends (or runs on past its steps), it has more menus or a menu more
++// choices than a file holds, its money is not told apart at one count, or
++// its `gives` is given by none of its steps. Then kWorldDoorValues and
++// kWorldEntryValues, checked: the door gone through as a player goes
++// through it with the value at its row's and at 0, the place arrived at
++// with it at 1.
++bool ScummEngine::scummverseExportTalks(int gameIndex, const Common::Path &file, Common::String &problem) {
++	namespace Talks = ::Scummverse::Talks;
++	namespace TalksBridge = ::Scummverse::TalksBridge;
++	const WorldTalkChoices *how = worldTalkChoices(gameIndex);
++	const char *gameid = kWorldGames[gameIndex].gameid;
++	if (!worldTalks(gameIndex) || !how || _game.version < 4 || _game.version > 6 || VAR_EGO == 0xFF || VAR_HAVE_MSG == 0xFF || VAR_VERB_SCRIPT == 0xFF) {
++		problem = "no talks";
++		return false;
++	}
++	ScummverseKept kept;
++	scummverseKeep(kept);
++	const int ego = VAR(VAR_EGO), cursorState = _cursor.state, userPut = _userPut;
++	int mismatches = 0;
++	auto mismatch = [&](const char *what, int a, int b) {
++		warning("SCUMMVERSE world talks: %s %s %d (%d) not as its scripts have it", gameid, what, a, b);
++		++mismatches;
++	};
++	auto dropTexts = [&]() {
++#ifdef ENABLE_SCUMM_7_8
++		if (_game.version >= 7) ((ScummEngine_v7 *)this)->removeBlastTexts();
++#endif
++	};
++	auto quiet = [&]() {
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) { vm.slot[s].status = ssDead; vm.slot[s].freezeCount = 0; vm.slot[s].cutsceneOverride = 0; }
++		_currentScript = 0xFF; vm.numNestedScripts = 0; vm.cutSceneStackPointer = 0; _sentenceNum = 0;
++		for (int k = 0; k < kMaxCutsceneNum; ++k) vm.cutScenePtr[k] = 0;
++		stopTalk(); _sound->stopAllSounds(); scummverseDropAnimCommands(); dropTexts();
++		_cursor.state = cursorState; _userPut = userPut;
++	};
++	// (Printable, as an answer's line: a new line or a wait a space, a code's
++	// bytes passed over.)
++	auto printable = [&](const byte *s, int most) {
++		Common::String line;
++		for (int c = 0; s && c < most && s[c] && line.size() < 255; ++c) {
++			const byte b = s[c];
++			if (b == 0xFF && c + 1 < most) {
++				const byte code = s[++c];
++				if (code >= 9 && code <= 14) c += 2;
++				continue;
++			}
++			if (b >= 32 && b < 127) line += (char)b;
++			else if (!line.empty() && line.lastChar() != ' ') line += ' ';
++		}
++		while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
++		return line;
++	};
++	auto sizeOf = [&](ResType type, int n) { return n >= 0 && n < (int)_res->_types[type].size() ? (int)_res->_types[type][n]._size : 0; };
++	// (A name as its game shows it: a count or a name in it put in, as its
++	// sentence line puts them in.)
++	auto nameOf = [&](int obj) {
++		const byte *n = getObjOrActorName(obj);
++		if (!n) return Common::String();
++		byte shown[256];
++		memset(shown, 0, sizeof(shown));
++		convertMessageToString(n, shown, sizeof(shown) - 1);
++		return printable(shown, sizeof(shown));
++	};
++	// (A value kept that is a thing's class, as the things export reads it.)
++	auto keptRead = [&](int var) {
++		const WorldKeptClass *c = worldKeptClass(gameIndex, var);
++		return c ? (getClass(c->object, c->cls) ? 1 : 0) : readVar(var);
++	};
++	auto keptWrite = [&](int var, int value) {
++		if (const WorldKeptClass *c = worldKeptClass(gameIndex, var)) putClass(c->object, c->cls, value != 0);
++		else writeVar(var, value);
++	};
++	auto verbOf = [&](int kind) {
++		for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kind) return (int)v.verb;
++		return 0;
++	};
++	// (The money: its count set as its game's scripts set it, its thing then
++	// given or taken and named by its own verb, as they run it after.)
++	const WorldMoney *money = worldMoney(gameIndex);
++	auto setMoney = [&](int count) {
++		if (!money) return;
++		writeVar(money->var, count);
++		if (getObjectIndex(money->object) < 0 && whereIsObject(money->object) == WIO_NOT_FOUND) return;
++		int args[NUM_SCRIPT_LOCAL];
++		memset(args, 0, sizeof(args));
++		runObjectScript(money->object, money->names, false, false, args);
++	};
++	auto fresh = [&](uint32 seed) {
++		quiet();
++		scummverseRestore(kept);
++		_sentenceNum = 0; _drawObjectQueNr = 0;
++		_rnd.setSeed(seed);
++	};
++	// (A place arrived at as on arriving: its entry and what it starts played
++	// until they settle, cut-scenes skipped as a player skips them, then
++	// nothing running. For a game of kWorldScrollStarts no other place's own
++	// scroll script with it (a local script of its), as the things export's
++	// arrival: see there.)
++	auto arrive = [&](int room) {
++		quiet();
++		_EXCD_offs = 0;
++		if (worldScrollStart(gameIndex) && VAR_SCROLL_SCRIPT != 0xFF && VAR(VAR_SCROLL_SCRIPT) >= _numGlobalScripts) VAR(VAR_SCROLL_SCRIPT) = 0;
++		const int exitScript = VAR_EXIT_SCRIPT != 0xFF ? VAR(VAR_EXIT_SCRIPT) : 0, exitScript2 = VAR_EXIT_SCRIPT2 != 0xFF ? VAR(VAR_EXIT_SCRIPT2) : 0;
++		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = 0;
++		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = 0;
++		_actors[ego]->putActor(room);
++		startScene(room, nullptr, 0);
++		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = exitScript;
++		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = exitScript2;
++		for (int cycle = 0; cycle < 60 && _currentRoom == room && !shouldQuit(); ++cycle) {
++			bool running = false;
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
++				if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++				running = running || vm.slot[s].status == ssRunning;
++			}
++			if (!running) break;
++			scummverseSkipCutscene();
++			VAR(VAR_HAVE_MSG) = 0;
++			_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
++			runAllScripts(); _sound->stopAllSounds(); dropTexts();
++		}
++		const bool there = _currentRoom == room;
++		quiet();
++		return there;
++	};
++	auto frame = [&]() {
++		checkAndRunSentenceScript();
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++		runAllScripts(); walkActors(); moveCamera(); _sound->stopAllSounds();
++		for (int n = 1; n < _numActors; ++n)
++			if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
++		scummverseDropAnimCommands(); dropTexts();
++		_talkDelay = 0; _drawObjectQueNr = 0;
++	};
++	// (Still under way: a sentence waiting, a cut-scene, or a script of the
++	// talk running (all but the freeze-resistant: a place's animations).)
++	auto busy = [&]() {
++		if (_sentenceNum > 0 || vm.cutSceneStackPointer > 0) return true;
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status != ssDead && !vm.slot[s].freezeResistant) return true;
++		return false;
++	};
++	auto shownUp = [&]() {
++		for (int i = 1; i < _numVerbs; ++i) if (_verbs[i].verbid >= how->first && _verbs[i].verbid <= how->last && _verbs[i].curmode == 1 && _verbs[i].saveid == 0) return true;
++		return false;
++	};
++	auto menuUp = [&]() { return shownUp() && readVar(how->choice) == 0; };
++	// (Its choices in the order shown: down the screen, as its script places them.)
++	struct Shown { Common::Array<int> ids; Common::Array<Common::String> texts; };
++	auto menuOf = [&]() {
++		Shown m;
++		Common::Array<int> tops;
++		for (int id = how->first; id <= how->last; ++id) {
++			const int slot = getVerbSlot(id, 0);
++			if (!slot || _verbs[slot].curmode != 1) continue;
++			const byte *t = getResourceAddress(rtVerb, slot);
++			uint at = 0;
++			while (at < tops.size() && tops[at] <= _verbs[slot].curRect.top) ++at;
++			tops.insert_at(at, _verbs[slot].curRect.top);
++			m.ids.insert_at(at, id); m.texts.insert_at(at, t ? printable(t, sizeOf(rtVerb, slot)) : Common::String());
++		}
++		return m;
++	};
++	// ---- What the game has (a menu's, to tell menus apart). ----
++	struct Has {
++		int room = 0;
++		Common::Array<int32> vars, slots;
++		Common::Array<byte> bits, owners, states;
++		Common::Array<uint32> classes;
++	};
++	auto hasNow = [&]() {
++		Has h;
++		h.room = _currentRoom;
++		h.vars = Common::Array<int32>(_scummVars, _numVariables);
++		h.bits = Common::Array<byte>(_bitVars, _numBitVariables >> 3);
++		h.owners = Common::Array<byte>(_objectOwnerTable, _numGlobalObjects);
++		h.states = Common::Array<byte>(_objectStateTable, _numGlobalObjects);
++		h.classes = Common::Array<uint32>(_classData, _numGlobalObjects);
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
++			if (vm.slot[s].status == ssDead || vm.slot[s].freezeResistant) continue;
++			h.slots.push_back(vm.slot[s].number); h.slots.push_back(vm.slot[s].where); h.slots.push_back((int32)vm.slot[s].offs);
++			for (int k = 0; k < NUM_SCRIPT_LOCAL; ++k) h.slots.push_back(vm.localvar[s][k]);
++		}
++		return h;
++	};
++	Common::Array<bool> noiseVars(_numVariables, false), noiseBits(_numBitVariables, false);
++	auto noise = [&](const Has &a, const Has &b) {
++		for (uint v = 0; v < a.vars.size() && v < b.vars.size(); ++v) if (a.vars[v] != b.vars[v]) noiseVars[v] = true;
++		for (uint n = 0; n < a.bits.size() * 8 && n < b.bits.size() * 8; ++n) if ((a.bits[n >> 3] ^ b.bits[n >> 3]) & (1 << (n & 7))) noiseBits[n] = true;
++	};
++	auto sameHas = [&](const Has &a, const Has &b) {
++		if (a.room != b.room || a.slots != b.slots || a.owners != b.owners || a.states != b.states || a.classes != b.classes || a.vars.size() != b.vars.size() || a.bits.size() != b.bits.size()) return false;
++		for (uint v = 0; v < a.vars.size(); ++v) if (a.vars[v] != b.vars[v] && !noiseVars[v] && (int)v != how->choice) return false;
++		for (uint n = 0; n < a.bits.size() * 8; ++n) if (((a.bits[n >> 3] ^ b.bits[n >> 3]) & (1 << (n & 7))) && !noiseBits[n]) return false;
++		return true;
++	};
++	// ---- A step: what the game does from a moment (its start, a choice
++	// tapped) to the next menu or the end. ----
++	struct Said { int speaker = Talks::kSpeakerNone, costume = 0, color = -1; Common::String text; };
++	struct Step {
++		Common::Array<Said> lines;
++		Common::Array<int> leaves, given, pictures; // (variable, value; room, object; object, picture)
++		Common::Array<Common::String> givenNames;
++		Common::Array<int> taken;
++		int money = 0, next = Talks::kEnd;
++		bool operator==(const Step &o) const {
++			if (lines.size() != o.lines.size() || leaves != o.leaves || given != o.given || pictures != o.pictures || givenNames.size() != o.givenNames.size() || taken != o.taken || money != o.money || next != o.next) return false;
++			for (uint k = 0; k < lines.size(); ++k)
++				if (lines[k].speaker != o.lines[k].speaker || lines[k].costume != o.lines[k].costume || lines[k].color != o.lines[k].color || lines[k].text != o.lines[k].text) return false;
++			for (uint k = 0; k < givenNames.size(); ++k) if (givenNames[k] != o.givenNames[k]) return false;
++			return true;
++		}
++	};
++	struct Before { Common::Array<int> values; int money = 0; Common::Array<byte> owners, states; Common::Array<bool> here; };
++	auto inPlace = [&](int obj) {
++		for (int i = 1; i < _numLocalObjects; ++i) if (_objs[i].obj_nr == obj) return true;
++		return false;
++	};
++	auto before = [&]() {
++		Before b;
++		b.here = Common::Array<bool>(_numGlobalObjects, false);
++		for (int i = 1; i < _numLocalObjects; ++i) if (_objs[i].obj_nr > 0 && _objs[i].obj_nr < _numGlobalObjects) b.here[_objs[i].obj_nr] = true;
++		for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex) b.values.push_back(keptRead(k.var));
++		b.money = money ? readVar(money->var) : 0;
++		b.owners = Common::Array<byte>(_objectOwnerTable, _numGlobalObjects);
++		b.states = Common::Array<byte>(_objectStateTable, _numGlobalObjects);
++		return b;
++	};
++	auto after = [&](const Before &b, int room, Step &s) {
++		uint kv = 0;
++		for (const WorldKeptValue &k : kWorldKeptValues) {
++			if (k.game != gameIndex) continue;
++			const int now = keptRead(k.var), was = b.values[kv++];
++			if (now != was && s.leaves.size() < 2 * (uint)Talks::kMostLeaves) { s.leaves.push_back(k.var); s.leaves.push_back(worldKeptCount(gameIndex, k.var) ? now - was : now); }
++		}
++		s.money = money ? readVar(money->var) - b.money : 0;
++		for (int o = 1; o < _numGlobalObjects; ++o) {
++			if (money && o == money->object) continue;
++			const bool had = b.owners[o] == ego, has = getOwner(o) == ego;
++			if (!had && has && s.given.size() < 2 * (uint)Talks::kMostGiven) { s.given.push_back(b.here[o] ? room : 0); s.given.push_back(o); s.givenNames.push_back(nameOf(o)); }
++			if (had && !has && s.taken.size() < (uint)Talks::kMostTaken) s.taken.push_back(o);
++			if (!has && b.states[o] != _objectStateTable[o] && inPlace(o) && s.pictures.size() < 2 * (uint)Talks::kMostPictures) { s.pictures.push_back(o); s.pictures.push_back(_objectStateTable[o]); }
++		}
++	};
++	auto heard = [&](Step &s) {
++		if (!VAR(VAR_HAVE_MSG)) return;
++		VAR(VAR_HAVE_MSG) = 0;
++		Said l;
++		l.text = printable(_charsetBuffer, sizeof(_charsetBuffer));
++		if (l.text.empty()) return;
++		const int actor = getTalkingActor();
++		if (actor == VAR(VAR_EGO)) l.speaker = Talks::kSpeakerPlayed;
++		else if (actor > 0 && actor < _numActors && actor < 255 && worldSpeakerCostume(gameIndex, actor, _actors[actor]->_costume)) {
++			l.speaker = Talks::kSpeakerSomeone; l.costume = worldSpeakerCostume(gameIndex, actor, _actors[actor]->_costume); l.color = _actors[actor]->_talkColor;
++		} else l.color = actor > 0 && actor < _numActors ? _actors[actor]->_talkColor : _string[0].color;
++		if ((int)s.lines.size() < Talks::kMostStepLines) s.lines.push_back(l);
++	};
++	// ---- One run: the talk from its start, the choices of `path` tapped in
++	// turn at its menus; its steps, and where it stopped (the next menu, with
++	// what the game has then, or its end). ----
++	struct Run { Common::Array<Step> steps; bool ended = false, failed = false; Shown shown; Has has; };
++	const uint32 seed = 0x5C0BE;
++	static const int kSegmentFrames = 3000, kMostPath = 48, kMostRuns = 6000;
++	int runs = 0, talkRuns = 0; // (all, and those of the talk under way)
++	auto play = [&](const WorldTalk &t, int value, int count, const Common::Array<int> &path, Run &r) {
++		r = Run();
++		++runs;
++		fresh(seed + t.room);
++		const int verb = verbOf(t.kind);
++		if (t.reads) keptWrite(t.reads, value);
++		setMoney(count);
++		if (!verb || !arrive(t.room) || getObjectIndex(t.object) <= 0) { r.failed = true; mismatch("a talk's place or thing not there", t.room, t.object); return; }
++		int x = 0, y = 0, dir = 0;
++		getObjectXYPos(t.object, x, y, dir);
++		_actors[ego]->putActor(x, y, t.room);
++		_scummverseStepBudget = 4000000;
++		Before b = before();
++		Step s;
++		_charsetBuffer[0] = 0;
++		VAR(VAR_HAVE_MSG) = 0;
++		// (Over once nothing of it runs (but freeze-resistant animations), or
++		// once its game, having taken the player's hold, gives it back: its
++		// own verb script again, the player's input on, nothing waiting; the
++		// game's own loops it starts then (its sentence line's) are its idle
++		// game's.)
++		const int verbScript = VAR(VAR_VERB_SCRIPT);
++		bool tookHold = false;
++		doSentence(verb, t.object, 0);
++		uint fed = 0;
++		int idle = 0, frames = 0, tapped = 0;
++		bool taken = true;
++		for (;;) {
++			frame();
++			heard(s);
++			++frames;
++			// (Taken: its choice variable so, or the menu put away, as its verb
++			// script takes a tap.)
++			if (tapped && (readVar(how->choice) == tapped || !shownUp())) taken = true;
++			if (!_scummverseStepBudget || frames > kSegmentFrames || shouldQuit()) {
++				Common::String running;
++				for (uint sl = 0; sl < NUM_SCRIPT_SLOT; ++sl)
++					if (vm.slot[sl].status != ssDead) running += Common::String::format(" %d(%d%s at %u)", vm.slot[sl].number, vm.slot[sl].status, vm.slot[sl].freezeResistant ? " F" : "", vm.slot[sl].offs);
++				debug(1, "SCUMMVERSE world talks: %s room %d: %d's verb %d after %d choices runs on: steps %d, sentence %d, cut-scene %d, menu %d, choice %d; running%s", gameid, t.room, t.object, t.kind,
++					(int)fed, _scummverseStepBudget, _sentenceNum, vm.cutSceneStackPointer, shownUp(), readVar(how->choice), running.c_str());
++				r.failed = true; mismatch("a talk that never ends", t.object, (int)fed); break;
++			}
++			if (_currentRoom != t.room || _actors[ego]->_room != t.room) { r.failed = true; mismatch("a talk that leaves its place", t.object, _currentRoom); break; }
++			if (menuUp()) {
++				if (!taken) { r.failed = true; mismatch("a choice not taken as a tap takes it", t.object, tapped); break; }
++				after(b, t.room, s);
++				r.steps.push_back(s);
++				s = Step();
++				if (fed >= path.size()) {
++					r.shown = menuOf();
++					r.has = hasNow();
++					// (What changes by itself while it waits: two frames more.)
++					frame(); VAR(VAR_HAVE_MSG) = 0;
++					const Has one = hasNow();
++					frame(); VAR(VAR_HAVE_MSG) = 0;
++					noise(r.has, one); noise(one, hasNow());
++					break;
++				}
++				const int id = path[fed++];
++				const Shown up = menuOf();
++				if (Common::find(up.ids.begin(), up.ids.end(), id) == up.ids.end()) { r.failed = true; mismatch("a choice not on its menu", t.object, id); break; }
++				b = before();
++				frames = 0; idle = 0; tapped = id; taken = false;
++				runInputScript(kVerbClickArea, id, 1);
++				heard(s);
++				if (readVar(how->choice) == id || !shownUp()) taken = true;
++				continue;
++			}
++			tookHold = tookHold || _userPut <= 0 || vm.cutSceneStackPointer > 0 || VAR(VAR_VERB_SCRIPT) != verbScript;
++			const bool handedBack = tookHold && _userPut > 0 && VAR(VAR_VERB_SCRIPT) == verbScript && !vm.cutSceneStackPointer && !_sentenceNum && !shownUp();
++			idle = busy() && !handedBack ? 0 : idle + 1;
++			if (idle >= 2) {
++				if (!taken) { r.failed = true; mismatch("a choice not taken as a tap takes it", t.object, tapped); break; }
++				after(b, t.room, s);
++				r.steps.push_back(s);
++				r.ended = true;
++				break;
++			}
++		}
++		_scummverseStepBudget = -1;
++		quiet();
++	};
++	// ---- A talk's graph from a way of beginning: its opening, its menus. ----
++	struct Menu { Shown shown; Has has; Common::Array<int> path; Common::Array<Step> steps; };
++	struct Graph { Step opening; Common::Array<Menu> menus; bool failed = false; };
++	auto sameGraph = [&](const Graph &a, const Graph &b) {
++		if (!(a.opening == b.opening) || a.menus.size() != b.menus.size()) return false;
++		for (uint m = 0; m < a.menus.size(); ++m) {
++			if (a.menus[m].shown.ids != b.menus[m].shown.ids || a.menus[m].steps.size() != b.menus[m].steps.size()) return false;
++			for (uint k = 0; k < a.menus[m].shown.texts.size(); ++k) if (a.menus[m].shown.texts[k] != b.menus[m].shown.texts[k]) return false;
++			for (uint k = 0; k < a.menus[m].steps.size(); ++k) if (!(a.menus[m].steps[k] == b.menus[m].steps[k])) return false;
++		}
++		return true;
++	};
++	auto explore = [&](const WorldTalk &t, int value, int count, Graph &g) {
++		g = Graph();
++		// (What changes by itself, found anew for each: the same whatever
++		// the order of the runs.)
++		for (uint v = 0; v < noiseVars.size(); ++v) noiseVars[v] = false;
++		for (uint n = 0; n < noiseBits.size(); ++n) noiseBits[n] = false;
++		auto place = [&](Run &r, const Common::Array<int> &path) {
++			if (r.ended) return (int)Talks::kEnd;
++			for (uint m = 0; m < g.menus.size(); ++m)
++				if (g.menus[m].shown.ids == r.shown.ids && sameHas(g.menus[m].has, r.has)) {
++					bool texts = true;
++					for (uint k = 0; k < r.shown.texts.size(); ++k) texts = texts && g.menus[m].shown.texts[k] == r.shown.texts[k];
++					if (texts) return (int)m;
++				}
++			if ((int)g.menus.size() >= Talks::kMostMenus || (int)r.shown.ids.size() > Talks::kMostChoices || r.shown.ids.empty()) {
++				mismatch(r.shown.ids.empty() ? "a menu with no choice" : "a talk with more menus or choices than a file holds", t.object, (int)g.menus.size());
++				g.failed = true;
++				return (int)Talks::kEnd;
++			}
++			Menu m;
++			m.shown = r.shown; m.has = r.has; m.path = path;
++			for (const Common::String &text : r.shown.texts) if (text.empty()) { mismatch("a choice with no text", t.object, (int)g.menus.size()); g.failed = true; }
++			g.menus.push_back(m);
++			return (int)g.menus.size() - 1;
++		};
++		Run r;
++		Common::Array<int> path;
++		play(t, value, count, path, r);
++		if (r.failed || r.steps.empty()) { g.failed = true; return; }
++		g.opening = r.steps.back();
++		g.opening.next = place(r, path);
++		for (uint m = 0; m < g.menus.size() && !g.failed && !shouldQuit(); ++m) {
++			if ((int)g.menus[m].path.size() >= kMostPath || runs - talkRuns > kMostRuns) { mismatch("a talk with no end to its menus", t.object, (int)g.menus[m].path.size()); g.failed = true; break; }
++			for (uint k = 0; k < g.menus[m].shown.ids.size() && !g.failed; ++k) {
++				Common::Array<int> further = g.menus[m].path;
++				further.push_back(g.menus[m].shown.ids[k]);
++				play(t, value, count, further, r);
++				if (r.failed || r.steps.size() != further.size() + 1) { g.failed = true; break; }
++				Step s = r.steps.back();
++				s.next = place(r, further);
++				g.menus[m].steps.push_back(s);
++			}
++		}
++	};
++	// ---- The money's names, as its thing's verb names it. ----
++	Common::String one, manyBefore, manyAfter;
++	if (money) {
++		static const int kMarker = 23456;
++		fresh(seed);
++		setMoney(1);
++		one = nameOf(money->object);
++		fresh(seed);
++		setMoney(kMarker);
++		const Common::String many = nameOf(money->object);
++		const char *at = strstr(many.c_str(), "23456");
++		if (getOwner(money->object) != ego || !at || strstr(at + 5, "23456")) {
++			debug(1, "SCUMMVERSE world talks: %s money %d: its thing %d's owner %d, where %d, index %d, named '%s'", gameid, readVar(money->var), money->object, getOwner(money->object), whereIsObject(money->object), getObjectIndex(money->object), many.c_str());
++			mismatch("the money's thing not carried or named by its count", money->object, kMarker);
++		}
++		else { manyBefore = Common::String(many.c_str(), at); manyAfter = Common::String(at + 5); }
++		fresh(seed);
++		setMoney(0);
++		if (getOwner(money->object) == ego) mismatch("the money's thing carried with none", money->object, 0);
++	}
++	// ---- Each talk. ----
++	TalksBridge::fileBegin(money ? money->var : 0, money ? money->room : 0, money ? money->object : 0, one.c_str(), manyBefore.c_str(), manyAfter.c_str());
++	int filed = 0, menus = 0, choices = 0, banded = 0;
++	auto fileStep = [&](const Step &s) {
++		TalksBridge::stepNew();
++		for (const Said &l : s.lines) TalksBridge::stepAddLine(l.speaker, l.costume, l.color, l.text.c_str());
++		for (uint k = 0; k + 1 < s.leaves.size(); k += 2) TalksBridge::stepAddLeave(s.leaves[k], s.leaves[k + 1]);
++		TalksBridge::stepSetMoney(s.money);
++		for (uint k = 0; k + 1 < s.given.size(); k += 2) TalksBridge::stepAddGiven(s.given[k], s.given[k + 1], s.givenNames[k / 2].c_str());
++		for (int o : s.taken) TalksBridge::stepAddTaken(o);
++		for (uint k = 0; k + 1 < s.pictures.size(); k += 2) TalksBridge::stepAddPicture(s.pictures[k], s.pictures[k + 1]);
++		TalksBridge::stepSetNext(s.next);
++	};
++	const bool reversed = scummverseExportReversed();
++	for (uint tn = 0; tn < ARRAYSIZE(kWorldTalks) && !shouldQuit(); ++tn) {
++		const WorldTalk &t = kWorldTalks[tn]; // (in the catalog's order whatever the runs' order: the file the same)
++		if (t.game != gameIndex) continue;
++		talkRuns = runs;
++		// (A person's: one of its cast there, who says its lines.)
++		if (t.costume) {
++			fresh(seed + t.room);
++			bool there = arrive(t.room);
++			bool cast = false;
++			for (int n = 1; there && n < _numActors; ++n) cast = cast || (_actors[n]->_room == t.room && worldSpeakerCostume(gameIndex, n, _actors[n]->_costume) == t.costume);
++			if (!cast) mismatch("a talk's person not there", t.room, t.costume);
++		}
++		Common::Array<int> values(1, 0);
++		for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex && t.reads && k.var == t.reads) for (short x : k.values) if (x) values.push_back(x);
++		const int talk = TalksBridge::fileTalk(t.room, t.object, t.kind, t.costume, t.reads);
++		bool gave = !t.gives;
++		Common::Array<Graph> found;
++		struct Way { int value, from, to; uint graph; };
++		Common::Array<Way> ways;
++		for (uint vn = 0; vn < values.size() && !shouldQuit(); ++vn) {
++			const int value = values[scummverseRunAt(vn, values.size(), reversed)];
++			static const int kPlenty = 30000;
++			Graph none, plenty;
++			explore(t, value, 0, none);
++			if (money) explore(t, value, kPlenty, plenty);
++			if (none.failed || (money && plenty.failed)) continue;
++			if (!money || sameGraph(none, plenty)) {
++				Way w = {value, 0, Talks::kNoMost, found.size()};
++				found.push_back(none); ways.push_back(w);
++				continue;
++			}
++			// (The least money that plays as plenty, by halves; one less plays as none.)
++			int lo = 1, hi = kPlenty;
++			while (lo < hi && !shouldQuit()) {
++				const int mid = lo + (hi - lo) / 2;
++				Graph at;
++				explore(t, value, mid, at);
++				if (!at.failed && sameGraph(at, plenty)) hi = mid; else lo = mid + 1;
++			}
++			Graph below;
++			explore(t, value, hi - 1, below);
++			if (below.failed || !sameGraph(below, none)) { mismatch("a talk's money not told apart at one count", t.object, hi); continue; }
++			++banded;
++			Way poor = {value, 0, hi - 1, found.size()};
++			found.push_back(none); ways.push_back(poor);
++			Way rich = {value, hi, Talks::kNoMost, found.size()};
++			found.push_back(plenty); ways.push_back(rich);
++		}
++		// (Filed in the order of their values and money, whatever the runs'
++		// order: each way's graph its own menus, in that order.)
++		Common::sort(ways.begin(), ways.end(), [](const Way &a, const Way &b) { return a.value != b.value ? a.value < b.value : a.from < b.from; });
++		Common::Array<Graph> graphs;
++		for (Way &w : ways) { graphs.push_back(found[w.graph]); w.graph = graphs.size() - 1; }
++		Common::Array<int> firstMenu;
++		int base = 0;
++		for (const Graph &g : graphs) { firstMenu.push_back(base); base += g.menus.size(); }
++		if (base > Talks::kMostMenus) { mismatch("a talk with more menus than a file holds", t.object, base); continue; }
++		for (uint gi = 0; gi < graphs.size(); ++gi)
++			for (uint m = 0; m < graphs[gi].menus.size(); ++m) TalksBridge::fileMenu(talk);
++		auto moved = [&](Step s, uint gi) { if (s.next != Talks::kEnd) s.next += firstMenu[gi]; return s; };
++		for (const Way &w : ways) {
++			fileStep(moved(graphs[w.graph].opening, w.graph));
++			if (!TalksBridge::fileOpening(talk, w.value, w.from, w.to)) mismatch("a talk with more ways of beginning than a file holds", t.object, (int)ways.size());
++		}
++		for (uint gi = 0; gi < graphs.size(); ++gi)
++			for (uint m = 0; m < graphs[gi].menus.size(); ++m) {
++				const Menu &menu = graphs[gi].menus[m];
++				for (uint k = 0; k < menu.shown.ids.size() && k < menu.steps.size(); ++k) {
++					const int c = TalksBridge::fileChoice(talk, firstMenu[gi] + m, menu.shown.ids[k], menu.shown.texts[k].c_str());
++					fileStep(moved(menu.steps[k], gi));
++					TalksBridge::fileChoiceStep(talk, firstMenu[gi] + m, c);
++					++choices;
++					for (uint g = 0; g + 1 < menu.steps[k].given.size(); g += 2) gave = gave || menu.steps[k].given[g + 1] == t.gives;
++				}
++				++menus;
++			}
++		for (const Graph &g : graphs) for (uint k = 0; k + 1 < g.opening.given.size(); k += 2) gave = gave || g.opening.given[k + 1] == t.gives;
++		if (!gave) mismatch("a talk's thing given by none of its steps", t.object, t.gives);
++		if (ways.empty()) mismatch("a talk with no way of beginning", t.object, t.kind);
++		++filed;
++	}
++	// ---- The doors' and the entries' values (kWorldDoorValues,
++	// kWorldEntryValues). ----
++	const int walkVerb = verbOf(kWorldVerbWalk);
++	int doors = 0, entries = 0;
++	for (const WorldDoorValue &d : kWorldDoorValues) {
++		if (d.game != gameIndex) continue;
++		for (int at = 0; at < 2 && !shouldQuit(); ++at) {
++			const int value = at ? 0 : d.value;
++			fresh(seed + d.room);
++			keptWrite(d.sets, 0);
++			if (!arrive(d.room) || getObjectIndex(d.door) <= 0 || !walkVerb) { mismatch("a door's place or door not there (kWorldDoorValues)", d.room, d.door); break; }
++			keptWrite(d.var, value);
++			int x = 0, y = 0, dir = 0;
++			getObjectXYPos(d.door, x, y, dir);
++			_actors[ego]->putActor(x, y, d.room);
++			_scummverseStepBudget = 4000000;
++			doSentence(walkVerb, d.door, 0);
++			for (int f = 0; f < kSegmentFrames && _currentRoom == d.room && _scummverseStepBudget && !shouldQuit(); ++f) { frame(); VAR(VAR_HAVE_MSG) = 0; scummverseSkipCutscene(); }
++			_scummverseStepBudget = -1;
++			const bool left = _currentRoom != d.room;
++			const int sets = keptRead(d.sets), var = keptRead(d.var);
++			quiet();
++			if (!left || sets != (at ? 0 : d.to) || (!at && var != 0)) mismatch("a door's value not as its script leaves it (kWorldDoorValues)", d.door, at ? 0 : d.value);
++			else ++doors;
++		}
++	}
++	for (const WorldEntryValue &e : kWorldEntryValues) {
++		if (e.game != gameIndex) continue;
++		fresh(seed + e.room);
++		keptWrite(e.var, e.value ? 0 : 1);
++		if (!arrive(e.room) || keptRead(e.var) != e.value) mismatch("a place's entry not setting its value (kWorldEntryValues)", e.room, e.var);
++		else ++entries;
++	}
++	quiet();
++	scummverseRestore(kept);
++	_sentenceNum = 0; _drawObjectQueNr = 0;
++	if (shouldQuit()) { problem = "stopped"; return false; }
++	const int size = TalksBridge::written(nullptr, 0);
++	if (size <= 0) { problem = "not a whole talks file"; return false; }
++	Common::Array<byte> bytes;
++	bytes.resize(size);
++	TalksBridge::written(bytes.data(), size);
++	Common::DumpFile *dump = new Common::DumpFile();
++	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
++	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
++	compressed->write(bytes.data(), bytes.size());
++	compressed->finalize();
++	if (compressed->err()) { problem = "cannot write cache"; return false; }
++	if (mismatches) warning("SCUMMVERSE world talks: %s %d not as its scripts have it", gameid, mismatches);
++	debug(1, "SCUMMVERSE world talks: %s %d talks, %d menus, %d choices, %d told apart by money, %d runs, %d bytes; %d doors' and %d entries' values as their scripts leave them", gameid, filed, menus, choices, banded, runs, size, doors, entries);
++	return true;
++}
++
+ // From 0251, The Dig's and Full Throttle's things as their own verbs answer
+ // (their things files' effects, "SVO7" as Sam & Max's from 0247): each verb
+ // of the game's own controls (The Dig's tap, its click: kWorldOwnVerbs; Full
+@@ -5495,7 +6099,14 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		for (const WorldValueClass &c : kWorldValueClasses)
+ 			if (valueSet.var && c.game == gameIndex && c.var == valueSet.var && c.value == valueSet.value && c.object > 0 && c.object < _numGlobalObjects) putClass(c.object, c.cls, c.set != 0);
+ 		if (valueSet.need > 0 && valueSet.need < _numGlobalObjects) showAs(valueSet.need, 1);
+-		// (From no place: no exit scripts.)
++		// (From no place: no exit scripts. From 0302, for a game of
++		// kWorldScrollStarts, nor its start's place's own scroll script, a
++		// local script of its: here its number is this place's local script of
++		// that number, as leaving that place's exit would have let it go.
++		// Monkey Island 2's start keeps its room 7's, 207, and room 48's camera
++		// moved by any of its answers ran its own 207, the figurehead's trade:
++		// every Pick up there gave the map piece, 519.)
++		if (worldScrollStart(gameIndex) && VAR_SCROLL_SCRIPT != 0xFF && VAR(VAR_SCROLL_SCRIPT) >= _numGlobalScripts) VAR(VAR_SCROLL_SCRIPT) = 0;
+ 		_EXCD_offs = 0;
+ 		const int exitScript = VAR_EXIT_SCRIPT != 0xFF ? VAR(VAR_EXIT_SCRIPT) : 0, exitScript2 = VAR_EXIT_SCRIPT2 != 0xFF ? VAR(VAR_EXIT_SCRIPT2) : 0;
+ 		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = 0;
+@@ -6411,6 +7022,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	};
+ 	for (int o = 1; !old && pairs && o < (int)owners.size(); ++o)
+ 		if (player(owners[o]) && placeOf.contains(o) && !carryable.contains(o)) { carryable[o] = placeOf[o]; carriedOnes.push_back(o); ++started; }
++	// (From 0302 what a talk of its game gives, kWorldTalks' `gives`, where it
++	// lies in a place exported: the antique dealer's saw, the laundry's
++	// bucket. The talks export checks that one of its steps gives it.)
++	int talkGiven = 0;
++	for (const WorldTalk &t : kWorldTalks)
++		if (!old && pairs && t.game == gameIndex && t.gives && placeOf.contains(t.gives) && !carryable.contains(t.gives)) { carryable[t.gives] = placeOf[t.gives]; carriedOnes.push_back(t.gives); ++talkGiven; }
+ 	// (From 0269 a game whose box's things are held: only those its place's
+ 	// scene, as written, has pictures of to carry by (the new engine's carry:
+ 	// WorldBridge::objectPictured); one with none is never held there.)
+@@ -6957,6 +7574,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	if (pairs && (useVerb || heldThing))
+ 		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
+ 			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
++	if (talkGiven) debug(1, "SCUMMVERSE world things: %s %d things its talks give carried in its answers of two (kWorldTalks)", kWorldGames[gameIndex].gameid, talkGiven);
+ 	// (From 0300 each thing of kWorldPutBacks some answer of two put back, as
+ 	// named, else warned: tools/export_worlds.py fails.)
+ 	for (const WorldPutBack &p : kWorldPutBacks) {
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 99cabbe5..7757b643 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -33,6 +33,7 @@
+ #include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_panel_engine.h"
+ #include "common/scummverse_duel_engine.h"
++#include "common/scummverse_talks_engine.h"
+ #include "common/scummverse_stage_engine.h"
+ #include "common/scummverse_story.h"
+ #include "common/scummverse_tour.h"
+@@ -192,6 +193,7 @@ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data)
+ void SandboxEngine::scan() {
+ 	_rooms.clear(); _characters.clear(); _insides.clear(); _closeUps.clear();
+ 	_duelUnread.clear(); DuelBridge::clear(); // (from 0298: fight files read afresh)
++	_dialogUnread.clear(); TalksBridge::clear(); // (from 0302: talks files likewise)
+ 	Common::FSList files;
+ 	_folder.getChildren(files, Common::FSNode::kListFilesOnly);
+ 	for (const Common::FSNode &file : files) {
+@@ -541,6 +543,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_going = Going(); // (from 0283: somewhere else now, an answer's way let go)
+ 	// (From 0298 a duel let go; the master back from her house.)
+ 	PanelBridge::clearChoices(); _duel = DuelPlay(); _duelGone = false; _duelPirates.clear();
++	if (_dialog.phase) dialogEnd(false); // (from 0302: a talk let go)
+ 	_stepAway.row = -1; _stepAway.off = true; // (from 0292: a keeper sent away back, uncounted)
+ 	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+@@ -1778,6 +1781,8 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (_player < 0 || _tram.riding || _riding.phase > kRideBoarded) return;
+ 	// (From 0298 a duel under way: its choices, or the line said ended.)
+ 	if (_duel.phase && duelTapWhile(screenX, screenY)) return;
++	// (From 0302 a talk under way likewise.)
++	if (_dialog.phase && dialogTapWhile(screenX, screenY)) return;
+ 	// The verb panel: a verb, a thing carried, its arrows.
+ 	int on = -1;
+ 	switch (PanelBridge::loaded() ? PanelBridge::hit(screenX, screenY, on) : 0) {
+@@ -2240,6 +2245,8 @@ void SandboxEngine::pairUp(const Pair &p) {
+ 		if (pairFilm(p)) return;
+ 		// (From 0298 the master or a pirate talked to: their talk.)
+ 		if (p.kind == kWorldVerbTalk && duelBegin(p.person)) return;
++		// (From 0302 someone whose talk its game plays: their talk.)
++		if (p.kind == kWorldVerbTalk && dialogBegin(-1, kWorldVerbTalk, p.person, -1)) return;
+ 		if (p.kind != kWorldVerbGive || !(pairPerson(p) || pairPersonValued(p) || heldUsual(p))) sayAs(p.person, p.kind == kWorldVerbGive ? "No, thanks." : "Hello.");
+ 	} else if (pairCloseUp(p)) {
+ 		return; // (from 0287: a film the two show, kept as any close-up)
+@@ -3512,9 +3519,13 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ 		char named[80] = "";
+ 		int speaker, color;
+ 		if (duel && duel->duelRoom == room && duel->shirt == id && duelLoad(game)) DuelBridge::line(game, Duel::kLineShirt, 0, 0, speaker, color, named, sizeof(named));
++		// (From 0302 a game's money's thing, its place listing it not, by its
++		// name for its count; likewise a thing a talk gives, kWorldTalks.)
++		const WorldMoney *money = worldMoney(game);
++		const bool byName = !name.empty() && ((money && money->room == room && money->object == id) || worldTalkGives(game, id));
+ 		if (!PanelBridge::addIcon(game, id, name.empty() ? nullptr : name.c_str()) &&
+ 			(!scene || worldHome(game) || !PanelBridge::addNamed(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str())) &&
+-			!(*named && PanelBridge::addByName(name.empty() ? named : name.c_str()))) return false;
++			!(*named && PanelBridge::addByName(name.empty() ? named : name.c_str())) && !(byName && PanelBridge::addByName(name.c_str()))) return false;
+ 	}
+ 	Carried c;
+ 	c.game = game; c.room = room; c.id = id; c.name = name; c.picture = picture;
+@@ -3574,6 +3585,9 @@ void SandboxEngine::act() {
+ 	if (!looking && !near && !acting) { say("I can't reach that."); return; }
+ 	// (From 0298 the trainer's door: his training, as his script gives it.)
+ 	if (duelTrain(id, kind)) return;
++	// (From 0302 a talk its game opens with this verb on this thing: a shop's
++	// sale, a bucket asked for, a person's own thing talked to; kWorldTalks.)
++	if (!door && dialogBegin(id, kind, -1, target)) return;
+ 	int picture = -1, gamePicture = 0, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+ 	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
+@@ -4902,6 +4916,243 @@ void SandboxEngine::duelMap() {
+ 	_people = _onStage.size();
+ }
+ 
++// ---- A person's or a shop's conversation (from 0302; kWorldTalks) ----
++
++// (Its phases: off, its step's lines being said, its menu's choices up.)
++enum { kDialogOff, kDialogSaying, kDialogChoosing };
++
++// A game's talks file, read once (none: no talks). One that could not be
++// read (none, emptied by an export that skipped it, or damaged) is not read
++// again until the worlds are scanned again (scan).
++bool SandboxEngine::dialogLoad(int game) {
++	if (game < 0 || game >= worldGameCount() || !worldTalks(game) || _dialogUnread.contains(game)) return false;
++	if (TalksBridge::loaded(game)) return true;
++	Common::Array<byte> data;
++	char error[128];
++	if (!read(Common::String::format("%s-talks.svq", kWorldGames[game].gameid), data)) { _dialogUnread[game] = true; return false; }
++	if (!TalksBridge::load(game, data.data(), data.size(), error, sizeof(error))) {
++		warning("SCUMMVERSE sandbox: %s talks not read (%s)", kWorldGames[game].gameid, error);
++		_dialogUnread[game] = true;
++		return false;
++	}
++	return true;
++}
++
++// The talk a verb opens here: on a thing of this place (`id`), its own, or
++// the one of the person whose thing it is; on someone here (`person`), the
++// one of their costume. -1: none.
++int SandboxEngine::dialogOf(int id, int kind, int person) {
++	if (_game < 0 || !dialogLoad(_game)) return -1;
++	int costume = 0;
++	if (person >= 0) {
++		if (person >= (int)_onStage.size() || person == _player || StageBridge::hidden(person) || worldAppearanceGame(_onStage[person]) != _game) return -1;
++		costume = worldAppearanceCostume(_onStage[person]);
++		return costume > 0 ? TalksBridge::find(_game, _room, 0, kind, costume) : -1;
++	}
++	const int own = TalksBridge::find(_game, _room, id, kind, 0);
++	if (own >= 0) return own;
++	for (int t = 0; t < TalksBridge::count(_game); ++t) {
++		int room, object, k, c, reads;
++		if (TalksBridge::talk(_game, t, room, object, k, c, reads) && room == _room && object == id && k == kind && c && personHere(_game, _room, c)) return t;
++	}
++	return -1;
++}
++
++int SandboxEngine::moneyNow(int game) const {
++	const WorldMoney *m = game >= 0 ? worldMoney(game) : nullptr;
++	return m ? MAX(0, keptValue(game, m->var)) : 0;
++}
++
++// Begun (walked up to its thing, or to them): its way of beginning by the
++// value kept it reads and the money carried, its opening's lines, then its
++// menu. False: none here, or no way of beginning so (its usual answer).
++bool SandboxEngine::dialogBegin(int id, int kind, int person, int thing) {
++	const int t = dialogOf(id, kind, person);
++	if (t < 0) return false;
++	int room, object, k, costume, reads;
++	if (!TalksBridge::talk(_game, t, room, object, k, costume, reads)) return false;
++	if (!TalksBridge::begin(_game, t, reads ? keptValue(_game, reads) : 0, moneyNow(_game))) return false;
++	_dialog = DialogPlay();
++	_dialog.game = _game; _dialog.talk = t; _dialog.thing = thing;
++	_dialog.person = person;
++	if (person < 0 && costume)
++		for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == worldAppearanceKey(_game, costume) && !StageBridge::hidden((int)n)) _dialog.person = (int)n;
++	if (_player >= 0 && _dialog.person >= 0) {
++		double px, py, ox, oy;
++		StageBridge::position(_player, px, py);
++		StageBridge::position(_dialog.person, ox, oy);
++		StageBridge::face(_player, ox, oy);
++		StageBridge::face(_dialog.person, px, py);
++	}
++	dialogDoes();
++	return true;
++}
++
++// The step just taken: its lines in turn (each by who says it here), the
++// values kept it leaves, its money, the things it gives (carried, gone from
++// where they lay here) and takes, those of this place shown anew; then its
++// lines said, its menu after.
++void SandboxEngine::dialogDoes() {
++	const int g = _dialog.game;
++	_dialog.phase = kDialogSaying;
++	_saying.clear();
++	for (int k = 0; k < TalksBridge::stepLines(); ++k) {
++		int speaker, costume, color;
++		char text[256];
++		if (!TalksBridge::stepLine(k, speaker, costume, color, text, sizeof(text)) || !*text) continue;
++		Said s;
++		s.actor = speakerHere(g, speaker, costume); s.text = text;
++		s.color = speaker == Talks::kSpeakerPlayed ? -1 : color;
++		_saying.push_back(s);
++	}
++	// (From the review of 0302 each only as its game can hold it, as a state
++	// read back holds it, worldKeptValueAs (else let go, as loadState would);
++	// what a value only added to holds and the money summed wide, held within
++	// 0 to the most an int holds: a damaged file's or state's would overflow.)
++	auto held = [](long long v) { return (int)(v < 0 ? 0 : v > 0x7FFFFFFFLL ? 0x7FFFFFFFLL : v); };
++	for (int k = 0; k < TalksBridge::stepLeaves(); ++k) {
++		int var, value;
++		if (!TalksBridge::stepLeave(k, var, value) || !worldKeptValue(g, var)) continue;
++		const int as = worldKeptValueAs(g, var, worldKeptCount(g, var) ? held((long long)value + keptValue(g, var)) : value);
++		if (as >= 0) _kept[g * 65536 + var] = as;
++	}
++	const WorldMoney *m = worldMoney(g);
++	if (m && TalksBridge::stepMoney()) { _kept[g * 65536 + m->var] = held((long long)moneyNow(g) + TalksBridge::stepMoney()); moneyShown(g); }
++	for (int k = 0; k < TalksBridge::stepTaken(); ++k) {
++		const int object = TalksBridge::stepTake(k);
++		for (uint n = 0; n < _carried.size(); ++n)
++			if (_carried[n].game == g && _carried[n].id == object) {
++				if (_holding.kind || _pairing.kind) letGo();
++				PanelBridge::removeItem(n);
++				_carried.remove_at(n);
++				break;
++			}
++	}
++	for (int k = 0; k < TalksBridge::stepGiven(); ++k) {
++		int room, object;
++		char name[80];
++		if (!TalksBridge::stepGive(k, room, object, name, sizeof(name)) || isCarried(g, room, object)) continue;
++		const int here = g == _game && room == _room ? stageThing(object) : -1;
++		if (!carry(g, room, object, name, here >= 0 ? pictureNow(here, object) : 0)) continue;
++		if (here >= 0) showPicture(here, object, 0);
++	}
++	for (int k = 0; k < TalksBridge::stepPictures(); ++k) {
++		int object, picture;
++		if (!TalksBridge::stepPicture(k, object, picture) || g != _game) continue;
++		const int here = stageThing(object);
++		if (here >= 0) showPicture(here, object, picture);
++		else setPicture(_room, object, picture);
++	}
++	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++	_dirty = true;
++}
++
++// Its lines said: its menu up (the choices in their game's order), or it is
++// over (each step).
++void SandboxEngine::dialogStep(int ticks) {
++	if (_dialog.phase != kDialogSaying) return;
++	if (_dialog.game != _game || !TalksBridge::active()) { dialogEnd(); return; }
++	if (!_saying.empty() || _speechClock > 0 || _noticeClock > 0) return;
++	if (!TalksBridge::menuUp()) { dialogEnd(); return; }
++	Common::Array<Common::String> texts;
++	for (int k = 0; k < TalksBridge::choices(); ++k) {
++		int id;
++		char text[256];
++		texts.push_back(TalksBridge::choice(k, id, text, sizeof(text)) ? Common::String(text) : Common::String());
++	}
++	Common::Array<const char *> pointers;
++	for (const Common::String &t : texts) pointers.push_back(t.c_str());
++	PanelBridge::setChoices(pointers.data(), pointers.size());
++	_dialog.phase = kDialogChoosing;
++	_dirty = true;
++}
++
++// A tap while a talk is under way: a choice chosen (or its list's page
++// turned), else the line said ended (the next said at once).
++bool SandboxEngine::dialogTapWhile(int screenX, int screenY) {
++	if (_dialog.phase == kDialogChoosing) {
++		const int at = PanelBridge::choiceAt(screenX, screenY, _width, _height);
++		if (at >= 0) dialogChoose(at);
++		else if (at == PanelBridge::kChoiceUp || at == PanelBridge::kChoiceDown) PanelBridge::scrollChoices(at == PanelBridge::kChoiceUp ? -1 : 1, _width, _height);
++		_dirty = true;
++		return true;
++	}
++	if (_dialog.phase == kDialogSaying) {
++		if (_speechClock > 1) _speechClock = 1;
++		if (_noticeClock > 1) _noticeClock = 1;
++		return true;
++	}
++	return false;
++}
++
++// A choice chosen: its step (its lines, the one played's choice first,
++// where its game has them say it; what it leaves).
++void SandboxEngine::dialogChoose(int index) {
++	if (_dialog.phase != kDialogChoosing || !TalksBridge::choose(index)) return;
++	PanelBridge::clearChoices();
++	dialogDoes();
++	if (!_testing) saveState();
++}
++
++// Over (or let go: `keep` false, as a place is entered): its choices put
++// away; kept.
++void SandboxEngine::dialogEnd(bool keep) {
++	PanelBridge::clearChoices();
++	TalksBridge::end();
++	_dialog = DialogPlay();
++	_dirty = true;
++	if (keep && !_testing) saveState();
++}
++
++// The money's thing carried while there is any, named by its count as its
++// game names it (its talks file); none, not carried.
++void SandboxEngine::moneyShown(int game) {
++	const WorldMoney *m = game >= 0 ? worldMoney(game) : nullptr;
++	if (!m || !dialogLoad(game)) return;
++	const int count = moneyNow(game);
++	char name[80] = "";
++	TalksBridge::moneyName(game, count, name, sizeof(name));
++	for (uint n = 0; n < _carried.size(); ++n)
++		if (_carried[n].game == game && _carried[n].room == m->room && _carried[n].id == m->object) {
++			if (count > 0 && _carried[n].name == name) return;
++			if (_holding.kind || _pairing.kind) letGo();
++			PanelBridge::removeItem(n);
++			_carried.remove_at(n);
++			break;
++		}
++	if (count > 0 && *name) carry(game, m->room, m->object, name, 0);
++}
++
++// Leaving a place by a door (kWorldDoorValues): what its door's script
++// leaves of a value kept as the one played goes through (Monkey Island 2's
++// laundry, the peg leg sawn: the woodsmith called away).
++void SandboxEngine::doorValues(int game, int room, int door) {
++	for (const WorldDoorValue &d : kWorldDoorValues)
++		if (d.game == game && d.room == room && d.door == door && keptValue(game, d.var) == d.value) {
++			_kept[game * 65536 + d.sets] = d.to;
++			_kept.erase(game * 65536 + d.var);
++		}
++}
++
++// A place arrived at by a way of its game (kWorldEntryValues): the values its
++// entry sets. From the review of 0302 only so (a door gone through, travel;
++// an answer's way, goThere), never as the app resumes where it was kept, the
++// tour stops there or goes back, or someone else is played there: its game
++// runs its entry only on arriving, and a restore runs none. (Before, each of
++// those let the laundry's 166 go once the peg leg was sawn: sawn already, the
++// leg could not be sawn again, so its way out never called the woodsmith
++// away and the hammer and nails were lost for good.) Leaving the place
++// otherwise (another game, Story mode, someone else played) applies no
++// door's value either: on coming back its value is still there, and its door
++// (the laundry's only way out) does what its script does.
++void SandboxEngine::entryValues(int game, int room) {
++	for (const WorldEntryValue &e : kWorldEntryValues)
++		if (e.game == game && e.room == room) {
++			if (e.value) _kept[game * 65536 + e.var] = e.value;
++			else _kept.erase(game * 65536 + e.var);
++		}
++}
++
+ // From 0286 one of its game's cast on the stage here, by the costume its
+ // cast knows them by (not hidden: a film's).
+ bool SandboxEngine::personHere(int game, int room, int costume) const {
+@@ -5324,7 +5575,13 @@ bool SandboxEngine::travel(int index) {
+ 	}
+ 	// (Opened as its game opens it: what moves with it too.)
+ 	if (opened >= 0) thingSets(link.object, kWorldVerbOpen);
++	// (From 0302 what its door's script leaves of a value kept as the one
++	// played goes through, kWorldDoorValues; not on the tour's way (paused,
++	// the player's own, as doorAllowed's above). From the review of 0302, the
++	// values its entry sets, kWorldEntryValues, likewise only arriving so.)
++	const bool ownWay = !_touring.on || _touring.paused;
+ 	if (enter(game, link.target, arrival, problem)) {
++		if (ownWay) { doorValues(game, from, link.object); entryValues(game, link.target); }
+ 		if (opened >= 0) _pictures[thingKey(game, from, link.object)] = opened;
+ 		// (Shut behind them, as its game does.)
+ 		bool shuts = false;
+@@ -5382,6 +5639,7 @@ bool SandboxEngine::goThere() {
+ 		enter(g.game, g.from, 0, problem);
+ 		return false;
+ 	}
++	if (!_touring.on || _touring.paused) entryValues(g.game, g.room); // (from the review of 0302: arriving by a way of its game)
+ 	double x = g.x, y = g.y;
+ 	StageBridge::walkable(x, y);
+ 	placePlayer(x, y);
+@@ -5533,6 +5791,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (!_touring.on) laterStep(ticks); // (from 0282)
+ 	if (!_touring.on) holderStep(ticks); // (from 0297)
+ 	duelStep(ticks); // (from 0298)
++	dialogStep(ticks); // (from 0302)
+ 	stepAwayStep(); // (from 0292)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+@@ -7630,7 +7889,9 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			// it, worldKeptValueAs: a damaged state's otherwise had no answer by
+ 			// it, the skull never given.)
+ 			if (g >= 0 && g < worldGameCount() && worldKeptValue(g, var) && !worldHeldValue(g, var) && !worldDuelValue(g, var) && (value = worldKeptValueAs(g, var, value)) < 0) continue;
+-			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var) || worldDuelValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too; from 0298 a fight's)
++			// (From 0302 the money too, within 0 to the most an int holds.)
++			if (g >= 0 && g < worldGameCount() && worldMoneyValue(g, var)) value = CLIP<int>(value, 0, 0x7FFFFFFF);
++			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var) || worldDuelValue(g, var) || worldMoneyValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too; from 0298 a fight's)
+ 		}
+ 		Common::Array<Later> later;
+ 		const int laterCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+@@ -9034,6 +9295,232 @@ SandboxEngine::Mi2Things SandboxEngine::mi2ThingsPlayed() {
+ 	return c;
+ }
+ 
++// From 0302 the "verbs" check's (see verbsTest): Monkey Island 2's
++// conversations as a player plays them (kWorldTalks; its talks file), each
++// choice tapped where its list shows it, and what they lead to. The antique
++// dealer's sale of the saw (room 48, 540): picked up with no money, his
++// lines and nothing more (no choices, nothing carried); with the money of
++// the job's wages (420 pieces of eight, as its room 9's talk pays them: not
++// played here), the pieces of eight carried by their count, his lines and a
++// choice of two: the second, nothing; picked up again, the first: the saw
++// carried, 25 paid (395 left, the pieces of eight so named), through a save
++// and a load. Then the peg leg of the laundry (room 14, 130) sawn with it
++// (its class 6 kept, 166), kept as the app starts again there and through the
++// tour's way out and back (from the review of 0302), the way out by its
++// street (126): the woodsmith called away (bit 361), his shop (room 15)
++// entered without him, his hammer taken; 166 set from before let go by the
++// laundry's entry arrived at by its door. The dealer talked to (his costume 40): his choices; one asked, his
++// answer, and the talk over. The laundry's bucket (room 14, 124): picked
++// up, its owner's line and three choices; choice 122, nothing; asked for and
++// given up on, nothing; asked for again and again (fifteen times), given;
++// again from the start, the other way, given at once; filled with the mud of
++// room 20 (211: bit 367 kept), again, their line, nothing more. Before,
++// each of these was the first line of its talk and nothing more (no saw, no
++// bucket, the woodsmith never away).
++SandboxEngine::Mi2Talks SandboxEngine::mi2TalksPlayed() {
++	Mi2Talks c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "monkey2")) g = k;
++	if (g < 0 || !dialogLoad(g)) return c;
++	loadThings(g);
++	auto fresh = [&]() {
++		if (_dialog.phase) dialogEnd(false);
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	// (Walked up, its lines said: until its choices are up or it is over.)
++	auto settle = [&]() {
++		for (int t = 0; t < 20000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room || _dialog.phase == kDialogSaying); ++t) step(1);
++	};
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox Monkey Island 2's conversations: %s: %s", what, how); }
++		return ok;
++	};
++	auto doAt = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		_speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto useWith = [&](int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0) return false;
++		Pair p;
++		p.kind = kWorldVerbUse; p.item = item;
++		_holding = p;
++		useOn(kWorldVerbUse, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	// (A choice tapped as a player taps it, by its number in its game: its
++	// page turned to it first.)
++	auto choices = [&]() { return _dialog.phase == kDialogChoosing ? TalksBridge::choices() : 0; };
++	auto choose = [&](int number) {
++		if (_dialog.phase != kDialogChoosing) return false;
++		int index = -1;
++		for (int k = 0; k < TalksBridge::choices(); ++k) {
++			int id;
++			char text[8];
++			if (TalksBridge::choice(k, id, text, sizeof(text)) && id == number) index = k;
++		}
++		if (index < 0) return false;
++		char chosen[256] = "";
++		int chosenId;
++		TalksBridge::choice(index, chosenId, chosen, sizeof(chosen));
++		int x, y, cw, ch;
++		for (int turn = 0; turn < 64 && !PanelBridge::choiceRect(index, _width, _height, x, y, cw, ch); ++turn) {
++			int bx, by, bw, bh;
++			if (!PanelBridge::choicesBounds(_width, _height, bx, by, bw, bh)) return false;
++			tap(bx + bw - 2, index < PanelBridge::firstChoice() ? by + 2 : by + bh - 2);
++		}
++		if (!PanelBridge::choiceRect(index, _width, _height, x, y, cw, ch)) return false;
++		tap(x + cw / 2, y + ch / 2);
++		// (Its step's first line the choice, said by the one played, as its
++		// game's verb script has them say it.)
++		int speaker, costume, color;
++		char first[256] = "";
++		if (_dialog.phase != kDialogSaying || !TalksBridge::stepLine(0, speaker, costume, color, first, sizeof(first)) || speaker != Talks::kSpeakerPlayed || strcmp(first, chosen)) return false;
++		++c.choices;
++		settle();
++		return true;
++	};
++	const WorldMoney *money = worldMoney(g);
++	auto moneyName = [&](int count) {
++		char name[80] = "";
++		TalksBridge::moneyName(g, count, name, sizeof(name));
++		const int n = money ? carriedAt(money->room, money->object) : -1;
++		return n >= 0 && *name && _carried[n].name == name;
++	};
++	const int legSawn = kWorldClassValue + 1, away = 0x8000 + 361, mud = 0x8000 + 367;
++	// (The saw's sale: none afforded with no money; then, with the wages, a
++	// choice of two; the second nothing, the first the saw.)
++	if (installed(g, 48) && TalksBridge::find(g, 48, 540, kWorldVerbPickUp, 0) >= 0 && money) {
++		what = "Monkey Island 2's saw (room 48)";
++		++c.cases;
++		fresh();
++		bool ok = check(enter(g, 48, 0, problem) && thingIn(540) >= 0 && isThing(thingIn(540)) && personHere(g, 48, 40), "the antique shop not shown with its dealer and its saw");
++		ok = ok && check(doAt(kWorldVerbPickUp, 540) && !_dialog.phase && _carried.empty() && !moneyNow(g), "picked up with no money: not his lines and nothing more");
++		_kept[g * 65536 + money->var] = 420; // (the job's wages, as room 9's talk pays them: not played here)
++		moneyShown(g);
++		ok = ok && check(moneyName(420), "the pieces of eight not carried by their count");
++		ok = ok && check(doAt(kWorldVerbPickUp, 540) && choices() == 2, "picked up with the money: not his choice of two") &&
++			check(choose(121) && !_dialog.phase && carriedAt(48, 540) < 0 && moneyNow(g) == 420, "the second choice not as its game answers it (nothing)") &&
++			check(doAt(kWorldVerbPickUp, 540) && choices() == 2 && choose(120) && !_dialog.phase && carriedAt(48, 540) >= 0 && moneyNow(g) == 395 && moneyName(395) &&
++				!(thingIn(540) >= 0 && isThing(thingIn(540))), "the first choice not as its game answers it (the saw carried, 25 paid)");
++		ok = ok && check(saved() && carriedAt(48, 540) >= 0 && moneyNow(g) == 395 && moneyName(395), "the saw or the money not kept through a save and a load");
++		if (ok) { ++c.played; ++c.kept; }
++		// (Its way on: the peg leg sawn, the way out, the woodsmith away.)
++		if (ok && installed(g, 14) && installed(g, 15)) {
++			what = "Monkey Island 2's peg leg (room 14) and the woodsmith away";
++			++c.cases;
++			const WorldMap *map = worldMap(g);
++			int street = -1, in = -1;
++			for (int i = 0; map && i < map->linkCount; ++i) {
++				if (map->links[i].room == 14 && map->links[i].object == 126) street = i;
++				if (map->links[i].room == 7 && map->links[i].target == 14) in = i;
++			}
++			bool way = check(enter(g, 14, 0, problem) && thingIn(130) >= 0 && street >= 0 && in >= 0, "the laundry or its ways not there") &&
++				check(useWith(carriedAt(48, 540), 130) && keptValue(g, legSawn) == 1 && keptValue(g, 166) == 1 && !keptValue(g, away), "the saw used on the peg leg not as its game answers it (sawn, 166)") &&
++				check(useWith(carriedAt(48, 540), 130) && keptValue(g, legSawn) == 1, "the peg leg sawn again");
++			// (From the review of 0302, sawn this visit: the app started again
++			// there (its state read back, the place entered as at a launch), the
++			// tour out of it, back to it and out again (its stops by its doors, no
++			// door's nor entry's value so), then home (the tour's return): 166 kept
++			// all along, as its game keeps it, none called away on the tour.)
++			int lg, lr;
++			double lx, ly;
++			saveState();
++			fresh();
++			_game = -1;
++			way = way && check(loadState(lg, lr, lx, ly) && enter(lg, lr, 0, problem) && _room == 14 && keptValue(g, 166) == 1 && keptValue(g, legSawn) == 1 && carriedAt(48, 540) >= 0,
++				"the leg sawn this visit not kept as the app starts again there");
++			if (way) {
++				_touring.on = true; _touring.paused = false;
++				const bool toured = travel(street) && _room == 7 && travel(in) && _room == 14 && keptValue(g, 166) == 1 && travel(street) && _room == 7;
++				_touring.on = false;
++				way = check(toured && !keptValue(g, away) && keptValue(g, 166) == 1 && enter(g, 14, 0, problem) && keptValue(g, 166) == 1,
++					"the leg sawn this visit not kept through the tour (out, back, out, home), or the woodsmith called away on its way");
++			}
++			way = way && check(travel(street) && _room == 7 && keptValue(g, away) == 1 && !keptValue(g, 166), "the way out by the street not calling the woodsmith away") &&
++				check(saved() && keptValue(g, away) == 1 && keptValue(g, legSawn) == 1 && enter(g, 15, 0, problem) && !personHere(g, 15, 25), "the woodsmith not away through a save and a load") &&
++				check(doAt(kWorldVerbPickUp, 140) && carriedAt(15, 140) >= 0, "the hammer not taken with the woodsmith away");
++			// (166 set from before, the laundry arrived at by its door: its entry
++			// lets it go, so out by the street the woodsmith is left as he is.)
++			_kept.erase(g * 65536 + away);
++			_kept[g * 65536 + 166] = 1;
++			way = way && check(enter(g, 7, 0, problem) && keptValue(g, 166) == 1 && travel(in) && _room == 14 && !keptValue(g, 166) && travel(street) && !keptValue(g, away),
++				"the way out calling him away with the leg not sawn this visit (the laundry's entry by its door not letting 166 go)");
++			if (way) { ++c.played; ++c.kept; }
++		}
++	}
++	// (The dealer himself talked to: his choices, one asked, his answer.)
++	if (installed(g, 48) && TalksBridge::find(g, 48, 0, kWorldVerbTalk, 40) >= 0) {
++		what = "Monkey Island 2's antique dealer talked to (room 48)";
++		++c.cases;
++		fresh();
++		int dealer = -1;
++		if (enter(g, 48, 0, problem)) for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == worldAppearanceKey(g, 40) && !StageBridge::hidden((int)n)) dealer = (int)n;
++		bool ok = check(dealer >= 0, "the dealer not there");
++		if (ok) { useOnPerson(kWorldVerbTalk, -1, dealer); settle(); }
++		ok = ok && check(choices() >= 2, "talked to: not his choices") && check(choose(126) && !_dialog.phase, "a question asked: not his answer and the talk over");
++		if (ok) ++c.played;
++	}
++	// (The bucket: choice 122, nothing; asked and given up on, nothing; asked
++	// again and again, given; the other way, given at once; filled.)
++	if (installed(g, 14) && TalksBridge::find(g, 14, 124, kWorldVerbPickUp, 0) >= 0) {
++		what = "Monkey Island 2's bucket (room 14)";
++		++c.cases;
++		fresh();
++		bool ok = check(enter(g, 14, 0, problem) && thingIn(124) >= 0 && isThing(thingIn(124)), "the laundry or its bucket not there");
++		ok = ok && check(doAt(kWorldVerbPickUp, 124) && choices() == 3 && choose(122) && !_dialog.phase && carriedAt(14, 124) < 0, "choice 122 not nothing") &&
++			check(doAt(kWorldVerbPickUp, 124) && choose(120) && choices() == 2 && choose(121) && !_dialog.phase && carriedAt(14, 124) < 0, "asked for and given up on, not nothing");
++		int asked = 0;
++		ok = ok && check(doAt(kWorldVerbPickUp, 124) && choose(120), "asked for: not his answer");
++		while (ok && _dialog.phase == kDialogChoosing && asked < 32) { ok = choose(120); ++asked; }
++		ok = ok && check(asked == 15 && !_dialog.phase && carriedAt(14, 124) >= 0 && !(thingIn(124) >= 0 && isThing(thingIn(124))), "asked again and again: not given the fifteenth time");
++		ok = ok && check(saved() && carriedAt(14, 124) >= 0, "the bucket not kept through a save and a load");
++		fresh();
++		ok = ok && check(enter(g, 14, 0, problem) && doAt(kWorldVerbUse, 124) && choose(121) && !_dialog.phase && carriedAt(14, 124) >= 0, "the other way (Use): not given at once");
++		if (ok && installed(g, 20)) {
++			ok = check(enter(g, 20, 0, problem) && useWith(carriedAt(14, 124), 211) && keptValue(g, mud) == 1, "the bucket not filled with the mud") &&
++				check(useWith(carriedAt(14, 124), 211) && keptValue(g, mud) == 1 && carriedAt(14, 124) >= 0, "filled again");
++			ok = ok && check(saved() && keptValue(g, mud) == 1, "the mud not kept through a save and a load");
++		}
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0298 the "verbs" check's (see verbsTest): Monkey Island's insult
+ // sword fighting as a player plays it, by its fight file and its game's
+ // rules (kWorldDuels; common/scummverse_duel.h), each step through a save
+@@ -9664,8 +10151,18 @@ SandboxEngine::Revealed SandboxEngine::revealedPlayed() {
+ 		// (The record played as a player plays it, in its place, from where it
+ 		// was; false where that cannot be: its thing not there, or one carried
+ 		// it names that is never carried.)
++		// (From 0302 a record its talk plays instead, kWorldTalks: not
++		// played here, as the conversations' check plays that talk.)
++		auto talked = [&](int room, int id, int kind) {
++			for (int t = 0; dialogLoad(g) && t < TalksBridge::count(g); ++t) {
++				int r, o, k, costume, reads;
++				if (TalksBridge::talk(g, t, r, o, k, costume, reads) && r == room && o == id && k == kind) return true;
++			}
++			return false;
++		};
+ 		auto play = [&](int room, int id, int kind, int from, int with) {
+ 			reset();
++			if (!with && talked(room, id, kind)) return false;
+ 			if (!enter(g, room, 0, problem)) return false;
+ 			int o = thingIn(id), found, answers;
+ 			const bool carriedToo = with && carryable.contains(id) && (o < 0 || !isThing(o));
+@@ -15822,6 +16319,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// into these: Monkey Island's red herring.)
+ 			for (const WorldStepAway &w : kWorldStepAways)
+ 				if (stepAwayTakes(g, w) && !carryable.contains(w.thing)) { carryable[w.thing] = w.room; carriedOnes.push_back(w.thing); }
++			// (From 0302 what a talk gives, as its export carries it into these:
++			// Monkey Island 2's saw and bucket, kWorldTalks' `gives`; where its
++			// talks file is, an export of 0302's.)
++			for (const WorldTalk &t : kWorldTalks)
++				if (t.game == g && t.gives && !carryable.contains(t.gives) && dialogLoad(g)) { carryable[t.gives] = t.room; carriedOnes.push_back(t.gives); }
+ 			for (int k = 0; k < c->count; ++k) {
+ 				const TouchedKept touchedKept{_touched, _touched}; // (from 0267)
+ 				int room, id, kind, from, with = 0;
+@@ -16785,6 +17287,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Monkey Island 2's things: %d of %d played as a player plays them (the skull of room 92 by its 864's class, the woodsmith's hammer and nails with him away), %d kept through saves and loads; %d failed",
+ 		mi2.played, mi2.cases, mi2.kept, mi2.failed);
+ 	failed += mi2.failed;
++	// (From 0302) Monkey Island 2's conversations as a player plays them, and
++	// what they lead to: see mi2TalksPlayed.
++	const Mi2Talks talks = mi2TalksPlayed();
++	warning("SCUMMVERSE sandbox selftest Monkey Island 2's conversations: %d of %d played as a player plays them (the antique dealer's sale of the saw by the money carried, the peg leg sawn and the woodsmith called away, the dealer talked to, the laundry's bucket asked for and filled), %d choices tapped, %d kept through saves and loads; %d failed",
++		talks.played, talks.cases, talks.choices, talks.kept, talks.failed);
++	failed += talks.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index aa79d31b..6b88db1f 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -445,6 +445,32 @@ private:
+ 	unsigned long long duelInsults() const;
+ 	unsigned duelComebacks() const;
+ 	void duelLearned(unsigned long long insults, unsigned comebacks);
++	// From 0302 a person's or a shop's conversation, played as its game's
++	// scripts play it (kWorldTalks; its talks file,
++	// common/scummverse_talks_engine.h): the talk under way (`phase` off,
++	// its step's lines being said, or its menu's choices up), whose person it
++	// is (a stage actor, -1 a thing's own), the thing it was opened on (its
++	// stage object, -1 none). Taps meanwhile choose, or end the line said.
++	// What each step leaves is kept as it is taken; a talk under way itself
++	// is not (a load, or another place entered, lets it go). The money
++	// (kWorldMoneys) is a value kept, its thing carried while there is any,
++	// named by its count; a door's and an entry's values (kWorldDoorValues,
++	// kWorldEntryValues) as their scripts leave them.
++	struct DialogPlay { int phase = 0, game = -1, talk = -1, person = -1, thing = -1; };
++	DialogPlay _dialog;
++	Common::HashMap<int, bool> _dialogUnread; // (games whose talks file could not be read, until scan)
++	bool dialogLoad(int game);
++	int dialogOf(int id, int kind, int person);
++	bool dialogBegin(int id, int kind, int person, int thing);
++	bool dialogTapWhile(int screenX, int screenY);
++	void dialogStep(int ticks);
++	void dialogChoose(int index);
++	void dialogDoes();
++	void dialogEnd(bool keep = true);
++	int moneyNow(int game) const;
++	void moneyShown(int game);
++	void doorValues(int game, int room, int door);
++	void entryValues(int game, int room);
+ 	// (From 0296 a place whose entry reads a value kept, kWorldValueArrivals:
+ 	// while it is so, the key its arrival is filed under; shown so.)
+ 	bool arrivedWith(int game, int room, int *key) const;
+@@ -770,6 +796,14 @@ private:
+ 	// its things file has it.)
+ 	struct Mi2Things { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	Mi2Things mi2ThingsPlayed();
++	// (From 0302 the "verbs" check's: Monkey Island 2's conversations as a
++	// player plays them, their choices tapped (the antique dealer's sale of
++	// the saw by the money carried, his own talk, the laundry's bucket), and
++	// what they lead to: the peg leg sawn, the woodsmith called away by the
++	// way out, his hammer taken; the mud in the bucket. Counted; `failed`
++	// where one is not as its talks file has it.)
++	struct Mi2Talks { int cases = 0, played = 0, kept = 0, failed = 0, choices = 0; };
++	Mi2Talks mi2TalksPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

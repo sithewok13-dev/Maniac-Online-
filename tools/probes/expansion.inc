@@ -6,8 +6,14 @@
 	}
 	for(uint i=0;i<NUM_SCRIPT_SLOT;++i) vm.slot[i].status=ssDead;
 	_currentScript=0xFF;_userPut=1;VAR(VAR_EGO)=3;_scummverseLastEgo=3;_scummverseRosterPending=false;
+	// Portraits of actors never drawn yet (straight after boot) must match the
+	// ones rendered later in play: V1 frames only update their masked limbs.
+	static unsigned char bootFaces[25][64*64*4];
+	scummverseRosterOffer(); memcpy(bootFaces,FakeFaces::pixels,sizeof(bootFaces));
 	if(!_scummverseRoamingReady || !scummverseTravel(1) || !_scummVars[764]) error("Expanded cast failed ready=%d v763=%d v764=%d room=%d reason=%s",_scummverseRoamingReady,_scummVars[763],_scummVars[764],_currentRoom,_scummverseWorldNotice.c_str());
 	for(int room=56;room<ScummverseContent::kRoomCount;++room) {
+		// Retired IDs are refused; their occupants belong to a logical scene.
+		if(ProbeCatalog::zakRetiredRoomReplacement(room)) { if(scummverseTravel(room-50)) error("Retired room %d accepted",room); continue; }
 		if(!scummverseTravel(room-50)) error("Room mount failed %d: %s",room,_scummverseWorldNotice.c_str());
 		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
 		Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/expanded-room-%d.ppm",room)))) {
@@ -15,7 +21,44 @@
 			for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);}
 		}
 	}
-	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24};
+	// Original logical scenes (rooms 128+) share a physical resource through
+	// the saved resource mapper; each mounts and survives save/load.
+	for(const auto &scene:ProbeCatalog::zakLogicalScenes) {
+		if(!scummverseTravel(scene.room-50) || _currentRoom!=scene.room) error("Logical scene %d failed: %s",scene.room,_scummverseWorldNotice.c_str());
+		stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
+		Common::String file;_saveLoadDescription="Logical scene";
+		if(!saveState(11,false,file)||!loadState(11,false)) error("Logical scene save failed %d",scene.room);
+		if(_currentRoom!=scene.room || _resourceMapper[scene.room&0x7F]!=scene.physical)
+			error("Logical scene %d lost on load: view %d mapper %d",scene.room,_currentRoom,_resourceMapper[scene.room&0x7F]);
+	}
+	// Original residents (the Nepal guard, the Guru and, since 0096, the rest
+	// of Zak's people who stay in one place) appear in their own scenes
+	// through the borrowed actor, and the mansion gets it back.
+	{
+		Actor *resident=derefActor(ProbeCatalog::kZakResidentActor,"resident probe"); const int maniacCostume=resident->_costume;
+		for(const auto &expected:ProbeCatalog::zakResidents) {
+			if(!scummverseTravel(expected.room-50)) error("Cannot visit resident %s",expected.name);
+			if(expected.atWindow) runObjectScript(ProbeCatalog::kZakBakeryBell,9,false,false,nullptr); // Called to the window.
+			stopTalk();VAR(VAR_HAVE_MSG)=0;for(int n=0;n<8;++n) scummLoop(4);
+			if(resident->_room!=expected.room || resident->_costume!=expected.costume || strcmp((const char *)getObjOrActorName(ProbeCatalog::kZakResidentActor),expected.name) || !resident->_visible)
+				error("Resident %s missing: room %d costume %d",expected.name,resident->_room,resident->_costume);
+			setCameraFollows(resident);for(int n=0;n<4;++n) scummLoop(4);
+			Common::DumpFile shot; if(shot.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/resident-%d.ppm",expected.room)))) {
+				Common::String header=Common::String::format("P6\n%d %d\n255\n",_screenWidth,_virtscr[0].h);shot.write(header.c_str(),header.size());
+				for(int y=0;y<_virtscr[0].h;++y) for(int x=0;x<_screenWidth;++x) {byte c=*_virtscr[0].getPixels(x,y);shot.write(_currentPalette+3*c,3);}
+			}
+			Common::String file;_saveLoadDescription="Resident";
+			if(!saveState(12,false,file)||!loadState(12,false)||resident->_room!=expected.room||resident->_costume!=expected.costume) error("Resident %s lost on load",expected.name);
+		}
+		// (Zak's apartment has no resident; the airports have some since 0096.)
+		if(!scummverseTravel(1) || resident->_room!=0 || resident->_costume!=maniacCostume || _scummVars[768]) error("Resident actor not returned: room %d costume %d",resident->_room,resident->_costume);
+		// A mansion scene using the actor (police ending) is never interrupted.
+		resident->putActor(35,63,4); scummverseTravel(17);
+		if(resident->_room!=4 || resident->_costume!=maniacCostume) error("Resident borrowed an actor in use by the mansion");
+		resident->putActor(0,0,0); scummverseTravel(3);
+	}
+	// (Actor 19 is the man-eating plant, not someone to play.)
+	const int cast[]={1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,20,21,22,23,24};
 	for(int id:cast) {
 		if(!scummverseSwitchActor(id)) error("Cannot switch actor %d room=%d costume=%d user=%d bus=%d ego=%d",id,derefActor(id,"switch failure")->_room,derefActor(id,"switch failure")->_costume,_userPut,_scummVars[765],VAR(VAR_EGO));
 		if(scummverseOnBus()) for(int tick=0;tick<4;++tick) scummverseServiceBus(60);
@@ -40,6 +83,7 @@
 	for(int id:cast) {
 		int count=0;for(int p=0;p<64*64;++p) if(FakeFaces::pixels[id][p*4+3]) ++count;
 		if(count<20) error("Empty portrait %d",id);
+		if(memcmp(bootFaces[id],FakeFaces::pixels[id],64*64*4)) error("Portrait %d drawn at boot differs from later (missing limbs)",id);
 		Common::DumpFile face; if(face.open(Common::Path(Common::String::format("/workspace/Maniac-Online/build/portrait-%d.ppm",id)))) {
 			const char *header="P6\n64 64\n255\n";face.write(header,strlen(header));
 			for(int p=0;p<64*64;++p) face.write(FakeFaces::pixels[id]+p*4,3);
@@ -60,33 +104,61 @@
 		for(int n=0;n<1200 && _currentRoom==link.room;++n) scummLoop(4);
 		if(_currentRoom!=link.destination) error("Exit failed %d/%d -> %d, actual %d",link.room,link.object,link.destination,_currentRoom);
 	}
-	// Every original pad hotspot opens the travel menu; Mars is immediately reachable.
-	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(84,745),Common::Point(69,734),Common::Point(65,734),Common::Point(76,747)}) {
+	// Every original crystal-map site has an active platform hotspot, and each
+	// pad command lands in that site's room (Seattle, Mexico, Nepal, Egypt,
+	// the Face on Mars, then Atlantis and the Mars pyramid, which the
+	// original map shows but never reaches): Atlantis is Fate of Atlantis's
+	// lost city when that game is installed, else nobody moves.
+	for(const auto &pad : {Common::Point(92,734),Common::Point(89,734),Common::Point(98,734),Common::Point(76,747),Common::Point(125,734),Common::Point(84,745)}) {
 		scummverseTravel(pad.x-50);int before=FakeAI::airportOffers;
-		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active");
+		runObjectScript(pad.y,11,false,false,nullptr);if(FakeAI::airportOffers!=before+1) error("Pad not active %d",pad.x);
 	}
-	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|53);scummverseUpdateRoaming(0);
-	if(_currentRoom!=84) error("Mars teleport failed");
+	const int padRooms[]={92,89,98,76,125,0,84};
+	for(int command=0;command<7;++command) {
+		scummverseTravel(3);
+		const int from=_currentRoom;
+		scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|(50+command));scummverseUpdateRoaming(0);
+		int source; const int game=scummverseWorldGameOf(_currentRoom,source);
+		if(padRooms[command] ? _currentRoom!=padRooms[command] : !(game==4 && source==36) && !(_currentRoom==from && _scummverseWorldNotice.contains("isn't installed")))
+			error("Teleport %d reached %d (game %d source %d), expected %d",command,_currentRoom,game,source,padRooms[command]);
+	}
+	scummverseTravel(125-50);
+	scummverseWorldRequest(((_currentRoom*32+VAR(VAR_EGO))<<8)|57);scummverseUpdateRoaming(0);
+	if(_currentRoom!=125) error("Out-of-range teleport command moved the player");
+	// Peru carving: walkers cannot cross the valley (original refusal lines);
+	// the bird feeder carries them to the ledge at the original arrival point,
+	// and the ledge, eye chambers and valley form the original graph.
+	if(!scummverseTravel(46)) error("Cannot reach Peru carving");
+	runObjectScript(733,13,false,false,nullptr);
+	if(_currentRoom!=96 || !(getState(733)&4)) error("Carving let a walker cross the valley");
+	runObjectScript(733,13,false,false,nullptr); if(_currentRoom!=96) error("Second carving attempt crossed");
+	runObjectScript(736,13,false,false,nullptr);
+	{ Actor *p=derefActor(VAR(VAR_EGO),"carving visitor");
+	  if(_currentRoom!=69 || p->getRealPos()!=Common::Point(61,51)) error("Bird traversal failed: room %d at %d,%d",_currentRoom,p->getRealPos().x,p->getRealPos().y); }
+	for(const auto &step : {Common::Point(739,97),Common::Point(738,69),Common::Point(740,98),Common::Point(738,69),Common::Point(741,96)}) {
+		runObjectScript(step.x,13,false,false,nullptr);
+		if(_currentRoom!=step.y) error("Carving graph step %d reached %d, expected %d",step.x,_currentRoom,step.y);
+	}
 	if(!scummverseTravel(5)) error("Street failed");
 	for(int n=0;n<300;++n) scummverseServiceBus(4);
 	if(_scummVars[765] || _currentRoom!=55) error("Bus departed without request");
 	scummverseWaitBus();if(!_scummVars[765]) error("Bus ignored request");
-	for(int n=0;n<20;++n) scummverseServiceBus(4);
+	for(int n=0;n<kBusBoarding/4+5;++n) scummverseServiceBus(4);
 	if(derefActor(VAR(VAR_EGO),"boarded rider")->_visible) error("Passenger drawn outside moving bus");
-	for(int n=0;n<20;++n) scummverseServiceBus(4);
+	for(int n=0;n<40;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || _scummVars[765]) error("Bus did not deliver passenger");
 	// Switching to an NPC already aboard must follow its bus to the airport.
-	_scummVars[765]=70;_scummVars[766]=(1u<<18)|(1u<<19);_scummVars[767]=0;
- for(int id : {18,19}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
+	_scummVars[765]=kBusBoarding+10;_scummVars[766]=(1u<<18)|(1u<<17);_scummVars[767]=0;
+ for(int id : {18,17}) derefActor(id,"NPC bus rider")->putActor(103,61,55);
 	if(!scummverseSwitchActor(18) || _currentRoom!=55 || _scummVars[767]!=18) error("Cannot take over bus passenger");
- for(int id : {18,19}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
+ for(int id : {18,17}) if(derefActor(id,"takeover visibility")->_visible) error("Bus rider visible immediately after takeover");
  Common::String busSave; _saveLoadDescription="Moving bus visibility";
  if(!saveState(9,false,busSave) || !loadState(9,false)) error("Bus save/load failed");
- for(int id : {18,19}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
- if(_scummVars[765]!=70 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
+ for(int id : {18,17}) if(derefActor(id,"restored bus visibility")->_visible) error("Bus rider visible immediately after load");
+ if(_scummVars[765]!=kBusBoarding+10 || !(_scummVars[766] & (1u<<18))) error("Bus save lost travel state");
 	scummverseServiceBus(60);scummverseServiceBus(60);
 	if(_currentRoom!=53) error("Passenger takeover lost bus arrival");
- for(int id : {18,19}) {
+ for(int id : {18,17}) {
   Actor *a=derefActor(id,"arriving bus rider");
   if(a->_room!=53 || !a->_visible) error("Bus rider missing on arrival");
  }
@@ -94,4 +166,31 @@
 	Common::String filename;_saveLoadDescription="Expanded worlds";
 	if(!saveState(8,false,filename)||!loadState(8,false)) error("Expanded save failed");
 	if(VAR(VAR_EGO)!=24 || !_scummVars[764]) error("Saved roster lost");
+	// A pre-0044 save made inside a retired room (sandbox-only Zaire temple)
+	// with a second occupant in the retired Peru chamber: both move to the
+	// original scenes those rooms stood in for, and the view follows.
+	{
+		Actor *zakActor=derefActor(24,"retired room player"), *annie=derefActor(20,"retired room occupant");
+		if(!scummverseTravel(13) || !scummverseMountExtra(64) || !scummverseMountExtra(98)) error("Cannot prepare retired-room save");
+		annie->stopActorMoving(); annie->putActor(20,60,98);
+		zakActor->putActor(20,60,64); startScene(64,zakActor,0); _scummVars[528]=1;
+		_saveLoadDescription="Retired room";
+		if(!saveState(9,false,filename)||!loadState(9,false)) error("Retired-room save failed");
+		if(_currentRoom!=63 || zakActor->_room!=63 || annie->_room!=96 || _scummVars[528]!=5)
+			error("Retired-room migration failed: view %d player %d occupant %d schema %d",_currentRoom,zakActor->_room,annie->_room,_scummVars[528]);
+	}
+	// Zak costume 27 is "The King" in the original; old saves carry the
+	// sandbox's former label and are renamed on load.
+	if(strcmp((const char *)getObjOrActorName(17),"The King")) error("Actor 17 is not The King after migration");
+	memcpy(_res->createResource(rtActorName,17,12),"Alien pilot",12); _scummVars[528]=2;
+	_saveLoadDescription="Legacy King name";
+	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy-name save failed");
+	if(strcmp((const char *)getObjOrActorName(17),"The King") || _scummVars[528]<3) error("Legacy actor name not migrated");
+	// Scene schema 4: a pre-0055 save made while the bus drove (old phases
+	// 61..149) keeps driving from the same point under the longer boarding.
+	_scummVars[765]=100; _scummVars[766]=0; _scummVars[767]=0; _scummVars[528]=3;
+	_saveLoadDescription="Legacy bus phase";
+	if(!saveState(10,false,filename)||!loadState(10,false)) error("Legacy bus save failed");
+	if(_scummVars[765]!=100+kBusBoarding-60 || _scummVars[528]!=5) error("Legacy bus phase not migrated: %d schema %d",_scummVars[765],_scummVars[528]);
+	_scummVars[765]=0;
 	warning("SCUMMVERSE_EXPANSION_PASS enabled=1");quitGame();

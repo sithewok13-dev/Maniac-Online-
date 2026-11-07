@@ -1,0 +1,2794 @@
+diff --git a/common/module.mk b/common/module.mk
+index 2b26b5f3..de16b37e 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -36,6 +36,7 @@ MODULE_OBJS := \
+ 	scummverse_stage.o \
+ 	scummverse_panel.o \
+ 	scummverse_restore.o \
++	scummverse_duel.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_duel.cpp b/common/scummverse_duel.cpp
+new file mode 100644
+index 00000000..b60b40ab
+--- /dev/null
++++ b/common/scummverse_duel.cpp
+@@ -0,0 +1,447 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: insult sword fighting by a game's own rules (from 0298). See
++// scummverse_duel.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_duel.h"
++#include "common/scummverse_duel_engine.h"
++
++#include <cstring>
++#include <map>
++
++namespace Scummverse {
++namespace Duel {
++
++bool Rules::accepts(int insult, int comeback) const {
++	if (insult <= 0 || insult > insults || comeback <= 0 || 3 * insult + 2 >= (int)accepted.size()) return false;
++	for (int k = 0; k < 3; ++k) if (accepted[3 * insult + k] == comeback) return true;
++	return false;
++}
++
++bool Rules::valid() const {
++	auto in = [](int v, int lo, int hi) { return v >= lo && v <= hi; };
++	if (!in(insults, 1, kMostInsults) || !in(comebacks, 1, kMostComebacks) || (int)accepted.size() != 3 * (insults + 1)) return false;
++	if (!in(ownFirst, 1, insults) || !in(ownLast, ownFirst, insults) || !in(masterFirst, 1, insults) || !in(masterLast, masterFirst, insults)) return false;
++	// (Learned insults below the fallbacks, comebacks below those that lose.)
++	if (!in(fallbackFrom, 2, insults) || ownLast >= fallbackFrom || masterLast >= fallbackFrom || !in(insultGiveUp, fallbackFrom, insults)) return false;
++	if (!in(loseFrom, 2, comebacks) || !in(repeat, loseFrom, comebacks) || !in(giveUp, loseFrom, comebacks) || repeat == giveUp) return false;
++	if (!in(masterTarget, 1, 99) || !in(pirateTarget, 1, 99) || !in(tries, 1, 99) || !in(skillRange, 1, 99) || !in(wrongCount, 1, comebacks - loseFrom + 1) ||
++		!in(fallbackLines, 0, 16)) return false;
++	for (int n = 0; n <= insults; ++n)
++		for (int k = 0; k < 3; ++k) if (!in(accepted[3 * n + k], 0, comebacks) || (n == 0 && accepted[k])) return false;
++	return true;
++}
++
++std::vector<const Line *> Data::said(int kind, int which) const {
++	std::vector<const Line *> out;
++	for (const Line &l : lines) if (l.kind == kind && l.which == which) out.push_back(&l);
++	return out;
++}
++
++int Data::variants(int kind) const {
++	int n = 0;
++	while (!said(kind, n).empty()) ++n;
++	return n;
++}
++
++const Type *Data::type(int t) const {
++	for (const Type &x : types) if (x.type == t) return &x;
++	return nullptr;
++}
++
++const Outcome *Data::outcome(int kind, int which) const {
++	for (const Outcome &o : outcomes) if (o.kind == kind && o.which == which) return &o;
++	return nullptr;
++}
++
++// ---- The file ("SVD1", little-endian) ----
++// "SVD1"; u8 insults, comebacks, ownFirst, ownLast, masterFirst,
++// masterLast, loseFrom, repeat, giveUp, fallbackFrom, insultGiveUp,
++// masterTarget, pirateTarget, tries, skillRange, wrongCount, fallbackLines;
++// per insult 1..insults three u8 comebacks it takes (0 none); u8 types, per
++// type u8 type, skill, colour, u16 costume; u16 lines, per line u8 kind,
++// which, speaker, colour (255: the speaker's own), u8 length and its bytes;
++// u16 outcomes, per outcome u8 kind, which, flags, u8 leaves and per leave
++// u16 variable, s16 value. Nothing after.
++
++namespace {
++struct Reader {
++	const uint8_t *p, *end;
++	bool ok;
++	int u8() { if (p >= end) { ok = false; return 0; } return *p++; }
++	int u16() { const int lo = u8(); return lo | u8() << 8; }
++	int s16() { const int v = u16(); return v >= 0x8000 ? v - 0x10000 : v; }
++};
++}
++
++bool parse(const uint8_t *data, size_t size, Data &out, std::string &error) {
++	out = Data();
++	if (!data || size < 4 || std::memcmp(data, "SVD1", 4)) { error = "not a fight file"; return false; }
++	Reader r = {data + 4, data + size, true};
++	Rules &u = out.rules;
++	int *fields[] = {&u.insults, &u.comebacks, &u.ownFirst, &u.ownLast, &u.masterFirst, &u.masterLast, &u.loseFrom, &u.repeat, &u.giveUp,
++		&u.fallbackFrom, &u.insultGiveUp, &u.masterTarget, &u.pirateTarget, &u.tries, &u.skillRange, &u.wrongCount, &u.fallbackLines};
++	for (int *f : fields) *f = r.u8();
++	if (!r.ok || u.insults < 1 || u.insults > kMostInsults) { error = "its insults"; out = Data(); return false; }
++	u.accepted.assign(3 * (u.insults + 1), 0);
++	for (int n = 1; n <= u.insults; ++n) for (int k = 0; k < 3; ++k) u.accepted[3 * n + k] = r.u8();
++	if (!r.ok || !u.valid()) { error = "its rules"; out = Data(); return false; }
++	const int types = r.u8();
++	for (int i = 0; i < types && r.ok; ++i) {
++		Type t;
++		t.type = r.u8(); t.skill = r.u8(); t.color = r.u8(); t.costume = r.u16();
++		if (out.type(t.type) || t.skill > u.skillRange + 1) { error = "its types"; out = Data(); return false; }
++		out.types.push_back(t);
++	}
++	const int lines = r.u16();
++	if (!r.ok || lines > kMostLines) { error = "its lines"; out = Data(); return false; }
++	for (int i = 0; i < lines && r.ok; ++i) {
++		Line l;
++		l.kind = r.u8(); l.which = r.u8(); l.speaker = r.u8();
++		const int color = r.u8();
++		l.color = color == 255 ? -1 : color;
++		const int length = r.u8();
++		if (r.end - r.p < length) { r.ok = false; break; }
++		l.text.assign((const char *)r.p, length);
++		r.p += length;
++		if (l.kind < kLineInsult || l.kind >= kLineKinds || (l.speaker != kSpeakerPlayed && l.speaker != kSpeakerOpponent && l.speaker != kSpeakerNone) ||
++			l.text.empty() || l.text.find('\0') != std::string::npos ||
++			(l.kind == kLineInsult && (l.which < 1 || l.which > u.insults)) || (l.kind == kLineComeback && (l.which < 1 || l.which > u.comebacks))) {
++			error = "a line"; out = Data(); return false;
++		}
++		out.lines.push_back(l);
++	}
++	const int outcomes = r.ok ? r.u16() : 0;
++	if (!r.ok || outcomes > kMostOutcomes) { error = "its outcomes"; out = Data(); return false; }
++	for (int i = 0; i < outcomes && r.ok; ++i) {
++		Outcome o;
++		o.kind = r.u8(); o.which = r.u8(); o.flags = r.u8();
++		const int leaves = r.u8();
++		if (leaves > kMostLeaves || o.flags > (kFights | kGoesHome | kTalkEnds) || out.outcome(o.kind, o.which)) { error = "an outcome"; out = Data(); return false; }
++		for (int k = 0; k < leaves; ++k) { o.leaves.push_back(r.u16()); o.leaves.push_back(r.s16()); }
++		out.outcomes.push_back(o);
++	}
++	if (!r.ok) { error = "cut short"; out = Data(); return false; }
++	if (r.p != r.end) { error = "more after its end"; out = Data(); return false; }
++	return true;
++}
++
++std::vector<uint8_t> write(const Data &d) {
++	std::vector<uint8_t> o = {'S', 'V', 'D', '1'};
++	auto u8 = [&](int v) { o.push_back((uint8_t)v); };
++	auto u16 = [&](int v) { u8(v & 0xFF); u8((v >> 8) & 0xFF); };
++	const Rules &u = d.rules;
++	for (int v : {u.insults, u.comebacks, u.ownFirst, u.ownLast, u.masterFirst, u.masterLast, u.loseFrom, u.repeat, u.giveUp, u.fallbackFrom, u.insultGiveUp,
++		u.masterTarget, u.pirateTarget, u.tries, u.skillRange, u.wrongCount, u.fallbackLines}) u8(v);
++	for (int n = 1; n <= u.insults; ++n) for (int k = 0; k < 3; ++k) u8(3 * n + k < (int)u.accepted.size() ? u.accepted[3 * n + k] : 0);
++	u8((int)d.types.size());
++	for (const Type &t : d.types) { u8(t.type); u8(t.skill); u8(t.color); u16(t.costume); }
++	u16((int)d.lines.size());
++	for (const Line &l : d.lines) {
++		const size_t length = l.text.size() < (size_t)kMostLineBytes ? l.text.size() : (size_t)kMostLineBytes;
++		u8(l.kind); u8(l.which); u8(l.speaker); u8(l.color < 0 ? 255 : l.color); u8((int)length);
++		o.insert(o.end(), l.text.begin(), l.text.begin() + length);
++	}
++	u16((int)d.outcomes.size());
++	for (const Outcome &c : d.outcomes) {
++		u8(c.kind); u8(c.which); u8(c.flags); u8((int)c.leaves.size() / 2);
++		for (size_t k = 0; k + 1 < c.leaves.size(); k += 2) { u16(c.leaves[k]); u16(c.leaves[k + 1] & 0xFFFF); }
++	}
++	return o;
++}
++
++// ---- The fight ----
++
++int Draws::upTo(int n) {
++	// (xorshift32: the same on every platform.)
++	_state ^= _state << 13; _state ^= _state >> 17; _state ^= _state << 5;
++	return n <= 0 ? 0 : (int)(_state % (uint32_t)(n + 1));
++}
++
++void Fight::start(const Rules &rules, bool master, int skill, uint32_t seed) {
++	_rules = &rules;
++	_master = master; _skill = skill;
++	_over = !rules.valid(); _won = _gaveUp = false;
++	_player = _opponent = _insult = 0;
++	_usedByPlayer = _usedByOpponent = 0;
++	// (Script 87's mode 2 against the master: she insults; mode 3 against a
++	// pirate, the one played first, as its talk's choice to fight sets it.)
++	_playerTurn = !master;
++	_draws.reseed(seed);
++}
++
++Fight::Turn Fight::turn() const {
++	return _over ? kOver : _playerTurn ? kPlayerInsults : kOpponentInsults;
++}
++
++int Fight::target() const {
++	return !_rules ? 0 : _master ? _rules->masterTarget : _rules->pirateTarget;
++}
++
++// (Script 80: theirs at random, one not used yet this fight, `tries` times;
++// heard the first time, learned, and kept off the one played's list until
++// the next fight.)
++int Fight::opponentInsult(Learned &learned) {
++	if (turn() != kOpponentInsults) return 0;
++	if (_insult) return _insult; // (asked again)
++	const int first = _master ? _rules->masterFirst : _rules->ownFirst, last = _master ? _rules->masterLast : _rules->ownLast;
++	int n = first;
++	for (int t = 0; t < _rules->tries; ++t) {
++		n = first + _draws.upTo(last - first);
++		if (!(_usedByOpponent >> n & 1)) break;
++	}
++	if (n < _rules->fallbackFrom && !learned.insult(n)) { learned.learnInsult(n); _usedByPlayer |= (uint64_t)1 << n; }
++	if (n < _rules->fallbackFrom) _usedByOpponent |= (uint64_t)1 << n;
++	return _insult = n;
++}
++
++std::vector<int> Fight::comebacks(const Learned &learned) const {
++	std::vector<int> out;
++	if (!_rules) return out;
++	for (int n = 1; n <= _rules->comebacks; ++n) if (n >= _rules->loseFrom || learned.comeback(n)) out.push_back(n);
++	return out;
++}
++
++std::vector<int> Fight::insults(const Learned &learned) const {
++	std::vector<int> out;
++	if (!_rules) return out;
++	for (int n = 1; n <= _rules->insults; ++n)
++		if (n >= _rules->fallbackFrom || (learned.insult(n) && !(_usedByPlayer >> n & 1))) out.push_back(n);
++	return out;
++}
++
++// (Script 71: a point, the one who won it insults next (the master insults
++// each exchange: script 87's mode 2); the first to the target wins.)
++Fight::Result Fight::point(bool player) {
++	_insult = 0;
++	if (player) ++_player; else ++_opponent;
++	_playerTurn = player && !_master;
++	if (_opponent >= target()) { _over = true; _won = false; }
++	if (_player >= target()) { _over = true; _won = true; }
++	return player ? kPlayerPoint : kOpponentPoint;
++}
++
++// (Scripts 76, 78 and 84.)
++Fight::Result Fight::answer(int comeback) {
++	if (turn() != kOpponentInsults || !_insult) return kNone;
++	const Rules &u = *_rules;
++	if (comeback == u.repeat) return kRepeated;
++	if (comeback == u.giveUp) { _over = true; _won = false; _gaveUp = true; _insult = 0; return kGaveUp; }
++	if (comeback <= 0 || comeback > u.comebacks) return kNone;
++	return point(comeback < u.loseFrom && u.accepts(_insult, comeback));
++}
++
++// (Scripts 77, 79, 81 and 84.)
++Fight::Result Fight::insult(int insult, Learned &learned, int &reply) {
++	reply = 0;
++	if (turn() != kPlayerInsults || insult <= 0 || insult > _rules->insults) return kNone;
++	const Rules &u = *_rules;
++	if (insult == u.insultGiveUp) { _over = true; _won = false; _gaveUp = true; return kGaveUp; }
++	if (insult < u.fallbackFrom) _usedByPlayer |= (uint64_t)1 << insult;
++	if (insult >= u.fallbackFrom) { reply = kReplyFallback + (u.fallbackLines > 0 ? _draws.upTo(u.fallbackLines - 1) : 0); return point(false); }
++	// (One of the master's, on a pirate: its own line, and the exchange won.)
++	if (insult > u.ownLast) { reply = kReplyMaster; return point(true); }
++	const int comeback = _draws.upTo(u.skillRange) < _skill ? insult : u.loseFrom + _draws.upTo(u.wrongCount - 1);
++	if (comeback < u.loseFrom) learned.learnComeback(comeback);
++	reply = comeback;
++	return point(!(comeback < u.loseFrom && u.accepts(insult, comeback)));
++}
++
++} // End of namespace Duel
++
++// ---- The engine's bridge (scummverse_duel_engine.h) ----
++
++namespace DuelBridge {
++namespace {
++std::map<int, Duel::Data> &files() { static std::map<int, Duel::Data> f; return f; }
++struct Under { int game = -1; Duel::Fight fight; };
++Under &under() { static Under u; return u; }
++Duel::Data &building() { static Duel::Data d; return d; }
++bool &begun() { static bool b = false; return b; }
++const Duel::Data *file(int game) {
++	auto it = files().find(game);
++	return it == files().end() ? nullptr : &it->second;
++}
++void copy(const std::string &from, char *text, int capacity) {
++	if (!text || capacity <= 0) return;
++	const size_t n = from.size() < (size_t)capacity - 1 ? from.size() : (size_t)capacity - 1;
++	std::memcpy(text, from.data(), n);
++	text[n] = 0;
++}
++Duel::Learned learnedOf(unsigned long long insults, unsigned comebacks) {
++	Duel::Learned l;
++	l.insults = insults; l.comebacks = comebacks;
++	return l;
++}
++int listed(const std::vector<int> &v, int *out, int capacity) {
++	for (size_t i = 0; out && i < v.size() && (int)i < capacity; ++i) out[i] = v[i];
++	return (int)v.size();
++}
++} // End of anonymous namespace
++
++// (Read into one of its own first; the game's file replaced only when it
++// is whole, none kept when it is not. A fight under way of that game ended
++// either way: it points at the rules it replaces.)
++bool load(int game, const unsigned char *data, size_t size, char *error, int capacity) {
++	if (under().game == game) under() = Under();
++	Duel::Data d;
++	std::string why;
++	if (!Duel::parse(data, size, d, why)) { files().erase(game); copy(why, error, capacity); return false; }
++	files()[game] = d;
++	return true;
++}
++
++bool loaded(int game) { return file(game) != nullptr; }
++
++void clear() { files().clear(); under() = Under(); }
++
++int rule(int game, const char *name) {
++	const Duel::Data *d = file(game);
++	if (!d || !name) return -1;
++	const Duel::Rules &u = d->rules;
++	const struct { const char *name; int value; } rules[] = {{"insults", u.insults}, {"comebacks", u.comebacks}, {"ownFirst", u.ownFirst},
++		{"ownLast", u.ownLast}, {"masterFirst", u.masterFirst}, {"masterLast", u.masterLast}, {"loseFrom", u.loseFrom}, {"repeat", u.repeat},
++		{"giveUp", u.giveUp}, {"fallbackFrom", u.fallbackFrom}, {"insultGiveUp", u.insultGiveUp}, {"masterTarget", u.masterTarget},
++		{"pirateTarget", u.pirateTarget}};
++	for (const auto &r : rules) if (!std::strcmp(r.name, name)) return r.value;
++	return -1;
++}
++
++bool accepts(int game, int insult, int comeback) {
++	const Duel::Data *d = file(game);
++	return d && d->rules.accepts(insult, comeback);
++}
++
++bool type(int game, int t, int &skill, int &color, int &costume) {
++	const Duel::Data *d = file(game);
++	const Duel::Type *x = d ? d->type(t) : nullptr;
++	if (!x) return false;
++	skill = x->skill; color = x->color; costume = x->costume;
++	return true;
++}
++
++int lines(int game, int kind, int which) {
++	const Duel::Data *d = file(game);
++	return d ? (int)d->said(kind, which).size() : 0;
++}
++
++bool line(int game, int kind, int which, int index, int &speaker, int &color, char *text, int capacity) {
++	const Duel::Data *d = file(game);
++	if (!d) return false;
++	const std::vector<const Duel::Line *> said = d->said(kind, which);
++	if (index < 0 || index >= (int)said.size()) return false;
++	speaker = said[index]->speaker; color = said[index]->color;
++	copy(said[index]->text, text, capacity);
++	return true;
++}
++
++int variants(int game, int kind) {
++	const Duel::Data *d = file(game);
++	return d ? d->variants(kind) : 0;
++}
++
++bool outcome(int game, int kind, int which, int &flags, int *leaves, int &count, int capacity) {
++	const Duel::Data *d = file(game);
++	const Duel::Outcome *o = d ? d->outcome(kind, which) : nullptr;
++	count = 0; flags = 0;
++	if (!o) return false;
++	flags = o->flags;
++	for (size_t k = 0; k + 1 < o->leaves.size() && count < capacity; k += 2, ++count) { leaves[2 * count] = o->leaves[k]; leaves[2 * count + 1] = o->leaves[k + 1]; }
++	return true;
++}
++
++bool start(int game, bool master, int skill, unsigned seed) {
++	const Duel::Data *d = file(game);
++	under() = Under();
++	if (!d) return false;
++	under().game = game;
++	under().fight.start(d->rules, master, skill, seed);
++	return !under().fight.over();
++}
++
++int turn() { return under().game < 0 ? kOver : (int)under().fight.turn(); }
++
++int opponentInsult(unsigned long long &insults, unsigned &comebacks) {
++	if (under().game < 0) return 0;
++	Duel::Learned l = learnedOf(insults, comebacks);
++	const int n = under().fight.opponentInsult(l);
++	insults = l.insults; comebacks = l.comebacks;
++	return n;
++}
++
++int insultNow() { return under().game < 0 ? 0 : under().fight.insultNow(); }
++
++int comebacks(unsigned long long insults, unsigned comebacks, int *out, int capacity) {
++	return under().game < 0 ? 0 : listed(under().fight.comebacks(learnedOf(insults, comebacks)), out, capacity);
++}
++
++int insults(unsigned long long insults, unsigned comebacks, int *out, int capacity) {
++	return under().game < 0 ? 0 : listed(under().fight.insults(learnedOf(insults, comebacks)), out, capacity);
++}
++
++int answer(int comeback) { return under().game < 0 ? kNone : (int)under().fight.answer(comeback); }
++
++int insult(int n, unsigned long long &insults, unsigned &comebacks, int &reply) {
++	reply = 0;
++	if (under().game < 0) return kNone;
++	Duel::Learned l = learnedOf(insults, comebacks);
++	const int result = (int)under().fight.insult(n, l, reply);
++	insults = l.insults; comebacks = l.comebacks;
++	return result;
++}
++
++int playerScore() { return under().game < 0 ? 0 : under().fight.playerScore(); }
++int opponentScore() { return under().game < 0 ? 0 : under().fight.opponentScore(); }
++int target() { return under().game < 0 ? 0 : under().fight.target(); }
++bool won() { return under().game >= 0 && under().fight.playerWon(); }
++bool gaveUp() { return under().game >= 0 && under().fight.gaveUp(); }
++int draw(int n) { return under().game < 0 ? 0 : under().fight.draw(n); }
++
++void begin(const int *rules, const int *accepted) {
++	Duel::Data &d = building();
++	d = Duel::Data();
++	begun() = rules && accepted;
++	if (!begun()) return;
++	Duel::Rules &u = d.rules;
++	int *fields[] = {&u.insults, &u.comebacks, &u.ownFirst, &u.ownLast, &u.masterFirst, &u.masterLast, &u.loseFrom, &u.repeat, &u.giveUp,
++		&u.fallbackFrom, &u.insultGiveUp, &u.masterTarget, &u.pirateTarget, &u.tries, &u.skillRange, &u.wrongCount, &u.fallbackLines};
++	for (int k = 0; k < 17; ++k) *fields[k] = rules[k];
++	if (u.insults < 1 || u.insults > Duel::kMostInsults) { begun() = false; return; }
++	u.accepted.assign(3 * (u.insults + 1), 0);
++	for (int n = 1; n <= u.insults; ++n) for (int k = 0; k < 3; ++k) u.accepted[3 * n + k] = accepted[3 * (n - 1) + k];
++}
++
++void addType(int t, int skill, int color, int costume) {
++	if (!begun()) return;
++	Duel::Type x;
++	x.type = t; x.skill = skill; x.color = color; x.costume = costume;
++	building().types.push_back(x);
++}
++
++void addLine(int kind, int which, int speaker, int color, const char *text) {
++	if (!begun() || !text || !*text) return;
++	Duel::Line l;
++	l.kind = kind; l.which = which; l.speaker = speaker; l.color = color; l.text = text;
++	building().lines.push_back(l);
++}
++
++void addOutcome(int kind, int which, int flags, const int *leaves, int count) {
++	if (!begun()) return;
++	Duel::Outcome o;
++	o.kind = kind; o.which = which; o.flags = flags;
++	for (int k = 0; k < count && leaves; ++k) { o.leaves.push_back(leaves[2 * k]); o.leaves.push_back(leaves[2 * k + 1]); }
++	building().outcomes.push_back(o);
++}
++
++int written(unsigned char *out, int capacity) {
++	if (!begun()) return 0;
++	const std::vector<uint8_t> bytes = Duel::write(building());
++	Duel::Data check;
++	std::string why;
++	if (!Duel::parse(bytes.data(), bytes.size(), check, why)) return 0;
++	if (out && capacity >= (int)bytes.size()) std::memcpy(out, bytes.data(), bytes.size());
++	return (int)bytes.size();
++}
++
++} // End of namespace DuelBridge
++} // End of namespace Scummverse
+diff --git a/common/scummverse_duel.h b/common/scummverse_duel.h
+new file mode 100644
+index 00000000..37328c71
+--- /dev/null
++++ b/common/scummverse_duel.h
+@@ -0,0 +1,155 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: insult sword fighting by a game's own rules (from 0298;
++// Monkey Island's: its global scripts 71, 72, 76 to 81, 84, 86, 87, 97, 157
++// and 158, read with descumm, nothing copied), for the new engine
++// (engines/scummverse). Plain C++, no ScummVM types; tools/test_duel.cpp.
++//
++// What a fight file holds ("<game>-duel.svd", "SVD1", written by the
++// game's own SCUMM engine as it exports its places, from its scripts: see
++// ScummEngine::scummverseExportDuel) is read by parse(); its lines are the
++// game's own, from its data at export time (none are written here).
++//
++// A fight, as its scripts play it (Fight): the score of each side is the
++// exchanges it has won; the first to its target wins (`masterTarget`
++// against the master, `pirateTarget` against a pirate). Against the master
++// she insults each exchange (script 87, its mode 2); against a pirate the
++// one played insults first and then whoever won the last exchange (mode 3).
++// - Insulted (scripts 80, 76, 78): the opponent's insult is one of theirs
++//   (the master's `masterFirst` to `masterLast`, a pirate's `ownFirst` to
++//   `ownLast`) not used yet in this fight, tried at random up to `tries`
++//   times (else the last tried); heard for the first time it is learned,
++//   but not listed until the next fight. The one played answers from the
++//   comebacks learned (in their numbers' order) and those from `loseFrom`
++//   on (always listed): `repeat` has it said again (no exchange), `giveUp`
++//   loses the fight at once, any other from `loseFrom` on loses the
++//   exchange; else the exchange is theirs if the insult takes that comeback
++//   (up to three, `accepted`; script 84), the opponent's if not.
++// - Insulting (scripts 77, 79, 81): from the insults learned not used yet in
++//   this fight (nor learned during it) and those from `fallbackFrom` on;
++//   `insultGiveUp` loses the fight at once, any other from `fallbackFrom` on
++//   loses the exchange (the opponent says one of its lines for it). One of
++//   the master's used on a pirate wins it (the pirate's own line). Else the
++//   pirate answers right with a chance of its skill in `skillRange` + 1
++//   (script 79: a draw from 0 to skillRange below its skill), and the
++//   comeback it answers with is learned; else with one of `wrongCount` from
++//   `loseFrom` on, and the exchange is the one played's.
++// The draws are its game's getRandomNr: 0 to n, both included, from a
++// seeded generator of its own (the same seed, the same fight).
++#ifndef COMMON_SCUMMVERSE_DUEL_H
++#define COMMON_SCUMMVERSE_DUEL_H
++
++#include "common/scummverse_duel_engine.h"
++
++#include <stddef.h>
++#include <stdint.h>
++#include <string>
++#include <vector>
++
++namespace Scummverse {
++namespace Duel {
++
++struct Rules {
++	int insults = 0, comebacks = 0;
++	int ownFirst = 0, ownLast = 0, masterFirst = 0, masterLast = 0;
++	int loseFrom = 0, repeat = 0, giveUp = 0, fallbackFrom = 0, insultGiveUp = 0;
++	int masterTarget = 0, pirateTarget = 0;
++	int tries = 0, skillRange = 0, wrongCount = 0, fallbackLines = 0;
++	// accepted[3 * n + k]: the k-th comeback insult n takes (0 none); n from 1.
++	std::vector<int> accepted;
++	bool accepts(int insult, int comeback) const;
++	bool valid() const; // (numbers in range, as parse checks)
++};
++
++// What the one played has learned (bit n: number n), kept between fights.
++struct Learned {
++	uint64_t insults = 0;
++	uint32_t comebacks = 0;
++	bool insult(int n) const { return n > 0 && n < 64 && (insults >> n & 1); }
++	bool comeback(int n) const { return n > 0 && n < 32 && (comebacks >> n & 1); }
++	void learnInsult(int n) { if (n > 0 && n < 64) insults |= (uint64_t)1 << n; }
++	void learnComeback(int n) { if (n > 0 && n < 32) comebacks |= (uint32_t)1 << n; }
++};
++
++struct Line { int kind = 0, which = 0, speaker = kSpeakerNone, color = -1; std::string text; };
++struct Outcome { int kind = 0, which = 0, flags = 0; std::vector<int> leaves; };
++// A pirate's (or the master's) type: its skill, talk colour and costume.
++struct Type { int type = 0, skill = 0, color = 0, costume = 0; };
++
++struct Data {
++	Rules rules;
++	std::vector<Type> types;
++	std::vector<Line> lines;
++	std::vector<Outcome> outcomes;
++	// (Lines of a kind and which, in order; one type, one outcome; null none.)
++	std::vector<const Line *> said(int kind, int which) const;
++	int variants(int kind) const; // (how many `which` a kind of variants has: 0..n-1)
++	const Type *type(int type) const;
++	const Outcome *outcome(int kind, int which) const;
++};
++// Bytes of a "SVD1" file (uncompressed); false (with `error`) when malformed.
++bool parse(const uint8_t *data, size_t size, Data &out, std::string &error);
++// And written so (the export's and the tests'): parse(write(d)) gives d.
++std::vector<uint8_t> write(const Data &d);
++
++// Its game's getRandomNr: 0 to n, both included; seeded.
++class Draws {
++public:
++	explicit Draws(uint32_t seed = 1) { reseed(seed); }
++	void reseed(uint32_t seed) { _state = seed ? seed : 0x9E3779B9u; }
++	int upTo(int n);
++	uint32_t state() const { return _state; }
++private:
++	uint32_t _state;
++};
++
++class Fight {
++public:
++	enum Turn { kOver, kOpponentInsults, kPlayerInsults };
++	// An exchange's end: none yet, a point each way, the insult asked again,
++	// or the fight given up.
++	enum Result { kNone, kPlayerPoint, kOpponentPoint, kRepeated, kGaveUp };
++	// What the opponent answers an insult with: a comeback's number, or one
++	// of its lines for a fallback insult (kReplyFallback + its variant), or
++	// its line for one of the master's.
++	static const int kReplyFallback = 1000, kReplyMaster = 2000;
++
++	// Against the master (she insults each exchange) or a pirate of `skill`
++	// (the one played insults first).
++	void start(const Rules &rules, bool master, int skill, uint32_t seed);
++	Turn turn() const;
++	bool master() const { return _master; }
++	int target() const;
++	int playerScore() const { return _player; }
++	int opponentScore() const { return _opponent; }
++	bool over() const { return _over; }
++	bool playerWon() const { return _over && _won; }
++	bool gaveUp() const { return _over && _gaveUp; }
++	// The opponent insults (kOpponentInsults): its insult, learned by the one
++	// played the first time heard. Asked again (kRepeated) it is the same.
++	int opponentInsult(Learned &learned);
++	int insultNow() const { return _insult; }
++	// The comebacks the one played may answer with (script 158), and the
++	// insults they may use (157), in order.
++	std::vector<int> comebacks(const Learned &learned) const;
++	std::vector<int> insults(const Learned &learned) const;
++	// Answered with a comeback: the exchange's end (kRepeated: answered again).
++	Result answer(int comeback);
++	// Insulted with one of theirs: the opponent's reply (`reply`) and the
++	// exchange's end; a comeback it answers right with is learned.
++	Result insult(int insult, Learned &learned, int &reply);
++	// A draw of the fight's own (the lines its scripts pick at random).
++	int draw(int n) { return _draws.upTo(n); }
++
++private:
++	Result point(bool player);
++	const Rules *_rules = nullptr;
++	bool _master = false, _over = true, _won = false, _gaveUp = false, _playerTurn = false;
++	int _skill = 0, _player = 0, _opponent = 0, _insult = 0;
++	uint64_t _usedByPlayer = 0, _usedByOpponent = 0; // (their bits: 181 + n and 263 + n)
++	Draws _draws;
++};
++
++} // End of namespace Duel
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_duel_engine.h b/common/scummverse_duel_engine.h
+new file mode 100644
+index 00000000..462a7d41
+--- /dev/null
++++ b/common/scummverse_duel_engine.h
+@@ -0,0 +1,113 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: insult sword fighting, engine-facing bridge (plain types only;
++// from 0298) for the new engine (engines/scummverse) and the export
++// (engines/scumm). Holds a game's fight file and the fight under way. See
++// common/scummverse_duel.h.
++#ifndef COMMON_SCUMMVERSE_DUEL_ENGINE_H
++#define COMMON_SCUMMVERSE_DUEL_ENGINE_H
++
++#include <stddef.h>
++
++namespace Scummverse {
++// (The file's numbers, for the new engine, the export and the module.)
++namespace Duel {
++
++// The most insults and comebacks a file has (their numbers 1..).
++static const int kMostInsults = 63, kMostComebacks = 31, kMostLineBytes = 255, kMostLines = 1024, kMostOutcomes = 256, kMostLeaves = 8;
++
++// A line of the file: who says it (kSpeakerPlayed, kSpeakerOpponent, or
++// kSpeakerNone: no one, its game's own), in a colour of its game's (-1:
++// the speaker's own) and the line.
++static const int kSpeakerPlayed = 0, kSpeakerOpponent = 1, kSpeakerNone = 255;
++// A line's kinds (`which` as each says):
++enum {
++	kLineInsult = 1,      // insult `which` (its text)
++	kLineComeback,        // comeback `which`
++	kLineRepeat,          // `repeat` answered: the opponent's line, `which` 0 before the insult, 1 after
++	kLineLostFirst,       // the one played lost a fight, the first time (they say it)
++	kLineLost,            // lost, after: its variants (`which` 0..)
++	kLineWon,             // won: the opponent's line (`which` 0 the master; 1 a pirate, the third won; 2 before)
++	kLineFallback,        // an insult from fallbackFrom on: the pirate's line (variants)
++	kLineMasterReply,     // one of the master's insults used on a pirate: the pirate's line
++	kLineAfter,           // the master after the fight (`which` 0 won, 1 lost): her lines, in order
++	kLineIntro,           // her talk's start (`which`: its own bit, 0 the first time): lines in order
++	kLineChoice,          // her talk's choices (`which` 0..): their text, said by the one played
++	kLineAnswer,          // her answer to choice c in state s (`which` c * 8 + s): lines in order
++	kLineAgain,           // her talk once fought (`which` how often, 1.. the last for more): lines
++	kLineGreeting,        // a pirate's greeting (variants)
++	kLineOption,          // a pirate's talk's choices (`which` its own index): their text
++	kLineReply,           // a pirate's answer to option `which`: lines in order
++	kLineTrained,         // the trainer, the one played trained already: lines
++	kLineTraining,        // the trainer's lines before the training
++	kLineShirt,           // the name of the thing the master gives (its game's, as carried)
++	kLineKinds
++};
++// What a talk's case leaves (kLineAnswer, kLineAgain, kLineReply by kind and
++// which): a fight (kFights), the master gone into her house (kGoesHome), the
++// talk at its end (kTalkEnds: a pirate's left), and values its game keeps,
++// as (variable, value) pairs.
++static const int kFights = 1, kGoesHome = 2, kTalkEnds = 4;
++} // End of namespace Duel
++
++namespace DuelBridge {
++
++// A game's fight file (bytes of its "-duel.svd", uncompressed), kept per
++// game; false (with `error`), and none, when malformed.
++bool load(int game, const unsigned char *data, size_t size, char *error, int capacity);
++bool loaded(int game);
++void clear();
++// Its rules (Scummverse::Duel::Rules, by name: "insults", "comebacks",
++// "ownFirst", "ownLast", "masterFirst", "masterLast", "loseFrom", "repeat",
++// "giveUp", "fallbackFrom", "insultGiveUp", "masterTarget",
++// "pirateTarget"; -1 none) and whether an insult takes a comeback.
++int rule(int game, const char *name);
++bool accepts(int game, int insult, int comeback);
++// A type's skill, talk colour and costume (false: none).
++bool type(int game, int type, int &skill, int &color, int &costume);
++// Its lines of a kind (Duel::kLine...) and which: how many, and each (in
++// order): who says it (Duel::kSpeakerPlayed, kSpeakerOpponent, kSpeakerNone),
++// its colour (-1: the speaker's own) and its text. How many `which` a kind
++// of variants has.
++int lines(int game, int kind, int which);
++bool line(int game, int kind, int which, int index, int &speaker, int &color, char *text, int capacity);
++int variants(int game, int kind);
++// What a talk's case leaves (false: none): its flags (Duel::kFights,
++// kGoesHome) and up to `capacity` (variable, value) pairs in `leaves`.
++bool outcome(int game, int kind, int which, int &flags, int *leaves, int &count, int capacity);
++
++// The fight under way (one at a time), of a game loaded: against the master
++// or a pirate of `skill`, seeded; what the one played has learned is kept
++// by the caller (bit n: number n) and passed in and out.
++static const int kOver = 0, kOpponentInsults = 1, kPlayerInsults = 2;
++static const int kNone = 0, kPlayerPoint = 1, kOpponentPoint = 2, kRepeated = 3, kGaveUp = 4;
++static const int kReplyFallback = 1000, kReplyMaster = 2000;
++bool start(int game, bool master, int skill, unsigned seed);
++int turn();
++int opponentInsult(unsigned long long &insults, unsigned &comebacks);
++int insultNow();
++int comebacks(unsigned long long insults, unsigned comebacks, int *out, int capacity);
++int insults(unsigned long long insults, unsigned comebacks, int *out, int capacity);
++int answer(int comeback);
++int insult(int insult, unsigned long long &insults, unsigned &comebacks, int &reply);
++int playerScore();
++int opponentScore();
++int target();
++bool won();
++bool gaveUp();
++int draw(int n);
++
++// The export's (a file built up, then its bytes): begun with its rules (the
++// numbers as Duel::Rules lists them, in the file's order: insults to
++// fallbackLines, 17) and each insult's three comebacks (from insult 1);
++// types, lines and outcomes added; written into `out` (returns its size,
++// copied when `capacity` takes it; 0: none begun or not a whole file).
++void begin(const int *rules, const int *accepted);
++void addType(int type, int skill, int color, int costume);
++void addLine(int kind, int which, int speaker, int color, const char *text);
++void addOutcome(int kind, int which, int flags, const int *leaves, int count);
++int written(unsigned char *out, int capacity);
++
++} // End of namespace DuelBridge
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index e8534da8..8251bafb 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -1207,6 +1207,109 @@ void Panel::line(uint32_t *screen, int pitch, int screenWidth, int limit, int fo
+ 	}
+ }
+ 
++// ---- Choices (from 0298) ----
++
++Panel::ChoiceLayout Panel::choiceLayout(int screenWidth, int screenHeight) const {
++	ChoiceLayout l;
++	if (!_loaded || _choices.empty() || screenWidth <= 0 || screenHeight <= 0) return l;
++	l.font = _source.fonts[0].height > 0 ? 0 : 1;
++	// (At the panel's scale, as its verbs; laid out not yet, the screen's.)
++	l.colScale = _colScale > 0 && _screenWidth == screenWidth ? _colScale : (double)screenWidth / std::max(1, _source.screenWidth);
++	l.rowScale = _rowScale > 0 && _screenWidth == screenWidth ? _rowScale : l.colScale;
++	l.lineHeight = std::max(1, (int)std::lround((_source.fonts[l.font].height + 1) * l.rowScale));
++	const int least = std::max(1, screenHeight / kChoiceRows), most = std::max(least, screenHeight / 2);
++	// (Its text 4 of the panel's columns in, 2 of its rows apart.)
++	const int margin = std::max(1, (int)std::lround(4 * l.colScale)), gap = std::max(1, (int)std::lround(2 * l.rowScale));
++	// (A row's height for its lines; with arrows, the text narrower by them.)
++	auto linesOf = [&](const std::string &text, int width) {
++		std::vector<std::string> lines = wrap(l.font, text, std::max(8, (int)((width - 2 * margin) / l.colScale)));
++		if (lines.empty()) lines.push_back("");
++		if (lines.size() > 2) { lines.resize(2); lines[1] += "..."; }
++		return lines;
++	};
++	auto heightOf = [&](size_t lines) { return std::max(least, (int)lines * l.lineHeight + 2 * gap); };
++	// (Across the panel's own columns, as its verbs: on a phone in landscape
++	// clear of what covers its sides, the notch.)
++	const bool laid = _colScale > 0 && _screenWidth == screenWidth && _columns > 0;
++	const int left = laid ? std::max(0, std::min(_left, screenWidth - 1)) : 0, across = laid ? std::min(_columns, screenWidth - left) : screenWidth;
++	int total = 0;
++	for (const std::string &c : _choices) total += heightOf(linesOf(c, across).size());
++	const bool arrows = total > most;
++	const int arrowWidth = arrows ? std::min(across / 4, std::max(least, (int)std::lround(24 * l.colScale))) : 0, width = across - arrowWidth;
++	const int first = arrows ? std::max(0, std::min(_choiceFirst, (int)_choices.size() - 1)) : 0;
++	int height = 0;
++	for (int k = first; k < (int)_choices.size(); ++k) {
++		const std::vector<std::string> lines = linesOf(_choices[k], width);
++		const int h = heightOf(lines.size());
++		if (!l.rows.empty() && height + h > most) break;
++		l.rows.push_back(Rect(left, height, width, h)); l.index.push_back(k); l.lines.push_back(lines);
++		height += h;
++	}
++	// (As tall as the panel at least: its verbs not shown meanwhile.)
++	height = std::max(height, std::min(screenHeight, _screenRows));
++	const int top = screenHeight - height;
++	l.box = Rect(left, top, across, height);
++	for (Rect &r : l.rows) r.y += top;
++	if (arrows) {
++		if (first > 0) l.up = Rect(left + width, top, arrowWidth, height / 2);
++		if (l.index.back() + 1 < (int)_choices.size()) l.down = Rect(left + width, top + height / 2, arrowWidth, height - height / 2);
++	}
++	return l;
++}
++
++int Panel::choiceAt(int screenX, int screenY, int screenWidth, int screenHeight) const {
++	const ChoiceLayout l = choiceLayout(screenWidth, screenHeight);
++	if (!l.box.contains(screenX, screenY)) return kChoiceOff;
++	if (l.up.contains(screenX, screenY)) return kChoiceUp;
++	if (l.down.contains(screenX, screenY)) return kChoiceDown;
++	for (size_t k = 0; k < l.rows.size(); ++k) if (l.rows[k].contains(screenX, screenY)) return l.index[k];
++	return kChoiceNone;
++}
++
++void Panel::scrollChoices(int by, int screenWidth, int screenHeight) {
++	const ChoiceLayout l = choiceLayout(screenWidth, screenHeight);
++	if (l.rows.empty() || (by < 0 && !l.up.width) || (by > 0 && !l.down.width)) return;
++	_choiceFirst = std::max(0, std::min((int)_choices.size() - 1, _choiceFirst + (by < 0 ? -1 : 1)));
++	++_choiceStamp;
++}
++
++Rect Panel::choiceOnScreen(int index, int screenWidth, int screenHeight) const {
++	const ChoiceLayout l = choiceLayout(screenWidth, screenHeight);
++	for (size_t k = 0; k < l.rows.size(); ++k) if (l.index[k] == index) return l.rows[k];
++	return Rect();
++}
++
++Rect Panel::choicesOnScreen(int screenWidth, int screenHeight) const { return choiceLayout(screenWidth, screenHeight).box; }
++
++void Panel::renderChoices(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const {
++	const ChoiceLayout l = choiceLayout(screenWidth, screenHeight);
++	if (!screen || l.box.width <= 0) return;
++	for (int y = std::max(0, l.box.y); y < std::min(screenHeight, l.box.y + l.box.height); ++y)
++		for (int x = std::max(0, l.box.x); x < std::min(screenWidth, l.box.x + l.box.width); ++x) screen[(size_t)y * pitch + x] = 0xFF000000u;
++	const uint32_t ink = color(_source.sentenceColor), lit = color(_source.talkColor);
++	const int margin = std::max(1, (int)std::lround(4 * l.colScale));
++	for (size_t k = 0; k < l.rows.size(); ++k) {
++		const Rect &r = l.rows[k];
++		int y = r.y + (r.height - (int)l.lines[k].size() * l.lineHeight) / 2;
++		for (const std::string &each : l.lines[k]) {
++			line(screen, pitch, std::min(screenWidth, r.x + r.width), screenHeight, l.font, each, r.x + margin, y, l.rowScale, l.colScale, l.index[k] == _choiceLit ? lit : ink);
++			y += l.lineHeight;
++		}
++	}
++	// (Its arrows: triangles in their halves, pointing their way.)
++	for (int a = 0; a < 2; ++a) {
++		const Rect &r = a ? l.down : l.up;
++		if (r.width <= 0 || r.height <= 0) continue;
++		const int side = std::min(r.width, r.height) / 2, cx = r.x + r.width / 2, cy = r.y + r.height / 2;
++		for (int y = 0; y < side; ++y) {
++			const int half = (a ? side - 1 - y : y) / 2;
++			const int row = cy - side / 2 + y;
++			if (row < 0 || row >= screenHeight) continue;
++			for (int x = cx - half; x <= cx + half; ++x) if (x >= 0 && x < screenWidth) screen[(size_t)row * pitch + x] = ink;
++		}
++	}
++}
++
+ } // End of namespace Panel
+ 
+ namespace PanelBridge {
+@@ -1365,6 +1468,15 @@ bool addNamed(const unsigned char *scene, size_t size, int id, const char *name)
+ 	}
+ 	return false;
+ }
++bool addByName(const char *name) {
++	if (!name || !*name) return false;
++	Panel::Item item;
++	item.name = name;
++	std::vector<Panel::Item> items = panel().items();
++	items.push_back(item);
++	panel().setItems(items);
++	return true;
++}
+ bool distaff() { return panel().distaff(); }
+ int play(int verb) { return panel().play(verb); }
+ int playedNotes() { return panel().played(); }
+@@ -1411,6 +1523,32 @@ void render(unsigned int *screen, int pitch, int screenHeight) { panel().render(
+ unsigned int talkColor(int index) {
+ 	return panel().color(index >= 0 && index < 256 ? index : panel().source().talkColor);
+ }
++
++// (From 0298 the choices over the panel: see Panel::setChoices.)
++void setChoices(const char *const *texts, int count) {
++	std::vector<std::string> choices;
++	for (int k = 0; texts && k < count; ++k) choices.push_back(texts[k] ? texts[k] : "");
++	panel().setChoices(choices);
++}
++void clearChoices() { panel().clearChoices(); }
++int choiceCount() { return (int)panel().choices().size(); }
++int choiceAt(int screenX, int screenY, int screenWidth, int screenHeight) { return panel().choiceAt(screenX, screenY, screenWidth, screenHeight); }
++void lightChoice(int index) { panel().lightChoice(index); }
++int litChoice() { return panel().litChoice(); }
++void scrollChoices(int by, int screenWidth, int screenHeight) { panel().scrollChoices(by, screenWidth, screenHeight); }
++int firstChoice() { return panel().firstChoice(); }
++unsigned choiceStamp() { return panel().choiceStamp(); }
++bool choiceRect(int index, int screenWidth, int screenHeight, int &x, int &y, int &width, int &height) {
++	const Panel::Rect r = panel().choiceOnScreen(index, screenWidth, screenHeight);
++	x = r.x; y = r.y; width = r.width; height = r.height;
++	return r.width > 0 && r.height > 0;
++}
++bool choicesBounds(int screenWidth, int screenHeight, int &x, int &y, int &width, int &height) {
++	const Panel::Rect r = panel().choicesOnScreen(screenWidth, screenHeight);
++	x = r.x; y = r.y; width = r.width; height = r.height;
++	return r.width > 0 && r.height > 0;
++}
++void renderChoices(unsigned int *screen, int pitch, int screenWidth, int screenHeight) { panel().renderChoices(screen, pitch, screenWidth, screenHeight); }
+ void say(unsigned int *screen, int pitch, int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int color) {
+ 	if (!panel().loaded() || !text) return;
+ 	panel().say(screen, pitch, screenWidth, limit, text, centreX, bottomY, rowScale, colScale, talkColor(color));
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index f2249c16..2c826efb 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -499,8 +499,39 @@ public:
+ 	Rect coinBounds(int screenWidth, int screenHeight) const;
+ 	Rect controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointerY, bool pointer) const;
+ 	Rect sayBounds(int screenWidth, int limit, const std::string &text, int centreX, int bottomY, double rowScale, double colScale) const;
++	// From 0298 a list of choices (a talk's, a fight's comebacks or insults)
++	// where its game shows its dialogue's (where the verbs are): a box from
++	// the screen's bottom over the panel (and up over the scene where it needs
++	// to), across the panel's own columns (laid out at that screen's width;
++	// else the screen's), each choice a row of its lines in the sentence's lettering (else
++	// the talk's) at the panel's scale, left-aligned, at most two lines (the
++	// rest cut, "..."), each row at least a kChoiceRows-th of the screen's
++	// height (a finger's tap) and the box at most half the screen; where
++	// there are more than fit, arrows at its right (up and down halves, shown
++	// where there is more that way) turn its page a row at a time. The one lit is in
++	// the talk's colour, the others the sentence's. A tap's choice: its index,
++	// kChoiceUp or kChoiceDown on an arrow, kChoiceNone on the box elsewhere,
++	// kChoiceOff off it. `stamp` changes whenever what is drawn does.
++	static const int kChoiceNone = -1, kChoiceUp = -2, kChoiceDown = -3, kChoiceOff = -4;
++	static const int kChoiceRows = 9;
++	void setChoices(const std::vector<std::string> &choices) { _choices = choices; _choiceFirst = 0; _choiceLit = -1; ++_choiceStamp; }
++	void clearChoices() { if (!_choices.empty()) ++_choiceStamp; _choices.clear(); _choiceFirst = 0; _choiceLit = -1; }
++	const std::vector<std::string> &choices() const { return _choices; }
++	int choiceAt(int screenX, int screenY, int screenWidth, int screenHeight) const;
++	void lightChoice(int index) { const int lit = index >= 0 && index < (int)_choices.size() ? index : -1; if (lit != _choiceLit) ++_choiceStamp; _choiceLit = lit; }
++	int litChoice() const { return _choiceLit; }
++	void scrollChoices(int by, int screenWidth, int screenHeight);
++	int firstChoice() const { return _choiceFirst; }
++	unsigned choiceStamp() const { return _choiceStamp; }
++	Rect choiceOnScreen(int index, int screenWidth, int screenHeight) const; // (a row shown; empty: not shown)
++	Rect choicesOnScreen(int screenWidth, int screenHeight) const;           // (the box; empty: no choices)
++	void renderChoices(uint32_t *screen, int pitch, int screenWidth, int screenHeight) const;
+ 
+ private:
++	// (The box's layout on a screen: the box, its arrows (empty: none), the
++	// rows shown and the choice each is, its lines.)
++	struct ChoiceLayout { Rect box, up, down; std::vector<Rect> rows; std::vector<int> index; std::vector<std::vector<std::string> > lines; int font = 0, lineHeight = 1; double rowScale = 1, colScale = 1; };
++	ChoiceLayout choiceLayout(int screenWidth, int screenHeight) const;
+ 	// (Onto a canvas `width` by `height`.)
+ 	void text(std::vector<uint32_t> &canvas, int width, int height, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
+ 	// (A thing's picture fitted to a rectangle of the panel, centred.)
+@@ -533,6 +564,9 @@ private:
+ 	double _rowScale = 1, _colScale = 1;
+ 	int _selected = -1, _first = 0, _held = -1;
+ 	std::string _sentence;
++	std::vector<std::string> _choices; // (from 0298)
++	int _choiceFirst = 0, _choiceLit = -1;
++	unsigned _choiceStamp = 0;
+ 	std::vector<Item> _items;
+ };
+ 
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index dbb14c33..11c824fe 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -90,6 +90,10 @@ bool addItem(const unsigned char *scene, size_t size, int id, const char *name,
+ // other, a slot of pictures (and the pointer holding it) its name in the
+ // panel's lettering; false when the scene has no such thing or no name.
+ bool addNamed(const unsigned char *scene, size_t size, int id, const char *name);
++// From 0298 one carried by its name alone, with no scene or things file of
++// it (a thing a fight gives: Monkey Island's T-shirt from the Sword Master,
++// whose place lists no thing); false without a name.
++bool addByName(const char *name);
+ int itemCount();
+ int itemName(int item, char *name, int capacity);
+ void removeItem(int item);
+@@ -138,6 +142,27 @@ bool controlsBounds(int screenWidth, int screenHeight, int pointerX, int pointer
+ bool sayBounds(int screenWidth, int limit, const char *text, int centreX, int bottomY, double rowScale, double colScale, int &x, int &y, int &width, int &height);
+ int composed(unsigned int *canvas, int capacity);
+ unsigned int talkColor(int index); // (that colour as 0xAARRGGBB; -1: the player's)
++// From 0298 a list of choices (a talk's, a fight's comebacks or insults)
++// over the panel, where its game shows its dialogue's, in its lettering,
++// rows tall enough for a finger, more than fit by its arrows (see
++// Panel::setChoices): set (none: cleared), the choice a tap is on (its
++// index; kChoiceUp, kChoiceDown on an arrow; kChoiceNone on the list
++// elsewhere; kChoiceOff off it), lit (the pointer over it), its page turned
++// a row; where a choice and the list are on screen; drawn; `choiceStamp`
++// changes whenever what is drawn does.
++static const int kChoiceNone = -1, kChoiceUp = -2, kChoiceDown = -3, kChoiceOff = -4;
++void setChoices(const char *const *texts, int count);
++void clearChoices();
++int choiceCount();
++int choiceAt(int screenX, int screenY, int screenWidth, int screenHeight);
++void lightChoice(int index);
++int litChoice();
++void scrollChoices(int by, int screenWidth, int screenHeight);
++int firstChoice();
++unsigned choiceStamp();
++bool choiceRect(int index, int screenWidth, int screenHeight, int &x, int &y, int &width, int &height);
++bool choicesBounds(int screenWidth, int screenHeight, int &x, int &y, int &width, int &height);
++void renderChoices(unsigned int *screen, int pitch, int screenWidth, int screenHeight);
+ // What verb `kind` does to a thing in the scene (Panel::decide; `answers`
+ // the verbs its game's script answers, -1 not known): 0 nothing, 1 say
+ // `say`, 2 show `picture`, 3 take it (the place then shows picture 0; with
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 488c30f9..8fe8c4fd 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -186,10 +186,13 @@ static const int kWorldExportVersion = 25;
+ // things changed so answered under it: the SCUMM Bar's mugs): "monkey-v38";
+ // from 0297 Monkey Island's again (two of its trials, the treasure dug and
+ // the idol brought up onto the dock, room 83, a place now; its mugs of grog,
+-// kWorldHolders: filled, poured, drunk at Otis's lock): "monkey-v39".
++// kWorldHolders: filled, poured, drunk at Otis's lock): "monkey-v39"; from
++// 0298 Monkey Island's again (its insult sword fighting, kWorldDuels: the
++// fight file "monkey-duel.svd", the Sword Master no door to room 44):
++// "monkey-v40".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 14 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 15 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -2001,6 +2004,77 @@ static const WorldCastGone kWorldCastGones[] = {{0, 13, 0x8000 + 76}, {0, 42, 0x
+ // picked up, the ladder climbed (kWorldValueReaders' row of 586).
+ struct WorldStoryPlace { short game, room, from; };
+ static const WorldStoryPlace kWorldStoryPlaces[] = {{0, 83, 42}};
++// From 0298 insult sword fighting, by its game's own rules (Monkey Island's:
++// its global scripts 57, 58, 68, 70 to 72, 76 to 87, 97, 110 to 113, 157 and
++// 158, the map's entry and local script 202 (room 85), room 49's local 200,
++// read with descumm, nothing copied; the rules themselves are
++// common/scummverse_duel.h). The export writes "<game>-duel.svd" from the
++// game's own scripts (ScummEngine::scummverseExportDuel): the insults'
++// and comebacks' lines (`insults`, `comebacks`: what scripts 82 and 83 put
++// in its strings 24 and 25), the comebacks each insult takes (string 29, as
++// script 87 sets it up), the targets (its variable 350, 5 against the
++// master, `masterType`, 3 against a pirate), each type's skill (110's 267),
++// talk colour and costume, the lines its fights, the master's talk (58,
++// with its `choices` at its start, each in each of its states), a pirate's
++// (room 49's 200) and the trainer's (57) say, and what they leave; it
++// checks the rest of a row against the scripts (her insults `masterFirst`
++// to `masterLast` and a pirate's `ownFirst` to `ownLast` as script 80 draws
++// them; the lists of scripts 157 and 158; script 84's judgment of every
++// pair; 79's skill; 57's teaching; 68's trial) and fails on a mismatch.
++// In the new engine: the master (her cast's `masterCostume`, her object
++// `masterObject` of `masterRoom`) walked or talked to plays her talk and,
++// where it says so, the fight there; won, her thing `shirt` of `duelRoom`
++// given, `trial` counted (kWorldKeptCounts' 195, its own bit `trialBit`)
++// and `won` set; won or lost, she walks into her house (her door
++// `masterDoor`) until the place is entered again. Her talk and fight are
++// played where she stands (her game plays them in room 44, `duelRoom`,
++// and puts the one played back in front of her house after). The trainer's
++// door (`trainObject` of `trainRoom`) opened with `sword` (of `swordRoom`)
++// and `money` (of `moneyRoom`) carried trains the one played (`trained`,
++// `taught` learned) as its training ends when a player skips it (his
++// conversation before it, its paying and its asking, not played: the new
++// engine has no purse). The trainer's lines are said by his cast's
++// `trainerCostume`. On the map (`mapRoom`) from the visit after its
++// `mapVisits`-th (`visits` counts them) while `trialsVar` is under 3, one
++// pirate (three once trained) stands at one of its places (`spots`), drawn
++// as the cast's `pirateCostume`; tapped, its talk, and its fight where
++// chosen (its type at random, not the last met's, `lastType`; `met` counts
++// meetings to 3). The insults and comebacks learned (`insultBits` + n,
++// `comebackBits` + n, bit variables), the fights won (`wins`) and lost
++// (`losses`), those begun with the master (`fought`), her talk's start seen
++// (`introSeen`) and her long answer heard (`heardLong`), the first fight
++// lost (`lostOnce`), a pirate's second question asked (`secondAsked`) and
++// those of `met`, `lastType` and `visits` are values kept (worldDuelValue).
++// A pirate's talk offers its options as its script builds them: the first
++// question until asked this meeting, the second once asked until
++// `secondAsked`, the third at the third meeting, the fight once trained (else
++// the untrained's, with no `money` nor `credit` of `creditRoom` carried), and
++// leaving.
++struct WorldDuel {
++	short game, insults, comebacks, ownFirst, ownLast, masterFirst, masterLast, loseFrom, repeat, giveUp, fallbackFrom, insultGiveUp;
++	short tries, skillRange, wrongCount, fallbackLines, choices;
++	short masterType, pirateFirst, pirateLast, opponentActor, masterActor;
++	short masterRoom, masterObject, masterDoor, masterCostume, duelRoom, fightRoom, shirt, trial, trialBit;
++	short trainRoom, trainObject, trainerCostume, sword, swordRoom, money, moneyRoom, credit, creditRoom, taught[2];
++	short mapRoom, mapVisits, pirateCostume, trialsVar, spots[5];
++	short talkScript, fightScript, pirateTalk, trainScript, afterScript, insultScript, comebackScript;
++	int insultBits, comebackBits, trained, won, wins, losses, fought, visits, introSeen, heardLong, lostOnce, met, secondAsked, lastType;
++};
++static const WorldDuel kWorldDuels[] = {{0, 37, 21, 1, 16, 17, 33, 17, 20, 21, 34, 37, 20, 10, 3, 4, 3,
++	1, 2, 7, 8, 5, 61, 720, 722, 25, 44, 49, 721, 1, 84, 43, 592, 22, 402, 30, 391, 29, 409, 30, {2, 8}, 85, 2, 18, 195, {868, 866, 867, 865, 871},
++	58, 87, 200, 57, 113, 82, 83, 140, 222, 0x8000 + 19, 0x8000 + 20, 281, 280, 283, 289, 0x8000 + 21, 0x8000 + 518, 0x8000 + 506, 270, 0x8000 + 501, 359}};
++inline const WorldDuel *worldDuel(int game) {
++	for (const WorldDuel &d : kWorldDuels) if (d.game == game) return &d;
++	return nullptr;
++}
++inline bool worldDuelValue(int game, int var) {
++	const WorldDuel *d = worldDuel(game);
++	if (!d) return false;
++	const int bit = var - 0x8000;
++	return (bit > d->insultBits && bit < d->insultBits + d->fallbackFrom) || (bit > d->comebackBits && bit < d->comebackBits + d->loseFrom) ||
++		var == d->trained || var == d->won || var == 0x8000 + d->trialBit || var == d->wins || var == d->losses || var == d->fought || var == d->visits ||
++		var == d->introSeen || var == d->heardLong || var == d->lostOnce || var == d->met || var == d->secondAsked || var == d->lastType;
++}
+ // Timed events (from 0250): what a game's script does a while after the one
+ // played leaves a place (`from`, for `to`; 0: anywhere else) with things of
+ // it in pictures (`need`: a thing and its picture each; 0: none) and marks
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index 850c3d47..cfb269a2 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -45,12 +45,12 @@ static const WorldLink kWorldMap_monkeyLinks[] = {
+ 	{216, 667, 211, 668, 0}, {216, 669, 201, 668, 0}, {217, 666, 209, 669, 0}, {217, 667, 209, 669, 0}, {217, 669, 205, 669, 0}, {218, 666, 215, 668, 0},
+ 	{218, 667, 215, 668, 0}, {218, 668, 85, 866, 0}, {219, 666, 207, 669, 0}, {219, 667, 207, 669, 0}, {219, 668, 208, 669, 0}, {220, 666, 210, 668, 0},
+ 	{220, 667, 210, 668, 0}, {220, 669, 215, 669, 0}, {220, 668, 213, 668, 0}, {59, 924, 85, 0, 0}, {59, 679, 85, 870, 0}, {60, 713, 43, 592, 1},
+-	{61, 719, 85, 866, 0}, {61, 720, 44, 0, 0}, {64, 727, 85, 866, 0}, {65, 731, 12, 138, 0}, {65, 732, 39, 0, 0}, {69, 744, 12, 0, 0},
+-	{69, 733, 12, 160, 0}, {70, 745, 65, 732, 0}, {70, 746, 77, 818, 0}, {71, 750, 77, 803, 1}, {72, 754, 77, 801, 0}, {73, 760, 75, 782, 0},
+-	{73, 761, 77, 804, 0}, {74, 771, 75, 784, 0}, {75, 782, 73, 760, 0}, {75, 784, 74, 771, 1}, {77, 801, 72, 754, 1}, {77, 803, 71, 750, 1},
+-	{77, 804, 73, 761, 0}, {77, 818, 70, 748, 0}, {78, 819, 34, 447, 0}, {78, 820, 34, 447, 0}, {80, 847, 3, 0, 0}, {85, 872, 33, 435, 0},
+-	{85, 868, 38, 496, 0}, {85, 866, 218, 668, 0}, {85, 867, 52, 623, 0}, {85, 865, 48, 597, 0}, {85, 869, 57, 636, 0}, {85, 870, 59, 679, 0},
+-	{85, 871, 43, 593, 0}, {85, 864, 48, 597, 0}, {85, 994, 61, 719, 0}, {83, 862, 33, 0, 0}, {83, 863, 33, 0, 0},
++	{61, 719, 85, 866, 0}, {64, 727, 85, 866, 0}, {65, 731, 12, 138, 0}, {65, 732, 39, 0, 0}, {69, 744, 12, 0, 0}, {69, 733, 12, 160, 0},
++	{70, 745, 65, 732, 0}, {70, 746, 77, 818, 0}, {71, 750, 77, 803, 1}, {72, 754, 77, 801, 0}, {73, 760, 75, 782, 0}, {73, 761, 77, 804, 0},
++	{74, 771, 75, 784, 0}, {75, 782, 73, 760, 0}, {75, 784, 74, 771, 1}, {77, 801, 72, 754, 1}, {77, 803, 71, 750, 1}, {77, 804, 73, 761, 0},
++	{77, 818, 70, 748, 0}, {78, 819, 34, 447, 0}, {78, 820, 34, 447, 0}, {80, 847, 3, 0, 0}, {85, 872, 33, 435, 0}, {85, 868, 38, 496, 0},
++	{85, 866, 218, 668, 0}, {85, 867, 52, 623, 0}, {85, 865, 48, 597, 0}, {85, 869, 57, 636, 0}, {85, 870, 59, 679, 0}, {85, 871, 43, 593, 0},
++	{85, 864, 48, 597, 0}, {85, 994, 61, 719, 0}, {83, 862, 33, 0, 0}, {83, 863, 33, 0, 0},
+ };
+ static const WorldArea kWorldMap_monkeyAreas[] = {
+ 	{70, "Catacombs and the ghost ship"},
+@@ -60,6 +60,7 @@ static const WorldArea kWorldMap_monkeyAreas[] = {
+ 	{31, "Melee Island jail"},
+ 	{32, "Melee Island back alley"},
+ 	{42, "Under the harbor"},
++	{44, "Sword Master's clearing"},
+ 	{60, "Gym"},
+ 	{80, "Fort"},
+ };
+@@ -548,7 +549,7 @@ static const WorldArea kWorldMap_zakAreas[] = {
+ 	{143, "Miami airport"},
+ };
+ static const WorldMap kWorldMaps[] = {
+-	{kWorldMap_monkeyRooms, 82, kWorldMap_monkeyLinks, 233, kWorldMap_monkeyAreas, 9},
++	{kWorldMap_monkeyRooms, 82, kWorldMap_monkeyLinks, 232, kWorldMap_monkeyAreas, 10},
+ 	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 176, kWorldMap_monkey2Areas, 7},
+ 	{kWorldMap_loomRooms, 39, kWorldMap_loomLinks, 94, kWorldMap_loomAreas, 2},
+ 	{kWorldMap_indy3Rooms, 110, kWorldMap_indy3Links, 340, kWorldMap_indy3Areas, 5},
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index ccaf299c..9bf7357f 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -25,6 +25,7 @@
+ #include "engines/engine.h"
+ #include "scumm/scummverse_content.h"
+ #include "common/scummverse_camera_engine.h"
++#include "common/scummverse_duel_engine.h" // (from 0298: the export of insult sword fighting)
+ 
+ #include "common/endian.h"
+ #include "common/events.h"
+@@ -1643,6 +1644,8 @@ protected:
+ 	// Other worlds (scummverse_world_export.inc): catalog scene export.
+ 	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0, const Common::Array<byte> *depths = nullptr, Common::Array<int> *things = nullptr);
+ 	bool scummverseExportThings(int game, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem);
++	// (From 0298 a game's insult sword fighting, kWorldDuels: "<game>-duel.svd".)
++	bool scummverseExportDuel(int game, const Common::Path &file, Common::String &problem);
+ 	// (From 0251, The Dig's and Full Throttle's things as their own verbs
+ 	// answer: each answer, from a picture, its line, picture after, taken,
+ 	// and others (room, object, picture; 2: given). From 0256 Zak's too, and
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1b7ce8ed..766d4cb9 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1854,6 +1854,13 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 				warning("SCUMMVERSE world export: %s things skipped (%s)", game->gameid, problem.c_str());
+ 				empty(things);
+ 			}
++			// (From 0298 its insult sword fighting, kWorldDuels, from the same
++			// start: "<game>-duel.svd".)
++			const Common::Path duel = dir.appendComponent(Common::String::format("%s-duel.svd", game->gameid));
++			if (worldDuel(gameIndex)) {
++				if (scummverseExportDuel(gameIndex, duel, problem)) warning("SCUMMVERSE_WORLD_DUEL %s", game->gameid);
++				else { warning("SCUMMVERSE world export: %s fights skipped (%s)", game->gameid, problem.c_str()); empty(duel); }
++			}
+ 		}
+ 	}
+ 	return written;
+@@ -4679,6 +4686,590 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	return true;
+ }
+ 
++// From 0298 a game's insult sword fighting as its own scripts play it
++// (kWorldDuels; "<game>-duel.svd", "SVD1": see common/scummverse_duel.h and
++// DuelBridge::begin): from the start its things' export left, the game kept
++// before and put back after; its draws seeded the same each time. Each run
++// is set up as its game sets it (the place loaded, the one played and the
++// opponent put there by its script 110, as 111 and 113 put them, its
++// story's values as the case has them), its scripts played on frame by
++// frame (waits let go, a message's wait as it is shown) and each line said
++// heard: by the one played, by the opponent (or the trainer), or no one's;
++// a talk's choices (its dialogue verbs, 120 on, shown while it waits on
++// variable 193) answered as the case has it, a cut-scene a player may skip
++// skipped only where the case says (the training). Read from its scripts:
++// - the insults' and comebacks' lines (what scripts `insultScript` and
++//   `comebackScript` put in strings 24 and 25 for each number), the
++//   comebacks each insult takes (string 29 as the fight's script sets it
++//   up, three a number), the targets (variable 350 so set, against the
++//   master and a pirate), each type's skill (110's 267), talk colour and
++//   costume;
++// - the lines of the fight: the opponent's when asked again (76, `repeat`:
++//   before and after the insult), the one played's when they lose (71: the
++//   first time, bit 506, and its variants), the opponent's when they win
++//   (71: the master's, a pirate's at the third won, before), a pirate's to a
++//   fallback insult (79, its variants) and to one of the master's (79), the
++//   master's after it (113 with the fight's script let go at once: won,
++//   lost);
++// - the master's talk (58): its start (its own bit 21 clear or set) and its
++//   `choices`; each choice's answer in each state (no sword; untrained, her
++//   long answer heard or not, 518; trained with 0, 1, 2 or 3 fights won),
++//   once fought (283 at 1 to 4), and what each leaves (a fight: 284 at 2;
++//   her gone into her house; 518);
++// - a pirate's (room 49's `pirateTalk`): its greeting's variants, each
++//   option's text and answer, and what it leaves (a fight with the one
++//   played insulting first: 284 at 3, 287 the one played; 501; 270);
++// - the trainer's (57): trained already, and the training as a player
++//   paid for it with the sword carried gets it (its cut-scene skipped).
++// Checked against the scripts, each a mismatch told ("SCUMMVERSE world duel:
++// ... not as its script ...", tools/export_worlds.py fails): the master's
++// insults and a pirate's as script 80 draws them; the lists of scripts 157
++// and 158 with none learned, all learned and one used; script 84's judgment
++// of every insult and comeback against the comebacks read; 79's skill (none:
++// always wrong, past its range: always right); the pirate's menus as the new
++// engine builds them (duelPirateOptions); the trainer's teaching (bit
++// `trained`, `taught`) and 68's trial (`trial`, its bit, the T-shirt).
++bool ScummEngine::scummverseExportDuel(int gameIndex, const Common::Path &file, Common::String &problem) {
++	namespace Duel = ::Scummverse::Duel;
++	namespace DuelBridge = ::Scummverse::DuelBridge;
++	const WorldDuel *w = worldDuel(gameIndex);
++	if (!w || _game.version < 4 || _game.version > 5 || VAR_EGO == 0xFF || VAR_HAVE_MSG == 0xFF || VAR_ROOM == 0xFF) { problem = "no insult sword fighting"; return false; }
++	// (Its scripts' own numbers, as Monkey Island's have them (read with
++	// descumm): the insult answered (239) and its comeback (240), the scores
++	// (the opponent's 261, the one played's 262), the target (350), the mode
++	// (284: 2 against the master, 3 a pirate's fight), whose turn (287), a
++	// pirate's skill (267), how a fight ended (282), the bits of the insults
++	// used this fight by the one played (181 + n) and the opponent (263 + n),
++	// the lists (307, 308 long, from 309), a judgment (105), the choice
++	// waited on (193); a pirate's aside (420), the purse (194), the room come
++	// from (101) (the master's talk's start seen, her long answer, the first
++	// fight lost, a pirate met, its second question and a credit note are its
++	// row's); the trainer's actor (3), first knock (74),
++	// training asked for (106) and paid (107); the scripts of a point (71), a
++	// pirate's answer (79), the lists (157, 158), a judgment (84), the
++	// opponent's insult (80), the comebacks chosen (76), the fighters dressed
++	// (110), the talk and fight (70), the verbs' modes (17: 6 the fight's)
++	// and the map's pirates (its local 202);
++	// the lost lines' variants (5) and the greetings' (4).)
++	static const int kInsultNow = 239, kComebackNow = 240, kTheirScore = 261, kOwnScore = 262, kTarget = 350, kMode = 284, kTurnOf = 287, kSkill = 267, kEnded = 282;
++	static const int kUsedOwn = 181, kUsedTheirs = 263, kInsultsListed = 307, kComebacksListed = 308, kListed = 309, kJudged = 105, kChoice = 193;
++	static const int kAside = 420, kPurse = 194, kCameFrom = 101;
++	static const int kTrainer = 3, kKnocked = 74, kAskedTraining = 106, kPaidTraining = 107;
++	static const int kPoint = 71, kAnswerOf = 79, kInsultList = 157, kComebackList = 158, kJudge = 84, kTheirInsult = 80, kAnswerList = 76, kDress = 110, kWanders = 202, kTalkAndFight = 70, kVerbsMode = 17, kFightVerbs = 6;
++	static const int kModeMaster = 2, kModePirate = 3, kLostVariants = 5, kGreetings = 4;
++	ScummverseKept kept;
++	scummverseKeep(kept);
++	const int ego = VAR(VAR_EGO), cursorState = _cursor.state, userPut = _userPut;
++	int mismatches = 0;
++	auto mismatch = [&](const char *what, int a, int b) {
++		warning("SCUMMVERSE world duel: %s %s %d (%d) not as its script has it", kWorldGames[gameIndex].gameid, what, a, b);
++		++mismatches;
++	};
++	auto quiet = [&]() {
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) { vm.slot[s].status = ssDead; vm.slot[s].freezeCount = 0; vm.slot[s].cutsceneOverride = 0; }
++		_currentScript = 0xFF; vm.numNestedScripts = 0; vm.cutSceneStackPointer = 0; _sentenceNum = 0;
++		for (int k = 0; k < kMaxCutsceneNum; ++k) vm.cutScenePtr[k] = 0;
++		stopTalk(); _sound->stopAllSounds(); scummverseDropAnimCommands();
++		_cursor.state = cursorState; _userPut = userPut;
++	};
++	auto bit = [&](int n, int value) { writeVar(0x8000 | n, value); };
++	auto bitOf = [&](int n) { return readVar(0x8000 | n); };
++	// (Printable, as an answer's line: a new line or a wait a space, a code's
++	// bytes passed over.)
++	auto printable = [&](const byte *s, int most) {
++		Common::String line;
++		for (int c = 0; s && c < most && s[c] && line.size() < 255; ++c) {
++			const byte b = s[c];
++			if (b == 0xFF && c + 1 < most) {
++				const byte code = s[++c];
++				if (code >= 9 && code <= 14) c += 2;
++			}
++			if (b >= 32 && b < 127) line += (char)b;
++			else if (!line.empty() && line.lastChar() != ' ') line += ' ';
++		}
++		while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
++		return line;
++	};
++	auto sizeOf = [&](ResType type, int n) { return n >= 0 && n < (int)_res->_types[type].size() ? (int)_res->_types[type][n]._size : 0; };
++	auto stringText = [&](int n) { const byte *s = getStringAddress(n); return s ? printable(s, sizeOf(rtString, n)) : Common::String(); };
++	auto stringByte = [&](int n, int at) { const byte *s = getStringAddress(n); return s && at >= 0 && at < sizeOf(rtString, n) ? (int)s[at] : -1; };
++	auto run = [&](int script, std::initializer_list<int> args) {
++		int a[NUM_SCRIPT_LOCAL];
++		memset(a, 0, sizeof(a));
++		int k = 0;
++		for (int v : args) if (k < NUM_SCRIPT_LOCAL) a[k++] = v;
++		runScript(script, false, false, a);
++	};
++	// (A place loaded as its scripts load it, nothing of its entry's left
++	// running unless asked (the map's).)
++	auto scene = [&](int room, bool entry) {
++		quiet();
++		_EXCD_offs = 0;
++		const int exitScript = VAR_EXIT_SCRIPT != 0xFF ? VAR(VAR_EXIT_SCRIPT) : 0, exitScript2 = VAR_EXIT_SCRIPT2 != 0xFF ? VAR(VAR_EXIT_SCRIPT2) : 0;
++		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = 0;
++		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = 0;
++		_actors[ego]->putActor(room);
++		startScene(room, nullptr, 0);
++		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = exitScript;
++		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = exitScript2;
++		if (!entry) quiet();
++	};
++	// (The one played and the opponent put there, as 111 and 113 put them;
++	// the fight's verbs (its dialogue's, with their arrows) as 70 sets them.)
++	auto fighters = [&](int room, int type, int actor) {
++		run(kDress, {0, ego, 134, 123, room});
++		run(kDress, {type, actor, 184, 123, room});
++		run(kVerbsMode, {kFightVerbs});
++	};
++	auto fresh = [&](uint32 seed) {
++		quiet();
++		scummverseRestore(kept);
++		_sentenceNum = 0; _drawObjectQueNr = 0;
++		_rnd.setSeed(seed);
++	};
++	// ---- A run: its lines by segment (0 before the first choice, k after the
++	// k-th), its menus' verbs and texts, how it ended. ----
++	struct Said { int speaker = 0, color = -1; Common::String text; };
++	struct Menu { Common::Array<int> ids; Common::Array<Common::String> texts; };
++	struct Run { Common::Array<Common::Array<Said> > lines; Common::Array<Menu> menus; bool ended = false, atMenu = false; };
++	auto menuUp = [&]() {
++		for (int i = 1; i < _numVerbs; ++i) if (_verbs[i].verbid >= 120 && _verbs[i].verbid <= 128 && _verbs[i].curmode == 1 && _verbs[i].saveid == 0) return true;
++		return false;
++	};
++	// (In the order shown: down the screen, as its script places them.)
++	auto menuOf = [&]() {
++		Menu m;
++		Common::Array<int> tops;
++		for (int id = 120; id <= 128; ++id) {
++			const int slot = getVerbSlot(id, 0);
++			if (!slot || _verbs[slot].curmode != 1) continue;
++			const byte *t = getResourceAddress(rtVerb, slot);
++			uint at = 0;
++			while (at < tops.size() && tops[at] <= _verbs[slot].curRect.top) ++at;
++			tops.insert_at(at, _verbs[slot].curRect.top);
++			m.ids.insert_at(at, id); m.texts.insert_at(at, t ? printable(t, sizeOf(rtVerb, slot)) : Common::String());
++		}
++		return m;
++	};
++	auto menuOff = [&]() { for (int i = 1; i < _numVerbs; ++i) if (_verbs[i].verbid >= 120 && _verbs[i].verbid <= 128) _verbs[i].curmode = 0; };
++	auto heard = [&](Run &r, int other) {
++		if (!VAR(VAR_HAVE_MSG)) return;
++		VAR(VAR_HAVE_MSG) = 0;
++		Said s;
++		s.text = printable(_charsetBuffer, sizeof(_charsetBuffer));
++		if (s.text.empty()) return;
++		const int actor = getTalkingActor();
++		if (actor == ego) s.speaker = Duel::kSpeakerPlayed;
++		else if (actor == other && actor > 0 && actor < _numActors) { s.speaker = Duel::kSpeakerOpponent; s.color = _actors[actor]->_talkColor; }
++		else { s.speaker = Duel::kSpeakerNone; s.color = actor > 0 && actor < _numActors ? _actors[actor]->_talkColor : _string[0].color; }
++		r.lines.back().push_back(s);
++	};
++	auto frame = [&]() {
++		VAR(VAR_HAVE_MSG) = 0;
++		_talkDelay = 0; _drawObjectQueNr = 0;
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++		runAllScripts(); walkActors(); _sound->stopAllSounds();
++		scummverseDropAnimCommands();
++	};
++	// (`feed`: the choices answered in turn, none left: the run ends at the
++	// next; `skip`: a cut-scene a player may skip skipped once one is
++	// answered; `stub`: the fight's script (70) let go at once with variable
++	// 282 at it, as the fight ends so.)
++	auto play = [&](int script, std::initializer_list<int> args, int other, const Common::Array<int> &feed, bool skip, int stub, Run &r) {
++		r = Run();
++		r.lines.resize(1);
++		uint fed = 0;
++		run(script, args);
++		heard(r, other);
++		for (int f = 0; f < 6000 && isScriptRunning(script) && !shouldQuit(); ++f) {
++			if (menuUp() && readVar(kChoice) == 0) {
++				r.menus.push_back(menuOf());
++				if (fed >= feed.size()) { r.atMenu = true; break; }
++				menuOff();
++				writeVar(kChoice, feed[fed++]);
++				r.lines.resize(r.lines.size() + 1);
++			}
++			if (skip && fed && vm.cutSceneStackPointer < kMaxCutsceneNum && vm.cutScenePtr[vm.cutSceneStackPointer]) scummverseSkipCutscene();
++			frame();
++			heard(r, other);
++			// (Its talk run in the same frame, nested, let go too: what it said and
++			// the room it loaded, as if never begun.)
++			if (stub >= 0 && isScriptRunning(kTalkAndFight)) {
++				stopScript(kTalkAndFight); stopScript(w->talkScript); stopScript(w->fightScript); writeVar(kEnded, stub);
++				r.lines.back().clear(); VAR(VAR_HAVE_MSG) = 0; stopTalk();
++				if (_currentRoom != w->duelRoom) startScene(w->duelRoom, nullptr, 0);
++			}
++		}
++		r.ended = !isScriptRunning(script);
++	};
++	auto lines = [&](const Run &r, uint segment) { return segment < r.lines.size() ? r.lines[segment] : Common::Array<Said>(); };
++	auto file1 = [&](int kind, int which, const Common::Array<Said> &said) {
++		for (const Said &s : said) DuelBridge::addLine(kind, which, s.speaker, s.color, s.text.c_str());
++	};
++	const uint32 seed = 0x5D0E1;
++	// ---- The numbers. ----
++	// (The comebacks each insult takes, as the fight's script sets string 29
++	// up (its setup, to its first break), and its target with each opponent.)
++	int accepted[3 * Duel::kMostInsults] = {};
++	int targets[2] = {0, 0};
++	for (int m = 0; m < 2 && !shouldQuit(); ++m) {
++		fresh(seed);
++		const int room = m == 0 ? w->duelRoom : w->fightRoom, actor = m == 0 ? w->masterActor : w->opponentActor;
++		scene(room, false);
++		fighters(room, m == 0 ? w->masterType : w->pirateFirst, actor);
++		writeVar(kMode, 0);
++		run(w->fightScript, {});
++		if (m == 0)
++			for (int n = 1; n <= w->insults && n <= Duel::kMostInsults; ++n) for (int k = 0; k < 3; ++k) accepted[3 * (n - 1) + k] = MAX(0, stringByte(29, 3 * n + k));
++		frame();
++		targets[m] = readVar(kTarget);
++	}
++	const int rules[17] = {w->insults, w->comebacks, w->ownFirst, w->ownLast, w->masterFirst, w->masterLast, w->loseFrom, w->repeat, w->giveUp,
++		w->fallbackFrom, w->insultGiveUp, targets[0], targets[1], w->tries, w->skillRange, w->wrongCount, w->fallbackLines};
++	DuelBridge::begin(rules, accepted);
++	auto takes = [&](int n, int c) { for (int k = 0; k < 3; ++k) if (n >= 1 && n <= w->insults && accepted[3 * (n - 1) + k] == c && c) return true; return false; };
++	// (Each type as 110 dresses it: its skill, talk colour, costume.)
++	for (int t = w->masterType; t <= w->pirateLast && !shouldQuit(); ++t) {
++		if (t != w->masterType && t < w->pirateFirst) continue;
++		fresh(seed);
++		const bool master = t == w->masterType;
++		const int room = master ? w->duelRoom : w->fightRoom, actor = master ? w->masterActor : w->opponentActor;
++		scene(room, false);
++		fighters(room, t, actor);
++		DuelBridge::addType(t, readVar(kSkill), _actors[actor]->_talkColor, _actors[actor]->_costume);
++	}
++	// (The insults' and comebacks' own lines.)
++	for (int n = 1; n <= w->insults; ++n) {
++		fresh(seed);
++		run(w->insultScript, {n});
++		const Common::String t = stringText(24);
++		if (t.empty()) mismatch("insult with no line", n, 0);
++		DuelBridge::addLine(Duel::kLineInsult, n, Duel::kSpeakerOpponent, -1, t.c_str());
++	}
++	for (int n = 1; n <= w->comebacks; ++n) {
++		fresh(seed);
++		run(w->comebackScript, {n});
++		const Common::String t = stringText(25);
++		if (t.empty()) mismatch("comeback with no line", n, 0);
++		DuelBridge::addLine(Duel::kLineComeback, n, Duel::kSpeakerPlayed, -1, t.c_str());
++	}
++	// ---- Checked against its scripts. ----
++	// (Script 80's draws: the master's insults and a pirate's, every one of
++	// them and no other.)
++	for (int m = 0; m < 2 && !shouldQuit(); ++m) {
++		const bool master = m == 0;
++		const int room = master ? w->duelRoom : w->fightRoom, actor = master ? w->masterActor : w->opponentActor;
++		const int first = master ? w->masterFirst : w->ownFirst, last = master ? w->masterLast : w->ownLast;
++		Common::HashMap<int, bool> drawn;
++		for (int k = 0; k < 400 && !shouldQuit(); ++k) {
++			fresh(seed + k);
++			scene(room, false);
++			fighters(room, master ? w->masterType : w->pirateFirst, actor);
++			for (int n = 0; n <= 40; ++n) bit(kUsedTheirs + n, 0);
++			run(kTheirInsult, {});
++			const int n = readVar(kInsultNow);
++			if (n < first || n > last) mismatch(master ? "the master's insult" : "a pirate's insult", n, k);
++			drawn[n] = true;
++		}
++		for (int n = first; n <= last; ++n) if (!drawn.contains(n)) mismatch(master ? "the master's insult never drawn" : "a pirate's insult never drawn", n, 0);
++	}
++	// (Scripts 157 and 158: with none learned, all learned, and one used.)
++	for (int c = 0; c < 3; ++c) {
++		fresh(seed);
++		for (int n = 1; n < w->fallbackFrom; ++n) { bit(w->insultBits + n, c > 0); bit(kUsedOwn + n, c == 2 && n == w->ownFirst); }
++		for (int n = 1; n < w->loseFrom; ++n) bit(w->comebackBits + n, c > 0);
++		run(kInsultList, {});
++		Common::Array<int> want;
++		for (int n = 1; n <= w->insults; ++n) if (n >= w->fallbackFrom || (c > 0 && !(c == 2 && n == w->ownFirst))) want.push_back(n);
++		bool same = readVar(kInsultsListed) == (int)want.size();
++		for (uint k = 0; same && k < want.size(); ++k) same = readVar(kListed + k) == want[k];
++		if (!same) mismatch("insults listed", readVar(kInsultsListed), c);
++		run(kComebackList, {});
++		want.clear();
++		for (int n = 1; n <= w->comebacks; ++n) if (n >= w->loseFrom || c > 0) want.push_back(n);
++		same = readVar(kComebacksListed) == (int)want.size();
++		for (uint k = 0; same && k < want.size(); ++k) same = readVar(kListed + k) == want[k];
++		if (!same) mismatch("comebacks listed", readVar(kComebacksListed), c);
++	}
++	// (Script 84's judgment of every pair, as string 29 has it.)
++	{
++		fresh(seed);
++		scene(w->duelRoom, false);
++		fighters(w->duelRoom, w->masterType, w->masterActor);
++		writeVar(kMode, 0);
++		run(w->fightScript, {});
++		for (int n = 1; n <= w->insults; ++n)
++			for (int c = 1; c <= w->comebacks; ++c) {
++				run(kJudge, {n, c});
++				if ((readVar(kJudged) != 0) != takes(n, c)) mismatch("judgment", n * 100 + c, readVar(kJudged));
++			}
++	}
++	// (Script 79's skill: none always wrong, past its draw always right.)
++	for (int skill : {0, w->skillRange + 1})
++		for (int n = w->ownFirst; n <= w->ownLast && !shouldQuit(); ++n) {
++			fresh(seed + n);
++			scene(w->fightRoom, false);
++			fighters(w->fightRoom, w->pirateFirst, w->opponentActor);
++			writeVar(kSkill, skill); writeVar(kInsultNow, n);
++			run(kAnswerOf, {});
++			const int c = readVar(kComebackNow);
++			if (skill ? c != n : (c < w->loseFrom || c >= w->loseFrom + w->wrongCount)) mismatch("a pirate's comeback", n * 100 + skill, c);
++		}
++	// ---- The fight's lines. ----
++	Run r;
++	// (Asked again: the opponent's line round the insult, its first.)
++	{
++		fresh(seed);
++		scene(w->fightRoom, false);
++		fighters(w->fightRoom, w->pirateFirst, w->opponentActor);
++		run(w->insultScript, {1});
++		const Common::String insult = stringText(24);
++		for (int n = 1; n < w->loseFrom; ++n) bit(w->comebackBits + n, 0);
++		writeVar(kInsultNow, 1);
++		// (Listed in order from `loseFrom`: `repeat` is its (repeat - loseFrom)-th.)
++		Common::Array<int> feed;
++		feed.push_back(120 + (w->repeat - w->loseFrom));
++		play(kAnswerList, {}, w->opponentActor, feed, false, -1, r);
++		const Common::Array<Said> said = lines(r, 1);
++		bool split = false;
++		for (const Said &s : said) {
++			const char *at = !insult.empty() ? strstr(s.text.c_str(), insult.c_str()) : nullptr;
++			if (!at || split) continue;
++			split = true;
++			const Common::String before(s.text.c_str(), at), after(at + insult.size());
++			DuelBridge::addLine(Duel::kLineRepeat, 0, s.speaker, s.color, before.c_str());
++			DuelBridge::addLine(Duel::kLineRepeat, 1, s.speaker, s.color, after.c_str());
++		}
++		if (!split) mismatch("the line asking again", (int)said.size(), 0);
++	}
++	// (Lost: the first time (bit 506 clear) and its variants after; won
++	// against the master, a pirate at the third fight won and before; a
++	// pirate's line to a fallback insult (its variants) and to one of the
++	// master's.)
++	enum { kLostFirst, kLost, kWonMaster, kWonThird, kWonBefore, kFallback, kMasterReply, kFightCases };
++	for (int c = kLostFirst; c < kFightCases && !shouldQuit(); ++c) {
++		const bool master = c == kWonMaster;
++		const int kind = c == kLostFirst ? Duel::kLineLostFirst : c == kLost ? Duel::kLineLost : c == kFallback ? Duel::kLineFallback :
++			c == kMasterReply ? Duel::kLineMasterReply : Duel::kLineWon;
++		const int most = c == kLost ? kLostVariants : c == kFallback ? w->fallbackLines : 1;
++		const int room = master ? w->duelRoom : w->fightRoom, actor = master ? w->masterActor : w->opponentActor, target = targets[master ? 0 : 1];
++		Common::Array<Common::String> seen;
++		for (int k = 0; k < 400 && (int)seen.size() < most && !shouldQuit(); ++k) {
++			fresh(seed + 17 * k);
++			scene(room, false);
++			fighters(room, master ? w->masterType : w->pirateFirst, actor);
++			int script = kPoint, sign = 0;
++			writeVar(kTarget, target);
++			switch (c) {
++			case kLostFirst: case kLost: writeVar(w->lostOnce, c == kLost); writeVar(kTheirScore, target - 1); writeVar(kOwnScore, 0); sign = -2; break;
++			case kWonMaster: case kWonThird: case kWonBefore: writeVar(kOwnScore, target - 1); writeVar(kTheirScore, 0); writeVar(w->wins, c == kWonBefore ? 0 : 2); sign = 2; break;
++			default: script = kAnswerOf; writeVar(kInsultNow, c == kFallback ? w->fallbackFrom : w->masterFirst); writeVar(kSkill, 5); break;
++			}
++			play(script, {sign}, actor, Common::Array<int>(), false, -1, r);
++			for (const Said &said : lines(r, 0)) {
++				bool known = false;
++				for (const Common::String &t : seen) known = known || t == said.text;
++				if (known) continue;
++				const int which = kind == Duel::kLineWon ? c - kWonMaster : (int)seen.size();
++				DuelBridge::addLine(kind, which, said.speaker, said.color, said.text.c_str());
++				seen.push_back(said.text);
++			}
++		}
++		if ((int)seen.size() != most) mismatch("lines of the fight", c, seen.size());
++	}
++	// (The master after it, as 113 plays it with the fight let go at once:
++	// won (282 the one played), her lines, bit `won`, the T-shirt, the trial
++	// counted (68: `trialsVar` one more, its bit); lost (282 her), hers;
++	// either way she goes into her house.)
++	for (int c = 0; c < 2 && !shouldQuit(); ++c) {
++		fresh(seed);
++		scene(w->masterRoom, false);
++		writeVar(w->won, 0); writeVar(w->trialsVar, 0); bit(w->trialBit, 0);
++		play(w->afterScript, {}, w->masterActor, Common::Array<int>(), false, c == 0 ? ego : w->masterActor, r);
++		file1(Duel::kLineAfter, c, lines(r, 0));
++		if (!r.ended || _actors[w->masterActor]->_room != 0) mismatch("the master gone into her house after a fight", c, _actors[w->masterActor]->_room);
++		if (c == 0 && (readVar(w->won) != 1 || getOwner(w->shirt) != ego || readVar(w->trialsVar) != 1 || bitOf(w->trialBit) != 1)) mismatch("the master's trial won", w->trial, readVar(w->trialsVar));
++		// (What she gives, by its name as carried: its place lists no thing.)
++		if (c == 0) {
++			const byte *name = getObjOrActorName(w->shirt);
++			const Common::String text = name ? printable(name, 255) : Common::String();
++			if (text.empty()) mismatch("the master's gift with no name", w->shirt, 0);
++			DuelBridge::addLine(Duel::kLineShirt, 0, Duel::kSpeakerNone, -1, text.c_str());
++		}
++		if (c == 1 && (readVar(w->won) != 0 || getOwner(w->shirt) == ego)) mismatch("the master's fight lost", 0, readVar(w->won));
++	}
++	// ---- Her talk (58), as 113 starts it in the place of the fight. ----
++	// (Its states: 0 no sword; 1 untrained, her long answer not heard (518);
++	// 2 heard; 3 to 6 trained, with 0, 1, 2 or 3 fights won.)
++	auto atMaster = [&](int state, int fought) {
++		fresh(seed);
++		scene(w->duelRoom, false);
++		fighters(w->duelRoom, w->masterType, w->masterActor);
++		writeVar(kMode, 0); writeVar(w->fought, fought);
++		putOwner(w->sword, state ? ego : 0);
++		writeVar(w->trained, state >= 3); writeVar(w->heardLong, state == 2); writeVar(w->wins, state >= 3 ? state - 3 : 0);
++	};
++	for (int intro = 0; intro < 2 && !shouldQuit(); ++intro) {
++		atMaster(6, 0);
++		writeVar(w->introSeen, intro);
++		play(w->talkScript, {}, w->masterActor, Common::Array<int>(), false, -1, r);
++		file1(Duel::kLineIntro, intro, lines(r, 0));
++		const bool shown = r.atMenu && !r.menus.empty() && (int)r.menus[0].ids.size() == w->choices;
++		for (int k = 0; shown && k < w->choices; ++k) {
++			if (r.menus[0].ids[k] != 120 + k) mismatch("the master's choice", k, r.menus[0].ids[k]);
++			if (intro) DuelBridge::addLine(Duel::kLineChoice, k, Duel::kSpeakerPlayed, -1, r.menus[0].texts[k].c_str());
++		}
++		if (!shown || readVar(w->introSeen) != 1) mismatch("the master's choices", r.menus.empty() ? 0 : r.menus[0].ids.size(), intro);
++	}
++	for (int c = 0; c < w->choices && !shouldQuit(); ++c)
++		for (int state = 0; state < 7; ++state) {
++			atMaster(state, 0);
++			writeVar(w->introSeen, 1);
++			const int heardBefore = readVar(w->heardLong);
++			Common::Array<int> feed;
++			feed.push_back(120 + c);
++			play(w->talkScript, {}, w->masterActor, feed, false, -1, r);
++			if (!r.ended || r.menus.size() != 1) mismatch("the master's answer", c * 8 + state, r.menus.size());
++			file1(Duel::kLineAnswer, c * 8 + state, lines(r, 1));
++			const int flags = (readVar(kMode) == kModeMaster ? Duel::kFights : 0) | (_actors[w->masterActor]->_room == 0 ? Duel::kGoesHome : 0);
++			const int leaves[2] = {w->heardLong, readVar(w->heardLong)};
++			DuelBridge::addOutcome(Duel::kLineAnswer, c * 8 + state, flags, leaves, readVar(w->heardLong) != heardBefore ? 1 : 0);
++		}
++	for (int fought = 1; fought <= 4 && !shouldQuit(); ++fought) {
++		atMaster(6, fought);
++		play(w->talkScript, {}, w->masterActor, Common::Array<int>(), false, -1, r);
++		file1(Duel::kLineAgain, fought, lines(r, 0));
++		if (!r.ended || !r.menus.empty() || readVar(kMode) != kModeMaster) mismatch("the master's talk once fought", fought, readVar(kMode));
++		DuelBridge::addOutcome(Duel::kLineAgain, fought, readVar(kMode) == kModeMaster ? Duel::kFights : 0, nullptr, 0);
++	}
++	// ---- A pirate's talk (room 49's), as 111 starts it there. ----
++	auto atPirate = [&](uint32 s, int met, bool trained) {
++		fresh(s);
++		scene(w->fightRoom, false);
++		fighters(w->fightRoom, w->pirateFirst, w->opponentActor);
++		writeVar(kMode, 0); writeVar(w->met, met); writeVar(w->trained, trained);
++		writeVar(kPurse, 0); putOwner(w->credit, 0); bit(kAside, 0); writeVar(w->secondAsked, 0);
++	};
++	{
++		Common::Array<Common::String> seen;
++		for (int k = 0; k < 200 && (int)seen.size() < kGreetings && !shouldQuit(); ++k) {
++			atPirate(seed + 17 * k, 0, false);
++			play(w->pirateTalk, {}, w->opponentActor, Common::Array<int>(), false, -1, r);
++			for (const Said &said : lines(r, 0)) {
++				bool known = false;
++				for (const Common::String &t : seen) known = known || t == said.text;
++				if (!known) { DuelBridge::addLine(Duel::kLineGreeting, seen.size(), said.speaker, said.color, said.text.c_str()); seen.push_back(said.text); }
++			}
++		}
++		if ((int)seen.size() != kGreetings) mismatch("a pirate's greetings", seen.size(), kGreetings);
++	}
++	// (Untrained, met for the third time: its options in turn, the last of
++	// them ending its talk; untrained, leaving at once; trained: the fight,
++	// the one played insulting first. An option after which its talk goes on
++	// leaves the menu again, else ends it.)
++	Common::HashMap<int, bool> optionKnown;
++	for (int c = 0; c < 3 && !shouldQuit(); ++c) {
++		const bool trained = c == 2;
++		atPirate(seed, c == 0 ? 2 : 0, trained);
++		Common::Array<int> feed;
++		if (c == 0) for (int id : {120, 122, 125, 126}) feed.push_back(id);
++		else feed.push_back(c == 1 ? 124 : 127);
++		play(w->pirateTalk, {}, w->opponentActor, feed, false, -1, r);
++		// (Each menu as the new engine builds it: duelPirateOptions.)
++		bool asked = false, second = false;
++		int met = c == 0 ? 3 : 1;
++		for (uint m = 0; m < r.menus.size(); ++m) {
++			int want[8], wanted = 0;
++			if (!asked) want[wanted++] = 120;
++			if (asked && !second) want[wanted++] = 122;
++			if (met == 3) want[wanted++] = 125;
++			want[wanted++] = trained ? 127 : 126;
++			want[wanted++] = 124;
++			bool same = (int)r.menus[m].ids.size() == wanted;
++			for (int k = 0; same && k < wanted; ++k) same = r.menus[m].ids[k] == want[k];
++			if (!same) mismatch("a pirate's options", m, c);
++			for (uint k = 0; k < r.menus[m].ids.size(); ++k) {
++				const int id = r.menus[m].ids[k];
++				if (optionKnown.contains(id)) continue;
++				optionKnown[id] = true;
++				DuelBridge::addLine(Duel::kLineOption, id - 120, Duel::kSpeakerPlayed, -1, r.menus[m].texts[k].c_str());
++			}
++			if (m >= feed.size()) break;
++			const int chosen = feed[m];
++			asked = asked || chosen == 120; second = second || chosen == 122;
++			if (chosen == 125) met = 4;
++			file1(Duel::kLineReply, chosen - 120, lines(r, m + 1));
++			int leaves[2] = {0, 0}, count = 0;
++			if (chosen == 122) { leaves[0] = w->secondAsked; leaves[1] = 1; count = 1; }
++			if (chosen == 125) { leaves[0] = w->met; leaves[1] = 4; count = 1; }
++			const bool ends = m + 1 == r.menus.size() && r.ended;
++			const int flags = (ends ? Duel::kTalkEnds : 0) | (ends && readVar(kMode) == kModePirate ? Duel::kFights : 0);
++			DuelBridge::addOutcome(Duel::kLineReply, chosen - 120, flags, leaves, count);
++		}
++		if (!r.ended || r.menus.size() != feed.size()) mismatch("a pirate's talk", r.menus.size(), c);
++		if (trained && (readVar(kMode) != kModePirate || readVar(kTurnOf) != ego)) mismatch("a pirate's fight, the one played first", readVar(kMode), readVar(kTurnOf));
++		if (c == 0 && (readVar(w->secondAsked) != 1 || readVar(w->met) != 4)) mismatch("a pirate's talk's values", readVar(w->secondAsked), readVar(w->met));
++	}
++	// ---- The trainer (57): trained already; the training, paid for with
++	// the sword carried (its first knock, the asking and the paying done:
++	// bits 74, 106 and 107), its cut-scene skipped as a player skips it. ----
++	{
++		fresh(seed);
++		scene(w->trainRoom, false);
++		writeVar(w->trained, 1); bit(kKnocked, 1);
++		play(w->trainScript, {}, kTrainer, Common::Array<int>(), false, -1, r);
++		file1(Duel::kLineTrained, 0, lines(r, 0));
++		if (!r.ended || lines(r, 0).empty()) mismatch("the trainer, trained already", lines(r, 0).size(), 0);
++		fresh(seed);
++		scene(w->trainRoom, false);
++		writeVar(w->trained, 0); bit(kKnocked, 1); bit(kAskedTraining, 1); bit(kPaidTraining, 1);
++		putOwner(w->sword, ego); writeVar(kPurse, 100);
++		for (int n = 1; n < w->fallbackFrom; ++n) bit(w->insultBits + n, 0);
++		for (int n = 1; n < w->loseFrom; ++n) bit(w->comebackBits + n, 0);
++		Common::Array<int> feed;
++		feed.push_back(120);
++		play(w->trainScript, {}, kTrainer, feed, true, -1, r);
++		file1(Duel::kLineTraining, 0, lines(r, 0));
++		if (!r.menus.empty() && !r.menus[0].ids.empty() && r.menus[0].ids[0] == 120) DuelBridge::addLine(Duel::kLineTraining, 0, Duel::kSpeakerPlayed, -1, r.menus[0].texts[0].c_str());
++		else mismatch("the trainer's choice to train", r.menus.size(), 0);
++		file1(Duel::kLineTraining, 0, lines(r, 1));
++		bool taught = r.ended && readVar(w->trained) == 1;
++		for (int n = 1; n < w->fallbackFrom; ++n) taught = taught && bitOf(w->insultBits + n) == (n == w->taught[0] || n == w->taught[1]);
++		for (int n = 1; n < w->loseFrom; ++n) taught = taught && bitOf(w->comebackBits + n) == (n == w->taught[0] || n == w->taught[1]);
++		if (!taught) mismatch("the trainer's teaching", readVar(w->trained), r.ended);
++	}
++	// ---- The map: a pirate from the visit after `mapVisits` on (the map's
++	// entry, its local script 202 each), three once trained. ----
++	for (int c = 0; c < 3 && !shouldQuit(); ++c) {
++		fresh(seed);
++		writeVar(w->visits, c == 0 ? w->mapVisits : w->mapVisits + 1); writeVar(w->trained, c == 2); writeVar(w->trialsVar, 0);
++		writeVar(kCameFrom, 0);
++		if (VAR_DEBUGMODE != 0xFF) VAR(VAR_DEBUGMODE) = 0;
++		scene(w->mapRoom, true);
++		int pirates = 0;
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) pirates += vm.slot[s].status != ssDead && vm.slot[s].number == kWanders;
++		if (pirates != (c == 0 ? 0 : c == 1 ? 1 : 3)) mismatch("pirates on the map", pirates, c);
++	}
++	quiet();
++	scummverseRestore(kept);
++	_sentenceNum = 0; _drawObjectQueNr = 0;
++	if (shouldQuit()) { problem = "stopped"; return false; }
++	const int size = DuelBridge::written(nullptr, 0);
++	if (size <= 0) { problem = "not a whole fight file"; return false; }
++	Common::Array<byte> bytes;
++	bytes.resize(size);
++	DuelBridge::written(bytes.data(), size);
++	Common::DumpFile *dump = new Common::DumpFile();
++	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
++	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
++	compressed->write(bytes.data(), bytes.size());
++	compressed->finalize();
++	if (compressed->err()) { problem = "cannot write cache"; return false; }
++	if (mismatches) warning("SCUMMVERSE world duel: %s %d not as its script has it", kWorldGames[gameIndex].gameid, mismatches);
++	debug(1, "SCUMMVERSE world duel: %s %d bytes", kWorldGames[gameIndex].gameid, size);
++	return true;
++}
++
+ // From 0251, The Dig's and Full Throttle's things as their own verbs answer
+ // (their things files' effects, "SVO7" as Sam & Max's from 0247): each verb
+ // of the game's own controls (The Dig's tap, its click: kWorldOwnVerbs; Full
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 183b3870..6a1ff83d 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -32,6 +32,7 @@
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_panel_engine.h"
++#include "common/scummverse_duel_engine.h"
+ #include "common/scummverse_stage_engine.h"
+ #include "common/scummverse_story.h"
+ #include "common/scummverse_tour.h"
+@@ -190,6 +191,7 @@ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data)
+ // room a later export found no place in.
+ void SandboxEngine::scan() {
+ 	_rooms.clear(); _characters.clear(); _insides.clear(); _closeUps.clear();
++	_duelUnread.clear(); DuelBridge::clear(); // (from 0298: fight files read afresh)
+ 	Common::FSList files;
+ 	_folder.getChildren(files, Common::FSNode::kListFilesOnly);
+ 	for (const Common::FSNode &file : files) {
+@@ -524,6 +526,8 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
+ 	arrivalShown(); // (from 0296)
+ 	_going = Going(); // (from 0283: somewhere else now, an answer's way let go)
++	// (From 0298 a duel let go; the master back from her house.)
++	PanelBridge::clearChoices(); _duel = DuelPlay(); _duelGone = false; _duelPirates.clear();
+ 	_stepAway.row = -1; _stepAway.off = true; // (from 0292: a keeper sent away back, uncounted)
+ 	timedStart(leaving);
+ 	if (!_enteringCloseUp) _closeUp = CloseUp(); // (anywhere else: a close-up shown before let go unanswered)
+@@ -636,6 +640,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	StageBridge::setDark(placeDark(game, room));
+ 	_beamSet = false;
+ 	_strollClock = 120 + _random.getRandomNumber(240);
++	duelMap(); // (from 0298: the map's pirates)
+ 	if (!_testing) saveState();
+ 	return true;
+ }
+@@ -1758,6 +1763,8 @@ void SandboxEngine::lightsRead(const Common::String &kept) {
+ void SandboxEngine::tap(int screenX, int screenY) {
+ 	// (Riding out of sight: nobody to walk.)
+ 	if (_player < 0 || _tram.riding || _riding.phase > kRideBoarded) return;
++	// (From 0298 a duel under way: its choices, or the line said ended.)
++	if (_duel.phase && duelTapWhile(screenX, screenY)) return;
+ 	// The verb panel: a verb, a thing carried, its arrows.
+ 	int on = -1;
+ 	switch (PanelBridge::loaded() ? PanelBridge::hit(screenX, screenY, on) : 0) {
+@@ -1785,6 +1792,9 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		int bx0, by0, bx1, by1;
+ 		if (backSign(bx0, by0, bx1, by1) && screenX < bx1 && screenY >= by0 && screenY < by1) { goBack(); return; }
+ 	}
++	// (From 0298 the master walked or talked to, or a pirate on the map:
++	// walked up to them, their talk.)
++	if (!_holding.kind && duelTap(screenX, screenY)) return;
+ 	// (Over the scene, the pointer is where the last tap was.)
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+@@ -2215,6 +2225,8 @@ void SandboxEngine::pairUp(const Pair &p) {
+ 		// (From 0288 a film one of the cast here given it shows: kept as any
+ 		// close-up, as pairCloseUp's.)
+ 		if (pairFilm(p)) return;
++		// (From 0298 the master or a pirate talked to: their talk.)
++		if (p.kind == kWorldVerbTalk && duelBegin(p.person)) return;
+ 		if (p.kind != kWorldVerbGive || !(pairPerson(p) || pairPersonValued(p) || heldUsual(p))) sayAs(p.person, p.kind == kWorldVerbGive ? "No, thanks." : "Hello.");
+ 	} else if (pairCloseUp(p)) {
+ 		return; // (from 0287: a film the two show, kept as any close-up)
+@@ -3481,8 +3493,15 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ 	const bool scene = room > 0 && read(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room), data);
+ 	if (!scene || !PanelBridge::addItem(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str(), picture, placeWithout(game, room, id, picture))) {
+ 		loadThings(game);
++		// (From 0298 the thing a fight gives, its place listing no thing: by its
++		// name as its fight file has it.)
++		const WorldDuel *duel = worldDuel(game);
++		char named[80] = "";
++		int speaker, color;
++		if (duel && duel->duelRoom == room && duel->shirt == id && duelLoad(game)) DuelBridge::line(game, Duel::kLineShirt, 0, 0, speaker, color, named, sizeof(named));
+ 		if (!PanelBridge::addIcon(game, id, name.empty() ? nullptr : name.c_str()) &&
+-			(!scene || worldHome(game) || !PanelBridge::addNamed(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str()))) return false;
++			(!scene || worldHome(game) || !PanelBridge::addNamed(data.data(), data.size(), id, name.empty() ? nullptr : name.c_str())) &&
++			!(*named && PanelBridge::addByName(name.empty() ? named : name.c_str()))) return false;
+ 	}
+ 	Carried c;
+ 	c.game = game; c.room = room; c.id = id; c.name = name; c.picture = picture;
+@@ -3540,6 +3559,8 @@ void SandboxEngine::act() {
+ 		return;
+ 	}
+ 	if (!looking && !near && !acting) { say("I can't reach that."); return; }
++	// (From 0298 the trainer's door: his training, as his script gives it.)
++	if (duelTrain(id, kind)) return;
+ 	int picture = -1, gamePicture = 0, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+ 	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
+@@ -4353,6 +4374,508 @@ bool SandboxEngine::castGone(int key) const {
+ 	return false;
+ }
+ 
++// ---- Insult sword fighting (from 0298; kWorldDuels) ----
++
++// (Its phases, lists, and what follows a duel's lines.)
++enum { kDuelOff, kDuelSaying, kDuelChoosing };
++enum { kDuelListTalk = 1, kDuelListPirate, kDuelListComebacks, kDuelListInsults };
++enum { kDuelThenDone, kDuelThenMasterMenu, kDuelThenPirateMenu, kDuelThenFight, kDuelThenComebacks, kDuelThenInsults, kDuelThenPoint, kDuelThenEnded, kDuelThenHome, kDuelThenGone };
++// (A pause after each exchange, as script 97's: half a second.)
++static const int kDuelExchangePause = 30;
++
++// A game's fight file, read once (none: no fights). One that could not be
++// read (none, emptied by an export that skipped it, or damaged) is not read
++// again until the worlds are scanned again (scan).
++bool SandboxEngine::duelLoad(int game) {
++	if (game < 0 || game >= worldGameCount() || !worldDuel(game) || _duelUnread.contains(game)) return false;
++	if (DuelBridge::loaded(game)) return true;
++	Common::Array<byte> data;
++	char error[128];
++	if (!read(Common::String::format("%s-duel.svd", kWorldGames[game].gameid), data)) { _duelUnread[game] = true; return false; }
++	if (!DuelBridge::load(game, data.data(), data.size(), error, sizeof(error))) {
++		warning("SCUMMVERSE sandbox: %s fights not read (%s)", kWorldGames[game].gameid, error);
++		_duelUnread[game] = true;
++		return false;
++	}
++	return true;
++}
++
++// What the one played has learned, as kept (bit n: number n).
++unsigned long long SandboxEngine::duelInsults() const {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	unsigned long long bits = 0;
++	for (int n = 1; w && n < w->fallbackFrom && n < 64; ++n) if (keptValue(_game, 0x8000 + w->insultBits + n)) bits |= 1ULL << n;
++	return bits;
++}
++
++unsigned SandboxEngine::duelComebacks() const {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	unsigned bits = 0;
++	for (int n = 1; w && n < w->loseFrom && n < 32; ++n) if (keptValue(_game, 0x8000 + w->comebackBits + n)) bits |= 1u << n;
++	return bits;
++}
++
++void SandboxEngine::duelLearned(unsigned long long insults, unsigned comebacks) {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	for (int n = 1; w && n < w->fallbackFrom && n < 64; ++n) if (insults >> n & 1) _kept[_game * 65536 + 0x8000 + w->insultBits + n] = 1;
++	for (int n = 1; w && n < w->loseFrom && n < 32; ++n) if (comebacks >> n & 1) _kept[_game * 65536 + 0x8000 + w->comebackBits + n] = 1;
++}
++
++// Someone here to talk to so: the master in her place (not yet beaten, not
++// gone into her house), or a pirate met on the map.
++bool SandboxEngine::duelOpponent(int person) const {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	if (!w || person < 0 || person >= (int)_onStage.size() || person == _player || StageBridge::hidden(person)) return false;
++	for (int p : _duelPirates) if (p == person) return true;
++	return _room == w->masterRoom && !_duelGone && !keptValue(_game, w->won) && _onStage[person] == worldAppearanceKey(_game, w->masterCostume);
++}
++
++// A tap walking or talking on the master (or her object), or on a pirate of
++// the map: walked up to them, then their talk (pairUp: duelBegin). As her
++// game's verbs on her object both start it (its script 113).
++bool SandboxEngine::duelTap(int screenX, int screenY) {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	if (!w || _player < 0 || (_room != w->masterRoom && _room != w->mapRoom) || !duelLoad(_game)) return false;
++	const int verb = PanelBridge::loaded() && !PanelBridge::over() && !PanelBridge::distaff() ? PanelBridge::selected() : -1;
++	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
++	if (kind != kWorldVerbWalk && kind != kWorldVerbTalk) return false;
++	int person = personAt(screenX, screenY);
++	if (!duelOpponent(person)) person = -1;
++	if (person < 0 && _room == w->masterRoom && !_duelGone && !keptValue(_game, w->won)) {
++		double x, y;
++		StageBridge::toScene(screenX, screenY, x, y);
++		Common::Array<int> things;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
++		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
++		int id, ox, oy, ow, oh, wx, wy, state;
++		if (thing >= 0 && StageBridge::object(thing, id, ox, oy, ow, oh, wx, wy, state) && id == w->masterObject)
++			for (uint n = 0; n < _onStage.size() && person < 0; ++n) if (duelOpponent((int)n)) person = (int)n;
++	}
++	if (person < 0) return false;
++	if (!PanelBridge::over()) PanelBridge::select(-1);
++	const WorldGuest *who = worldAppearance(_onStage[person]);
++	char verbName[40];
++	PanelBridge::verbName(verb, verbName, sizeof(verbName));
++	Pair p;
++	p.kind = kWorldVerbTalk; p.verb = verb;
++	// (A walk to a door under way let go, as any tap lets it go.)
++	_door = -1; _doorGoalLink = -1; _opening = 0;
++	walkBeside(person, p, Common::String::format("%s %s", verbName, who ? who->name : ""));
++	return true;
++}
++
++// A tap while a duel is under way: a choice chosen (or its list's page
++// turned), else the line said ended (the next said at once).
++bool SandboxEngine::duelTapWhile(int screenX, int screenY) {
++	if (_duel.phase == kDuelChoosing) {
++		const int at = PanelBridge::choiceAt(screenX, screenY, _width, _height);
++		if (at >= 0) duelChoose(at);
++		else if (at == PanelBridge::kChoiceUp || at == PanelBridge::kChoiceDown) PanelBridge::scrollChoices(at == PanelBridge::kChoiceUp ? -1 : 1, _width, _height);
++		_dirty = true;
++		return true;
++	}
++	if (_duel.phase == kDuelSaying) {
++		if (_speechClock > 1) _speechClock = 1;
++		if (_noticeClock > 1) _noticeClock = 1;
++		return true;
++	}
++	return false;
++}
++
++// A line of the fight's said: by the one played, the opponent (in their
++// type's colour), or no one (told over the place, in its own).
++void SandboxEngine::duelSaid(const Common::String &text, int speaker, int color) {
++	if (text.empty()) return;
++	Said s;
++	s.text = text;
++	if (speaker == Duel::kSpeakerPlayed) s.actor = _player;
++	else if (speaker == Duel::kSpeakerOpponent) { s.actor = _duel.opponent; s.color = _duel.color >= 0 ? _duel.color : color; _duel.heard = text; }
++	else s.color = color;
++	_saying.push_back(s);
++}
++
++void SandboxEngine::duelLines(int kind, int which, bool clear) {
++	if (clear) _saying.clear();
++	for (int k = 0; k < DuelBridge::lines(_duel.game, kind, which); ++k) {
++		int speaker, color;
++		char text[256];
++		if (DuelBridge::line(_duel.game, kind, which, k, speaker, color, text, sizeof(text))) duelSaid(text, speaker, color);
++	}
++}
++
++// What a talk's case leaves kept, and its flags.
++void SandboxEngine::duelLeaves(int kind, int which, int &flags) {
++	int leaves[2 * Duel::kMostLeaves], count = 0;
++	if (!DuelBridge::outcome(_duel.game, kind, which, flags, leaves, count, Duel::kMostLeaves)) flags = 0;
++	for (int k = 0; k < count; ++k) if (worldDuelValue(_duel.game, leaves[2 * k])) _kept[_duel.game * 65536 + leaves[2 * k]] = leaves[2 * k + 1];
++}
++
++// Talked to (pairUp, walked up to them): the master's talk (her start, the
++// first time, then her choices; once fought, at once her fight), or a
++// pirate's (met: its greeting, then its options).
++bool SandboxEngine::duelBegin(int person) {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	if (!w || (_room != w->masterRoom && _room != w->mapRoom) || !duelOpponent(person) || !duelLoad(_game)) return false;
++	const int g = _game;
++	bool master = true;
++	for (int p : _duelPirates) master = master && p != person;
++	_duel = DuelPlay();
++	_duel.game = g; _duel.master = master; _duel.opponent = person; _duel.phase = kDuelSaying;
++	_saying.clear();
++	if (master) _duel.type = w->masterType;
++	else {
++		// (Script 111: one of the map's pirates at random, not the last met.)
++		int type = w->pirateFirst;
++		for (int t = 0; t < 20; ++t) {
++			type = w->pirateFirst + (int)_random.getRandomNumber(w->pirateLast - w->pirateFirst);
++			if (type != keptValue(g, w->lastType)) break;
++		}
++		_duel.type = type;
++		_kept[g * 65536 + w->lastType] = type;
++	}
++	int costume;
++	if (!DuelBridge::type(g, _duel.type, _duel.skill, _duel.color, costume)) { _duel = DuelPlay(); return false; }
++	double px, py, ox, oy;
++	StageBridge::position(_player, px, py);
++	StageBridge::position(person, ox, oy);
++	StageBridge::face(_player, ox, oy);
++	StageBridge::face(person, px, py);
++	if (master) {
++		const int fought = keptValue(g, w->fought);
++		if (!fought) {
++			duelLines(Duel::kLineIntro, keptValue(g, w->introSeen) ? 1 : 0, false);
++			_kept[g * 65536 + w->introSeen] = 1;
++			_duel.next = kDuelThenMasterMenu;
++		} else {
++			// (Her script's lines by how often, the last for more.)
++			int which = MIN(fought, 8);
++			while (which > 1 && !DuelBridge::lines(g, Duel::kLineAgain, which)) --which;
++			duelLines(Duel::kLineAgain, which, false);
++			_kept[g * 65536 + w->fought] = fought + 1;
++			_duel.next = kDuelThenFight;
++		}
++	} else {
++		// (Room 49's script 200: met one more time, to three; one of its
++		// greetings.)
++		if (keptValue(g, w->met) < 3) _kept[g * 65536 + w->met] = keptValue(g, w->met) + 1;
++		const int greetings = DuelBridge::variants(g, Duel::kLineGreeting);
++		if (greetings) duelLines(Duel::kLineGreeting, _random.getRandomNumber(greetings - 1), false);
++		_duel.next = kDuelThenPirateMenu;
++	}
++	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++	_dirty = true;
++	return true;
++}
++
++// Its lines said: what follows (each step).
++void SandboxEngine::duelStep(int ticks) {
++	if (_duel.phase != kDuelSaying || !_saying.empty() || _speechClock > 0 || _noticeClock > 0) return;
++	if (_duel.opponent >= 0 && _duel.opponent < (int)_onStage.size() && StageBridge::moving(_duel.opponent)) return; // (walking home)
++	if (_duel.wait > 0) { _duel.wait -= ticks; return; }
++	duelNext();
++}
++
++// The opponent's insult (script 80), said; then the one played's comebacks.
++void SandboxEngine::duelInsult() {
++	unsigned long long insults = duelInsults();
++	unsigned comebacks = duelComebacks();
++	const int n = DuelBridge::opponentInsult(insults, comebacks);
++	duelLearned(insults, comebacks);
++	duelLines(Duel::kLineInsult, n);
++	_duel.phase = kDuelSaying; _duel.next = kDuelThenComebacks;
++	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++}
++
++// The choices up: the master's talk's, a pirate's options (as its script
++// builds them), the comebacks or the insults the one played may use.
++void SandboxEngine::duelList(int list) {
++	const WorldDuel *w = worldDuel(_duel.game);
++	if (!w) { duelEnd(); return; }
++	const int g = _duel.game;
++	_duel.listed.clear();
++	Common::Array<Common::String> texts;
++	auto add = [&](int number, int kind, int which) {
++		int speaker, color;
++		char text[256];
++		if (!DuelBridge::line(g, kind, which, 0, speaker, color, text, sizeof(text))) return;
++		_duel.listed.push_back(number); texts.push_back(text);
++	};
++	int numbers[64];
++	unsigned long long insults = duelInsults();
++	unsigned comebacks = duelComebacks();
++	if (list == kDuelListTalk) for (int c = 0; c < w->choices; ++c) add(c, Duel::kLineChoice, c);
++	if (list == kDuelListPirate) {
++		const bool trained = keptValue(g, w->trained) != 0;
++		const bool poor = !isCarried(g, w->moneyRoom, w->money) && !isCarried(g, w->creditRoom, w->credit);
++		if (!_duel.asked) add(0, Duel::kLineOption, 0);
++		if (_duel.asked && !keptValue(g, w->secondAsked)) add(2, Duel::kLineOption, 2);
++		if (keptValue(g, w->met) == 3) add(5, Duel::kLineOption, 5);
++		if (trained) add(7, Duel::kLineOption, 7);
++		else if (poor) add(6, Duel::kLineOption, 6);
++		add(4, Duel::kLineOption, 4);
++	}
++	if (list == kDuelListComebacks) {
++		const int n = MIN<int>(DuelBridge::comebacks(insults, comebacks, numbers, ARRAYSIZE(numbers)), ARRAYSIZE(numbers));
++		for (int k = 0; k < n; ++k) add(numbers[k], Duel::kLineComeback, numbers[k]);
++	}
++	if (list == kDuelListInsults) {
++		const int n = MIN<int>(DuelBridge::insults(insults, comebacks, numbers, ARRAYSIZE(numbers)), ARRAYSIZE(numbers));
++		for (int k = 0; k < n; ++k) add(numbers[k], Duel::kLineInsult, numbers[k]);
++	}
++	if (_duel.listed.empty()) { duelEnd(); return; }
++	Common::Array<const char *> pointers;
++	for (const Common::String &t : texts) pointers.push_back(t.c_str());
++	PanelBridge::setChoices(pointers.data(), pointers.size());
++	_duel.list = list; _duel.phase = kDuelChoosing;
++	_dirty = true;
++}
++
++// A choice chosen: said by the one played, then what it does.
++void SandboxEngine::duelChoose(int index) {
++	const WorldDuel *w = worldDuel(_duel.game);
++	if (!w || _duel.phase != kDuelChoosing || index < 0 || index >= (int)_duel.listed.size()) return;
++	const int g = _duel.game, chosen = _duel.listed[index];
++	PanelBridge::clearChoices();
++	_duel.phase = kDuelSaying;
++	_saying.clear();
++	int speaker, color;
++	char text[256];
++	switch (_duel.list) {
++	case kDuelListTalk: {
++		// (Her answer to it in the state she reads: the sword carried, the
++		// training, her long answer heard, the fights won.)
++		if (DuelBridge::line(g, Duel::kLineChoice, chosen, 0, speaker, color, text, sizeof(text))) duelSaid(text, Duel::kSpeakerPlayed, -1);
++		const int state = !isCarried(g, w->swordRoom, w->sword) ? 0 : !keptValue(g, w->trained) ? (keptValue(g, w->heardLong) ? 2 : 1) : 3 + MIN(keptValue(g, w->wins), 3);
++		duelLines(Duel::kLineAnswer, chosen * 8 + state, false);
++		int flags;
++		duelLeaves(Duel::kLineAnswer, chosen * 8 + state, flags);
++		if (flags & Duel::kFights) _kept[g * 65536 + w->fought] = keptValue(g, w->fought) + 1;
++		_duel.next = flags & Duel::kFights ? kDuelThenFight : flags & Duel::kGoesHome ? kDuelThenHome : kDuelThenDone;
++		break;
++	}
++	case kDuelListPirate: {
++		if (DuelBridge::line(g, Duel::kLineOption, chosen, 0, speaker, color, text, sizeof(text))) duelSaid(text, Duel::kSpeakerPlayed, -1);
++		duelLines(Duel::kLineReply, chosen, false);
++		int flags;
++		duelLeaves(Duel::kLineReply, chosen, flags);
++		if (chosen == 0) _duel.asked = true;
++		_duel.next = flags & Duel::kFights ? kDuelThenFight : flags & Duel::kTalkEnds ? kDuelThenDone : kDuelThenPirateMenu;
++		break;
++	}
++	case kDuelListComebacks: {
++		if (DuelBridge::line(g, Duel::kLineComeback, chosen, 0, speaker, color, text, sizeof(text))) duelSaid(text, Duel::kSpeakerPlayed, -1);
++		const int insult = DuelBridge::insultNow(), result = DuelBridge::answer(chosen);
++		if (result == DuelBridge::kRepeated) {
++			// (Asked again: its line round the insult, then the comebacks again.)
++			Common::String again;
++			for (int part = 0; part < 2; ++part) {
++				if (DuelBridge::line(g, Duel::kLineRepeat, part, 0, speaker, color, text, sizeof(text))) again += text;
++				if (!part && DuelBridge::line(g, Duel::kLineInsult, insult, 0, speaker, color, text, sizeof(text))) again += text;
++			}
++			duelSaid(again, Duel::kSpeakerOpponent, -1);
++			_duel.next = kDuelThenComebacks;
++		} else {
++			_duel.next = kDuelThenPoint;
++			_duel.wait = result == DuelBridge::kGaveUp ? 0 : kDuelExchangePause;
++		}
++		break;
++	}
++	case kDuelListInsults: {
++		if (DuelBridge::line(g, Duel::kLineInsult, chosen, 0, speaker, color, text, sizeof(text))) duelSaid(text, Duel::kSpeakerPlayed, -1);
++		unsigned long long insults = duelInsults();
++		unsigned comebacks = duelComebacks();
++		int reply = 0;
++		const int result = DuelBridge::insult(chosen, insults, comebacks, reply);
++		duelLearned(insults, comebacks);
++		if (result != DuelBridge::kGaveUp) {
++			const int kind = reply >= DuelBridge::kReplyMaster ? Duel::kLineMasterReply : reply >= DuelBridge::kReplyFallback ? Duel::kLineFallback : Duel::kLineComeback;
++			const int which = reply >= DuelBridge::kReplyMaster ? 0 : reply >= DuelBridge::kReplyFallback ? reply - DuelBridge::kReplyFallback : reply;
++			if (DuelBridge::line(g, kind, which, 0, speaker, color, text, sizeof(text))) duelSaid(text, Duel::kSpeakerOpponent, color);
++		}
++		_duel.next = kDuelThenPoint;
++		_duel.wait = result == DuelBridge::kGaveUp ? 0 : kDuelExchangePause;
++		break;
++	}
++	default:
++		duelEnd();
++		return;
++	}
++	if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++	_dirty = true;
++}
++
++// What follows its lines (see the fight's rules: common/scummverse_duel.h).
++void SandboxEngine::duelNext() {
++	const WorldDuel *w = worldDuel(_duel.game);
++	if (!w || _duel.game != _game) { duelEnd(); return; }
++	const int g = _duel.game;
++	switch (_duel.next) {
++	case kDuelThenMasterMenu: duelList(kDuelListTalk); return;
++	case kDuelThenPirateMenu: duelList(kDuelListPirate); return;
++	case kDuelThenComebacks: duelList(kDuelListComebacks); return;
++	case kDuelThenInsults: duelList(kDuelListInsults); return;
++	case kDuelThenFight:
++		// (Script 87: against the master she insults; against a pirate the
++		// one played first.)
++		if (!DuelBridge::start(g, _duel.master, _duel.skill, _random.getRandomNumber(0x7FFFFFFE) + 1)) { duelEnd(); return; }
++		if (DuelBridge::turn() == DuelBridge::kOpponentInsults) duelInsult();
++		else duelList(kDuelListInsults);
++		return;
++	case kDuelThenPoint: {
++		const int turn = DuelBridge::turn();
++		if (turn == DuelBridge::kOpponentInsults) { duelInsult(); return; }
++		if (turn == DuelBridge::kPlayerInsults) { duelList(kDuelListInsults); return; }
++		// (Script 71: won or lost, counted, and its line: the opponent's
++		// won; the one played's lost, the first time its own. Given up: no
++		// line.)
++		const bool won = DuelBridge::won();
++		const int wins = keptValue(g, w->wins) + (won ? 1 : 0);
++		if (won) _kept[g * 65536 + w->wins] = wins;
++		else _kept[g * 65536 + w->losses] = keptValue(g, w->losses) + 1;
++		_saying.clear();
++		if (!DuelBridge::gaveUp()) {
++			if (won) duelLines(Duel::kLineWon, wins >= 3 ? (_duel.master ? 0 : 1) : 2, false);
++			else if (!keptValue(g, w->lostOnce)) { duelLines(Duel::kLineLostFirst, 0, false); _kept[g * 65536 + w->lostOnce] = 1; }
++			else if (DuelBridge::variants(g, Duel::kLineLost)) duelLines(Duel::kLineLost, DuelBridge::draw(DuelBridge::variants(g, Duel::kLineLost) - 1), false);
++		}
++		_duel.phase = kDuelSaying; _duel.next = kDuelThenEnded;
++		if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++		return;
++	}
++	case kDuelThenEnded:
++		// (Script 113 after the master's: won, her lines, the T-shirt given,
++		// the trial counted (68), her bit; lost, her line; either way she goes
++		// into her house.)
++		if (_duel.master) {
++			const bool won = DuelBridge::won();
++			duelLines(Duel::kLineAfter, won ? 0 : 1);
++			if (won) {
++				_kept[g * 65536 + w->won] = 1;
++				if (!isCarried(g, w->duelRoom, w->shirt)) carry(g, w->duelRoom, w->shirt, "", 0);
++				_kept[g * 65536 + w->trialsVar] = keptValue(g, w->trialsVar) + 1;
++				_kept[g * 65536 + 0x8000 + w->trialBit] = 1;
++			}
++			_duel.phase = kDuelSaying; _duel.next = kDuelThenHome;
++			if (!_saying.empty() && _speechClock <= 0 && _noticeClock <= 0) sayNext();
++			return;
++		}
++		duelEnd();
++		return;
++	case kDuelThenHome: {
++		// (Script 113 (and 58's 0A25): she walks to her door and goes in.)
++		double x, y;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state) && id == w->masterDoor && doorPoint(o, x, y) && _duel.opponent >= 0 && _duel.opponent < (int)_onStage.size()) {
++				StageBridge::walkable(x, y);
++				StageBridge::walkTo(_duel.opponent, x, y);
++			}
++		}
++		_duel.phase = kDuelSaying; _duel.next = kDuelThenGone;
++		return;
++	}
++	case kDuelThenGone:
++		if (_duel.opponent >= 0 && _duel.opponent < (int)_onStage.size()) StageBridge::hide(_duel.opponent, true);
++		_duelGone = true;
++		duelEnd();
++		return;
++	default:
++		duelEnd();
++		return;
++	}
++}
++
++// A duel over (or let go): a pirate met goes on its way (off the map until
++// it is entered again), its choices put away; kept.
++void SandboxEngine::duelEnd() {
++	PanelBridge::clearChoices();
++	if (_duel.phase && !_duel.master)
++		for (uint k = 0; k < _duelPirates.size(); ++k)
++			if (_duelPirates[k] == _duel.opponent) { if (_duel.opponent < (int)_onStage.size()) StageBridge::hide(_duel.opponent, true); _duelPirates.remove_at(k); break; }
++	_duel = DuelPlay();
++	_dirty = true;
++	if (!_testing) saveState();
++}
++
++// The trainer's door opened (his script 57): trained already, his line;
++// with the sword and the money carried, trained as his training ends when a
++// player skips it (its lines before it said; trained, and taught his
++// insults and comebacks); else as its things file answers it.
++bool SandboxEngine::duelTrain(int id, int kind) {
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	if (!w || _room != w->trainRoom || id != w->trainObject || kind != kWorldVerbOpen || !duelLoad(_game)) return false;
++	const int g = _game;
++	const bool trained = keptValue(g, w->trained) != 0;
++	if (!trained && !(isCarried(g, w->swordRoom, w->sword) && isCarried(g, w->moneyRoom, w->money))) return false;
++	_duel = DuelPlay();
++	_duel.game = g;
++	for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == worldAppearanceKey(g, w->trainerCostume) && !StageBridge::hidden((int)n)) _duel.opponent = (int)n;
++	duelLines(trained ? Duel::kLineTrained : Duel::kLineTraining, 0);
++	if (!trained) {
++		_kept[g * 65536 + w->trained] = 1;
++		for (int n : w->taught) { _kept[g * 65536 + 0x8000 + w->insultBits + n] = 1; _kept[g * 65536 + 0x8000 + w->comebackBits + n] = 1; }
++	}
++	_duel = DuelPlay();
++	if (!_saying.empty()) sayNext();
++	if (!_testing) saveState();
++	return true;
++}
++
++// The map entered (its entry script and local 202): from the visit after
++// `mapVisits` on, with the trials not all done, a pirate on its way between
++// two of its places, three once trained; each visit counted. (Each where
++// it covers none of the map's places: a tap there goes on to the place.)
++void SandboxEngine::duelMap() {
++	_duelPirates.clear();
++	const WorldDuel *w = _game >= 0 ? worldDuel(_game) : nullptr;
++	if (!w || _room != w->mapRoom || !duelLoad(_game)) return;
++	const int g = _game, visits = keptValue(g, w->visits);
++	_kept[g * 65536 + w->visits] = visits + 1;
++	const int key = worldAppearanceKey(g, w->pirateCostume);
++	if (visits <= w->mapVisits || keptValue(g, w->trialsVar) >= 3 || !hasCharacter(key)) return;
++	Common::Array<int> spots;
++	for (int o = 0; o < StageBridge::objectCount(); ++o) {
++		int id, ox, oy, ow, oh, wx, wy, state;
++		if (!StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state)) continue;
++		for (short s : w->spots) if (s == id) spots.push_back(o);
++	}
++	auto covers = [&](int n) {
++		int x0, y0, x1, y1;
++		if (!StageBridge::drawnRect(n, x0, y0, x1, y1)) return true;
++		double sx0, sy0, sx1, sy1;
++		StageBridge::toScene(x0, y0, sx0, sy0);
++		StageBridge::toScene(x1, y1, sx1, sy1);
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, ow, oh, wx, wy, state;
++			if (isDoor(o) && StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state) && sx0 < ox + ow && ox < sx1 && sy0 < oy + oh && oy < sy1) return true;
++		}
++		for (int p : _duelPirates) {
++			int px0, py0, px1, py1;
++			if (StageBridge::drawnRect(p, px0, py0, px1, py1) && x0 < px1 && px0 < x1 && y0 < py1 && py0 < y1) return true;
++		}
++		return false;
++	};
++	const int count = keptValue(g, w->trained) ? 3 : 1;
++	for (int k = 0; k < count && spots.size() > 1; ++k) {
++		const int n = addPerson(key);
++		if (n < 0) break;
++		_onStage.push_back(key);
++		bool placed = false;
++		for (int t = 0; t < 24 && !placed; ++t) {
++			const int a = _random.getRandomNumber(spots.size() - 1), b = (a + 1 + _random.getRandomNumber(spots.size() - 2)) % spots.size();
++			double ax, ay, bx, by;
++			doorPoint(spots[a], ax, ay);
++			doorPoint(spots[b], bx, by);
++			const double along = (1 + _random.getRandomNumber(3)) / 5.0;
++			StageBridge::place(n, ax + (bx - ax) * along, ay + (by - ay) * along);
++			placed = !covers(n);
++		}
++		if (!placed) { StageBridge::hide(n, true); continue; }
++		_duelPirates.push_back(n);
++	}
++	_people = _onStage.size();
++}
++
+ // From 0286 one of its game's cast on the stage here, by the costume its
+ // cast knows them by (not hidden: a film's).
+ bool SandboxEngine::personHere(int game, int room, int costume) const {
+@@ -4948,6 +5471,10 @@ void SandboxEngine::stroll(int ticks) {
+ 	_strollClock = 180 + _random.getRandomNumber(420);
+ 	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
+ 	if (n == _player || n == _showOff.actor || StageBridge::moving(n) || StageBridge::acting(n) || StageBridge::switching(n) || following(_onStage[n]) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
++	// (From 0298 nor the one in a talk or a fight with the one played, nor a
++	// pirate of the map: they stand where they are, off its places.)
++	if (_duel.phase && n == _duel.opponent) return;
++	for (int p : _duelPirates) if (p == n) return;
+ 	double xs[12], ys[12], x, y;
+ 	StageBridge::position(n, x, y);
+ 	const int spots = StageBridge::spots(12, xs, ys, StageBridge::group(x, y)); // (where they can walk to)
+@@ -4972,6 +5499,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (!_touring.on) timedStep(ticks);
+ 	if (!_touring.on) laterStep(ticks); // (from 0282)
+ 	if (!_touring.on) holderStep(ticks); // (from 0297)
++	duelStep(ticks); // (from 0298)
+ 	stepAwayStep(); // (from 0292)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+@@ -5063,7 +5591,7 @@ void SandboxEngine::request(int code) {
+ }
+ 
+ // The pieces drawn over the stage, in the order present() draws them.
+-enum { kOverSign, kOverBox, kOverCoin, kOverControls, kOverSpeech, kOverNotice, kOverPanel };
++enum { kOverSign, kOverBox, kOverCoin, kOverControls, kOverSpeech, kOverNotice, kOverPanel, kOverChoices };
+ 
+ bool SandboxEngine::Overlay::sameAs(const Overlay &o) const {
+ 	// (The coin, while held, is drawn again each time.)
+@@ -5144,6 +5672,13 @@ void SandboxEngine::overlays(Common::Array<Overlay> &out) const {
+ 		out.push_back(o);
+ 	}
+ 	if (!over) { Overlay o; o.kind = kOverPanel; panel(o); out.push_back(o); }
++	// (From 0298 a duel's choices over the panel: `verb` its stamp.)
++	if (PanelBridge::choiceCount()) {
++		Overlay o;
++		o.kind = kOverChoices; o.verb = (int)PanelBridge::choiceStamp();
++		bounds(o, PanelBridge::choicesBounds(_width, _height, x, y, w, h));
++		out.push_back(o);
++	}
+ }
+ 
+ void SandboxEngine::drawOverlay(const Overlay &o, uint32 *pixels) const {
+@@ -5173,6 +5708,9 @@ void SandboxEngine::drawOverlay(const Overlay &o, uint32 *pixels) const {
+ 	case kOverNotice:
+ 		PanelBridge::say(pixels + o.from, _width, o.across, o.limit, o.text.c_str(), o.centreX, o.bottomY, o.rowScale, o.colScale, o.color);
+ 		break;
++	case kOverChoices:
++		PanelBridge::renderChoices(pixels, _width, _width, _height);
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -7047,7 +7585,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		const int keptCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < keptCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), var = in->readUint16LE(), value = in->readSint32LE();
+-			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too)
++			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var) || worldDuelValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too; from 0298 a fight's)
+ 		}
+ 		Common::Array<Later> later;
+ 		const int laterCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+@@ -7221,6 +7759,8 @@ Common::Error SandboxEngine::run() {
+ 			else if (event.type == Common::EVENT_LBUTTONDOWN) { if (PanelBridge::coin() && !_phone.picking()) press(event.mouse.x, event.mouse.y); else tap(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_LBUTTONUP && _press.down) { release(event.mouse.x, event.mouse.y); changed = true; }
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && _press.down) { drag(event.mouse.x, event.mouse.y); changed = true; }
++			// (From 0298 a duel's choice under the pointer lit.)
++			else if (event.type == Common::EVENT_MOUSEMOVE && PanelBridge::choiceCount()) { PanelBridge::lightChoice(PanelBridge::choiceAt(event.mouse.x, event.mouse.y, _width, _height)); changed = true; }
+ 			// (A flashlight in the dark follows the pointer, as the original's.)
+ 			else if (event.type == Common::EVENT_MOUSEMOVE && flashlightLit()) { StageBridge::toScene(event.mouse.x, event.mouse.y, _beamX, _beamY); _beamSet = true; changed = true; }
+ 			else if (event.type == Common::EVENT_RBUTTONDOWN) { rightClick(event.mouse.x, event.mouse.y); changed = true; }
+@@ -8339,6 +8879,278 @@ SandboxEngine::Trials SandboxEngine::trialsPlayed() {
+ 	return c;
+ }
+ 
++// From 0298 the "verbs" check's (see verbsTest): Monkey Island's insult
++// sword fighting as a player plays it, by its fight file and its game's
++// rules (kWorldDuels; common/scummverse_duel.h), each step through a save
++// and a load, its choices chosen by taps on them as a player taps them.
++// The trainer: his door opened without the money, his usual answer;
++// with the sword and the money, trained and taught his insults and
++// comebacks; opened again, his line, nothing more. The master: talked to
++// trained with no fight won, her start, her choices, her answer and no
++// fight; without the sword, she goes into her house, and is back once her
++// place is entered again. The map: no pirate until the visit after its
++// second; then, untrained, one, whose options have no fight (leaving ends its
++// talk); trained, three, a fight chosen, the one played insulting first,
++// played as a player learning plays it (an insult whose comeback is not
++// known yet; the comeback known that the insult takes, else one that loses)
++// until every comeback is known and three are won; her insults never heard
++// meanwhile; one more given up at once (lost). Then the master's fight
++// lost on purpose, an insult asked again first (she goes into her house),
++// and fought again at once on the next talk and won five to none:
++// the T-shirt carried, the trial counted and her bit; talked to again,
++// no fight. With the treasure dug and the idol brought up, all three trials:
++// the SCUMM Bar's mugs there. Before, she was a door to room 44, no pirate
++// was ever met and the trial could not be won.
++SandboxEngine::Duels SandboxEngine::duelsPlayed() {
++	Duels c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "monkey")) g = k;
++	const WorldDuel *w = g >= 0 ? worldDuel(g) : nullptr;
++	if (!w || !duelLoad(g)) return c;
++	for (int room : {(int)w->masterRoom, (int)w->mapRoom, (int)w->trainRoom, (int)w->duelRoom, (int)w->swordRoom, (int)w->moneyRoom}) if (!installed(g, room)) return c;
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++		PanelBridge::clearChoices(); _duel = DuelPlay();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto personOf = [&](int costume) {
++		for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == worldAppearanceKey(g, costume) && !StageBridge::hidden((int)n)) return (int)n;
++		return -1;
++	};
++	// (Played on, each line ended at once as a tap ends it, until its choices
++	// are up or it is over.)
++	auto settle = [&]() {
++		for (int t = 0; t < 20000; ++t) {
++			if (_duel.phase == kDuelChoosing) return;
++			if (!_duel.phase && !StageBridge::moving(_player) && !_action && _saying.empty() && _speechClock <= 0 && _noticeClock <= 0 && !_going.room) return;
++			if (_speechClock > 1) _speechClock = 1;
++			if (_noticeClock > 1) _noticeClock = 1;
++			step(1);
++		}
++	};
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox duels: %s: %s", what, how); }
++		return ok;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	auto useThing = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	// (Talked to with Talk, walked up to; a tap on them with no verb for
++	// `walking`.)
++	auto talkTo = [&](int person, bool walking) {
++		if (person < 0) return false;
++		_holding = Pair(); _pairing = Pair();
++		if (walking) {
++			int x0, y0, x1, y1;
++			if (!StageBridge::drawnRect(person, x0, y0, x1, y1)) return false;
++			PanelBridge::select(-1);
++			tap((x0 + x1) / 2, (y0 + y1) / 2);
++		} else useOnPerson(kWorldVerbTalk, -1, person);
++		settle();
++		return true;
++	};
++	// (A choice tapped as a player taps it: its page turned to it first.)
++	auto choose = [&](int number) {
++		if (_duel.phase != kDuelChoosing) return false;
++		int index = -1;
++		for (uint k = 0; k < _duel.listed.size(); ++k) if (_duel.listed[k] == number) index = (int)k;
++		if (index < 0) return false;
++		int x, y, cw, ch;
++		for (int turn = 0; turn < 64 && !PanelBridge::choiceRect(index, _width, _height, x, y, cw, ch); ++turn) {
++			int bx, by, bw, bh;
++			if (!PanelBridge::choicesBounds(_width, _height, bx, by, bw, bh)) return false;
++			// (Its arrows at its right: up above, down below.)
++			tap(bx + bw - 2, index < PanelBridge::firstChoice() ? by + 2 : by + bh - 2);
++		}
++		if (!PanelBridge::choiceRect(index, _width, _height, x, y, cw, ch)) return false;
++		tap(x + cw / 2, y + ch / 2);
++		settle();
++		return true;
++	};
++	auto listed = [&](int number) { for (int n : _duel.listed) if (n == number) return true; return false; };
++	// (A fight played on as a player learning plays it; `win` false: every
++	// comeback one that loses. Returns 1 won, 0 lost, -1 not as its rules.)
++	// (`again`: the first insult asked again first, its line said, the same
++	// insult's comebacks up again, no point.)
++	bool heardOwn = true, inRange = true;
++	auto fight = [&](bool win, bool again) {
++		const int wins = keptValue(g, w->wins), losses = keptValue(g, w->losses);
++		for (int t = 0; t < 400 && _duel.phase; ++t) {
++			settle();
++			if (_duel.phase != kDuelChoosing) continue;
++			if (_duel.list == kDuelListComebacks && again) {
++				again = false;
++				const int insult = DuelBridge::insultNow(), mine = DuelBridge::playerScore(), theirs = DuelBridge::opponentScore();
++				Common::String asked;
++				for (int part = 0; part < 3; ++part) {
++					int speaker, color;
++					char text[256];
++					if (DuelBridge::line(g, part == 1 ? Duel::kLineInsult : Duel::kLineRepeat, part == 1 ? insult : part / 2, 0, speaker, color, text, sizeof(text))) asked += text;
++				}
++				if (!choose(w->repeat) || _duel.phase != kDuelChoosing || _duel.list != kDuelListComebacks || DuelBridge::insultNow() != insult ||
++					DuelBridge::playerScore() != mine || DuelBridge::opponentScore() != theirs || _duel.heard != asked) return -1;
++				continue;
++			}
++			if (_duel.list == kDuelListComebacks) {
++				const int insult = DuelBridge::insultNow();
++				inRange = inRange && (_duel.master ? insult >= w->masterFirst && insult <= w->masterLast : insult >= w->ownFirst && insult <= w->ownLast);
++				heardOwn = heardOwn && keptValue(g, 0x8000 + w->insultBits + insult);
++				int pick = w->loseFrom;
++				for (int n : _duel.listed) if (win && n < w->loseFrom && DuelBridge::accepts(g, insult, n)) { pick = n; break; }
++				const int before = DuelBridge::playerScore();
++				if (!choose(pick)) return -1;
++				if (DuelBridge::turn() != DuelBridge::kOver && DuelBridge::playerScore() != before + (pick < w->loseFrom ? 1 : 0)) return -1;
++			} else if (_duel.list == kDuelListInsults) {
++				int pick = 0;
++				for (int n : _duel.listed) if (!pick && n < w->fallbackFrom && !(duelComebacks() >> n & 1)) pick = n;
++				for (int n : _duel.listed) if (!pick && n < w->fallbackFrom) pick = n;
++				if (!pick) pick = w->fallbackFrom;
++				if (!choose(pick)) return -1;
++			} else return -1;
++		}
++		settle();
++		if (_duel.phase) return -1;
++		const bool won = keptValue(g, w->wins) == wins + 1 && keptValue(g, w->losses) == losses;
++		const bool lost = keptValue(g, w->wins) == wins && keptValue(g, w->losses) == losses + 1;
++		if (won) ++c.won;
++		++c.fights;
++		return won ? 1 : lost ? 0 : -1;
++	};
++	auto comebacksKnown = [&]() { int k = 0; for (int n = 1; n < w->loseFrom; ++n) k += keptValue(g, 0x8000 + w->comebackBits + n) != 0; return k; };
++	auto masterInsultKnown = [&]() { bool any = false; for (int n = w->masterFirst; n <= w->masterLast; ++n) any = any || keptValue(g, 0x8000 + w->insultBits + n); return any; };
++	bool ok = true;
++	fresh();
++	// ---- The trainer. ----
++	what = "the trainer's training";
++	++c.cases;
++	ok = check(enter(g, w->trainRoom, 0, problem) && carry(g, w->swordRoom, w->sword, "", 0, false), "his place not shown, or the sword not carried") &&
++		check(useThing(kWorldVerbOpen, w->trainObject) && !keptValue(g, w->trained), "trained without the money") &&
++		check(carry(g, w->moneyRoom, w->money, "", 0, false) && useThing(kWorldVerbOpen, w->trainObject) && keptValue(g, w->trained) &&
++			keptValue(g, 0x8000 + w->insultBits + w->taught[0]) && keptValue(g, 0x8000 + w->insultBits + w->taught[1]) &&
++			keptValue(g, 0x8000 + w->comebackBits + w->taught[0]) && keptValue(g, 0x8000 + w->comebackBits + w->taught[1]) && duelInsults() == (1ULL << w->taught[0] | 1ULL << w->taught[1]),
++			"not trained and taught with the sword and the money carried") &&
++		check(saved() && keptValue(g, w->trained) && duelComebacks() == (1u << w->taught[0] | 1u << w->taught[1]), "the training not kept through a save and a load") &&
++		check(enter(g, w->trainRoom, 0, problem) && useThing(kWorldVerbOpen, w->trainObject) && keptValue(g, w->trained) && duelInsults() == (1ULL << w->taught[0] | 1ULL << w->taught[1]), "trained again");
++	if (ok) { ++c.played; ++c.kept; }
++	// ---- The master's refusals. ----
++	what = "the master's talk before her fight";
++	++c.cases;
++	ok = ok && check(enter(g, w->masterRoom, 0, problem) && personOf(w->masterCostume) >= 0, "her place not shown, or she is not there") &&
++		check(talkTo(personOf(w->masterCostume), true) && _duel.phase == kDuelChoosing && _duel.list == kDuelListTalk && (int)_duel.listed.size() == w->choices && keptValue(g, w->introSeen),
++			"walked to: her start and her choices not up") &&
++		check(choose(0) && !_duel.phase && !keptValue(g, w->fought) && personOf(w->masterCostume) >= 0, "trained with no fight won: fought, or gone") &&
++		check(talkTo(personOf(w->masterCostume), false) && _duel.phase == kDuelChoosing, "talked to again: her choices not up");
++	if (ok) {
++		// (Without the sword: she goes into her house, back once her place is entered again.)
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == w->swordRoom && _carried[n].id == w->sword) { PanelBridge::removeItem(n); _carried.remove_at(n); break; }
++		ok = check(choose(1) && !_duel.phase && personOf(w->masterCostume) < 0, "without the sword she did not go into her house") &&
++			check(saved() && enter(g, w->masterRoom, 0, problem) && personOf(w->masterCostume) >= 0 && carry(g, w->swordRoom, w->sword, "", 0, false), "not back once her place is entered again");
++	}
++	if (ok) { ++c.played; ++c.kept; }
++	// ---- The map's pirates, then fights until every comeback is known. ----
++	what = "pirates on the map";
++	++c.cases;
++	if (ok) {
++		const int trained = keptValue(g, w->trained);
++		for (int v = 0; v <= w->mapVisits && ok; ++v) ok = check(enter(g, w->mapRoom, 0, problem) && _duelPirates.empty(), "a pirate before the visit after its second");
++		// (Untrained: one, no fight among its options; leaving ends its talk.)
++		_kept[g * 65536 + w->trained] = 0;
++		ok = ok && check(enter(g, w->mapRoom, 0, problem) && _duelPirates.size() == 1, "untrained, not one pirate") &&
++			check(talkTo(_duelPirates[0], true) && _duel.phase == kDuelChoosing && _duel.list == kDuelListPirate && !listed(7) && listed(4) && listed(0), "untrained: its options not as its talk builds them") &&
++			check(choose(0) && _duel.phase == kDuelChoosing && !listed(0) && listed(2), "asked: its options not as its talk builds them") &&
++			check(choose(4) && !_duel.phase && _duelPirates.empty(), "left: its talk not ended, or the pirate still there");
++		_kept[g * 65536 + w->trained] = trained;
++		ok = ok && check(saved() && enter(g, w->mapRoom, 0, problem) && _duelPirates.size() == 3, "trained, not three pirates");
++		for (int f = 0; ok && f < 160 && (comebacksKnown() < w->loseFrom - 1 || keptValue(g, w->wins) < 3); ++f) {
++			if (_duelPirates.empty()) ok = check(enter(g, w->mapRoom, 0, problem) && !_duelPirates.empty(), "no pirate on coming back");
++			ok = ok && check(talkTo(_duelPirates[0], f % 2 == 0) && _duel.phase == kDuelChoosing && listed(7), "trained: no fight among its options") &&
++				check(choose(7) && _duel.phase == kDuelChoosing && _duel.list == kDuelListInsults, "the fight: the one played not insulting first") &&
++				check(fight(true, false) >= 0, "a fight not as its rules have it");
++			if (ok && f % 10 == 9) {
++				const unsigned long long insults = duelInsults();
++				const unsigned comebacks = duelComebacks();
++				const int wins = keptValue(g, w->wins);
++				ok = check(saved() && duelInsults() == insults && duelComebacks() == comebacks && keptValue(g, w->wins) == wins, "learned not kept through a save and a load");
++			}
++		}
++		// (One more, given up at once with its last insult: lost, no point.)
++		if (ok && _duelPirates.empty()) ok = check(enter(g, w->mapRoom, 0, problem) && !_duelPirates.empty(), "no pirate on coming back");
++		const int givenUp = keptValue(g, w->losses), won = keptValue(g, w->wins);
++		ok = ok && check(talkTo(_duelPirates[0], false) && choose(7) && _duel.list == kDuelListInsults && listed(w->insultGiveUp) && choose(w->insultGiveUp) && !_duel.phase &&
++			keptValue(g, w->losses) == givenUp + 1 && keptValue(g, w->wins) == won, "given up: not lost at once");
++		ok = ok && check(comebacksKnown() == w->loseFrom - 1 && keptValue(g, w->wins) >= 3 && keptValue(g, w->wins) + keptValue(g, w->losses) == c.fights + 1, "not every comeback learned, or three not won") &&
++			check(inRange && heardOwn && !masterInsultKnown(), "a pirate's insult not theirs, not learned once heard, or one of hers heard");
++		c.comebacks = comebacksKnown();
++	}
++	if (ok) { ++c.played; ++c.kept; }
++	// ---- The master's fight: lost, then won. ----
++	what = "the master's fight";
++	++c.cases;
++	ok = ok && check(saved() && enter(g, w->masterRoom, 0, problem) && talkTo(personOf(w->masterCostume), false) && choose(0) && _duel.phase == kDuelChoosing && _duel.list == kDuelListComebacks,
++		"three won: her fight not begun") &&
++		check(fight(false, true) == 0 && personOf(w->masterCostume) < 0 && keptValue(g, w->fought) == 1 && !keptValue(g, w->won) && masterInsultKnown() && inRange, "lost: not as her script has it") &&
++		check(enter(g, w->masterRoom, 0, problem) && talkTo(personOf(w->masterCostume), true) && _duel.phase == kDuelChoosing && _duel.list == kDuelListComebacks,
++			"fought once: her fight not begun at once") &&
++		check(fight(true, false) == 1 && keptValue(g, w->won) && isCarried(g, w->duelRoom, w->shirt) && keptValue(g, w->trialsVar) == 1 && keptValue(g, 0x8000 + w->trialBit) && personOf(w->masterCostume) < 0,
++			"won: the T-shirt, the trial or her bit not as her script leaves them") &&
++		check(saved() && keptValue(g, w->won) && isCarried(g, w->duelRoom, w->shirt) && keptValue(g, w->trialsVar) == 1 && enter(g, w->masterRoom, 0, problem) &&
++			talkTo(personOf(w->masterCostume), false) && !_duel.phase, "won: not kept through a save and a load, or fought again");
++	if (ok) { ++c.played; ++c.kept; }
++	// ---- With the other two trials, all three: the SCUMM Bar's mugs. ----
++	what = "the three trials";
++	if (ok && installed(g, 64) && installed(g, 42) && installed(g, 83) && installed(g, 28)) {
++		++c.cases;
++		auto carriedAt = [&](int room, int id) {
++			for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++			return -1;
++		};
++		Pair p;
++		ok = check(enter(g, 64, 0, problem) && carry(g, 30, 410, "", 0, false), "the X's clearing not shown, or the shovel not carried");
++		if (ok) {
++			p.kind = kWorldVerbUse; p.item = carriedAt(30, 410);
++			_holding = p;
++			useOn(kWorldVerbUse, -1, thingIn(726));
++			settle();
++			ok = check(keptValue(g, w->trialsVar) == 2, "the treasure not the second trial");
++		}
++		ok = ok && check(enter(g, 42, 0, problem) && useThing(kWorldVerbPickUp, 586), "the idol not taken");
++		for (int t = 0; t < 600 && ok && _room == 42; ++t) step(1);
++		ok = ok && check(keptValue(g, w->trialsVar) == 3 && saved() && keptValue(g, w->trialsVar) == 3, "not three trials done, kept") &&
++			check(enter(g, 28, 0, problem) && thingIn(373) >= 0 && isThing(thingIn(373)) && pictureNow(thingIn(373), 373) == 1, "the SCUMM Bar's mugs not there with the trials done") &&
++			check(enter(g, w->mapRoom, 0, problem) && _duelPirates.empty(), "a pirate on the map with the trials done");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0281 (the "verbs" check): each thing a game starts untouchable that an
+ // answer of its things file makes touchable in the answer's own place (an
+ // answer of one thing, or a thing carried used on one, as its record names
+@@ -15519,6 +16331,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Monkey Island's trials: %d of %d orders played as a player plays them (the treasure dug, the idol brought up onto the dock, each counted once; the SCUMM Bar's mugs with all three), %d kept through saves and loads; %d failed",
+ 		trials.played, trials.cases, trials.kept, trials.failed);
+ 	failed += trials.failed;
++	// (From 0298) Monkey Island's insult sword fighting as a player plays it:
++	// see duelsPlayed.
++	const Duels duels = duelsPlayed();
++	warning("SCUMMVERSE sandbox selftest Monkey Island's sword fighting: %d of %d steps played as a player plays them (the trainer's training, the Sword Master's talk, pirates met on the map and fought until every comeback is known, her fight lost and won, the three trials), %d kept through saves and loads; %d fights (%d won), %d comebacks learned; %d failed",
++		duels.played, duels.cases, duels.kept, duels.fights, duels.won, duels.comebacks, duels.failed);
++	failed += duels.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index de94eb80..a8d85a4d 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -410,6 +410,41 @@ private:
+ 	void holderStep(int ticks);
+ 	void holderBack(int game, int id);
+ 	bool castGone(int key) const;
++	// From 0298 insult sword fighting by its game's own rules (kWorldDuels;
++	// its fight file, common/scummverse_duel_engine.h): a talk or a fight
++	// under way with the master (her talk, then her fight where it says so)
++	// or a pirate met on the map (its talk, its fight where chosen); `phase`
++	// off, its lines being said (then `next`), or its choices up (`listed`:
++	// what each is, of `list`). Taps meanwhile choose, or end the line said.
++	struct DuelPlay {
++		int phase = 0, next = 0, list = 0, game = -1, opponent = -1, type = 0, skill = 0, color = -1, wait = 0;
++		bool master = false, asked = false;
++		Common::Array<int> listed;
++		Common::String heard; // (the opponent's last line, for the self-test)
++	};
++	DuelPlay _duel;
++	Common::Array<int> _duelPirates; // (the map's pirates on the stage: their actors)
++	bool _duelGone = false;          // (the master gone into her house, until the place is entered again)
++	Common::HashMap<int, bool> _duelUnread; // (games whose fight file could not be read, until scan)
++	bool duelLoad(int game);
++	bool duelOpponent(int person) const;
++	bool duelTap(int screenX, int screenY);
++	bool duelTapWhile(int screenX, int screenY);
++	bool duelBegin(int person);
++	void duelStep(int ticks);
++	void duelNext();
++	void duelChoose(int index);
++	void duelLines(int kind, int which, bool clear = true);
++	void duelSaid(const Common::String &text, int speaker, int color);
++	void duelList(int list);
++	void duelInsult();
++	void duelLeaves(int kind, int which, int &flags);
++	void duelEnd();
++	bool duelTrain(int id, int kind);
++	void duelMap();
++	unsigned long long duelInsults() const;
++	unsigned duelComebacks() const;
++	void duelLearned(unsigned long long insults, unsigned comebacks);
+ 	// (From 0296 a place whose entry reads a value kept, kWorldValueArrivals:
+ 	// while it is so, the key its arrival is filed under; shown so.)
+ 	bool arrivedWith(int game, int room, int *key) const;
+@@ -716,6 +751,12 @@ private:
+ 	// where one is not as its things file has it.)
+ 	struct Trials { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	Trials trialsPlayed();
++	// (From 0298 the "verbs" check's: Monkey Island's insult sword fighting
++	// as a player plays it, from learning to the Sword Master's trial won and
++	// the three trials counted. Counted; `failed` where one is not as its
++	// fight file and its game's rules have it.)
++	struct Duels { int cases = 0, played = 0, kept = 0, failed = 0, fights = 0, won = 0, comebacks = 0; };
++	Duels duelsPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

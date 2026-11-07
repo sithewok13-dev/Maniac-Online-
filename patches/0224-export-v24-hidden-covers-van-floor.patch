@@ -1,0 +1,438 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 44c7bb23..6b4e67bc 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -304,7 +304,7 @@ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameS
+ 	for (const World::SourceCycle &cycle : _source.cycles) { Cycle k; k.cycle = cycle; _cycles.push_back(k); }
+ 	_showing.clear();
+ 	for (const World::SourceObject &o : _source.objects) _showing.push_back(o.shown);
+-	_shown = false; _loaded = _source.pixels; _bare.clear(); _bareOrder = -1;
++	_shown = false; _loaded = _source.pixels; _bare.clear(); _bareOrder = -1; _bareHidden.clear();
+ 	_picture = Picture();
+ 	_scaled.assign((size_t)_view.width * _view.height, 0);
+ 	_columns.resize(_view.width); _rows.resize(_view.height);
+@@ -666,6 +666,12 @@ int Scene::shownKind(int n) const {
+ 	return p.frame ? p.frame->kind : -1;
+ }
+ 
++int Scene::shownFrame(int n) const {
++	if (n < 0 || n >= (int)_actors.size()) return -1;
++	const Placement p = placeOf(_actors[n], _view, _boxes);
++	return p.frame ? (int)(p.frame - _actors[n].sprite.frames.data()) : -1;
++}
++
+ // Light added: each channel summed, at most full.
+ static uint32_t added(uint32_t under, uint32_t light) {
+ 	uint32_t out = 0xFF000000u;
+@@ -748,6 +754,7 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 		const Prop *prop = n < people ? nullptr : &_props[n - people];
+ 		if (prop && _dark) continue;
+ 		const Placement p = prop ? placeOf(prop->frame, prop->at, prop->rows, prop->pixelAspect, v, _boxes) : placeOf(_actors[n], v, _boxes);
++		if (!prop) _actors[n].drawnFrame = p.frame ? (int)(p.frame - _actors[n].sprite.frames.data()) : -1;
+ 		const uint32_t *colors = prop ? prop->colors : _actors[n].colors;
+ 		int x0, y0, x1, y1;
+ 		if (!rectOf(p, v, x0, y0, x1, y1)) continue;
+@@ -892,19 +899,25 @@ bool Scene::showObject(int object, int picture) {
+ 	return true;
+ }
+ 
+-void Scene::layObjects(const std::vector<bool> &hidden, bool laterOnTop, bool opaque) {
++void Scene::layObjects(const std::vector<bool> &hidden, const std::vector<bool> &hiddenLoaded, bool laterOnTop, bool opaque) {
+ 	const int count = (int)_source.objects.size(), width = _source.width;
++	auto flag = [](const std::vector<bool> &flags, int o) { return o < (int)flags.size() && flags[o]; };
+ 	bool any = _shown;
+-	for (int o = 0; o < count && o < (int)hidden.size(); ++o) any = any || hidden[o];
++	for (int o = 0; o < count; ++o) any = any || flag(hidden, o) != flag(hiddenLoaded, o);
+ 	if (!any || _loaded.size() != _source.pixels.size()) return;
+ 	auto at = [&](const World::SourceObject &o, int x, int y) { return (size_t)(o.pictureY + y) * width + o.pictureX + x; };
+ 	// (The place without them: from the one on top down, each the scene
+-	// shows taken away where it differs from its picture without it.)
+-	if (_bareOrder != (int)laterOnTop) {
+-		_bare = _loaded; _bareOrder = laterOnTop;
++	// shows taken away where it differs from its picture without it; not
++	// one it does not show, inside one shut: its pictures were taken with
++	// that one open.)
++	std::vector<bool> leftOut(count);
++	for (int o = 0; o < count; ++o) leftOut[o] = flag(hiddenLoaded, o);
++	if (_bareOrder != (int)laterOnTop || _bareHidden != leftOut) {
++		_bare = _loaded; _bareOrder = laterOnTop; _bareHidden = leftOut;
+ 		for (int i = 0; i < count; ++i) {
+-			const World::SourceObject &o = _source.objects[laterOnTop ? count - 1 - i : i];
+-			if (o.pictures.empty() || o.shown <= 0) continue;
++			const int object = laterOnTop ? count - 1 - i : i;
++			const World::SourceObject &o = _source.objects[object];
++			if (o.pictures.empty() || o.shown <= 0 || leftOut[object]) continue;
+ 			for (int y = 0; y < o.pictureHeight; ++y)
+ 				for (int x = 0; x < o.pictureWidth; ++x) {
+ 					const size_t k = (size_t)y * o.pictureWidth + x;
+@@ -919,7 +932,7 @@ void Scene::layObjects(const std::vector<bool> &hidden, bool laterOnTop, bool op
+ 		const int object = laterOnTop ? i : count - 1 - i;
+ 		const World::SourceObject &o = _source.objects[object];
+ 		const int shown = showing(object);
+-		if (o.pictures.empty() || shown <= 0 || shown >= (int)o.pictures.size() || (object < (int)hidden.size() && hidden[object])) continue;
++		if (o.pictures.empty() || shown <= 0 || shown >= (int)o.pictures.size() || flag(hidden, object)) continue;
+ 		for (int y = 0; y < o.pictureHeight; ++y)
+ 			for (int x = 0; x < o.pictureWidth; ++x) {
+ 				const size_t k = (size_t)y * o.pictureWidth + x;
+@@ -1181,8 +1194,10 @@ bool moving(int actor) { return valid(actor) && stage().actor(actor).moving; }
+ bool busy() {
+ 	for (int n = 0; n < stage().actorCount(); ++n) {
+ 		const Stage::Actor &a = stage().actor(n);
+-		// (Lit, standing: its lit frames in turn, Sith Ewok's crackle.)
+-		if (a.moving || a.talking || a.switching || a.actKind >= 0 || (a.lit && !a.hidden)) return true;
++		if (a.moving || a.talking || a.switching || a.actKind >= 0) return true;
++		// (Lit, standing: its lit frames in turn, Sith Ewok's crackle, each
++		// drawn once it is due; one lit frame, drawn once.)
++		if (a.lit && !a.hidden && stage().shownFrame(n) != a.drawnFrame) return true;
+ 	}
+ 	return stage().drying();
+ }
+@@ -1294,6 +1309,7 @@ int objectName(int index, char *name, int capacity) {
+ }
+ int objectPictures(int index) { return index >= 0 && index < objectCount() ? (int)stage().source().objects[index].pictures.size() : 0; }
+ int objectShown(int index) { return objectPictures(index) ? stage().showing(index) : 0; }
++int objectShownLoaded(int index) { return objectPictures(index) ? stage().source().objects[index].shown : 0; }
+ bool picturesDiffer(int index, int a, int b) { return stage().picturesDiffer(index, a, b); }
+ bool looksAs(int index, int picture) { return stage().looksAs(index, picture); }
+ void view(int &left, int &top, int &width, int &height, double &rowScale, double &colScale) {
+@@ -1301,8 +1317,9 @@ void view(int &left, int &top, int &width, int &height, double &rowScale, double
+ 	left = v.left; top = v.top; width = v.width; height = v.height; rowScale = v.rowScale; colScale = v.colScale;
+ }
+ bool showObject(int index, int picture) { return stage().showObject(index, picture); }
+-void layObjects(const bool *hidden, int count, bool laterOnTop, bool opaque) {
+-	stage().layObjects(hidden && count > 0 ? std::vector<bool>(hidden, hidden + count) : std::vector<bool>(), laterOnTop, opaque);
++void layObjects(const bool *hidden, const bool *hiddenLoaded, int count, bool laterOnTop, bool opaque) {
++	auto flags = [&](const bool *f) { return f && count > 0 ? std::vector<bool>(f, f + count) : std::vector<bool>(); };
++	stage().layObjects(flags(hidden), flags(hiddenLoaded), laterOnTop, opaque);
+ }
+ int paletteVersion() { return stage().paletteVersion(); }
+ int objectAt(double x, double y, const int *candidates, int count, double slack) {
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 0fd7c824..a54e88f4 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -122,6 +122,9 @@ struct Actor {
+ 	// the last side faced, when facing the viewer or away).
+ 	int actKind = -1, actTicks = 0, actTotal = 0;
+ 	int side = 1;
++	// (Which of its frames render drew last: lit and standing, busy only
++	// until the one due now is drawn.)
++	mutable int drawnFrame = -1;
+ 	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
+ };
+ // Ticks a talk frame shows (the mouth moving about seven times a second).
+@@ -177,8 +180,10 @@ public:
+ 	bool act(int actor, int kind, int ticks = 0);
+ 	bool acting(int actor) const;
+ 	bool canAct(int actor, int kind) const;
+-	// The pose of the frame drawn now (a GuestKind; -1 none drawn).
++	// The pose of the frame drawn now (a GuestKind; -1 none drawn), and
++	// which of its frames it is.
+ 	int shownKind(int actor) const;
++	int shownFrame(int actor) const;
+ 	// A point of its art in the scene: art pixels from its feet as drawn
+ 	// facing right (mirrored facing left), and the scene columns an art
+ 	// pixel spans there (false: no such actor).
+@@ -235,13 +240,15 @@ public:
+ 	// last first, so the first is on top; laterOnTop: the other way, as Sam
+ 	// & Max): where they are, the place without them (as loaded, each the
+ 	// scene shows taken away from the top down, where it differs from its
+-	// picture 0), then each but those hidden (one inside another shut) in
+-	// the picture it shows, where that differs from its picture 0 (opaque:
+-	// all of it, as the oldest games draw theirs, tiles without holes). So
+-	// what one covers is as it is now, not as when its pictures were taken
+-	// (from export version 23 they leave out what is drawn over it).
+-	// Nothing until an object is shown in a picture or one is hidden.
+-	void layObjects(const std::vector<bool> &hidden, bool laterOnTop, bool opaque);
++	// picture 0; not those hiddenLoaded, inside one shut as the scene was
++	// loaded, which it does not show), then each but those hidden (one
++	// inside another shut now) in the picture it shows, where that differs
++	// from its picture 0 (opaque: all of it, as the oldest games draw
++	// theirs, tiles without holes). So what one covers is as it is now, not
++	// as when its pictures were taken (from export version 23 they leave out
++	// what is drawn over it). Nothing until an object is shown in a picture
++	// or one is hidden that the scene as loaded shows, or the other way.
++	void layObjects(const std::vector<bool> &hidden, const std::vector<bool> &hiddenLoaded, bool laterOnTop, bool opaque);
+ 	bool picturesDiffer(int object, int a, int b) const;
+ 	// Whether the scene, where an object is, looks as one of its pictures
+ 	// (what was drawn over it since).
+@@ -315,6 +322,7 @@ private:
+ 	bool _shown = false; // (an object shown in a picture since loaded)
+ 	std::vector<uint8_t> _loaded, _bare; // the scene as loaded, and without its objects (layObjects)
+ 	int _bareOrder = -1; // (the order _bare was made in: laterOnTop, -1 none)
++	std::vector<bool> _bareHidden; // (and those it left out: hiddenLoaded)
+ 	struct Picture {
+ 		bool on = false, applied = false;
+ 		int x = 0, y = 0, w = 0, h = 0, dx = 0, amount = 256; // (as last shown)
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 2e61f970..8c612e25 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -25,7 +25,7 @@ void seat(int actor, double x, double y);      // exactly there (someone seated
+ void resize(int actor, double factor, double widthFactor); // drawn this many times as tall (and wide: -1, as tall) as now
+ void walkTo(int actor, double x, double y);
+ bool moving(int actor);
+-bool busy();                                   // anyone walking (or talking, or lighting up)
++bool busy();                                   // anyone walking (or talking, or lighting up; lit, a lit frame not drawn yet)
+ // Standing, turned towards a point (source pixels); talking, its talk
+ // frames in turn (until let go).
+ void face(int actor, double x, double y);
+@@ -139,13 +139,16 @@ int objectAt(double x, double y, const int *candidates, int count, double slack)
+ // An object's name as its game has it (the length; "" in older exports).
+ int objectName(int index, char *name, int capacity);
+ // How many pictures an object has (0 without; else 1 + its states: picture
+-// 0 is the place without it), the one the scene shows, and showing it in one.
++// 0 is the place without it), the one the scene shows (now, and as it was
++// loaded: its file's), and showing it in one.
+ int objectPictures(int index);
+ int objectShown(int index);
++int objectShownLoaded(int index);
+ bool showObject(int index, int picture);
+ // Every object drawn again over what is under it as it is now (count
+-// flags: hidden, one inside another shut; Stage::Scene::layObjects).
+-void layObjects(const bool *hidden, int count, bool laterOnTop, bool opaque);
++// flags each: hidden, one inside another shut now, and as the scene was
++// loaded; Stage::Scene::layObjects).
++void layObjects(const bool *hidden, const bool *hiddenLoaded, int count, bool laterOnTop, bool opaque);
+ // Whether two of an object's pictures look different.
+ bool picturesDiffer(int index, int a, int b);
+ // Whether the scene where an object is looks as one of its pictures.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index d13962cc..a59fde78 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -30,8 +30,10 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // pictures leave out what is drawn over it and show what is inside another
+ // with that one open, in every game; an oldest game's object whose image
+ // others point at too has its pictures; every game's things file says what
+-// is inside what, and has the rooms whose entry script leaves them.
+-static const int kWorldExportVersion = 23;
++// is inside what, and has the rooms whose entry script leaves them. 24: an
++// object's pictures leave out what is drawn over it only where that draws,
++// the rest as the scene shows it (drawn again, the rest may differ).
++static const int kWorldExportVersion = 24;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+ // file also says what each thing's verbs do; from 0161 read and pick up too,
+ // from 0162 not fix; from 0168 what each thing is inside, drawn with that
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index a5dbe892..d7845b99 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -687,7 +687,6 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				if (c.x_pos >= x1 || c.x_pos + c.width <= x0 || c.y_pos >= y1 || c.y_pos + c.height <= y0 || !pictured(c)) continue;
+ 				covers.push_back(k); coversWere.push_back(c.state);
+ 			}
+-			for (int k : covers) _objs[k].state = old ? _objs[k].state & ~kObjectStateIntrinsic : 0;
+ 			if (pictured(o)) {
+ 				p.x = x0; p.y = y0; p.width = x1 - x0; p.height = y1 - y0;
+ 				const int global = getState(o.obj_nr);
+@@ -695,12 +694,20 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				// have one image whatever the state, the oldest draw it while
+ 				// its state's "on" bit is set).
+ 				const int now = old ? (states[i - 1] & kObjectStateIntrinsic ? 1 : 0) : !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
++				// (Under another: drawn with those over it, then without, so
++				// where they draw is known.)
++				Common::Array<byte> covered;
++				if (!covers.empty() && opened.empty()) { renderSpan(x0, x1); covered = grab(pixels, p); }
++				for (int k : covers) _objs[k].state = old ? _objs[k].state & ~kObjectStateIntrinsic : 0;
+ 				renderSpan(x0, x1);
+ 				const Common::Array<byte> drawn = grab(pixels, p);
+-				// (One inside another shut in the scene, or under another: as
+-				// drawn now.)
++				// (One inside another shut in the scene: as drawn now. Under
++				// another: as drawn now where those over it draw, else as the
++				// scene (drawn again, what the room's scripts and animations
++				// drew there may be missing).)
+ 				const bool asScene = opened.empty() && covers.empty();
+-				const Common::Array<byte> inScene = asScene ? grab(scene, p) : drawn;
++				Common::Array<byte> inScene = opened.empty() ? grab(scene, p) : drawn;
++				for (uint at = 0; at < covered.size(); ++at) if (covered[at] != drawn[at]) inScene[at] = drawn[at];
+ 				for (int state = 0; state <= images; ++state) {
+ 					if (state && !scummverseObjectDrawable(o, state)) break;
+ 					const int as = old ? (state ? global | kObjectStateIntrinsic : global & ~kObjectStateIntrinsic) : state;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 4208d6f2..fde4c5ec 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -97,6 +97,9 @@ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+ // spacesuits) are this tall, and its door is this far across it.
+ static const double kVanKidHeight = 27.0, kVanDoorAcross = 112.0 / 144;
++// Parked, its door no further off the floor (the walk boxes) than this, in
++// the oldest games' pixels, where it can help it: the walk to it ends there.
++static const double kVanDoorOffFloor = 16.0;
+ // How long a line no one sees is kept (ticks; the chat shows it).
+ static const int kUnseenLine = 30;
+ 
+@@ -1060,12 +1063,22 @@ bool SandboxEngine::tapsDoorFirst(int door, double x, double y) const {
+ 
+ // A thing inside another (its game's parent: the fridge's food, the key
+ // under the mat; from 0168) is drawn and touched only while that one, and
+-// each it is in, shows the picture it is in.
+-bool SandboxEngine::insideShut(int object) const {
++// each it is in, shows the picture it is in. (As the scene was loaded: each
++// in the picture its file has, else where its game puts it, so whether its
++// game drew it there.)
++bool SandboxEngine::insideShut(int object, bool asLoaded) const {
+ 	int id, ox, oy, w, h, wx, wy, state, parent, picture;
+ 	if (_game < 0 || !StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++	auto loaded = [&](int thing) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, x, y, ow, oh, owx, owy, ostate;
++			if (StageBridge::object(o, oid, x, y, ow, oh, owx, owy, ostate) && oid == thing && StageBridge::objectPictures(o) > 1) return StageBridge::objectShownLoaded(o);
++		}
++		int put, answers;
++		return PanelBridge::gameThing(_game, _room, thing, put, answers) ? put : 0;
++	};
+ 	for (int depth = 0; depth < 8 && PanelBridge::thingParent(_game, _room, id, parent, picture); ++depth, id = parent)
+-		if (pictureOf(_room, parent) != picture) return true;
++		if ((asLoaded ? loaded(parent) : pictureOf(_room, parent)) != picture) return true;
+ 	return false;
+ }
+ 
+@@ -1075,13 +1088,15 @@ bool SandboxEngine::insideShut(int object) const {
+ // objects whole, their tiles have no holes): one inside one shut not drawn,
+ // so that one covers it; what covers another (the garage door over the car)
+ // drawn over it again once it changes. Nothing while all are as the scene
+-// has them.
++// has them. (Those the scene as loaded leaves out, inside one shut there,
++// are left out of the place without them too: no mark of them on the one
++// they are in.)
+ void SandboxEngine::layInside() {
+ 	if (_game < 0) return;
+ 	const int count = StageBridge::objectCount();
+-	Common::Array<bool> hidden(count, false);
+-	for (int o = 0; o < count; ++o) hidden[o] = insideShut(o);
+-	StageBridge::layObjects(hidden.data(), count, !strcmp(kWorldGames[_game].gameid, "samnmax"), kWorldGames[_game].version <= 2);
++	Common::Array<bool> hidden(count, false), hiddenLoaded(count, false);
++	for (int o = 0; o < count; ++o) { hidden[o] = insideShut(o); hiddenLoaded[o] = insideShut(o, true); }
++	StageBridge::layObjects(hidden.data(), hiddenLoaded.data(), count, !strcmp(kWorldGames[_game].gameid, "samnmax"), kWorldGames[_game].version <= 2);
+ 	_dirty = true;
+ }
+ 
+@@ -2203,7 +2218,7 @@ void SandboxEngine::step(int ticks) {
+ 	rideStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+-	cabinPan();
++	cabinPan(ticks);
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
+ 	followStep(ticks);
+@@ -2776,9 +2791,18 @@ void SandboxEngine::vanShow() {
+ 	rows = MIN(rows, (screenWidthOf(_game) - 32.0 * unit) / across);
+ 	// (Not over a door or where a ride is boarded, where it can help it: the
+ 	// spot nearest beside the one played covering the fewest of their middles,
+-	// then the least of them; none clear at its size, smaller, down to half.)
++	// then the least of them; none clear at its size, smaller, down to half.
++	// Before all that, standing on the floor: its door on the walk boxes or
++	// near them (else the nearest), not over a wall or the sky.)
+ 	double width = rows * across, left = 0;
+ 	const double gap = 12.0 * unit;
++	auto offFloor = [&](double at, double wide) {
++		const double doorX = at + wide * kVanDoorAcross;
++		double x = doorX, y = _vanY;
++		StageBridge::walkable(x, y);
++		const double off = sqrt((x - doorX) * (x - doorX) + (y - _vanY) * (y - _vanY));
++		return off > kVanDoorOffFloor * unit ? off : 0.0;
++	};
+ 	auto covered = [&](double at, double wide, double tall, int &middles) {
+ 		double area = 0;
+ 		middles = 0;
+@@ -2798,11 +2822,11 @@ void SandboxEngine::vanShow() {
+ 		at = CLIP<double>(at, 0, MAX(0.0, StageBridge::sceneWidth() - wide));
+ 		const double room = MAX(0.0, StageBridge::sceneWidth() - wide), step = MAX(1.0, wide / 8);
+ 		int middles, bestMiddles;
+-		double best = covered(at, wide, tall, bestMiddles), bestAt = at;
+-		for (double x = 0; (bestMiddles || best > 0) && x <= room + 0.5; x += step) {
+-			const double area = covered(MIN(x, room), wide, tall, middles);
+-			if (middles < bestMiddles || (middles == bestMiddles && (area < best || (area == best && fabs(MIN(x, room) - at) < fabs(bestAt - at))))) {
+-				best = area; bestMiddles = middles; bestAt = MIN(x, room);
++		double bestOff = offFloor(at, wide), best = covered(at, wide, tall, bestMiddles), bestAt = at;
++		for (double x = 0; (bestOff > 0 || bestMiddles || best > 0) && x <= room + 0.5; x += step) {
++			const double spot = MIN(x, room), off = offFloor(spot, wide), area = covered(spot, wide, tall, middles);
++			if (off < bestOff || (off == bestOff && (middles < bestMiddles || (middles == bestMiddles && (area < best || (area == best && fabs(spot - at) < fabs(bestAt - at))))))) {
++				bestOff = off; best = area; bestMiddles = middles; bestAt = spot;
+ 			}
+ 		}
+ 		if (shrink == 1.0 || !bestMiddles) { rows = tall; width = wide; left = bestAt; }
+@@ -2995,7 +3019,7 @@ void SandboxEngine::seatAboard() {
+ 	if (_cabinRight > _cabinLeft) StageBridge::lookAt((_cabinLeft + _cabinRight) / 2);
+ }
+ 
+-void SandboxEngine::cabinPan() {
++void SandboxEngine::cabinPan(int ticks) {
+ 	if (!_aboard || _cabinRight <= _cabinLeft) return;
+ 	int left, top, width, height;
+ 	double rowScale, colScale;
+@@ -3003,9 +3027,10 @@ void SandboxEngine::cabinPan() {
+ 	const double shown = MIN(_width, width) / MAX(1e-9, colScale), span = _cabinRight - _cabinLeft;
+ 	if (span <= shown) return;
+ 	// (From the middle to one end, the other and back in a flight's ten
+-	// seconds.)
++	// seconds: its ticks, however many a step, at a tour's speed too.)
+ 	const double swing = (span - shown) / 2 + 8;
+-	StageBridge::lookAt((_cabinLeft + _cabinRight) / 2 + swing * sin(++_cabinClock * 2 * 3.14159265358979 / 600));
++	_cabinClock = (_cabinClock + ticks) % 600;
++	StageBridge::lookAt((_cabinLeft + _cabinRight) / 2 + swing * sin(_cabinClock * 2 * 3.14159265358979 / 600));
+ 	_dirty = true;
+ }
+ 
+@@ -7079,8 +7104,9 @@ Common::Error SandboxEngine::ridesTest() {
+ 	}
+ 	g_system->updateScreen();
+ 	// (The Shuttle Bug parked at each of its sites: no door's middle, nor a
+-	// ride's, under it.)
+-	int vanClear = 0, vanSites = 0;
++	// ride's, under it; standing on the floor, the walk to its door ending at
++	// it, not off below it.)
++	int vanClear = 0, vanSites = 0, vanFloor = 0;
+ 	{
+ 		const int placeBefore = _vanPlace, xBefore = _vanX, yBefore = _vanY;
+ 		for (int i = 0; i < kWorldVanSiteCount; ++i) {
+@@ -7099,12 +7125,22 @@ Common::Error SandboxEngine::ridesTest() {
+ 				if (StageBridge::propHit(_vanProp, sx, sy)) { clear = false; warning("SCUMMVERSE sandbox rides: %s-%d door %d under the van", kWorldGames[g].gameid, r, id); }
+ 			}
+ 			vanClear += clear;
++			int x0, y0, x1, y1, dx, dy, left, top, shownWidth, shownHeight;
++			double rowScale, colScale;
++			StageBridge::lookAt(_vanDoorX);
++			StageBridge::toScreen(_vanDoorX, _vanDoorY, dx, dy);
++			StageBridge::view(left, top, shownWidth, shownHeight, rowScale, colScale);
++			if (StageBridge::propRect(_vanProp, x0, y0, x1, y1)) {
++				const double offX = MAX(0, MAX(x0 - dx, dx - x1)) / colScale, offY = MAX(0, MAX(y0 - dy, dy - y1)) / rowScale;
++				if (sqrt(offX * offX + offY * offY) <= kVanDoorOffFloor * screenWidthOf(g) / 320 + 1) ++vanFloor;
++				else warning("SCUMMVERSE sandbox rides: %s-%d the van's door %.0f off the floor", kWorldGames[g].gameid, r, sqrt(offX * offX + offY * offY));
++			}
+ 		}
+ 		_vanPlace = placeBefore; _vanX = xBefore; _vanY = yBefore;
+ 	}
+ 	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose, %d crammed in), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d van checks (not on the way on another, called home), %d trams with someone following, %d failed",
+ 		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, crammed, toursHome, cockpits, vanRefused, tramFollowed, failed);
+-	warning("SCUMMVERSE sandbox selftest rides seen: %d flights with everyone seated seen whole, %d of %d van sites with no door's middle under the van", cabinsAllSeen, vanClear, vanSites);
++	warning("SCUMMVERSE sandbox selftest rides seen: %d flights with everyone seated seen whole, %d of %d van sites with no door's middle under the van, %d with it on the floor", cabinsAllSeen, vanClear, vanSites, vanFloor);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 40c1a39f..78d44c8f 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -85,7 +85,7 @@ private:
+ 	// was used on (the plain rules), saying a line, an object shown in
+ 	// another picture (kept between visits).
+ 	bool isThing(int object) const; // named, and not taken from here
+-	bool insideShut(int object) const; // inside another (its game's parent) not showing it
++	bool insideShut(int object, bool asLoaded = false) const; // inside another (its game's parent) not showing it (as the scene was loaded)
+ 	// A door a tap never finds for the things over it (Loom's distaff takes
+ 	// things first), though it would without them, that is the only way from
+ 	// here to where it leads; and whether a tap at (x, y) under it takes it so.
+@@ -259,7 +259,7 @@ private:
+ 	int _tourSpeed = 1;                     // (as chosen, kept)
+ 	double _cabinLeft = 0, _cabinRight = 0; // the plane cabin's seats taken (scene columns)
+ 	int _cabinClock = 0;
+-	void cabinPan();                        // the camera across them, more than the screen shows
++	void cabinPan(int ticks);               // the camera across them, more than the screen shows
+ 	void tourBuild();
+ 	void tourReady(); // (at the start: the iPhone's menu told the stops)
+ 	void tourKeep();  // where it resumes, kept

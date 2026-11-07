@@ -1,0 +1,798 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 628236c3..a6c22f18 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -565,10 +565,12 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[controller presentViewController:menu animated:YES completion:nil];
+ }
+ - (void)showScummverseScenes:(const Scummverse::WorldCatalog::WorldGame *)game base:(int)base from:(UIViewController *)controller {
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose a place. Walk off the sides to reach neighboring places." preferredStyle:UIAlertControllerStyleAlert];
++	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose a place. Walk off the sides to reach neighboring places. Characters from the game greet you and can chat." preferredStyle:UIAlertControllerStyleAlert];
+ 	for (int i = 0; i < game->sceneCount; ++i) {
+ 		const int command = 160 + base + i;
+-		[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithUTF8String:game->scenes[i].name] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++		// Name who lives there, e.g. "SCUMM Bar · Guybrush Threepwood".
++		NSString *place = game->scenes[i].guest ? [NSString stringWithFormat:@"%s · %s", game->scenes[i].name, game->scenes[i].guest->name] : [NSString stringWithUTF8String:game->scenes[i].name];
++		[menu addAction:[UIAlertAction actionWithTitle:place style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 			scummverseWorldRequest(ScummverseLocalAI::sceneToken() | command);
+ 		}]];
+ 	}
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 04cc56cf..50452451 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -34,13 +34,19 @@ static std::string worldStatus() { std::lock_guard<std::mutex> guard(worldMutex)
+ // Room whose resident currently occupies the borrowed actor slot.
+ static std::atomic<int> residentRoom{0};
+ static const ZakResident *sceneResident(int id) { return id == kZakResidentActor ? zakResident(residentRoom.load()) : nullptr; }
++// Other-world scenes lend the same actor to a character from that game.
++static const Scummverse::WorldCatalog::WorldGuest *sceneGuest(int id) {
++	return id == kZakResidentActor ? Scummverse::WorldCatalog::worldGuestInRoom(residentRoom.load()) : nullptr;
++}
+ static const char *actorName(int id) {
+ 	if (const ZakResident *resident = sceneResident(id)) return resident->name;
++	if (const auto *guest = sceneGuest(id)) return guest->name;
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+ 	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
+ 	if (const ZakResident *resident = sceneResident(id)) return resident->personality;
++	if (const auto *guest = sceneGuest(id)) return guest->personality;
+ 	switch (id) {
+ 	case 1: return "a relaxed keyboard player who notices sounds";
+ 	case 2: return "a bold punk singer with dry humor";
+@@ -95,6 +101,7 @@ static std::string classicReply(int id, unsigned turn) {
+ 	case 24: lines[0] = "That would make a great headline."; lines[1] = "Off the record? Sure."; lines[2] = "My editor will never believe this."; break;
+ 	}
+ 	if (const ZakResident *resident = sceneResident(id)) for (int i = 0; i < 3; ++i) lines[i] = resident->lines[i];
++	if (const auto *guest = sceneGuest(id)) for (int i = 0; i < 3; ++i) lines[i] = guest->lines[i];
+ 	const char *line = lines[turn % 3] ? lines[turn % 3] : generic[turn % 3];
+ 	return line;
+ }
+diff --git a/base/main.cpp b/base/main.cpp
+index 36c3f9e9..799507f3 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -116,7 +116,8 @@ static int scummverseQueueWorldExports(const Common::String &maniacTarget) {
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+ 		const Common::FSNode folder(Common::Path(game.folder));
+ 		if (!folder.exists() || !folder.isDirectory()) continue;
+-		if (cache.getChild(Common::String::format("%s-%d.svw", game.gameid, game.scenes[0].room)).exists()) continue;
++		// The marker is written once a game's scenes and characters are exported.
++		if (cache.getChild(Common::String::format("%s.svx", game.gameid)).exists()) continue;
+ 		if (!cache.exists() && !cache.createDirectory()) { warning("SCUMMVERSE: cannot create the worlds cache"); return 0; }
+ 		const Common::String target = Common::String(kScummverseExportPrefix) + game.gameid;
+ 		ConfMan.addGameDomain(target);
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index cc1a8d8c..54671922 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -124,6 +124,7 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	std::vector<int> slotOf(256, -1);
+ 	for (int i = 0; i < (int)used.size(); ++i) slotOf[used[i]] = i;
+ 
++	out.scale = scale;
+ 	out.width = width; out.height = targetHeight; out.firstSlot = firstSlot; out.slotCount = (int)used.size();
+ 	out.pixels.assign((size_t)width * targetHeight, 0);
+ 	out.palette.resize(used.size() * 3);
+@@ -194,6 +195,108 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	return true;
+ }
+ 
++// ---- Characters -------------------------------------------------------------
++
++bool parseSprite(const uint8_t *data, size_t size, SourceSprite &sprite, std::string &error) {
++	sprite = SourceSprite();
++	if (!data || size < 8 + 768 || std::memcmp(data, "SVC1", 4)) { error = "not a character file"; return false; }
++	sprite.costume = read16(data + 4);
++	const int count = read16(data + 6);
++	std::memcpy(sprite.palette, data + 8, 768);
++	size_t at = 8 + 768;
++	for (int i = 0; i < count; ++i) {
++		if (size - at < 12) { error = "truncated character"; return false; }
++		const uint8_t *p = data + at;
++		SourceFrame f;
++		f.dir = p[0]; f.kind = p[1]; f.index = p[2];
++		f.dx = readS16(p + 4); f.dy = readS16(p + 6); f.width = read16(p + 8); f.height = read16(p + 10);
++		if (f.dir >= kGuestDirections || f.kind >= kGuestKinds || f.width < 1 || f.height < 1 || f.width > 640 || f.height > 480) {
++			error = "bad frame"; return false;
++		}
++		const size_t area = (size_t)f.width * f.height;
++		at += 12;
++		if (size - at < area * 2) { error = "truncated character"; return false; }
++		f.pixels.assign(data + at, data + at + area);
++		f.mask.assign(data + at + area, data + at + 2 * area);
++		at += area * 2;
++		sprite.frames.push_back(f);
++	}
++	if (at != size) { error = "trailing bytes"; return false; }
++	if (sprite.frames.empty()) { error = "no frames"; return false; }
++	return true;
++}
++
++bool fitSprite(const SourceSprite &src, double scale, int firstSlot, int slotCount, SandboxSprite &out, std::string &error) {
++	out = SandboxSprite();
++	if (scale <= 0.05 || scale > 4 || firstSlot < 1 || slotCount < 1 || firstSlot + slotCount > 256) { error = "bad target"; return false; }
++	std::vector<long> frequency(256, 0);
++	for (const SourceFrame &f : src.frames)
++		for (size_t i = 0; i < f.pixels.size(); ++i) if (f.mask[i]) ++frequency[f.pixels[i]];
++	std::vector<int> used;
++	for (int c = 0; c < 256; ++c) if (frequency[c]) used.push_back(c);
++	std::stable_sort(used.begin(), used.end(), [&](int a, int b) { return frequency[a] > frequency[b]; });
++	if ((int)used.size() > slotCount) used.resize(slotCount);
++	std::vector<int> slotOf(256, -1);
++	for (int i = 0; i < (int)used.size(); ++i) slotOf[used[i]] = i;
++	auto rgb = [&](int c, int k) { return (int)src.palette[c * 3 + k]; };
++	for (int c = 0; c < 256; ++c) {
++		if (slotOf[c] >= 0 || !frequency[c]) continue;
++		long best = -1;
++		for (int i = 0; i < (int)used.size(); ++i) {
++			const long dr = rgb(c, 0) - rgb(used[i], 0), dg = rgb(c, 1) - rgb(used[i], 1), db = rgb(c, 2) - rgb(used[i], 2);
++			const long d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
++			if (best < 0 || d < best) { best = d; slotOf[c] = i; }
++		}
++	}
++	out.firstSlot = firstSlot; out.slotCount = (int)used.size();
++	out.palette.resize(used.size() * 3);
++	for (int i = 0; i < (int)used.size(); ++i) for (int k = 0; k < 3; ++k) out.palette[i * 3 + k] = src.palette[used[i] * 3 + k];
++	for (const SourceFrame &f : src.frames) {
++		SpriteFrame o;
++		o.dir = f.dir; o.kind = f.kind; o.index = f.index;
++		// Edges stay anchored to the feet: scale the frame's corners.
++		const int x0 = (int)std::floor(f.dx * scale), y0 = (int)std::floor(f.dy * scale);
++		const int x1 = (int)std::ceil((f.dx + f.width) * scale), y1 = (int)std::ceil((f.dy + f.height) * scale);
++		o.dx = x0; o.dy = y0; o.width = std::max(1, x1 - x0); o.height = std::max(1, y1 - y0);
++		o.pixels.assign((size_t)o.width * o.height, 0);
++		for (int y = 0; y < o.height; ++y) {
++			const int sy = (int)std::floor((y0 + y + 0.5) / scale) - f.dy;
++			if (sy < 0 || sy >= f.height) continue;
++			for (int x = 0; x < o.width; ++x) {
++				const int sx = (int)std::floor((x0 + x + 0.5) / scale) - f.dx;
++				if (sx < 0 || sx >= f.width) continue;
++				const size_t i = (size_t)sy * f.width + sx;
++				if (f.mask[i]) o.pixels[(size_t)y * o.width + x] = (uint8_t)(firstSlot + slotOf[f.pixels[i]]);
++			}
++		}
++		out.frames.push_back(o);
++	}
++	if (out.frames.empty()) { error = "no frames"; return false; }
++	return true;
++}
++
++int SandboxSprite::frameCount(int dir, int kind) const {
++	int count = 0;
++	for (const SpriteFrame &f : frames) if (f.dir == dir && f.kind == kind) ++count;
++	return count;
++}
++
++const SpriteFrame *SandboxSprite::frame(int dir, int kind, int index) const {
++	// A missing pose falls back to standing; a missing facing to the nearest one.
++	static const int facings[kGuestDirections][4] = {
++		{kGuestLeft, kGuestFront, kGuestRight, kGuestBack}, {kGuestRight, kGuestFront, kGuestLeft, kGuestBack},
++		{kGuestFront, kGuestLeft, kGuestRight, kGuestBack}, {kGuestBack, kGuestFront, kGuestLeft, kGuestRight}};
++	static const int kinds[kGuestKinds][2] = {{kGuestStand, kGuestStand}, {kGuestWalk, kGuestStand}, {kGuestTalk, kGuestStand}};
++	if (dir < 0 || dir >= kGuestDirections || kind < 0 || kind >= kGuestKinds) return nullptr;
++	for (int k : kinds[kind]) for (int d : facings[dir]) {
++		const int count = frameCount(d, k);
++		if (!count) continue;
++		const int want = ((index % count) + count) % count;
++		for (const SpriteFrame &f : frames) if (f.dir == d && f.kind == k && f.index == want) return &f;
++	}
++	return nullptr;
++}
++
+ // ---- V1 room resource ------------------------------------------------------
+ 
+ static void put16(std::vector<uint8_t> &v, size_t at, int value) { v[at] = (uint8_t)(value & 0xFF); v[at + 1] = (uint8_t)((value >> 8) & 0xFF); }
+@@ -235,7 +338,10 @@ std::vector<uint8_t> buildV1Room(const SandboxScene &scene) {
+ namespace Scummverse {
+ namespace WorldBridge {
+ 
+-struct Mounted { bool ok = false; World::SandboxScene scene; std::vector<uint8_t> room; };
++struct Mounted {
++	bool ok = false; World::SandboxScene scene; std::vector<uint8_t> room;
++	bool guestOk = false; World::SandboxSprite guest;
++};
+ static Mounted &current() { static Mounted m; return m; }
+ 
+ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSlot, int slotCount, char *error, int capacity) {
+@@ -248,9 +354,33 @@ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSl
+ 	}
+ 	Mounted &m = current();
+ 	m.scene = scene; m.room = World::buildV1Room(m.scene); m.ok = true;
++	m.guestOk = false; m.guest = World::SandboxSprite();
+ 	return true;
+ }
++bool mountGuest(const unsigned char *data, size_t size, int firstSlot, int slotCount, char *error, int capacity) {
++	Mounted &m = current();
++	World::SourceSprite source; World::SandboxSprite sprite; std::string problem = "no scene mounted";
++	const bool ok = m.ok && World::parseSprite(data, size, source, problem) &&
++		World::fitSprite(source, m.scene.scale, firstSlot, slotCount, sprite, problem);
++	if (!ok) {
++		if (error && capacity > 0) { std::strncpy(error, problem.c_str(), capacity - 1); error[capacity - 1] = 0; }
++		return false;
++	}
++	m.guest = sprite; m.guestOk = true;
++	return true;
++}
++bool guestMounted() { return current().ok && current().guestOk; }
++int guestSlotCount() { return current().guest.slotCount; }
++const unsigned char *guestPalette() { return current().guest.palette.data(); }
++int guestFrames(int dir, int kind) { return current().guest.frameCount(dir, kind); }
++const unsigned char *guestFrame(int dir, int kind, int index, int &dx, int &dy, int &width, int &height) {
++	const World::SpriteFrame *f = guestMounted() ? current().guest.frame(dir, kind, index) : nullptr;
++	if (!f) return nullptr;
++	dx = f->dx; dy = f->dy; width = f->width; height = f->height;
++	return f->pixels.data();
++}
+ bool mounted() { return current().ok; }
++void unmountGuest() { current().guestOk = false; }
+ int width() { return current().scene.width; }
+ int height() { return current().scene.height; }
+ const unsigned char *pixels() { return current().scene.pixels.data(); }
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index 9d37eb7f..04e29147 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -40,8 +40,49 @@ struct SandboxScene {
+ 	int spawnX = 0, spawnY = 0;      // V1 units, inside a walkable box
+ 	int leftX = -1, rightX = -1;     // V1 units of walkable edge points (-1 none)
+ 	int leftY = 0, rightY = 0;
++	double scale = 1;                // sandbox pixels per source pixel
+ };
+ 
++// A character from another game: frames rendered by its own engine ("SVC1"),
++// facing left, right, the viewer or away, standing, walking or talking.
++enum GuestDirection { kGuestLeft, kGuestRight, kGuestFront, kGuestBack, kGuestDirections };
++enum GuestKind { kGuestStand, kGuestWalk, kGuestTalk, kGuestKinds };
++
++struct SourceFrame {
++	int dir = 0, kind = 0, index = 0;
++	int dx = 0, dy = 0, width = 0, height = 0;   // top left relative to the feet
++	std::vector<uint8_t> pixels, mask;           // mask 1 = opaque
++};
++
++struct SourceSprite {
++	int costume = 0;
++	uint8_t palette[768] = {};
++	std::vector<SourceFrame> frames;
++};
++
++struct SpriteFrame {
++	int dir = 0, kind = 0, index = 0;
++	int dx = 0, dy = 0, width = 0, height = 0;
++	std::vector<uint8_t> pixels;                 // 0 = transparent, else a slot
++};
++
++struct SandboxSprite {
++	int firstSlot = 0, slotCount = 0;
++	std::vector<uint8_t> palette;                // slotCount*3 RGB
++	std::vector<SpriteFrame> frames;
++	// The frame to show (exact match, else the nearest pose and facing), or null.
++	const SpriteFrame *frame(int dir, int kind, int index) const;
++	int frameCount(int dir, int kind) const;
++};
++
++// Parses an "SVC1" character file. False (with a reason) for anything malformed.
++bool parseSprite(const uint8_t *data, size_t size, SourceSprite &sprite, std::string &error);
++
++// Scales every frame (nearest pixel, so outlines stay crisp) and packs the
++// colors into slotCount slots from firstSlot (most common colors kept).
++bool fitSprite(const SourceSprite &source, double scale, int firstSlot, int slotCount,
++	SandboxSprite &out, std::string &error);
++
+ // Parses an "SVW1" scene. False (with a reason) for anything malformed.
+ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error);
+ 
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 4edd0ff4..d284bad8 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -8,38 +8,94 @@
+ #define COMMON_SCUMMVERSE_WORLD_CATALOG_H
+ namespace Scummverse {
+ namespace WorldCatalog {
+-struct WorldScene { int room; const char *name; };
++// A character from the same game, shown in one scene through the sandbox's
++// borrowed resident actor. Costume numbers refer to the audited editions;
++// frames are exported from the player's copy. Personalities and lines are
++// newly authored, not original script text. talkColor is a V1 palette index.
++struct WorldGuest {
++	int costume; const char *name, *personality; int talkColor;
++	const char *lines[3];
++};
++struct WorldScene { int room; const char *name; const WorldGuest *guest; };
+ struct WorldGame {
+ 	const char *gameid, *title, *folder; int version;
+ 	const WorldScene *scenes; int sceneCount;
+ };
++static const WorldGuest kGuybrush = {1, "Guybrush Threepwood",
++	"Guybrush Threepwood, an earnest young man from Melee Island who wants to become a mighty pirate; cheerful, a little clumsy, quick with a comeback and terrible at keeping a straight face", 15,
++	{"Name's Guybrush. Pirate in training.", "Have you seen any grog around here?", "I can hold my breath for ten minutes."}};
++static const WorldGuest kStan = {21, "Stan",
++	"Stan, a relentlessly upbeat used-ship salesman who waves his arms constantly and treats every conversation as a sales pitch", 14,
++	{"Have I got a deal for you!", "Every visitor deserves a ship. Even you!", "Ask about my financing options!"}};
++static const WorldGuest kLeChuck = {32, "LeChuck",
++	"LeChuck, a ghost pirate captain who rules the waters around Monkey Island; theatrical, menacing, and vain about his terrible reputation", 11,
++	{"Who dares disturb the ghost pirate LeChuck?", "My crew will see you off this island.", "Nobody escapes LeChuck's fleet."}};
++static const WorldGuest kGuybrush2 = {1, "Guybrush Threepwood",
++	"Guybrush Threepwood, now a bearded pirate retelling his triumphs to anyone who will listen while he hunts for a legendary treasure; boastful but good-hearted", 15,
++	{"You've heard of me, right? Famous pirate?", "I'm after a treasure bigger than any before.", "This island used to be a lot friendlier."}};
++static const WorldGuest kBobbin = {1, "Bobbin Threadbare",
++	"Bobbin Threadbare, a gentle young weaver of the Guild of Weavers who speaks of threads and patterns and plays drafts on a distaff; curious, polite, and a little lonely", 11,
++	{"Every sound can become a thread.", "The elders never told me where I came from.", "Listen. Even the wind is weaving something."}};
++static const WorldGuest kIndy = {2, "Indiana Jones",
++	"Indiana Jones, an archaeology professor and adventurer looking for his father and the Holy Grail; dry, resourceful, and not fond of snakes", 6,
++	{"Some relics are worth missing a lecture for.", "I'm looking for my father. Have you seen him?", "Office hours are over. Adventure hours aren't."}};
++static const WorldGuest kElsa = {12, "Elsa Schneider",
++	"Elsa Schneider, an Austrian art historian who studies medieval relics and the legend of the Grail; poised, clever, and hard to read", 13,
++	{"Venice is so lovely this time of year.", "The library holds more than old books.", "Every legend starts with a scrap of truth."}};
++static const WorldGuest kIndy4 = {2, "Indiana Jones",
++	"Indiana Jones, an archaeology professor chasing the lost city of Atlantis around the world; dry, resourceful, and always one step behind a map", 6,
++	{"Atlantis is closer than anyone thinks.", "Keep your eyes open for orichalcum.", "I'd rather be in the classroom. Really."}};
++static const WorldGuest kSophia = {12, "Sophia Hapgood",
++	"Sophia Hapgood, a former archaeologist turned psychic who lectures about Atlantis and wears a mysterious necklace; confident, theatrical, and fiercely independent", 13,
++	{"The spirit Nur-Ab-Sal speaks to me.", "I don't need rescuing, thank you.", "Atlantis is real. I can feel it."}};
++static const WorldGuest kPurple = {6, "Purple Tentacle",
++	"Purple Tentacle, who drank toxic sludge and grew arms, ambition and a plan to take over the world; grandiose and impatient", 5,
++	{"I feel like I could take over the world!", "Bow before your tentacle overlord!", "These arms are fantastic."}};
++static const WorldGuest kBernard = {91, "Bernard Bernoulli",
++	"Bernard Bernoulli, a nervous, brainy college student who likes computers and dislikes danger, unexpectedly in charge of saving the world", 3,
++	{"This is exactly the sort of thing I hoped to avoid.", "I'm sure there's a logical explanation.", "Has anybody seen my friends?"}};
++static const WorldGuest kHoagie = {102, "Hoagie",
++	"Hoagie, a laid-back heavy-metal roadie who takes every strange situation in stride and loves snacks; friendly and unbothered", 4,
++	{"Whoa. This place is heavy, man.", "Anybody got a snack?", "Totally metal. Totally weird."}};
++static const WorldGuest kLaverne = {108, "Laverne",
++	"Laverne, a medical student with an unusual sense of humor and a fondness for dissection; blunt, spacey, and unexpectedly bold", 12,
++	{"I could really use a scalpel right now.", "The future smells weird.", "Have you ever seen a tentacle's insides?"}};
++static const WorldGuest kGreen = {5, "Green Tentacle",
++	"Green Tentacle, the gentle and anxious brother of Purple Tentacle who dreams of being a musician", 2,
++	{"I'm sorry about my brother.", "I'm writing a new song. Want to hear it?", "Please don't tell Purple I'm here."}};
++static const WorldGuest kSam = {2, "Sam",
++	"Sam, a canine freelance police detective in a suit and hat; polite, verbose, unflappable, and fond of elaborate metaphors", 7,
++	{"Freelance police. We've got a case.", "Max, put that down. Oh, he's not here.", "Never trust a carnival with a two-headed anything."}};
++static const WorldGuest kMax = {3, "Max",
++	"Max, a hyperkinetic rabbity thing and Sam's partner in the freelance police; gleeful, chaotic, and alarmingly enthusiastic", 15,
++	{"Let's go find something to break!", "I love a good carnival. Especially the explosions.", "Sam's around here somewhere. Probably."}};
+ static const WorldScene kWorldMonkey[] = {
+-	{33, "Melee Island town"}, {28, "SCUMM Bar"}, {19, "Deck of the Sea Monkey"},
+-	{20, "Monkey Island beach"}, {25, "Cannibal village"}, {12, "Giant monkey head"},
++	{33, "Melee Island town", &kStan}, {28, "SCUMM Bar", &kGuybrush}, {19, "Deck of the Sea Monkey", nullptr},
++	{20, "Monkey Island beach", nullptr}, {25, "Cannibal village", nullptr}, {12, "Giant monkey head", &kLeChuck},
+ };
+ static const WorldScene kWorldMonkey2[] = {
+-	{7, "Woodtick"}, {37, "Scabb Island beach"}, {46, "Booty Island waterfront"},
+-	{47, "Booty Island street"}, {54, "Phatt City"}, {85, "Dinky Island jungle"},
++	{7, "Woodtick", &kGuybrush2}, {37, "Scabb Island beach", nullptr}, {46, "Booty Island waterfront", nullptr},
++	{47, "Booty Island street", nullptr}, {54, "Phatt City", nullptr}, {85, "Dinky Island jungle", nullptr},
+ };
+ static const WorldScene kWorldLoom[] = {
+-	{5, "Loom Island tents"}, {24, "Shepherds' meadow"}, {16, "Crystalgard"},
+-	{34, "The Forge"}, {8, "Stained-glass hall"},
++	{5, "Loom Island tents", &kBobbin}, {24, "Shepherds' meadow", nullptr}, {16, "Crystalgard", nullptr},
++	{34, "The Forge", nullptr}, {8, "Stained-glass hall", nullptr},
+ };
+ static const WorldScene kWorldIndy3[] = {
+-	{6, "Barnett College"}, {1, "College hallway"}, {15, "Venice"},
+-	{36, "Zeppelin airfield"}, {71, "Country airfield"}, {79, "Circus train"},
++	{6, "Barnett College", &kIndy}, {1, "College hallway", nullptr}, {15, "Venice", &kElsa},
++	{36, "Zeppelin airfield", nullptr}, {71, "Country airfield", nullptr}, {79, "Circus train", nullptr},
+ };
+ static const WorldScene kWorldAtlantis[] = {
+-	{19, "Monte Carlo"}, {29, "Algiers market"}, {49, "Seaside village"},
+-	{33, "Cliffside ruins"}, {76, "Jungle pyramid"}, {43, "Excavation site"},
++	{19, "Monte Carlo", &kSophia}, {29, "Algiers market", &kIndy4}, {49, "Seaside village", nullptr},
++	{33, "Cliffside ruins", nullptr}, {76, "Jungle pyramid", nullptr}, {43, "Excavation site", nullptr},
+ };
+ static const WorldScene kWorldTentacle[] = {
+-	{9, "Edison mansion grounds"}, {12, "Mansion hall"}, {26, "Mansion lobby"},
+-	{34, "Lobby of tomorrow"}, {46, "Future mansion"},
++	{9, "Edison mansion grounds", &kPurple}, {12, "Mansion hall", &kBernard}, {26, "Mansion lobby", &kHoagie},
++	{34, "Lobby of tomorrow", &kLaverne}, {46, "Future mansion", &kGreen},
+ };
+ static const WorldScene kWorldSamnmax[] = {
+-	{9, "Sam & Max's street"}, {12, "Snuckey's"}, {15, "Carnival midway"},
+-	{24, "Gator Golf"}, {27, "World's largest ball of twine"}, {58, "Mount Rushmore"}, {59, "Dinosaur park"},
++	{9, "Sam & Max's street", &kSam}, {12, "Snuckey's", nullptr}, {15, "Carnival midway", &kMax},
++	{24, "Gator Golf", nullptr}, {27, "World's largest ball of twine", nullptr}, {58, "Mount Rushmore", nullptr}, {59, "Dinosaur park", nullptr},
+ };
+ #define SCUMMVERSE_WORLD(id, title, folder, version, scenes) \
+ 	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0]))}
+@@ -57,6 +113,17 @@ inline bool sameId(const char *a, const char *b) {
+ 	while (*a && *a == *b) { ++a; ++b; }
+ 	return *a == *b;
+ }
++// The guest of a sandbox room: other-world scenes are logical rooms 200 and
++// up, in catalog order.
++inline const WorldGuest *worldGuestInRoom(int room) {
++	int index = room - 200;
++	if (index < 0) return nullptr;
++	for (const auto &game : kWorldGames) {
++		if (index < game.sceneCount) return game.scenes[index].guest;
++		index -= game.sceneCount;
++	}
++	return nullptr;
++}
+ inline const WorldGame *worldGame(const char *gameid) {
+ 	for (const auto &game : kWorldGames) if (sameId(game.gameid, gameid)) return &game;
+ 	return nullptr;
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index 13b1198d..0c43a61e 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -27,6 +27,16 @@ int leftX();                       // -1 when walking cannot reach the edge
+ int leftY();
+ int rightX();
+ int rightY();
++// A character for the mounted scene (bytes of one .svc file), scaled like
++// the scene; frames use slots firstSlot.. and 0 for transparent pixels.
++bool mountGuest(const unsigned char *data, size_t size, int firstSlot, int slotCount, char *error, int capacity);
++void unmountGuest();
++bool guestMounted();
++int guestSlotCount();
++const unsigned char *guestPalette();      // guestSlotCount*3 RGB
++// dir: 0 left, 1 right, 2 front, 3 back; kind: 0 stand, 1 walk, 2 talk.
++int guestFrames(int dir, int kind);
++const unsigned char *guestFrame(int dir, int kind, int index, int &dx, int &dy, int &width, int &height);
+ // A valid empty 320x128 V1 room (no boxes), for when no scene is available.
+ const unsigned char *blankRoom(int &size);
+ 
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index 752c89ba..ab0b5e42 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2543,6 +2543,9 @@ void Actor::drawActorCostume(bool hitTestMode) {
+ 	if (_costume == 0)
+ 		return;
+ 
++	if (!hitTestMode && _vm->scummverseDrawGuest(this))
++		return;
++
+ 	if (!hitTestMode) {
+ 		if (!_needRedraw)
+ 			return;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index dd884cf0..1dfadc9c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1360,6 +1360,8 @@ public:
+ 	virtual int getCurrentLights() const;
+ 	bool scummverseDistantScene() const;
+ 	bool scummverseRenderingPortrait() const { return _scummversePortrait; }
++	// Other-world guests are drawn from exported frames (scummverse_world_play.inc).
++	bool scummverseDrawGuest(Actor *a);
+  bool scummverseSeated(int id) const;
+  bool scummversePlaneScene() const { return _scummverseRoaming && _currentRoom==56; }
+  void scummverseStandPassenger(int id);
+@@ -1594,6 +1596,7 @@ protected:
+ 	// Other worlds (scummverse_world_export.inc): catalog scene export.
+ 	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem);
+ 	int scummverseExportWorld(const Common::Path &dir);
++	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	// Other worlds in the sandbox (scummverse_world_play.inc).
+ 	int _scummverseWorldRoom = 0;
+ 	Common::Path scummverseWorldCache() const;
+@@ -1602,6 +1605,12 @@ protected:
+ 	bool scummverseTravelWorld(int room, int x = -1, int y = -1);
+ 	void scummverseWorldEdges();
+ 	void scummverseRestoreWorld();
++	// The scene's guest character, shown through the borrowed resident actor.
++	bool scummverseWorldGuestRoom(int room) const;
++	void scummverseBorrowGuest(Actor *a);
++	void scummverseUpdateGuest(int delta, unsigned chatting);
++	int _scummverseGuestTick = 0, _scummverseGuestShown = -1, _scummverseGuestIdle = 0;
++	bool _scummverseGuestGreeted = false;
+ 	static const int kScummverseWorldFirstRoom = 200;
+ 	int scummverseWorldSceneCount() const;
+ 	// The scene's position in its game: index and the game's scene count.
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index a4c712df..7103a4ee 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -297,6 +297,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 			if (talkSpeaker == VAR(VAR_EGO)) scummverseNetSay(talkLine);
+ 		}
+ 	} else scummverseUpdateDialogue(delta);
++	scummverseUpdateGuest(delta, chatting);
+ 	Actor *player = derefActor(VAR(VAR_EGO), "sandbox player");
+ 	if (_scummverseLastEgo != VAR(VAR_EGO)) {
+ 		player->stopActorMoving();
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 91cdbf4d..aa26e7a6 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -8,6 +8,12 @@
+ // Cache file (little endian): "SVW1", u16 room, u16 width, u16 height,
+ // u8 boxCount, u8 reserved, palette[768], pixels[width*height], then per box
+ // int16 ulx,uly,urx,ury,lrx,lry,llx,lly, u8 flags, u8 mask.
++//
++// Character file ("SVC1"): u16 costume, u16 frameCount, palette[768], then
++// per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk),
++// u8 index, u8 reserved, int16 dx, dy (top left relative to the feet),
++// u16 width, height, pixels[width*height], opaque mask[width*height].
++// "<gameid>.svx" marks a finished export of that game.
+ 
+ static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
+ 
+@@ -64,8 +70,89 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	return !out.err();
+ }
+ 
+-// Exports every catalog scene of the running game into dir/<gameid>/.
+-// Returns the number of scenes written; problems are logged per scene.
++struct ScummverseGuestFrame {
++	int dir, kind, index, dx, dy, width, height;
++	Common::Array<byte> pixels, mask;
++	bool sameImage(const ScummverseGuestFrame &o) const {
++		return dx == o.dx && dy == o.dy && width == o.width && height == o.height && pixels == o.pixels && mask == o.mask;
++	}
++};
++
++// Renders one of the running game's costumes, with its own costume
++// renderer, in the room exported last. Each pose is drawn twice over
++// different fills: a pixel is opaque when both passes agree.
++bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem) {
++	if (costume <= 0 || costume >= _numCostumes) { problem = "costume out of range"; return false; }
++	if (_game.version >= 4 && !_res->_types[rtCostume][costume]._roomno) { problem = "costume missing"; return false; }
++	if (_game.version <= 3 && _res->_types[rtCostume][costume]._roomoffs == RES_INVALID_OFFSET) { problem = "costume missing"; return false; }
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const int W = _screenWidth, H = vs.h;
++	Actor *a = _actors[1];
++	a->initActor(0);
++	a->putActor(camera._cur.x, H - 4, _currentRoom);
++	a->setActorCostume(costume);
++	// Full size, unmasked, one animation step per call.
++	a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
++	putClass(a->_number, kObjectClassNeverClip, true);
++	a->_visible = true;
++	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation();
++	Common::Array<byte> pass[2];
++	auto capture = [&](ScummverseGuestFrame &f) {
++		for (int p = 0; p < 2; ++p) {
++			for (int y = 0; y < H; ++y) memset(vs.getPixels(0, y), p ? 255 : 254, W);
++			a->_needRedraw = true; a->drawActorCostume();
++			pass[p].resize(W * H);
++			for (int y = 0; y < H; ++y) memcpy(&pass[p][y * W], vs.getPixels(0, y), W);
++		}
++		int left = W, right = -1, top = H, bottom = -1;
++		for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x)
++			if (pass[0][y * W + x] == pass[1][y * W + x]) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
++		if (right < 0) return false;
++		f.dx = left - ax; f.dy = top - ay; f.width = right - left + 1; f.height = bottom - top + 1;
++		f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
++		for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
++			const int i = (top + y) * W + left + x;
++			f.mask[y * f.width + x] = pass[0][i] == pass[1][i];
++			f.pixels[y * f.width + x] = f.mask[y * f.width + x] ? pass[0][i] : 0;
++		}
++		return true;
++	};
++	static const int facings[4] = {270, 90, 180, 0};
++	static const int kMaxFrames[3] = {1, 12, 6};
++	Common::Array<ScummverseGuestFrame> frames;
++	for (int dir = 0; dir < 4; ++dir) for (int kind = 0; kind < 3; ++kind) {
++		a->setDirection(facings[dir]);
++		a->startAnimActor(a->_standFrame); a->animateCostume();
++		if (kind) a->startAnimActor(kind == 1 ? a->_walkFrame : a->_talkStartFrame);
++		const uint first = frames.size();
++		for (int i = 0; i < kMaxFrames[kind]; ++i) {
++			ScummverseGuestFrame f;
++			if (!capture(f)) break;
++			if (i && f.sameImage(frames[first])) break; // The cycle repeats.
++			f.dir = dir; f.kind = kind; f.index = i;
++			frames.push_back(f);
++			a->animateCostume();
++		}
++	}
++	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false);
++	a->_ignoreBoxes = false;
++	if (frames.empty()) { problem = "costume draws nothing"; return false; }
++	Common::DumpFile out;
++	if (!out.open(file, true)) { problem = "cannot write cache"; return false; }
++	out.write("SVC1", 4); scummverseWrite16(out, costume); scummverseWrite16(out, frames.size());
++	out.write(_currentPalette, 768);
++	for (const auto &f : frames) {
++		out.writeByte(f.dir); out.writeByte(f.kind); out.writeByte(f.index); out.writeByte(0);
++		scummverseWrite16(out, f.dx); scummverseWrite16(out, f.dy); scummverseWrite16(out, f.width); scummverseWrite16(out, f.height);
++		out.write(f.pixels.data(), f.pixels.size()); out.write(f.mask.data(), f.mask.size());
++	}
++	out.finalize();
++	return !out.err();
++}
++
++// Exports every catalog scene of the running game into dir/, each guest
++// right after its scene (so it is drawn with that room's palette), then the
++// finished marker. Returns the number of scenes written; problems are logged.
+ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	const WorldGame *game = worldGame(_game.gameid);
+ 	if (!game || game->version != _game.version) {
+@@ -76,8 +163,18 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	for (int i = 0; i < game->sceneCount; ++i) {
+ 		Common::String problem;
+ 		const Common::Path file = dir.appendComponent(Common::String::format("%s-%d.svw", game->gameid, game->scenes[i].room));
+-		if (scummverseExportScene(game->scenes[i].room, file, problem)) ++written;
+-		else warning("SCUMMVERSE world export: %s room %d skipped (%s)", game->gameid, game->scenes[i].room, problem.c_str());
++		if (!scummverseExportScene(game->scenes[i].room, file, problem)) {
++			warning("SCUMMVERSE world export: %s room %d skipped (%s)", game->gameid, game->scenes[i].room, problem.c_str());
++			continue;
++		}
++		++written;
++		if (const WorldGuest *guest = game->scenes[i].guest) {
++			const Common::Path sprite = dir.appendComponent(Common::String::format("%s-c%d.svc", game->gameid, guest->costume));
++			if (scummverseExportGuest(guest->costume, sprite, problem)) warning("SCUMMVERSE_WORLD_GUEST %s %s", game->gameid, guest->name);
++			else warning("SCUMMVERSE world export: %s %s skipped (%s)", game->gameid, guest->name, problem.c_str());
++		}
+ 	}
++	Common::DumpFile marker;
++	if (written && marker.open(dir.appendComponent(Common::String::format("%s.svx", game->gameid)), true)) { marker.write("SVX1", 4); marker.finalize(); }
+ 	return written;
+ }
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index a8fd2432..7a49d539 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -6,7 +6,9 @@
+ 
+ namespace WorldBridge = ::Scummverse::WorldBridge;
+ 
+-static const int kWorldFirstRoom = 200, kWorldFirstSlot = 16, kWorldSlots = 240; // kScummverseWorldFirstRoom
++// Scene colors take slots 16..223, the guest's 224..255; V1 art uses 0..15.
++static const int kWorldFirstRoom = 200, kWorldFirstSlot = 16, kWorldSlots = 208; // kScummverseWorldFirstRoom
++static const int kWorldGuestSlot = 224, kWorldGuestSlots = 32;
+ 
+ static int worldSceneTotal() {
+ 	int total = 0;
+@@ -61,6 +63,16 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 		return false;
+ 	}
+ 	_scummverseWorldRoom = room;
++	_scummverseGuestGreeted = false; _scummverseGuestShown = -1;
++	// The scene's guest is optional: without its frames the scene stays empty.
++	if (const WorldGuest *guest = game->scenes[scene].guest) {
++		const Common::FSNode spriteNode(scummverseWorldCache().appendComponent(Common::String::format("%s-c%d.svc", game->gameid, guest->costume)));
++		Common::ScopedPtr<Common::SeekableReadStream> sprite(spriteNode.exists() ? spriteNode.createReadStream() : nullptr);
++		Common::Array<byte> frames;
++		if (sprite) { frames.resize(sprite->size()); if (sprite->read(frames.data(), frames.size()) != frames.size()) frames.clear(); }
++		if (frames.empty() || !WorldBridge::mountGuest(frames.data(), frames.size(), kWorldGuestSlot, kWorldGuestSlots, problem, sizeof(problem)))
++			warning("SCUMMVERSE world: %s is not shown (%s)", guest->name, frames.empty() ? "export the game again" : problem);
++	}
+ 	_resourceMapper[room & 0x7F] = ScummverseContent::kForeignRoom;
+ 	_res->nukeResource(rtRoom, ScummverseContent::kForeignRoom);
+ 	_gdi->setForeignBackground(WorldBridge::pixels(), WorldBridge::width(), WorldBridge::height());
+@@ -73,6 +85,10 @@ void ScummEngine::scummverseApplyWorldPalette() {
+ 	const byte *rgb = WorldBridge::palette();
+ 	for (int i = 0; i < WorldBridge::slotCount(); ++i)
+ 		setPalColor(WorldBridge::firstSlot() + i, rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
++	if (!WorldBridge::guestMounted()) return;
++	rgb = WorldBridge::guestPalette();
++	for (int i = 0; i < WorldBridge::guestSlotCount(); ++i)
++		setPalColor(kWorldGuestSlot + i, rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+ }
+ 
+ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+@@ -147,3 +163,98 @@ void ScummEngine::scummverseRestoreWorld() {
+ 	player->putActor(30, 60, 53);
+ 	scummverseTravel(3);
+ }
++
++// ---- Guests --------------------------------------------------------------
++// A scene's guest borrows the resident actor (kZakResidentActor): it walks
++// the scene's boxes, talks and chats like any sandbox character, but is
++// drawn from frames its own game's engine exported.
++
++bool ScummEngine::scummverseWorldGuestRoom(int room) const { return worldGuestInRoom(room) != nullptr; }
++
++static bool worldGuestActive(int room, int heldRoom, int mountedRoom) {
++	return worldGuestInRoom(room) && heldRoom == room && mountedRoom == room && WorldBridge::guestMounted();
++}
++
++void ScummEngine::scummverseBorrowGuest(Actor *a) {
++	const WorldGuest *guest = worldGuestInRoom(_currentRoom);
++	if (!guest || _scummverseWorldRoom != _currentRoom || !WorldBridge::guestMounted()) return;
++	_scummVars[769] = a->_costume;
++	a->stopActorMoving();
++	// Any costume keeps the actor in the draw list; the frames replace it.
++	if (!a->_costume) a->setActorCostume(derefActor(VAR(VAR_EGO), "guest stand-in")->_costume);
++	a->_talkColor = guest->talkColor;
++	const size_t length = strlen(guest->name) + 1;
++	memcpy(_res->createResource(rtActorName, kZakResidentActor, length), guest->name, length);
++	a->putActor(WorldBridge::spawnX(), WorldBridge::spawnY(), _currentRoom);
++	AdjustBoxResult point = a->adjustXYToBeInBox(WorldBridge::spawnX() + 5, WorldBridge::spawnY());
++	a->putActor(point.x, point.y, _currentRoom);
++	a->setDirection(180); a->startAnimActor(a->_standFrame);
++	_scummVars[768] = _currentRoom;
++	_scummverseGuestTick = 0; _scummverseGuestIdle = 120; _scummverseGuestGreeted = false;
++}
++
++static int worldGuestDirection(int facing) {
++	facing = (facing % 360 + 360) % 360;
++	return facing > 45 && facing < 135 ? 1 : facing >= 135 && facing <= 225 ? 2 : facing > 225 && facing < 315 ? 0 : 3;
++}
++
++bool ScummEngine::scummverseDrawGuest(Actor *a) {
++	if (a->_number != kZakResidentActor || !worldGuestActive(_currentRoom, _scummVars[768], _scummverseWorldRoom)) return false;
++	if (!a->_needRedraw) return true;
++	a->_needRedraw = false;
++	const int kind = a->_moving ? 1 : getTalkingActor() == a->_number ? 2 : 0;
++	const int index = kind == 1 ? _scummverseGuestTick / 6 : kind == 2 ? _scummverseGuestTick / 9 : 0;
++	const int dir = worldGuestDirection(a->getFacing());
++	_scummverseGuestShown = (dir * 3 + kind) * 64 + index % 64;
++	int dx, dy, width, height;
++	const byte *frame = WorldBridge::guestFrame(dir, kind, index, dx, dy, width, height);
++	a->_top = 0x7fffffff; a->_bottom = 0;
++	if (!frame) return true;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const int x0 = a->getPos().x - vs.xstart + dx, y0 = a->getPos().y - a->getElevation() + dy;
++	const int left = MAX(0, x0), right = MIN<int>(_screenWidth, x0 + width);
++	const int top = MAX(0, y0), bottom = MIN<int>(vs.h, y0 + height);
++	if (left >= right || top >= bottom) return true;
++	for (int y = top; y < bottom; ++y) {
++		const byte *src = frame + (y - y0) * width + (left - x0);
++		byte *dst = (byte *)vs.getPixels(left, y);
++		for (int x = left; x < right; ++x, ++src, ++dst) if (*src) *dst = *src;
++	}
++	a->_top = top; a->_bottom = bottom;
++	markRectAsDirty(kMainVirtScreen, left, right, top, bottom, a->_number);
++	return true;
++}
++
++// Animation, a greeting when the player comes near, and short strolls.
++void ScummEngine::scummverseUpdateGuest(int delta, unsigned chatting) {
++	if (!worldGuestActive(_currentRoom, _scummVars[768], _scummverseWorldRoom)) return;
++	const WorldGuest *guest = worldGuestInRoom(_currentRoom);
++	Actor *a = derefActor(kZakResidentActor, "world guest");
++	if (a->_room != _currentRoom) return;
++	_scummverseGuestTick += delta;
++	const int kind = a->_moving ? 1 : getTalkingActor() == a->_number ? 2 : 0;
++	const int index = kind == 1 ? _scummverseGuestTick / 6 : kind == 2 ? _scummverseGuestTick / 9 : 0;
++	if ((worldGuestDirection(a->getFacing()) * 3 + kind) * 64 + index % 64 != _scummverseGuestShown) a->_needRedraw = true;
++	if (chatting & (1u << kZakResidentActor)) {
++		if (a->_moving) { a->stopActorMoving(); a->startAnimActor(a->_standFrame); }
++		return;
++	}
++	Actor *player = derefActor(VAR(VAR_EGO), "guest visitor");
++	const bool near = player->_room == _currentRoom && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32;
++	if (near && !_scummverseGuestGreeted && !VAR(VAR_HAVE_MSG) && !_scummverseAIActor) {
++		_scummverseGuestGreeted = true;
++		a->stopActorMoving();
++		a->setDirection(player->getPos().x < a->getPos().x ? 270 : 90);
++		scummverseSay(kZakResidentActor, guest->lines[_rnd.getRandomNumber(2)]);
++		_scummverseGuestIdle = 240;
++		return;
++	}
++	if (getTalkingActor() == kZakResidentActor && VAR(VAR_HAVE_MSG)) return;
++	if (a->_moving || (_scummverseGuestIdle -= delta) > 0) return;
++	// A short stroll inside the scene's walk boxes.
++	_scummverseGuestIdle = 300 + _rnd.getRandomNumber(600);
++	const int x = CLIP<int>(a->getRealPos().x + (int)_rnd.getRandomNumber(16) - 8, 1, WorldBridge::width() / 8 - 2);
++	const int y = CLIP<int>(a->getRealPos().y + (int)_rnd.getRandomNumber(8) - 4, 1, WorldBridge::height() / 2 - 1);
++	AdjustBoxResult target = a->adjustXYToBeInBox(x, y);
++	a->startWalkActor(target.x, target.y, -1);
++}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 08db5b03..174821e7 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -208,8 +208,9 @@ bool ScummEngine::scummverseMountZakCast() {
+ 	return true;
+ }
+ 
+-// Saved var 768 is the scene currently holding the borrowed resident actor,
+-// 769 the Maniac costume it is returned with. The actor is only borrowed
++// Saved var 768 is the scene currently holding the borrowed resident actor
++// (a Zak resident or an other-world guest), 769 the Maniac costume it is
++// returned with. The actor is only borrowed
+ // while unused by the mansion (room 0 or a resident scene).
+ void ScummEngine::scummverseUpdateResident() {
+ 	Actor *a = derefActor(kZakResidentActor, "scene resident");
+@@ -222,7 +223,9 @@ void ScummEngine::scummverseUpdateResident() {
+ 		}
+ 		_scummVars[768] = 0;
+ 	}
+-	if (!resident || _scummVars[768] == _currentRoom || (a->_room != 0 && !zakResident(a->_room))) return;
++	if (_scummVars[768] == _currentRoom || (a->_room != 0 && !zakResident(a->_room) && !scummverseWorldGuestRoom(a->_room))) return;
++	// Other-world scenes lend the actor to their guest character instead.
++	if (!resident) { scummverseBorrowGuest(a); return; }
+ 	if (!scummverseMountZakCast()) return;
+ 	_scummVars[769] = a->_costume;
+ 	a->stopActorMoving(); a->setActorCostume(resident->costume);

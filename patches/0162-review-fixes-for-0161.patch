@@ -1,0 +1,175 @@
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 2bc1ff64..4dadb86e 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -142,7 +142,7 @@ struct GameThing { int id = 0, picture = 0, answers = 0; };
+ // per thing's verb from a picture what its own script does (u16 room, u16
+ // object, u8 verb kind, u8 the picture it was in, u8 the picture after, u8
+ // count of others changed then each u16 room, u16 object, u8 picture, u8
+-// length and the line said). From 0161 also read, pick up and fix, and the
++// length and the line said). From 0161 also read and pick up, and the
+ // picture after's bit 1: taken by the one who used it.
+ struct ThingPart { int room = 0, id = 0, picture = 0; };
+ struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0; bool taken = false; std::vector<ThingPart> others; std::string line; };
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 3b3e788e..3080fbbf 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -29,13 +29,13 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // export once more (marker "<gameid>-v<version>.svx").
+ static const int kWorldExportVersion = 22;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+-// file also says what each thing's verbs do; from 0161 read, pick up and fix
+-// too): "maniac-v24", the rest as kWorldExportVersion, so only it is
+-// exported again.
++// file also says what each thing's verbs do; from 0161 read and pick up too,
++// from 0162 not fix): "maniac-v25", the rest as kWorldExportVersion, so only
++// it is exported again.
+ inline int worldExportVersion(const char *gameid) {
+ 	const char *mansion = "maniac";
+ 	while (*mansion && *gameid == *mansion) { ++mansion; ++gameid; }
+-	return kWorldExportVersion + (!*mansion && !*gameid ? 2 : 0);
++	return kWorldExportVersion + (!*mansion && !*gameid ? 3 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1888b460..334cb498 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1473,8 +1473,8 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // run until it ends; the line it says first, its picture after, and the
+ // pictures after of the things of the places exported it set (even as they
+ // were). Not doors: the new engine opens those as it goes. From 0161 also
+-// read, pick up and fix (not use or unlock: those want a second thing), and
+-// whether the kid who used it took it.
++// read and pick up (not use, unlock or fix: the mansion's want a second
++// thing), and whether the kid who used it took it.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1532,7 +1532,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			return _currentRoom == room;
+ 		};
+ 		static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull,
+-			kWorldVerbRead, kWorldVerbPickUp, kWorldVerbFix};
++			kWorldVerbRead, kWorldVerbPickUp};
+ 		for (const Room &r : found) {
+ 			// (What answers which verb: the room set up once to look.)
+ 			Common::Array<int> runs;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 86a3777f..ba003f10 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -319,11 +319,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	tramMount(game, room);
+ 	// Things where the game puts them (its own start and the room's entry
+ 	// script); what was opened, closed or taken here stays so.
+-	if (!PanelBridge::thingsLoaded(game)) {
+-		Common::Array<byte> things;
+-		if (read(Common::String::format("%s-things.svo", g.gameid), things) && !PanelBridge::loadThings(game, things.data(), things.size(), error, sizeof(error)))
+-			warning("SCUMMVERSE sandbox: %s things not placed (%s)", g.gameid, error);
+-	}
++	loadThings(game);
+ 	_placed = 0;
+ 	for (int i = 0; i < StageBridge::objectCount(); ++i) {
+ 		int id, ox, oy, w, h, wx, wy, state, picture, answers;
+@@ -506,9 +502,12 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	char said[256];
+ 	bool taken = false;
+ 	if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
+-	// (Read, picked up or fixed, saying nothing and changing nothing, or
+-	// taken from the picture without it: the plain rules, as before 0161.)
++	// (Read or picked up, saying nothing and changing nothing, or taken
++	// from the picture without it, or where no picture is without it (one in
++	// a thing shut when exported: the fridge's, the mat's): the plain rules,
++	// as before 0161.)
+ 	if (plainAnswer(kind, from, after, taken, count, said) || (taken && isCarried(_game, _room, id))) return false;
++	if (taken && (StageBridge::objectPictures(target) < 2 || !StageBridge::picturesDiffer(target, 0, 1))) return false;
+ 	if (taken) {
+ 		// (Taken: carried, gone from the place, as the plain rules take one.)
+ 		char name[80];
+@@ -530,7 +529,7 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ bool SandboxEngine::plainAnswer(int kind, int from, int after, bool taken, int count, const char *said) {
+ 	// (The mansion shows a thing taken in its picture 1: not there to take.)
+ 	if (taken) return from == 1;
+-	return (kind == kWorldVerbRead || kind == kWorldVerbPickUp || kind == kWorldVerbFix) && !*said && after == from && !count;
++	return (kind == kWorldVerbRead || kind == kWorldVerbPickUp) && !*said && after == from && !count;
+ }
+ 
+ bool SandboxEngine::effectRefuses(int id, int kind, int from) const {
+@@ -996,6 +995,8 @@ void SandboxEngine::useItem(int item, int kind) {
+ 	// was found; from 0161.)
+ 	if (kind == kWorldVerbRead && item >= 0 && item < (int)_carried.size()) {
+ 		const Carried &c = _carried[item];
++		// (Its game's things file, though not entered since the start.)
++		loadThings(c.game);
+ 		int after, others[3], count;
+ 		char said[256];
+ 		for (int from = 1; from >= 0; --from)
+@@ -1325,6 +1326,15 @@ void SandboxEngine::showPicture(int object, int id, int picture) {
+ 	_dirty = true;
+ }
+ 
++// A game's things file, once (where it puts things, what their scripts do).
++void SandboxEngine::loadThings(int game) {
++	if (game < 0 || game >= worldGameCount() || PanelBridge::thingsLoaded(game)) return;
++	Common::Array<byte> things;
++	char error[128];
++	if (read(Common::String::format("%s-things.svo", kWorldGames[game].gameid), things) && !PanelBridge::loadThings(game, things.data(), things.size(), error, sizeof(error)))
++		warning("SCUMMVERSE sandbox: %s things not placed (%s)", kWorldGames[game].gameid, error);
++}
++
+ // One more thing carried (its picture from the place it was in).
+ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name, int picture) {
+ 	Common::Array<byte> data;
+@@ -3556,8 +3566,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// file, from 0155): from each picture, each verb that changes one, its
+ 		// line, its picture after and the others it changes; as a player uses
+ 		// it there (not one that is away, or a picture its game never has it in).
+-		// From 0161 read, picked up (taken: carried, then put back for the
+-		// next) and fixed too; not those left to the plain rules.
++		// From 0161 read and picked up too (taken: carried, then put back for
++		// the next); not those left to the plain rules.
+ 		const int effectsAll = maniac >= 0 ? PanelBridge::effectCount(maniac) : 0;
+ 		for (int k = 0; k < effectsAll; ++k) {
+ 			int room, id, kind, from, after, others[3 * 64], count, picture, answers;
+@@ -3569,6 +3579,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if ((_game != maniac || _room != room) && !enter(maniac, room, 0, problem)) { fail("a place of the mansion's not shown", maniac); continue; }
+ 			const int o = thingIn(id);
+ 			if (o < 0 || !isThing(o)) { ++effectsAway; continue; }
++			// (Taken where no picture is without it: the plain rules, not taken.)
++			if (took && (StageBridge::objectPictures(o) < 2 || !StageBridge::picturesDiffer(o, 0, 1))) {
++				if (!doAt(kind, o) || isCarried(maniac, room, id)) fail("taken where no picture is without it", maniac);
++				++effectsPlain;
++				continue;
++			}
+ 			// (In the picture the record starts from: shown, or kept for one
+ 			// with no second picture.)
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from);
+@@ -3593,8 +3609,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 				for (int f = 1; f >= 0 && !*line; --f)
+ 					if (!PanelBridge::thingEffect(maniac, room, id, kWorldVerbRead, f, a, part, n, 1, line, sizeof(line))) *line = 0;
+ 				if (*line) {
++					// (As after a start elsewhere: its things file not read yet.)
++					PanelBridge::clearThings();
+ 					_speech.clear();
+ 					useItem(c, kWorldVerbRead);
++					if (!PanelBridge::thingsLoaded(maniac)) loadThings(maniac);
+ 					if (_speech != line) fail("a thing carried not read as its own script", maniac); else ++effectsRead;
+ 				}
+ 				PanelBridge::removeItem(c); _carried.remove_at(c); ++effectsTaken;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 3c0febf9..8ce4b356 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -125,7 +125,8 @@ private:
+ 	int thingSets(int id, int kind);        // another shown so by this one on this verb (1; 2: itself too, done)
+ 	bool effectOf(int id, int kind, int from, int target); // as its own script answers this verb from this picture (done)
+ 	bool effectRefuses(int id, int kind, int from) const; // its script only says a line to it
+-	static bool plainAnswer(int kind, int from, int after, bool taken, int count, const char *said); // (read, taken, fixed: silent, nothing changed; taken where not there)
++	static bool plainAnswer(int kind, int from, int after, bool taken, int count, const char *said); // (read, picked up: silent, nothing changed; taken where not there)
++	void loadThings(int game); // (its things file, once)
+ 	int thingBit(int object, int id) const; // the picture it is in as its game counts (0 or 1)
+ 	const char *openedOnlyBy(int room, int id) const; // a door opened only from elsewhere: its line
+ 	bool doorAllowed(int room, int door) const;

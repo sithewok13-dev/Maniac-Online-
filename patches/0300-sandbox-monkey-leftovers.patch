@@ -1,0 +1,909 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 8fe8c4fd..b3e47c86 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -189,10 +189,16 @@ static const int kWorldExportVersion = 25;
+ // kWorldHolders: filled, poured, drunk at Otis's lock): "monkey-v39"; from
+ // 0298 Monkey Island's again (its insult sword fighting, kWorldDuels: the
+ // fight file "monkey-duel.svd", the Sword Master no door to room 44):
+-// "monkey-v40".
++// "monkey-v40"; from 0300 Monkey Island's and Monkey Island 2's again (no
++// door out of a thing given to by its own entry, tools/world_maps.py's
++// GIVES_THROUGH: the bridge's troll, room 57, 637, and the cartographer,
++// room 8, 65, answered as things; a thing given put back in its place as
++// its game puts it back, the poodles' meat; the jail's cells and locks,
++// room 31, answered by Otis and the rat freed, kWorldValueClasses):
++// "monkey-v41", "monkey2-v37".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 15 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 12 : same(gameid, "tentacle") ? 10 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -1500,6 +1506,25 @@ inline const WorldGivenAs *worldGivenAs(int game, int room, int costume) {
+ // a thing up (pairOwn).
+ struct WorldGivesThrough { short game, entry, cls; };
+ static const WorldGivesThrough kWorldGivesThrough[] = {{0, 80, 5}, {1, 80, 5}, {4, 80, 5}, {5, 80, 0}};
++// From 0300 a thing carried that its game puts back where it lies as it
++// starts (its owner its room again) once an answer of two uses it up: the
++// export lists it there in the picture that answer leaves it in, touchable
++// or not as it is then, and the new engine, using it up, shows it there so,
++// to be taken again. Monkey Island's meat (room 41, 331, read with descumm,
++// nothing copied): given to the poodles (room 36, 475), or used with them,
++// their local script 201 puts it back in the kitchen (its picture 0, its
++// untouchable class and its petal's, 6, cleared), whether they sleep or
++// not; put in the stew it is gone for good (owner 13). Before, it was lost.
++// The export warns where no answer puts a row's thing back (a mismatch fails
++// tools/export_worlds.py). (Other games' things go back so too, not listed
++// yet: Monkey Island 2's monocle and drinks, Fate of Atlantis's, Day of the
++// Tentacle's, the Curse's and Zak's few.)
++struct WorldPutBack { short game, room; int thing; };
++static const WorldPutBack kWorldPutBacks[] = {{0, 41, 331}};
++inline bool worldPutBack(int game, int room, int thing) {
++	for (const WorldPutBack &p : kWorldPutBacks) if (p.game == game && p.room == room && p.thing == thing) return true;
++	return false;
++}
+ inline const WorldGivesThrough *worldGivesThrough(int game) {
+ 	for (const WorldGivesThrough &g : kWorldGivesThrough) if (g.game == game) return &g;
+ 	return nullptr;
+@@ -1865,7 +1890,12 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	// (From 0296, Monkey Island's: see below.)
+ 	{0, 73, 764, kWorldVerbUse, 780, 0, 0, 0, 236, 0, 0, 0}, {0, 7, 83, kWorldVerbLook, 0, 84, 0, 0, 0, 0, 0, 0},
+ 	// (From 0297 two of Monkey Island's trials: see below.)
+-	{0, 64, 726, kWorldVerbUse, 410, 0, 0, 0, 0x8000 + 86, 0, 0, 0}, {0, 42, 586, kWorldVerbPickUp, 0, 0, 0, 0, 195, 0, 0, 0}};
++	{0, 64, 726, kWorldVerbUse, 410, 0, 0, 0, 0x8000 + 86, 0, 0, 0}, {0, 42, 586, kWorldVerbPickUp, 0, 0, 0, 0, 195, 0, 0, 0},
++	// (From 0300 Monkey Island's jail's cells and locks: see below.)
++	{0, 31, 414, kWorldVerbLook, 0, 0, 0, 0, 0x8000 + 76, 0, 0, 0}, {0, 31, 414, kWorldVerbOpen, 0, 0, 0, 0, 0x8000 + 76, 0, 0, 0},
++	{0, 31, 416, kWorldVerbLook, 0, 0, 0, 0, 0x8000 + 76, 0, 0, 0}, {0, 31, 416, kWorldVerbOpen, 0, 0, 0, 0, 0x8000 + 76, 0, 0, 0},
++	{0, 31, 415, kWorldVerbLook, 0, 0, 0, 0, 0x8000 + 134, 0, 0, 0}, {0, 31, 415, kWorldVerbOpen, 0, 0, 0, 0, 0x8000 + 134, 0, 0, 0},
++	{0, 31, 417, kWorldVerbLook, 0, 0, 0, 0, 0x8000 + 134, 0, 0, 0}, {0, 31, 417, kWorldVerbOpen, 0, 0, 0, 0, 0x8000 + 134, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -1898,6 +1928,14 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // kWorldStoryPlaces), filed by the trials done before (195 at 0 to 2).
+ // Before, its run left for a room not exported and was left out, so the
+ // idol could not be taken.
++// From 0300 its jail's cells and locks (room 31, read with descumm, nothing
++// copied): Otis's cell (414) looked at or opened answers by its own class 12
++// (one line while it is set, as the game starts it, another once clear), and
++// its lock (416) hands both to it; the rat's cell (415) and its lock (417)
++// likewise by 415's. Global script 67, the grog drunk at a lock, clears that
++// class on both of the cell freed as it sets bit 76 (Otis) or 134 (the rat),
++// both kept since 0297 (kWorldValueClasses: so played). Before, they
++// answered as the game starts them whatever was freed.
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+@@ -1932,6 +1970,19 @@ inline const WorldValueArrival *worldValueArrival(int game, int room) {
+ 	for (const WorldValueArrival &w : kWorldValueArrivals) if (w.game == game && w.room == room) return &w;
+ 	return nullptr;
+ }
++// From 0300 a class of a thing that the script setting a value kept to
++// `value` sets (`set` 1) or clears (0) with it, one its own answers read (not
++// its untouchable class: those are its touches): a row of kWorldValueReaders
++// reading that value is played by the export with the value so and the
++// class so too, as a player finds the thing then. The export checks each
++// against the runs that set the value (a mismatch, or none run, fails
++// tools/export_worlds.py). Monkey Island's jail (room 31; global script 67,
++// read with descumm, nothing copied): Otis freed (bit 76) clears class 12 of
++// his cell (414) and its lock (416); the rat freed (bit 134), of the other
++// cell (415) and its lock (417).
++struct WorldValueClass { short game; int var; short value, room; int object; short cls, set; };
++static const WorldValueClass kWorldValueClasses[] = {
++	{0, 0x8000 + 76, 1, 31, 414, 12, 0}, {0, 0x8000 + 76, 1, 31, 416, 12, 0}, {0, 0x8000 + 134, 1, 31, 415, 12, 0}, {0, 0x8000 + 134, 1, 31, 417, 12, 0}};
+ // From 0297 things carried that one at a time hold what their game fills
+ // them with, and lose it on its clock (Monkey Island's mugs of grog: its
+ // global scripts 65, 66 and 67, the SCUMM Bar's entry and the kitchen's
+@@ -1979,9 +2030,16 @@ inline int worldHolderWad(const WorldHolder &h) { return worldHolderWaits(h, h.w
+ inline bool worldHeldValue(int game, int var) { return worldHolderOf(game) && (var == kWorldHeld || var == kWorldHeldFor); }
+ // The things one of them is used with that answer by what they hold (and
+ // the fill by `reads` too, a value kept: its first time, bit 421, as script
+-// 65 says its line only then).
++// 65 says its line only then). (From 0300 a lock's too, by its prisoner
++// freed, bits 76 and 134 as kWorldValueClasses has them: once freed, a mug
++// used there is that cell's own Use, its class 12 clear, script 67 not run
++// again. Before, one holding grog freed Otis again. From 0300 Otis himself,
++// 418, too: a mug's Use hands any thing of class 12 to global script 66,
++// which hands 414, 416 and 418 to 67 as 414; once freed he is untouchable.
++// Before, grog used on him did nothing.)
+ struct WorldHolderUse { short game, room; int object, reads; };
+-static const WorldHolderUse kWorldHolderUses[] = {{0, 41, 380, 0x8000 + 421}, {0, 31, 414, 0}, {0, 31, 416, 0}, {0, 31, 415, 0}, {0, 31, 417, 0}};
++static const WorldHolderUse kWorldHolderUses[] = {{0, 41, 380, 0x8000 + 421}, {0, 31, 414, 0x8000 + 76}, {0, 31, 416, 0x8000 + 76}, {0, 31, 415, 0x8000 + 134}, {0, 31, 417, 0x8000 + 134},
++	{0, 31, 418, 0}};
+ inline const WorldHolderUse *worldHolderUse(int game, int room, int object) {
+ 	for (const WorldHolderUse &u : kWorldHolderUses) if (u.game == game && u.room == room && u.object == object) return &u;
+ 	return nullptr;
+@@ -2004,6 +2062,29 @@ static const WorldCastGone kWorldCastGones[] = {{0, 13, 0x8000 + 76}, {0, 42, 0x
+ // picked up, the ladder climbed (kWorldValueReaders' row of 586).
+ struct WorldStoryPlace { short game, room, from; };
+ static const WorldStoryPlace kWorldStoryPlaces[] = {{0, 83, 42}};
++// (From 0300 whether a way back into a place is none its game has: a story
++// place, or the place it is reached from. Its game takes the one played
++// into the one by the story only and out of it by its own doors, the dock
++// by the idol from the water under the harbour, which no door leaves, and
++// onto the harbour street, 33, by its two ends: no arrow back into either.)
++inline bool worldNoWayBackInto(int game, int room) {
++	for (const WorldStoryPlace &p : kWorldStoryPlaces) if (p.game == game && (p.room == room || p.from == room)) return true;
++	return false;
++}
++// From 0300 things a place's entry draws so each time it is entered, whatever
++// an answer there has left them in: the new engine shows them so on
++// entering it (an answer's picture of them lasts until then). The export
++// arrives there twice, between them each set to another picture, and checks
++// each as named both times (a mismatch fails tools/export_worlds.py).
++// Monkey Island 2's Captain Dread (room 22, read with descumm, nothing
++// copied): its entry starts local script 200 each time, which draws him
++// asleep (235 in its picture 1, 236 and 237 in 0) and clears bit 129; any
++// verb on him (239: Give, else his talk, local 201) draws him awake (237 and
++// 236 in 1, 235 in 3, bit 129 set) for the rest of the visit. Before, he was
++// awake for good once a verb was used on him. (Once given the monocle his
++// game's entry plays his talk, awake, each time: not played here.)
++struct WorldEntryPicture { short game, room; int object; short picture; };
++static const WorldEntryPicture kWorldEntryPictures[] = {{1, 22, 235, 1}, {1, 22, 236, 0}, {1, 22, 237, 0}};
+ // From 0298 insult sword fighting, by its game's own rules (Monkey Island's:
+ // its global scripts 57, 58, 68, 70 to 72, 76 to 87, 97, 110 to 113, 157 and
+ // 158, the map's entry and local script 202 (room 85), room 49's local 200,
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index cfb269a2..0ad9e148 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -34,23 +34,23 @@ static const WorldLink kWorldMap_monkeyLinks[] = {
+ 	{39, 509, 65, 732, 0}, {39, 510, 65, 732, 0}, {39, 507, 65, 732, 0}, {39, 508, 65, 732, 0}, {39, 538, 65, 732, 0}, {40, 575, 4, 0, 0},
+ 	{41, 894, 28, 323, 1}, {43, 593, 85, 871, 0}, {43, 595, 85, 871, 0}, {43, 939, 85, 0, 0}, {48, 596, 37, 477, 1}, {48, 597, 85, 865, 0},
+ 	{51, 616, 52, 621, 0}, {52, 621, 51, 616, 0}, {52, 623, 85, 867, 0}, {53, 633, 36, 473, 1}, {57, 635, 85, 0, 0}, {57, 636, 85, 0, 0},
+-	{57, 637, 85, 0, 0}, {201, 666, 64, 727, 0}, {201, 667, 64, 727, 0}, {201, 669, 206, 668, 0}, {201, 668, 216, 669, 0}, {202, 669, 203, 668, 0},
+-	{202, 668, 205, 666, 0}, {203, 666, 215, 666, 0}, {203, 667, 215, 666, 0}, {203, 668, 202, 669, 0}, {204, 666, 211, 669, 0}, {204, 667, 211, 669, 0},
+-	{204, 669, 212, 668, 0}, {205, 666, 202, 668, 0}, {205, 667, 202, 668, 0}, {205, 669, 217, 669, 0}, {205, 668, 213, 666, 0}, {206, 668, 201, 669, 0},
+-	{207, 666, 211, 666, 0}, {207, 667, 211, 666, 0}, {207, 669, 219, 666, 0}, {207, 668, 212, 666, 0}, {208, 669, 219, 668, 0}, {208, 668, 214, 666, 0},
+-	{209, 669, 217, 666, 0}, {209, 668, 61, 719, 0}, {210, 669, 214, 668, 0}, {210, 668, 220, 666, 0}, {211, 666, 207, 666, 0}, {211, 667, 207, 666, 0},
+-	{211, 669, 204, 666, 0}, {211, 668, 216, 666, 0}, {212, 666, 207, 668, 0}, {212, 667, 207, 668, 0}, {212, 669, 213, 669, 0}, {212, 668, 204, 669, 0},
+-	{213, 666, 205, 668, 0}, {213, 667, 205, 668, 0}, {213, 669, 212, 669, 0}, {213, 668, 220, 668, 0}, {214, 666, 208, 668, 0}, {214, 667, 208, 668, 0},
+-	{214, 668, 210, 669, 0}, {215, 666, 203, 666, 0}, {215, 667, 203, 666, 0}, {215, 669, 220, 669, 0}, {215, 668, 218, 666, 0}, {216, 666, 211, 668, 0},
+-	{216, 667, 211, 668, 0}, {216, 669, 201, 668, 0}, {217, 666, 209, 669, 0}, {217, 667, 209, 669, 0}, {217, 669, 205, 669, 0}, {218, 666, 215, 668, 0},
+-	{218, 667, 215, 668, 0}, {218, 668, 85, 866, 0}, {219, 666, 207, 669, 0}, {219, 667, 207, 669, 0}, {219, 668, 208, 669, 0}, {220, 666, 210, 668, 0},
+-	{220, 667, 210, 668, 0}, {220, 669, 215, 669, 0}, {220, 668, 213, 668, 0}, {59, 924, 85, 0, 0}, {59, 679, 85, 870, 0}, {60, 713, 43, 592, 1},
+-	{61, 719, 85, 866, 0}, {64, 727, 85, 866, 0}, {65, 731, 12, 138, 0}, {65, 732, 39, 0, 0}, {69, 744, 12, 0, 0}, {69, 733, 12, 160, 0},
+-	{70, 745, 65, 732, 0}, {70, 746, 77, 818, 0}, {71, 750, 77, 803, 1}, {72, 754, 77, 801, 0}, {73, 760, 75, 782, 0}, {73, 761, 77, 804, 0},
+-	{74, 771, 75, 784, 0}, {75, 782, 73, 760, 0}, {75, 784, 74, 771, 1}, {77, 801, 72, 754, 1}, {77, 803, 71, 750, 1}, {77, 804, 73, 761, 0},
+-	{77, 818, 70, 748, 0}, {78, 819, 34, 447, 0}, {78, 820, 34, 447, 0}, {80, 847, 3, 0, 0}, {85, 872, 33, 435, 0}, {85, 868, 38, 496, 0},
+-	{85, 866, 218, 668, 0}, {85, 867, 52, 623, 0}, {85, 865, 48, 597, 0}, {85, 869, 57, 636, 0}, {85, 870, 59, 679, 0}, {85, 871, 43, 593, 0},
+-	{85, 864, 48, 597, 0}, {85, 994, 61, 719, 0}, {83, 862, 33, 0, 0}, {83, 863, 33, 0, 0},
++	{201, 666, 64, 727, 0}, {201, 667, 64, 727, 0}, {201, 669, 206, 668, 0}, {201, 668, 216, 669, 0}, {202, 669, 203, 668, 0}, {202, 668, 205, 666, 0},
++	{203, 666, 215, 666, 0}, {203, 667, 215, 666, 0}, {203, 668, 202, 669, 0}, {204, 666, 211, 669, 0}, {204, 667, 211, 669, 0}, {204, 669, 212, 668, 0},
++	{205, 666, 202, 668, 0}, {205, 667, 202, 668, 0}, {205, 669, 217, 669, 0}, {205, 668, 213, 666, 0}, {206, 668, 201, 669, 0}, {207, 666, 211, 666, 0},
++	{207, 667, 211, 666, 0}, {207, 669, 219, 666, 0}, {207, 668, 212, 666, 0}, {208, 669, 219, 668, 0}, {208, 668, 214, 666, 0}, {209, 669, 217, 666, 0},
++	{209, 668, 61, 719, 0}, {210, 669, 214, 668, 0}, {210, 668, 220, 666, 0}, {211, 666, 207, 666, 0}, {211, 667, 207, 666, 0}, {211, 669, 204, 666, 0},
++	{211, 668, 216, 666, 0}, {212, 666, 207, 668, 0}, {212, 667, 207, 668, 0}, {212, 669, 213, 669, 0}, {212, 668, 204, 669, 0}, {213, 666, 205, 668, 0},
++	{213, 667, 205, 668, 0}, {213, 669, 212, 669, 0}, {213, 668, 220, 668, 0}, {214, 666, 208, 668, 0}, {214, 667, 208, 668, 0}, {214, 668, 210, 669, 0},
++	{215, 666, 203, 666, 0}, {215, 667, 203, 666, 0}, {215, 669, 220, 669, 0}, {215, 668, 218, 666, 0}, {216, 666, 211, 668, 0}, {216, 667, 211, 668, 0},
++	{216, 669, 201, 668, 0}, {217, 666, 209, 669, 0}, {217, 667, 209, 669, 0}, {217, 669, 205, 669, 0}, {218, 666, 215, 668, 0}, {218, 667, 215, 668, 0},
++	{218, 668, 85, 866, 0}, {219, 666, 207, 669, 0}, {219, 667, 207, 669, 0}, {219, 668, 208, 669, 0}, {220, 666, 210, 668, 0}, {220, 667, 210, 668, 0},
++	{220, 669, 215, 669, 0}, {220, 668, 213, 668, 0}, {59, 924, 85, 0, 0}, {59, 679, 85, 870, 0}, {60, 713, 43, 592, 1}, {61, 719, 85, 866, 0},
++	{64, 727, 85, 866, 0}, {65, 731, 12, 138, 0}, {65, 732, 39, 0, 0}, {69, 744, 12, 0, 0}, {69, 733, 12, 160, 0}, {70, 745, 65, 732, 0},
++	{70, 746, 77, 818, 0}, {71, 750, 77, 803, 1}, {72, 754, 77, 801, 0}, {73, 760, 75, 782, 0}, {73, 761, 77, 804, 0}, {74, 771, 75, 784, 0},
++	{75, 782, 73, 760, 0}, {75, 784, 74, 771, 1}, {77, 801, 72, 754, 1}, {77, 803, 71, 750, 1}, {77, 804, 73, 761, 0}, {77, 818, 70, 748, 0},
++	{78, 819, 34, 447, 0}, {78, 820, 34, 447, 0}, {80, 847, 3, 0, 0}, {85, 872, 33, 435, 0}, {85, 868, 38, 496, 0}, {85, 866, 218, 668, 0},
++	{85, 867, 52, 623, 0}, {85, 865, 48, 597, 0}, {85, 869, 57, 636, 0}, {85, 870, 59, 679, 0}, {85, 871, 43, 593, 0}, {85, 864, 48, 597, 0},
++	{85, 994, 61, 719, 0}, {83, 862, 33, 0, 0}, {83, 863, 33, 0, 0},
+ };
+ static const WorldArea kWorldMap_monkeyAreas[] = {
+ 	{70, "Catacombs and the ghost ship"},
+@@ -84,27 +84,27 @@ static const WorldLink kWorldMap_monkey2Links[] = {
+ 	{98, 1074, 97, 1054, 0}, {2, 16, 16, 153, 0}, {2, 20, 22, 0, 0}, {2, 17, 7, 43, 0}, {2, 18, 23, 242, 0}, {2, 19, 4, 22, 0},
+ 	{2, 21, 20, 202, 0}, {4, 22, 2, 19, 0}, {4, 30, 6, 38, 0}, {4, 27, 6, 38, 0}, {6, 38, 4, 30, 0}, {7, 40, 12, 102, 0},
+ 	{7, 41, 8, 64, 0}, {7, 42, 9, 72, 0}, {7, 43, 2, 17, 0}, {7, 44, 14, 126, 0}, {7, 47, 15, 139, 0}, {7, 48, 11, 92, 0},
+-	{8, 65, 7, 41, 0}, {8, 64, 7, 41, 0}, {9, 72, 7, 42, 0}, {11, 91, 9, 75, 0}, {11, 92, 7, 48, 0}, {12, 102, 7, 40, 0},
+-	{12, 100, 13, 108, 0}, {13, 119, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0}, {16, 155, 18, 187, 0},
+-	{16, 163, 17, 0, 0}, {16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0}, {18, 187, 16, 155, 0},
+-	{20, 202, 2, 21, 0}, {20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0}, {23, 241, 22, 234, 0},
+-	{23, 242, 2, 18, 0}, {24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0}, {26, 248, 38, 378, 0}, {26, 247, 37, 369, 0},
+-	{26, 253, 27, 262, 0}, {26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0}, {27, 256, 29, 275, 0}, {27, 257, 26, 249, 0},
+-	{27, 262, 26, 253, 0}, {27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0}, {29, 275, 27, 256, 0}, {29, 291, 27, 256, 0},
+-	{30, 293, 27, 258, 0}, {33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0}, {35, 363, 26, 252, 0}, {36, 367, 35, 359, 0},
+-	{37, 368, 38, 378, 0}, {37, 369, 26, 247, 0}, {38, 378, 26, 248, 0}, {38, 374, 39, 387, 0}, {39, 387, 38, 374, 0}, {40, 425, 37, 370, 0},
+-	{41, 429, 42, 435, 0}, {41, 430, 26, 250, 0}, {42, 432, 43, 437, 0}, {42, 435, 41, 429, 0}, {43, 437, 42, 432, 0}, {45, 472, 22, 0, 0},
+-	{45, 467, 46, 477, 0}, {45, 468, 51, 0, 0}, {45, 469, 52, 593, 0}, {45, 470, 58, 661, 0}, {45, 471, 60, 665, 0}, {45, 473, 47, 489, 0},
+-	{46, 476, 48, 512, 0}, {46, 474, 49, 553, 0}, {46, 477, 45, 467, 0}, {46, 478, 47, 488, 0}, {46, 475, 50, 576, 0}, {46, 484, 22, 0, 0},
+-	{47, 488, 46, 478, 0}, {47, 489, 45, 473, 0}, {48, 512, 46, 476, 0}, {49, 553, 46, 474, 0}, {50, 576, 46, 475, 0}, {51, 588, 52, 590, 0},
+-	{52, 590, 45, 469, 0}, {52, 593, 45, 469, 0}, {53, 597, 54, 605, 0}, {53, 598, 52, 591, 0}, {53, 599, 54, 604, 0}, {53, 601, 54, 604, 0},
+-	{53, 602, 52, 0, 0}, {53, 596, 55, 611, 0}, {54, 604, 53, 599, 0}, {54, 605, 53, 597, 0}, {54, 606, 57, 659, 0}, {55, 611, 53, 596, 0},
+-	{55, 612, 56, 648, 0}, {56, 648, 55, 612, 0}, {57, 659, 54, 606, 0}, {58, 661, 45, 470, 0}, {58, 662, 59, 0, 0}, {60, 665, 45, 471, 0},
+-	{60, 666, 45, 471, 0}, {61, 693, 60, 669, 0}, {61, 694, 62, 697, 0}, {62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0},
+-	{71, 719, 70, 716, 0}, {71, 720, 72, 731, 0}, {71, 721, 72, 732, 0}, {72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0},
+-	{72, 744, 71, 721, 0}, {72, 745, 71, 721, 0}, {72, 746, 71, 721, 0}, {72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0},
+-	{72, 732, 71, 721, 0}, {73, 752, 74, 753, 0}, {73, 749, 72, 731, 0}, {73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0},
+-	{82, 782, 46, 484, 0}, {82, 783, 27, 264, 0},
++	{8, 64, 7, 41, 0}, {9, 72, 7, 42, 0}, {11, 91, 9, 75, 0}, {11, 92, 7, 48, 0}, {12, 102, 7, 40, 0}, {12, 100, 13, 108, 0},
++	{13, 119, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0}, {16, 155, 18, 187, 0}, {16, 163, 17, 0, 0},
++	{16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0}, {18, 187, 16, 155, 0}, {20, 202, 2, 21, 0},
++	{20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0}, {23, 241, 22, 234, 0}, {23, 242, 2, 18, 0},
++	{24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0}, {26, 248, 38, 378, 0}, {26, 247, 37, 369, 0}, {26, 253, 27, 262, 0},
++	{26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0}, {27, 256, 29, 275, 0}, {27, 257, 26, 249, 0}, {27, 262, 26, 253, 0},
++	{27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0}, {29, 275, 27, 256, 0}, {29, 291, 27, 256, 0}, {30, 293, 27, 258, 0},
++	{33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0}, {35, 363, 26, 252, 0}, {36, 367, 35, 359, 0}, {37, 368, 38, 378, 0},
++	{37, 369, 26, 247, 0}, {38, 378, 26, 248, 0}, {38, 374, 39, 387, 0}, {39, 387, 38, 374, 0}, {40, 425, 37, 370, 0}, {41, 429, 42, 435, 0},
++	{41, 430, 26, 250, 0}, {42, 432, 43, 437, 0}, {42, 435, 41, 429, 0}, {43, 437, 42, 432, 0}, {45, 472, 22, 0, 0}, {45, 467, 46, 477, 0},
++	{45, 468, 51, 0, 0}, {45, 469, 52, 593, 0}, {45, 470, 58, 661, 0}, {45, 471, 60, 665, 0}, {45, 473, 47, 489, 0}, {46, 476, 48, 512, 0},
++	{46, 474, 49, 553, 0}, {46, 477, 45, 467, 0}, {46, 478, 47, 488, 0}, {46, 475, 50, 576, 0}, {46, 484, 22, 0, 0}, {47, 488, 46, 478, 0},
++	{47, 489, 45, 473, 0}, {48, 512, 46, 476, 0}, {49, 553, 46, 474, 0}, {50, 576, 46, 475, 0}, {51, 588, 52, 590, 0}, {52, 590, 45, 469, 0},
++	{52, 593, 45, 469, 0}, {53, 597, 54, 605, 0}, {53, 598, 52, 591, 0}, {53, 599, 54, 604, 0}, {53, 601, 54, 604, 0}, {53, 602, 52, 0, 0},
++	{53, 596, 55, 611, 0}, {54, 604, 53, 599, 0}, {54, 605, 53, 597, 0}, {54, 606, 57, 659, 0}, {55, 611, 53, 596, 0}, {55, 612, 56, 648, 0},
++	{56, 648, 55, 612, 0}, {57, 659, 54, 606, 0}, {58, 661, 45, 470, 0}, {58, 662, 59, 0, 0}, {60, 665, 45, 471, 0}, {60, 666, 45, 471, 0},
++	{61, 693, 60, 669, 0}, {61, 694, 62, 697, 0}, {62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0}, {71, 719, 70, 716, 0},
++	{71, 720, 72, 731, 0}, {71, 721, 72, 732, 0}, {72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0}, {72, 744, 71, 721, 0},
++	{72, 745, 71, 721, 0}, {72, 746, 71, 721, 0}, {72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0}, {72, 732, 71, 721, 0},
++	{73, 752, 74, 753, 0}, {73, 749, 72, 731, 0}, {73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0}, {82, 782, 46, 484, 0},
++	{82, 783, 27, 264, 0},
+ };
+ static const WorldArea kWorldMap_monkey2Areas[] = {
+ 	{61, "Up the great tree"},
+@@ -549,8 +549,8 @@ static const WorldArea kWorldMap_zakAreas[] = {
+ 	{143, "Miami airport"},
+ };
+ static const WorldMap kWorldMaps[] = {
+-	{kWorldMap_monkeyRooms, 82, kWorldMap_monkeyLinks, 232, kWorldMap_monkeyAreas, 10},
+-	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 176, kWorldMap_monkey2Areas, 7},
++	{kWorldMap_monkeyRooms, 82, kWorldMap_monkeyLinks, 231, kWorldMap_monkeyAreas, 10},
++	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 175, kWorldMap_monkey2Areas, 7},
+ 	{kWorldMap_loomRooms, 39, kWorldMap_loomLinks, 94, kWorldMap_loomAreas, 2},
+ 	{kWorldMap_indy3Rooms, 110, kWorldMap_indy3Links, 340, kWorldMap_indy3Areas, 5},
+ 	{kWorldMap_atlantisRooms, 73, kWorldMap_atlantisLinks, 264, kWorldMap_atlantisAreas, 3},
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 766d4cb9..1a83f892 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -5478,6 +5478,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			_actors[ego]->putActor(logical);
+ 		}
+ 		if (valueSet.var) writeVar(valueSet.var, valueSet.value); // (from 0296)
++		// (From 0300 with the classes the script setting it leaves with it,
++		// kWorldValueClasses: Monkey Island's jail's cells, a prisoner freed.)
++		for (const WorldValueClass &c : kWorldValueClasses)
++			if (valueSet.var && c.game == gameIndex && c.var == valueSet.var && c.value == valueSet.value && c.object > 0 && c.object < _numGlobalObjects) putClass(c.object, c.cls, c.set != 0);
+ 		if (valueSet.need > 0 && valueSet.need < _numGlobalObjects) showAs(valueSet.need, 1);
+ 		// (From no place: no exit scripts.)
+ 		_EXCD_offs = 0;
+@@ -6306,6 +6310,30 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			warning("SCUMMVERSE world things: %s room %d: timed event of a step on %d (%d's keeper away): %s; away%s ticks, not%s as named", kWorldGames[gameIndex].gameid, w.room, w.spot, w.thing,
+ 				recorded ? "its answer recorded" : "no answer recorded", measured.c_str(), named.c_str());
+ 	}
++	// (From 0300 each thing a place's entry draws so each time it is entered
++	// (kWorldEntryPictures): the place arrived at, the thing then set to
++	// another picture and the place arrived at again; in the row's picture
++	// both times, as named, else warned (tools/export_worlds.py fails).)
++	for (const WorldEntryPicture &w : kWorldEntryPictures) {
++		if (w.game != gameIndex || shouldQuit()) continue;
++		putBack();
++		const int played = worldPlayedIn(gameIndex, w.room);
++		ego = played > 0 && played < _numActors ? played : startEgo;
++		_rnd.setSeed(0x5C0BE + w.room);
++		_scummverseStepBudget = kRunSteps;
++		int first = -1, again = -1;
++		if (w.object > 0 && w.object < _numGlobalObjects && arrive(w.room, 0) && getObjectIndex(w.object) > 0) {
++			first = pictureOf(w.object);
++			putState(w.object, w.picture ? 0 : 1);
++			if (arrive(w.room, 0) && getObjectIndex(w.object) > 0) again = pictureOf(w.object);
++		}
++		quiet();
++		_scummverseStepBudget = -1;
++		if (first == w.picture && again == w.picture)
++			debug(1, "SCUMMVERSE world things: %s room %d: %d drawn in its picture %d each time the place is entered, as named", kWorldGames[gameIndex].gameid, w.room, w.object, w.picture);
++		else
++			warning("SCUMMVERSE world things: %s room %d: %d in its picture %d then %d entering it, not %d each time: not as named (kWorldEntryPictures)", kWorldGames[gameIndex].gameid, w.room, w.object, first, again, w.picture);
++	}
+ 	Common::String counts;
+ 	for (int kind : kinds) counts += Common::String::format(" %d:%d", kind, byKind.contains(kind) ? byKind[kind] : 0);
+ 	debug(1, "SCUMMVERSE world things: %s %d runs, %d answers (by verb kind:%s; %d leaving the place, %d things found in a picture past 1, %d saying and changing nothing, %d running on past their steps; %d others in a picture past 1; %d not run, unnamed; %d first lines of someone not there, %d come round again, %d lines past %d; %d not run, wanting a second thing; %d outside the part of its room shown)",
+@@ -6560,6 +6588,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0284 reversed: the ones used on from the last, the things carried
+ 	// from the last; what they answer kept in the forwards order.)
+ 	const uint answersBefore = answers.size();
++	Common::HashMap<int, int> putBacks; // (from 0300: kWorldPutBacks, each thing's answers putting it back)
+ 	Common::Array<uint32> answerOrder, heldOrder;
+ 	for (uint tn = 0; (useVerb || heldThing) && !carriedOnes.empty() && tn < targets.size() && !shouldQuit(); ++tn) {
+ 		const uint t = scummverseRunAt(tn, targets.size(), reversed);
+@@ -6715,6 +6744,20 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			}
+ 			for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+ 				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && (placeOf.contains(o) || unlisted.contains(o)) && !ridden.contains(o)) { e.others.push_back(placeIn(o, target.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); } // (from 0294 `unlisted` too)
++			// (From 0300 the thing given or used put back where it lies as its
++			// game starts (its owner its room again, setOwnerOf 15), one of
++			// kWorldPutBacks: there, in the picture it leaves it in, touchable or
++			// not as it is then; the new engine, using it up, shows it there so.
++			// Monkey Island's meat (room 41, 331) given to the poodles (room 36,
++			// 475): their local script 201 puts it back in the kitchen, picture
++			// 0, its untouchable class (and the petal's, 6) cleared, whatever they
++			// do with it. Before, it was lost.)
++			if ((!gone || going) && e.secondGone && owned[first] == ego && getOwner(first) == OF_OWNER_ROOM && placeOf.contains(first) && !ridden.contains(first) &&
++				worldPutBack(gameIndex, placeIn(first, target.room), first) && e.others.size() < most) {
++				e.others.push_back(placeIn(first, target.room)); e.others.push_back(first);
++				e.others.push_back(pictureOf(first) | (untouchable(first) ? kScummverseMadeUntouchable : kScummverseMadeTouchable));
++				++putBacks[first];
++			}
+ 			// (From 0267 what it makes touchable or untouchable: the one used on
+ 			// too, one here; not the two carried into it.)
+ 			if (!gone || going) {
+@@ -6902,6 +6945,13 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	if (pairs && (useVerb || heldThing))
+ 		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
+ 			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
++	// (From 0300 each thing of kWorldPutBacks some answer of two put back, as
++	// named, else warned: tools/export_worlds.py fails.)
++	for (const WorldPutBack &p : kWorldPutBacks) {
++		if (p.game != gameIndex || !(useVerb || heldThing)) continue;
++		if (putBacks.contains(p.thing)) debug(1, "SCUMMVERSE world things: %s room %d: %d put back there by %d answers of two, as named", kWorldGames[gameIndex].gameid, p.room, p.thing, putBacks[p.thing]);
++		else warning("SCUMMVERSE world things: %s room %d: %d put back there by no answer of two: not as named (kWorldPutBacks)", kWorldGames[gameIndex].gameid, p.room, p.thing);
++	}
+ 	// (From 0294, kWorldGivesThrough.)
+ 	if (through)
+ 		debug(1, "SCUMMVERSE world things: %s given to by their own entry %d: %d of the cast through the thing they stand under, %d things given to as things",
+@@ -6923,6 +6973,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	Common::Array<ScummverseValuedAnswer> &valuedOut = scummverseValuedAnswers();
+ 	valuedOut.clear();
+ 	Common::HashMap<int, bool> valuedTouch; // (from 0296: see below)
++	bool valueClassesSeen[ARRAYSIZE(kWorldValueClasses)] = {}; // (from 0300: checked by the holders' runs below)
+ 	{
+ 		const uint filed = answers.size(), todoBefore = todo.size();
+ 		auto revealedBy = [&](const Common::Array<int> &others) {
+@@ -7198,6 +7249,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (const WorldHolderUse &u : kWorldHolderUses) if (u.game == gameIndex) { Used t = {u.room, (int)u.object, (int)u.reads, false}; uses.push_back(t); }
+ 			for (int n = h.first; n <= h.last; ++n) { Used t = {h.room, n, 0, true}; uses.push_back(t); }
+ 			struct Case { int with, target; bool third, read; };
++			// (From 0300 a use filed by a prisoner freed: a value kept whose
++			// classes kWorldValueClasses names, not the fill's first time.)
++			auto freedBy = [&](int var) {
++				for (const WorldValueClass &c : kWorldValueClasses) if (var && var != firstTime && c.game == gameIndex && c.var == var) return true;
++				return false;
++			};
+ 			for (int mn = 0; mn <= h.last - h.first && !shouldQuit(); ++mn) {
+ 				const int m = h.first + (int)scummverseRunAt(mn, h.last - h.first + 1, reversed);
+ 				for (uint tn = 0; tn < uses.size() && !shouldQuit(); ++tn) {
+@@ -7208,6 +7265,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					if (t.holder) {
+ 						add(kWorldHolderEmpty, kWorldHolderEmpty, false, true); add(kWorldHolderHolds, kWorldHolderEmpty, false, true); add(kWorldHolderWad, kWorldHolderEmpty, false, true);
+ 						add(kWorldHolderEmpty, kWorldHolderHolds, false, true); add(kWorldHolderEmpty, kWorldHolderWad, false, true); add(kWorldHolderEmpty, kWorldHolderEmpty, true, true);
++					} else if (freedBy(t.reads)) {
++						// (From 0300 a lock, by its prisoner freed (kWorldValueClasses):
++						// each as each can be with them not freed, then freed.)
++						for (int read = 0; read < 2; ++read) {
++							add(kWorldHolderEmpty, 0, false, read); add(kWorldHolderEmpty, 0, true, read); add(kWorldHolderHolds, 0, false, read); add(kWorldHolderWad, 0, false, read);
++						}
+ 					} else {
+ 						add(kWorldHolderEmpty, 0, false, true); add(kWorldHolderEmpty, 0, true, true); add(kWorldHolderHolds, 0, false, true); add(kWorldHolderWad, 0, false, true);
+ 						if (t.reads) add(kWorldHolderEmpty, 0, false, false);
+@@ -7222,6 +7285,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							_rnd.setSeed(0x5C0BE + t.room);
+ 							_scummverseStepBudget = kRunSteps;
+ 							if (const WorldValueArrival *w = worldValueArrival(gameIndex, t.room)) { valueSet.var = w->var; valueSet.value = w->first; }
++							const bool freed = !t.holder && freedBy(t.reads); // (from 0300: the place arrived at so, its classes too)
++							if (freed) { valueSet.var = t.reads; valueSet.value = cs.read ? 1 : 0; }
+ 							const bool there = arrive(t.room, t.object) && getObjectIndex(t.object) > 0;
+ 							valueSet = ValueSet();
+ 							if (!there) { _scummverseStepBudget = -1; ++holderMissed; continue; }
+@@ -7229,7 +7294,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							const int shownRoom = here(t.room);
+ 							showAs(t.object, from);
+ 							carryHolder(m);
+-							if (firstTime) writeVar(firstTime, cs.read ? 1 : 0);
++							if (firstTime) writeVar(firstTime, cs.read || freed ? 1 : 0);
+ 							shape(m, cs.with);
+ 							if (t.holder) shape(t.object, cs.target);
+ 							int third = 0;
+@@ -7243,6 +7308,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							a->putActor(ox, oy, shownRoom);
+ 							Common::Array<int> varsWere;
+ 							for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex) varsWere.push_back(readVar(k.var));
++							Common::Array<int> classVarsWere; // (from 0300: kWorldValueClasses, checked below)
++							for (const WorldValueClass &c : kWorldValueClasses) classVarsWere.push_back(c.game == gameIndex ? readVar(c.var) : 0);
+ 							const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
+ 							const Common::Array<bool> was = untouchables();
+ 							Common::Array<int> set;
+@@ -7294,6 +7361,15 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							const bool spent = _scummverseStepBudget == 0;
+ 							_scummverseStepBudget = -1;
+ 							if (spent || _currentRoom != shownRoom || a->_room != shownRoom) { quiet(); ++holderLeft; continue; }
++							// (From 0300 each class kWorldValueClasses names with a value
++							// this run set: as named, else warned.)
++							for (uint cn2 = 0; cn2 < ARRAYSIZE(kWorldValueClasses); ++cn2) {
++								const WorldValueClass &c = kWorldValueClasses[cn2];
++								if (c.game != gameIndex || readVar(c.var) != c.value || classVarsWere[cn2] == c.value || c.object <= 0 || c.object >= _numGlobalObjects) continue;
++								if (getClass(c.object, c.cls) == (c.set != 0)) valueClassesSeen[cn2] = true;
++								else warning("SCUMMVERSE world things: %s room %d: %d used with %d sets %d to %d, %d's class %d %s: not as named (kWorldValueClasses)", kWorldGames[gameIndex].gameid, t.room, m, t.object,
++									c.var, c.value, c.object, c.cls, c.set ? "clear" : "set");
++							}
+ 							e.after = pictureOf(t.object);
+ 							e.taken = getOwner(t.object) != owned[t.object] && getOwner(t.object) == ego;
+ 							e.secondGone = getOwner(m) != ego;
+@@ -7316,7 +7392,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 							for (const WorldKeptValue &k : kWorldKeptValues) {
+ 								if (k.game != gameIndex) continue;
+ 								const int now = readVar(k.var), before = varsWere[kv++];
+-								if (now != before && leaves.size() + 2 < 2 * (uint)Scummverse::PanelBridge::kMostLeaves) { leaves.push_back(k.var); leaves.push_back(worldKeptCount(gameIndex, k.var) ? now - before : now); }
++								// (From 0300 room for this and for the two below: before, seven of
++								// these and those two made nine, which the reader refuses whole.)
++								if (now != before && leaves.size() + 6 <= 2 * (uint)Scummverse::PanelBridge::kMostLeaves) { leaves.push_back(k.var); leaves.push_back(worldKeptCount(gameIndex, k.var) ? now - before : now); }
+ 							}
+ 							// (Which holds it after: the one its clock restarted on, from
+ 							// the start; else the one held before, still; else none.)
+@@ -7338,6 +7416,13 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if (holderRuns || holderMissed)
+ 			debug(1, "SCUMMVERSE world things: %s %d runs of its holders used (%d not arrived at, %d leaving the place or running on, %d saying, changing and leaving nothing)",
+ 				kWorldGames[gameIndex].gameid, holderRuns, holderMissed, holderLeft, holderSilent);
++		// (From 0300 a class of kWorldValueClasses no run set its value with.)
++		for (uint cn2 = 0; !old && !heldThing && cn2 < ARRAYSIZE(kWorldValueClasses); ++cn2) {
++			const WorldValueClass &c = kWorldValueClasses[cn2];
++			if (c.game != gameIndex) continue;
++			if (valueClassesSeen[cn2]) debug(1, "SCUMMVERSE world things: %s room %d: %d's class %d %s once %d is %d, as named", kWorldGames[gameIndex].gameid, c.room, c.object, c.cls, c.set ? "set" : "clear", c.var, c.value);
++			else warning("SCUMMVERSE world things: %s room %d: %d's class %d not checked: no run set %d to %d (kWorldValueClasses)", kWorldGames[gameIndex].gameid, c.room, c.object, c.cls, c.var, c.value);
++		}
+ 		for (const ScummverseValuedAnswer &a : valuedOut) revealedBy(a.others);
+ 		for (uint wn = 0; !old && !heldThing && wn < ARRAYSIZE(kWorldValueArrivals) && !shouldQuit(); ++wn) {
+ 			const WorldValueArrival &w = kWorldValueArrivals[scummverseRunAt(wn, ARRAYSIZE(kWorldValueArrivals), reversed)];
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6a1ff83d..7aaf9581 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -508,6 +508,11 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	// script); what was opened, closed or taken here stays so.
+ 	loadThings(game);
+ 	_placed = 0;
++	// (From 0300 but what its entry draws so each time it is entered,
++	// kWorldEntryPictures: Monkey Island 2's Captain Dread asleep again. An
++	// answer's picture of it lasted until then; before, for good.)
++	for (const WorldEntryPicture &e : kWorldEntryPictures)
++		if (!_enteringCloseUp && e.game == game && e.room == room) _pictures.erase(thingKey(game, room, e.object));
+ 	for (int i = 0; i < StageBridge::objectCount(); ++i) {
+ 		int id, ox, oy, w, h, wx, wy, state, picture, answers;
+ 		if (!StageBridge::object(i, id, ox, oy, w, h, wx, wy, state)) continue;
+@@ -519,7 +524,10 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	// (A way back kept while still past its door, with no way to the place
+ 	// it leads to; elsewhere let go. Kept too. A close-up leaves it as it is.)
+ 	if (_wayBack.game >= 0 && !_enteringCloseUp) {
+-		if (game != _wayBack.game || room == _wayBack.room || reaches(game, room, _wayBack.room)) _wayBack = WayBack();
++		// (From 0300 nor one into a story place or the place it is reached
++		// from, worldNoWayBackInto: kept from before, Monkey Island's back
++		// into the water under the harbour from its dock, or onto the dock.)
++		if (game != _wayBack.game || room == _wayBack.room || reaches(game, room, _wayBack.room) || worldNoWayBackInto(game, _wayBack.room)) _wayBack = WayBack();
+ 		else { _wayBack.atGame = game; _wayBack.atRoom = room; }
+ 		wayBackKeep();
+ 	}
+@@ -4356,9 +4364,22 @@ void SandboxEngine::holderBack(int game, int id) {
+ 	if (!h || id < h->first || id > h->last) return;
+ 	for (uint n = 0; n < _carried.size(); ++n)
+ 		if (_carried[n].game == game && _carried[n].room == h->room && _carried[n].id == id) {
+-			if (_holding.item == (int)n) _holding = Pair();
++			// (From 0300 a sentence of two half made or on its way with it let go;
++			// one with things carried after it, those one lower, as the panel
++			// counts them now. Before, only one held first was let go, and a walk
++			// on its way used the next thing carried, or held the wrong one.)
++			auto withIt = [&](Pair &p) {
++				if (!p.kind) return false;
++				if (p.item == (int)n || p.withItem == (int)n) return true;
++				if (p.item > (int)n) --p.item;
++				if (p.withItem > (int)n) --p.withItem;
++				return false;
++			};
++			const bool held = withIt(_holding), paired = withIt(_pairing);
+ 			PanelBridge::removeItem(n);
+ 			_carried.remove_at(n);
++			if (paired) { _action = 0; _target = -1; if (_player >= 0) StageBridge::stop(_player); }
++			if (held || paired) letGo();
+ 			break;
+ 		}
+ 	_touched.erase(thingKey(game, h->room, id));
+@@ -5317,8 +5338,10 @@ bool SandboxEngine::travel(int index) {
+ 		if ((opened >= 0 || openedBack || shuts) && !_testing && !_touring.on) saveState();
+ 		// (No way back from here but its game's scripts, however far in: back
+ 		// the way they came, by the arrow at the left; told so, kept. Deeper
+-		// in, the door they first came through still.)
+-		if (_wayBack.game < 0 && !reaches(game, link.target, from)) {
++		// in, the door they first came through still. From 0300 none back into
++		// a story place, worldNoWayBackInto: Monkey Island's dock left by its
++		// ends; before, its arrow stayed on every place of the game.)
++		if (_wayBack.game < 0 && !reaches(game, link.target, from) && !worldNoWayBackInto(game, from)) {
+ 			_wayBack.game = game; _wayBack.room = from; _wayBack.door = link.object; _wayBack.atGame = game; _wayBack.atRoom = link.target;
+ 			_noWayOn = true;
+ 			if (!_touring.on) announce("No way back from here: tap the arrow at the left to go back.");
+@@ -5360,7 +5383,12 @@ bool SandboxEngine::goThere() {
+ 	static const int kWays[4][2] = {{-1, 0}, {1, 0}, {0, 1}, {0, -1}};
+ 	const int way = g.facing >= 0 && g.facing < 4 ? g.facing : 2;
+ 	StageBridge::face(_player, x + 8 * kWays[way][0], y + 8 * kWays[way][1]);
+-	if (_wayBack.game < 0 && !reaches(g.game, g.room, g.from)) {
++	// (From 0300 none into a place its game has no way back into
++	// (worldNoWayBackInto: Monkey Island's idol picked up under the harbour, up
++	// the ladder onto the dock, whose own two ends lead to the harbour
++	// street). Before, the arrow led back into the water, where no door leads
++	// out, and stayed on every place of the game.)
++	if (_wayBack.game < 0 && !reaches(g.game, g.room, g.from) && !worldNoWayBackInto(g.game, g.from)) {
+ 		_wayBack.game = g.game; _wayBack.room = g.from; _wayBack.door = g.id; _wayBack.atGame = g.game; _wayBack.atRoom = g.room;
+ 		_noWayOn = true;
+ 		if (!_touring.on) announce("No way back from here: tap the arrow at the left to go back.");
+@@ -7584,7 +7612,15 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		Common::HashMap<int, int> keptNow;
+ 		const int keptCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < keptCount && !in->eos(); ++i) {
+-			const int g = in->readSint16LE(), var = in->readUint16LE(), value = in->readSint32LE();
++			const int g = in->readSint16LE(), var = in->readUint16LE();
++			int value = in->readSint32LE();
++			// (From 0300 a holder's only one of its holders, its clock within its
++			// length: a damaged state's would hold it for good or overflow it.)
++			if (g >= 0 && g < worldGameCount() && worldHeldValue(g, var)) {
++				const WorldHolder *h = worldHolderOf(g);
++				if (var == kWorldHeld && (value < h->first || value > h->last)) continue;
++				if (var == kWorldHeldFor) value = CLIP(value, 0, worldHolderClock(*h) - 1);
++			}
+ 			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var) || worldDuelValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too; from 0298 a fight's)
+ 		}
+ 		Common::Array<Later> later;
+@@ -8733,6 +8769,7 @@ SandboxEngine::KeptValues SandboxEngine::keptValuesPlayed() {
+ SandboxEngine::Trials SandboxEngine::trialsPlayed() {
+ 	Trials c;
+ 	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const WayBack wayBackKept = _wayBack; // (from 0300: see the idol)
+ 	const Common::Array<Carried> carriedKept = _carried;
+ 	const int wasGame = _game, wasRoom = _room;
+ 	Common::String problem;
+@@ -8797,10 +8834,12 @@ SandboxEngine::Trials SandboxEngine::trialsPlayed() {
+ 	};
+ 	// (The idol picked up: up the ladder onto the dock, its way to the harbour street.)
+ 	auto idol = [&](int before) {
++		_wayBack = WayBack();
+ 		bool ok = check(enter(g, 42, 0, problem) && thingIn(586) >= 0 && isThing(thingIn(586)), "under the harbour not shown, or its idol not there") && check(tap(kWorldVerbPickUp, 586), "the idol not tapped");
+ 		for (int t = 0; t < 600 && ok && _room == 42; ++t) step(1);
+ 		ok = ok && check(_game == g && _room == 83 && isCarried(g, 42, 586), "the idol not carried up the ladder onto the dock (room 83)") &&
+-			check(keptValue(g, 195) == before + 1 && keptValue(g, trial2) == 1, "the trial not counted, or not done, by the idol");
++			check(keptValue(g, 195) == before + 1 && keptValue(g, trial2) == 1, "the trial not counted, or not done, by the idol") &&
++			check(_wayBack.game < 0, "a way back into the water from the dock"); // (from 0300)
+ 		ok = ok && check(saved() && keptValue(g, 195) == before + 1 && keptValue(g, trial2) == 1 && isCarried(g, 42, 586), "the idol not kept through a save and a load");
+ 		int dock = -1;
+ 		if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->linkCount; ++i) if (map->links[i].room == 83 && map->links[i].target == 33) dock = i;
+@@ -8874,7 +8913,7 @@ SandboxEngine::Trials SandboxEngine::trialsPlayed() {
+ 	}
+ 	fresh();
+ 	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
+-	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept; _wayBack = wayBackKept;
+ 	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
+ 	return c;
+ }
+@@ -9151,6 +9190,270 @@ SandboxEngine::Duels SandboxEngine::duelsPlayed() {
+ 	return c;
+ }
+ 
++// From 0300 the "verbs" check's (see verbsTest): leftovers of 0295's and
++// 0297's reviews as a player meets them, wherever their things files have
++// them so. Monkey Island's poodles (room 36, 475) given the kitchen's meat
++// (room 41, 331), then (taken again) it used with them: each time not
++// carried, put back in the kitchen as their script puts it (its picture 0,
++// touchable), there to be picked up again; kept through a save and a load.
++// Its troll (room 57, 637) no door: walked to (a tap on him, Walk on his
++// thing) the one played stays on the bridge, the path across (636) shut.
++// Its idol (room 42, 586) picked up, up the ladder onto the dock (room 83):
++// no arrow back into the water, the dock's ends to the harbour street (33),
++// and a way back kept from before let go there. Its jail (room 31): Otis's
++// cell and lock (414, 416) looked at and opened as its game answers them
++// with him locked in; a mug of grog (filled at the kitchen's barrel) used
++// on Otis himself (418) frees him (76), untouchable then; then both answer
++// as its game answers them once freed (their class 12 clear), kept through
++// a save and a load, and another mug of grog at his lock is the cell's own
++// Use (not freed again, the mug kept, still holding it); the rat's cell
++// (415, 417) likewise by 134. A mug whose clock ends while Use with it is
++// on its way to the lock: put back, the sentence let go (nothing else used
++// there); one whose clock ends while a thing carried after it is held: that
++// one held still. A state with a holder's clock out of its length, or one
++// that is no holder: kept within it, let go.
++// Monkey Island 2's Captain Dread (room 22, 239) looked at: awake (235, 236
++// and 237 as its things file has them then); the place left and entered
++// again: asleep, as its entry draws him (kWorldEntryPictures, each row as
++// its things file has the place). Before: the meat was lost, the troll a
++// door across, the arrow led into the water, the cells answered as locked,
++// a second mug freed Otis again, and Dread stayed awake.
++SandboxEngine::Leftovers SandboxEngine::leftoversPlayed() {
++	Leftovers c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const WayBack wayBackKept = _wayBack;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1, g2 = -1;
++	for (int k = 0; k < worldGameCount(); ++k) {
++		if (sameId(kWorldGames[k].gameid, "monkey")) g = k;
++		if (sameId(kWorldGames[k].gameid, "monkey2")) g2 = k;
++	}
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear(); _wayBack = WayBack(); _noWayOn = false;
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox leftovers: %s: %s", what, how); }
++		return ok;
++	};
++	auto verbOn = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		_speech.clear(); _notice.clear(); _saying.clear();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int game, int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == game && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto useWith = [&](int kind, int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0) return false;
++		Pair p;
++		p.kind = kind; p.item = item;
++		_holding = p;
++		_speech.clear(); _notice.clear(); _saying.clear();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	auto said = [&]() { return !_speech.empty() ? _speech : _notice; };
++	// (The poodles' meat.)
++	int after = 0, flags = 0, others[4 * 64], count = 0, lines = 0;
++	auto backThere = [&](int kind) {
++		if (!PanelBridge::thingAnswer(g, 36, 475, kind, 0, 331, after, flags, others, count, 64, lines) || !(flags & 8) || !(flags & 4)) return false;
++		for (int k = 0; k < count; ++k) if (others[4 * k] == 41 && others[4 * k + 1] == 331 && !others[4 * k + 3]) return true;
++		return false;
++	};
++	if (g >= 0) loadThings(g);
++	if (g >= 0 && installed(g, 36) && installed(g, 41) && (backThere(kWorldVerbGive) || backThere(kWorldVerbUse))) {
++		what = "Monkey Island's poodles given the kitchen's meat";
++		++c.cases;
++		fresh();
++		bool ok = check(backThere(kWorldVerbGive) && backThere(kWorldVerbUse), "the meat not put back in the kitchen by its things file both ways (export Monkey Island again)") &&
++			check(enter(g, 36, 0, problem) && carry(g, 41, 331, "", 0, false) && thingIn(475) >= 0, "the poodles not there, or the meat not carried");
++		for (int kind : {kWorldVerbGive, kWorldVerbUse}) {
++			ok = ok && check(useWith(kind, carriedAt(g, 41, 331), 475) && _room == 36 && !isCarried(g, 41, 331), "the meat kept, given to them or used with them") &&
++				check(touchOf(g, 41, 331) != kTouchedUntouchable && pictureIn(g, 41, 331) == 0, "the meat not put back in the kitchen as its game puts it (its picture 0, touchable)");
++			ok = ok && check(saved() && !isCarried(g, 41, 331) && touchOf(g, 41, 331) != kTouchedUntouchable, "not kept through a save and a load") &&
++				check(enter(g, 41, 0, problem) && thingIn(331) >= 0 && isThing(thingIn(331)) && verbOn(kWorldVerbPickUp, 331) && isCarried(g, 41, 331), "the meat not picked up again in the kitchen") &&
++				check(enter(g, 36, 0, problem), "the poodles' place not shown again");
++		}
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The troll.)
++	if (g >= 0 && installed(g, 57)) {
++		what = "Monkey Island's troll walked to";
++		++c.cases;
++		fresh();
++		bool ok = check(!worldLinkFrom(g, 57, 637) && enter(g, 57, 0, problem) && thingIn(637) >= 0 && !isDoor(thingIn(637)), "the troll a door, or not there");
++		if (ok) {
++			int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
++			StageBridge::object(thingIn(637), id, ox, oy, ow, oh, wx, wy, state);
++			StageBridge::lookAt(ox + ow / 2.0);
++			StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++			PanelBridge::select(-1);
++			tap(sx, sy);
++			settle();
++			for (int t = 0; t < 300; ++t) step(1);
++			ok = check(_game == g && _room == 57, "across the bridge, tapped");
++			if (ok) {
++				_holding = Pair(); _pairing = Pair();
++				useOn(kWorldVerbWalk, -1, thingIn(637));
++				settle();
++				for (int t = 0; t < 300; ++t) step(1);
++				ok = check(_game == g && _room == 57, "across the bridge, walked to");
++			}
++			ok = ok && check(touchOf(g, 57, 636) != kTouchedTouchable, "the path across opened");
++		}
++		if (ok) ++c.played;
++	}
++	// (The dock.)
++	if (g >= 0) loadThings(g);
++	if (g >= 0 && installed(g, 42) && installed(g, 83) && installed(g, 33) && PanelBridge::valueAnswered(g, 42, 586, kWorldVerbPickUp, 0, 0, 0, 0)) {
++		what = "Monkey Island's dock reached with the idol";
++		++c.cases;
++		fresh();
++		int bx0, by0, bx1, by1;
++		bool ok = check(enter(g, 42, 0, problem) && verbOn(kWorldVerbPickUp, 586), "the idol not tapped");
++		for (int t = 0; t < 600 && ok && _room == 42; ++t) step(1);
++		ok = ok && check(_game == g && _room == 83 && isCarried(g, 42, 586), "the idol not carried up the ladder onto the dock") &&
++			check(_wayBack.game < 0 && !backSign(bx0, by0, bx1, by1), "an arrow back into the water from the dock");
++		int dock = -1;
++		if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->linkCount; ++i) if (map->links[i].room == 83 && map->links[i].target == 33) dock = i;
++		ok = ok && check(dock >= 0 && travel(dock) && _room == 33 && _wayBack.game < 0 && !backSign(bx0, by0, bx1, by1), "the dock's way to the harbour street not gone through, or an arrow there");
++		ok = ok && check(saved() && _wayBack.game < 0, "a way back after a save and a load");
++		// (A way back into the water kept from before: let go on the dock.)
++		_wayBack.game = g; _wayBack.room = 42; _wayBack.door = 586; _wayBack.atGame = g; _wayBack.atRoom = 83;
++		ok = ok && check(enter(g, 83, 0, problem) && _wayBack.game < 0 && !backSign(bx0, by0, bx1, by1), "a way back into the water kept from before still there on the dock");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The jail.)
++	const WorldHolder *h = g >= 0 ? worldHolderOf(g) : nullptr;
++	if (h && installed(g, 31) && installed(g, 41) && installed(g, 28) && PanelBridge::valueAnswered(g, 31, 414, kWorldVerbLook, 0, 0, 0, 1)) {
++		what = "Monkey Island's jail's cells, their prisoners freed";
++		++c.cases;
++		fresh();
++		auto heldNow = [&]() { return keptValue(g, kWorldHeld); };
++		auto lineOf = [&](int id, int kind, int value) {
++			int speaker = 0, costume = 0, color = 0;
++			char text[256] = "";
++			const int key[2] = {0, value};
++			return PanelBridge::answerLine(g, 31, id, kind, 0, 0, 0, speaker, costume, color, text, sizeof(text), key) ? Common::String(text) : Common::String();
++		};
++		auto answersSo = [&](int value, int a, int b) {
++			for (int id : {a, b})
++				for (int kind : {kWorldVerbLook, kWorldVerbOpen}) {
++					const Common::String line = lineOf(id, kind, value);
++					if (line.empty() || line == lineOf(id, kind, 1 - value) || !verbOn(kind, id) || said() != line) return false;
++				}
++			return true;
++		};
++		auto filled = [&](int mug) {
++			return enter(g, 41, 0, problem) && carry(g, 28, mug, "", 0, false) && useWith(kWorldVerbUse, carriedAt(g, 28, mug), 380) && heldNow() == mug;
++		};
++		bool ok = check(enter(g, 31, 0, problem) && personHere(g, 31, 13) && answersSo(0, 414, 416) && answersSo(0, 415, 417), "the cells not answered as locked with their prisoners in");
++		// (From the review of 0297: the grog used on Otis himself, 418, as on
++		// his cell or lock: his game's script 66 hands him to 67 as 414.)
++		ok = ok && check(filled(373), "a mug not filled at the kitchen's barrel") &&
++			check(enter(g, 31, 0, problem) && thingIn(418) >= 0 && useWith(kWorldVerbUse, carriedAt(g, 28, 373), 418) && keptValue(g, 0x8000 + 76) == 1 && !heldNow() && !isCarried(g, 28, 373),
++				"Otis not freed by the grog used on him, or the mug not put back") &&
++			check(touchOf(g, 31, 418) == kTouchedUntouchable && answersSo(1, 414, 416) && answersSo(0, 415, 417), "Otis touchable once freed, or his cell and lock not answered as freed (or the rat's so)");
++		ok = ok && check(saved() && keptValue(g, 0x8000 + 76) == 1 && enter(g, 31, 0, problem) && answersSo(1, 414, 416), "not kept so through a save and a load");
++		ok = ok && check(filled(374), "a second mug not filled") &&
++			check(enter(g, 31, 0, problem) && useWith(kWorldVerbUse, carriedAt(g, 28, 374), 416) && heldNow() == 374 && isCarried(g, 28, 374) && !said().empty(),
++				"a second mug of grog at Otis's lock not the cell's own Use (freed again, or the mug drunk)");
++		ok = ok && check(useWith(kWorldVerbUse, carriedAt(g, 28, 374), 417) && keptValue(g, 0x8000 + 134) == 1 && !heldNow() && answersSo(1, 415, 417), "the rat not freed, or its cell not answered as freed");
++		// (From the review of 0297: a mug whose clock ends while it is in a
++		// sentence of two, put back: the sentence on its way let go, not done
++		// with the next thing carried; one held after it held still, by its
++		// own number now. And a damaged state's holder let go, its clock kept
++		// within its length.)
++		fresh();
++		double lx = 0, ly = 0;
++		ok = ok && check(enter(g, 31, 0, problem) && carry(g, 28, 375, "", 0, false) && carry(g, 41, 331, "", 0, false) && thingIn(416) >= 0 && doorPoint(thingIn(416), lx, ly),
++			"the jail not shown, or a mug and the meat not carried");
++		if (ok) {
++			_kept[g * 65536 + kWorldHeld] = 375; _kept[g * 65536 + kWorldHeldFor] = worldHolderClock(*h) - 1;
++			double fx = lx + (lx < 160 ? 200 : -200), fy = ly;
++			StageBridge::walkable(fx, fy);
++			StageBridge::place(_player, fx, fy);
++			useItem(carriedAt(g, 28, 375), kWorldVerbUse);
++			useOn(kWorldVerbUse, -1, thingIn(416));
++			const bool walking = _pairing.kind && StageBridge::moving(_player);
++			step(1);
++			ok = check(walking && !heldNow() && !isCarried(g, 28, 375) && !_pairing.kind && !_holding.kind && !_action, "a sentence on its way not let go with its mug put back");
++			settle();
++			ok = ok && check(keptValue(g, 0x8000 + 76) == 0 && isCarried(g, 41, 331) && personHere(g, 31, 13), "the next thing carried used at the lock instead");
++		}
++		ok = ok && check(carry(g, 28, 376, "", 0, false), "a mug not carried");
++		if (ok) {
++			// (Carried now: the meat, then the mug; the meat held first, then the mug carried before it.)
++			_carried.clear(); PanelBridge::clearItems();
++			ok = carry(g, 28, 376, "", 0, false) && carry(g, 41, 331, "", 0, false);
++			_kept[g * 65536 + kWorldHeld] = 376; _kept[g * 65536 + kWorldHeldFor] = worldHolderClock(*h) - 1;
++			useItem(carriedAt(g, 41, 331), kWorldVerbUse);
++			const bool holding = _holding.kind == kWorldVerbUse && _holding.item == 1;
++			step(1);
++			ok = check(ok && holding && !heldNow() && _holding.kind == kWorldVerbUse && _holding.item == carriedAt(g, 41, 331) && _holding.item == 0, "a thing held after a mug put back not held still by its number now");
++			letGo();
++		}
++		_kept[g * 65536 + kWorldHeld] = 377; _kept[g * 65536 + kWorldHeldFor] = -5;
++		ok = ok && check(saved() && keptValue(g, kWorldHeld) == 377 && keptValue(g, kWorldHeldFor) == 0, "a holder's clock out of its length not kept within it through a save and a load");
++		_kept[g * 65536 + kWorldHeld] = h->last + 5; _kept[g * 65536 + kWorldHeldFor] = 0x7FFFFFF0;
++		ok = ok && check(saved() && keptValue(g, kWorldHeld) == 0 && keptValue(g, kWorldHeldFor) < worldHolderClock(*h), "a damaged state's holder kept");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (Captain Dread.)
++	if (g2 >= 0 && installed(g2, 22) && installed(g2, 23)) {
++		what = "Monkey Island 2's Captain Dread";
++		++c.cases;
++		fresh();
++		loadThings(g2);
++		bool ok = check(PanelBridge::thingAnswer(g2, 22, 239, kWorldVerbLook, 0, 0, after, flags, others, count, 64, lines), "no answer of his in his things file");
++		int rows = 0, woken = 0;
++		for (const WorldEntryPicture &e : kWorldEntryPictures) {
++			if (e.game != g2 || e.room != 22) continue;
++			int picture, answers;
++			++rows;
++			ok = ok && check(PanelBridge::gameThing(g2, 22, e.object, picture, answers) && picture == e.picture, "a row of kWorldEntryPictures not as his things file has the place");
++			for (int k = 0; k < count; ++k) woken += others[4 * k] == 22 && others[4 * k + 1] == e.object && others[4 * k + 2] != e.picture;
++		}
++		ok = ok && check(rows && woken, "his look not waking him in his things file") && check(enter(g2, 22, 0, problem) && verbOn(kWorldVerbLook, 239), "not looked at");
++		for (int k = 0; ok && k < count; ++k) ok = check(pictureIn(g2, others[4 * k], others[4 * k + 1]) == others[4 * k + 2], "not awake once looked at");
++		ok = ok && check(enter(g2, 23, 0, problem) && enter(g2, 22, 0, problem), "his place not left and entered again");
++		for (const WorldEntryPicture &e : kWorldEntryPictures)
++			if (ok && e.game == g2 && e.room == 22) ok = check(thingIn(e.object) >= 0 && pictureIn(g2, 22, e.object) == e.picture && pictureNow(thingIn(e.object), e.object) == e.picture, "not asleep once his place is entered again");
++		if (ok) ++c.played;
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept; _wayBack = wayBackKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0281 (the "verbs" check): each thing a game starts untouchable that an
+ // answer of its things file makes touchable in the answer's own place (an
+ // answer of one thing, or a thing carried used on one, as its record names
+@@ -16337,6 +16640,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Monkey Island's sword fighting: %d of %d steps played as a player plays them (the trainer's training, the Sword Master's talk, pirates met on the map and fought until every comeback is known, her fight lost and won, the three trials), %d kept through saves and loads; %d fights (%d won), %d comebacks learned; %d failed",
+ 		duels.played, duels.cases, duels.kept, duels.fights, duels.won, duels.comebacks, duels.failed);
+ 	failed += duels.failed;
++	// (From 0300) Monkey Island's poodles' meat, troll, dock and jail, and
++	// Monkey Island 2's Captain Dread, as a player meets them: see
++	// leftoversPlayed.
++	const Leftovers leftovers = leftoversPlayed();
++	warning("SCUMMVERSE sandbox selftest put back and answered so: %d of %d played as their games play them (Monkey Island's meat put back in the kitchen, its troll no door, no way back into the water from its dock, its jail's cells answered by their prisoners freed, grog on Otis himself, a mug put back mid-sentence; Monkey Island 2's Captain Dread asleep each time his place is entered), %d kept through saves and loads; %d failed",
++		leftovers.played, leftovers.cases, leftovers.kept, leftovers.failed);
++	failed += leftovers.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+@@ -16448,7 +16758,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 					ok = n >= 0 && fabs(fx - bx) < 1 && fabs(fy - by) < 1; // (beside them, as bringFollowers puts them)
+ 					goesFollowed += ok;
+ 				}
+-				const bool noWay = !reaches(g, place, room);
++				const bool noWay = !reaches(g, place, room) && !worldNoWayBackInto(g, room); // (from 0300: see goThere)
+ 				if (ok) { how = "the way back"; ok = noWay ? _wayBack.game == g && _wayBack.room == room && _wayBack.door == id && _wayBack.atRoom == place : _wayBack.game < 0; }
+ 				if (ok) {
+ 					how = "kept through a save and a load";
+@@ -17950,7 +18260,7 @@ Common::Error SandboxEngine::tourTest() {
+ 		const WorldMap *map = worldMap(g);
+ 		for (int i = 0; map && i < map->linkCount && !wayKept; ++i) {
+ 			const WorldLink &link = map->links[i];
+-			if (!installed(g, link.room) || !installed(g, link.target) || reaches(g, link.target, link.room)) continue;
++			if (!installed(g, link.room) || !installed(g, link.target) || reaches(g, link.target, link.room) || worldNoWayBackInto(g, link.room)) continue;
+ 			_wayBack = WayBack();
+ 			if (!enter(g, link.room, 0, problem) || !doorAllowed(link.room, link.object) || !travel(i) || _room != link.target) continue;
+ 			int bx0, by0, bx1, by1;
+@@ -19385,7 +19695,7 @@ Common::Error SandboxEngine::keepTest() {
+ 			for (int i = 0; i < map->linkCount && link < 0; ++i) {
+ 				const WorldLink &l = map->links[i];
+ 				if (l.room == l.target || !installed(g, l.room) || !installed(g, l.target) || !walkable(g, l.room) || !walkable(g, l.target) ||
+-					reaches(g, l.target, l.room) || !enter(g, l.room, 0, problem) || !doorAllowed(l.room, l.object) || (!pass && _onStage.size() < 2)) continue;
++					reaches(g, l.target, l.room) || worldNoWayBackInto(g, l.room) || !enter(g, l.room, 0, problem) || !doorAllowed(l.room, l.object) || (!pass && _onStage.size() < 2)) continue;
+ 				game = g; link = i;
+ 			}
+ 		}
+@@ -19702,7 +20012,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 					// Every other door, past one of the place's own doors further in
+ 					// first, where it has one.)
+ 					int bx0, by0, bx1, by1;
+-					if (!reaches(g, link.target, link.room)) {
++					if (!reaches(g, link.target, link.room) && !worldNoWayBackInto(g, link.room)) { // (from 0300 not a story place's: none)
+ 						++stuck;
+ 						bool in = false;
+ 						for (int j = 0; (stuck & 1) == 0 && j < map->linkCount && !in; ++j) {
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a8d85a4d..a6df63b1 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -757,6 +757,13 @@ private:
+ 	// fight file and its game's rules have it.)
+ 	struct Duels { int cases = 0, played = 0, kept = 0, failed = 0, fights = 0, won = 0, comebacks = 0; };
+ 	Duels duelsPlayed();
++	// (From 0300 the "verbs" check's: Monkey Island's poodles' meat put back
++	// in the kitchen, its troll no door, its dock with no way back into the
++	// water, its jail's cells and locks once their prisoners are freed;
++	// Monkey Island 2's Captain Dread asleep again each time his place is
++	// entered. Counted; `failed` where one is not as its game leaves it.)
++	struct Leftovers { int cases = 0, played = 0, kept = 0, failed = 0; };
++	Leftovers leftoversPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

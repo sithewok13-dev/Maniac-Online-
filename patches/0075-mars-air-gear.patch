@@ -1,0 +1,186 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 48b738ee..8a204389 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -178,6 +178,22 @@ inline bool worldPresetRoom(int game, int room) {
+ 	for (const auto &p : kWorldPresetScripts) if (p.game == game && p.room == room) return true;
+ 	return false;
+ }
++// Cast members who need no air on Mars (no fishbowl and tank there):
++// tentacles, ghosts and skeletons, robots and aliens. Everyone else wears
++// them, the talking skull and the monkeys included.
++struct WorldAirless { short game, costume; };
++static const WorldAirless kWorldAirless[] = {
++	{0, 104}, {0, 54}, {0, 32}, {0, 52}, {0, 55}, {0, 53}, // Monkey Island ghosts
++	{4, 77},                                                // seance apparition
++	{5, 6}, {5, 5}, {5, 240}, {5, 260}, {5, 279}, {5, 263}, {5, 283}, // tentacles
++	{6, 219},                                               // maintenance droid
++	{8, 113}, {8, 128}, {8, 321}, {8, 183}, {8, 202}, {8, 258}, // Cocytus aliens
++	{9, 350}, {9, 354}, {9, 413},                           // ghost, skeleton, undead LeChuck
++};
++inline bool worldBreathes(int game, int costume) {
++	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
++	return true;
++}
+ // Characters who float instead of walking (Murray, the talking skull).
+ struct WorldHoverer { short game, costume; };
+ static const WorldHoverer kWorldHoverers[] = {{9, 49}};
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index 93dcf45a..cc5d67f1 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2544,8 +2544,11 @@ void Actor::drawActorCostume(bool hitTestMode) {
+ 	if (_costume == 0)
+ 		return;
+ 
+-	if (!hitTestMode && _vm->scummverseDrawWorldActor(this))
++	const bool redraw = _needRedraw;
++	if (!hitTestMode && _vm->scummverseDrawWorldActor(this)) {
++		if (redraw) _vm->scummverseDrawAirGear(this);
+ 		return;
++	}
+ 
+ 	if (!hitTestMode) {
+ 		if (!_needRedraw)
+@@ -2572,6 +2575,7 @@ void Actor::drawActorCostume(bool hitTestMode) {
+ 		// Record the vertical extent of the drawn actor
+ 		_top = bcr->_drawTop;
+ 		_bottom = bcr->_drawBottom;
++		_vm->scummverseDrawAirGear(this);
+ 	}
+ }
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 0f407e76..81a9acda 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1364,6 +1364,10 @@ public:
+ 	// that spot of the scene; guests from their exported frames
+ 	// (scummverse_world_play.inc). False: draw the actor as usual.
+ 	bool scummverseDrawWorldActor(Actor *a);
++	// On Mars without air, a fishbowl and an oxygen tank over a character
++	// just drawn, fitted to its own pixels (scummverse_worlds.inc).
++	bool scummverseNeedsAir(const Actor *a) const;
++	void scummverseDrawAirGear(Actor *a);
+ 	// The name of a sandbox character playing someone from another game, or null.
+ 	const byte *scummverseAppearanceName(int id) const;
+ 	// The scene's own scale where the actor stands (1 = full size).
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 4722edd6..63641057 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -502,6 +502,19 @@ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
+ 	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
+ };
+ 
++// Original global script 9: kids without air gear suffocate in these scenes
++// (Mars outdoors and the pyramid always; the Face's halls, the hostel
++// airlock and the antechambers while their air machine or lights are off,
++// as at the start). The sandbox puts a fishbowl and tank on whoever breathes.
++static const int zakAirlessRooms[] = {
++	71, 79, 82, 83, 84, 93, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120,
++	121, 122, 123, 124, 125, 126, 181, 184, 186, 187,
++};
++static bool zakAirless(int room) {
++	for (int r : zakAirlessRooms) if (r == room) return true;
++	return false;
++}
++
+ // Original 20/39 entry scripts select distant costume 9 (10px tall).
+ // Normal Zak standing front/back costume 1 spans 46px. Scale = 10/46.
+ static const int zakDistantCostumeRooms[] = {72, 87};
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 4707828c..0be9d938 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -988,6 +988,90 @@ void ScummEngine::scummverseRestoreSceneObjects() {
+  _fullRedraw=true;
+ }
+ 
++// Mars without air: who needs a fishbowl and tank there. The tentacles, the
++// Caponian and The King (aliens) do not; someone played from another game
++// follows that character (worldBreathes).
++bool ScummEngine::scummverseNeedsAir(const Actor *a) const {
++	if (!_scummverseRoaming || _scummversePortrait || a->_room != _currentRoom || !zakAirless(_currentRoom)) return false;
++	const int id = a->_number;
++	if (id <= 0 || id >= kScummverseManiacActors) return false;
++	namespace Catalog = ::Scummverse::WorldCatalog;
++	if (const int look = scummverseAppearance(id)) return Catalog::worldBreathes(Catalog::worldAppearanceGame(look), Catalog::worldAppearanceCostume(look));
++	return id != 8 && id != 13 && id != 14 && id != 17;
++}
++
++// Newly drawn gear in the original's spirit (Zak's own is a black fishbowl
++// outline and a mask): a bowl around the head, a mask on the face and a
++// yellow tank on the back with its hose, fitted to the pixels the character
++// just drew over the clean background. A figure about as wide as it is tall
++// (a skull, a monkey) is all head.
++void ScummEngine::scummverseDrawAirGear(Actor *a) {
++	if (!scummverseNeedsAir(a)) return;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	if (!vs.hasTwoBuffers || a->_top >= a->_bottom) return;
++	const int cx = a->getPos().x - vs.xstart;
++	const int top = MAX(0, a->_top), bottom = MIN<int>(vs.h, a->_bottom);
++	const int left = MAX(0, cx - 48), right = MIN<int>(_screenWidth, cx + 48);
++	// Only the screen strips this character drew into (not a neighbor's).
++	auto drawn = [&](int x, int y) {
++		return testGfxUsageBit(_screenStartStrip + x / 8, a->_number) &&
++			*(const byte *)vs.getPixels(x, y) != *(const byte *)vs.getBackPixels(x, y);
++	};
++	int L = right, R = -1, T = bottom, B = -1;
++	for (int y = top; y < bottom; ++y) for (int x = left; x < right; ++x)
++		if (drawn(x, y)) { L = MIN(L, x); R = MAX(R, x); T = MIN(T, y); B = MAX(B, y); }
++	if (R < 0) return;
++	const int W = R - L + 1, H = B - T + 1;
++	const bool compact = H * 2 < W * 3;
++	const int headH = compact ? H : MAX(5, H * 27 / 100);
++	int hL = R, hR = L;
++	for (int y = T; y < T + headH; ++y) for (int x = L; x <= R; ++x) if (drawn(x, y)) { hL = MIN(hL, x); hR = MAX(hR, x); }
++	if (hR < hL) return;
++	enum { kBlack = 0, kDarkGray = 8, kYellow = 14, kWhite = 15 };
++	int gl = _screenWidth, gr = -1, gt = vs.h, gb = -1;
++	auto plot = [&](int x, int y, byte c) {
++		if (x < 0 || y < 0 || x >= _screenWidth || y >= vs.h) return;
++		*(byte *)vs.getPixels(x, y) = c;
++		gl = MIN(gl, x); gr = MAX(gr, x); gt = MIN(gt, y); gb = MAX(gb, y);
++	};
++	auto rect = [&](int x0, int y0, int x1, int y1, byte fill, byte edge) {
++		for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x)
++			plot(x, y, (x == x0 || x == x1 || y == y0 || y == y1) ? edge : fill);
++	};
++	auto line = [&](int x0, int y0, int x1, int y1, byte c) {
++		const int n = MAX(ABS(x1 - x0), ABS(y1 - y0));
++		for (int i = 0; i <= n; ++i) plot(x0 + (n ? (x1 - x0) * i / n : 0), y0 + (n ? (y1 - y0) * i / n : 0), c);
++	};
++	const int dir = newDirToOldDir(a->getFacing()); // 0 left, 1 right, 2 front, 3 back
++	const double hx = (hL + hR) / 2.0, hy = T + headH / 2.0, rx = (hR - hL + 1) / 2.0 + 2.5, ry = headH / 2.0 + 2.5;
++	// The tank first: behind the head, on the back.
++	const int tw = MAX(3, W / 4), th = MAX(5, (compact ? H * 6 / 10 : H * 3 / 10)), ty = compact ? T + H * 3 / 10 : T + headH;
++	const bool tank = dir != 2; // Hidden behind them when they face us.
++	const int tankX = dir == 1 ? L - tw / 2 : dir == 0 ? R - tw + tw / 2 + 1 : (int)hx - tw / 2;
++	if (tank) {
++		rect(tankX, ty, tankX + tw - 1, ty + th - 1, kYellow, kBlack);
++		plot(tankX + tw / 2, ty - 1, kDarkGray);
++	}
++	// The bowl: a black outline with a white glint.
++	const int steps = (int)(2 * M_PI * MAX(rx, ry) * 2) + 8;
++	for (int i = 0; i < steps; ++i) {
++		const double t = 2 * M_PI * i / steps;
++		plot((int)floor(hx + rx * cos(t) + 0.5), (int)floor(hy + ry * sin(t) + 0.5), kBlack);
++	}
++	for (double t = 1.15 * M_PI; t < 1.4 * M_PI; t += 0.08)
++		plot((int)floor(hx + rx * 0.72 * cos(t) + 0.5), (int)floor(hy + ry * 0.72 * sin(t) + 0.5), kWhite);
++	// The mask on the face and its hose back to the tank.
++	const int mw = MAX(2, (hR - hL + 1) / 3), mh = MAX(2, headH / 5), my = T + headH * 2 / 3 - mh / 2;
++	if (dir != 3) {
++		const int mx = dir == 1 ? hR - mw + 1 : dir == 0 ? hL : (int)hx - mw / 2;
++		rect(mx, my, mx + mw - 1, my + mh - 1, kDarkGray, kBlack);
++		if (tank) line(dir == 1 ? mx : mx + mw - 1, my + mh - 1, tankX + tw / 2, ty, kBlack);
++	}
++	if (gr < 0) return;
++	a->_top = MIN(a->_top, gt); a->_bottom = MAX(a->_bottom, gb + 1);
++	markRectAsDirty(kMainVirtScreen, gl, gr + 1, gt, gb + 1, a->_number);
++}
++
+ // A system line in the message area (original print(255,...) style).
+ void ScummEngine::scummverseAnnounce(const char *text) {
+ 	if (VAR(VAR_HAVE_MSG)) return;

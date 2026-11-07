@@ -1,0 +1,132 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 938b9d86..06cdbf7b 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -308,7 +308,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		else if (PanelBridge::gameThing(game, room, id, picture, answers) && picture != StageBridge::objectShown(i) && picture < StageBridge::objectPictures(i))
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+-	_game = game; _room = room; _player = -1; _door = -1; _onStage.clear();
++	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _onStage.clear();
+ 	// The games' own walk: 8 across and 2 up or down a step (Curse of
+ 	// Monkey Island's pixels are half the size).
+ 	const double unit = screenWidthOf(game) / 320.0;
+@@ -467,16 +467,17 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		char name[80], walk[40];
+ 		PanelBridge::verbName(-1, walk, sizeof(walk));
+ 		if (PanelBridge::loaded() && StageBridge::objectName(hit, name, sizeof(name)) > 0) sentence(Common::String::format("%s %s", walk, name));
+-		if (wx || wy) walkToDoor(wx, wy);
+-		else walkToDoor(x, y);
++		if (wx || wy) walkToDoor(index, wx, wy);
++		else walkToDoor(index, x, y);
+ 		return;
+ 	}
+ 	StageBridge::walkTo(_player, x, y);
+ }
+ 
+-void SandboxEngine::walkToDoor(double x, double y) {
++void SandboxEngine::walkToDoor(int link, double x, double y) {
+ 	StageBridge::walkTo(_player, x, y);
+-	if (!StageBridge::heading(_player, _doorGoalX, _doorGoalY)) StageBridge::position(_player, _doorGoalX, _doorGoalY);
++	// (No way there worked out: no end to go through from.)
++	_doorGoalLink = StageBridge::heading(_player, _doorGoalX, _doorGoalY) ? link : -1;
+ }
+ 
+ void SandboxEngine::useOn(int kind, int verb, int thing) {
+@@ -953,7 +954,9 @@ void SandboxEngine::reachDoor() {
+ 	StageBridge::position(_player, px, py);
+ 	const double reach = kDoorReach * screenWidthOf(_game) / 320.0;
+ 	auto near = [&](double ax, double ay) { return (px - ax) * (px - ax) + (py - ay) * (py - ay) <= reach * reach; };
+-	const bool there = near(x, y) || near(tx, ty) || near(_doorGoalX, _doorGoalY);
++	const bool walked = near(x, y) || near(tx, ty), across = _doorGoalLink == _door && near(_doorGoalX, _doorGoalY);
++	const bool there = walked || across;
++	if (there && !walked) ++_doorsAcross;
+ 	if (found && there) travel(_door);
+ 	else { _door = -1; sentence(""); }
+ }
+@@ -1193,7 +1196,7 @@ int SandboxEngine::tourReached(int link) const {
+ 	StageBridge::position(_player, px, py);
+ 	const double reach = kDoorReach * screenWidthOf(_game) / 320.0;
+ 	if ((px - x) * (px - x) + (py - y) * (py - y) <= reach * reach) return 1;
+-	return (px - _doorGoalX) * (px - _doorGoalX) + (py - _doorGoalY) * (py - _doorGoalY) <= reach * reach ? 2 : 0;
++	return _doorGoalLink == link && (px - _doorGoalX) * (px - _doorGoalX) + (py - _doorGoalY) * (py - _doorGoalY) <= reach * reach ? 2 : 0;
+ }
+ 
+ // "Stop 12/740 · loom 21 · Loom Island" (the mansion's and Zak's as Maniac
+@@ -1313,6 +1316,7 @@ void SandboxEngine::tourVisit(int index, bool warp) {
+ // is near where it came in (a dead end, doors side by side: within a quarter
+ // of the place's width) or there is none (a warp follows).
+ void SandboxEngine::tourPlan() {
++	_door = -1; // (a door tapped while paused is not the tour's)
+ 	StageBridge::position(_player, _touring.cameX, _touring.cameY);
+ 	_touring.clock = 0;
+ 	const int next = _touring.stop + 1;
+@@ -1324,7 +1328,7 @@ void SandboxEngine::tourPlan() {
+ 	StageBridge::view(left, top, width, height, rowScale, colScale);
+ 	if (door && fabs(dx - _touring.cameX) > width / MAX(0.01, colScale) / 4) {
+ 		_touring.phase = kTourToDoor;
+-		walkToDoor(dx, dy);
++		walkToDoor(_touring.stops[next].legs[_touring.leg], dx, dy);
+ 		return;
+ 	}
+ 	_touring.phase = kTourAcross;
+@@ -1360,7 +1364,7 @@ void SandboxEngine::tourStep(int ticks) {
+ 		StageBridge::stop(_player);
+ 		if (legs && _touring.leg < (int)legs->size() && tourDoor((*legs)[_touring.leg], dx, dy)) {
+ 			_touring.phase = kTourToDoor; _touring.clock = 0;
+-			walkToDoor(dx, dy);
++			walkToDoor((*legs)[_touring.leg], dx, dy);
+ 			return;
+ 		}
+ 		if (_touring.shown >= kTourGlimpse) tourLeave();
+@@ -1395,7 +1399,7 @@ void SandboxEngine::tourStep(int ticks) {
+ 			const Common::String name = placeName(_game, _room);
+ 			Tour::publish(true, Common::String::format("Stop %d/%d \xC2\xB7 on the way, through %s %d%s%s", next + 1, (int)_touring.stops.size(),
+ 				placeCode(_game).c_str(), _room, name.empty() ? "" : " \xC2\xB7 ", name.c_str()).c_str(), _touring.stop + 1, _touring.stops.size());
+-			if (tourDoor(way[leg + 1], dx, dy)) walkToDoor(dx, dy);
++			if (tourDoor(way[leg + 1], dx, dy)) walkToDoor(way[leg + 1], dx, dy);
+ 			else tourVisit(next, true);
+ 			return;
+ 		}
+@@ -1565,6 +1569,7 @@ void SandboxEngine::vanBoard() {
+ 	rideOff();
+ 	_riding.ride = van;
+ 	_riding.fromGame = _game; _riding.fromRoom = _room;
++	_door = -1; _action = 0; _target = -1; // (aboard where they stand: no walk of theirs goes on)
+ 	StageBridge::stop(_player);
+ 	StageBridge::position(_player, _riding.x, _riding.y);
+ 	rideAsk();
+@@ -3862,6 +3867,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+ 		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0;
++		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+ 			const WorldMap *map = worldMap(g);
+@@ -3955,8 +3961,8 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				}
+ 			}
+ 		}
+-		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d failed",
+-			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, failed);
++		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d from as near as the walk boxes allow, %d failed",
++			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed);
+ 		if (!tried || failed || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index d3200d63..5824b887 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -279,7 +279,9 @@ private:
+ 	int _door = -1;                         // the door walked to (index in the game's map)
+ 	double _doorTapX = 0, _doorTapY = 0;    // where it was tapped
+ 	double _doorGoalX = 0, _doorGoalY = 0;  // where the walk to it ends (as near as the walk boxes allow)
+-	void walkToDoor(double x, double y);    // (and that end kept)
++	int _doorGoalLink = -1;                 // the door (map link) that end is for; -1: none
++	int _doorsAcross = 0;                   // doors gone through from that end only (the "doors" check)
++	void walkToDoor(int link, double x, double y); // (and that end kept)
+ 	int _strollClock = 0;
+ 	int _saveClock = 0;
+ 	bool _verbs = true;                     // the panel shown (scummverse_verbs)

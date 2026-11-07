@@ -1,0 +1,29 @@
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index a050e841..2fb60ec6 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -1572,7 +1572,8 @@ void ScummEngine::scummverseServiceDigTram(int delta) {
+ 					a->showActor(); a->startAnimActor(a->_standFrame);
+ 					if (exit) { const AdjustBoxResult to = a->adjustXYToBeInBox(ex + (id % 5) - 2, ey); a->startWalkActor(to.x, to.y, -1); }
+ 				}
+-				_scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++				// (As at the Mars tram: no pause kept for the one played.)
++				_scummverseRoamers[id] = Roamer(); if (id != VAR(VAR_EGO)) _scummverseRoamers[id].wait = 600;
+ 			}
+ 			_scummVars[612] = (_scummVars[612] & ~(3 << (tripLine * 2))) | ((2 - from) << (tripLine * 2));
+ 			_scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 6c105c03..53ae1886 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1452,7 +1452,9 @@ void ScummEngine::scummverseServiceTram(int delta) {
+ 			a->startAnimActor(a->_standFrame);
+ 			AdjustBoxResult step = a->adjustXYToBeInBox(13 + id % 8, 51); a->startWalkActor(step.x, step.y, -1);
+ 		}
+-		_scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++		// (A pause after the ride for the others; the one played keeps none,
++		// so it does not linger once the player switches away later.)
++		_scummverseRoamers[id] = Roamer(); if (id != ego) _scummverseRoamers[id].wait = 600;
+ 	}
+ 	scummverseApplyTramState();
+ 	if (empty && _currentRoom == destination) scummverseAnnounce("The tram has arrived.");

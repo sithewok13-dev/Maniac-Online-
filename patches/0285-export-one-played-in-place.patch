@@ -1,0 +1,152 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index da0dae8e..062336a8 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -130,12 +130,16 @@ static const int kWorldExportVersion = 25;
+ // camera shows; The Dig's Brink and Maggie given to by their cast's
+ // costumes: "maniac-v46", "monkey2-v34", "monkey-v33", "tentacle-v33",
+ // "atlantis-v31", "zak-v31", "samnmax-v31", "dig-v31", "ft-v31", "comi-v31",
+-// "indy3-v29").
++// "indy3-v29"); from 0285 Zak's, Monkey Island's, Monkey Island 2's, the
++// Last Crusade's, Day of the Tentacle's, Full Throttle's and The Dig's again
++// (the one played in the place, at the thing used, as its scripts go on
++// after its arrival, not in the start's place: "monkey2-v35", "monkey-v34",
++// "tentacle-v34", "zak-v32", "dig-v32", "ft-v32", "indy3-v30").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 21 : same(gameid, "monkey2") ? 9 : same(gameid, "monkey") || same(gameid, "tentacle") ? 8 :
+-		same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 6 :
+-		same(gameid, "indy3") ? 4 : same(gameid, "loom") ? 2 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 21 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
++		same(gameid, "zak") || same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
++		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1139a6ae..627e65d7 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -121,7 +121,9 @@ struct ScummEngine::ScummverseKept {
+ 	StringTab strings[6];
+ 	ScaleSlot scaleSlots[20];
+ 	CameraData camera;
+-	int screenStartStrip = 0, screenEndStrip = 0;
++	// (From 0285 where the screen shows the room too, as cameraMoved sets it
++	// with the strips: the camera moved, its put-back left them.)
++	int screenStartStrip = 0, screenEndStrip = 0, screenTop = 0; uint16 screenLeft = 0;
+ 	byte charsetColor = 0, charsetColorMap[16] = {}, resourceMapper[128] = {}, palette[3 * 256] = {};
+ 	Common::Array<byte> shadowPalette;
+ 	byte userPut = 0, cursorState = 0, actorToPrintStrFor = 0, v1TalkingActor = 0, haveMsg = 0; uint16 userState = 0; int16 talkDelay = 0;
+@@ -162,6 +164,7 @@ void ScummEngine::scummverseKeep(ScummverseKept &k) {
+ 	for (int i = 0; i < 6; ++i) k.strings[i] = _string[i];
+ 	for (int i = 0; i < 20; ++i) k.scaleSlots[i] = _scaleSlots[i];
+ 	k.camera = camera; k.screenStartStrip = _screenStartStrip; k.screenEndStrip = _screenEndStrip;
++	k.screenTop = _screenTop; k.screenLeft = _virtscr[kMainVirtScreen].xstart; // (from 0285)
+ 	k.charsetColor = _charsetColor;
+ 	memcpy(k.charsetColorMap, _charsetColorMap, sizeof(k.charsetColorMap));
+ 	memcpy(k.resourceMapper, _resourceMapper, sizeof(k.resourceMapper));
+@@ -205,6 +208,7 @@ void ScummEngine::scummverseRestore(const ScummverseKept &k) {
+ 	for (int i = 0; i < 6; ++i) _string[i] = k.strings[i];
+ 	for (int i = 0; i < 20; ++i) _scaleSlots[i] = k.scaleSlots[i];
+ 	camera = k.camera; _screenStartStrip = k.screenStartStrip; _screenEndStrip = k.screenEndStrip;
++	_screenTop = k.screenTop; _virtscr[kMainVirtScreen].xstart = k.screenLeft; // (from 0285)
+ 	_charsetColor = k.charsetColor;
+ 	memcpy(_charsetColorMap, k.charsetColorMap, sizeof(k.charsetColorMap));
+ 	memcpy(_resourceMapper, k.resourceMapper, sizeof(k.resourceMapper));
+@@ -212,7 +216,7 @@ void ScummEngine::scummverseRestore(const ScummverseKept &k) {
+ 	if (_shadowPalette && !k.shadowPalette.empty()) memcpy(_shadowPalette, k.shadowPalette.data(), k.shadowPalette.size());
+ 	// (No cut-scene, and none to leave: a run starts with nothing running,
+ 	// where its start may have been in one, so its way out is not kept.)
+-	vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0;
++	vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0xFF; // (from 0285 none, as beginCutscene leaves it: 0 is slot 0's, which freezeScripts then passes over)
+ 	memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
+ 	_userPut = k.userPut; _userState = k.userState; _cursor.state = k.cursorState;
+ 	_actorToPrintStrFor = k.actorToPrintStrFor; _V1TalkingActor = k.v1TalkingActor; _haveMsg = k.haveMsg; _talkDelay = k.talkDelay;
+@@ -4416,7 +4420,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		if (someone.empty() && talker > 0 && talker < _numActors) someone = line;
+ 		if (anything.empty()) anything = line;
+ 	};
+-	auto arrive = [&](int room) {
++	// (From 0285 `at`, a thing of the place (0: none): the one played
++	// standing at it as the place's scripts go on, see below.)
++	auto arriveOnce = [&](int room, int at) {
+ 		quiet();
+ 		// (In the clothes they had; the place's entry scripts dress them for
+ 		// it, as on arriving: The Dig's space suit. From 0253 the one played
+@@ -4431,6 +4437,20 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		startScene(room, nullptr, 0);
+ 		if (VAR_EXIT_SCRIPT != 0xFF) VAR(VAR_EXIT_SCRIPT) = exitScript;
+ 		if (VAR_EXIT_SCRIPT2 != 0xFF) VAR(VAR_EXIT_SCRIPT2) = exitScript2;
++		// (From 0285 the one played in the place as its scripts go on, at
++		// the thing used (where the run puts them after), as a player stands
++		// there: what the place's own scripts read of them (Monkey Island 2's
++		// room 60 their walk box, each frame) is of here. From 0284 the game
++		// put back whole takes them to the start's place before each run,
++		// so those scripts read another place's walk box: Monkey Island 2's
++		// room 60 took them for up its tree, and every verb on its planks
++		// played its climb, 55 answers fewer than 0283's, which had them
++		// where the run before left them.)
++		if (at > 0 && _currentRoom == room && getObjectIndex(at) > 0) {
++			int x = 0, y = 0, dir = 0;
++			getObjectXYPos(at, x, y, dir);
++			_actors[ego]->putActor(x, y, room);
++		}
+ 		for (int cycle = 0; cycle < 16 && _currentRoom == room; ++cycle) {
+ 			bool running = false;
+ 			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+@@ -4443,9 +4463,27 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			_talkDelay = 0; _sentenceNum = 0; _drawObjectQueNr = 0;
+ 			runAllScripts(); _sound->stopAllSounds(); dropTexts();
+ 		}
++		// (From 0285, there at the thing, the camera where the place's scripts
++		// sent it, as by the time a player has walked up to the thing: a pan
++		// they start for where the one played stands (Monkey Island's room
++		// 28, by its important-looking pirates) done. Nothing here moves it
++		// on, and a script waiting for it waits for ever.)
++		if (at > 0 && _currentRoom == room && camera._cur.x != camera._dest.x) { camera._cur.x = camera._dest.x; cameraMoved(); }
+ 		quiet();
+ 		return _currentRoom == room;
+ 	};
++	// (From 0285 where the place's own scripts take the one played standing
++	// at the thing elsewhere as it starts (a way out where they stand: Zak's
++	// room 4 at 152 to room 16, Monkey Island's room 3 at 44 to room 80),
++	// arrived again as before 0285, without them there: the game put back
++	// again, the same random numbers and steps.)
++	auto arrive = [&](int room, int at) {
++		const uint32 seed = _rnd.getSeed();
++		const int32 budget = _scummverseStepBudget;
++		if (arriveOnce(room, at) || !at) return _currentRoom == room;
++		putBack(); _rnd.setSeed(seed); _scummverseStepBudget = budget;
++		return arriveOnce(room, 0);
++	};
+ 	// (Each kind of the game's controls, its own verb for it.)
+ 	Common::Array<int> kinds, verbs;
+ 	for (const WorldVerb &v : kWorldVerbs) {
+@@ -4781,7 +4819,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		_rnd.setSeed(0x5C0BE + room);
+ 		_scummverseStepBudget = kRunSteps;
+-		const int at = arrive(room) ? getObjectIndex(obj) : -1;
++		const int at = arrive(room, obj) ? getObjectIndex(obj) : -1;
+ 		// (One with no name there is none a player can touch.)
+ 		if (at <= 0 || scummverseObjectName(obj).empty()) { unnamed += at > 0; _scummverseStepBudget = -1; return; }
+ 		if (!shownThere(room, at)) { outside += !v && !from; _scummverseStepBudget = -1; return; }
+@@ -5119,7 +5157,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		putBack();
+ 		_rnd.setSeed(0x5C0BE + room);
+-		if (worldRideScene(gameIndex, room) || !arrive(room)) continue;
++		if (worldRideScene(gameIndex, room) || !arrive(room, 0)) continue;
+ 		Common::HashMap<int, bool> dressed;
+ 		for (int n = 1; n < _numActors; ++n) {
+ 			const Actor *b = _actors[n];
+@@ -5203,7 +5241,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				putBack();
+ 				_rnd.setSeed(0x5C0BE + target.room);
+ 				_scummverseStepBudget = kRunSteps;
+-				if (!arrive(target.room) || (target.actor ? !_actors[target.actor]->isInCurrentRoom() : getObjectIndex(target.id) <= 0)) { _scummverseStepBudget = -1; continue; }
++				if (!arrive(target.room, target.actor || target.carried ? 0 : target.id) || (target.actor ? !_actors[target.actor]->isInCurrentRoom() : getObjectIndex(target.id) <= 0)) { _scummverseStepBudget = -1; continue; }
+ 				if (heldThing) keepArrival(target.room);
+ 			}
+ 			++pairRuns;

@@ -1,0 +1,232 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 324b510a..149a0dcd 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -155,10 +155,12 @@ static const int kWorldExportVersion = 25;
+ // let it be, put in the Edsel's trunk, and their films; kWorldKeptValues,
+ // kWorldValueReaders' kids told apart, kWorldTimedValues' `also` a mark,
+ // kWorldCloseUps' `with` given to one of its cast, `var`, `sets` and
+-// `takes`, kWorldCastThings: "maniac-v50").
++// `takes`, kWorldCastThings: "maniac-v50"); from 0289 the mansion's again
++// (the dungeon's inner door's keypad shown by Unlock too, and Meteor Mess's
++// score screen with no high score before Dr Fred has played: "maniac-v51").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 25 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey2") ? 10 : same(gameid, "monkey") || same(gameid, "tentacle") ? 9 :
+ 		same(gameid, "zak") || same(gameid, "dig") || same(gameid, "ft") ? 7 : same(gameid, "atlantis") || same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+ 		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -786,6 +788,14 @@ static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0
+ 	{10, 51, 176, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -42, 0, 1, 0, 0, 0, 0, 0, 108, 2, 0},
+ 	{10, 4, 163, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 0, 0},
+ 	{10, 18, 442, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 221, 0, 0, 0, 0, 0, 0}, // (from 0287)
++	// (From 0289 Meteor Mess with the quarter before Dr Fred has played: the
++	// same script 27, the same score screen (room 39) for the same while,
++	// none of its high scores (248 to 251) shown, as only his play's draw
++	// (script 102) shows one; only with the arcade's wires fixed, as Meteor
++	// Mess's own script checks first (that timed event's `need`: the export
++	// plays it so, the new engine shows it so). After the row above, as the
++	// export records the second film of a thing and scene.)
++	{10, 18, 442, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -101, 0, 0, 0, 221, 0, 0, 0, 0, 0, 0},
+ 	// (From 0288 the book contract's and the Edsel's.)
+ 	{10, 51, kWorldPersonThing + 16, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63, 1, 0, 60, 0, 101, 1, 0, 0, 0},
+ 	{10, 51, kWorldPersonThing + 16, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63, 0, 0, 0, 1, 60, 0, 101, 1, 0, 0, 1},
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 56c9334a..f5e0d51b 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -2802,8 +2802,13 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			// the variable it leaves so first, as its place's entry finds it.)
+ 			const int event = c.timed > 0 ? worldTimedOf(gameIndex, c.timed) : -1;
+ 			if (event >= 0 && kWorldTimed[event].var > 0 && kWorldTimed[event].var < _numVariables) VAR(kWorldTimed[event].var) = kWorldTimed[event].value;
+-			if (event >= 0 && kWorldTimed[event].draw) // (from 0287)
+-				for (const short (&n)[2] : kWorldTimed[event].need) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
++			// (From 0289 likewise one shown only until such an event (`timed`
++			// negative): no draw, its things so all the same, as it waits with
++			// them: the arcade's wires fixed, Dr Fred not yet played.)
++			const int until = c.timed < 0 ? worldTimedOf(gameIndex, -c.timed) : -1;
++			const int wants = event >= 0 ? event : until >= 0 && kWorldTimed[until].draw ? until : -1;
++			if (wants >= 0 && kWorldTimed[wants].draw) // (from 0287)
++				for (const short (&n)[2] : kWorldTimed[wants].need) if (n[0]) putState(n[0], n[1] ? getState(n[0]) | kObjectStateIntrinsic : getState(n[0]) & ~kObjectStateIntrinsic);
+ 			// (From 0288 one shown with a value kept (`var`): played with it so;
+ 			// one given to one of its game's cast (its thing kWorldPersonThing and
+ 			// their costume, `with` the one given): the one given's script, the
+@@ -3043,6 +3048,21 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					for (uint i = 0; i + 4 < room.things.size(); i += 5) if (started0.contains(room.things[i])) room.things[i + 1] = started0[room.things[i]];
+ 					found.push_back(room);
+ 				} else warning("SCUMMVERSE world things: %s film room %d not set up (%s)", kWorldGames[gameIndex].gameid, c.closeUp, why.c_str());
++			} else if (worldCloseUpScene(gameIndex, c.closeUp)) {
++				// (From 0289 a close-up's scene another film recorded first: its
++				// things that differ from that record as this one starts, put so at
++				// its first tick: Meteor Mess's score screen before Dr Fred has
++				// played, none of its high scores shown.)
++				Common::Array<int> first;
++				for (const Room &r : found)
++					for (uint i = 0; r.room == c.closeUp && i + 4 < r.things.size(); i += 5)
++						if (started0.contains(r.things[i]) && started0[r.things[i]] != r.things[i + 1] && (u.events.size() + first.size()) / 3 < (uint)Scummverse::PanelBridge::kMostFilmEvents) {
++							first.push_back(0); first.push_back(r.things[i]); first.push_back(started0[r.things[i]]);
++						}
++				for (uint i = 0; i < first.size(); i += 3) {
++					u.events.insert_at(i, first[i]); u.events.insert_at(i + 1, first[i + 1]); u.events.insert_at(i + 2, first[i + 2]);
++					u.eventLines.insert_at(i / 3, Common::String());
++				}
+ 			}
+ 			// (Who is there, from their own costume, when no one of the cast is.)
+ 			bool cast = !u.costume;
+@@ -3105,7 +3125,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					(int)u.turns.size(), (int)u.buttons.size(), (int)u.coins.size() / 2, played ? "played" : "not played");
+ 				continue;
+ 			}
+-			static const int keypadKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
++			// (From 0289 Unlock too, the oldest games' "with" whose script is the
++			// thing's here: the dungeon's inner door's shows its keypad for it as
++			// for Open, reading nothing else, so played with nothing used with it.)
++			static const int keypadKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbUnlock};
+ 			for (uint kn = 0; kn < ARRAYSIZE(keypadKinds); ++kn) {
+ 				const int kind = keypadKinds[scummverseRunAt(kn, ARRAYSIZE(keypadKinds), reversed)];
+ 				if (showCloseUp(c, verbOf(kind))) u.kinds |= 1 << kind;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 67c865ed..2900c1e8 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2160,7 +2160,17 @@ bool SandboxEngine::pairCloseUp(const Pair &p) {
+ 	const int here = p.thing >= 0 ? p.thing : p.withThing, item = p.item >= 0 ? p.item : p.withItem;
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (_game < 0 || here < 0 || item < 0 || item >= (int)_carried.size() || _carried[item].game != _game || !StageBridge::object(here, id, ox, oy, w, h, wx, wy, state)) return false;
+-	const int closeUp = closeUpFor(id, p.kind, _carried[item].id);
++	int closeUp = closeUpFor(id, p.kind, _carried[item].id);
++	// (From 0289 Unlock, the oldest games' "with" whose script is the one
++	// here's: its own close-up for that verb (recorded with nothing used with
++	// it), whatever it is unlocked with, as act shows it: the dungeon's inner
++	// door's keypad, shut, as its script shows it for Unlock as for Open.)
++	if (closeUp < 0 && p.kind == kWorldVerbUnlock && p.thing >= 0) {
++		const bool door = worldLinkFrom(_game, _room, id) != nullptr;
++		closeUp = door && !(lockedDoor(_room, id) && thingBit(here, id) == 0) ? -1 : closeUpFor(id, p.kind);
++		const int from = closeUp >= 0 ? closeUpFrom(_game, closeUp) : 0;
++		if (from >= 0 && thingBit(here, id) != from) closeUp = -1;
++	}
+ 	return closeUp >= 0 && closeUpShow(closeUp, id);
+ }
+ 
+@@ -3500,6 +3510,13 @@ bool SandboxEngine::closeUpOpen(int game, int index) const {
+ 	if (game < 0 || !PanelBridge::closeUpThing(game, index, room, thing, kinds) || !PanelBridge::closeUpScene(game, index, scene, left, keys, presses)) return false;
+ 	const WorldCloseUp *c = closeUpRow(game, index);
+ 	if (c && c->timed && timedHappened(game, ABS<int>(c->timed)) != (c->timed > 0)) return false;
++	// (From 0289 one shown only until a timed event with a draw (kWorldTimed's
++	// `draw`): only with the things that event wants so (its `need`), as the
++	// export plays it: Meteor Mess's score screen with no high score, the
++	// arcade's wires fixed, as its script checks first.)
++	const int until = c && c->timed < 0 ? worldTimedOf(game, -c->timed) : -1;
++	for (int n = 0; until >= 0 && kWorldTimed[until].draw && n < 3; ++n)
++		if (kWorldTimed[until].need[n][0] && pictureIn(game, kWorldTimed[until].from, kWorldTimed[until].need[n][0]) != kWorldTimed[until].need[n][1]) return false;
+ 	// (From 0288 one shown with a value kept only (`var`): it so now.)
+ 	if (c && c->var && keptValue(game, c->var) != c->value) return false;
+ 	if (c && filmSeen(*c)) return false;
+@@ -8514,6 +8531,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int routePolice = 0, routePoliceSteps = 0, routeBook = 0, routeBookSteps = 0, routeSpace = 0, routeSpaceSteps = 0; // (from 0286)
+ 	int labInner = 0, labWires = 0, labFred = 0, labScore = 0, labCode = 0, labGuard = 0, labBadge = 0, labContract = 0, labFriend = 0, labCard = 0, labSlab = 0; // (from 0287)
+ 	int labTwin = 0, labNamesake = 0, labUnshown = 0, labAway = 0, labUse = 0; // (from 0287)
++	int labUnlock = 0, labBlank = 0; // (from 0289)
+ 	int insideHere = 0, insideOlder = 0, insideStamped = 0;
+ 	{
+ 		int maniac = -1;
+@@ -10798,12 +10816,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 			};
+ 			// (From 0287 the way up to the lab: the inner door's keypad, the high
+ 			// score's film, Dr Fred's time; the doors on the way, as links.)
+-			int innerPad = -1, innerKeys = 0, innerPresses = 0, scoreFilm = -1;
++			// (From 0289 its score screen's two films told apart: after Dr Fred
++			// has played, and before, `blankFilm`.)
++			int innerPad = -1, innerKeys = 0, innerPresses = 0, scoreFilm = -1, blankFilm = -1;
+ 			for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac); ++i) {
+ 				int r, thing, kinds, scene, left, keyCount, pressCount;
+ 				if (!PanelBridge::closeUpThing(maniac, i, r, thing, kinds) || !PanelBridge::closeUpScene(maniac, i, scene, left, keyCount, pressCount)) continue;
+ 				if (r == 4 && thing == 163 && pressCount) { innerPad = i; innerKeys = keyCount; innerPresses = pressCount; }
+-				if (r == 18 && thing == 442 && !pressCount && !keyCount) scoreFilm = i;
++				const WorldCloseUp *scoreRow = r == 18 && thing == 442 && !pressCount && !keyCount ? closeUpRow(maniac, i) : nullptr;
++				if (scoreRow && scoreRow->timed > 0) scoreFilm = i;
++				if (scoreRow && scoreRow->timed < 0) blankFilm = i;
+ 			}
+ 			const int fredEvent = maniac >= 0 ? worldTimedOf(maniac, 101) : -1;
+ 			auto linkOf = [&](int room, int door) {
+@@ -11147,6 +11169,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 				ok = ok && doAt(kWorldVerbOpen, thingIn(163)) && _closeUp.index == innerPad && rightCode() && _closeUp.index < 0 && _room == 4 && pictureOf(4, 163) == 0 &&
+ 					!innerWrong.empty() && _speech == innerWrong;
+ 				if (ok) ++labInner; else fail("the dungeon's inner door not shut and locked as its game starts it (no way through, its keypad shown, even its code wrong before Dr Fred has played)", maniac);
++				// (From 0289 Unlock with any thing shows that keypad as Open does,
++				// as its script: before Dr Fred has played, its code wrong all the
++				// same, the door shut.)
++				bool unlocked = ok && with(kWorldVerbUnlock, take(9, 221), 163) && _closeUp.index == innerPad && rightCode() && _closeUp.index < 0 && _room == 4 &&
++					pictureOf(4, 163) == 0 && _speech == innerWrong;
++				// (From 0289 the quarter in Meteor Mess, the arcade's wires not
++				// fixed: no film, as before.)
++				bool blank = ok && go(18) && thingIn(442) >= 0 && with(kWorldVerbUse, take(9, 221), 442) && _closeUp.index < 0 && pictureOf(15, 225) == 0;
+ 				// (b) The arcade's wires: fixed only in the dark, the flashlight on.
+ 				_flashlight = false;
+ 				ok = ok && take(16, 152) >= 0 && take(7, 84) >= 0 && go(15) && thingIn(225) >= 0 && with(kWorldVerbFix, carriedAt(16, 152), 225) && pictureOf(15, 225) == 0 && waiting(fredEvent) < 0;
+@@ -11159,10 +11189,36 @@ Common::Error SandboxEngine::verbsTest() {
+ 					waiting(fredEvent) == kWorldTimed[fredEvent].first;
+ 				if (ok) ++labWires; else fail("the arcade's wires not fixed as their script has them (only with the power off and the flashlight carried and on; then Dr Fred's time started)", maniac);
+ 				// (c) Before he has played: the quarter in Meteor Mess shows
+-				// nothing. His time waits with the power off, and in the arcade.
+-				ok = ok && go(18) && thingIn(442) >= 0 && with(kWorldVerbUse, take(9, 221), 442) && _closeUp.index < 0 && go(15);
++				// nothing (from 0289 with the power off its line; on, below, its
++				// score screen). His time waits with the power off, and in the
++				// arcade.
++				ok = ok && go(18) && thingIn(442) >= 0 && with(kWorldVerbUse, take(9, 221), 442) && _closeUp.index < 0;
++				int blankFacts[11];
++				bool blankPowered = false;
++				char blankOff[256] = "";
++				blank = blank && ok && blankFilm >= 0 && PanelBridge::closeUpFilm(maniac, blankFilm, blankFacts[0], blankFacts[1], blankFacts[2], blankFacts[3], blankFacts[4], blankFacts[5], blankFacts[6],
++					blankFacts[7], blankFacts[8], blankFacts[9], blankFacts[10], blankPowered, blankOff, sizeof(blankOff)) && blankPowered && *blankOff && _speech == blankOff;
++				ok = ok && go(15);
+ 				if (ok) stepFor(kWorldTimed[fredEvent].first + 60);
+ 				ok = ok && !timedHappened(maniac, 101) && waiting(fredEvent) > 0 && powerSet(true) && go(18);
++				// (From 0289 the power on, the wires fixed, before he has played:
++				// its score screen, none of its high scores shown, the quarter kept.)
++				blank = blank && ok && blankFilm >= 0 && with(kWorldVerbUse, take(9, 221), 442) && _closeUp.index == blankFilm;
++				for (int k = 0; blank && k < 2000 && !_closeUp.inScene; ++k) step(1);
++				bool undrawn = false;
++				for (int o = 0; blank && o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state, answers;
++					if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || !PanelBridge::gameThing(maniac, 39, id, picture, answers) || StageBridge::objectPictures(o) < 2) continue;
++					blank = StageBridge::objectShown(o) == 0;
++					undrawn = undrawn || picture == 1; // (the one Dr Fred's draw shows, not)
++				}
++				blank = blank && undrawn && _closeUp.inScene && _room == 39;
++				if (blank) tap(_width / 2, _height / 3);
++				blank = blank && _closeUp.index < 0 && _room == 18 && carriedAt(9, 221) >= 0 && !timedHappened(maniac, 101);
++				if (blank) ++labBlank;
++				else fail("the quarter in Meteor Mess before Dr Fred has played not showing its score screen as its script (none of its high scores shown, the quarter kept; only with the arcade's wires fixed; "
++					"its line with the power off)", maniac);
++				ok = ok && blank;
+ 				if (ok) stepFor(kWorldTimed[fredEvent].every + 60);
+ 				ok = ok && !timedHappened(maniac, 101) && waiting(fredEvent) > 0 && go(26); // (Weird Ed's room, the last of its four)
+ 				if (ok) stepFor(kWorldTimed[fredEvent].every + 60);
+@@ -11193,6 +11249,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 				ok = ok && doAt(kWorldVerbClose, thingIn(163)) && pictureOf(4, 163) == 0 && pictureIn(maniac, 31, 166) == 0 && !doorAllowed(4, 163) && !travel(innerLink) && _room == 4;
+ 				ok = ok && go(31) && thingIn(166) >= 0 && doAt(kWorldVerbOpen, thingIn(166)) && pictureOf(31, 166) == 1 && pictureIn(maniac, 4, 163) == 1;
+ 				if (ok) ++labCode; else fail("the inner door's keypad not as its script answers once Dr Fred has played (a wrong code, the right one opening both its sides, kept, through; shut by Close, opened from room 31)", maniac);
++				// (From 0289 shut again, Unlock with the pit's key: its keypad, the
++				// right code opening both its sides; open, Unlock no keypad, as Open.)
++				unlocked = unlocked && ok && go(4) && doAt(kWorldVerbClose, thingIn(163)) && pictureOf(4, 163) == 0 && pictureIn(maniac, 31, 166) == 0 &&
++					with(kWorldVerbUnlock, take(2, 141), 163) && _closeUp.index == innerPad && rightCode() && _closeUp.index < 0 && _room == 4 && pictureOf(4, 163) == 1 &&
++					pictureIn(maniac, 31, 166) == 1 && _speech == innerRight && with(kWorldVerbUnlock, carriedAt(2, 141), 163) && _closeUp.index < 0 && pictureOf(4, 163) == 1;
++				if (unlocked) ++labUnlock;
++				else fail("Unlock on the dungeon's inner door not showing its keypad as Open does, as its script (with any thing, shut; its code wrong before Dr Fred has played, right after)", maniac);
++				ok = ok && unlocked;
+ 				// (f) The Purple Tentacle at his post, his door barred.
+ 				ok = ok && go(31) && personHere(maniac, 31, 13) && thingIn(168) >= 0 && !doorAllowed(31, 168) && !travel(guardLink) && _room == 31 && !walkThrough(guardLink) && _room == 31 &&
+ 					_speech == "No one goes past me." && doAt(kWorldVerbOpen, thingIn(168)) && _speech == "No one goes past me." && pictureOf(31, 168) == 0;
+@@ -13957,6 +14021,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"stepping aside for him, and no guard for that one played); %d no guard where he cannot be shown (the way on open); %d the Green Tentacle given his contract away from his "
+ 		"room (his friend made, then saved); %d the arcade's wires fixed with the tools used on them, as with Fix (his time started)",
+ 		labTwin, labNamesake, labUnshown, labAway, labUse);
++	// (From 0289 the inner door's Unlock, and the score screen before Dr Fred has played.)
++	warning("SCUMMVERSE sandbox selftest lab keypad and score: %d Unlock on the dungeon's inner door showing its keypad as Open does (with any thing, shut only; its code wrong "
++		"before Dr Fred has played, the right one opening both its sides after); %d the quarter in Meteor Mess before he has played showing its score screen with none of its "
++		"high scores (the quarter kept), only with the arcade's wires fixed, its line with the power off", labUnlock, labBlank);
+ 	// (From 0286 the mansion's music.)
+ 	warning("SCUMMVERSE sandbox selftest music: the piano %d answered with their line for someone not Syd or Razor, %d of 2 recorded by Syd and Razor (157 at 50) and kept, %d with the Victrola on "
+ 		"turned off first; the Green Tentacle %d hearing its tape on his stereo (his lines, his demo tape, the cassette kept), the demo tape given back as the cassette (55), %d refused "

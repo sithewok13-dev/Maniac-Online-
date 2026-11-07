@@ -1,0 +1,1799 @@
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 939d46fd..709afcab 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -15,7 +15,7 @@ static BOOL scummverseSystemMenu=NO;
+ 	CGFloat _keyboard;
+ 	int _publishedInset, _publishedFlags;
+ 	BOOL _open, _showHistory, _hasTranscript, _chatRight;
+-	uint64_t _chipScene, _chipMask;
++	uint64_t _chipScene, _chipMask, _chipNames;
+ 	uint32_t _revision;
+ 	int _scene, _chipTalk;
+ }
+@@ -32,7 +32,7 @@ static BOOL scummverseSystemMenu=NO;
+ }
+ - (id)initWithHost:(UIView *)host {
+ 	if ((self=[super initWithFrame:CGRectZero])) {
+-		_host=host; _publishedInset=-1; _publishedFlags=-1; _chipScene=_chipMask=~(uint64_t)0; _chipTalk=-99;
++		_host=host; _publishedInset=-1; _publishedFlags=-1; _chipScene=_chipMask=_chipNames=~(uint64_t)0; _chipTalk=-99;
+ 		_chatRight=[[NSUserDefaults standardUserDefaults] boolForKey:@"scummverseChatRight"];
+ 		self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
+ 		// Header: one chip per character here (tap to add/remove), then Follow,
+@@ -93,6 +93,17 @@ static BOOL scummverseSystemMenu=NO;
+ 	NSString *next=[field.text stringByReplacingCharactersInRange:range withString:text]; return next.length<=160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=512;
+ }
+ - (BOOL)textFieldShouldReturn:(UITextField *)field { [self send]; return NO; }
++// (A hardware keyboard: the game's keys back once the message field lets go
++// (closed, sent in landscape, a menu over it), as at launch; else L, F and P
++// would reach nothing until a pinch.)
++- (void)textFieldDidEndEditing:(UITextField *)field {
++#ifdef __IPHONE_14_0
++	if (@available(iOS 14.0, tvOS 14.0, *)) {
++		if (GCKeyboard.coalescedKeyboard != nil)
++			dispatch_async(dispatch_get_main_queue(), ^{ if (![_input isFirstResponder]) [(iPhoneView *)_host showKeyboard]; });
++	}
++#endif
++}
+ - (void)send {
+ 	NSString *text=[_input.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if(!text.length) return;
+ 	[_error release]; _error=nil;
+@@ -128,11 +139,17 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	[b addTarget:self action:@selector(chip:) forControlEvents:UIControlEventTouchUpInside];
+ 	return b;
+ }
+-// Rebuilds the people row only when who is here or who is talking changes.
++// Rebuilds the people row only when who is here or who is talking changes
++// (who by name too: a door leads to as many others, other people).
+ - (void)rebuildChips:(uint64_t)here talking:(uint64_t)mask {
+ 	const int talk=ScummverseLocalAI::runtime().talkingTo();
+-	if (here==_chipScene && mask==_chipMask && talk==_chipTalk) return;
+-	_chipScene=here; _chipMask=mask; _chipTalk=talk;
++	uint64_t names=1469598103934665603ULL;
++	for (int id=1;id<ScummverseLocalAI::kTalkActors;++id) if (here & ScummverseLocalAI::talkBit(id)) {
++		names=(names^(uint64_t)id)*1099511628211ULL;
++		for (const char *c=ScummverseLocalAI::actorName(id); c && *c; ++c) names=(names^(uint8_t)*c)*1099511628211ULL;
++	}
++	if (here==_chipScene && mask==_chipMask && talk==_chipTalk && names==_chipNames) return;
++	_chipScene=here; _chipMask=mask; _chipTalk=talk; _chipNames=names;
+ 	for (UIView *v in [[_chips.subviews copy] autorelease]) [v removeFromSuperview];
+ 	__block CGFloat x=0; const CGFloat h=26;
+ 	auto place=^(UIButton *b) { [b sizeToFit]; b.frame=CGRectMake(x,3,MAX(44,b.bounds.size.width),h); x+=b.frame.size.width+6; [_chips addSubview:b]; };
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index ec46d3bc..12c4a07a 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -394,8 +394,13 @@ Panel::Hit Panel::hit(int screenX, int screenY) const {
+ 		if (_source.coin && _source.down.contains(x, y)) { h.arrow = 1; return h; }
+ 		if (!_source.mask[(size_t)y * _source.screenWidth + x] || _source.close.contains(x, y)) { h.close = true; h.icon = _source.close.contains(x, y); return h; }
+ 		for (size_t i = 0; i < _source.verbs.size() && !_source.coin; ++i) if (_source.verbs[i].rect.contains(x, y)) { h.verb = (int)i; return h; }
+-		for (size_t c = 0; c < _source.slots.size(); ++c)
+-			if (_source.slots[c].contains(x, y) && _first + (int)c < (int)_items.size()) { h.item = _first + (int)c; return h; }
++		// (More than its cells, no arrows of its own: the last cell turns the page.)
++		const int page = pageSize();
++		for (size_t c = 0; c < _source.slots.size(); ++c) {
++			if (!_source.slots[c].contains(x, y)) continue;
++			if ((int)c == page) { h.arrow = 1; return h; }
++			if (_first + (int)c < (int)_items.size()) { h.item = _first + (int)c; return h; }
++		}
+ 		return h;
+ 	}
+ 	if (!_loaded || screenY < _top || screenY >= _top + _screenRows) return h;
+@@ -547,9 +552,24 @@ void Panel::setItems(const std::vector<Item> &items) {
+ 	scroll(0);
+ }
+ 
++bool Panel::paging() const {
++	return _source.over && (!_source.coin || !_source.up.width || !_source.down.width) && _source.slots.size() > 1 && _items.size() > _source.slots.size();
++}
++
++int Panel::pageSize() const { return paging() ? (int)_source.slots.size() - 1 : (int)_source.slots.size(); }
++
+ void Panel::scroll(int by) {
+ 	const int slots = (int)_source.slots.size();
+ 	if (!slots) { _first = 0; return; }
++	// (A box over the scene with more than its cells and no arrows: a page
++	// at a time, round to the first after the last.)
++	if (paging()) {
++		const int page = pageSize(), count = (int)_items.size(), last = (count - 1) / page * page;
++		if (by > 0) _first = _first + page >= count ? 0 : _first + page;
++		else if (by < 0) _first = _first == 0 ? last : std::max(0, _first - page);
++		else if (_first > last) _first = 0;
++		return;
++	}
+ 	// (A coin's box, one row: a thing at a time, as its arrows go.)
+ 	if (_source.coin) { _first = std::max(0, std::min((int)_items.size() - slots, _first + by)); return; }
+ 	int perRow = 0;
+@@ -616,10 +636,13 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 		const int x = _source.sentenceCentred ? _source.sentenceX - width / 2 : _source.sentenceX;
+ 		text(canvas, W, H, 0, _sentence, std::max(0, x), _source.sentenceY, color(_source.sentenceColor), W);
+ 	}
++	const int page = pageSize();
+ 	for (size_t s = 0; s < _source.slots.size(); ++s) {
+-		const int i = _first + (int)s;
+-		if (i >= (int)_items.size()) break;
+ 		const Rect &r = _source.slots[s];
++		// (The cell that turns the page: an arrow, white.)
++		if ((int)s == page) { arrow(canvas, r, true, 0xFFFFFFFFu); continue; }
++		const int i = _first + (int)s;
++		if (i >= (int)_items.size()) continue;
+ 		const Item &item = _items[i];
+ 		if (r.width <= 0 || r.height <= 0) continue;
+ 		if (_source.slotKind == 1) { text(canvas, W, H, 0, item.name, r.x, r.y, color(_source.slotColor), r.x + r.width); continue; }
+@@ -636,23 +659,41 @@ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 			for (int x = 0; x < a.rect.width; ++x)
+ 				if (a.mask[(size_t)y * a.rect.width + x]) canvas[(size_t)(a.rect.y + y) * W + a.rect.x + x] = color(a.pixels[(size_t)y * a.rect.width + x]);
+ 	}
+-	// Names lists show their arrows only when there is more (as the games do).
+-	if (_source.slotKind == 1) {
++	// Names lists show their arrows only when there is more (as the games do);
++	// pictures carried under the scene too (Monkey Island 2's, Day of the
++	// Tentacle's), where the panel, exported with nothing carried, has their
++	// places plain, in the sentence's colour.
++	const bool pictures = _source.slotKind == 2 && !_source.over && !_source.coin && !_source.distaff;
++	if (_source.slotKind == 1 || pictures) {
+ 		const int slots = (int)_source.slots.size();
+ 		for (int k = 0; k < 2; ++k) {
+ 			const Rect &a = k ? _source.down : _source.up;
+ 			const bool more = k ? _first + slots < (int)_items.size() : _first > 0;
+-			if (!more || !a.width) continue;
+-			const uint32_t ink = color(_source.slotColor);
+-			for (int y = 0; y < a.height; ++y) {
+-				const int half = (k ? a.height - 1 - y : y) * a.width / (2 * std::max(1, a.height));
+-				for (int x = a.width / 2 - half; x <= a.width / 2 + half; ++x)
+-					if (x >= 0 && x < a.width) canvas[(size_t)(a.y + y) * W + a.x + x] = ink;
+-			}
++			if (!more || !a.width || (pictures && !plain(a))) continue;
++			arrow(canvas, a, k != 0, color(pictures ? _source.sentenceColor : _source.slotColor));
+ 		}
+ 	}
+ }
+ 
++// (A triangle filling a rectangle, pointing down or up.)
++void Panel::arrow(std::vector<uint32_t> &canvas, const Rect &a, bool down, uint32_t ink) const {
++	const int W = _source.screenWidth;
++	for (int y = 0; y < a.height; ++y) {
++		const int half = (down ? a.height - 1 - y : y) * a.width / (2 * std::max(1, a.height));
++		for (int x = a.width / 2 - half; x <= a.width / 2 + half; ++x)
++			if (x >= 0 && x < a.width && a.x + x < W && a.y + y < _source.rows) canvas[(size_t)(a.y + y) * W + a.x + x] = ink;
++	}
++}
++
++bool Panel::plain(const Rect &a) const {
++	const int W = _source.screenWidth;
++	if (a.width <= 0 || a.height <= 0 || a.x < 0 || a.y < 0 || a.x + a.width > W || a.y + a.height > _source.rows) return false;
++	const uint8_t first = _source.pixels[(size_t)a.y * W + a.x];
++	for (int y = 0; y < a.height; ++y)
++		for (int x = 0; x < a.width; ++x) if (_source.pixels[(size_t)(a.y + y) * W + a.x + x] != first) return false;
++	return true;
++}
++
+ void Panel::fit(std::vector<uint32_t> &canvas, const Rect &r, const Item &item) const {
+ 	const int W = _source.screenWidth, H = _source.rows;
+ 	if (r.width <= 0 || r.height <= 0 || item.width <= 0 || item.height <= 0 || item.picture.size() != (size_t)item.width * item.height) return;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 4f1af2a4..2b4542c7 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -269,6 +269,12 @@ private:
+ 	void text(std::vector<uint32_t> &canvas, int width, int height, int font, const std::string &s, int x, int y, uint32_t ink, int clipRight) const;
+ 	// (A thing's picture fitted to a rectangle of the panel, centred.)
+ 	void fit(std::vector<uint32_t> &canvas, const Rect &r, const Item &item) const;
++	void arrow(std::vector<uint32_t> &canvas, const Rect &a, bool down, uint32_t ink) const;
++	bool plain(const Rect &a) const; // one colour throughout
++	// A box over the scene with more carried than its cells and no arrows of
++	// its own: its last cell turns the page (pageSize things a page).
++	bool paging() const;
++	int pageSize() const;
+ 	// (Onto the screen at a scale, its pen at `pen`, its top at `y`; rows
+ 	// from `limit` on untouched.)
+ 	void line(uint32_t *screen, int pitch, int screenWidth, int limit, int font, const std::string &text, double pen, int y,
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 442a73d6..a713e857 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -892,8 +892,25 @@ int Scene::groupAt(Point p) const {
+ 	return b < 0 ? -1 : _links.group[b];
+ }
+ 
++int Scene::groupSize(int group) const {
++	int count = 0;
++	for (size_t b = 0; b < _boxes.size() && b < _links.group.size(); ++b) count += _links.group[b] == group;
++	return count;
++}
++
++bool Scene::closestIn(int group, Point p, Point &out) const {
++	double best = -1;
++	for (size_t b = 0; b < _boxes.size() && b < _links.group.size(); ++b) {
++		if (_links.group[b] != group) continue;
++		const Point c = closest(_boxes[b], p);
++		const double d = distance(c, p);
++		if (best < 0 || d < best) { best = d; out = c; }
++	}
++	return best >= 0;
++}
++
+ int Scene::objectAt(Point tap, const std::vector<int> &candidates, double slack) const {
+-	int best = -1; bool bestUnder = false; long bestArea = 0; double bestAway = 0;
++	int best = -1; bool bestUnder = false; long bestArea = 0; double bestAway = 0, bestWalk = 0;
+ 	for (int i : candidates) {
+ 		if (i < 0 || i >= (int)_source.objects.size()) continue;
+ 		const World::SourceObject &o = _source.objects[i];
+@@ -904,38 +921,58 @@ int Scene::objectAt(Point tap, const std::vector<int> &candidates, double slack)
+ 		// (How far outside it the tap is: 0 under it.)
+ 		const double away = std::hypot(std::max(0.0, std::max(o.x - tap.x, tap.x - (o.x + o.width - 1))),
+ 			std::max(0.0, std::max(o.y - tap.y, tap.y - (o.y + o.height - 1))));
++		// (Two of the same size there (two ways out drawn as one): the one whose
++		// walk-to point is nearer the tap.)
++		const double walk = o.walkX || o.walkY ? std::hypot(o.walkX - tap.x, o.walkY - tap.y) : 1e18;
+ 		if (best >= 0) {
+ 			if (bestUnder != under) { if (bestUnder) continue; }
+ 			else if (!under && away != bestAway) { if (away > bestAway) continue; }
+-			else if (area >= bestArea) continue;
++			else if (area > bestArea || (area == bestArea && walk >= bestWalk)) continue;
+ 		}
+-		best = i; bestUnder = under; bestArea = area; bestAway = away;
++		best = i; bestUnder = under; bestArea = area; bestAway = away; bestWalk = walk;
+ 	}
+ 	return best;
+ }
+ 
+-std::vector<Point> Scene::spots(int n) const {
++// (Twice a box's area.)
++static double areaOf(const Box &b) {
++	return std::fabs(cross(b.corner[0], b.corner[1], b.corner[2])) + std::fabs(cross(b.corner[0], b.corner[2], b.corner[3]));
++}
++
++std::vector<Point> Scene::spots(int n, int group) const {
+ 	std::vector<Point> candidates, chosen;
+-	for (const Box &b : _boxes)
+-		for (int i = 1; i <= 3; ++i)
+-			for (int j = 1; j <= 3; ++j) {
+-				// Across the box (top edge to bottom edge), a quarter in from the sides.
+-				const double s = i / 4.0, t = j / 4.0;
+-				Point top, bottom, p;
+-				top.x = b.corner[0].x + (b.corner[1].x - b.corner[0].x) * s; top.y = b.corner[0].y + (b.corner[1].y - b.corner[0].y) * s;
+-				bottom.x = b.corner[3].x + (b.corner[2].x - b.corner[3].x) * s; bottom.y = b.corner[3].y + (b.corner[2].y - b.corner[3].y) * s;
+-				p.x = top.x + (bottom.x - top.x) * t; p.y = top.y + (bottom.y - top.y) * t;
+-				candidates.push_back(p);
+-			}
+-	if (candidates.empty()) { Point p; p.x = _source.width / 2.0; p.y = _source.height * 0.8; candidates.push_back(p); }
+-	// The roomiest first (the middle of the biggest box), then each the
+-	// farthest from those chosen.
+-	double biggest = -1; size_t first = 0;
+-	for (size_t b = 0; b < _boxes.size(); ++b) {
+-		const Box &x = _boxes[b];
+-		const double area = std::fabs(cross(x.corner[0], x.corner[1], x.corner[2])) + std::fabs(cross(x.corner[0], x.corner[2], x.corner[3]));
+-		if (area > biggest) { biggest = area; first = b * 9 + 4; }
++	// (Nine across each box (top edge to bottom edge), a quarter in from the
++	// sides; the roomiest box's middle first. Where the picture is, on a box
++	// with room to stand, in the group asked; else (Loom's walks are lines)
++	// on lines too; else in any group; else as found.)
++	const double top = _source.height / 25.0;
++	static const bool kRoomy[] = {true, false, true, false, false}, kInGroup[] = {true, true, false, false, false}, kInPicture[] = {true, true, true, true, false};
++	size_t first = 0;
++	for (int pass = 0; pass < 5 && candidates.empty(); ++pass) {
++		double biggest = -1;
++		for (size_t b = 0; b < _boxes.size(); ++b) {
++			const Box &box = _boxes[b];
++			const double area = areaOf(box);
++			if (kRoomy[pass] && area < 8) continue;
++			if (kInGroup[pass] && group >= 0 && (b >= _links.group.size() || _links.group[b] != group)) continue;
++			std::vector<Point> found;
++			for (int i = 1; i <= 3; ++i)
++				for (int j = 1; j <= 3; ++j) {
++					const double s = i / 4.0, t = j / 4.0;
++					Point upper, lower, p;
++					upper.x = box.corner[0].x + (box.corner[1].x - box.corner[0].x) * s; upper.y = box.corner[0].y + (box.corner[1].y - box.corner[0].y) * s;
++					lower.x = box.corner[3].x + (box.corner[2].x - box.corner[3].x) * s; lower.y = box.corner[3].y + (box.corner[2].y - box.corner[3].y) * s;
++					p.x = upper.x + (lower.x - upper.x) * t; p.y = upper.y + (lower.y - upper.y) * t;
++					if (kInPicture[pass] && (p.x < 0 || p.x >= _source.width || p.y < top || p.y > _source.height)) continue;
++					found.push_back(p);
++				}
++			if (found.empty()) continue;
++			if (area > biggest) { biggest = area; first = candidates.size() + std::min<size_t>(4, found.size() - 1); }
++			candidates.insert(candidates.end(), found.begin(), found.end());
++		}
+ 	}
++	if (candidates.empty()) { Point p; p.x = _source.width / 2.0; p.y = _source.height * 0.8; candidates.push_back(p); first = 0; }
++	// The roomiest first, then each the farthest from those chosen.
+ 	chosen.push_back(candidates[std::min(first, candidates.size() - 1)]);
+ 	while ((int)chosen.size() < n) {
+ 		double far = -1; Point best;
+@@ -1058,8 +1095,8 @@ void toScreen(double x, double y, int &screenX, int &screenY) {
+ 	const Stage::Point p = stage().view().toScreen(x, y);
+ 	screenX = (int)std::floor(p.x); screenY = (int)std::floor(p.y);
+ }
+-int spots(int n, double *xs, double *ys) {
+-	const std::vector<Stage::Point> found = stage().spots(n);
++int spots(int n, double *xs, double *ys, int group) {
++	const std::vector<Stage::Point> found = stage().spots(n, group);
+ 	for (size_t i = 0; i < found.size(); ++i) { xs[i] = found[i].x; ys[i] = found[i].y; }
+ 	return (int)found.size();
+ }
+@@ -1076,6 +1113,13 @@ void walkable(double &x, double &y) {
+ 	x = p.x; y = p.y;
+ }
+ int group(double x, double y) { return stage().groupAt(Stage::Point(x, y)); }
++int groupSize(int group) { return stage().groupSize(group); }
++bool closestIn(int group, double &x, double &y) {
++	Stage::Point p;
++	if (!stage().closestIn(group, Stage::Point(x, y), p)) return false;
++	x = p.x; y = p.y;
++	return true;
++}
+ int objectCount() { return (int)stage().source().objects.size(); }
+ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &walkX, int &walkY, int &state) {
+ 	if (index < 0 || index >= objectCount()) return false;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 1ba36738..14981849 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -213,8 +213,15 @@ public:
+ 	const World::SourceScene &source() const { return _source; }
+ 	const Actor &actor(int n) const { return _actors[n]; }
+ 	int actorCount() const { return (int)_actors.size(); }
+-	// Spots for people: inside the boxes, spread out (n of them).
+-	std::vector<Point> spots(int n) const;
++	// Spots for people: inside the boxes, spread out (n of them); only
++	// where the picture is (not beside, below or at its very top) and on
++	// boxes with room to stand (not a point or a line), where there are
++	// such; in `group` only (its boxes), where it has any.
++	std::vector<Point> spots(int n, int group = -1) const;
++	// How many boxes a group has; the point nearest p in its boxes (false:
++	// no such group).
++	int groupSize(int group) const;
++	bool closestIn(int group, Point p, Point &out) const;
+ 	// The screen rectangle an actor covers (false when off screen).
+ 	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
+ 	// An object shown in one of its pictures (0: without it; "SVW5").
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index ddcbb1ff..68566e4a 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -86,8 +86,9 @@ void update(int ticks);                        // 60 ticks a second
+ void render(unsigned int *pixels, int pitch);
+ void toScene(int screenX, int screenY, double &x, double &y);
+ void toScreen(double x, double y, int &screenX, int &screenY);
+-// Spots for n people, spread over the walk boxes; returns how many.
+-int spots(int n, double *xs, double *ys);
++// Spots for n people, spread over the walk boxes (where the picture is, with
++// room to stand; in `group` only, where it has any); returns how many.
++int spots(int n, double *xs, double *ys, int group = -1);
+ int sceneWidth();
+ int sceneHeight();
+ int boxCount();
+@@ -125,6 +126,8 @@ void setWalk(double speedX, double speedY, int stepTicks);
+ void walkable(double &x, double &y);
+ // Which group of boxes (reachable from one another) a point is in (-1: none).
+ int group(double x, double y);
++int groupSize(int group);                      // its boxes
++bool closestIn(int group, double &x, double &y); // the point nearest in its boxes (false: none)
+ // The scene's room objects (source pixels; state 0: switched off).
+ int objectCount();
+ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &walkX, int &walkY, int &state);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 94f7c68d..25068077 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -727,6 +727,7 @@ static const WorldSmall kWorldSmall[] = {
+ 	{6, 48}, {6, 51},                                       // Sam & Max: kitten, courier cat
+ 	{8, 183}, {8, 202}, {8, 113},                           // The Dig: critter, cliff creature, sea turtle
+ 	{9, 49}, {9, 949}, {9, 67}, {9, 202},                   // Curse: Murray (both), feral chicken, monkey deckhand
++	{10, 16},                                               // Maniac Mansion: the Purple Meteor
+ };
+ inline bool worldSmall(int game, int costume) {
+ 	for (const auto &s : kWorldSmall) if (s.game == game && s.costume == costume) return true;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 56f85cff..4a739ae0 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -90,6 +90,7 @@ static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
+ static const char *const kDarkKey = "scummverse_sandbox_dark"; // (the mansion's places with their lights off)
+ static const char *const kFlashlightKey = "scummverse_sandbox_flashlight"; // (the mansion's flashlight on)
+ static const char *const kFollowersKey = "scummverse_sandbox_followers"; // (the one followed, then those following)
++static const char *const kWayBackKey = "scummverse_sandbox_way_back";   // (from a place with no way on: game room door, then that place's game room)
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -115,6 +116,13 @@ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Eng
+ SandboxEngine::~SandboxEngine() {
+ }
+ 
++// (iOS putting the app in the background pauses it: kept now, as iOS may
++// close it without a word.)
++void SandboxEngine::pauseEngineIntern(bool pause) {
++	Engine::pauseEngineIntern(pause);
++	if (pause && !_testing && _game >= 0 && _player >= 0) saveState();
++}
++
+ bool SandboxEngine::hasFeature(EngineFeature f) const {
+ 	return f == kSupportsReturnToLauncher;
+ }
+@@ -247,8 +255,9 @@ int SandboxEngine::addPerson(int key) {
+ 	if (!readCharacter(key, data)) { _broken[key] = true; return -1; }
+ 	// As tall as the people here: the scene's lead against the character's
+ 	// own game's lead (a custom one as tall against a person as drawn to
+-	// stand); on maps and floor plans, small figures.
+-	const double height = CLIP(custom ? kWorldGames[_game].heroHeight * custom->personPerRow : (double)kWorldGames[_game].heroHeight / kWorldGames[game].heroHeight, 0.06, 4.0) *
++	// stand; Curse of Monkey Island's people are five or six times the
++	// 320-wide games'); on maps and floor plans, small figures.
++	const double height = CLIP(custom ? kWorldGames[_game].heroHeight * custom->personPerRow : (double)kWorldGames[_game].heroHeight / kWorldGames[game].heroHeight, 0.06, 8.0) *
+ 		(walkable(_game, _room) ? 1.0 : 0.3);
+ 	char error[128];
+ 	const int n = StageBridge::addActor(data.data(), data.size(), height, custom ? 1.0 : pixelAspect(game), error, sizeof(error)); // (custom ones drawn in square pixels)
+@@ -268,8 +277,15 @@ bool SandboxEngine::isDoor(int object) const {
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
+ 	const WorldLink *link = worldLinkFrom(_game, _room, id);
+-	// (A switched door works while it shows: as drawn now, where it has pictures.)
+-	if (link && link->switched && StageBridge::objectPictures(object)) return StageBridge::objectShown(object) != 0;
++	// (A switched door works while it shows: as drawn now, where it has
++	// pictures; one its game only walks through (its script answers Walk to,
++	// not Open or Close) always.)
++	if (link && link->switched && StageBridge::objectPictures(object)) {
++		int picture, answers;
++		if (!worldHome(_game) && PanelBridge::gameThing(_game, _room, id, picture, answers) && answers >= 0 && (answers & 1 << kWorldVerbWalk) &&
++			!(answers & (1 << kWorldVerbOpen | 1 << kWorldVerbClose))) return true;
++		return StageBridge::objectShown(object) != 0;
++	}
+ 	return link && (!link->switched || state);
+ }
+ 
+@@ -313,6 +329,9 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	} else if (!panel) {
+ 		PanelBridge::unload();
+ 	}
++	// (A pee the place changes under: its puddle as big as it got, so its
++	// stain, before the stage it is on is let go.)
++	if (_peeing.actor >= 0) peeEnded();
+ 	if (!StageBridge::load(data.data(), data.size(), pixelAspect(game), screenWidthOf(game), _width, stageHeight, error, sizeof(error))) { problem = error; return false; }
+ 	if (PanelBridge::loaded()) {
+ 		int left, top, width, height;
+@@ -352,6 +371,11 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		else if (PanelBridge::gameThing(game, room, id, picture, answers) && picture != StageBridge::objectShown(i) && picture < StageBridge::objectPictures(i))
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
++	// (A way back only from the place it is for: elsewhere let go, kept too.)
++	if (game != _wayBack.atGame || room != _wayBack.atRoom) {
++		if (_wayBack.game >= 0 && !_testing && ConfMan.hasKey(kWayBackKey)) { ConfMan.removeKey(kWayBackKey, ConfMan.getActiveDomainName()); ConfMan.flushToDisk(); }
++		_wayBack = WayBack();
++	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear(); _aboard = false; _seatedActors.clear();
+ 	// (What is inside another over it where that one is open, else under it.)
+ 	layInside();
+@@ -393,33 +417,47 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		if (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && id == arrival) atDoor = doorPoint(i, x, y);
+ 	}
+ 	Common::Array<double> xs(_onStage.size() + 1), ys(_onStage.size() + 1);
+-	const int spots = StageBridge::spots(_onStage.size() + 1, xs.data(), ys.data());
+-	int skip = 0;
++	int spots = StageBridge::spots(_onStage.size() + 1, xs.data(), ys.data());
++	// (The doors in reach of each group of boxes, but the one come in by.)
++	auto doorsIn = [&](int group) {
++		int doors = 0;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, w, h, wx, wy, state;
++			double dx, dy;
++			if (!isDoor(o) || !doorPoint(o, dx, dy) || (arrival && StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == arrival)) continue;
++			StageBridge::walkable(dx, dy);
++			doors += StageBridge::group(dx, dy) == group;
++		}
++		return doors;
++	};
+ 	if (atDoor) {
+-		StageBridge::place(_player, x, y);
+-		StageBridge::position(_player, x, y);
+-		double nearest = -1;
+-		for (int i = 0; i < spots; ++i) {
+-			const double d = (xs[i] - x) * (xs[i] - x) + (ys[i] - y) * (ys[i] - y);
+-			if (nearest < 0 || d < nearest) { nearest = d; skip = i; }
++		// (The door's point off every box: the nearest part of the place with
++		// somewhere to go, not a lone box cut off from the floor.)
++		double wx = x, wy = y;
++		StageBridge::walkable(wx, wy);
++		const int near = StageBridge::group(wx, wy);
++		if ((fabs(wx - x) > 0.5 || fabs(wy - y) > 0.5) && near >= 0 && StageBridge::groupSize(near) < 2 && !doorsIn(near)) {
++			double best = -1, bx = wx, by = wy;
++			for (int i = 0; i < spots; ++i) {
++				const int g = StageBridge::group(xs[i], ys[i]);
++				double cx = x, cy = y;
++				if (g < 0 || g == near || (StageBridge::groupSize(g) < 2 && !doorsIn(g)) || !StageBridge::closestIn(g, cx, cy)) continue;
++				const double d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
++				if (best < 0 || d < best) { best = d; bx = cx; by = cy; }
++			}
++			if (best >= 0) { x = bx; y = by; }
+ 		}
++		StageBridge::place(_player, x, y);
+ 	} else if (spots) {
+-		int most = -1;
++		int most = -1, skip = 0;
+ 		for (int i = 0; i < spots; ++i) {
+-			const int group = StageBridge::group(xs[i], ys[i]);
+-			int doors = 0;
+-			for (int o = 0; o < StageBridge::objectCount(); ++o) {
+-				double dx, dy;
+-				if (!isDoor(o) || !doorPoint(o, dx, dy)) continue;
+-				StageBridge::walkable(dx, dy);
+-				doors += StageBridge::group(dx, dy) == group;
+-			}
++			const int doors = doorsIn(StageBridge::group(xs[i], ys[i]));
+ 			if (doors > most) { most = doors; skip = i; }
+ 		}
+ 		StageBridge::place(_player, xs[skip], ys[skip]);
+ 	}
+-	for (uint n = 1, i = 0; n < _onStage.size() && (int)i < spots; ++i)
+-		if ((int)i != skip) StageBridge::place(n++, xs[i], ys[i]);
++	spreadOthers();
++	_noWayOn = !wayOut();
+ 	StageBridge::follow(_player);
+ 	bringFollowers();
+ 	tramShow();
+@@ -482,11 +520,25 @@ static bool maniacTogether(int room, int id) {
+ // door: on the stairs down, it closes).
+ struct ManiacShuts { short room, door; };
+ static const ManiacShuts kManiacShutsBehind[] = {{10, 69}};
++// The mansion's padlocked door (room 4, 160; its padlocks 161 and 162,
++// unlocked with the key from the pit; from 0203, probed in the original:
++// tools/test_mansion_locks.py): its own script keeps it locked until both
++// are unlocked, then it opens and shuts as any door. The things file has
++// what each lock does alone, so not this.
++struct ManiacPadlock { short room, door, locks[2]; };
++static const ManiacPadlock kManiacPadlocks[] = {{4, 160, {161, 162}}};
+ struct ManiacOpenedBy { short room, door; const char *line; };
+ static const ManiacOpenedBy kManiacOpenedBy[] = {{10, 69, "There's no handle here!"}};
+ struct ManiacDoorNeeds { short room, door, needRoom, needObject, needPicture; };
+ static const ManiacDoorNeeds kManiacDoorNeeds[] = {{6, 172, 6, 139, 1}, {10, 69, 10, 69, 1}};
+ 
++bool SandboxEngine::padlockOpen(int id) const {
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
++	for (const ManiacPadlock &p : kManiacPadlocks)
++		if (p.room == _room && p.door == id) return pictureOf(_room, p.locks[0]) == 1 && pictureOf(_room, p.locks[1]) == 1;
++	return false;
++}
++
+ int SandboxEngine::pictureOf(int room, int id) const {
+ 	if (room == _room)
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) {
+@@ -700,7 +752,7 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	case 2: chooseVerb(on); return;
+ 	case 3: useItem(on); return;
+ 	case 4: PanelBridge::scroll(on); return;
+-	case 5: _action = 0; _target = -1; _door = -1; _opening = 0; PanelBridge::open(true); _dirty = true; return;
++	case 5: PanelBridge::open(true); _dirty = true; return; // (a walk to a door or a thing goes on)
+ 	case 6: PanelBridge::open(false); _dirty = true; return;
+ 	// (Its own box icon: shut, and walking again, for a phone without two
+ 	// fingers' right click.)
+@@ -709,6 +761,12 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	}
+ 	// (The chat choosing whom to talk to: someone tapped, picked.)
+ 	if (_phone.pick(talkIdAt(screenX, screenY))) return;
++	// (No way on from here: a tap on the arrow at its left goes back the way
++	// they came.)
++	{
++		int bx0, by0, bx1, by1;
++		if (backSign(bx0, by0, bx1, by1) && screenX < bx1 && screenY >= by0 && screenY < by1) { goBack(); return; }
++	}
+ 	// (Over the scene, the pointer is where the last tap was.)
+ 	if (PanelBridge::over()) { _pointerX = screenX; _pointerY = screenY; _dirty = true; }
+ 	double x, y;
+@@ -1165,8 +1223,8 @@ void SandboxEngine::sentence(const Common::String &text) {
+ 	PanelBridge::sentence(text.empty() ? walk : text.c_str());
+ }
+ 
++// (A walk to a door or a thing goes on: the verb is for what is tapped next.)
+ void SandboxEngine::chooseVerb(int verb) {
+-	_action = 0; _target = -1; _door = -1;
+ 	if (_holding.kind) letGo();
+ 	// (Loom's notes: played, lit a moment; the fourth spins a draft.)
+ 	if (PanelBridge::distaff()) {
+@@ -1238,6 +1296,7 @@ void SandboxEngine::newKid() {
+ 	double x, y;
+ 	StageBridge::position(_player, x, y);
+ 	const int before = _playerKey, fromGame = _game, fromRoom = _room, here = place(_game, _room);
++	const Common::Array<Left> kept = customLeft();
+ 	Common::String problem;
+ 	// (One who cannot be shown is passed over for the next.)
+ 	for (uint step = 1; step <= keys.size(); ++step) {
+@@ -1265,17 +1324,18 @@ void SandboxEngine::newKid() {
+ 			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == before) left = n;
+ 			if (left < 0 && (left = addPerson(before)) >= 0) { _onStage.push_back(before); _people = _onStage.size(); }
+ 			if (shown >= 0) StageBridge::place(_player, kx, ky);
++			keepOthersNear();
+ 			double px, py;
+ 			StageBridge::position(_player, px, py);
+ 			if (left >= 0) StageBridge::place(left, shown < 0 && fabs(px - x) < 8 && fabs(py - y) < 8 ? x + 24 : x, y);
+ 			StageBridge::follow(_player);
++			customBack(kept);
+ 		}
+ 		if (!_testing) saveState();
+ 		return;
+ 	}
+ 	_playerKey = before;
+-	enter(fromGame, fromRoom, 0, problem);
+-	StageBridge::place(_player, x, y);
++	if (enter(fromGame, fromRoom, 0, problem)) placePlayer(x, y);
+ 	say("There's no one else here to play.");
+ }
+ 
+@@ -1284,7 +1344,6 @@ void SandboxEngine::newKid() {
+ // Full Throttle's box opened or shut.
+ void SandboxEngine::rightClick(int screenX, int screenY) {
+ 	if (!PanelBridge::loaded() || !PanelBridge::over()) return;
+-	_action = 0; _target = -1; _door = -1;
+ 	// (Full Throttle's: a coin held let go of, else its box opened or shut.)
+ 	if (PanelBridge::coin()) {
+ 		if (PanelBridge::coinOpen()) PanelBridge::shutCoin(); else PanelBridge::open(!PanelBridge::isOpen());
+@@ -1449,7 +1508,8 @@ double SandboxEngine::followOffset(int key) const {
+ }
+ 
+ void SandboxEngine::followStep(int ticks) {
+-	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty() || _aboard) return;
++	// (Aboard, or out of sight on a ride: they are with them.)
++	if ((_followClock -= ticks) > 0 || _player < 0 || _followers.empty() || _aboard || _tram.riding || _riding.phase > kRideBoarded) return;
+ 	_followClock = 20;
+ 	double px, py, x, y;
+ 	StageBridge::position(_player, px, py);
+@@ -1465,6 +1525,59 @@ void SandboxEngine::followStep(int ticks) {
+ 	}
+ }
+ 
++// The one played put at (x, y) once a place is entered: the view on them,
++// the others in their part of the place, those following beside them.
++void SandboxEngine::placePlayer(double x, double y) {
++	StageBridge::place(_player, x, y);
++	keepOthersNear();
++	StageBridge::follow(_player);
++	bringFollowers();
++}
++
++// The others in the part of the place the one played is in (where they can
++// walk to them), the spot nearest them left to them.
++void SandboxEngine::spreadOthers() {
++	if (_player < 0) return;
++	double px, py;
++	StageBridge::position(_player, px, py);
++	_spreadGroup = StageBridge::group(px, py);
++	Common::Array<double> xs(_onStage.size() + 1), ys(_onStage.size() + 1);
++	const int spots = StageBridge::spots(_onStage.size() + 1, xs.data(), ys.data(), _spreadGroup);
++	int skip = 0;
++	double nearest = -1;
++	for (int i = 0; i < spots; ++i) {
++		const double d = (xs[i] - px) * (xs[i] - px) + (ys[i] - py) * (ys[i] - py);
++		if (nearest < 0 || d < nearest) { nearest = d; skip = i; }
++	}
++	int i = 0;
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player) continue;
++		if (i == skip) ++i;
++		if (i >= spots) break;
++		StageBridge::stop(n);
++		StageBridge::place(n, xs[i], ys[i]);
++		++i;
++	}
++}
++
++// (Moved to another part of the place after entering it: the others there too.)
++void SandboxEngine::keepOthersNear() {
++	double px, py;
++	if (_player < 0) return;
++	StageBridge::position(_player, px, py);
++	if (StageBridge::group(px, py) != _spreadGroup) spreadOthers();
++}
++
++// Those following out of sight with the one played (a ride seen from
++// outside), or in sight again.
++void SandboxEngine::hideFollowers(bool hide) {
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player || !following(_onStage[n])) continue;
++		if (hide) StageBridge::stop(n);
++		StageBridge::hide(n, hide);
++	}
++}
++
+ // Those following come along to wherever the one played arrives (shown
+ // there among the wanderers too), beside them; someone else played, they
+ // follow no one.
+@@ -1586,6 +1699,30 @@ bool SandboxEngine::castHome(int key, int &room) const {
+ 	return room >= 0 || firstPlace(game, room);
+ }
+ 
++Common::Array<SandboxEngine::Left> SandboxEngine::customLeft() const {
++	Common::Array<Left> left;
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player || !customArt(_onStage[n]) || (_wanderers && WanderBridge::where(_onStage[n]) > 0)) continue;
++		Left l;
++		l.key = _onStage[n];
++		StageBridge::position(n, l.x, l.y);
++		left.push_back(l);
++	}
++	return left;
++}
++
++void SandboxEngine::customBack(const Common::Array<Left> &left) {
++	for (const Left &l : left) {
++		bool shown = l.key == _playerKey;
++		for (uint n = 0; n < _onStage.size(); ++n) shown = shown || _onStage[n] == l.key;
++		if (shown) continue;
++		const int n = addPerson(l.key);
++		if (n < 0) continue;
++		_onStage.push_back(l.key); _people = _onStage.size();
++		StageBridge::place(n, l.x, l.y);
++	}
++}
++
+ // Where they live, as them; refused aloud when they cannot be (not for a
+ // request that is no one's: the chat's in this range). Not shown there, the
+ // one played before stays, where they stood.
+@@ -1602,25 +1739,42 @@ bool SandboxEngine::castChoose(int key) {
+ 	const bool custom = customArt(key);
+ 	const int game = custom ? _game : worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
+ 	const Riding riding = _riding; // (aboard: where it was boarded, should this fail)
+-	double x = 0, y = 0;
++	const Common::Array<Left> left = customLeft();
++	double x = 0, y = 0, kx = 0, ky = 0;
+ 	const bool stood = _player >= 0;
+ 	if (stood) StageBridge::position(_player, x, y);
+-	// (A custom one here: the one before stays, out among the wanderers here.)
+-	const int here = custom && _wanderers && fromKey != key ? place(fromGame, fromRoom) : 0;
++	// (The one chosen here already: where they stand.)
++	int shown = -1;
++	for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == key) shown = n;
++	if (shown >= 0) StageBridge::position(shown, kx, ky);
++	// (The one before stays, out among the wanderers here.)
++	const int here = _wanderers && fromKey != key && fromGame >= 0 ? place(fromGame, fromRoom) : 0;
+ 	if (here) WanderBridge::send(fromKey, here);
+ 	_playerKey = key;
+ 	Common::String problem;
+ 	if (enter(game, room, 0, problem)) {
+-		// (A custom one where the one before stood, they beside.)
+-		if (custom && stood && _player >= 0) {
++		const bool same = stood && _player >= 0 && _game == fromGame && _room == fromRoom;
++		int beside = -1;
++		for (uint n = 0; same && n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == fromKey) beside = n;
++		if (same && beside < 0 && here && (beside = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
++		if (custom && same) {
++			// (A custom one where the one before stood, they beside.)
+ 			StageBridge::place(_player, x, y);
+-			int left = -1;
+-			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == fromKey) left = n;
+-			if (left < 0 && here && (left = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
+-			if (left >= 0) StageBridge::place(left, x + 24, y);
++			keepOthersNear();
++			if (beside >= 0) StageBridge::place(beside, x + 24, y);
++			StageBridge::follow(_player);
++		} else if (same) {
++			// (Someone else here: where they stood, else where the place puts
++			// them; the one before where they stood, not on them.)
++			if (shown >= 0) StageBridge::place(_player, kx, ky);
++			keepOthersNear();
++			double px, py;
++			StageBridge::position(_player, px, py);
++			if (beside >= 0) StageBridge::place(beside, fabs(px - x) < 8 && fabs(py - y) < 8 ? x + 24 : x, y);
+ 			StageBridge::follow(_player);
+-			if (!_testing) saveState();
+ 		}
++		if (same) customBack(left);
++		if (same && !_testing) saveState();
+ 		if (!_testing) g_system->displayMessageOnOSD(Common::U32String(Common::String::format("You are playing %s.", who->name)));
+ 		return true;
+ 	}
+@@ -1629,7 +1783,7 @@ bool SandboxEngine::castChoose(int key) {
+ 	// (Back where it was: aboard a ride, its stop.)
+ 	int keptGame = fromGame, keptRoom = fromRoom;
+ 	if (fromGame >= 0 && worldRideScene(fromGame, fromRoom) && riding.fromGame >= 0) { keptGame = riding.fromGame; keptRoom = riding.fromRoom; x = riding.x; y = riding.y; }
+-	if (keptGame >= 0 && enter(keptGame, keptRoom, 0, problem)) { StageBridge::place(_player, x, y); StageBridge::follow(_player); }
++	if (keptGame >= 0 && enter(keptGame, keptRoom, 0, problem)) placePlayer(x, y);
+ 	return refuse();
+ }
+ 
+@@ -1669,7 +1823,7 @@ void SandboxEngine::loadThings(int game) {
+ }
+ 
+ // One more thing carried (its picture from the place it was in).
+-bool SandboxEngine::carry(int game, int room, int id, const Common::String &name, int picture) {
++bool SandboxEngine::carry(int game, int room, int id, const Common::String &name, int picture, bool found) {
+ 	Common::Array<byte> data;
+ 	if (game < 0 || game >= worldGameCount() || !read(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room), data)) return false;
+ 	// (The oldest games' place without it is its "on" picture.)
+@@ -1683,8 +1837,8 @@ bool SandboxEngine::carry(int game, int room, int id, const Common::String &name
+ 		c.name = named;
+ 	}
+ 	_carried.push_back(c);
+-	// (The flashlight is found off.)
+-	if (isFlashlight(c) && _flashlight) { _flashlight = false; if (!_testing) { ConfMan.setBool(kFlashlightKey, false); ConfMan.flushToDisk(); } }
++	// (The flashlight is found off; carried still, as left.)
++	if (found && isFlashlight(c) && _flashlight) { _flashlight = false; if (!_testing) { ConfMan.setBool(kFlashlightKey, false); ConfMan.flushToDisk(); } }
+ 	return true;
+ }
+ 
+@@ -1697,7 +1851,10 @@ void SandboxEngine::act() {
+ 		_pairing = Pair();
+ 		if (p.kind == kind && (p.person >= 0 ? target < 0 : p.thing == target || p.withThing == target)) { pairUp(p); return; }
+ 	}
+-	sentence("");
++	// (A verb chosen on the way: still the sentence begun.)
++	char chosen[40] = "";
++	if (!PanelBridge::over() && !PanelBridge::distaff() && PanelBridge::selected() >= 0) PanelBridge::verbName(PanelBridge::selected(), chosen, sizeof(chosen));
++	sentence(chosen);
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(target, id, ox, oy, w, h, wx, wy, state)) return;
+ 	char name[80], line[160];
+@@ -1738,6 +1895,14 @@ void SandboxEngine::act() {
+ 	// after and the others it sets. Not a door: the new engine opens those
+ 	// as it goes.)
+ 	const int from = thingBit(target, id);
++	// (The padlocked door, both its locks unlocked: open or shut as any door.)
++	if ((kind == kWorldVerbOpen || kind == kWorldVerbClose) && padlockOpen(id)) {
++		const int to = kind == kWorldVerbOpen ? 1 : 0;
++		if (thingBit(target, id) == to) say(to ? "It's already open." : "It's already closed.");
++		else showPicture(target, id, to);
++		if (!_testing) saveState();
++		return;
++	}
+ 	// (A light of the mansion's: the place dark or lit, its picture as the
+ 	// game's; not one its script refuses: a line, nothing changed.)
+ 	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && isLight(target) && !effectRefuses(id, kind, from)) {
+@@ -1759,6 +1924,40 @@ void SandboxEngine::act() {
+ 	if (!_testing) saveState();
+ }
+ 
++bool SandboxEngine::wayOut() const {
++	if (_game < 0) return true;
++	int line, end;
++	if (tramStop(line, end) || _vanPlace == _game * 1024 + _room) return true;
++	for (const WorldRide &r : kWorldRides) if (r.game == _game && r.room == _room) return true;
++	// (A door shut, or kept shut by its game until something is so, is one.)
++	for (int o = 0; o < StageBridge::objectCount(); ++o) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
++		const WorldLink *link = worldLinkFrom(_game, _room, id);
++		if (link && link->target != _room && installed(_game, link->target)) return true;
++	}
++	return false;
++}
++
++bool SandboxEngine::backSign(int &x0, int &y0, int &x1, int &y1) const {
++	if (_wayBack.game < 0 || !_noWayOn || _touring.on || _player < 0 || _game != _wayBack.atGame || _room != _wayBack.atRoom) return false;
++	int left, top, width, height;
++	double rowScale, colScale;
++	StageBridge::view(left, top, width, height, rowScale, colScale);
++	const int bottom = PanelBridge::loaded() && !PanelBridge::over() ? MIN(top + height, PanelBridge::top()) : top + height;
++	const int h = CLIP((bottom - top) / 5, 24, 160), w = MAX(20, h * 2 / 3);
++	x0 = CLIP(left, 0, _width) + 4; x1 = x0 + w;
++	y0 = top + (bottom - top - h) / 2; y1 = y0 + h;
++	return true;
++}
++
++void SandboxEngine::goBack() {
++	const WayBack w = _wayBack;
++	Common::String problem;
++	if (w.game < 0 || !installed(w.game, w.room) || !enter(w.game, w.room, w.door, problem)) { announce("There's no way back from here."); return; }
++	if (!_testing) saveState();
++}
++
+ bool SandboxEngine::travel(int index) {
+ 	const WorldMap *map = worldMap(_game);
+ 	if (!map || index < 0 || index >= map->linkCount) return false;
+@@ -1793,8 +1992,26 @@ bool SandboxEngine::travel(int index) {
+ 		for (const ManiacShuts &d : kManiacShutsBehind) shuts |= !strcmp(kWorldGames[game].gameid, "maniac") && d.room == from && d.door == link.object;
+ 		if (shuts && (!_touring.on || _touring.paused)) _pictures[thingKey(game, from, link.object)] = 0;
+ 		const WorldLink *back = arrival ? worldLinkFrom(game, link.target, arrival) : nullptr;
+-		const bool openedBack = !_touring.on && back && back->target == from && openDoor(arrival);
++		bool openedBack = !_touring.on && back && back->target == from && openDoor(arrival);
++		// (The other games open both sides of a switched door together: the
++		// one back shown open too, kept so.)
++		for (int o = 0; !openedBack && !_touring.on && link.switched && back && back->switched && back->target == from && !worldHome(game) && o < StageBridge::objectCount(); ++o) {
++			int id, ox, oy, w, h, wx, wy, state;
++			if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || id != arrival || StageBridge::objectPictures(o) < 2 || StageBridge::objectShown(o) || isDoor(o)) continue;
++			showPicture(o, id, 1);
++			openedBack = StageBridge::objectShown(o) == 1;
++		}
+ 		if ((opened >= 0 || openedBack || shuts) && !_testing && !_touring.on) saveState();
++		// (No way on from here, its game leaving it only by a script: back the
++		// way they came, by a tap at its edge; told so, kept.)
++		if (!wayOut()) {
++			_wayBack.game = game; _wayBack.room = from; _wayBack.door = link.object; _wayBack.atGame = game; _wayBack.atRoom = link.target;
++			if (!_touring.on) announce("No way on from here: tap the arrow at the left to go back.");
++			if (!_testing && !_touring.on) {
++				ConfMan.set(kWayBackKey, Common::String::format("%d %d %d %d %d", game, from, (int)link.object, game, (int)link.target));
++				ConfMan.flushToDisk();
++			}
++		}
+ 		return true;
+ 	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[game].gameid, (int)link.target, problem.c_str());
+@@ -1876,13 +2093,16 @@ void SandboxEngine::arrivals() {
+ 		Common::Array<int> doors;
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isDoor(o) && !insideShut(o)) doors.push_back(o);
+ 		double xs[12], ys[12], x, y;
+-		const int spots = StageBridge::spots(12, xs, ys);
++		int spots = StageBridge::spots(12, xs, ys);
+ 		if (!doors.empty()) {
+ 			doorPoint(doors[_random.getRandomNumber(doors.size() - 1)], x, y);
+ 		} else {
+ 			x = spots ? xs[0] : 0; y = spots ? ys[0] : 0;
+ 		}
+ 		StageBridge::place(n, x, y);
++		// (On into the part of the place they came in by.)
++		StageBridge::position(n, x, y);
++		spots = StageBridge::spots(12, xs, ys, StageBridge::group(x, y));
+ 		if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
+ 	}
+ 	_people = _onStage.size();
+@@ -1893,8 +2113,9 @@ void SandboxEngine::stroll(int ticks) {
+ 	_strollClock = 180 + _random.getRandomNumber(420);
+ 	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
+ 	if (n == _player || n == _showOff.actor || StageBridge::moving(n) || StageBridge::acting(n) || StageBridge::switching(n) || following(_onStage[n]) || (actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))))) return;
+-	double xs[12], ys[12];
+-	const int spots = StageBridge::spots(12, xs, ys);
++	double xs[12], ys[12], x, y;
++	StageBridge::position(n, x, y);
++	const int spots = StageBridge::spots(12, xs, ys, StageBridge::group(x, y)); // (where they can walk to)
+ 	if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
+ }
+ 
+@@ -1955,7 +2176,9 @@ void SandboxEngine::request(int code) {
+ 	if (_game >= 0 && code > 0 && (code >> 8) == talkRoom() * 32 + kTalkPlayer) { chatCommand(code & 255); return; }
+ 	// (Somewhere else chosen: the tour ends there.)
+ 	// (Back to Maniac: home first, so where it began is what is saved.)
+-	if (_touring.on && (code == kBackRequest || code >= kGameRequest)) tourEnd(code == kBackRequest);
++	// (Back to Maniac, or to Story mode: home first, so where it began is what
++	// is saved.)
++	if (_touring.on && (code == kBackRequest || code >= kGameRequest)) tourEnd(code == kBackRequest || code == kWorldStoryModeRequest);
+ 	if (code == kBackRequest) { back(); return; }
+ 	if (code == kCastRequest) { castOffer(); return; }
+ 	// A choice on the character screen. (The chat's own requests, a scene's
+@@ -1979,12 +2202,26 @@ void SandboxEngine::request(int code) {
+ 	const bool aboard = kept && worldRideScene(_game, _room);
+ 	if (enter(game, room, 0, problem)) return;
+ 	warning("SCUMMVERSE sandbox: %s not shown (%s)", kWorldGames[game].gameid, problem.c_str());
+-	if (kept && enter(fromGame, fromRoom, 0, problem) && aboard) { StageBridge::place(_player, fromX, fromY); StageBridge::follow(_player); }
++	if (kept && enter(fromGame, fromRoom, 0, problem) && aboard) placePlayer(fromX, fromY);
+ }
+ 
+ void SandboxEngine::present() {
+ 	aimFlashlight();
+ 	StageBridge::render(_frame.data(), _width);
++	// (No way on from here: the arrow back, at the place's left, the place
++	// darkened under it.)
++	int bx0, by0, bx1, by1;
++	if (backSign(bx0, by0, bx1, by1)) {
++		for (int y = MAX(0, by0); y < MIN(_height, by1); ++y)
++			for (int x = MAX(0, bx0); x < MIN(_width, bx1); ++x) {
++				uint32 &c = _frame[y * _width + x];
++				c = 0xFF000000u | ((c >> 1) & 0x7F7F7Fu);
++				const int ax = x - bx0, ay = y - by0, w = bx1 - bx0, h = by1 - by0;
++				// (A triangle pointing left, a fifth in from each side.)
++				const int half = (h * 3 / 10) * (ax - w / 5) / MAX(1, w * 3 / 5);
++				if (ax >= w / 5 && ax < w * 4 / 5 && abs(ay - h / 2) <= half) c = 0xFFFFFFFFu;
++			}
++	}
+ 	if (PanelBridge::loaded()) {
+ 		// Over the scene (Sam & Max): its box while open, else its button and
+ 		// the pointer where the last tap was.
+@@ -2217,10 +2454,7 @@ void SandboxEngine::tourEnd(bool home) {
+ 	_touring.on = false; _touring.paused = false;
+ 	if (_player >= 0) StageBridge::stop(_player);
+ 	Common::String problem;
+-	if (home && _touring.homeGame >= 0 && enter(_touring.homeGame, _touring.homeRoom, 0, problem)) {
+-		StageBridge::place(_player, _touring.homeX, _touring.homeY);
+-		StageBridge::follow(_player);
+-	}
++	if (home && _touring.homeGame >= 0 && enter(_touring.homeGame, _touring.homeRoom, 0, problem)) placePlayer(_touring.homeX, _touring.homeY);
+ 	tourPublish();
+ 	Tour::publishPaused(false);
+ 	tourKeep();
+@@ -2494,9 +2728,19 @@ void SandboxEngine::rideOff() {
+ 	_riding = Riding();
+ }
+ 
++// Parked in a place no longer installed (a game taken away, exported
++// again): back at its own landing site, else it could never be boarded.
++void SandboxEngine::vanHome() {
++	if (installed(_vanPlace / 1024, _vanPlace % 1024)) return;
++	for (const WorldRide &r : kWorldRides) if (r.kind == kWorldRideVan) _vanPlace = r.game * 1024 + r.room;
++	_vanX = _vanY = -1;
++}
++
+ // Aboard where it is parked (the Worlds menu); elsewhere, where it is.
+ void SandboxEngine::vanBoard() {
+ 	if (_player < 0 || _game < 0 || _aboard) return; // (aboard a ride already)
++	// (On the way on another, out of sight: not now.)
++	if (_riding.phase > kRideBoarded || _tram.riding) { announce("You're already on your way."); return; }
+ 	int van = -1;
+ 	for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) van = i;
+ 	if (van < 0) return;
+@@ -2551,7 +2795,7 @@ bool SandboxEngine::rideInside(int index) {
+ 		warning("SCUMMVERSE sandbox: inside %s-%d not shown (%s)", kWorldGames[inside->game].gameid, inside->room, problem.c_str());
+ 		// (At the stop again, out of sight there as before.)
+ 		if (_game != riding.fromGame || _room != riding.fromRoom) {
+-			if (enter(riding.fromGame, riding.fromRoom, 0, problem)) { StageBridge::place(_player, riding.x, riding.y); StageBridge::follow(_player); }
++			if (enter(riding.fromGame, riding.fromRoom, 0, problem)) placePlayer(riding.x, riding.y);
+ 			_riding = riding;
+ 		}
+ 		return false;
+@@ -2675,8 +2919,9 @@ void SandboxEngine::rideStep(int ticks) {
+ 		if (phase > kRideBoarded) {
+ 			_door = -1; _action = 0; _target = -1;
+ 			StageBridge::stop(_player);
+-			// (Its inside on the way where exported, else out of sight here.)
+-			if (!rideInside(_riding.ride)) StageBridge::hide(_player, true);
++			// (Its inside on the way where exported, else out of sight here,
++			// those following too.)
++			if (!rideInside(_riding.ride)) { StageBridge::hide(_player, true); hideFollowers(true); }
+ 			_dirty = true;
+ 		}
+ 		return;
+@@ -2690,8 +2935,7 @@ void SandboxEngine::rideStep(int ticks) {
+ 		warning("SCUMMVERSE sandbox: a ride to %s-%d not shown (%s)", kWorldGames[done.toGame].gameid, done.toRoom, problem.c_str());
+ 		// (Back where it was boarded, as a door's failure is.)
+ 		if (enter(done.fromGame, done.fromRoom, 0, problem)) {
+-			StageBridge::place(_player, done.x, done.y);
+-			StageBridge::follow(_player);
++			placePlayer(done.x, done.y);
+ 			announce("That ride couldn't get there.");
+ 		}
+ 		return;
+@@ -2813,6 +3057,7 @@ void SandboxEngine::tramStep(int ticks) {
+ 			_door = -1; _action = 0; _target = -1; // (nothing of theirs goes on)
+ 			StageBridge::stop(_player);
+ 			StageBridge::hide(_player, true);
++			hideFollowers(true);
+ 			_dirty = true;
+ 		}
+ 		if (previous < kTramThere && phase >= kTramThere && _tram.riding) {
+@@ -2821,18 +3066,20 @@ void SandboxEngine::tramStep(int ticks) {
+ 			if (enter(tl.game, there.room, 0, problem)) {
+ 				double lx = there.ledgeX, ly = there.ledgeY;
+ 				StageBridge::walkable(lx, ly);
+-				StageBridge::place(_player, lx, ly);
+-				StageBridge::follow(_player);
++				placePlayer(lx, ly);
+ 				StageBridge::hide(_player, true);
++				hideFollowers(true);
+ 			} else {
+ 				warning("SCUMMVERSE sandbox: tram to %s-%d not shown (%s)", kWorldGames[tl.game].gameid, there.room, problem.c_str());
+ 				_tram.riding = false;
+ 				StageBridge::hide(_player, false);
++				hideFollowers(false);
+ 			}
+ 		}
+ 		if (phase >= kTramDone) {
+ 			if (_tram.riding && _game == tl.game && _room == there.room) {
+ 				StageBridge::hide(_player, false);
++				hideFollowers(false);
+ 				double ex = there.exitX, ey = there.exitY;
+ 				StageBridge::walkable(ex, ey);
+ 				StageBridge::walkTo(_player, ex, ey);
+@@ -3271,13 +3518,13 @@ void SandboxEngine::heckleStep(int ticks) {
+ 		}
+ 		h.phase = 5; h.clock = kHeckleWait;
+ 		return;
+-	case 5: // said when no one else is talking (a while at most, else none)
+-		if (!_speech.empty() && _speaker != h.mover && _speaker != h.heckler) { if (h.clock <= 0) h = Heckle(); return; }
++	case 5: // said when no one is talking, the two of them too (a while at most, else none)
++		if (!_speech.empty()) { if (h.clock <= 0) h = Heckle(); return; }
+ 		break;
+-	case 4: // his answer, asked as the heckle shows, said once it has and no one else talks (a while at most)
++	case 4: // his answer, asked as the heckle shows, said once it has and no one talks (a while at most)
+ 		if (back) h.answer = text;
+-		if (!_speech.empty() && _speaker != h.mover && h.clock > -kHeckleGiveUp) return;
+-		if (!_speech.empty() && _speaker != h.mover) { h = Heckle(); return; }
++		if (!_speech.empty() && h.clock > -kHeckleGiveUp) return;
++		if (!_speech.empty()) { h = Heckle(); return; }
+ 		if (h.asked && h.answer.empty() && h.clock > 0) return;
+ 		if (h.answer.empty())
+ 			h.answer = _random.getRandomNumber(4) < 2 ? kEwokese[_random.getRandomNumber(ARRAYSIZE(kEwokese) - 1)] : kRetort[_random.getRandomNumber(ARRAYSIZE(kRetort) - 1)];
+@@ -3394,6 +3641,11 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // "SVS1" (0105, 0106) ends after everyone; "SVS2" after the things carried.
+ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
+ 	if (_game < 0 || _player < 0) return false;
++	// (Touring: where it began, the tour brings the one played back.)
++	if (_touring.on && _touring.homeGame >= 0) {
++		game = _touring.homeGame; room = _touring.homeRoom; x = _touring.homeX; y = _touring.homeY;
++		return true;
++	}
+ 	if (worldRideScene(_game, _room)) {
+ 		if (_riding.fromGame < 0) return false;
+ 		game = _riding.fromGame; room = _riding.fromRoom; x = _riding.x; y = _riding.y;
+@@ -3405,9 +3657,10 @@ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const
+ }
+ 
+ void SandboxEngine::saveState() const {
+-	// (Touring: where it began stays, the tour brings the one played back.)
+-	if (_game < 0 || _player < 0 || _touring.on) return;
+-	// (Aboard: where it was boarded, as if not yet gone.)
++	// (Touring: where it began, with what was done meanwhile (a paused
++	// tour's things taken, stains); aboard: where it was boarded, as if not
++	// yet gone.)
++	if (_game < 0 || _player < 0) return;
+ 	int game, room;
+ 	double x, y;
+ 	if (!keptPlace(game, room, x, y)) return;
+@@ -3442,7 +3695,8 @@ void SandboxEngine::saveState() const {
+ 	out->finalize();
+ }
+ 
+-bool SandboxEngine::loadState(int &game, int &room, double &x, double &y) {
++bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *kept) {
++	if (kept) *kept = false;
+ 	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 	const uint32 tag = in ? in->readUint32BE() : 0;
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3')) return false;
+@@ -3451,8 +3705,13 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y) {
+ 	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
+ 	const uint32 signature = in->readUint32LE();
+ 	const int values = in->readUint16LE();
+-	if (in->err() || in->eos() || !installed(game, room) || !hasCharacter(key)) return false;
+-	_playerKey = key;
++	if (in->err() || in->eos()) return false;
++	// (Its place or the one played gone (exported again, taken away): the
++	// rest read all the same, what was carried, changed and left kept; the
++	// place false.)
++	const bool usable = installed(game, room) && hasCharacter(key);
++	if (hasCharacter(key)) _playerKey = key;
++	if (kept) *kept = true;
+ 	Common::Array<int32> packed(values);
+ 	for (int i = 0; i < values; ++i) packed[i] = in->readSint32LE();
+ 	const bool everyone = !in->err() && !in->eos();
+@@ -3492,11 +3751,11 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y) {
+ 		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+-			for (const Carried &c : carried) carry(c.game, c.room, c.id, c.name, c.picture);
++			for (const Carried &c : carried) carry(c.game, c.room, c.id, c.name, c.picture, false);
+ 			_stains = stains;
+ 		}
+ 	}
+-	return true;
++	return usable;
+ }
+ 
+ // The iPhone's Worlds menu knows the sandbox is running while this lives.
+@@ -3546,6 +3805,11 @@ Common::Error SandboxEngine::run() {
+ 	if (ConfMan.hasKey(kFollowersKey)) followersRead(ConfMan.get(kFollowersKey));
+ 	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+ 	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
++	vanHome();
++	if (ConfMan.hasKey(kWayBackKey)) {
++		WayBack w;
++		if (sscanf(ConfMan.get(kWayBackKey).c_str(), "%d %d %d %d %d", &w.game, &w.room, &w.door, &w.atGame, &w.atRoom) == 5) _wayBack = w;
++	}
+ 
+ 	if (ConfMan.hasKey("scummverse_selftest")) {
+ 		_testing = true;
+@@ -3557,14 +3821,18 @@ Common::Error SandboxEngine::run() {
+ 	double x = 0, y = 0;
+ 	Common::String problem;
+ 	// (scummverse_place, when set, wins.)
+-	const bool resumed = !ConfMan.hasKey("scummverse_place") && loadState(game, room, x, y);
++	bool kept = false;
++	const bool resumed = !ConfMan.hasKey("scummverse_place") && loadState(game, room, x, y, &kept);
+ 	if (!resumed) {
++		// (Kept, but its place or the one played gone: what was carried,
++		// changed and left stays; the start place, as the one played still.)
++		const int keptKey = kept && hasCharacter(_playerKey) ? _playerKey : 0;
+ 		if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "no places are installed yet (add your games to Documents)");
+-		if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "no characters are installed yet");
+-		if (_wanderers) buildWanderers();
++		if (!keptKey && !someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "no characters are installed yet");
++		if (_wanderers && !kept) buildWanderers();
+ 	}
+ 	if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
+-	if (resumed) { StageBridge::place(_player, x, y); StageBridge::follow(_player); bringFollowers(); saveState(); }
++	if (resumed) { placePlayer(x, y); saveState(); }
+ 	tourReady();
+ 	uint32 last = g_system->getMillis();
+ 	int carry = 0, palette = StageBridge::paletteVersion();
+@@ -3644,7 +3912,7 @@ Common::Error SandboxEngine::run() {
+ Common::Error SandboxEngine::verbsTest() {
+ 	int panels = 0, verbs = 0, chosen = 0, failed = 0, paired = 0, given = 0;
+ 	int looked = 0, opened = 0, closed = 0, pushed = 0, taken = 0, refused = 0, unreached = 0, items = 0, gone = 0, declined = 0, withThings = 0;
+-	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0;
++	int coins = 0, handed = 0, coinItems = 0, coinCarried = 0, distaffs = 0, onTheWay = 0;
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+ 	auto tapRect = [&](int x, int y, int w, int h) { tap(x + w / 2, y + h / 2); };
+ 	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
+@@ -3767,6 +4035,31 @@ Common::Error SandboxEngine::verbsTest() {
+ 		StageBridge::view(left, top, width, height, rowScale, colScale);
+ 		const bool over = PanelBridge::over(), coin = PanelBridge::coin();
+ 		if (PanelBridge::top() != (over ? top : top + height) || PanelBridge::top() + PanelBridge::screenRows() > _height) fail(over ? "not over the scene" : "not under the scene", g);
++		// A verb chosen on the way to a door (the mansion's panel): the walk
++		// goes on, through it, the verb still the sentence begun.
++		if (!strcmp(kWorldGames[g].gameid, "maniac") && !over && !coin) {
++			int to = -1;
++			for (int o = 0; o < StageBridge::objectCount() && to < 0 && _room == room; ++o) {
++				int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
++				if (!isDoor(o) || insideShut(o) || !StageBridge::object(o, id, ox, oy, ow, oh, wx, wy, state)) continue;
++				const WorldLink *link = worldLinkFrom(g, room, id);
++				if (!link || link->target == room || !installed(g, link->target) || !doorAllowed(room, id)) continue;
++				StageBridge::lookAt(ox + ow / 2.0);
++				StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++				if (sx < 0 || sx >= _width || sy < 0 || sy >= PanelBridge::top()) continue;
++				tap(sx, sy);
++				if (_door >= 0 && _room == room && StageBridge::moving(_player)) to = link->target;
++			}
++			const int v = verbOf(kWorldVerbOpen);
++			if (to < 0 || v < 0) fail("no door walked to, or no Open", g);
++			else if (!pick(v) || _door < 0) fail("a verb chosen on the way to a door let the door go", g);
++			else {
++				for (int t = 0; t < 40000 && _room != to; ++t) step(1);
++				if (_room != to) fail("a verb chosen on the way to a door stopped the walk short of it", g);
++				else ++onTheWay;
++			}
++			if (_room != room) enter(g, room, 0, problem);
++		}
+ 		// Full Throttle's: its box opens by a right click and shuts by a tap
+ 		// off it and another right click; a press held on a thing opens the
+ 		// coin there (not before), each part lit under the pointer; let go
+@@ -4280,7 +4573,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -4368,6 +4661,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			else if (!enter(maniac, lightRoom, 0, problem) || (lamp = findThing(true)) < 0 || !use(kWorldVerbTurnOff, lamp) || !StageBridge::dark()) fail("no place made dark for the flashlight", maniac);
+ 			else if (!tapCarried(kWorldVerbTurnOn, carried) || !_flashlight) fail("the flashlight not turned on", maniac);
+ 			else {
++				// (Kept on, read back as at a launch.)
++				auto keptOn = [&]() { int kg, kr; double kx, ky; saveState(); return loadState(kg, kr, kx, ky) && _flashlight; };
+ 				// (A tap on the place, as a player's: the beam there.)
+ 				int left, top, width, height;
+ 				double rowScale, colScale, tx, ty;
+@@ -4379,6 +4674,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (!StageBridge::flashlight(bx, by, bw, bh) || tx < bx || tx >= bx + bw || ty < by || ty >= by + bh || !lit) fail("no lit window where the tap was", maniac);
+ 				else if (lit > bw * bh * rowScale * colScale * 1.1) fail("more lit than the flashlight's window", maniac);
+ 				else if (ConfMan.hasKey("scummverse_shots") && (present(), !shot("flashlight.png"))) fail("no picture of the flashlight", maniac);
++				else if (!keptOn()) fail("the flashlight found off when read back (a launch)", maniac);
+ 				else if (!tapCarried(kWorldVerbTurnOff, carried) || _flashlight) fail("the flashlight not turned off", maniac);
+ 				else {
+ 					seen(lit, grey);
+@@ -4719,6 +5015,36 @@ Common::Error SandboxEngine::verbsTest() {
+ 			putBack(withRoom, f.with);
+ 			_pictures.erase(thingKey(maniac, f.room, f.id)); _pictures.erase(thingKey(maniac, withRoom, f.with));
+ 		}
++		// The padlocked door (room 4), as a player does it: the key from the
++		// pit carried, Open refused; one lock unlocked, still refused; both,
++		// the door opened and the doorway in it gone through; shut again.
++		if (maniac >= 0 && installed(maniac, 4) && installed(maniac, 31)) {
++			int keyRoom = -1, picture, answers;
++			for (int r = 0; r < 256 && keyRoom < 0; ++r) if (PanelBridge::gameThing(maniac, r, 141, picture, answers)) keyRoom = r;
++			for (int id : {160, 161, 162}) _pictures.erase(thingKey(maniac, 4, id));
++			bool ok = keyRoom >= 0 && enter(maniac, 4, 0, problem) && thingIn(160) >= 0 && thingIn(161) >= 0 && thingIn(162) >= 0 && carry(maniac, keyRoom, 141, "", 0);
++			auto unlock = [&](int lock) {
++				int key = -1;
++				for (uint i = 0; i < _carried.size(); ++i) if (_carried[i].room == keyRoom && _carried[i].id == 141) key = i;
++				if (key < 0 && carry(maniac, keyRoom, 141, "", 0)) key = _carried.size() - 1;
++				if (key < 0) return false;
++				Pair p;
++				p.kind = kWorldVerbUnlock; p.thing = thingIn(lock); p.withItem = key;
++				pairUp(p);
++				return pictureOf(4, lock) == 1;
++			};
++			ok = ok && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 0;
++			ok = ok && unlock(161) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 0;
++			ok = ok && unlock(162) && doAt(kWorldVerbOpen, thingIn(160)) && pictureOf(4, 160) == 1 && doorAllowed(4, 163);
++			const WorldLink *way = worldLinkTo(maniac, 4, 31);
++			int index = -1;
++			for (int i = 0; way && i < worldMap(maniac)->linkCount; ++i) if (&worldMap(maniac)->links[i] == way) index = i;
++			ok = ok && way && way->object == 163 && travel(index) && _room == 31;
++			ok = ok && enter(maniac, 4, 0, problem) && doAt(kWorldVerbClose, thingIn(160)) && pictureOf(4, 160) == 0;
++			if (!ok) fail("the padlocked door not opened with both its locks unlocked", maniac); else ++padlocks;
++			putBack(keyRoom, 141);
++			for (int id : {160, 161, 162}) _pictures.erase(thingKey(maniac, 4, id));
++		}
+ 		// The grating behind the bushes: no way through until they are
+ 		// pulled aside.
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+@@ -4771,8 +5097,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+ 	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone", paired, pairsSeen, pairsAway, pairsFound, given);
+ 	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+@@ -5266,7 +5592,7 @@ Common::Error SandboxEngine::castTest() {
+ 	// first), each carried; each chosen (from the start's lead) played where
+ 	// the player is, standing where the one before stood, as tall against
+ 	// the lead as drawn to be (Crispy about a third of a person).
+-	int customs = 0, customsAmong = 0, lighters = 0, canLighters = 0, roamers = 0;
++	int customs = 0, customsAmong = 0, lighters = 0, canLighters = 0, roamers = 0, customsLeft = 0, herePlayed = 0;
+ 	bool roamedHere = false;
+ 	double tall = 0;
+ 	{
+@@ -5406,6 +5732,49 @@ Common::Error SandboxEngine::castTest() {
+ 			if (times != 1) fail("one roaming here not shown once", "custom roamers"); else roamedHere = true;
+ 		}
+ 		if (WanderBridge::where(worldAppearanceKey(kWorldCustomLooks, 1)) > 0) fail("Crispy roaming (not one who roams)", "custom roamers");
++		// One who does not roam, left here, stays through the next switch
++		// here, where they stood (until the place changes).
++		const int second = worldAppearanceKey(kWorldCustomLooks, kWorldCustomRoamers[0].costume), third = worldAppearanceKey(kWorldCustomLooks, kWorldCustomRoamers[1].costume);
++		int at = -1;
++		if (!castChoose(crispy) || !castChoose(second)) fail("not played", "custom left here");
++		else {
++			for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == crispy && (int)n != _player) at = n;
++			double fx = 0, fy = 0, sx = -1, sy = -1;
++			if (at >= 0) StageBridge::position(at, fx, fy);
++			if (at < 0) fail("the one before not left beside", "custom left here");
++			else if (!castChoose(third)) fail("not played", "custom left here");
++			else {
++				int times = 0;
++				at = -1;
++				for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == crispy) { ++times; at = n; }
++				if (at >= 0) StageBridge::position(at, sx, sy);
++				if (times != 1 || at == _player || fabs(sx - fx) > 1 || fabs(sy - fy) > 1) fail("one who does not roam gone at the next switch", "custom left here");
++				else if ((int)_onStage.size() != StageBridge::actorCount() || _people != (int)_onStage.size()) fail("the stage and the actors out of step", "custom left here");
++				else ++customsLeft;
++			}
++		}
++		// Someone of the game's own who lives here played: the one before
++		// stays where they stood, once.
++		if (castChoose(leadKey)) {
++			int other = -1;
++			for (const WorldCastGuest &c : kWorldCast) {
++				const int k = worldAppearanceKey(c.game, c.guest.costume);
++				int home;
++				if (other < 0 && c.game == _game && k != leadKey && hasCharacter(k) && castHome(k, home) && home == _room) other = k;
++			}
++			double bx0, by0, ox = 0, oy = 0;
++			StageBridge::position(_player, bx0, by0);
++			if (other >= 0) {
++				if (!castChoose(other)) fail("not played", "someone here played");
++				else {
++					int times = 0, before = -1;
++					for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == leadKey) { ++times; before = n; }
++					if (before >= 0) StageBridge::position(before, ox, oy);
++					if (times != 1 || before == _player || fabs(ox - bx0) > 30 || fabs(oy - by0) > 30) fail("the one before gone, or not where they stood", "someone here played");
++					else ++herePlayed;
++				}
++			}
++		}
+ 		_wanderers = false;
+ 	}
+ 	// Kept; and a request in the screen's range that is no one's (the chat's
+@@ -5420,6 +5789,29 @@ Common::Error SandboxEngine::castTest() {
+ 	saveState();
+ 	double x, y;
+ 	if (!loadState(game, room, x, y) || _playerKey != key || game != atGame || room != atRoom) fail("not kept", "state");
++	// Paused (iOS putting the app in the background): kept at once.
++	{
++		g_system->getSavefileManager()->removeSavefile(kStateFile);
++		_testing = false;
++		{ PauseToken pause = pauseEngine(); }
++		_testing = true;
++		Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
++		if (!in) fail("not kept when paused (the app put in the background)", "state");
++	}
++	// Its place gone (exported again): the rest read all the same (what was
++	// changed kept, the one played still), the place refused.
++	{
++		const int changedKey = thingKey(atGame, atRoom, 4095);
++		_pictures[changedKey] = 1;
++		saveState();
++		_pictures.clear();
++		_rooms.erase(atGame * 1024 + atRoom);
++		bool kept = false;
++		const bool usable = loadState(game, room, x, y, &kept);
++		_rooms[atGame * 1024 + atRoom] = true;
++		if (usable || !kept || !_pictures.contains(changedKey) || _playerKey != key) fail("what was kept lost with its place gone", "state");
++		_pictures.erase(changedKey);
++	}
+ 	// A picture of the faces, in the boxes' order, three times their size.
+ 	if (ConfMan.hasKey("scummverse_shots")) {
+ 		for (uint i = 0; i < _frame.size(); ++i) _frame[i] = 0xFF140320;
+@@ -5435,10 +5827,10 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d), %d failed",
+-		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, roamers, (int)roamedHere, failed);
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers; %d lit what they carry), %d of them roaming (one sent here shown: %d; %d left here kept), %d of the game's own here played (the one before kept), %d failed",
++		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, lighters, roamers, (int)roamedHere, customsLeft, herePlayed, failed);
+ 	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast) || customsAmong != 1 || lighters != canLighters ||
+-		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		roamers != ARRAYSIZE(kWorldCustomRoamers) || !roamedHere || customsLeft != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -5738,6 +6130,20 @@ Common::Error SandboxEngine::tourTest() {
+ 	pump();
+ 	for (int t = 0; t < 120; ++t) step(1);
+ 	if (!_touring.paused || StageBridge::moving(_player) || !Tour::paused()) fail("walking while paused");
++	// Kept while touring: where it began, with what was done meanwhile (a
++	// stain made while paused).
++	{
++		Stain s;
++		s.game = _game; s.room = _room; s.x = 10; s.y = 10; s.width = 4; s.made = 0; s.grow = 0;
++		_stains.push_back(s);
++		const uint stains = _stains.size();
++		saveState();
++		int kg, kr;
++		double kx, ky;
++		if (!loadState(kg, kr, kx, ky) || kg != homeGame || kr != homeRoom || fabs(kx - homeX) > 1 || fabs(ky - homeY) > 1 || _stains.size() != stains || _stains.back().room != s.room)
++			fail("not kept while touring (where it began, a stain made meanwhile)");
++		if (!_stains.empty()) _stains.pop_back();
++	}
+ 	Tour::request(Tour::kNext);
+ 	pump();
+ 	for (int t = 0; t < 60; ++t) step(1);
+@@ -5816,6 +6222,19 @@ Common::Error SandboxEngine::tourTest() {
+ 	for (Common::HashMap<int, int>::const_iterator it = _pictures.begin(); it != _pictures.end() && !changed; ++it)
+ 		changed = !picturesBefore.contains(it->_key) || picturesBefore[it->_key] != it->_value;
+ 	if (changed) fail("a place left changed by the tour (a door opened)");
++	// Story mode chosen during the tour: home first, where it began kept
++	// (its own check opens Story mode; here only let go again).
++	Tour::request(Tour::kGoTo, 3);
++	pump();
++	if (!_touring.on) fail("not touring again");
++	else {
++		request(kWorldStoryModeRequest);
++		StageBridge::position(_player, x, y);
++		if (_touring.on || _game != homeGame || _room != homeRoom || fabs(x - homeX) > 1 || fabs(y - homeY) > 1) fail("not back where it began before Story mode");
++		Common::Event event;
++		while (g_system->getEventManager()->pollEvent(event)) {}
++		::Scummverse::setStoryMode(false);
++	}
+ 	g_system->updateScreen();
+ 	warning("SCUMMVERSE sandbox selftest tour: %d stops (%d on foot, %d warped, %d not shown), %d doors not reached, %d gone through from as near as the walk boxes allow, in %d ticks, commands as asked%s, back where it began, %d failed",
+ 		total, onFoot, warped, refused, _touring.unreached - unreachedBefore, _touring.across - acrossBefore, ticks, passedThrough ? " (paused on the way through)" : "", failed);
+@@ -5861,6 +6280,17 @@ Common::Error SandboxEngine::ridesTest() {
+ 	if (game < 0 && zak < 0) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: neither The Dig nor Zak installed");
+ 	Common::String problem;
+ 	bool pictured = false;
++	// (Someone following rides along: out of sight with the one played.)
++	int tramCompanion = -1, tramFollowed = 0;
++	for (const WorldCastGuest &c : kWorldCast) {
++		const int k = worldAppearanceKey(c.game, c.guest.costume);
++		if (tramCompanion < 0 && c.game == game && k != _playerKey && hasCharacter(k)) tramCompanion = k;
++	}
++	if (tramCompanion >= 0) follow(tramCompanion, true);
++	auto companionSeen = [&]() {
++		for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == tramCompanion && !StageBridge::hidden(n)) return true;
++		return false;
++	};
+ 	for (int l = 0; l < kWorldTramLineCount && game >= 0; ++l) {
+ 		const WorldTramLine &tl = kWorldTramLines[l];
+ 		if (!installed(tl.game, tl.ends[0].room) || !installed(tl.game, tl.ends[1].room)) continue;
+@@ -5911,12 +6341,16 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (!pictured && ConfMan.hasKey("scummverse_shots")) pictured = shot("tram.png");
+ 			if (!e) {
+ 				// On the ledge as the doors close: away, unseen, and off at the other end.
+-				bool seen = false;
++				bool seen = false, companion = false;
+ 				for (int t = 0; t < 3000 && _tram.phase; ++t) {
+ 					step(1);
+ 					seen = seen || (_tram.riding && !StageBridge::hidden(_player));
++					companion = companion || (_tram.riding && tramCompanion >= 0 && companionSeen());
+ 				}
+ 				if (seen) fail("seen riding");
++				if (companion) fail("someone following seen while the one played rides");
++				else if (tramCompanion >= 0 && !companionSeen()) fail("someone following not off the tram with the one played");
++				else if (tramCompanion >= 0) ++tramFollowed;
+ 				if (_tram.phase || _game != tl.game || _room != there.room || StageBridge::hidden(_player)) fail("not off at the other end");
+ 				else if (((_tram.parked >> (l * 2)) & 3) != (unsigned)(2 - e)) fail("not staying at the other end");
+ 				else ++rides;
+@@ -5936,6 +6370,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 			}
+ 		}
+ 	}
++	if (tramCompanion >= 0) follow(tramCompanion, false);
++	if (tramCompanion >= 0 && stations && !tramFollowed) fail("no tram ridden with someone following");
+ 	// Zak's rides (when Zak is there): the bus to the airport and back, the
+ 	// Mars tram both ways, planes asking where to and flying there; a tap on
+ 	// where one is boarded walks there; walked off before it leaves, it goes
+@@ -6106,6 +6542,13 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (!board(bus.game, bus.room, bus.object)) fail("the bus not boarded with someone following");
+ 			else {
+ 				for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
++				// (Out of sight with the one played as it leaves; not walking
++				// about the stop meanwhile.)
++				for (int t = 0; t < 6000 && _riding.ride >= 0 && !StageBridge::hidden(_player); ++t) step(1);
++				int with = -1;
++				for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == companion) with = i;
++				if (with < 0 || !StageBridge::hidden(_player) || !StageBridge::hidden(with)) fail("someone following left in sight at the stop");
++				else { step(60); if (StageBridge::moving(with)) fail("someone following walking at the stop while the bus is away"); }
+ 				if (ride(bus.game, bus.target, bus.arrival, "the bus not ridden with someone following")) {
+ 					int times = 0, n = -1;
+ 					for (uint i = 0; i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == companion) { ++times; n = i; }
+@@ -6266,7 +6709,7 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// drawn over its own landing site; from the menu there back to that
+ 	// site, drawn where it landed again; asked for where it is not, it
+ 	// says where it is. A picture of it parked: van.png.
+-	int vanFlights = 0, vanTaps = 0, cockpits = 0;
++	int vanFlights = 0, vanTaps = 0, cockpits = 0, vanRefused = 0;
+ 	Common::Array<byte> vanPicture;
+ 	const bool vanTaken = read("zak-van.svv", vanPicture);
+ 	const int monkey = 0, melee = 13, mars = 0; // (kWorldVanSites: Melee Island, the Mars landing site)
+@@ -6355,10 +6798,30 @@ Common::Error SandboxEngine::ridesTest() {
+ 		if (vanTaken && enter(meleeGame, meleeRoom, 0, problem)) {
+ 			if (!first || !parked(false) || !StageBridge::propRect(0, x0, y0, x1, y1) || y0 != b0 || y1 != b1 || x1 - x0 != a1 - a0) fail("the van not where it landed");
+ 		}
++		// (Asked for on the way on the Mars tram, out of sight: not now, the
++		// tram ridden on.)
++		int marsTram = -1;
++		for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i)
++			if (kWorldRides[i].kind == kWorldRideTram && kWorldRides[i].game == marsGame && kWorldRides[i].room == marsRoom) marsTram = i;
++		_vanPlace = marsGame * 1024 + marsRoom;
++		if (marsTram >= 0 && installed(marsGame, kWorldRides[marsTram].target) && enter(marsGame, marsRoom, 0, problem) && board(marsGame, marsRoom, kWorldRides[marsTram].object)) {
++			for (int t = 0; t < 6000 && _riding.ride >= 0 && !StageBridge::hidden(_player); ++t) step(1);
++			_notice.clear();
++			request(kWorldSandboxVanRequest);
++			if (_riding.ride != marsTram || !StageBridge::hidden(_player) || !_notice.contains("on your way")) fail("the van boarded on the way on the tram");
++			else if (ride(marsGame, kWorldRides[marsTram].target, kWorldRides[marsTram].arrival, "the tram not ridden on after the van was asked for")) ++vanRefused;
++		}
++		// (Parked where is no longer installed: back at its own site.)
++		_vanPlace = marsGame * 1024 + 1023; _vanX = 5; _vanY = 5;
++		vanHome();
++		int vanRide = -1;
++		for (int i = 0; i < ARRAYSIZE(kWorldRides); ++i) if (kWorldRides[i].kind == kWorldRideVan) vanRide = i;
++		if (vanRide < 0 || _vanPlace != kWorldRides[vanRide].game * 1024 + kWorldRides[vanRide].room || _vanX != -1 || _vanY != -1) fail("the van left where is not installed");
++		else ++vanRefused;
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose, %d crammed in), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d failed",
+-		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, crammed, toursHome, cockpits, failed);
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d by a tap on it, %d ridden with someone following, %d flights seen from the cabin (%d following seated, %d in their seated pose, %d crammed in), %d tours begun aboard home at the stop, %d van flights from the cockpit, %d van checks (not on the way on another, called home), %d trams with someone following, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, vanTaps, followedRides, cabins, seatedFollowers, seatedPoses, crammed, toursHome, cockpits, vanRefused, tramFollowed, failed);
+ 	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+@@ -6568,6 +7031,27 @@ Common::Error SandboxEngine::movesTest() {
+ 		for (int t = 0; t < 1200 && _speaker == third; ++t) step(1);
+ 		if (_heckle.phase || _speech == kHeckleSwing[1]) fail("a heckle kept for someone talking on and on");
+ 		else ++waited;
++		// (He himself talking, an answer of his own: the heckle waits for it,
++		// and his retort for anyone's line.)
++		for (int t = 0; t < 3000 && (_heckle.phase || !_speech.empty()); ++t) step(1);
++		_heckle = Heckle(); _heckle.phase = 5; _heckle.mover = _player; _heckle.heckler = near; _heckle.said = kHeckleSwing[2]; _heckle.clock = kHeckleWait;
++		sayAs(_player, "Hmm.");
++		_speechClock = 60;
++		step(5);
++		if (_speaker != _player || _speech != "Hmm.") fail("a heckle said over his own line");
++		for (int t = 0; t < 600 && _speaker == _player; ++t) step(1);
++		step(1);
++		if (_speaker != near || _speech != kHeckleSwing[2]) fail("a heckle not said once he is done");
++		for (int t = 0; t < 3000 && (_heckle.phase || !_speech.empty()); ++t) step(1);
++		_heckle = Heckle(); _heckle.phase = 4; _heckle.mover = _player; _heckle.heckler = near; _heckle.answer = kRetort[0]; _heckle.clock = kHeckleWait;
++		sayAs(_player, "Hmm.");
++		_speechClock = 60;
++		step(5);
++		if (_speaker != _player || _speech != "Hmm.") fail("his retort said over his own line");
++		for (int t = 0; t < 600 && _speech == "Hmm."; ++t) step(1);
++		step(1);
++		if (_speaker != _player || _speech != kRetort[0]) fail("his retort not said once his line is done");
++		for (int t = 0; t < 3000 && (_heckle.phase || !_speech.empty()); ++t) step(1);
+ 	}
+ 	// Not played: Crispy again, Sith Ewok 3 left beside; a show when due.
+ 	if (!castChoose(crispy)) fail("Crispy not played again");
+@@ -6683,6 +7167,16 @@ Common::Error SandboxEngine::movesTest() {
+ 			enter(_game, _room, 0, problem);
+ 			if (StageBridge::markCount() != 2 || !StageBridge::mark(1, mx, my, mw, age, grow) || age >= grow + StageBridge::kPuddleTicks || age < grow) fail("a fresh puddle dry when entered again");
+ 			else ++cutShort;
++			// (Cut short by the place changing: the same.)
++			const uint stains = _stains.size();
++			pressKey(water); step(30);
++			enter(_game, _room, 0, problem);
++			if (_stains.size() != stains + 1 || _stains.back().width > full * 0.8 || _stains.back().grow >= kPeeTicks - StageBridge::kActTicks || _peeing.actor >= 0) fail("a pee cut short by the place changing kept as if done");
++			else ++cutShort;
++			pressKey(water); step(1);
++			enter(_game, _room, 0, problem);
++			if (_stains.size() != stains + 1) fail("a puddle before his leg was up, the place changed");
++			else ++cutShort;
+ 			_peeClock = 1; step(1);
+ 			if (_peeClock < kPeeEvery) fail("his while on his own run down while played");
+ 			else ++cutShort;
+@@ -6707,7 +7201,7 @@ Common::Error SandboxEngine::movesTest() {
+ 	_wanderers = false;
+ 	warning("SCUMMVERSE sandbox selftest moves: %d keys, %d walks stopped, %d heckled in written lines (%d answered, %d in Ewokese), %d with the model's lines, %d written when it is slow, %d waiting for others, %d shows (%d saber, %d lightning), %d held far away or walking; Crispy 2: %d pees (a walk stopped, from the side, a puddle behind him either way, dried to a stain), %d stains kept (back again, saved and read back, %d at most), %d on his own, %d cut short, entered again or played (as big as it got, none before the leg is up, drying on, his while begun again), %d failed",
+ 		keys, stopped, written, answered, ewokese, modelLines, slowLines, waited, shows, saberShows, zapShows, held, pees, kept, (int)StageBridge::kMarks, own, cutShort, failed);
+-	if (failed || keys != 6 || !written || !waited || !modelLines || !slowLines || !saberShows || !zapShows || pees != 2 || kept != 3 || own != 1 || cutShort != 4) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	if (failed || keys != 6 || !written || !waited || !modelLines || !slowLines || !saberShows || !zapShows || pees != 2 || kept != 3 || own != 1 || cutShort != 6) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -6732,7 +7226,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+ 		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0, insideOpened = 0, sameWay = 0;
+-		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0;
++		int seenOpening = 0, openBehind = 0, openBack = 0, opensCount = 0, stays = 0, staysCount = 0, backCount = 0, stuck = 0, wentBack = 0;
+ 		const int acrossBefore = _doorsAcross;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+@@ -6876,6 +7370,24 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 						atDoor += (ax - dx) * (ax - dx) + (ay - dy) * (ay - dy) < 1;
+ 						break;
+ 					}
++					// (No way on from there, its game leaving it by a script: the arrow
++					// back drawn at its left, a tap on it back the way they came, at
++					// that door; a tap at the other edge a walk, not back.)
++					int bx0, by0, bx1, by1;
++					if (!wayOut()) {
++						++stuck;
++						const bool sign = backSign(bx0, by0, bx1, by1);
++						int white = 0;
++						if (sign) {
++							present();
++							for (int y = by0; y < by1; ++y) for (int x = bx0; x < bx1; ++x) white += x >= 0 && x < _width && y >= 0 && y < _height && _frame[y * _width + x] == 0xFFFFFFFFu;
++							tap(_width - 2, (by0 + by1) / 2);
++						}
++						const bool stayed = _room == link.target;
++						if (sign) tap((bx0 + bx1) / 2, (by0 + by1) / 2);
++						if (sign && white && stayed && _room == link.room) ++wentBack;
++						else { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: no way back from %d (arrow %d, drawn %d, edge tap kept there %d)", kWorldGames[g].gameid, (int)link.room, (int)link.object, (int)link.target, sign, white, stayed); }
++					} else if (backSign(bx0, by0, bx1, by1)) { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: an arrow back where there is a way on", kWorldGames[g].gameid, (int)link.room, (int)link.object); }
+ 				}
+ 				else if (_room != startRoom) ++elsewhere;
+ 				else {
+@@ -6895,6 +7407,39 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, _doorsAcross - acrossBefore, failed, insideOpened, sameWay);
+ 		warning("SCUMMVERSE sandbox selftest doors opening: %d of %d seen opening, %d of %d left open behind, %d of %d doors back open on arrival, %d of %d the game does not open left as they were",
+ 			seenOpening, opensCount, openBehind, opensCount, openBack, backCount, stays, staysCount);
++		warning("SCUMMVERSE sandbox selftest doors with no way on: %d arrived at, %d back by a tap on the arrow at the left", stuck, wentBack);
++		// The other games' switched doors (shown open or shut, as Monkey
++		// Island's): gone through open, the one back open too, a door there.
++		int switchedPairs = 0, switchedBack = 0;
++		for (int g = 0; g < worldGameCount(); ++g) {
++			const WorldMap *map = worldMap(g);
++			if (worldHome(g)) continue;
++			for (int i = 0; map && i < map->linkCount && switchedPairs < 24; ++i) {
++				const WorldLink &link = map->links[i];
++				const WorldLink *back = link.arrival ? worldLinkFrom(g, link.target, link.arrival) : worldLinkTo(g, link.target, link.room);
++				if (!link.switched || !back || !back->switched || back->target != link.room || !installed(g, link.room) || !installed(g, link.target)) continue;
++				_pictures.clear();
++				if (!enter(g, link.room, 0, problem)) continue;
++				int door = -1, backDoor = -1;
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state;
++					if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == link.object && StageBridge::objectPictures(o) > 1) door = o;
++				}
++				if (door < 0) continue;
++				showPicture(door, link.object, 1);
++				if (!isDoor(door) || !travel(i) || _room != link.target) continue;
++				for (int o = 0; o < StageBridge::objectCount(); ++o) {
++					int id, ox, oy, w, h, wx, wy, state;
++					if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == back->object && StageBridge::objectPictures(o) > 1) backDoor = o;
++				}
++				if (backDoor < 0) continue;
++				++switchedPairs;
++				if (isDoor(backDoor) && StageBridge::objectShown(backDoor)) ++switchedBack;
++				else { ++failed; warning("SCUMMVERSE sandbox door %s-%d object %d: the switched door back (%d) left shut", kWorldGames[g].gameid, (int)link.room, (int)link.object, (int)back->object); }
++			}
++		}
++		_pictures.clear();
++		warning("SCUMMVERSE sandbox selftest doors switched: %d gone through open, %d with the door back open", switchedPairs, switchedBack);
+ 		const bool doorsOpen = seenOpening == opensCount && openBehind == opensCount && openBack == backCount && stays == staysCount;
+ 		if (!tried || failed || !doorsOpen || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+@@ -6942,7 +7487,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		places.push_back(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
+ 	}
+ 	int shown = 0, skipped = 0, failed = 0, people = 0, arrivedCount = 0, unreached = 0, colors = 0;
+-	int objects = 0, named = 0, pictured = 0, cycling = 0, placed = 0, placedPlaces = 0;
++	int objects = 0, named = 0, pictured = 0, cycling = 0, placed = 0, placedPlaces = 0, inside = 0, outside = 0, moved = 0;
+ 	for (const Common::String &name : places) {
+ 		int g = -1, r = 0;
+ 		for (int i = 0; i < worldGameCount() && g < 0; ++i) {
+@@ -6954,6 +7499,41 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		if (!enter(g, r, 0, problem)) { warning("SCUMMVERSE sandbox: %s not shown (%s)", name.c_str(), problem.c_str()); ++failed; continue; }
+ 		++shown; people += _people;
+ 		placed += _placed; placedPlaces += _placed > 0;
++		// (Everyone here where the picture is and in the one played's part of
++		// the place, where it has room for them there.)
++		{
++			double px, py, qx, qy, sx[1], sy[1];
++			StageBridge::position(_player, px, py);
++			const int mine = StageBridge::group(px, py);
++			const double width = StageBridge::sceneWidth(), height = StageBridge::sceneHeight();
++			auto inPicture = [&](double x, double y) { return x >= 0 && x < width && y >= height / 25.0 && y <= height; };
++			const bool pictureRoom = StageBridge::spots(1, sx, sy) && inPicture(sx[0], sy[0]);
++			const bool partRoom = StageBridge::spots(1, sx, sy, mine) && StageBridge::group(sx[0], sy[0]) == mine;
++			for (uint n = 0; n < _onStage.size(); ++n) {
++				if ((int)n == _player) continue;
++				StageBridge::position(n, qx, qy);
++				if (pictureRoom && !inPicture(qx, qy)) { ++outside; warning("SCUMMVERSE sandbox: %s: someone placed at %.0f,%.0f, off the picture", name.c_str(), qx, qy); }
++				else if (partRoom && StageBridge::group(qx, qy) != mine) { ++outside; warning("SCUMMVERSE sandbox: %s: someone placed at %.0f,%.0f, apart from the one played", name.c_str(), qx, qy); }
++				else ++inside;
++			}
++			// (The one played put in another part of the place, as a launch
++			// or a tour's end puts them back: the others there too.)
++			double ox[16], oy[16];
++			const int found = _onStage.size() > 1 ? StageBridge::spots(16, ox, oy) : 0;
++			for (int i = 0; i < found; ++i) {
++				const int other = StageBridge::group(ox[i], oy[i]);
++				if (other == mine || other < 0 || !inPicture(ox[i], oy[i]) || !StageBridge::spots(1, sx, sy, other) || StageBridge::group(sx[0], sy[0]) != other) continue;
++				placePlayer(ox[i], oy[i]);
++				++moved;
++				for (uint n = 0; n < _onStage.size(); ++n) {
++					if ((int)n == _player) continue;
++					StageBridge::position(n, qx, qy);
++					if (StageBridge::group(qx, qy) != other) { ++outside; warning("SCUMMVERSE sandbox: %s: someone left at %.0f,%.0f, apart from the one played moved there", name.c_str(), qx, qy); }
++				}
++				StageBridge::place(_player, px, py);
++				break;
++			}
++		}
+ 		present();
+ 		const bool one = places.size() == 1;
+ 		if (one) shot("sandbox-start.png");
+@@ -7025,7 +7605,8 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		mode.c_str(), shown, people, arrivedCount, unreached, skipped, failed, colors, _width, _height, _format.toString().c_str());
+ 	warning("SCUMMVERSE sandbox selftest %s objects: %d, %d named, %d with pictures; %d places with colours moving", mode.c_str(), objects, named, pictured, cycling);
+ 	warning("SCUMMVERSE sandbox selftest %s things: %d where their games put them, in %d places", mode.c_str(), placed, placedPlaces);
+-	if (!shown || failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest %s people: %d placed where the picture is, beside the one played; %d not; %d places with the one played moved to another part, the others with them", mode.c_str(), inside, outside, moved);
++	if (!shown || failed || outside) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	if (mode == "back") {
+ 		back();
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 6950ba28..f6d8d1d1 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -47,6 +47,7 @@ public:
+ 
+ 	Common::Error run() override;
+ 	bool hasFeature(EngineFeature f) const override;
++	void pauseEngineIntern(bool pause) override;
+ 
+ 	// The chat's talk IDs here: the one played, everyone else by their slot.
+ 	static const int kTalkPlayer = 1, kTalkVisitor = 30, kTalkSlots = 26;
+@@ -181,12 +182,31 @@ private:
+ 	void lightsRead(const Common::String &kept);
+ 	void castOffer();
+ 	bool castChoose(int key);
++	bool padlockOpen(int id) const;         // the mansion's padlocked door, both its locks unlocked
++	void placePlayer(double x, double y);   // after entering: there, the view on them, those following beside
++	// The way back from a place with no way on (its game leaves it only by a
++	// script): where they came from, by which door, to which place.
++	struct WayBack { int game = -1, room = 0, door = 0, atGame = -1, atRoom = 0; };
++	WayBack _wayBack;
++	bool wayOut() const;                    // a door, a ride, a tram or the van here
++	bool _noWayOn = false;                  // (as entered: none of those)
++	bool backSign(int &x0, int &y0, int &x1, int &y1) const; // the arrow back on screen (false: none)
++	void goBack();
++	int _spreadGroup = -1;                  // the part of the place the others were put in
++	void spreadOthers();
++	void keepOthersNear();                  // (the one played moved to another part: the others too)
++	void hideFollowers(bool hide);          // out of sight with the one played on a ride, or back
++	// Custom ones left here, not among the wanderers (they stay until the
++	// place changes): where they stand, and back there after a switch.
++	struct Left { int key; double x, y; };
++	Common::Array<Left> customLeft() const;
++	void customBack(const Common::Array<Left> &left);
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;
+ 	int talkIdAt(int screenX, int screenY) const; // someone here under a tap (0: no one)
+ 	void showPicture(int object, int id, int picture);
+-	bool carry(int game, int room, int id, const Common::String &name, int picture); // (in that picture)
++	bool carry(int game, int room, int id, const Common::String &name, int picture, bool found = true); // (in that picture; found: picked up, not read back)
+ 	static int thingKey(int game, int room, int id) { return (game * 1024 + room) * 65536 + id; }
+ 	// Leaves the sandbox: back to the game it was opened from (Maniac, where
+ 	// it was saved), else the app ends as Maniac's own quit does.
+@@ -304,6 +324,7 @@ private:
+ 	// Worlds menu where it stands (it is not drawn there yet).
+ 	int _vanPlace = 11 * 1024 + 185;
+ 	int _vanX = -1, _vanY = -1;  // where the one played stood as it landed there (-1: not known)
++	void vanHome();              // (parked where is no longer installed: at its own site)
+ 	int _vanProp = -1;           // the van drawn here (a stage prop), else -1
+ 	double _vanDoorX = 0, _vanDoorY = 0;
+ 	void vanShow();              // drawn where it is parked (not its own landing site)
+@@ -324,7 +345,7 @@ private:
+ 	bool shot(const Common::String &name) const;
+ 	// Where the player is and where everyone is, kept between visits.
+ 	void saveState() const;
+-	bool loadState(int &game, int &room, double &x, double &y);
++	bool loadState(int &game, int &room, double &x, double &y, bool *kept = nullptr); // (kept: read, though its place or the one played is gone: false)
+ 	// Checks without anyone at the screen (scummverse_selftest): "walk" in
+ 	// the start place, "all" through every place installed, "back" walks
+ 	// then leaves as the menu's Back to Maniac Mansion does, "doors" through

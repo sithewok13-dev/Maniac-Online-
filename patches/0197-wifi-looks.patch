@@ -1,0 +1,324 @@
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index 758dafa6..196b0487 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -32,6 +32,8 @@ static void put16(std::string &s, int v) { put8(s, v & 0xFF); put8(s, (v >> 8) &
+ static int get8(const unsigned char *p) { return p[0]; }
+ static int getU16(const unsigned char *p) { return p[0] | (p[1] << 8); }
+ static int getS16(const unsigned char *p) { return (int16_t)(uint16_t)getU16(p); }
++static void put32(std::string &s, uint32_t v) { put16(s, (int)(v & 0xFFFF)); put16(s, (int)(v >> 16)); }
++static uint32_t getU32(const unsigned char *p) { return (uint32_t)getU16(p) | (uint32_t)getU16(p + 2) << 16; }
+ 
+ bool validSay(const std::string &text) {
+ 	if (text.empty() || text.size() > kMaxSay) return false;
+@@ -45,7 +47,8 @@ bool validSay(const std::string &text) {
+ 
+ static bool validActor(int actor) { return actor >= 1 && actor <= 24; }
+ static bool validAvatar(const Avatar &a) {
+-	return validActor(a.actor) && ((a.room >= 1 && a.room <= 255) || NetBridge::isWorldPlace(a.room)) && a.x >= -1024 && a.x <= 1024 && a.y >= -256 && a.y <= 256;
++	return validActor(a.actor) && ((a.room >= 1 && a.room <= 255) || NetBridge::isWorldPlace(a.room)) && a.x >= -1024 && a.x <= 1024 && a.y >= -256 && a.y <= 256 &&
++		a.look >= 0 && a.look <= kMaxLook;
+ }
+ 
+ bool encode(const Frame &f, std::string &out) {
+@@ -64,7 +67,7 @@ bool encode(const Frame &f, std::string &out) {
+ 		put8(body, f.reason); break;
+ 	case FrameType::Avatar:
+ 		if (!validAvatar(f.avatar)) return false;
+-		put8(body, f.avatar.actor); put16(body, f.avatar.room); put16(body, f.avatar.x); put16(body, f.avatar.y); break;
++		put8(body, f.avatar.actor); put16(body, f.avatar.room); put16(body, f.avatar.x); put16(body, f.avatar.y); put32(body, (uint32_t)f.avatar.look); break;
+ 	case FrameType::Say:
+ 		if (!validActor(f.actor) || !validSay(f.text)) return false;
+ 		put8(body, f.actor); body += f.text; break;
+@@ -104,8 +107,8 @@ int decode(const char *data, size_t size, Frame &f) {
+ 		f.reason = get8(q); if (f.reason < 1 || f.reason > 3) return -1;
+ 		break;
+ 	case FrameType::Avatar:
+-		if (n != 7) return -1;
+-		f.avatar.actor = get8(q); f.avatar.room = getU16(q + 1); f.avatar.x = getS16(q + 3); f.avatar.y = getS16(q + 5);
++		if (n != 11) return -1;
++		f.avatar.actor = get8(q); f.avatar.room = getU16(q + 1); f.avatar.x = getS16(q + 3); f.avatar.y = getS16(q + 5); { const uint32_t look = getU32(q + 7); f.avatar.look = look <= (uint32_t)kMaxLook ? (int)look : -1; }
+ 		if (!validAvatar(f.avatar)) return -1;
+ 		break;
+ 	case FrameType::Say:
+@@ -520,25 +523,32 @@ static void copy(const std::string &from, char *out, int capacity) {
+ 	std::memcpy(out, from.data(), n); out[n] = 0;
+ }
+ 
++// Events taken from the session and not yet handed over (poll hands at most
++// `capacity` at a time); dropped when a session ends or starts, so none
++// reaches the next one.
++static std::vector<Net::Event> &pendingEvents() { static std::vector<Net::Event> pending; return pending; }
++
+ bool host(int content, int actor, char *message, int capacity) {
++	pendingEvents().clear();
+ 	std::string error;
+ 	const bool ok = session().host(kDefaultPort, content, actor, error);
+ 	copy(ok ? session().describe() : error, message, capacity);
+ 	return ok;
+ }
+ bool join(const char *address, int content, int actor, char *message, int capacity) {
++	pendingEvents().clear();
+ 	std::string error;
+ 	const bool ok = session().join(address ? address : "", content, actor, error);
+ 	copy(ok ? session().describe() : error, message, capacity);
+ 	return ok;
+ }
+-void close() { session().close(); }
++void close() { session().close(); pendingEvents().clear(); }
+ bool active() { return session().active(); }
+ bool connected() { return session().connected(); }
+ int remoteCount() { return session().remoteCount(); }
+ void describe(char *out, int capacity) { copy(session().describe(), out, capacity); }
+-void setLocal(int actor, int room, int x, int y) {
+-	Net::Avatar a; a.actor = actor; a.room = room; a.x = x; a.y = y; session().setLocal(a);
++void setLocal(int actor, int room, int x, int y, int look) {
++	Net::Avatar a; a.actor = actor; a.room = room; a.x = x; a.y = y; a.look = look; session().setLocal(a);
+ }
+ bool say(const char *text) {
+ 	std::string line(text ? text : "");
+@@ -546,7 +556,7 @@ bool say(const char *text) {
+ 	return session().say(line);
+ }
+ int poll(Event *events, int capacity) {
+-	static std::vector<Net::Event> pending;
++	std::vector<Net::Event> &pending = pendingEvents();
+ 	if (pending.empty()) session().poll(pending);
+ 	int n = 0;
+ 	while (n < capacity && !pending.empty()) {
+@@ -554,7 +564,7 @@ int poll(Event *events, int capacity) {
+ 		Event &out = events[n++];
+ 		out.kind = e.kind == Net::Event::Moved ? EventMoved : e.kind == Net::Event::Said ? EventSaid :
+ 			e.kind == Net::Event::Left ? EventLeft : EventFailed;
+-		out.peer = e.peer; out.actor = e.avatar.actor; out.room = e.avatar.room; out.x = e.avatar.x; out.y = e.avatar.y;
++		out.peer = e.peer; out.actor = e.avatar.actor; out.room = e.avatar.room; out.x = e.avatar.x; out.y = e.avatar.y; out.look = e.avatar.look;
+ 		copy(e.text, out.text, sizeof(out.text));
+ 		pending.erase(pending.begin());
+ 	}
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index 7661befb..eb467cab 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -19,19 +19,22 @@ namespace Scummverse {
+ namespace Net {
+ 
+ const uint16_t kDefaultPort = 47913;
+-const int kProtocol = 1;
++const int kProtocol = 2; // 2 (0197): avatars carry the look played
+ const int kMaxPeers = 4;          // Remote players one host accepts.
+ const size_t kMaxBody = 200;      // Largest valid frame body.
+ const size_t kMaxSay = 160;       // Printable ASCII characters per line.
++const int kMaxLook = 0xFFFFFF;    // Largest look (catalog appearance key) sent.
+ 
+ enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6 };
+ enum class RejectReason : uint8_t { Version = 1, Full = 2, ActorTaken = 3 };
+ 
+ // (room: the mansion's own 1..255, or a place in another world,
+ // NetBridge::worldPlace.)
++// look: the appearance played (a catalog key, 0 for the character itself;
++// each device checks it against its own catalog and exports).
+ struct Avatar {
+-	int actor = 0, room = 0, x = 0, y = 0;
+-	bool operator==(const Avatar &o) const { return actor == o.actor && room == o.room && x == o.x && y == o.y; }
++	int actor = 0, room = 0, x = 0, y = 0, look = 0;
++	bool operator==(const Avatar &o) const { return actor == o.actor && room == o.room && x == o.x && y == o.y && look == o.look; }
+ 	bool operator!=(const Avatar &o) const { return !(*this == o); }
+ };
+ 
+diff --git a/common/scummverse_net_engine.h b/common/scummverse_net_engine.h
+index 31e5685e..2dce4f33 100644
+--- a/common/scummverse_net_engine.h
++++ b/common/scummverse_net_engine.h
+@@ -21,7 +21,7 @@ enum RequestKind { RequestNone = 0, RequestHost, RequestJoin, RequestLeave, Requ
+ enum EventKind { EventMoved = 0, EventSaid, EventLeft, EventFailed };
+ 
+ struct Event {
+-	int kind, peer, actor, room, x, y;
++	int kind, peer, actor, room, x, y, look; // (look: the appearance played, 0197)
+ 	char text[200];
+ };
+ 
+@@ -33,7 +33,7 @@ bool active();
+ bool connected();
+ int remoteCount();
+ void describe(char *out, int capacity);
+-void setLocal(int actor, int room, int x, int y);
++void setLocal(int actor, int room, int x, int y, int look);
+ bool say(const char *text);
+ // Fills up to capacity events; returns how many.
+ int poll(Event *events, int capacity);
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 52eeb136..1d9ebe1e 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -585,7 +585,9 @@ bool ScummEngine::saveState(Common::WriteStream *out, bool writeHeader) {
+ 
+ 	Common::Serializer ser(nullptr, out);
+ 	ser.setVersion(CURRENT_VER);
++	scummverseRemoteLooksSaved(true); // (SCUMMVERSE: the characters' own looks.)
+ 	saveLoadWithSerializer(ser);
++	scummverseRemoteLooksSaved(false);
+ 	return true;
+ }
+ 
+@@ -941,6 +943,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+  scummverseRestoreSeats();
+  scummverseRestoreSceneObjects();
+  scummverseRestoreWorld();
++	scummverseRemoteLooksLoaded();
+ 
+ 	return true;
+ }
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 26fe574a..4dc685c0 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1896,6 +1896,16 @@ protected:
+ 	unsigned _scummverseRemoteMask = 0;
+ 	int _scummversePeerActor[5] = {};
+ 	int _scummverseRemoteUnshown[25] = {}; // (the place last sent that this device can't show)
++	// The look a remote player plays (as sent), the one last tried here (-1
++	// before the first), ticks before another may be, and the one the
++	// character had before them, plus one (0: none kept); where they last
++	// were sent to be (a walk a save stopped goes on there).
++	int _scummverseRemoteLook[25] = {}, _scummverseRemoteLookTried[25] = {}, _scummverseRemoteLookClock[25] = {}, _scummverseRemoteLookBefore[25] = {};
++	Common::Point _scummverseRemoteGoal[25];
++	bool scummverseQuietAppearance(int id, int key);
++	void scummverseApplyRemoteLook(int id);
++	void scummverseRemoteLooksSaved(bool saving);
++	void scummverseRemoteLooksLoaded();
+ 	int _scummverseNetClock = 0;
+ 	void scummverseUpdateNet(int delta);
+ 	void scummverseReleaseRemote(int peer);
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index 7b2240ee..7e6e5374 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 79; // 79: places in other worlds sent as places
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 80; // 80: the look played sent too
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+@@ -28,6 +28,12 @@ void ScummEngine::scummverseReleaseRemote(int peer) {
+ 	if (!scummverseRemoteActor(id)) return;
+ 	_scummverseRemoteMask &= ~(1u << id);
+ 	_scummverseRemoteUnshown[id] = 0;
++	// The look the character had before its player came.
++	if (_scummverseRemoteLookBefore[id]) {
++		const int before = _scummverseRemoteLookBefore[id] - 1;
++		if (scummverseAppearance(id) != before && !scummverseQuietAppearance(id, before)) scummverseQuietAppearance(id, 0);
++	}
++	_scummverseRemoteLook[id] = _scummverseRemoteLookTried[id] = _scummverseRemoteLookClock[id] = _scummverseRemoteLookBefore[id] = 0;
+ 	// The character stays where its player left it and resumes local life;
+ 	// from another world's place (or one this device can't show) it goes home,
+ 	// where it can (another world's slot is never kept by a character
+@@ -38,6 +44,61 @@ void ScummEngine::scummverseReleaseRemote(int peer) {
+ 	if (!a->_room || scummverseWorldGameOf(a->_room, source) >= 0) a->putActor(30 + id % 5, 60, 53);
+ }
+ 
++// An appearance set without the local player's notice ("You are playing...").
++bool ScummEngine::scummverseQuietAppearance(int id, int key) {
++	const Common::String notice = _scummverseWorldNotice;
++	const bool set = scummverseSetAppearance(id, key);
++	_scummverseWorldNotice = notice;
++	return set;
++}
++
++// The look a remote player plays, where this device has it (this catalog,
++// these exports; one of Zak's people only where Zak's files are mounted
++// already: never mounted, or reported missing, for someone else's look);
++// else the character itself.
++void ScummEngine::scummverseApplyRemoteLook(int id) {
++	const int look = MAX(0, _scummverseRemoteLook[id]);
++	_scummverseRemoteLookTried[id] = look;
++	if (scummverseAppearance(id) == look) return;
++	const bool zakMissing = worldAppearance(look) && worldAppearanceGame(look) == kWorldZakLooks && !_scummverseZakMounted;
++	if ((zakMissing || !scummverseQuietAppearance(id, look)) && scummverseAppearance(id)) scummverseQuietAppearance(id, 0);
++}
++
++// Saves keep the characters' own looks, never those their remote players
++// play (the players are not in the save).
++void ScummEngine::scummverseRemoteLooksSaved(bool saving) {
++	for (int id = 1; id < 25; ++id) {
++		if (!scummverseRemoteActor(id) || !_scummverseRemoteLookBefore[id]) continue;
++		const int before = _scummverseRemoteLookBefore[id] - 1;
++		Actor *a = derefActor(id, "remote look saved");
++		if (!saving) {
++			scummverseApplyRemoteLook(id);
++			// (A costume changed stops a walk: it goes on to where its player
++			// was last sent, since no frame comes until they move again.)
++			if (a->isInCurrentRoom() && a->getRealPos() != _scummverseRemoteGoal[id]) {
++				AdjustBoxResult target = a->adjustXYToBeInBox(_scummverseRemoteGoal[id].x, _scummverseRemoteGoal[id].y);
++				a->startWalkActor(target.x, target.y, -1);
++			}
++		} else if (scummverseAppearance(id) != before && !scummverseQuietAppearance(id, before)) scummverseQuietAppearance(id, 0);
++	}
++}
++
++// A save loaded during a WiFi game: the characters' looks are the save's
++// own now (kept for their release); their players' looks go back on.
++void ScummEngine::scummverseRemoteLooksLoaded() {
++	for (int id = 1; id < 25; ++id) {
++		if (!scummverseRemoteActor(id)) continue;
++		_scummverseRemoteLookBefore[id] = scummverseAppearance(id) + 1;
++		// (Loaded as the local player's own: theirs now, their friend's
++		// frames ignored as before; the save's look kept.)
++		if (id == VAR(VAR_EGO)) {
++			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) if (_scummversePeerActor[peer] == id) scummverseReleaseRemote(peer);
++			continue;
++		}
++		scummverseApplyRemoteLook(id);
++	}
++}
++
+ void ScummEngine::scummverseNetSay(const char *line) {
+ 	if (_scummverseNetOn && line && NetBridge::connected()) NetBridge::say(line);
+ }
+@@ -76,8 +137,10 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 		// (In another world: the place, not this device's slot room for it.)
+ 		int source;
+ 		const int game = scummverseWorldGameOf(me->_room, source);
+-		if (game >= 0) NetBridge::setLocal(ego, NetBridge::worldPlace(game, source), me->getRealPos().x, me->getRealPos().y);
+-		else if (scummverseNetRoom(me->_room)) NetBridge::setLocal(ego, me->_room, me->getRealPos().x, me->getRealPos().y);
++		// (And the look played: each device shows it where it has it.)
++		const int look = scummverseAppearance(ego);
++		if (game >= 0) NetBridge::setLocal(ego, NetBridge::worldPlace(game, source), me->getRealPos().x, me->getRealPos().y, look);
++		else if (scummverseNetRoom(me->_room)) NetBridge::setLocal(ego, me->_room, me->getRealPos().x, me->getRealPos().y, look);
+ 	}
+ 
+ 	NetBridge::Event events[16];
+@@ -102,8 +165,13 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 				// People are never NPC companions, passengers or chat partners.
+ 				_scummVars[770 + event.actor] = 0; _scummVars[766] &= ~(1u << event.actor);
+ 				_scummverseNpcDestination[event.actor] = 0; _scummverseNpcBoarding[event.actor] = 0;
++				_scummverseRemoteLookBefore[event.actor] = scummverseAppearance(event.actor) + 1;
++				_scummverseRemoteLookTried[event.actor] = -1; _scummverseRemoteLookClock[event.actor] = 0;
+ 			}
+ 			Actor *a = derefActor(event.actor, "remote player");
++			_scummverseRemoteGoal[event.actor] = Common::Point(event.x, event.y);
++			// The look its player plays (tried below, only when it changes).
++			_scummverseRemoteLook[event.actor] = event.look;
+ 			// (A place already found not shown here is not looked up again.)
+ 			if (event.room == _scummverseRemoteUnshown[event.actor] && !a->_room) break;
+ 			// A place in another world: where it already is, else this
+@@ -152,6 +220,16 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 			break;
+ 		}
+ 	}
++	// Looks changed: each tried at most every quarter second (a burst of
++	// changes costs one try, of the last).
++	for (int id = 1; id < 25; ++id) {
++		if (!scummverseRemoteActor(id)) continue;
++		if (_scummverseRemoteLookClock[id] > 0) _scummverseRemoteLookClock[id] -= delta;
++		if (_scummverseRemoteLookClock[id] <= 0 && _scummverseRemoteLook[id] != _scummverseRemoteLookTried[id]) {
++			scummverseApplyRemoteLook(id);
++			_scummverseRemoteLookClock[id] = 15;
++		}
++	}
+ 	if (_scummverseNetOn && NetBridge::active()) {
+ 		NetBridge::describe(message, sizeof(message));
+ 		NetBridge::publish(message, NetBridge::connected(), NetBridge::remoteCount());

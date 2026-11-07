@@ -1,0 +1,219 @@
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index a55804d5..fdb94ac8 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -107,6 +107,9 @@ void iOS7_buildSharedOSystemInstance();
+ void iOS7_main(int argc, char **argv);
+ Common::String iOS7_getDocumentsDir();
+ Common::String iOS7_getZakDirectory();
++// The app's own copies of game files (Zak imported from the Files app), as
++// the "connectedworlds:" drive: a game's story can be played from there.
++Common::String iOS7_getConnectedWorldsDir();
+ Common::String iOS7_getAppBundleDir();
+ TouchMode iOS7_getCurrentTouchMode();
+ 
+diff --git a/backends/platform/ios7/ios7_misc.mm b/backends/platform/ios7/ios7_misc.mm
+index 5846ea18..eb05823e 100644
+--- a/backends/platform/ios7/ios7_misc.mm
++++ b/backends/platform/ios7/ios7_misc.mm
+@@ -36,6 +36,13 @@ Common::String iOS7_getDocumentsDir() {
+ 	return Common::String([url fileSystemRepresentation]);
+ }
+ 
++Common::String iOS7_getConnectedWorldsDir() {
++	@autoreleasepool {
++		NSURL *base = [[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
++		return base ? Common::String([[base URLByAppendingPathComponent:@"ConnectedWorlds" isDirectory:YES] fileSystemRepresentation]) : Common::String();
++	}
++}
++
+ Common::String iOS7_getZakDirectory() {
+ 	@autoreleasepool {
+ 		NSString *relative = [[NSUserDefaults standardUserDefaults] stringForKey:@"SCUMMVERSEZakImport"];
+diff --git a/backends/platform/ios7/ios7_osys_main.cpp b/backends/platform/ios7/ios7_osys_main.cpp
+index 80987893..ba974c4a 100644
+--- a/backends/platform/ios7/ios7_osys_main.cpp
++++ b/backends/platform/ios7/ios7_osys_main.cpp
+@@ -103,6 +103,11 @@ OSystem_iOS7::OSystem_iOS7() :
+ 	Common::String appBubdlePath = iOS7_getAppBundleDir();
+ 	if (!appBubdlePath.empty())
+ 		chFsFactory->addVirtualDrive("appbundle:", appBubdlePath);
++	// SCUMMVERSE: the app's own copies of game files (an imported Zak), so a
++	// game's story can be played from there (common/scummverse_story.h).
++	const Common::String connectedWorlds = iOS7_getConnectedWorldsDir();
++	if (!connectedWorlds.empty())
++		chFsFactory->addVirtualDrive("connectedworlds:", connectedWorlds);
+ }
+ 
+ OSystem_iOS7::~OSystem_iOS7() {
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 0435b4c6..d42a5dc5 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -536,6 +536,16 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 	}
+ 	return NO;
+ }
++// A game whose story can be played: its folder in Documents, or for Zak
++// the copy imported into the app (iOS7_getZakDirectory, with its first file).
++static BOOL scummverseStoryFound(const Scummverse::WorldCatalog::WorldGame &game) {
++	if (scummverseWorldFolderFound(game.folder)) return YES;
++	if (strcmp(game.gameid, "zak")) return NO;
++	NSString *zak = [NSString stringWithUTF8String:iOS7_getZakDirectory().c_str()];
++	for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:zak error:nil])
++		if ([name caseInsensitiveCompare:@"00.LFL"] == NSOrderedSame) return YES;
++	return NO;
++}
+ // A game's name in story play: the mansion's own story told apart from
+ // the mansion this app makes of it.
+ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame &game) {
+@@ -559,6 +569,9 @@ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Tour every location (watch for bugs)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 			[controller dismissViewControllerAnimated:YES completion:^{ scummverseShowTour(controller); }];
+ 		}]];
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Play the original games" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
++			[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseStoriesFrom:controller]; }];
++		}]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to the original engine" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:sandbox animated:YES completion:nil];
+@@ -571,7 +584,7 @@ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame
+ 		UIAlertController *menu = [UIAlertController alertControllerWithTitle:scummverseStoryTitle(playing) message:@"The original game, as it was made. Leaving it saves where you are (\"Story\" in its own saves), and it starts there again next time." preferredStyle:UIAlertControllerStyleAlert];
+ 		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+-			if (i == story || !scummverseWorldFolderFound(game.folder)) continue;
++			if (i == story || !scummverseStoryFound(game)) continue;
+ 			[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %@", scummverseStoryTitle(game)] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStoryRequest + i); }]];
+ 		}
+ 		[menu addAction:[UIAlertAction actionWithTitle:@"Save now" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldStorySaveRequest); }]];
+@@ -616,7 +629,7 @@ static NSString *scummverseStoryTitle(const Scummverse::WorldCatalog::WorldGame
+ 	for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
+ 		const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
+ 		// (The mansion's own story: from the folder the mansion is playing.)
+-		const BOOL found = scummverseWorldFolderFound(game.folder);
++		const BOOL found = scummverseStoryFound(game);
+ 		// (Its story save, or its autosave: where it goes on from.)
+ 		NSString *saves = [NSString stringWithFormat:@"%@/Savegames/%s%s", documents, Scummverse::WorldCatalog::kWorldStoryPrefix, game.gameid];
+ 		const BOOL saved = [[NSFileManager defaultManager] fileExistsAtPath:[saves stringByAppendingFormat:@".s%02d", Scummverse::WorldCatalog::kWorldStorySlot]] ||
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index abd685af..04e3b4c6 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -15,6 +15,13 @@
+ #include "common/fs.h"
+ #include "common/scummverse_world_catalog.h"
+ 
++#ifdef IPHONE
++// (The backend's: where Zak's files are, and where the app keeps its own
++// copies of game files, the "connectedworlds:" drive.)
++Common::String iOS7_getZakDirectory();
++Common::String iOS7_getConnectedWorldsDir();
++#endif
++
+ namespace Scummverse {
+ 
+ // A game's folder in Documents: its catalog name, ignoring case and stray
+@@ -51,7 +58,16 @@ inline Common::FSNode worldFolder(const char *name) {
+ inline bool addStoryTarget(const WorldCatalog::WorldGame &game, const Common::Path &maniacPath = Common::Path()) {
+ 	const bool mansion = WorldCatalog::sameId(game.gameid, "maniac");
+ 	if (mansion && maniacPath.empty()) return false;
+-	const Common::FSNode folder = mansion ? Common::FSNode(maniacPath) : worldFolder(game.folder);
++	Common::FSNode folder = mansion ? Common::FSNode(maniacPath) : worldFolder(game.folder);
++#ifdef IPHONE
++	// (Zak imported from the Files app, with none in Documents: the app's own
++	// copy, through the backend's "connectedworlds:" drive.)
++	if ((!folder.exists() || !folder.isDirectory()) && WorldCatalog::sameId(game.gameid, "zak")) {
++		const Common::String zak = iOS7_getZakDirectory(), copies = iOS7_getConnectedWorldsDir();
++		if (!copies.empty() && zak.hasPrefix(copies + "/"))
++			folder = Common::FSNode(Common::Path("connectedworlds:" + Common::String(zak.c_str() + copies.size())));
++	}
++#endif
+ 	if (!folder.exists() || !folder.isDirectory()) return false;
+ 	const Common::String target = Common::String(WorldCatalog::kWorldStoryPrefix) + game.gameid;
+ 	if (!ConfMan.hasGameDomain(target)) ConfMan.addGameDomain(target);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index c1237710..92147a86 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -33,6 +33,7 @@
+ #include "common/scummverse_camera_engine.h"
+ #include "common/scummverse_panel_engine.h"
+ #include "common/scummverse_stage_engine.h"
++#include "common/scummverse_story.h"
+ #include "common/scummverse_tour.h"
+ #include "common/scummverse_wander_engine.h"
+ #include "common/scummverse_world_engine.h"
+@@ -1841,6 +1842,38 @@ void SandboxEngine::back() {
+ 	g_system->getEventManager()->pushEvent(event);
+ }
+ 
++// A game's story, the original game in its own engine (the Worlds menu's
++// Play the original games, as Maniac's): this place kept, then that game,
++// from its newest save; leaving it brings the mansion back where it was
++// when this engine was opened (base/main.cpp's home rule). Its way back here
++// is dropped: a story goes on only with nothing queued after it.
++void SandboxEngine::openStory(int game) {
++	if (game < 0 || game >= worldGameCount()) return;
++	const WorldGame &story = kWorldGames[game];
++	const Common::String target = Common::String(kWorldStoryPrefix) + story.gameid;
++	// (A folder added since the app started gets its target now; the
++	// mansion's own story was set up as the app started.)
++	if (!ConfMan.hasGameDomain(target) && !::Scummverse::addStoryTarget(story)) {
++		say(Common::String::format("I need its files in Documents/%s first.", story.folder));
++		return;
++	}
++	Common::String missing = ::Scummverse::storyMissing(story.gameid, ConfMan.getPath("path", target));
++	if (!missing.empty()) {
++		missing.toUppercase();
++		say(Common::String::format("It needs all of its files in Documents/%s: %s is missing.", story.folder, missing.c_str()));
++		return;
++	}
++	if (!_testing) saveState();
++	Common::String next;
++	int slot;
++	while (ChainedGamesMan.pop(next, slot)) {}
++	ChainedGamesMan.push(target);
++	warning("SCUMMVERSE sandbox: opening %s", target.c_str());
++	Common::Event event;
++	event.type = Common::EVENT_RETURN_TO_LAUNCHER;
++	g_system->getEventManager()->pushEvent(event);
++}
++
+ void SandboxEngine::request(int code) {
+ 	// The chat's (its place's token, then a command): someone asked along or
+ 	// to stay. (Before the screen's choices: a token may fall in their range.)
+@@ -1859,6 +1892,7 @@ void SandboxEngine::request(int code) {
+ 	if (code >= kWorldVanRequest && code < kWorldAppearanceRequest) { rideSite(code - kWorldVanRequest); return; }
+ 	if (code == kWorldSandboxVanRequest) { tourEnd(false); vanBoard(); return; }
+ 	if (code == kWorldSandboxStayRequest) { rideStay(); return; }
++	if (code >= kWorldStoryRequest && code < kWorldStoryRequest + worldGameCount()) { openStory(code - kWorldStoryRequest); return; }
+ 	if (code < kGameRequest) return;
+ 	const int game = code - kGameRequest;
+ 	int room;
+@@ -5848,6 +5882,14 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		while (!shouldQuit() && g_system->getEventManager()->pollEvent(event)) {}
+ 		warning("SCUMMVERSE sandbox back: %s", shouldQuit() ? "leaving" : "still here");
+ 	}
++	if (mode == "story") {
++		// (The mansion's own story: there whenever the mansion is.)
++		for (int g = 0; g < worldGameCount(); ++g)
++			if (sameId(kWorldGames[g].gameid, "maniac")) request(kWorldStoryRequest + g);
++		Common::Event event;
++		while (!shouldQuit() && g_system->getEventManager()->pollEvent(event)) {}
++		warning("SCUMMVERSE sandbox story: %s", shouldQuit() ? "leaving" : "still here");
++	}
+ 	return Common::kNoError;
+ }
+ 
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 853cbafe..3986a972 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -181,6 +181,7 @@ private:
+ 	// Leaves the sandbox: back to the game it was opened from (Maniac, where
+ 	// it was saved), else the app ends as Maniac's own quit does.
+ 	void back();
++	void openStory(int game); // a game's story (the original game), from here
+ 	void request(int code); // from the Worlds menu
+ 	void present();
+ 	void show(); // the frame onto the screen

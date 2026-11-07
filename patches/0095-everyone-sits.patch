@@ -1,0 +1,203 @@
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index e876922e..7909dff7 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -851,6 +851,8 @@ void Actor::startWalkActor(int destX, int destY, int dir) {
+ 	// Room entry/exit scripts must not reset the sandbox NPCs.
+ 	if (_vm->scummverseOwnsActor(_number))
+ 		return;
++	if (_vm->scummverseKeepsSeat(_number))
++		return;
+ 	_vm->scummverseStandPassenger(_number);
+ 	_vm->scummverseWorldTap(_number, destX, destY);
+ 	AdjustBoxResult abr;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index f3befad4..20352f74 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1402,6 +1402,8 @@ public:
+  void scummverseUpdateCabinChairs();
+  unsigned _scummverseShownChairs = 0;
+  void scummverseStandPassenger(int id);
++ bool scummverseKeepsSeat(int id) const;
++ bool scummverseTakeSeat(int id);
+  bool scummverseReserveSeats(unsigned passengers, bool commit);
+  void scummverseRestoreSeats();
+  void scummverseRestoreSceneObjects();
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index 24c594b6..e0d9d004 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -93,7 +93,7 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 				_scummverseNpcDestination[event.actor] = 0; _scummverseNpcBoarding[event.actor] = 0;
+ 			}
+ 			Actor *a = derefActor(event.actor, "remote player");
+-			a->setElevation(0);
++			if (!scummverseSeated(event.actor)) a->setElevation(0);
+ 			if (a->_room != event.room || event.room != _currentRoom) {
+ 				const bool arriving = a->_room != event.room;
+ 				a->stopActorMoving(); a->putActor(event.x, event.y, event.room);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 56fed798..07db53d2 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -369,6 +369,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		r.speech = MAX(0, r.speech - delta);
+ 		if (a->_room==56) {
+    if(scummverseSeated(id)) continue;
++   if(!(chatting & (1u<<id)) && scummverseTakeSeat(id)) continue;
+ 			if (_currentRoom==56 && !(chatting & (1u<<id)) && !a->_moving && _rnd.getRandomNumber(150)==0) {
+ 				AdjustBoxResult p=a->adjustXYToBeInBox(30+_rnd.getRandomNumber(35),60); a->startWalkActor(p.x,p.y,-1);
+ 			}
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index ed72ea85..f0b40761 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -489,6 +489,14 @@ static int worldHoverLift(int tick, int height) {
+ // moves a bouncer's place in its hop on: true while it is off the ground
+ // (or has just landed).
+ static const int kWorldHopTicks = 24;
++// A plane seat's front hides what is below this line of the screen; a
++// seated sprite is drawn this far right of its place, to the chair's middle.
++static const int kWorldSeatCushion = 80;
++static const int kWorldSeatShift = 12;
++// Seated, nobody is taller than this, and anyone shorter than kWorldSeatSmall
++// sits on the cushion rather than in the seat.
++static const int kWorldSeatTallest = 84;
++static const int kWorldSeatSmall = 48;
+ static bool worldHop(int &hop, bool moving, int delta) {
+ 	if (!moving && !hop) return false;
+ 	hop += delta;
+@@ -517,11 +525,25 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+ 	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	// In a plane seat (scummverseSeatAt) a character sits as Maniac's own
++	// do: behind the seat's front, which hides their legs, centred in the
++	// chair; the small ones up on its cushion, where they show. Nobody
++	// floats or hops in a seat.
++	const bool seated = a->_room == 56 && scummverseSeated(a->_number) && !scummverseRenderingPortrait();
++	int seatLift = 0, zbuf = 0;
++	if (seated) {
++		// A giant shrinks to fit the seat; someone small sits on the
++		// cushion, whole; the rest sink to their middle.
++		scale = MIN(scale, (double)kWorldSeatTallest / height);
++		const int feet = a->getPos().y - a->getElevation(), tall = (int)(height * scale);
++		seatLift = MAX(0, feet - kWorldSeatCushion - (tall < kWorldSeatSmall ? 0 : tall * 45 / 100));
++		zbuf = MIN<int>(getMaskFromBox(a->_walkbox), _gdi->_numZBuffer - 1);
++	}
+ 	// Scaled around the feet, nearest pixel so outlines stay crisp; lifted
+ 	// while floating or in a hop (posing for a selfie, on the ground).
+-	const int lift = style.hover ? worldHoverLift(tick, (int)(height * scale)) :
++	const int lift = seated ? seatLift : style.hover ? worldHoverLift(tick, (int)(height * scale)) :
+ 		style.hop > 0 && !posing ? worldBounceLift(style.hop, (int)(height * scale)) : 0;
+-	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation() - lift;
++	const int ax = a->getPos().x - vs.xstart + (seated ? kWorldSeatShift : 0), ay = a->getPos().y - a->getElevation() - lift;
+ 	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
+ 	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
+ 	// Facing left, a one-way character is mirrored around its feet.
+@@ -542,14 +564,16 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 		}
+ 	}
+ 	const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + w);
+-	const int top = MAX(0, y0 - gap), bottom = MIN<int>(vs.h, y0 + h);
++	const int top = MAX(0, y0 - gap), bottom = MIN<int>(seated ? kWorldSeatCushion : vs.h, y0 + h);
+ 	if (left >= right || top >= bottom) return true;
+ 	for (int y = top; y < bottom; ++y) {
+ 		const bool between = y >= jawY - gap && y < jawY;
+ 		const int row = MIN(height - 1, between ? jawRow : (int)((y < jawY ? y + gap - y0 : y - y0) / scale));
+ 		const byte *src = frame + row * width;
++		const byte *mask = zbuf > 0 ? getMaskBuffer(0, y, zbuf) : nullptr;
+ 		byte *dst = (byte *)vs.getPixels(left, y);
+ 		for (int x = left; x < right; ++x, ++dst) {
++			if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
+ 			const int col = MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale));
+ 			if (between) { if (src[col] && src[col - width]) *dst = mouth; continue; }
+ 			if (src[col]) *dst = src[col];
+@@ -701,7 +725,8 @@ int ScummEngine::scummverseProfile(const Actor *a) const {
+ bool ScummEngine::scummverseRollingGear(const Actor *a, int &gear, int &gearX) const {
+ 	const int look = _scummverseRoaming && a ? scummverseAppearance(a->_number) : 0;
+ 	const WorldRoller *roller = worldNativeLook(look) ? worldRoller(kWorldManiacLooks, worldAppearanceCostume(look)) : nullptr;
+-	if (!roller) return false;
++	// In a plane seat, no wheels or skates.
++	if (!roller || (a->_room == 56 && scummverseSeated(a->_number))) return false;
+ 	gear = roller->gear; gearX = roller->gearX;
+ 	return true;
+ }
+@@ -739,6 +764,8 @@ bool ScummEngine::scummverseSetAppearance(int id, int key) {
+ 		a->setActorCostume(home); home = 0;
+ 		a->setElevation(0);
+ 	}
++	// A rider stays seated in the new look.
++	if (scummverseSeated(id) && a->_room == 56) scummverseRestoreSeats();
+ 	::scummverseTalkAppearance(id, who ? key : 0);
+ 	_scummverseCharactersKey.clear();
+ 	a->_needRedraw = true; _fullRedraw = true;
+@@ -874,8 +901,12 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 		if (a->_costume != costume) {
+ 			if (!_scummVars[kScummverseHomeCostumeVar + id]) _scummVars[kScummverseHomeCostumeVar + id] = a->_costume;
+ 			a->setActorCostume(costume);
++			// (Showing the costume again moves the actor into a walk box.)
++			if (scummverseSeated(id) && a->_room == 56) scummverseRestoreSeats();
+ 		}
+ 		if (a->_room != _currentRoom) continue;
++		// In a plane seat: down in it, not up on wheels or floating.
++		if (scummverseSeated(id) && a->_room == 56) { a->setElevation(-4); continue; }
+ 		if (!worldHovers(kWorldManiacLooks, costume)) {
+ 			// Up on roller skates, or on the ground.
+ 			const WorldRoller *roller = worldRoller(kWorldManiacLooks, costume);
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 1020349a..51459d93 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -603,6 +603,50 @@ void ScummEngine::scummverseStandPassenger(int id) {
+   a->putActor(p.x,p.y,56);
+  }
+ }
++// Everyone rides seated. Only the player (or another device's) stands up,
++// by walking off; nobody else's walk takes a rider out of their chair.
++bool ScummEngine::scummverseKeepsSeat(int id) const {
++ return scummverseSeated(id) && id!=VAR(VAR_EGO) && !scummverseRemoteActor(id) && _actors[id]->_room==56;
++}
++static const int kSeatWalkLimit = 600;
++// Someone else in the cabin without a chair (in by another way, or left
++// standing by the player who switched to someone else) walks to theirs, or
++// to a free one, and sits. False when the cabin is full.
++bool ScummEngine::scummverseTakeSeat(int id) {
++ // (Legacy flights over six, not yet migrated, are left as they are.)
++ if(!_scummVars[724] || !_scummVars[526] || id==VAR(VAR_EGO) || scummverseRemoteActor(id) || scummverseSeated(id)) return false;
++ int &seat=_scummVars[501+id];
++ if(seat<-6 || seat>6) seat=0;
++ if(!seat) {
++  // A free chair: held by no one aboard, and nobody (another device's
++  // player) sitting in it.
++  unsigned taken=0;
++  for(int n=1;n<25;++n) {
++   if(n==id) continue;
++   const Actor *o=_actors[n];
++   const int held=ABS(_scummVars[501+n]);
++   if(held>=1 && held<=6 && (o->_room==56 || (_scummVars[725] & (1u<<n)))) taken|=1u<<(held-1);
++   if(o->_room==56 && o->getElevation()==-4 && o->getRealPos().y==52)
++    for(int k=0;k<6;++k) if(ABS(o->getRealPos().x-ScummverseZakPlane::seatX[k])<=1) taken|=1u<<k;
++  }
++  for(int s=0;s<6 && !seat;++s) if(!(taken & (1u<<s))) seat=-(s+1);
++  if(!seat) return false;
++  _scummVars[725]|=1u<<id;
++ }
++ Actor *a=derefActor(id,"seat taker");
++ Roamer &r=_scummverseRoamers[id];
++ if(r.room!=56) { r=Roamer(); r.room=56; } // Counting from here.
++ const int x=ScummverseZakPlane::seatX[ABS(seat)-1];
++ // Walking there (or sat down at once if the way is blocked for long).
++ if(_currentRoom==56 && ++r.elapsed<kSeatWalkLimit) {
++  const AdjustBoxResult aisle=a->adjustXYToBeInBox(x,55);
++  if(a->_moving) return true;
++  if(ABS(a->getRealPos().x-aisle.x)>1 || ABS(a->getRealPos().y-aisle.y)>1) { a->startWalkActor(aisle.x,aisle.y,-1); return true; }
++ }
++ seat=ABS(seat); r=Roamer();
++ if(_currentRoom==56) a->scummverseSeatAt(x,52);
++ return true;
++}
+ void ScummEngine::scummverseBoard() {
+ 	if (!zakAirport(_currentRoom)) return;
+ 	int choice = _scummVars[travellerDestinationKey(VAR(VAR_EGO))];

@@ -56,4 +56,6 @@ rendering, sound, or touch; those still require device testing.
 For device validation: start fresh, select your team, visit the kitchen and upper
 hallway, watch characters leave and enter, follow one through a door, switch kids,
 and save/relaunch/load. Check that dialogue never steals control and no story
-cutscene interrupts exploration. Multiplayer remains unimplemented.
+cutscene interrupts exploration. Multiplayer is local WiFi play only (from patch
+0053; docs/SCUMMVERSE_ARCHITECTURE.md, Local WiFi play); riding together on two
+devices is not done yet.

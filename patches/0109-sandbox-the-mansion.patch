@@ -1,0 +1,478 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index 0a0f7383..f89af6b3 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -543,7 +543,7 @@ static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::World
+ 			if (!scummverseSandboxGameInstalled(game)) continue;
+ 			[sandbox addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %s", game.title] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxGameRequest + i); }]];
+ 		}
+-		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
++		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to the original engine" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:sandbox animated:YES completion:nil];
+ 		return;
+@@ -588,6 +588,7 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Zak McKracken" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 122); }]; }]];
+ 	int first = 0;
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		if (Scummverse::WorldCatalog::worldHomeGame(game)) continue; // (Listed above.)
+ 		const BOOL installed = scummverseWorldInstalled(game);
+ 		NSString *title = [NSString stringWithUTF8String:game.title];
+ 		if (!installed) switch (scummverseWorldSetup(game)) {
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index f79d56a3..dc3c61c0 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -266,6 +266,7 @@ static NSString *scummverseBuildStatus() {
+ 	int folders = 0, exported = 0;
+ 	NSMutableArray *stopped = [NSMutableArray array];
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++		if (Scummverse::WorldCatalog::worldHomeGame(game)) continue; // (Not another world.)
+ 		const ScummverseWorldSetup setup = scummverseWorldSetup(game);
+ 		if (setup == kWorldNoFolder) continue;
+ 		++folders;
+diff --git a/base/main.cpp b/base/main.cpp
+index d0ea03e1..cb7325a7 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -137,11 +137,15 @@ static Common::FSNode scummverseWorldFolder(const char *name) {
+ 	}
+ 	return exact;
+ }
+-static int scummverseQueueWorldExports(const Common::String &maniacTarget) {
++static int scummverseQueueWorldExports(const Common::String &maniacTarget, const Common::Path &maniacPath) {
+ 	const Common::FSNode cache(Common::Path("worlds"));
+ 	Common::StringArray targets;
+ 	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+-		const Common::FSNode folder = scummverseWorldFolder(game.folder);
++		// (The mansion: wherever the game itself is, when it is the one
++		// starting; no other folder.)
++		const bool home = Scummverse::WorldCatalog::worldHomeGame(game);
++		if (home && maniacPath.empty()) continue;
++		const Common::FSNode folder = home ? Common::FSNode(maniacPath) : scummverseWorldFolder(game.folder);
+ 		if (!folder.exists() || !folder.isDirectory()) continue;
+ 		// The marker is written once a game's scenes and characters are exported.
+ 		if (cache.getChild(Common::String::format("%s-v%d.svx", game.gameid, Scummverse::WorldCatalog::kWorldExportVersion)).exists()) continue;
+@@ -163,6 +167,8 @@ static int scummverseQueueWorldExports(const Common::String &maniacTarget) {
+ 		ConfMan.set("engineid", "scumm", target);
+ 		ConfMan.setPath("path", folder.getPath(), target);
+ 		ConfMan.setPath("scummverse_world_export", cache.getPath(), target);
++		// (Exporting only: none of the mansion's own additions.)
++		ConfMan.setBool("scummverse_roaming", false, target);
+ 		targets.push_back(target);
+ 	}
+ 	if (targets.empty()) return 0;
+@@ -632,7 +638,9 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	// override each game's own path); Maniac gets them back afterwards.
+ 	const Common::String maniacTarget = ConfMan.getActiveDomainName();
+ 	const Common::ConfigManager::Domain maniacTransient = *ConfMan.getDomain(Common::ConfigManager::kTransientDomain);
+-	if (scummverseQueueWorldExports(maniacTarget)) ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
++	// (Its folder as it starts, command line included: the mansion's export.)
++	const Common::Path maniacPath = !sandboxGame && ConfMan.hasKey("path") ? ConfMan.getPath("path") : Common::Path();
++	if (scummverseQueueWorldExports(maniacTarget, maniacPath)) ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
+ 
+ 	if (settings.contains("dump-midi")) {
+ 		// Store this command line setting in ConfMan, since all transient settings are destroyed
+diff --git a/common/scummverse_world_cast.inc b/common/scummverse_world_cast.inc
+index 32e449a2..38e9a07a 100644
+--- a/common/scummverse_world_cast.inc
++++ b/common/scummverse_world_cast.inc
+@@ -800,4 +800,55 @@ static const WorldCastGuest kWorldCast[] = {
+ 	{9, 86, 1, {426, "Pie-toss clown",
+ 		"the poor soul in the clown suit who stands in the pie-toss booth all day", 7,
+ 		{"Go ahead, take a shot.", "I get paid by the pie.", "Not the face! Okay, the face."}}},
++	{10, 1, 0, {3, "Dave",
++		"Dave Miller, the teenager who leads the rescue into the Edison mansion to save his girlfriend Sandy; steady, brave when it counts, and quick to keep his friends together", 15,
++		{"Sandy is in there somewhere. We are going in.", "Stay close and keep your eyes open.", "Anyone seen a key around here?"}}},
++	{10, 1, 1, {1, "Syd",
++		"Syd, a keyboard player who dreams of making it big with his band; relaxed, music-mad, and always hearing a tune in the creaks of an old house", 14,
++		{"This place has great acoustics. Spooky, but great.", "I should write a song about this night.", "Anyone got a piano?"}}},
++	{10, 1, 2, {2, "Razor",
++		"Razor, lead singer of a punk band called the Scummettes; bold, sharp-tongued, and not about to be scared off by a mad scientist", 13,
++		{"Mad scientists? Please. I have played tougher crowds.", "Let us get this over with.", "Nobody touches my microphone."}}},
++	{10, 1, 3, {4, "Michael",
++		"Michael, a photographer for the school paper; observant, calm, and always looking for the right light and the strange detail everyone else misses", 11,
++		{"Hold still, that would make a great shot.", "I need a darkroom for these.", "Something about this house does not add up."}}},
++	{10, 20, 0, {14, "Green Tentacle",
++		"Green Tentacle, a gentle tentacle who loves rock music; friendly, a little shy, and dreaming of a big break with his band", 2,
++		{"Want to hear my demo tape?", "I just love music.", "Do not mind Purple, he is always like that."}}},
++	{10, 21, 0, {10, "Nurse Edna",
++		"Nurse Edna Edison, Dr. Fred's formidable wife; sharp, suspicious, and always watching the house for intruders", 13,
++		{"Who let you in here?", "Wipe your feet, young man.", "I will be watching you."}}},
++	{10, 24, 0, {12, "Dead Cousin Ted",
++		"Dead Cousin Ted, the Edisons' long-dead cousin who keeps to the bathroom; silent, serene, and somehow always there", 7,
++		{"...", "(says nothing at all)", "(stays exactly where he is)"}}},
++	{10, 26, 0, {11, "Weird Ed",
++		"Weird Ed Edison, the son of the house, a military buff with a secret plan; stiff, suspicious, and very protective of his hamster and his package", 11,
++		{"Have you seen my package?", "Stay out of my room.", "My hamster is not for touching."}}},
++	{10, 27, 0, {19, "Man-Eating Plant",
++		"the man-eating plant of the mansion; always hungry, cheerfully menacing, and very fond of a drink of water or soda", 5,
++		{"Feed me!", "Is that a snack? You look like a snack.", "Water. Or soda. I am not fussy."}}},
++	{10, 30, 0, {9, "Dr Fred",
++		"Dr. Fred Edison, the eccentric scientist of the mansion, in thrall to the Purple Meteor; brilliant, distracted, and forever in the middle of an experiment", 10,
++		{"Do not touch anything in my laboratory!", "Science waits for no one.", "The meteor knows best. Probably."}}},
++	{10, 30, 1, {23, "Sandy",
++		"Sandy Pantz, the cheerleader Dave has come to rescue; spirited, impatient, and very ready to be out of this laboratory", 14,
++		{"Dave! What took you so long?", "Get me out of here!", "I am never coming back to this house."}}},
++	{10, 31, 0, {13, "Purple Tentacle",
++		"Purple Tentacle, the Edisons' scheming guard; bossy, ambitious, and not to be trusted with anything", 5,
++		{"Halt! Nobody goes past me.", "One day I will rule the world.", "What are you looking at?"}}},
++	{10, 44, 0, {5, "Bernard",
++		"Bernard, a nervous but brilliant electronics whiz; jumpy at every noise, but the first to fix anything with wires in it", 10,
++		{"Did you hear that? I definitely heard that.", "I could fix that radio in a minute.", "Is it safe? It is not safe, is it?"}}},
++	{10, 44, 1, {6, "Wendy",
++		"Wendy, an aspiring novelist; thoughtful, articulate, and quietly collecting every odd thing about the Edisons for her next book", 12,
++		{"This would make a wonderful novel.", "I wonder what the Edisons are really like.", "Every old house has a story."}}},
++	{10, 44, 2, {7, "Jeff",
++		"Jeff, a laid-back surfer who would rather be at the beach; easygoing, cheerful, and not entirely sure how he ended up indoors on such a fine night", 9,
++		{"Whoa, this place is gnarly.", "Anybody seen a beach around here?", "Totally tubular house, dude."}}},
++	{10, 51, 0, {16, "Purple Meteor",
++		"the Purple Meteor, a glowing rock from deep space that rules the mansion from its chamber; grandiose, scheming, and easily flattered", 13,
++		{"Kneel before me!", "I came from beyond the stars.", "Twenty years in a basement does things to a rock."}}},
++	{10, 51, 1, {15, "Meteor Police",
++		"an officer of the Meteor Police, a small alien who hunts runaway meteors; by the book, proud of the badge, and suspicious of every rock in the room", 5,
++		{"Meteor Police. Nobody touch the glowing rocks.", "Mind your speed, citizen.", "I have my eye on that meteor."}}},
+ };
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 5b2a1f4f..a0ddded4 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -87,6 +87,12 @@ static const WorldScene kWorldComi[] = {
+ 	{55, "Blood Island village"},
+ 	{67, "Blood Island cemetery"}, {86, "Carnival of the Damned"},
+ };
++// The mansion itself (the original engine plays it; the new engine shows
++// its places like the other games').
++static const WorldScene kWorldManiac[] = {
++	{1, "Front lawn"}, {10, "Grand foyer"}, {7, "Kitchen"}, {3, "Living room"},
++	{6, "Pool deck"}, {30, "Laboratory"},
++};
+ #define SCUMMVERSE_WORLD(id, title, folder, version, scenes, hero) \
+ 	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0])), hero}
+ static const WorldGame kWorldGames[] = {
+@@ -100,6 +106,7 @@ static const WorldGame kWorldGames[] = {
+ 	SCUMMVERSE_WORLD("ft", "Full Throttle", "ft", 7, kWorldFt, 94),
+ 	SCUMMVERSE_WORLD("dig", "The Dig", "dig", 7, kWorldDig, 63),
+ 	SCUMMVERSE_WORLD("comi", "The Curse of Monkey Island", "comi", 8, kWorldComi, 268),
++	SCUMMVERSE_WORLD("maniac", "Maniac Mansion", "maniac", 1, kWorldManiac, 72),
+ };
+ #undef SCUMMVERSE_WORLD
+ inline bool sameId(const char *a, const char *b) {
+@@ -111,6 +118,11 @@ inline bool sameId(const char *a, const char *b) {
+ // by key, 10000 + game * 1000 + room.
+ static const int kWorldPlaceKeyBase = 10000;
+ inline int worldGameCount() { return (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])); }
++// A game the original engine plays itself (the mansion): the new engine shows
++// its places like the others', the original engine's own menus, visits,
++// tour, wanderers and character screen do not list it as another world.
++inline bool worldHomeGame(const WorldGame &game) { return game.version <= 2; }
++inline bool worldHome(int game) { return game >= 0 && game < worldGameCount() && worldHomeGame(kWorldGames[game]); }
+ // Maniac and the 320x200 games are shown 1.2 times taller than drawn (the
+ // screens they were made for); Curse of Monkey Island draws square pixels
+ // at 640x480, so its scenes and characters are widened to match.
+@@ -568,6 +580,7 @@ struct WorldLead { short game, costume, room; };
+ static const WorldLead kWorldLeads[] = {
+ 	{0, 1, 33}, {1, 1, 4}, {2, 1, 2}, {3, 2, 6}, {4, 2, 1},
+ 	{5, 6, 29}, {6, 2, 7}, {7, 12, 6}, {8, 14, 23}, {9, 2, 15}, // (Day of the Tentacle: Purple Tentacle)
++	{10, 3, 1}, // (the mansion: Dave)
+ };
+ inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1; }
+ inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index a37534cf..5c3d979d 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -466,6 +466,30 @@ static const WorldArea kWorldMap_comiAreas[] = {
+ 	{31, "Snake"},
+ 	{81, "Gondola"},
+ };
++static const WorldRoom kWorldMap_maniacRooms[] = {
++	{1, 0, 1}, {2, 0, 2}, {3, 0, 3}, {4, 0, 4}, {5, 0, 5}, {6, 0, 6}, {7, 0, 7}, {8, 0, 8}, {9, 0, 9}, {10, 0, 10},
++	{11, 0, 11}, {12, 0, 12}, {13, 0, 13}, {14, 0, 14}, {15, 0, 15}, {16, 0, 16}, {17, 0, 17}, {18, 0, 18}, {19, 0, 19}, {20, 0, 20},
++	{21, 0, 21}, {22, 0, 22}, {23, 0, 23}, {24, 0, 24}, {25, 0, 25}, {26, 0, 26}, {27, 0, 27}, {28, 0, 28}, {29, 0, 29}, {30, 0, 30},
++	{31, 0, 31}, {36, 0, 36}, {37, 0, 37}, {38, 0, 38}, {44, 0, 44}, {51, 0, 51}, {52, 0, 52},
++};
++static const WorldLink kWorldMap_maniacLinks[] = {
++	{1, 53, 29, 234, 0}, {1, 61, 10, 67, 0}, {1, 257, 44, 258, 0}, {2, 171, 6, 172, 0}, {3, 71, 10, 70, 0}, {3, 126, 5, 135, 0},
++	{4, 159, 8, 155, 0}, {4, 163, 31, 166, 0}, {5, 135, 3, 126, 0}, {6, 137, 36, 125, 0}, {6, 138, 16, 143, 0}, {6, 172, 2, 171, 0},
++	{7, 81, 10, 68, 0}, {7, 82, 37, 95, 0}, {8, 154, 10, 69, 0}, {8, 155, 4, 159, 0}, {9, 217, 19, 231, 0}, {10, 67, 1, 61, 0},
++	{10, 68, 7, 81, 0}, {10, 69, 8, 154, 0}, {10, 70, 3, 71, 0}, {10, 230, 11, 179, 0}, {11, 179, 10, 230, 0}, {11, 180, 14, 197, 0},
++	{11, 181, 17, 185, 0}, {11, 182, 13, 193, 0}, {12, 456, 13, 194, 0}, {12, 457, 38, 229, 0}, {12, 458, 23, 459, 0}, {13, 193, 11, 182, 0},
++	{13, 194, 12, 456, 0}, {13, 195, 22, 208, 0}, {13, 196, 18, 201, 0}, {14, 197, 11, 180, 0}, {15, 223, 27, 102, 0}, {16, 59, 51, 177, 0},
++	{16, 143, 6, 138, 0}, {17, 185, 11, 181, 0}, {18, 201, 13, 196, 0}, {19, 103, 38, 461, 0}, {19, 231, 9, 217, 0}, {20, 213, 21, 235, 0},
++	{21, 235, 20, 213, 0}, {21, 465, 38, 460, 0}, {22, 208, 13, 195, 0}, {23, 459, 12, 458, 0}, {24, 113, 25, 112, 0}, {25, 109, 38, 463, 0},
++	{25, 112, 24, 113, 0}, {26, 39, 38, 462, 0}, {27, 99, 38, 464, 0}, {27, 102, 15, 223, 0}, {27, 232, 28, 252, 0}, {28, 252, 27, 232, 0},
++	{29, 234, 1, 53, 0}, {30, 255, 51, 267, 0}, {31, 166, 4, 163, 0}, {36, 124, 37, 98, 0}, {36, 125, 6, 137, 0}, {37, 95, 7, 82, 0},
++	{37, 98, 36, 124, 0}, {38, 229, 12, 457, 0}, {38, 460, 21, 465, 0}, {38, 461, 19, 103, 0}, {38, 462, 26, 39, 0}, {38, 463, 25, 109, 0},
++	{38, 464, 27, 99, 0}, {44, 258, 1, 257, 0}, {51, 177, 16, 59, 0}, {51, 267, 30, 255, 0}, {52, 108, 6, 138, 0}, {31, 168, 30, 169, 0},
++	{30, 169, 31, 168, 0},
++};
++static const WorldArea kWorldMap_maniacAreas[] = {
++	{52, "Gate approach"},
++};
+ static const WorldMap kWorldMaps[] = {
+ 	{kWorldMap_monkeyRooms, 81, kWorldMap_monkeyLinks, 231, kWorldMap_monkeyAreas, 9},
+ 	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 186, kWorldMap_monkey2Areas, 7},
+@@ -477,4 +501,5 @@ static const WorldMap kWorldMaps[] = {
+ 	{kWorldMap_ftRooms, 51, kWorldMap_ftLinks, 102, kWorldMap_ftAreas, 11},
+ 	{kWorldMap_digRooms, 61, kWorldMap_digLinks, 139, kWorldMap_digAreas, 3},
+ 	{kWorldMap_comiRooms, 52, kWorldMap_comiLinks, 143, kWorldMap_comiAreas, 6},
++	{kWorldMap_maniacRooms, 37, kWorldMap_maniacLinks, 73, kWorldMap_maniacAreas, 1},
+ };
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 59a6d742..481a7c73 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -182,6 +182,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 		_game.version == 1 && _game.platform == Common::kPlatformDOS &&
+ 		!(_game.features & GF_DEMO) &&
+ 		dr.md5 == "7f45ddd6dbfbf8f80c0c0efea4c295bc";
++	_scummverseAuditedManiac = auditedManiac;
+ 	_scummverseRoaming = auditedManiac && ConfMan.getBool("scummverse_roaming");
+ 	_scummverseExplorationDoors = auditedManiac &&
+ 		ConfMan.getBool("scummverse_exploration_doors");
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 1de766a8..626f8d1c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1649,7 +1649,8 @@ protected:
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+ 	bool scummverseExportPanel(int game, const Common::Path &file, Common::String &problem);
+ 	int _scummverseMusicTimer = -1; // The panel export's own music clock (-1: the music's).
+-	bool _scummverseExporting = false; // In the other worlds' export (scripts run out of their story's order).
++	bool _scummverseExporting = false;
++	bool _scummverseAuditedManiac = false; // (Maniac Mansion DOS V1 English, its tables checked against) // In the other worlds' export (scripts run out of their story's order).
+ 	void scummverseScriptError(const char *format, int a, int b = 0);
+ 	void scummverseFreshSlot(int slot);
+ 	void scummverseSkipCutscene();
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 38576adf..ae3307d2 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -113,7 +113,7 @@ void ScummEngine::scummverseTourBuild() {
+ 	// Every other game, by its door map, from its first named place.
+ 	for (int game = 0; game < worldGameCount(); ++game) {
+ 		const WorldMap *map = worldMap(game);
+-		if (!map) continue;
++		if (!map || worldHome(game)) continue; // (The mansion's own tour is above.)
+ 		rooms.clear(); edges.clear();
+ 		const int first = kWorldGames[game].sceneCount ? kWorldGames[game].scenes[0].room : -1;
+ 		for (int i = 0; i < map->roomCount; ++i) if (map->rooms[i].room == first) rooms.push_back(first);
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 1091e2e8..de92ab05 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -78,6 +78,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 		for (const ZakLink &link : zakLinks) WanderBridge::addDoor(zak(link.room), zak(link.destination));
+ 	}
+ 	for (int game = 0; game < worldGameCount(); ++game) {
++		if (worldHome(game)) continue; // (Its own places and people are above.)
+ 		const WorldMap *map = worldMap(game);
+ 		auto installed = [&](int room) {
+ 			return Common::FSNode(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room))).exists();
+@@ -102,9 +103,9 @@ void ScummEngine::scummverseWanderBuild() {
+ 	// The cast, each game's characters sharing one game's worth.
+ 	int games[64] = {};
+ 	for (const auto &cast : kWorldCast)
+-		if (cast.game < 64 && scummverseCharacterInstalled(cast.game, cast.guest.costume)) ++games[cast.game];
++		if (cast.game < 64 && !worldHome(cast.game) && scummverseCharacterInstalled(cast.game, cast.guest.costume)) ++games[cast.game];
+ 	for (const auto &cast : kWorldCast)
+-		if (cast.game < 64 && scummverseCharacterInstalled(cast.game, cast.guest.costume))
++		if (cast.game < 64 && !worldHome(cast.game) && scummverseCharacterInstalled(cast.game, cast.guest.costume))
+ 			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room),
+ 				2 + cast.game, MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index ebaaf0d6..58a34725 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -71,6 +71,19 @@ bool ScummEngine::scummverseObjectDrawable(const ObjectData &o, int state) {
+ 	// (Within the room's rows: drawBitmap only warns past them.)
+ 	if (!o.OBIMoffset && (_game.features & GF_SMALL_HEADER)) return false;
+ 	if (o.y_pos < 0 || o.y_pos + o.height > _virtscr[kMainVirtScreen].h) return false;
++	// (The oldest games' objects have one image each, of the room's tiles;
++	// those without one all point at the same place, or past the images.)
++	if (_game.version <= 2) {
++		if (state != 1) return state == 0;
++		uint32 firstCode = 0xFFFFFFFF;
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			const ObjectData &other = _objs[i];
++			if (!other.obj_nr) continue;
++			firstCode = MIN<uint32>(firstCode, other.OBCDoffset);
++			if (&other != &o && other.OBIMoffset == o.OBIMoffset) return false;
++		}
++		return o.OBIMoffset < firstCode;
++	}
+ 	const byte *image = getObjectImage(getOBIMFromObjectData(o), state);
+ 	if (!image) return false;
+ 	const byte *smap = image;
+@@ -182,6 +195,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		initScreens(top, top + _roomHeight);
+ 	}
+ 	initBGBuffers(_roomHeight); resetRoomObjects();
++	// (The oldest games draw a room's objects from the game's own states,
++	// brought to the room's copies each frame: as here.)
++	if (_game.version <= 2) updateObjectStates();
+ 	// Curse of Monkey Island rooms whose entry script gives the walk boxes
+ 	// their depth scale (Puerto Pollo): run it for a few cycles and keep the
+ 	// scales it leaves, put back what else it changed in the game, and set
+@@ -288,7 +304,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			if (any) answers |= Scummverse::PanelBridge::kThingAnswersAny;
+ 			if (getClass(o.obj_nr, kObjectClassUntouchable) || getOwner(o.obj_nr) != OF_OWNER_ROOM) answers |= Scummverse::PanelBridge::kThingAway;
+ 			things->push_back(o.obj_nr);
+-			things->push_back(!o.state ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : o.state);
++			things->push_back(_game.version <= 2 ? (o.state & kObjectStateIntrinsic ? 1 : 0) : !o.state ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : o.state);
+ 			things->push_back(answers);
+ 		}
+ 		return true;
+@@ -324,6 +340,8 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	if (VAR_CAMERA_MIN_Y != 0xFF) VAR(VAR_CAMERA_MIN_Y) = _screenHeight / 2;
+ 	if (VAR_CAMERA_MAX_Y != 0xFF) VAR(VAR_CAMERA_MAX_Y) = MAX(_screenHeight / 2, _roomHeight - _screenHeight / 2);
+ 	camera._mode = kNormalCameraMode;
++	// (The oldest games light a room from a variable their scripts set: lit.)
++	if (_game.version <= 2) VAR(VAR_CURRENT_LIGHTS) = LIGHTMODE_room_lights_on | LIGHTMODE_actor_use_colors;
+ 	const int W = _roomWidth, H = _roomHeight;
+ 	Common::Array<byte> pixels; pixels.resize(W * H);
+ 	bool actors = false;
+@@ -465,6 +483,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// room's scripts and animations drew there stays.
+ 	struct ObjectPictures { int x = 0, y = 0, width = 0, height = 0, shown = 0; Common::Array<Common::Array<byte> > states; Common::String name; };
+ 	Common::Array<ObjectPictures> pictures;
++	const bool old = _game.version <= 2; // (states as bits: shown while "on")
+ 	{
+ 		const Common::Array<byte> scene = pixels;
+ 		// (Drawing takes the image from the game's own state table, and
+@@ -496,15 +515,17 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				p.x = x0; p.y = y0; p.width = x1 - x0; p.height = y1 - y0;
+ 				const int global = getState(o.obj_nr);
+ 				// The one shown: its state, drawn (else none; the older games
+-				// have one image whatever the state).
+-				const int now = !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
++				// have one image whatever the state, the oldest draw it while
++				// its state's "on" bit is set).
++				const int now = old ? (states[i - 1] & kObjectStateIntrinsic ? 1 : 0) : !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
+ 				const Common::Array<byte> inScene = grab(scene, p);
+ 				renderSpan(x0, x1);
+ 				const Common::Array<byte> drawn = grab(pixels, p);
+ 				for (int state = 0; state <= images; ++state) {
+ 					if (state && !scummverseObjectDrawable(o, state)) break;
+-					_objs[i].state = state;
+-					putState(o.obj_nr, state);
++					const int as = old ? (state ? global | kObjectStateIntrinsic : global & ~kObjectStateIntrinsic) : state;
++					_objs[i].state = as;
++					putState(o.obj_nr, as);
+ 					renderSpan(x0, x1);
+ 					Common::Array<byte> rect = grab(pixels, p);
+ 					for (uint at = 0; at < rect.size(); ++at) if (rect[at] == drawn[at]) rect[at] = inScene[at];
+@@ -552,7 +573,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	for (int b = 0; b < boxes; ++b) {
+ 		const BoxCoords box = getBoxCoordinates(b);
+ 		const Common::Point corners[4] = {box.ul, box.ur, box.lr, box.ll};
+-		for (const auto &p : corners) { scummverseWrite16(out, p.x); scummverseWrite16(out, p.y); }
++		// (The oldest games' boxes are in their actors' units: 8 by 2 pixels.)
++		const int sx = old ? V12_X_MULTIPLIER : 1, sy = old ? V12_Y_MULTIPLIER : 1;
++		for (const auto &p : corners) { scummverseWrite16(out, p.x * sx); scummverseWrite16(out, p.y * sy); }
+ 		out.writeByte(getBoxFlags(b)); out.writeByte(getMaskFromBox(b));
+ 	}
+ 	// The room's objects (doors and hotspots) with their walk-to points.
+@@ -564,7 +587,8 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		const ObjectData &o = _objs[i];
+ 		if (!o.obj_nr || o.width <= 0 || o.height <= 0) continue;
+ 		// Its state only where the room's script set it up (shown otherwise).
+-		const int fields[8] = {o.obj_nr, o.x_pos, o.y_pos, o.width, o.height, o.walk_x, o.walk_y, scripted ? getState(o.obj_nr) : 1};
++		const int state = !scripted ? 1 : old ? (getState(o.obj_nr) & kObjectStateIntrinsic ? 1 : 0) : getState(o.obj_nr);
++		const int fields[8] = {o.obj_nr, o.x_pos, o.y_pos, o.width, o.height, o.walk_x, o.walk_y, state};
+ 		for (int f : fields) scummverseWrite16(out, f);
+ 	}
+ 	// Per box, the scale the game gives characters at its top and bottom edges.
+@@ -1055,7 +1079,9 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	if (_game.version <= 3 && _res->_types[rtCostume][costume]._roomoffs == RES_INVALID_OFFSET) { problem = "costume missing"; return false; }
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 	const int W = _screenWidth, H = vs.h;
+-	Actor *a = _actors[1];
++	// (The mansion colours its people by who they are: its actor of the same
++	// number as the costume.)
++	Actor *a = _actors[_game.id == GID_MANIAC && _game.version <= 1 && costume < _numActors ? costume : 1];
+ 	a->initActor(0);
+ 	a->setActorCostume(costume);
+ 	if (variant && variant->init >= 0) {
+@@ -1093,7 +1119,9 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	a->_visible = true;
+ 	int ax = 0, ay = 0;
+ 	auto place = [&](int x, int y) {
+-		a->putActor(x, y, _currentRoom);
++		// (The oldest games place their actors in 8 by 2 pixel units.)
++		if (_game.version <= 2) a->putActor(x / V12_X_MULTIPLIER, y / V12_Y_MULTIPLIER, _currentRoom);
++		else a->putActor(x, y, _currentRoom);
+ 		ax = a->getPos().x - vs.xstart; ay = a->getPos().y - a->getElevation();
+ 	};
+ 	place(camera._cur.x, H - 4);
+@@ -1232,7 +1260,9 @@ bool ScummEngine::scummverseWriteGuest(int costume, Common::Array<ScummverseGues
+ // finished marker. Returns the number of scenes written; problems are logged.
+ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 	const WorldGame *game = worldGame(_game.gameid);
+-	if (!game || game->version != _game.version) {
++	// (The mansion: only the edition the original engine's own tables are
++	// checked against.)
++	if (!game || game->version != _game.version || (worldHomeGame(*game) && !_scummverseAuditedManiac)) {
+ 		warning("SCUMMVERSE world export: %s (version %d) is not a supported edition", _game.gameid, _game.version);
+ 		return 0;
+ 	}
+@@ -1357,6 +1387,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	for (int room : rooms) {
+ 		if (shouldQuit()) break;
+ 		putBack();
++		// (The same each time: what a room's script picks at random, the
++		// same picks.)
++		_rnd.setSeed(0x5C0BE + room);
+ 		Room r;
+ 		r.room = room;
+ 		Common::String why;
+@@ -1424,6 +1457,7 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	int args[NUM_SCRIPT_LOCAL];
+ 	memset(args, 0, sizeof(args));
+ 	args[0] = _bootParam;
++	_rnd.setSeed(0x5C0BE); // (The same start each time.)
+ 	runScript(1, 0, 0, args);
+ 	VirtScreen &vs = _virtscr[kVerbVirtScreen];
+ 	auto onPanel = [&](const VerbSlot &v) { return v.curRect.top >= vs.topline && v.curRect.top < _screenHeight; };
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 17118bb9..32516eda 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -20,11 +20,12 @@ static const int kWorldLegacyRoom = 200; // Patches 0057..0060: 200 + catalog po
+ 
+ static int worldSceneTotal() {
+ 	int total = 0;
+-	for (const auto &game : kWorldGames) total += game.sceneCount;
++	for (const auto &game : kWorldGames) if (!worldHomeGame(game)) total += game.sceneCount;
+ 	return total;
+ }
+ static bool worldSceneAt(int index, const WorldGame *&game, int &scene) {
+ 	for (const auto &g : kWorldGames) {
++		if (worldHomeGame(g)) continue; // (Played here itself.)
+ 		if (index < g.sceneCount) { game = &g; scene = index; return index >= 0; }
+ 		index -= g.sceneCount;
+ 	}
+@@ -52,7 +53,8 @@ int ScummEngine::scummverseWorldGameOf(int room, int &source) const {
+ // The logical room for a place: the one already holding it, else a slot no
+ // actor stands in (never the viewed room).
+ int ScummEngine::scummverseWorldRoomFor(int game, int source) {
+-	if (game < 0 || game >= worldGameCount() || source <= 0 || source >= 1024) return 0;
++	// (Not the mansion: it is played here itself.)
++	if (game < 0 || game >= worldGameCount() || worldHome(game) || source <= 0 || source >= 1024) return 0;
+ 	const int key = game * 1024 + source + 1;
+ 	for (int i = 0; i < kWorldRoomSlots; ++i) if (_scummVars[kWorldSlotVar + i] == key) return kWorldSlotRoom + i;
+ 	for (int pass = 0; pass < 2; ++pass)
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 51e19f30..52fa9b8a 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1047,6 +1047,7 @@ void ScummEngine::scummverseCastOffer() {
+ 	}
+ 	// Every other game: its lead first, then its cast, once each by name.
+ 	for(int game=0;game<worldGameCount();++game) {
++		if(worldHome(game)) continue; // (Its own box is above.)
+ 		const WorldLead *lead=nullptr;
+ 		for(const auto &l : kWorldLeads) if(l.game==game) lead=&l;
+ 		byte face[64*64*4];

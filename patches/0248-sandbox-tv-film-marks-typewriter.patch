@@ -1,0 +1,1404 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index 9380245e..24c03f6d 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -184,7 +184,8 @@ const ThingParent *GameThings::parent(int room, int id) const {
+ 
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	const bool views = data && size >= 4 && !std::memcmp(data, "SVO7", 4);
++	const bool films = data && size >= 4 && !std::memcmp(data, "SVO8", 4);
++	const bool views = films || (data && size >= 4 && !std::memcmp(data, "SVO7", 4));
+ 	const bool closeUps = views || (data && size >= 4 && !std::memcmp(data, "SVO6", 4));
+ 	const bool power = closeUps || (data && size >= 4 && !std::memcmp(data, "SVO5", 4));
+ 	const bool pairs = power || (data && size >= 4 && !std::memcmp(data, "SVO4", 4));
+@@ -286,17 +287,38 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 				if (coins > kMostCoins) { out = GameThings(); error = "bad close-up"; return false; }
+ 				for (int k = 0; k < coins && r.ok; ++k) { const int slot = r.u16(); c.coins.push_back(std::make_pair(slot, (int)r.u16())); }
+ 			}
++			// (From 0248: a film, its events in the order played, each within it.)
++			bool film = false;
++			if (films && (c.film.length = r.u16()) > 0 && r.ok) {
++				CloseUpFilm &f = c.film;
++				f.lead = r.u16(); f.leadPicture = r.u8();
++				f.costume = r.u16(); f.x = r.u16(); f.y = r.u16(); f.facing = r.u8(); f.color = r.u8();
++				const int events = r.u8();
++				if (events > kMostFilmEvents) { out = GameThings(); error = "bad close-up"; return false; }
++				film = c.keys.empty() && c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty() && !c.right && !c.wrong && f.facing < 4 && f.leadPicture < 2;
++				for (int k = 0; k < events && r.ok; ++k) {
++					FilmEvent e;
++					e.tick = r.u16(); e.id = r.u16(); e.picture = r.u8(); line(e.line);
++					film = film && e.tick <= f.length && e.picture < 2 && (k == 0 || e.tick >= f.events.back().tick);
++					f.events.push_back(e);
++				}
++				f.after = r.u8();
++				const int mark = r.u8(), powered = r.u8();
++				f.mark = mark == 255 ? -1 : mark; f.powered = powered == 1;
++				line(f.offLine);
++				film = film && f.after < 2 && powered < 2 && (mark == 255 || mark < kMostMarks);
++			}
+ 			// (Shown by some verb; keys to press, a key for each value the code
+ 			// wants; each answer a picture its thing has. Or, from 0242, a view:
+ 			// no keys, no code, its start one of its turns (each once), each
+ 			// button's turns after some of them, each coin a slot and a coin.)
+-			bool keyed = !c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty();
++			bool keyed = !c.code.empty() && c.turns.empty() && c.buttons.empty() && c.coins.empty() && !c.isFilm();
+ 			for (int value : c.code) {
+ 				bool any = false;
+ 				for (const CloseUpKey &key : c.keys) any = any || key.value == value;
+ 				keyed = keyed && any;
+ 			}
+-			bool view = c.keys.empty() && c.code.empty() && !c.turns.empty() && !c.right && !c.wrong;
++			bool view = c.keys.empty() && c.code.empty() && !c.turns.empty() && !c.right && !c.wrong && !c.isFilm();
+ 			bool started = false;
+ 			for (size_t t = 0; t < c.turns.size(); ++t) {
+ 				started = started || c.turns[t].value == c.start;
+@@ -308,12 +330,43 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 			}
+ 			for (const std::pair<int, int> &coin : c.coins) view = view && coin.first && coin.second;
+ 			view = view && started;
+-			if (count > kMostCloseUps || keys > kMostCloseUpKeys || presses > kMostPresses || !(c.kinds & 0xFFFE) || !c.closeUp || !(keyed || view) || c.right > 1 || c.wrong > 1) {
++			if (count > kMostCloseUps || keys > kMostCloseUpKeys || presses > kMostPresses || !(c.kinds & 0xFFFE) || !c.closeUp || !(keyed || view || film) || c.right > 1 || c.wrong > 1) {
+ 				out = GameThings(); error = "bad close-up"; return false;
+ 			}
+ 			out.closeUps.push_back(c);
+ 		}
+ 	}
++	// (From 0248, "SVO8": the marks, and the answers that read them; a film
++	// leaves one of these.)
++	if (films && r.ok) {
++		const int marks = r.u8();
++		if (marks > kMostMarks) { out = GameThings(); error = "bad marks"; return false; }
++		for (int i = 0; i < marks && r.ok; ++i) out.marks.push_back(r.u8());
++		const int answers = r.u16();
++		if (answers > kMostMarked) { out = GameThings(); error = "bad marks"; return false; }
++		bool good = true;
++		for (int kind : out.marks) good = good && kind < 2;
++		for (const CloseUp &c : out.closeUps) good = good && c.film.mark < marks;
++		for (int i = 0; i < answers && r.ok; ++i) {
++			MarkedAnswer a;
++			a.room = r.u16(); a.id = r.u16(); a.kind = r.u8(); a.from = r.u8(); a.with = r.u16(); a.need = r.u16(); a.marks = r.u8();
++			const int after = r.u8(), others = r.u8();
++			a.after = after & 1; a.taken = (after & 2) != 0; a.firstGone = (after & 4) != 0; a.secondGone = (after & 8) != 0;
++			if (others > kMostEffectParts) { out = GameThings(); error = "bad marks"; return false; }
++			for (int k = 0; k < others && r.ok; ++k) {
++				ThingPart part;
++				part.room = r.u16(); part.id = r.u16(); part.picture = r.u8();
++				good = good && part.picture <= 2;
++				a.others.push_back(part);
++			}
++			a.sets = r.u8();
++			std::vector<uint8_t> said;
++			if (r.bytes(r.u8(), said)) a.line.assign(said.begin(), said.end());
++			good = good && a.id && a.kind > 0 && a.kind < 32 && a.from < 2 && after < 16 && a.marks < 1 << marks && a.sets < 1 << marks;
++			out.marked.push_back(a);
++		}
++		if (!good) { out = GameThings(); error = "bad marks"; return false; }
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
+ 	std::stable_sort(out.parents.begin(), out.parents.end(), [](const ThingParent &a, const ThingParent &b) { return std::make_pair(a.room, a.id) < std::make_pair(b.room, b.id); });
+ 	for (size_t i = 1; i < out.parents.size(); ++i)
+@@ -321,6 +374,10 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 	std::stable_sort(out.effects.begin(), out.effects.end(), [](const ThingEffect &a, const ThingEffect &b) {
+ 		return std::make_tuple(a.room, a.id, a.kind, a.from, a.with) < std::make_tuple(b.room, b.id, b.kind, b.from, b.with);
+ 	});
++	auto markedKey = [](const MarkedAnswer &a) { return std::make_tuple(a.room, a.id, a.kind, a.from, a.with, a.marks); };
++	std::stable_sort(out.marked.begin(), out.marked.end(), [&](const MarkedAnswer &a, const MarkedAnswer &b) { return markedKey(a) < markedKey(b); });
++	for (size_t i = 1; i < out.marked.size(); ++i)
++		if (markedKey(out.marked[i]) == markedKey(out.marked[i - 1])) { out = GameThings(); error = "an answer twice"; return false; }
+ 	std::stable_sort(out.rooms.begin(), out.rooms.end(), [](const std::pair<int, std::vector<GameThing> > &a, const std::pair<int, std::vector<GameThing> > &b) { return a.first < b.first; });
+ 	for (size_t i = 1; i < out.rooms.size(); ++i)
+ 		if (out.rooms[i].first == out.rooms[i - 1].first) { out = GameThings(); error = "a room twice"; return false; }
+@@ -1277,6 +1334,60 @@ bool closeUpCoin(int game, int index, int k, int &slot, int &coin) {
+ 	slot = c->coins[k].first; coin = c->coins[k].second;
+ 	return true;
+ }
++bool closeUpFilm(int game, int index, int &length, int &lead, int &leadPicture, int &costume, int &x, int &y, int &facing, int &color, int &events, int &after, int &mark, bool &powered, char *offLine, int capacity) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || !c->isFilm()) return false;
++	const Panel::CloseUpFilm &f = c->film;
++	length = f.length; lead = f.lead; leadPicture = f.leadPicture; costume = f.costume; x = f.x; y = f.y; facing = f.facing; color = f.color;
++	events = (int)f.events.size(); after = f.after; mark = f.mark; powered = f.powered;
++	copy(f.offLine, offLine, capacity);
++	return true;
++}
++bool closeUpFilmEvent(int game, int index, int event, int &tick, int &id, int &picture, char *line, int capacity) {
++	const Panel::CloseUp *c = closeUpOf(game, index);
++	if (!c || event < 0 || event >= (int)c->film.events.size()) return false;
++	const Panel::FilmEvent &e = c->film.events[event];
++	tick = e.tick; id = e.id; picture = e.picture;
++	copy(e.line, line, capacity);
++	return true;
++}
++static const Panel::GameThings *thingsOf(int game) {
++	for (const auto &g : gameThings()) if (g.first == game) return &g.second;
++	return nullptr;
++}
++int markCount(int game) {
++	const Panel::GameThings *t = thingsOf(game);
++	return t ? (int)t->marks.size() : 0;
++}
++int markKind(int game, int mark) {
++	const Panel::GameThings *t = thingsOf(game);
++	return t && mark >= 0 && mark < (int)t->marks.size() ? t->marks[mark] : -1;
++}
++bool markReader(int game, int room, int id, int kind, int with, int &need) {
++	const Panel::GameThings *t = thingsOf(game);
++	if (!t) return false;
++	for (const Panel::MarkedAnswer &a : t->marked)
++		if (a.room == room && a.id == id && a.kind == kind && a.with == with) { need = a.need; return true; }
++	return false;
++}
++bool markedAnswer(int game, int room, int id, int kind, int from, int with, int marks, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets) {
++	count = 0; flags = 0; sets = 0;
++	const Panel::GameThings *t = thingsOf(game);
++	if (!t) return false;
++	auto key = [](const Panel::MarkedAnswer &a) { return std::make_tuple(a.room, a.id, a.kind, a.from, a.with, a.marks); };
++	const auto wanted = std::make_tuple(room, id, kind, from, with, marks);
++	const auto a = std::lower_bound(t->marked.begin(), t->marked.end(), wanted, [&](const Panel::MarkedAnswer &m, const std::tuple<int, int, int, int, int, int> &b) { return key(m) < b; });
++	if (a == t->marked.end() || key(*a) != wanted) return false;
++	after = a->after; sets = a->sets;
++	flags = (a->taken ? 1 : 0) | (a->firstGone ? 2 : 0) | (a->secondGone ? 4 : 0);
++	for (const Panel::ThingPart &part : a->others) {
++		if (count >= capacity) break;
++		others[count * 3] = part.room; others[count * 3 + 1] = part.id; others[count * 3 + 2] = part.picture;
++		++count;
++	}
++	copy(a->line, line, lineCapacity);
++	return true;
++}
+ bool unpowered(int game, int room) {
+ 	for (const auto &g : gameThings())
+ 		if (g.first == game) return std::binary_search(g.second.unpowered.begin(), g.second.unpowered.end(), room);
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 4df0857e..507edbdc 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -178,6 +178,39 @@ struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ // after (an index; its own: no further); u8 count of coins, each u16 the
+ // slot (a thing of the close-up's thing's place) and u16 the coin (carried)
+ // whose use with it pays a turn.
++// "SVO8" (from 0248): each close-up goes on with a film (none for a keypad or
++// a view; a film has no keys, no code and no turns: the mansion's TV): u16
++// its length (the game's ticks; 0: no film, nothing more), then u16 how long
++// its thing's place shows first and u8 the thing's picture meanwhile, u16 the
++// costume of the one there (0: nobody), u16 x and y of their feet (source
++// pixels), u8 the way they face (0 left, 1 right, 2 front, 3 back), u8 their
++// talk colour (an index into the panel's colours), u8 count of events, each
++// u16 its tick, u16 a thing of the film's room (0: a line), u8 its picture
++// then (a line: 1 said, 0 gone) and the line said (u8 length, the line); then
++// u8 the thing's picture after, u8 the mark it leaves (an index of the marks
++// below; 255: none), u8 1 when it plays only with the main power on and the
++// line said with it off (u8 length, the line). After the close-ups, u8 count
++// of marks, each u8 its kind (0: the one played's own, 1: the game's), and
++// u16 count of answers that read them, each u16 room, u16 object, u8 verb
++// kind, u8 the picture it was in, u16 the second thing (0: none), u16 a thing
++// of its room in its picture 1 first (0: none), u8 the marks set then (bit k:
++// mark k), then as an effect: u8 the picture after (bit 1 taken, 2 the first
++// used up, 3 the second used up), u8 count of others (u16 room, u16 object,
++// u8 picture), u8 the marks it leaves set (bit k: mark k) and the line said
++// (u8 length, the line).
++struct FilmEvent { int tick = 0, id = 0, picture = 0; std::string line; };
++struct CloseUpFilm {
++	int length = 0, lead = 0, leadPicture = 0, costume = 0, x = 0, y = 0, facing = 0, color = 0, after = 0, mark = -1;
++	bool powered = false;
++	std::vector<FilmEvent> events; // (in the order played)
++	std::string offLine;
++};
++struct MarkedAnswer {
++	int room = 0, id = 0, kind = 0, from = 0, with = 0, need = 0, marks = 0, after = 0, sets = 0;
++	bool taken = false, firstGone = false, secondGone = false;
++	std::vector<ThingPart> others;
++	std::string line;
++};
+ struct CloseUpKey { int id = 0, value = 0; std::string line; };
+ struct CloseUpView { int room = 0, left = 0, ticks = 0; };
+ struct CloseUpTurn { int value = 0; CloseUpView seen[2]; };
+@@ -191,7 +224,9 @@ struct CloseUp {
+ 	std::vector<CloseUpTurn> turns;
+ 	std::vector<CloseUpButton> buttons;
+ 	std::vector<std::pair<int, int> > coins; // (slot, coin)
+-	bool view() const { return keys.empty(); }
++	CloseUpFilm film;
++	bool view() const { return !turns.empty(); }
++	bool isFilm() const { return film.length > 0; }
+ };
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
+@@ -200,6 +235,8 @@ struct GameThings {
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;                // the main power (0 0: none)
+ 	std::vector<int> unpowered;                                  // places dark while it is off, in order
+ 	std::vector<CloseUp> closeUps;                               // as listed
++	std::vector<int> marks;                                      // each mark's kind (0: the one played's, 1: the game's)
++	std::vector<MarkedAnswer> marked;                            // by room, id, kind, from, with, marks
+ 	const GameThing *find(int room, int id) const;
+ 	const ThingEffect *effect(int room, int id, int kind, int from, int with = 0) const;
+ 	const ThingParent *parent(int room, int id) const;
+@@ -209,6 +246,7 @@ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 3276
+ // (Its close-ups' limits are the engine bridge's, which the export keeps to.)
+ using PanelBridge::kMostCloseUps; using PanelBridge::kMostCloseUpKeys; using PanelBridge::kMostPresses;
+ using PanelBridge::kMostTurns; using PanelBridge::kMostButtons; using PanelBridge::kMostCoins;
++using PanelBridge::kMostFilmEvents; using PanelBridge::kMostMarks; using PanelBridge::kMostMarked;
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error);
+ 
+ class Panel {
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 569c9276..983b312b 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -172,7 +172,9 @@ bool unpowered(int game, int room);
+ // (The most a things file's close-ups have: close-ups, keys and presses in
+ // one, from 0242 a view's turns, buttons and coins. A file with more is
+ // refused whole, so the export leaves out a close-up over them.)
++// From 0248 a film's events, a file's marks and the answers that read them.
+ static const int kMostCloseUps = 16, kMostCloseUpKeys = 64, kMostPresses = 16, kMostTurns = 16, kMostButtons = 16, kMostCoins = 64;
++static const int kMostFilmEvents = 64, kMostMarks = 8, kMostMarked = 1024;
+ int closeUpCount(int game);
+ bool closeUpThing(int game, int index, int &room, int &id, int &kinds);
+ bool closeUpScene(int game, int index, int &room, int &left, int &keys, int &presses);
+@@ -193,6 +195,28 @@ bool closeUpTurn(int game, int index, int turn, int seenPicture, int &value, int
+ int closeUpButtons(int game, int index);
+ bool closeUpButton(int game, int index, int button, int turn, int &id, int &kind, int &after, char *line, int capacity);
+ bool closeUpCoin(int game, int index, int k, int &slot, int &coin);
++// From 0248 ("SVO8") a close-up may be a film (no keys, no turns: the
++// mansion's TV's): how long it lasts (ticks), how long the thing's place
++// shows first and the thing's picture meanwhile, who is there (a costume of its
++// game, 0 nobody; their feet, source pixels; the way they face, 0 left, 1
++// right, 2 front, 3 back; their talk colour), how many events, the thing's
++// picture after, the mark it leaves (-1: none), whether it plays only with
++// the main power on, and the line said with it off; an event (by index):
++// its tick, a thing of the film's room (0: a line) and its picture then (a
++// line: 1 said, its line; 0 gone).
++bool closeUpFilm(int game, int index, int &length, int &lead, int &leadPicture, int &costume, int &x, int &y, int &facing, int &color, int &events, int &after, int &mark, bool &powered, char *offLine, int capacity);
++bool closeUpFilmEvent(int game, int index, int event, int &tick, int &id, int &picture, char *line, int capacity);
++// A game's marks (from 0248, "SVO8"; kWorldMarks): how many, and each one's
++// kind (0: each one played's own, 1: the game's; -1: none). An answer that
++// reads them: whether the thing's verb (with a second thing, 0 none) has
++// one, and the thing of its room it wants in its picture 1 first (0: none);
++// from a picture, with the marks set (bit k: mark k), what it does, as
++// pairEffect (flags 1 taken, 2 the first used up, 4 the second used up), and
++// the marks it leaves set (bit k). False: not known.
++int markCount(int game);
++int markKind(int game, int mark);
++bool markReader(int game, int room, int id, int kind, int with, int &need);
++bool markedAnswer(int game, int room, int id, int kind, int from, int with, int marks, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets);
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 2117308a..260029b7 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -52,10 +52,12 @@ static const int kWorldExportVersion = 25;
+ // kWorldRideScenes); from 0240 the mansion's again (its wall safe's keypad,
+ // kWorldCloseUps: "maniac-v34"); from 0242 the mansion's again (its
+ // telescope's view, kWorldCloseUps: "maniac-v35"); from 0247 Sam & Max's (its
+-// things placed and what its verbs on them answer: "samnmax-v26").
++// things placed and what its verbs on them answer: "samnmax-v26"); from 0248
++// the mansion's again (its TV's film and the marks it leaves, kWorldCloseUps
++// and kWorldMarks: "maniac-v36").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 10 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 11 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") || same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -563,8 +565,17 @@ inline const WorldRideScene *worldRideInside(int game, int kind) {
+ // export plays each turn, button and coin (scummverseExportThings, "SVO7");
+ // the variables and the thing seen are named here, as the export cannot
+ // tell which of the game's the telescope's script reads.
++// From 0248 also a film, a close-up with no keys and no turns (no variables
++// named): the mansion's TV (room 17, 190), whose Turn on (or Use), with the
++// main power on, plays its game's cut-scene in room 40 (someone there
++// saying their lines, a thing of it blinking) and then marks the kid who
++// watched it (kWorldMarks); with the power off, its line. The export plays
++// it as the game's own loop does, tick by tick (scummverseExportThings,
++// "SVO8": who is there and where, each line and picture when, how long).
+ struct WorldCloseUp { short game, room, object, closeUp, pressed, idle, code, presses, also, turned, paid, seenRoom, seen; };
+-static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218}};
++static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0, 0, 0, 0, 0}, {10, 28, 413, 34, 0, 0, 0, 0, 35, 164, 170, 9, 218},
++	{10, 17, 190, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
++inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+ 	for (const WorldCloseUp &c : kWorldCloseUps) if (c.game == game && (c.closeUp == closeUp || (c.also && c.also == closeUp))) return &c;
+ 	return nullptr;
+@@ -1060,6 +1071,29 @@ static const WorldVerb kWorldVerbs[] = {
+ 	// the parrot (the mouth: talk to, eat).
+ 	{9, 7, kWorldVerbHand}, {9, 6, kWorldVerbLook}, {9, 8, kWorldVerbTalk},
+ };
++// Marks (from 0248): what a game's script leaves for others' to read later,
++// which the new engine keeps: the kid's own (`bit`, plus the kid's number,
++// of its game's bit variables: the mansion's TV's film watched, by that kid
++// only) or the game's (its variable `var` at `value`: the envelope from the
++// wall safe addressed). The export finds which answers leave them (a film's
++// end, an answer's) and plays each answer that reads them (kWorldMarkReaders)
++// with each set and not; named here, as the export cannot tell which of the
++// game's variables say so.
++struct WorldMark { short game, bit, var, value; };
++static const WorldMark kWorldMarks[] = {{10, 2968, 0, 0}, {10, 0, 104, 1}};
++// An answer that reads a mark (from 0248): a verb kind on a thing of a room,
++// with a second thing (`with`, one that can be carried; 0: none), and `need`
++// (0: none), a thing of that room its script wants in its picture 1, put so
++// as a player does first. The mansion's typewriter (room 27, 416) used with
++// the envelope (222): it types the address only for a kid who watched the
++// TV's film, once; the mailbox (room 1, 276), its door (50) open, takes the
++// envelope only addressed (then it wants the stamps, which the new engine
++// does not keep: its line); the envelope read, in the safe (room 9) or
++// carried, and posted (room 1, 58), says whether it is addressed.
++struct WorldMarkReader { short game, room, object, kind, with, need; };
++static const WorldMarkReader kWorldMarkReaders[] = {
++	{10, 27, 416, kWorldVerbUse, 222, 0}, {10, 1, 276, kWorldVerbUse, 222, 50},
++	{10, 9, 222, kWorldVerbRead, 0, 0}, {10, 1, 58, kWorldVerbRead, 0, 0}};
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+ // oldest games' sentence line and inventory are the engine's own.)
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1ea4f9a5..9370c0e0 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1646,7 +1646,13 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // leaves them. Every other game's is "SVO3" with no effects (before,
+ // "SVO1"), so that what is inside another is known there too; from 0247
+ // Sam & Max's is "SVO7" with what its things answer to its pointer's verbs
+-// (as its own sentences run them; no main power, no close-ups).
++// (as its own sentences run them; no main power, no close-ups). From 0248
++// the mansion's is "SVO8": each close-up also has a film's lead, the one
++// there, its lines and pictures on their ticks (none for a keypad or a
++// view), then the marks (kWorldMarks) and the answers that read them
++// (kWorldMarkReaders), each played with each set of marks; see
++// Scummverse::Panel::CloseUpFilm. A file with no film and no mark (Sam &
++// Max's) is still "SVO7", the same bytes as before.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1693,8 +1699,21 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// ticks shown; per button its object and verb kind, its line and per
+ 		// turn the turn after (an index); each coin's slot and coin.)
+ 		int start = 0, seenRoom = 0, seen = 0; Common::Array<int> turns, views, buttons, buttonKinds, after, coins; Common::Array<Common::String> buttonLines;
++		// (From 0248, a film's: its length (0: none), how long before it the
++		// place shows the thing in which picture, who is there, its events
++		// (tick, thing (0: a line), picture) and their lines, the thing's
++		// picture after, the mark it leaves (-1: none), whether it wants the
++		// main power on and its line with it off.)
++		int length = 0, lead = 0, leadPicture = 0, costume = 0, x = 0, y = 0, facing = 0, color = 0, filmAfter = 0, mark = -1; bool powered = false;
++		Common::Array<int> events; Common::Array<Common::String> eventLines; Common::String offLine;
+ 	};
+ 	Common::Array<CloseUp> closeUps;
++	// (From 0248, "SVO8": the marks (kWorldMarks) and the answers that read
++	// them, each with the marks set then (bit k: mark k).)
++	Common::Array<const WorldMark *> marks;
++	for (const WorldMark &m : kWorldMarks) if (m.game == gameIndex && (int)marks.size() < Scummverse::PanelBridge::kMostMarks) marks.push_back(&m);
++	struct Marked { int room, id, kind, from, with, need, marks, sets = 0; Effect answer; };
++	Common::Array<Marked> marked;
+ 	int powerRoom = 0, powerId = 0, powerOff = 0;
+ 	Common::Array<int> unpowered;
+ 	if (_game.id == GID_MANIAC && _game.version <= 1) {
+@@ -2188,10 +2207,206 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			}
+ 			return true;
+ 		};
++		// (From 0248: the marks as the game has them now, bit k mark k; a
++		// kid's own, the kid's playing here (VAR_EGO); put so.)
++		auto bitOf = [&](int bit) {
++			const int at = bit + VAR(VAR_EGO);
++			return at >= 0 && (at >> 4) < _numVariables ? &_scummVars[at >> 4] : nullptr;
++		};
++		auto marksNow = [&]() {
++			int now = 0;
++			for (uint k = 0; k < marks.size(); ++k) {
++				const WorldMark &m = *marks[k];
++				int32 *word = m.bit ? bitOf(m.bit) : nullptr;
++				if (m.bit ? word && (*word & 1 << ((m.bit + VAR(VAR_EGO)) & 15)) : m.var > 0 && m.var < _numVariables && VAR(m.var) == m.value) now |= 1 << k;
++			}
++			return now;
++		};
++		auto putMarks = [&](int set) {
++			for (uint k = 0; k < marks.size(); ++k) {
++				const WorldMark &m = *marks[k];
++				const bool on = (set & 1 << k) != 0;
++				if (int32 *word = m.bit ? bitOf(m.bit) : nullptr) {
++					const int32 mask = 1 << ((m.bit + VAR(VAR_EGO)) & 15);
++					*word = on ? *word | mask : *word & ~mask;
++				} else if (!m.bit && m.var > 0 && m.var < _numVariables && (on || VAR(m.var) == m.value)) VAR(m.var) = on ? m.value : 0;
++			}
++		};
++		// (From 0248, "SVO8": a film, a close-up with no keys and no turns
++		// (kWorldCloseUps: the mansion's TV), played from the game's own start
++		// as its own loop plays it: a step of its main loop's time (as
++		// VAR_TIMER_NEXT asks, the mansion's in threes) for its scripts' waits
++		// and its lines' time, the line's next page shown as the loop shows it,
++		// then its scripts. Its verbs, those that take it to the film's room
++		// from the thing's picture 0; there, from the first step, who is there
++		// (the first of its actors in that room but the kid: costume, feet,
++		// facing, talk colour), each page of a line when shown and when gone,
++		// each thing of that room when its picture changes, until the room is
++		// left (its length); then the thing's picture once its scripts end, and
++		// the mark it left. With the main power off: whether it plays, else the
++		// line said.)
++		auto loopStep = [&]() {
++			int delta = VAR_TIMER_NEXT != 0xFF ? VAR(VAR_TIMER_NEXT) : 4;
++			if (delta < 1) delta = 1;
++			if (_game.id == GID_MANIAC && _game.version == 1) delta = (delta + 2) / 3 * 3;
++			delta = MIN(delta, 15);
++			decreaseScriptDelay(delta);
++			_talkDelay = MAX(0, _talkDelay - delta);
++			if (_game.version <= 3) displayDialog();
++			runAllScripts(); walkActors(); _sound->stopAllSounds();
++			VAR(VAR_HAVE_MSG) = _haveMsg;
++			return delta;
++		};
++		// (The text from one point of the line to another: a break in it, a space.)
++		auto textOf = [&](int from, int to) {
++			Common::String line;
++			for (int i = MAX(0, from); i < to && _charsetBuffer[i] && line.size() < 255; ++i) {
++				const byte c = _charsetBuffer[i];
++				if (c >= 32 && c < 127) line += (char)c;
++				else if (!line.empty() && line.lastChar() != ' ') line += ' ';
++				if ((c == 0xFF || c == 0xFE) && i + 1 < to && _charsetBuffer[i + 1]) ++i;
++			}
++			while (!line.empty() && line.lastChar() == ' ') line.deleteLastChar();
++			return line;
++		};
++		auto filmStart = [&](const WorldCloseUp &c, int verb, bool powerOffFirst) {
++			restore(started);
++			_rnd.setSeed(0x5C0BE + c.room);
++			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
++			// (With the main power off, as its circuit breakers leave it.)
++			if (powerOffFirst) putState(powerId, powerOff ? getState(powerId) | kObjectStateIntrinsic : getState(powerId) & ~kObjectStateIntrinsic);
++			putState(c.object, getState(c.object) & ~kObjectStateIntrinsic);
++			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
++			_charsetBuffer[0] = 0;
++			runObjectScript(c.object, verb, false, false, nullptr);
++			return true;
++		};
++		auto playFilm = [&](const WorldCloseUp &c, CloseUp &u) {
++			static const int filmKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
++			for (int kind : filmKinds) {
++				if (!filmStart(c, verbOf(kind), false)) continue;
++				for (int n = 0; n < 600 && _currentRoom != c.closeUp; ++n) oneFrame();
++				if (_currentRoom == c.closeUp) u.kinds |= 1 << kind;
++			}
++			int kind = 1;
++			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
++			if (kind >= 16 || !filmStart(c, verbOf(kind), false)) return false;
++			const int before = marksNow();
++			const int ego = VAR(VAR_EGO);
++			int tick = -1, shown = -1, pos = -1;
++			Common::String message;
++			Common::HashMap<int, int> pictures, started0;
++			for (int n = 0, at = 0; n < 60 * 60 && !shouldQuit(); ++n) {
++				at += loopStep();
++				if (_currentRoom != c.closeUp) {
++					if (tick >= 0) break;
++					continue;
++				}
++				if (tick < 0) {
++					tick = at;
++					u.lead = MIN(at, 65535); u.leadPicture = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
++					u.left = MAX(0, camera._cur.x - _screenWidth / 2);
++					// (Its things as the film starts, drawn so from its first tick.)
++					for (int i = 1; i < _numLocalObjects; ++i)
++						if (_objs[i].obj_nr) pictures[_objs[i].obj_nr] = getState(_objs[i].obj_nr) & kObjectStateIntrinsic ? 1 : 0;
++					started0 = pictures;
++				}
++				const int when = MIN(at - tick, 65535);
++				// (Who is there: the first actor of the room's but the kid, once seen.)
++				for (int a = 1; !u.costume && a < _numActors; ++a) {
++					Actor *who = _actors[a];
++					if (a == ego || who->_room != c.closeUp || !who->_visible || !who->_costume) continue;
++					u.costume = who->_costume; u.x = who->getPos().x; u.y = who->getPos().y; u.color = who->_talkColor;
++					const int facing = who->getFacing();
++					u.facing = facing >= 225 && facing < 315 ? 0 : facing >= 45 && facing < 135 ? 1 : facing >= 135 && facing < 225 ? 2 : 3;
++				}
++				// (A line's page: shown as the loop shows it; gone once it stops.)
++				const Common::String now((const char *)_charsetBuffer);
++				if (_haveMsg && (now != message || _charsetBufPos != pos) && _charsetBufPos > 0) {
++					const int from = now == message && _charsetBufPos > pos ? pos : 0;
++					message = now; pos = _charsetBufPos;
++					const Common::String page = textOf(from, pos);
++					if (!page.empty() && u.events.size() / 3 < (uint)Scummverse::PanelBridge::kMostFilmEvents) {
++						u.events.push_back(when); u.events.push_back(0); u.events.push_back(1); u.eventLines.push_back(page); shown = 1;
++					}
++				} else if (!_haveMsg && shown == 1 && u.events.size() / 3 < (uint)Scummverse::PanelBridge::kMostFilmEvents) {
++					u.events.push_back(when); u.events.push_back(0); u.events.push_back(0); u.eventLines.push_back(Common::String()); shown = 0;
++					message.clear(); pos = -1;
++				}
++				// (Its things' pictures as they change.)
++				for (Common::HashMap<int, int>::iterator i = pictures.begin(); i != pictures.end(); ++i) {
++					const int picture = getState(i->_key) & kObjectStateIntrinsic ? 1 : 0;
++					if (picture == i->_value) continue;
++					i->_value = picture;
++					if (u.events.size() / 3 >= (uint)Scummverse::PanelBridge::kMostFilmEvents) continue;
++					u.events.push_back(when); u.events.push_back(i->_key); u.events.push_back(picture); u.eventLines.push_back(Common::String());
++				}
++				u.length = MIN(at - tick, 65535);
++			}
++			if (tick < 0 || _currentRoom == c.closeUp || !u.length) return false;
++			// (A line still shown as it ends: gone with it.)
++			if (shown == 1 && u.events.size() / 3 < (uint)Scummverse::PanelBridge::kMostFilmEvents) {
++				u.events.push_back(u.length); u.events.push_back(0); u.events.push_back(0); u.eventLines.push_back(Common::String());
++			}
++			for (int n = 0; n < 600 && !shouldQuit(); ++n) {
++				bool running = false;
++				for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) running = running || vm.slot[k].status == ssRunning || vm.slot[k].status == ssPaused;
++				if (!running) break;
++				oneFrame();
++			}
++			u.filmAfter = getState(c.object) & kObjectStateIntrinsic ? 1 : 0;
++			const int left = marksNow() & ~before;
++			for (uint k = 0; k < marks.size() && u.mark < 0; ++k) if (left & 1 << k) u.mark = k;
++			stopTalk(); _sound->stopAllSounds();
++			// (With the main power off: shown, or its line.)
++			if (powerId && filmStart(c, verbOf(kind), true)) {
++				Common::String line = lineOf();
++				for (int n = 0; n < 300 && _currentRoom != c.closeUp; ++n) { oneFrame(); if (line.empty()) line = lineOf(); }
++				u.powered = _currentRoom != c.closeUp;
++				if (u.powered) u.offLine = line;
++				stopTalk(); _sound->stopAllSounds();
++			}
++			// (The film's room's things, in their pictures as it starts.)
++			bool listed = false;
++			for (const Room &r : found) listed = listed || r.room == c.closeUp;
++			Common::String why;
++			if (!listed) {
++				restore(started);
++				_rnd.setSeed(0x5C0BE + c.closeUp);
++				Room room;
++				room.room = c.closeUp;
++				if (scummverseExportScene(c.closeUp, Common::Path(), why, true, nullptr, 0, nullptr, &room.things)) {
++					for (uint i = 0; i + 4 < room.things.size(); i += 5) if (started0.contains(room.things[i])) room.things[i + 1] = started0[room.things[i]];
++					found.push_back(room);
++				} else warning("SCUMMVERSE world things: %s film room %d not set up (%s)", kWorldGames[gameIndex].gameid, c.closeUp, why.c_str());
++			}
++			// (Who is there, from their own costume, when no one of the cast is.)
++			bool cast = !u.costume;
++			for (const WorldCastGuest &g : kWorldCast) cast = cast || (g.game == gameIndex && g.guest.costume == u.costume);
++			restore(started);
++			_rnd.setSeed(0x5C0BE + c.closeUp);
++			if (!cast && (!arrive(c.closeUp) || !scummverseExportGuest(u.costume, file.getParent().appendComponent(Common::String::format("%s-c%d.svc", kWorldGames[gameIndex].gameid, u.costume)), why))) {
++				warning("SCUMMVERSE world things: %s film %d's costume %d not exported (%s)", kWorldGames[gameIndex].gameid, c.closeUp, u.costume, why.c_str());
++				u.costume = 0;
++			}
++			return true;
++		};
+ 		for (const WorldCloseUp &c : kWorldCloseUps) {
+ 			if (c.game != gameIndex || shouldQuit() || !booted) continue;
+ 			CloseUp u;
+ 			u.room = c.room; u.id = c.object; u.closeUp = c.closeUp;
++			if (worldCloseUpFilm(c)) {
++				const bool played = playFilm(c, u);
++				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
++					warning("SCUMMVERSE world things: %s film %d of room %d object %d left out (more close-ups than a things file holds)", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++				else if (played) closeUps.push_back(u);
++				else warning("SCUMMVERSE world things: %s film %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
++				debug(1, "SCUMMVERSE world things: %s film %d (room %d object %d): %d ticks after %d (picture %d), costume %d at %d,%d facing %d, %d events, picture after %d, mark %d, %s",
++					kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, u.length, u.lead, u.leadPicture, u.costume, u.x, u.y, u.facing, (int)u.events.size() / 3, u.filmAfter, u.mark, u.powered ? "powered" : "unpowered");
++				for (uint e = 0; e + 2 < u.events.size(); e += 3)
++					debug(2, "SCUMMVERSE world things: %s film %d event at %d: thing %d picture %d (%d letters)", kWorldGames[gameIndex].gameid, c.closeUp, u.events[e], u.events[e + 1], u.events[e + 2], (int)u.eventLines[e / 3].size());
++				continue;
++			}
+ 			if (!c.presses) {
+ 				const bool played = playView(c, u);
+ 				if (played && (int)closeUps.size() >= Scummverse::PanelBridge::kMostCloseUps)
+@@ -2242,6 +2457,67 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			else warning("SCUMMVERSE world things: %s close-up %d of room %d object %d not played", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object);
+ 			debug(1, "SCUMMVERSE world things: %s close-up %d (room %d object %d): %d keys, %d pressed, %s", kWorldGames[gameIndex].gameid, c.closeUp, c.room, c.object, (int)u.keys.size(), (int)u.code.size(), played ? "played" : "not played");
+ 		}
++		// (From 0248, "SVO8": each answer that reads a mark (kWorldMarkReaders),
++		// from the game's own start as the close-ups are, from each picture of
++		// its thing, with each set of the marks: the place as arrived, the
++		// thing it wants first in its picture 1, its second the kid's, the
++		// marks so; its script run until it ends (as the effects above): its
++		// line, its picture after, the others it sets, what the kid has then,
++		// what is used up, and the marks it leaves set.)
++		for (const WorldMarkReader &m : kWorldMarkReaders) {
++			if (m.game != gameIndex || shouldQuit() || marks.empty()) continue;
++			const int verb = verbOf(m.kind);
++			for (int from = 0; from < 2 && verb; ++from)
++				for (int set = 0; set < 1 << marks.size() && (int)marked.size() < Scummverse::PanelBridge::kMostMarked; ++set) {
++					if (booted) restore(started); else putBack();
++					_rnd.setSeed(0x5C0BE + m.room);
++					if (!arrive(m.room) || !getVerbEntrypoint(m.object, verb)) break;
++					const int ego = VAR(VAR_EGO);
++					if (m.need) putState(m.need, getState(m.need) | kObjectStateIntrinsic);
++					putState(m.object, from ? getState(m.object) | kObjectStateIntrinsic : getState(m.object) & ~kObjectStateIntrinsic);
++					if (m.with) putOwner(m.with, ego);
++					putMarks(set);
++					const Common::Array<byte> had(_objectOwnerTable, _numGlobalObjects);
++					Common::Array<int> setStates;
++					_scummverseStatesSet = &setStates;
++					VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = m.object; VAR(VAR_ACTIVE_OBJECT2) = m.with;
++					_charsetBuffer[0] = 0;
++					runObjectScript(m.object, verb, false, false, nullptr);
++					Marked a;
++					a.room = m.room; a.id = m.object; a.kind = m.kind; a.from = from; a.with = m.with; a.need = m.need; a.marks = set;
++					Effect &e = a.answer;
++					e.room = m.room; e.id = m.object; e.kind = m.kind; e.from = from; e.with = m.with;
++					for (int frame = 0; frame < 120; ++frame) {
++						bool running = false;
++						for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) {
++							if (vm.slot[k].status == ssPaused) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; }
++							running = running || vm.slot[k].status == ssRunning;
++						}
++						if (frame == 1) e.line = lineOf();
++						if (!running && frame > 1) break;
++						if (_currentRoom != m.room) break;
++						VAR(VAR_HAVE_MSG) = 0; runAllScripts(); walkActors(); _sound->stopAllSounds();
++					}
++					_scummverseStatesSet = nullptr;
++					e.after = getState(m.object) & kObjectStateIntrinsic ? 1 : 0;
++					e.taken = getOwner(m.object) != had[m.object] && getOwner(m.object) == ego;
++					e.firstGone = had[m.object] == ego && getOwner(m.object) != ego;
++					e.secondGone = m.with && m.with < (int)had.size() && had[m.with] == ego && getOwner(m.with) != ego;
++					Common::HashMap<int, bool> listed;
++					for (int other : setStates) {
++						if (other == m.object || listed.contains(other) || !placeOf.contains(other) || e.others.size() >= 3 * 64) continue;
++						listed[other] = true;
++						e.others.push_back(placeOf[other]); e.others.push_back(other); e.others.push_back(_objectStateTable[other] & kObjectStateIntrinsic ? 1 : 0);
++					}
++					for (int o = 1; o < (int)had.size() && e.others.size() < 3 * 64; ++o)
++						if (o != m.object && o != m.with && had[o] != ego && getOwner(o) == ego && placeOf.contains(o)) { e.others.push_back(placeOf[o]); e.others.push_back(o); e.others.push_back(2); }
++					a.sets = marksNow() & ~set;
++					stopTalk(); _sound->stopAllSounds();
++					// (One that leaves the place or the kid's hands: none.)
++					if (_currentRoom == m.room && vm.cutSceneStackPointer == 0) marked.push_back(a);
++				}
++			debug(1, "SCUMMVERSE world things: %s answers of room %d object %d by its marks: %d so far", kWorldGames[gameIndex].gameid, m.room, m.object, (int)marked.size());
++		}
+ 		putBack(); quiet();
+ 		if (shouldQuit()) { problem = "stopped"; return false; }
+ 	} else if (_game.id == GID_SAMNMAX && VAR_EGO != 0xFF && VAR_SENTENCE_SCRIPT != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+@@ -2400,7 +2676,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO3" : "SVO7", 4);
++	// (From 0248 "SVO8" where there is a film or a mark, the mansion's; the
++	// others as before, the same bytes.)
++	bool filmed = !marks.empty();
++	for (const CloseUp &u : closeUps) filmed = filmed || u.length;
++	out.write(effects.empty() ? "SVO3" : filmed ? "SVO8" : "SVO7", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+@@ -2467,6 +2747,33 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			}
+ 			out.writeByte(u.coins.size() / 2);
+ 			for (uint i = 0; i + 1 < u.coins.size(); i += 2) { scummverseWrite16(out, u.coins[i]); scummverseWrite16(out, u.coins[i + 1]); }
++			// (From 0248, "SVO8": a film's (length 0: none).)
++			if (!filmed) continue;
++			scummverseWrite16(out, u.length);
++			if (!u.length) continue;
++			scummverseWrite16(out, u.lead); out.writeByte(u.leadPicture);
++			scummverseWrite16(out, u.costume); scummverseWrite16(out, MAX(0, u.x)); scummverseWrite16(out, MAX(0, u.y)); out.writeByte(u.facing); out.writeByte(u.color);
++			out.writeByte(u.events.size() / 3); // (at most kMostFilmEvents, as recorded)
++			for (uint e = 0; e + 2 < u.events.size(); e += 3) {
++				scummverseWrite16(out, u.events[e]); scummverseWrite16(out, u.events[e + 1]); out.writeByte(u.events[e + 2]); line(u.eventLines[e / 3]);
++			}
++			out.writeByte(u.filmAfter); out.writeByte(u.mark < 0 ? 255 : u.mark); out.writeByte(u.powered ? 1 : 0); line(u.offLine);
++		}
++		// (From 0248, "SVO8": the marks, each its kind (0: the kid's own, 1: the
++		// game's), and the answers that read them.)
++		if (filmed) {
++			out.writeByte(marks.size());
++			for (const WorldMark *m : marks) out.writeByte(m->bit ? 0 : 1);
++			scummverseWrite16(out, marked.size()); // (at most kMostMarked, as recorded)
++		}
++		for (uint k = 0; filmed && k < marked.size(); ++k) {
++			const Marked &a = marked[k];
++			const Effect &e = a.answer;
++			scummverseWrite16(out, a.room); scummverseWrite16(out, a.id); out.writeByte(a.kind); out.writeByte(a.from);
++			scummverseWrite16(out, a.with); scummverseWrite16(out, a.need); out.writeByte(a.marks);
++			out.writeByte(e.after | (e.taken ? 2 : 0) | (e.firstGone ? 4 : 0) | (e.secondGone ? 8 : 0)); out.writeByte(e.others.size() / 3);
++			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2]); }
++			out.writeByte(a.sets); line(e.line);
+ 		}
+ 	}
+ 	out.finalize();
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 13acff87..dc5ab4cd 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -684,10 +684,12 @@ void SandboxEngine::thingFollows(int id, int picture) {
+ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	if (_game >= 0 && !strcmp(kWorldGames[_game].gameid, "samnmax")) return ownAnswer(id, kind, target);
+ 	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac")) return false;
+-	int after, others[3 * 64], count;
++	int after, others[3 * 64], count, flags = 0, sets = 0;
+ 	char said[256];
+ 	bool taken = false;
+-	if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
++	// (From 0248: as its script answers by the marks, where it reads them.)
++	if (markedEffect(_game, _room, id, kind, from, 0, after, others, count, 64, said, sizeof(said), flags, sets)) taken = (flags & 1) != 0;
++	else if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
+ 	// (Read or picked up, saying nothing and changing nothing, or taken
+ 	// from the picture without it: the plain rules, as before 0161.)
+ 	if (plainAnswer(kind, from, after, taken, count, said) || (taken && isCarried(_game, _room, id))) return false;
+@@ -710,6 +712,7 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	// (Not one carried: what is taken stays taken.)
+ 	for (int k = 0; k < count; ++k)
+ 		if (!isCarried(_game, others[3 * k], others[3 * k + 1])) setPicture(others[3 * k], others[3 * k + 1], others[3 * k + 2]);
++	leaveMarks(_game, sets);
+ 	return true;
+ }
+ 
+@@ -1380,11 +1383,13 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		if (!idOf(t.item, t.thing, game, room, id) || !idOf(t.withItem, t.withThing, game2, room2, with) || game < 0 || game != game2 ||
+ 			strcmp(kWorldGames[game].gameid, "maniac")) continue;
+ 		loadThings(game);
+-		int after, others[3 * 64], count, flags;
++		int after, others[3 * 64], count, flags, sets = 0;
+ 		char said[256];
+-		// (From the picture it is in now; a thing carried, from 0.)
++		// (From the picture it is in now; a thing carried, from 0. From 0248
++		// as its script answers by the marks, where it reads them: its own.)
+ 		const int from = t.thing >= 0 ? thingBit(t.thing, id) : 0;
+-		if (!PanelBridge::pairEffect(game, room, id, p.kind, from, with, after, others, count, 64, said, sizeof(said), flags)) continue;
++		if (!markedEffect(game, room, id, p.kind, from, with, after, others, count, 64, said, sizeof(said), flags, sets) &&
++			!PanelBridge::pairEffect(game, room, id, p.kind, from, with, after, others, count, 64, said, sizeof(said), flags)) continue;
+ 		// (Only an own answer uses up; the usual one never does. A usual one
+ 		// that says nothing and changes nothing: the next, else the plain
+ 		// rules, as for one thing.)
+@@ -1416,6 +1421,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		}
+ 		// (From 0242: a coin in a view's slot, a turn paid for.)
+ 		if (flags & 8) viewPaid(game, room, id, with);
++		leaveMarks(game, sets);
+ 		return true;
+ 	}
+ 	return false;
+@@ -1607,10 +1613,13 @@ void SandboxEngine::useItem(int item, int kind) {
+ 		const Carried &c = _carried[item];
+ 		// (Its game's things file, though not entered since the start.)
+ 		loadThings(c.game);
+-		int after, others[3], count;
++		int after, others[3], count, flags, sets;
+ 		char said[256];
+-		for (int from = 1; from >= 0; --from)
++		for (int from = 1; from >= 0; --from) {
++			// (From 0248: as its script answers by the marks, where it reads them.)
++			if (markedEffect(c.game, c.room, c.id, kWorldVerbRead, from, 0, after, others, count, 1, said, sizeof(said), flags, sets) && *said) { say(said); leaveMarks(c.game, sets); return; }
+ 			if (PanelBridge::thingEffect(c.game, c.room, c.id, kWorldVerbRead, from, after, others, count, 1, said, sizeof(said)) && *said) { say(said); return; }
++		}
+ 	}
+ 	int picture;
+ 	char line[160];
+@@ -2222,6 +2231,33 @@ int SandboxEngine::closeUpFor(int id, int kind) const {
+ bool SandboxEngine::closeUpShow(int index, int id) {
+ 	int scene, left, keys, presses;
+ 	if (_game < 0 || _player < 0 || !PanelBridge::closeUpScene(_game, index, scene, left, keys, presses)) return false;
++	// (From 0248, a film: with the main power off, as its game's script
++	// wants it on, its line, nothing shown; else its thing in its picture
++	// first, here, then its scene.)
++	int length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark;
++	bool powered;
++	char off[256];
++	const bool film = PanelBridge::closeUpFilm(_game, index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off));
++	int powerRoom, powerId, offPicture;
++	if (film && powered && PanelBridge::mainPower(_game, powerRoom, powerId, offPicture) && pictureOf(powerRoom, powerId) == offPicture) {
++		if (*off) say(off);
++		return true;
++	}
++	if (film) {
++		CloseUp c;
++		c.index = index; c.game = _game; c.room = _room; c.id = id;
++		c.film = true; c.clock = lead; c.color = color; c.picture = pictureOf(_room, id);
++		StageBridge::position(_player, c.x, c.y);
++		c.stood = standing(); c.left = customLeft();
++		_closeUp = c;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id && leadPicture < StageBridge::objectPictures(o)) StageBridge::showObject(o, leadPicture);
++		}
++		_dirty = true;
++		if (lead <= 0) filmScene();
++		return true;
++	}
+ 	// (From 0242, a view: what its thing is turned to, as the thing seen is
+ 	// now; nothing there at that turn, or not installed: not shown.)
+ 	int start, turns, seenRoom, seen, value, ticks = 0;
+@@ -2254,7 +2290,10 @@ bool SandboxEngine::closeUpShow(int index, int id) {
+ }
+ 
+ void SandboxEngine::closeUpTap(int screenX, int screenY) {
+-	// (A view: a tap ends it, as the original's key ends its cut-scene.)
++	// (A view: a tap ends it, as the original's key ends its cut-scene. A
++	// film: from its scene on, a tap skips to its end, as the original's key
++	// does (marked all the same); before, nothing, its cursor off.)
++	if (_closeUp.film) { if (_closeUp.inScene) filmEnd(); return; }
+ 	if (_closeUp.view) { closeUpLeave(); return; }
+ 	int scene, left, keys, presses;
+ 	if (!PanelBridge::closeUpScene(_closeUp.game, _closeUp.index, scene, left, keys, presses)) return;
+@@ -2311,11 +2350,151 @@ bool SandboxEngine::closeUpBack() {
+ 	return true;
+ }
+ 
+-// (Back, the close-up let go as any other place's entering lets it go.)
++// (Back, the close-up let go as any other place's entering lets it go. A
++// film before its scene: here still, its thing as it was.)
+ void SandboxEngine::closeUpLeave() {
++	if (_closeUp.film && !_closeUp.inScene) {
++		const CloseUp c = _closeUp;
++		_closeUp = CloseUp();
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == c.id && c.picture < StageBridge::objectPictures(o)) StageBridge::showObject(o, c.picture);
++		}
++		_dirty = true;
++		return;
++	}
+ 	if (closeUpBack() && !_testing) saveState();
+ }
+ 
++// ---- Films (from 0248; kWorldCloseUps, the things file's "SVO8") ----
++
++// Its scene instead of the place, as a keypad's: nobody of the place in
++// view; the one there (in their own costume) where its game puts them,
++// facing its way, not walking; the part its script shows.
++bool SandboxEngine::filmScene() {
++	const CloseUp c = _closeUp;
++	int scene, left, keys, presses, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark;
++	bool powered;
++	char off[8];
++	if (!c.film || c.inScene || !PanelBridge::closeUpScene(c.game, c.index, scene, left, keys, presses) ||
++		!PanelBridge::closeUpFilm(c.game, c.index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off))) {
++		closeUpLeave();
++		return false;
++	}
++	Common::String problem;
++	_enteringCloseUp = true;
++	const bool shown = enter(c.game, scene, 0, problem);
++	_enteringCloseUp = false;
++	if (!shown) {
++		warning("SCUMMVERSE sandbox: film %s-%d not shown (%s)", kWorldGames[c.game].gameid, scene, problem.c_str());
++		_closeUp.inScene = true; // (the place again, as it was)
++		closeUpBack();
++		_closeUp = CloseUp();
++		return false;
++	}
++	_aboard = true;
++	for (uint n = 0; n < _onStage.size(); ++n) { StageBridge::stop(n); StageBridge::hide(n, true); }
++	_closeUp.person = -1;
++	const int key = costume ? worldAppearanceKey(c.game, costume) : 0;
++	if (key && hasCharacter(key) && (_closeUp.person = addPerson(key)) >= 0) {
++		static const int towardX[] = {-16, 16, 0, 0}, towardY[] = {0, 0, 16, -16};
++		StageBridge::seat(_closeUp.person, fx, fy);
++		StageBridge::face(_closeUp.person, fx + towardX[facing & 3], fy + towardY[facing & 3]);
++	}
++	_closeUp.inScene = true; _closeUp.clock = 0; _closeUp.event = 0;
++	StageBridge::lookAt(left + screenWidthOf(c.game) / 2.0);
++	_dirty = true;
++	filmStep(0);
++	return true;
++}
++
++// Its events as their ticks come: a line said by the one there (in their
++// talk colour, until it goes; nobody there: at the top), a thing of its
++// scene in another picture (not kept); at its length, its end.
++void SandboxEngine::filmStep(int ticks) {
++	if (!_closeUp.film || _closeUp.index < 0) return;
++	if (!_closeUp.inScene) {
++		if ((_closeUp.clock -= ticks) <= 0) filmScene();
++		return;
++	}
++	int length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark;
++	bool powered;
++	char off[8];
++	if (!PanelBridge::closeUpFilm(_closeUp.game, _closeUp.index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off))) { closeUpLeave(); return; }
++	_closeUp.clock += ticks;
++	for (; _closeUp.event < events; ++_closeUp.event) {
++		int tick, id, picture;
++		char line[256];
++		if (!PanelBridge::closeUpFilmEvent(_closeUp.game, _closeUp.index, _closeUp.event, tick, id, picture, line, sizeof(line))) continue;
++		if (tick > _closeUp.clock) break;
++		_dirty = true;
++		if (id) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, w, h, wx, wy, state;
++				if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id && picture < StageBridge::objectPictures(o)) StageBridge::showObject(o, picture);
++			}
++		} else if (picture && _closeUp.person >= 0) {
++			sayAs(_closeUp.person, line);
++			_speechClock = 1 << 30;
++		} else if (picture) {
++			_notice = line; _noticeClock = 1 << 30;
++		} else {
++			if (_speaker >= 0) StageBridge::talk(_speaker, false);
++			_speech.clear(); _speaker = -1; _speechClock = 0;
++			_notice.clear(); _noticeClock = 0;
++		}
++	}
++	if (_closeUp.clock >= length) filmEnd();
++}
++
++// Seen (or skipped): back where it was shown from, everyone as they stood,
++// its thing in its picture after, its mark left for the one played (or the
++// game).
++void SandboxEngine::filmEnd() {
++	const CloseUp c = _closeUp;
++	int length, lead, leadPicture, costume, fx, fy, facing, color, events, after = -1, mark = -1;
++	bool powered;
++	char off[8];
++	if (!c.film || c.index < 0) return;
++	if (!PanelBridge::closeUpFilm(c.game, c.index, length, lead, leadPicture, costume, fx, fy, facing, color, events, after, mark, powered, off, sizeof(off))) after = mark = -1;
++	if (!closeUpBack()) return;
++	if (after >= 0) setPicture(c.room, c.id, after);
++	if (mark >= 0) leaveMarks(c.game, 1 << mark);
++	if (!_testing) saveState();
++}
++
++// ---- Marks (from 0248; kWorldMarks, the things file's "SVO8") ----
++
++bool SandboxEngine::marked(int game, int mark, int key) const {
++	for (const Mark &m : _marks) if (m.game == game && m.mark == mark && m.key == key) return true;
++	return false;
++}
++
++int SandboxEngine::marksNow(int game) const {
++	int now = 0;
++	for (int k = 0; k < PanelBridge::markCount(game); ++k)
++		if (marked(game, k, PanelBridge::markKind(game, k) == 0 ? _playerKey : 0)) now |= 1 << k;
++	return now;
++}
++
++void SandboxEngine::leaveMarks(int game, int sets) {
++	for (int k = 0; sets && k < PanelBridge::markCount(game); ++k) {
++		Mark m;
++		m.game = game; m.mark = k; m.key = PanelBridge::markKind(game, k) == 0 ? _playerKey : 0;
++		if ((sets & 1 << k) && !marked(m.game, m.mark, m.key)) _marks.push_back(m);
++	}
++}
++
++bool SandboxEngine::markedEffect(int game, int room, int id, int kind, int from, int with, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets) {
++	int need = 0;
++	if (game < 0 || !PanelBridge::markReader(game, room, id, kind, with, need)) return false;
++	// (The thing it wants first so, as a player has it: else its answer as before.)
++	if (need && (game != _game || pictureOf(room, need) != 1)) return false;
++	if (!PanelBridge::markedAnswer(game, room, id, kind, from, with, marksNow(game), after, others, count, capacity, line, lineCapacity, flags, sets)) return false;
++	flags |= 8; // (its own answer)
++	return true;
++}
++
+ // The turn a view's thing is at (kept, else the one its game starts at; one
+ // no longer among its turns, an export later: that one too).
+ int SandboxEngine::viewTurn(int index) const {
+@@ -2605,6 +2784,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_speechClock > 0 && (_speechClock -= ticks) <= 0) { _speech.clear(); StageBridge::talk(_speaker, false); _speaker = -1; _dirty = true; }
+ 	if (_noticeClock > 0 && (_noticeClock -= ticks) <= 0) { _notice.clear(); _dirty = true; }
+ 	if (_closeUp.view && _closeUp.clock > 0 && (_closeUp.clock -= ticks) <= 0) closeUpLeave(); // (a view shown as long as its game shows it)
++	if (_closeUp.film) filmStep(ticks);
+ 	tramStep(ticks);
+ 	rideStep(ticks);
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+@@ -2755,6 +2935,8 @@ void SandboxEngine::overlays(Common::Array<Overlay> &out) const {
+ 		// games show them: the cast's, in the panel's colours.)
+ 		const WorldGuest *who = _speaker < (int)_onStage.size() ? worldAppearance(_onStage[_speaker]) : nullptr;
+ 		o.color = worldHome(_game) && who && worldHome(worldAppearanceGame(_onStage[_speaker])) ? who->talkColor : -1;
++		// (From 0248, a film's one there: in their own, as their game has it.)
++		if (_closeUp.film && _closeUp.person >= 0 && _speaker == _closeUp.person) o.color = _closeUp.color;
+ 		o.centreX = (x0 + x1) / 2 - o.from; o.bottomY = y0 - (int)(4 * rowScale);
+ 		if (PanelBridge::sayBounds(o.across, o.limit, o.text.c_str(), o.centreX, o.bottomY, rowScale, colScale, x, y, w, h)) { x += o.from; bounds(o, true); }
+ 		out.push_back(o);
+@@ -4434,7 +4616,8 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ // room, s32 x, y and u16 width, sixteenths of a source pixel). "SVS4" (0242)
+ // adds the views' turns (u16 count; s16 game, room, u16 id of the view's
+ // thing, u8 its turn as its game counts (255: the one it starts at), u8 the
+-// turns paid for).
++// turns paid for). "SVS5" (0248) adds the marks (u16 count; s16 game, u8
++// the mark, s32 the key of the one played it is for, 0: the game's).
+ // "SVS1" (0105, 0106) ends after everyone; "SVS2" after the things carried.
+ bool SandboxEngine::keptPlace(int &game, int &room, double &x, double &y) const {
+ 	if (_game < 0 || _player < 0) return false;
+@@ -4468,7 +4651,7 @@ void SandboxEngine::saveState() const {
+ 	if (!keptPlace(game, room, x, y)) return;
+ 	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
+ 	if (!out) return;
+-	out->writeUint32BE(MKTAG('S', 'V', 'S', '4'));
++	out->writeUint32BE(MKTAG('S', 'V', 'S', '5'));
+ 	out->writeSint16LE(game); out->writeSint16LE(room); out->writeSint32LE(_playerKey);
+ 	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
+ 	const int values = _wanderers ? WanderBridge::packedCount() : 0;
+@@ -4502,6 +4685,8 @@ void SandboxEngine::saveState() const {
+ 		out->writeSint16LE(i->_key / 65536 / 1024); out->writeSint16LE(i->_key / 65536 % 1024); out->writeUint16LE(i->_key % 65536);
+ 		out->writeByte(i->_value.value < 0 ? 255 : CLIP(i->_value.value, 0, 254)); out->writeByte(CLIP(i->_value.paid, 0, 255));
+ 	}
++	out->writeUint16LE(MIN<uint>(_marks.size(), 65535));
++	for (uint i = 0; i < _marks.size() && i < 65535; ++i) { out->writeSint16LE(_marks[i].game); out->writeByte(_marks[i].mark); out->writeSint32LE(_marks[i].key); }
+ 	out->finalize();
+ }
+ 
+@@ -4509,7 +4694,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	if (kept) *kept = false;
+ 	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
+ 	const uint32 tag = in ? in->readUint32BE() : 0;
+-	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4')) return false;
++	if (tag != MKTAG('S', 'V', 'S', '1') && tag != MKTAG('S', 'V', 'S', '2') && tag != MKTAG('S', 'V', 'S', '3') && tag != MKTAG('S', 'V', 'S', '4') && tag != MKTAG('S', 'V', 'S', '5')) return false;
+ 	game = in->readSint16LE(); room = in->readSint16LE();
+ 	const int key = in->readSint32LE();
+ 	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
+@@ -4532,7 +4717,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	}
+ 	// What was changed and taken, and what is carried (dropped as a whole
+ 	// when the file ends early).
+-	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear();
++	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear(); _turned.clear(); _marks.clear();
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && everyone) {
+ 		Common::HashMap<int, int> pictures;
+ 		const int changed = in->readUint16LE();
+@@ -4552,7 +4737,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The stains, from SVS3: dropped as a whole when the file ends early.)
+ 		Common::Array<Stain> stains;
+-		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') ? in->readUint16LE() : 0;
++		const int marks = tag == MKTAG('S', 'V', 'S', '3') || tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < marks && !in->eos(); ++i) {
+ 			Stain s;
+ 			s.game = in->readSint16LE(); s.room = in->readSint16LE();
+@@ -4561,18 +4746,27 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		// (The views' turns, from SVS4: likewise.)
+ 		Common::HashMap<int, Turned> turned;
+-		const int views = tag == MKTAG('S', 'V', 'S', '4') ? in->readUint16LE() : 0;
++		const int views = tag == MKTAG('S', 'V', 'S', '4') || tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < views && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), r = in->readSint16LE(), id = in->readUint16LE(), value = in->readByte(), paid = in->readByte();
+ 			Turned t;
+ 			t.value = value == 255 ? -1 : value; t.paid = paid;
+ 			if (g >= 0 && g < worldGameCount() && r >= 0 && r < 1024) turned[thingKey(g, r, id)] = t;
+ 		}
++		// (The marks, from SVS5: likewise.)
++		Common::Array<Mark> left;
++		const int leftCount = tag == MKTAG('S', 'V', 'S', '5') ? in->readUint16LE() : 0;
++		for (int i = 0; i < leftCount && !in->eos(); ++i) {
++			Mark m;
++			m.game = in->readSint16LE(); m.mark = in->readByte(); m.key = in->readSint32LE();
++			if (m.game >= 0 && m.game < worldGameCount() && m.mark < PanelBridge::kMostMarks && m.key >= 0) left.push_back(m);
++		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+ 			for (const Carried &c : carried) if (!carry(c.game, c.room, c.id, c.name, c.picture, false)) _carriedAway.push_back(c);
+ 			_stains = stains;
+ 			_turned = turned;
++			_marks = left;
+ 		}
+ 	}
+ 	return usable;
+@@ -5470,6 +5664,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
+ 	int safes = 0, safesWrong = 0, safesLeft = 0, effectsCloseUp = 0;
+ 	int scopeViews = 0, scopeTurns = 0, scopeUnpaid = 0, scopeSteps = 0, scopeCoins = 0, scopeEnds = 0, scopeCode = 0, scopeMarked = 0, scopeFollowing = 0, scopeCustom = 0, scopeVan = 0;
++	int tvPowerOff = 0, tvOff = 0, tvFilms = 0, tvEvents = 0, tvEventCount = 0, tvLines = 0, tvMarked = 0, tvSkipped = 0, tvLeft = 0;
++	int typeRefused = 0, typeTyped = 0, typeAgain = 0, typeOther = 0, mailShut = 0, mailNoAddress = 0, mailAddressed = 0, readBlank = 0, readAddressed = 0, marksKept = 0, marksOlder = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -6251,6 +6447,243 @@ Common::Error SandboxEngine::verbsTest() {
+ 			_turned.erase(scopeKey); _pictures.erase(scopeSeenKey);
+ 			for (int id : {218, 219, 221, 222}) _pictures.erase(thingKey(maniac, 9, id));
+ 		}
++		// (From 0248) The TV (room 17, 190) and the typewriter (room 27, 416),
++		// as a player has them. With the main power off, Turn on says its
++		// line, no film; Turn off on it, off, as its own script answers. With
++		// the power on, Turn on: the TV on in the place for its game's while
++		// (a tap then does nothing), then its film (a close-up: nobody of the
++		// place in view, kept as where it was turned on from), the one there
++		// where its game puts them, each event on its tick as recorded (their
++		// lines in their own colour, the studio's sign blinking), not before;
++		// at its end back where they stood, the TV off, the mark left for the
++		// one played only. Someone else: a menu's choice in it leaves it
++		// unwatched; a tap in it skips to its end, marked. The typewriter
++		// with the envelope: refused unwatched; typed once watched (the
++		// envelope addressed), then already so; refused for another unwatched
++		// all the same. The mailbox open: without the address its line, with
++		// it the next; the envelope read: blank, then addressed. The marks
++		// kept through a save and reload; an older state (none) still read.
++		int tv = -1, tvRoom = 0, tvThing = 0, tvKinds = 0, filmRoom = 0, filmLeft = 0;
++		int length = 0, lead = 0, leadPicture = 0, costume = 0, fx = 0, fy = 0, facing = 0, filmColor = 0, events = 0, filmAfter = 0, mark = -1;
++		bool filmPowered = false;
++		char offLine[256] = "";
++		for (int i = 0; maniac >= 0 && i < PanelBridge::closeUpCount(maniac) && tv < 0; ++i) {
++			int closeKeys, closePresses;
++			if (PanelBridge::closeUpThing(maniac, i, tvRoom, tvThing, tvKinds) && PanelBridge::closeUpScene(maniac, i, filmRoom, filmLeft, closeKeys, closePresses) &&
++				PanelBridge::closeUpFilm(maniac, i, length, lead, leadPicture, costume, fx, fy, facing, filmColor, events, filmAfter, mark, filmPowered, offLine, sizeof(offLine))) tv = i;
++		}
++		int tvPowerRoom = 0, tvPowerId = 0, tvOffPicture = 0;
++		if (tv >= 0 && installed(maniac, tvRoom) && installed(maniac, 27) && installed(maniac, 1) && installed(maniac, 9) && _closeUps.contains(maniac * 1024 + filmRoom) &&
++			PanelBridge::mainPower(maniac, tvPowerRoom, tvPowerId, tvOffPicture)) {
++			const Common::Array<Mark> marksBefore = _marks;
++			_marks.clear();
++			const int tvPowerKey = thingKey(maniac, tvPowerRoom, tvPowerId), tvKey = thingKey(maniac, tvRoom, tvThing);
++			int onKind = 0;
++			for (int k = 1; k < 16 && !onKind; ++k) if (tvKinds & 1 << k) onKind = k;
++			// (The mark the typewriter leaves: the game's.)
++			int addressed = -1;
++			for (int k = 0; k < PanelBridge::markCount(maniac); ++k) if (k != mark && PanelBridge::markKind(maniac, k) == 1) addressed = k;
++			// (Three of the mansion's own to play: the one played now, then two others.)
++			Common::Array<int> kids;
++			kids.push_back(_playerKey);
++			for (const WorldCastGuest &c : kWorldCast) {
++				const int key = worldAppearanceKey(maniac, c.guest.costume);
++				int home;
++				bool listed = false;
++				for (int k : kids) listed = listed || k == key;
++				if (c.game == maniac && kids.size() < 3 && !listed && hasCharacter(key) && castHome(key, home)) kids.push_back(key);
++			}
++			double x = 0, y = 0;
++			Common::Array<Left> stood;
++			auto nearTv = [&]() {
++				bool ok = (_game == maniac && _room == tvRoom) || enter(maniac, tvRoom, 0, problem);
++				ok = ok && thingIn(tvThing) >= 0 && doorPoint(thingIn(tvThing), x, y);
++				if (!ok) return false;
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				stood = standing();
++				return true;
++			};
++			auto backAt = [&]() {
++				double px, py;
++				StageBridge::position(_player, px, py);
++				bool ok = _closeUp.index < 0 && _game == maniac && _room == tvRoom && !StageBridge::hidden(_player) && fabs(px - x) < 1 && fabs(py - y) < 1;
++				const Common::Array<Left> now = standing();
++				ok = ok && now.size() == stood.size();
++				for (uint i = 0; ok && i < now.size(); ++i) ok = now[i].key == stood[i].key && fabs(now[i].x - stood[i].x) < 1 && fabs(now[i].y - stood[i].y) < 1;
++				return ok;
++			};
++			// (Turned on: the TV on in the place for its lead, a tap waiting, then the film's scene.)
++			auto filmShown = [&]() {
++				bool ok = nearTv() && doAt(onKind, thingIn(tvThing)) && _closeUp.index == tv && _closeUp.film && !_closeUp.inScene && _game == maniac && _room == tvRoom;
++				ok = ok && StageBridge::objectShown(thingIn(tvThing)) == leadPicture && pictureOf(tvRoom, tvThing) == leadPicture;
++				int g, r;
++				double kx, ky;
++				ok = ok && keptPlace(g, r, kx, ky) && g == maniac && r == tvRoom && fabs(kx - x) < 1 && fabs(ky - y) < 1;
++				if (ok) { tap(_width / 2, _height / 3); ok = _closeUp.index == tv && !_closeUp.inScene && _room == tvRoom; }
++				for (int k = 0; ok && k + 1 < lead; ++k) { step(1); ok = _closeUp.index == tv && !_closeUp.inScene && _room == tvRoom; }
++				if (ok) step(1);
++				ok = ok && _closeUp.index == tv && _closeUp.inScene && _game == maniac && _room == filmRoom && !installed(maniac, filmRoom) && StageBridge::hidden(_player);
++				double px = -1, py = -1;
++				if (ok && _closeUp.person >= 0) StageBridge::position(_closeUp.person, px, py);
++				ok = ok && (!costume || (_closeUp.person >= 0 && !StageBridge::hidden(_closeUp.person) && fabs(px - fx) < 1 && fabs(py - fy) < 1));
++				for (uint n = 0; ok && n < _onStage.size(); ++n) ok = StageBridge::hidden(n);
++				return ok && keptPlace(g, r, kx, ky) && g == maniac && r == tvRoom && fabs(kx - x) < 1 && fabs(ky - y) < 1;
++			};
++			// (1) The power off: its line, no film; Turn off on it: as its own script answers.
++			_pictures[tvPowerKey] = tvOffPicture;
++			_pictures.erase(tvKey);
++			bool ok = filmPowered && *offLine && nearTv() && doAt(onKind, thingIn(tvThing)) && _closeUp.index < 0 && _room == tvRoom && _speech == offLine && pictureOf(tvRoom, tvThing) == 0 && _marks.empty();
++			if (!ok) fail("the TV turned on with the main power off not as its script answers", maniac); else ++tvPowerOff;
++			_pictures.erase(tvPowerKey);
++			{
++				int after, others[3 * 64], count;
++				char said[256];
++				ok = PanelBridge::thingEffect(maniac, tvRoom, tvThing, kWorldVerbTurnOff, 0, after, others, count, 64, said, sizeof(said)) && enter(maniac, tvRoom, 0, problem) &&
++					doAt(kWorldVerbTurnOff, thingIn(tvThing)) && _closeUp.index < 0 && _room == tvRoom && _speech == said && pictureOf(tvRoom, tvThing) == after && after == 0;
++				if (!ok) fail("the TV turned off not as its script answers", maniac); else ++tvOff;
++			}
++			// (2) The film, as recorded, to its end: back, the TV off, marked for the one played only.
++			ok = filmShown();
++			tvEventCount = events;
++			// (Its things as it starts, as the export recorded them.)
++			Common::HashMap<int, int> firstPicture;
++			for (int o = 0; ok && o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, w, h, wx, wy, state, picture, answers;
++				if (!StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state)) continue;
++				firstPicture[oid] = StageBridge::objectShown(o);
++				ok = StageBridge::objectPictures(o) < 2 || (PanelBridge::gameThing(maniac, filmRoom, oid, picture, answers) && picture == StageBridge::objectShown(o));
++			}
++			bool shotTaken = false;
++			for (int t = 0, drawnDue = -1; ok && t < length; ++t) {
++				if (t) step(1);
++				// (Drawn as the screen shows it where it changes: the frame check's.)
++				if (_closeUp.event != drawnDue || !t) { present(); drawnDue = _closeUp.event; }
++				// (What should be so by now: the last line said or gone, each thing's last picture.)
++				Common::String said;
++				Common::HashMap<int, int> pictures = firstPicture;
++				int due = 0;
++				for (int e = 0; e < events; ++e) {
++					int tick, id, picture;
++					char line[256];
++					if (!PanelBridge::closeUpFilmEvent(maniac, tv, e, tick, id, picture, line, sizeof(line)) || tick > t) continue;
++					++due;
++					if (tick == t && !id && picture && *line) ++tvLines;
++					if (id) pictures[id] = picture; else said = picture ? line : "";
++				}
++				ok = _closeUp.index == tv && _closeUp.inScene && _room == filmRoom && _closeUp.event == due && (_closeUp.person >= 0 ? _speech == said && (said.empty() || _speaker == _closeUp.person) : _notice == said);
++				for (Common::HashMap<int, int>::const_iterator i = pictures.begin(); ok && i != pictures.end(); ++i) ok = thingIn(i->_key) >= 0 && StageBridge::objectShown(thingIn(i->_key)) == i->_value;
++				if (ok && !said.empty() && _closeUp.person >= 0) {
++					Common::Array<Overlay> drawn;
++					overlays(drawn);
++					bool coloured = false;
++					for (const Overlay &o : drawn) coloured = coloured || (o.kind == kOverSpeech && o.text == said && o.color == filmColor);
++					ok = coloured;
++				}
++				if (ok && !said.empty() && !shotTaken && ConfMan.hasKey("scummverse_shots")) { present(); shot("tv-film.png"); shotTaken = true; }
++				if (ok) tvEvents = due;
++			}
++			if (ok) step(1);
++			ok = ok && backAt() && pictureOf(tvRoom, tvThing) == filmAfter && _speech.empty() && mark >= 0 && marked(maniac, mark, kids[0]) && _marks.size() == 1 && (marksNow(maniac) & 1 << mark);
++			if (!ok) fail("the TV's film not played as recorded, or its mark not left for the one who watched it", maniac); else { ++tvFilms; tvMarked = (int)_marks.size(); tvEvents = events; } // (those at its end: gone with it)
++			// (3) The typewriter and the mailbox, the envelope carried: as recorded by the marks.
++			auto answer = [&](int room, int id, int kind, int from, int with, int set, Common::String &line) {
++				int after, others[3 * 64], count, flags, sets;
++				char said[256];
++				if (!PanelBridge::markedAnswer(maniac, room, id, kind, from, with, set, after, others, count, 64, said, sizeof(said), flags, sets)) return -1;
++				line = said;
++				return sets;
++			};
++			auto envelope = [&]() {
++				for (uint c = 0; c < _carried.size(); ++c) if (_carried[c].game == maniac && _carried[c].room == 9 && _carried[c].id == 222) return (int)c;
++				return carry(maniac, 9, 222, "", 0) ? (int)_carried.size() - 1 : -1;
++			};
++			auto useWith = [&](int room, int id) {
++				if ((_game != maniac || _room != room) && !enter(maniac, room, 0, problem)) return false;
++				const int item = envelope(), o = thingIn(id);
++				if (item < 0 || o < 0) return false;
++				Pair p;
++				p.kind = kWorldVerbUse; p.item = item; p.withThing = o;
++				_speech.clear();
++				pairUp(p);
++				return true;
++			};
++			const int watched = mark >= 0 ? 1 << mark : 0, address = addressed >= 0 ? 1 << addressed : 0;
++			Common::String refusedLine, typed, already, noAddress, nextLine, blank, written;
++			bool recorded = addressed >= 0 && answer(27, 416, kWorldVerbUse, 0, 222, 0, refusedLine) == 0 && answer(27, 416, kWorldVerbUse, 0, 222, watched, typed) == address &&
++				answer(27, 416, kWorldVerbUse, 0, 222, watched | address, already) == 0 && answer(1, 276, kWorldVerbUse, 0, 222, 0, noAddress) == 0 &&
++				answer(1, 276, kWorldVerbUse, 0, 222, address, nextLine) == 0 && answer(9, 222, kWorldVerbRead, 1, 0, 0, blank) == 0 && answer(9, 222, kWorldVerbRead, 1, 0, address, written) == 0;
++			recorded = recorded && !refusedLine.empty() && typed != refusedLine && already != typed && noAddress != nextLine && blank != written;
++			if (!recorded) fail("the typewriter's, the mailbox's or the envelope's answers by the marks not recorded", maniac);
++			ok = ok && recorded; // (the rest wants the one played marked, and those answers)
++			// (Someone else, before the one who watched types: refused.)
++			const bool others = kids.size() >= 3;
++			if (ok && others && castChoose(kids[1]) && _playerKey == kids[1]) {
++				if (useWith(27, 416) && _speech == refusedLine && !(marksNow(maniac) & address)) ++typeRefused;
++				else fail("the typewriter not refusing someone who did not watch the TV", maniac);
++			}
++			if (ok && castChoose(kids[0]) && _playerKey == kids[0]) {
++				int item;
++				if (useWith(1, 276) && pictureOf(1, 50) == 0 && _speech != noAddress) ++mailShut; // (the mailbox shut: not its answer by the marks)
++				else fail("the mailbox shut answered as open", maniac);
++				if (doAt(kWorldVerbOpen, thingIn(276)) && pictureOf(1, 50) == 1 && useWith(1, 276) && _speech == noAddress) ++mailNoAddress;
++				else fail("the mailbox open not answering the envelope with no address", maniac);
++				if ((item = envelope()) >= 0) { _speech.clear(); useItem(item, kWorldVerbRead); }
++				if (item >= 0 && _speech == blank) ++readBlank; else fail("the envelope read not blank", maniac);
++				if (useWith(27, 416) && _speech == typed && (marksNow(maniac) & address) && marked(maniac, addressed, 0)) ++typeTyped;
++				else fail("the typewriter not typing the address for the one who watched the TV", maniac);
++				if (useWith(27, 416) && _speech == already) ++typeAgain; else fail("the typewriter not saying the envelope is addressed already", maniac);
++				if ((item = envelope()) >= 0) { _speech.clear(); useItem(item, kWorldVerbRead); }
++				if (item >= 0 && _speech == written) ++readAddressed; else fail("the envelope read not addressed", maniac);
++				if (useWith(1, 276) && pictureOf(1, 50) == 1 && _speech == nextLine) ++mailAddressed;
++				else fail("the mailbox not taking the addressed envelope as its script answers", maniac);
++			}
++			// (Another: a menu's choice in the film leaves it unwatched (the
++			// typewriter refuses them still); a tap in it skips to its end, marked.)
++			if (ok && others && castChoose(kids[1]) && _playerKey == kids[1]) {
++				bool left = filmShown() && castChoose(kids[2]) && _playerKey == kids[2] && _closeUp.index < 0 && !marked(maniac, mark, kids[1]) && !marked(maniac, mark, kids[2]);
++				left = left && castChoose(kids[1]) && useWith(27, 416) && _speech == refusedLine;
++				if (left) ++tvLeft; else fail("the TV's film not left unwatched by a menu's choice", maniac);
++				bool skipped = filmShown() && (step(1), _closeUp.inScene);
++				if (skipped) tap(_width / 2, _height / 3);
++				skipped = skipped && backAt() && pictureOf(tvRoom, tvThing) == filmAfter && marked(maniac, mark, kids[1]) && !marked(maniac, mark, kids[2]);
++				if (skipped && useWith(27, 416) && _speech == already) { ++tvSkipped; ++typeOther; }
++				else fail("the TV's film not skipped by a tap, or the one who skipped it not marked", maniac);
++				castChoose(kids[0]);
++			}
++			// (4) Kept: saved and read back; an older state (SVS4, no marks) read with none.
++			if (ok) {
++				const Common::Array<Mark> now = _marks;
++				int g, r;
++				double kx, ky;
++				saveState();
++				_marks.clear();
++				bool same = loadState(g, r, kx, ky) && _marks.size() == now.size();
++				for (const Mark &m : now) same = same && marked(m.game, m.mark, m.key);
++				if (same) marksKept = (int)_marks.size(); else fail("the marks not kept through a save and reload", maniac);
++				Common::Array<byte> file;
++				{
++					Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
++					if (in) { file.resize(in->size()); file.resize(in->read(file.data(), file.size())); }
++				}
++				const uint tail = 2 + 7 * now.size();
++				if (file.size() > tail + 4 && file[3] == '5') {
++					file.resize(file.size() - tail); file[3] = '4';
++					Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
++					if (out) { out->write(file.data(), file.size()); out->finalize(); }
++				}
++				const uint carried = _carried.size();
++				if (loadState(g, r, kx, ky) && _marks.empty() && _carried.size() == carried && carried > 0) ++marksOlder;
++				else fail("an older state (no marks) not read", maniac);
++				_marks = now;
++			}
++			putBack(9, 222);
++			for (int id : {tvThing}) _pictures.erase(thingKey(maniac, tvRoom, id));
++			for (int id : {50, 276}) _pictures.erase(thingKey(maniac, 1, id));
++			_pictures.erase(tvPowerKey);
++			if (_playerKey != kids[0]) castChoose(kids[0]);
++			_marks = marksBefore;
++		}
+ 		// The grating behind the bushes: no way through until they are
+ 		// pulled aside.
+ 		if (maniac >= 0 && installed(maniac, 1)) {
+@@ -6415,6 +6848,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest close-ups: %d records shown as close-ups; the wall safe: %d opened with its code key by key on its keypad, the envelope inside taken, shut again; %d not opened with a wrong code, the keypad closed, its line said; %d left by a menu's choice, unanswered", effectsCloseUp, safes, safesWrong, safesLeft);
+ 	warning("SCUMMVERSE sandbox selftest telescope: %d of %d views shown as recorded (nobody there, kept as where it was used from, gone after their time, everyone back); %d pressed unpaid as its own script answers, %d turned towards the code's view a coin at a time (%d coins used up), %d at its end; %d showed the code's part with its things as recorded (%d marked), left by a tap, everyone back (%d following); left for %d custom character chosen there, %d Shuttle Bug boarded from the Worlds menu",
+ 		scopeViews, scopeTurns, scopeUnpaid, scopeSteps, scopeCoins, scopeEnds, scopeCode, scopeMarked, scopeFollowing, scopeCustom, scopeVan);
++	warning("SCUMMVERSE sandbox selftest TV: %d said its line with the main power off (no film), %d turned off as its own script answers; %d played its film as recorded "
++		"(%d of %d events on their ticks, %d lines said, the one there in their place and colour, nobody else in view, kept as where it was turned on from, back where they stood), "
++		"%d marked for the one played only; %d left unwatched by a menu's choice, %d skipped by a tap and marked; the typewriter: %d refused unwatched, %d typed the address "
++		"once watched (%d already addressed, %d for another who watched); the mailbox: %d shut as before, open %d without the address, %d with it; the envelope read: %d blank, %d addressed; "
++		"%d marks kept through a save and reload (%d older states read with none)",
++		tvPowerOff, tvOff, tvFilms, tvEvents, tvEventCount, tvLines, tvMarked, tvLeft, tvSkipped, typeRefused, typeTyped, typeAgain, typeOther, mailShut, mailNoAddress, mailAddressed, readBlank, readAddressed, marksKept, marksOlder);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index aad37bb6..ad289f34 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -237,11 +237,23 @@ private:
+ 	// changed. Its turn and the turns paid for are kept per view (_turned):
+ 	// its buttons turn it a step while one is paid for, a coin used in its
+ 	// slot paying one; none paid, a button answers as its own script does.
++	// From 0248 a film too ("SVO8": a close-up with no keys and no turns, the
++	// mansion's TV's): first its thing in the place in its picture for a
++	// while (the TV on; taps wait, as the original's cursor is off), then
++	// its scene, nobody of the place in view, the one there where its game
++	// puts them saying its lines and its things changing as its game's
++	// script has them, each when the export recorded it; at its end (or a
++	// tap, as the original's key skips to it) back where the one played
++	// stood, the thing in its picture after and its mark left for the one
++	// played (kept: _marks). A menu's choice leaves it unwatched, as a
++	// keypad's unanswered. With the main power off, its line instead.
+ 	struct CloseUp {
+ 		int index = -1, game = -1, room = 0, id = 0, presses = 0;
+ 		double x = 0, y = 0;
+ 		bool right = true, view = false;
+-		int clock = 0; // (a view's ticks left)
++		int clock = 0; // (a view's ticks left; a film's before its scene, then since)
++		bool film = false, inScene = false;
++		int event = 0, person = -1, color = -1, picture = 0; // (a film's next event, the one there on stage and their talk colour, its thing's picture before)
+ 		Common::String typed;
+ 		Common::Array<Left> stood, left;
+ 	};
+@@ -259,6 +271,22 @@ private:
+ 	void closeUpPress(int key);             // (an index among its keys)
+ 	bool closeUpBack();                     // where it was shown from, everyone as they stood
+ 	void closeUpLeave();                    // (unanswered: someone else chosen to play there)
++	bool filmScene();                       // a film's scene shown, its lead over (false: back, not shown)
++	void filmStep(int ticks);
++	void filmEnd();                         // seen to its end, or skipped: back, its mark left
++	// Marks (from 0248; kWorldMarks, the things file's "SVO8"): a game's mark
++	// left for one played (by their key) or for the game (key 0); the marks
++	// set for the one played now (bit k: mark k), and those an answer leaves.
++	struct Mark { int game, mark, key; };
++	Common::Array<Mark> _marks;
++	bool marked(int game, int mark, int key) const;
++	int marksNow(int game) const;
++	void leaveMarks(int game, int sets);
++	// An answer its game's script gives by the marks (the typewriter, the
++	// mailbox, the envelope read): one here (room, id) to a verb (with a
++	// second, 0 none) from a picture; false: none for it, or the thing it
++	// wants first not so.
++	bool markedEffect(int game, int room, int id, int kind, int from, int with, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, int &flags, int &sets);
+ 	// Who can be played (installed, shown before, in the cast) and where they
+ 	// live (their place in the cast, else their game's first).
+ 	bool castHome(int key, int &room) const;

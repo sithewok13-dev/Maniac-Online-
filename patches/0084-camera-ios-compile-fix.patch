@@ -1,0 +1,27 @@
+diff --git a/backends/platform/ios7/scummverse_camera_ui.inc b/backends/platform/ios7/scummverse_camera_ui.inc
+index 116fde05..5279c850 100644
+--- a/backends/platform/ios7/scummverse_camera_ui.inc
++++ b/backends/platform/ios7/scummverse_camera_ui.inc
+@@ -77,6 +77,11 @@ static dispatch_queue_t scummverseCameraQueue() {
+ static int scummverseCameraPending = 0, scummverseCameraToPhotos = 0, scummverseCameraToFiles = 0, scummverseCameraFailed = 0;
+ static BOOL scummverseCameraBatch = NO, scummverseCameraPhotosOff = NO;
+ 
++// Why Photos took none (add-only access needs iOS 14).
++static NSString *scummverseCameraNoPhotos() {
++	if (@available(iOS 14, *)) return @"Photos access is off";
++	return @"Photos needs iOS 14";
++}
+ static void scummverseCameraReport() {
+ 	if (scummverseCameraPending > 0 || scummverseCameraBatch) return;
+ 	NSMutableArray *parts = [NSMutableArray array];
+@@ -142,10 +147,6 @@ static BOOL scummverseCameraPhotosAllowed() {
+ 	}
+ 	return NO;
+ }
+-static NSString *scummverseCameraNoPhotos() {
+-	if (@available(iOS 14, *)) return @"Photos access is off";
+-	return @"Photos needs iOS 14";
+-}
+ 
+ static void scummverseCameraSave(NSData *png, NSString *name, NSDate *when) {
+ 	if (!png) { scummverseCameraFinish(0, 0, 1, NO); return; }

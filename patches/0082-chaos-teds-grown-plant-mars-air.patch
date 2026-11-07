@@ -1,0 +1,520 @@
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index 0a3a5576..1342b9c1 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -189,19 +189,60 @@ static NSString *scummverseZakFolderReport(NSURL *selected, NSString *result) {
+ @end
+ 
+ // Where a supplied game stands. Its folder in Documents is matched like
+-// base/main.cpp does: the catalog name, ignoring case and stray spaces.
++// base/main.cpp does: the catalog name, ignoring case and stray spaces, at
++// the top or one folder further down (the Files app unzips an archive of
++// several folders into a folder named after it; a Mac adds __MACOSX).
+ enum ScummverseWorldSetup { kWorldNoFolder, kWorldNotSetUp, kWorldSetupStopped, kWorldReady };
+-static ScummverseWorldSetup scummverseWorldSetup(const Scummverse::WorldCatalog::WorldGame &game) {
++static BOOL scummverseIsFolder(NSString *path) {
++	BOOL directory = NO;
++	return [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&directory] && directory;
++}
++static BOOL scummverseFolderNamed(NSString *entry, const char *name) {
++	return [[entry stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] caseInsensitiveCompare:[NSString stringWithUTF8String:name]] == NSOrderedSame;
++}
++static BOOL scummverseSkippedFolder(NSString *entry) {
++	return [entry hasPrefix:@"__MACOSX"] || [entry hasPrefix:@"."];
++}
++static BOOL scummverseWorldFolderFound(const char *name) {
+ 	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+ 	NSFileManager *fm = [NSFileManager defaultManager];
+-	NSString *wanted = [NSString stringWithUTF8String:game.folder];
+-	BOOL found = NO;
++	NSArray *entries = [fm contentsOfDirectoryAtPath:documents error:nil];
++	for (NSString *entry in entries)
++		if (scummverseFolderNamed(entry, name) && scummverseIsFolder([documents stringByAppendingPathComponent:entry])) return YES;
++	for (NSString *entry in entries) {
++		NSString *outer = [documents stringByAppendingPathComponent:entry];
++		if (scummverseSkippedFolder(entry) || !scummverseIsFolder(outer)) continue;
++		for (NSString *inner in [fm contentsOfDirectoryAtPath:outer error:nil])
++			if (scummverseFolderNamed(inner, name) && scummverseIsFolder([outer stringByAppendingPathComponent:inner])) return YES;
++	}
++	return NO;
++}
++// Folders at the top of Documents that hold no game the app knows (named
++// in the Connected worlds message).
++static NSArray *scummverseUnknownFolders() {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm = [NSFileManager defaultManager];
++	NSMutableArray *unknown = [NSMutableArray array];
++	static const char *const known[] = {"maniac", "zak", "worlds", "Savegames", "Screenshots", "Inbox"};
+ 	for (NSString *entry in [fm contentsOfDirectoryAtPath:documents error:nil]) {
+-		BOOL directory = NO;
+-		if ([[entry stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] caseInsensitiveCompare:wanted] != NSOrderedSame) continue;
+-		if ([fm fileExistsAtPath:[documents stringByAppendingPathComponent:entry] isDirectory:&directory] && directory) { found = YES; break; }
++		NSString *outer = [documents stringByAppendingPathComponent:entry];
++		if (scummverseSkippedFolder(entry) || !scummverseIsFolder(outer)) continue;
++		BOOL recognized = NO;
++		for (const char *name : known) recognized = recognized || scummverseFolderNamed(entry, name);
++		for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
++			if (recognized) break;
++			if (scummverseFolderNamed(entry, game.folder)) { recognized = YES; break; }
++			for (NSString *inner in [fm contentsOfDirectoryAtPath:outer error:nil])
++				if (scummverseFolderNamed(inner, game.folder)) { recognized = YES; break; }
++		}
++		if (!recognized) [unknown addObject:[NSString stringWithFormat:@"\"%@\"", entry]];
+ 	}
+-	if (!found) return kWorldNoFolder;
++	return unknown;
++}
++static ScummverseWorldSetup scummverseWorldSetup(const Scummverse::WorldCatalog::WorldGame &game) {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSFileManager *fm = [NSFileManager defaultManager];
++	if (!scummverseWorldFolderFound(game.folder)) return kWorldNoFolder;
+ 	NSString *marker = [NSString stringWithFormat:@"%@/worlds/%s-v%d", documents, game.gameid, Scummverse::WorldCatalog::kWorldExportVersion];
+ 	if ([fm fileExistsAtPath:[marker stringByAppendingString:@".svx"]]) return kWorldReady;
+ 	NSData *attempts = [NSData dataWithContentsOfFile:[marker stringByAppendingString:@".try"]];
+@@ -224,6 +265,8 @@ static NSString *scummverseBuildStatus() {
+ 	}
+ 	NSString *worlds = folders ? [NSString stringWithFormat:@"\nOther worlds ready: %d of %d games", exported, folders] : @"";
+ 	if (stopped.count) worlds = [worlds stringByAppendingFormat:@"\nCould not set up: %@ (see scummvm.log)", [stopped componentsJoinedByString:@", "]];
++	NSArray *unknown = scummverseUnknownFolders();
++	if (unknown.count) worlds = [worlds stringByAppendingFormat:@"\nFolders not recognized: %@ (game folders are named monkey, monkey2, loom, indy3, atlantis, tentacle, samnmax, ft, dig, comi)", [unknown componentsJoinedByString:@", "]];
+ 	return [NSString stringWithFormat:@"Build: %@%@", build.length ? build : @"development", worlds];
+ }
+ 
+diff --git a/base/main.cpp b/base/main.cpp
+index 17a0387f..5d075f16 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -113,15 +113,26 @@ static bool launcherDialog() {
+ // private worlds/ cache; then Maniac starts. Returns the targets queued.
+ static const char *const kScummverseExportPrefix = "scummverse-export-";
+ // A game's folder in Documents: its catalog name, ignoring case and stray
+-// spaces around it (a folder zipped or renamed as "loom " is still Loom).
++// spaces around it (a folder zipped or renamed as "loom " is still Loom),
++// or one folder further down (the Files app unzips an archive of several
++// folders into a folder named after it; a Mac adds __MACOSX).
++static bool scummverseWorldName(const Common::FSNode &entry, const char *name) {
++	Common::String trimmed = entry.getName(); trimmed.trim();
++	return trimmed.equalsIgnoreCase(name);
++}
+ static Common::FSNode scummverseWorldFolder(const char *name) {
+ 	const Common::FSNode exact{Common::Path(name)};
+ 	if (exact.exists() && exact.isDirectory()) return exact;
+ 	Common::FSList entries;
+ 	if (Common::FSNode(Common::Path(".")).getChildren(entries, Common::FSNode::kListDirectoriesOnly)) {
++		for (const Common::FSNode &entry : entries)
++			if (scummverseWorldName(entry, name)) return entry;
+ 		for (const Common::FSNode &entry : entries) {
+-			Common::String trimmed = entry.getName(); trimmed.trim();
+-			if (trimmed.equalsIgnoreCase(name)) return entry;
++			if (entry.getName().hasPrefix("__MACOSX") || entry.getName().hasPrefix(".")) continue;
++			Common::FSList inner;
++			if (!entry.getChildren(inner, Common::FSNode::kListDirectoriesOnly)) continue;
++			for (const Common::FSNode &child : inner)
++				if (scummverseWorldName(child, name)) return child;
+ 		}
+ 	}
+ 	return exact;
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 597243c7..a43f031f 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -224,11 +224,14 @@ static const WorldGuest kWorldManiacCast[] = {
+ 	{19, "Man-Eating Plant",
+ 	 "the man-eating plant from the Edison mansion, now rolling about on a pot with wheels; always hungry, cheerfully menacing, fond of soda, and convinced every visitor is a snack that has not been introduced yet", 5,
+ 	 {"Is that a snack? You look like a snack.", "Don't worry, I only nibble. Mostly.", "Roll me somewhere sunny and bring a soda."}},
++	{12, "Dead Cousin Ted",
++	 "Dead Cousin Ted, the Edisons' mummified cousin from the upstairs shower, now gliding about on roller skates; silent, serene, and somehow always in the way", 1,
++	 {"...", "(a faint squeak of skate wheels)", "(he glides past, serenely)"}},
+ };
+ inline bool worldNativeLook(int key) { return key > 0 && (key - 1) / 1024 == kWorldManiacLooks; }
+ // Cast members who need no air on Mars (no fishbowl and tank there):
+-// tentacles, ghosts and skeletons, robots and aliens. Everyone else wears
+-// them, the talking skull and the monkeys included.
++// tentacles, ghosts and skeletons, robots, aliens and spirits. Everyone else
++// wears them, the talking skull, the monkeys and Dead Cousin Ted included.
+ struct WorldAirless { short game, costume; };
+ static const WorldAirless kWorldAirless[] = {
+ 	{0, 104}, {0, 54}, {0, 32}, {0, 52}, {0, 55}, {0, 53}, // Monkey Island ghosts
+@@ -237,39 +240,56 @@ static const WorldAirless kWorldAirless[] = {
+ 	{6, 219},                                               // maintenance droid
+ 	{8, 113}, {8, 128}, {8, 321}, {8, 183}, {8, 202}, {8, 258}, // Cocytus aliens
+ 	{9, 350}, {9, 354}, {9, 413},                           // ghost, skeleton, undead LeChuck
+-	{kWorldManiacLooks, 16}, {kWorldManiacLooks, 19},       // the Purple Meteor, the plant
++	{kWorldManiacLooks, 16}, {kWorldManiacLooks, 15},       // the Purple Meteor, the Meteor Police (his helmet)
++	{2, 130},                                               // Chaos
+ };
+ inline bool worldBreathes(int game, int costume) {
+ 	for (const auto &a : kWorldAirless) if (a.game == game && a.costume == costume) return false;
+ 	return true;
+ }
+ // Characters who float instead of walking (Murray, the talking skull; the
+-// Purple Meteor).
++// Purple Meteor; Loom's Chaos).
+ struct WorldHoverer { short game, costume; };
+-static const WorldHoverer kWorldHoverers[] = {{9, 49}, {9, 949}, {kWorldManiacLooks, 16}};
++static const WorldHoverer kWorldHoverers[] = {{9, 49}, {9, 949}, {kWorldManiacLooks, 16}, {2, 130}};
+ inline bool worldHovers(int game, int costume) {
+ 	for (const auto &h : kWorldHoverers) if (h.game == game && h.costume == costume) return true;
+ 	return false;
+ }
+ // Characters who wear a glass dome everywhere (the Meteor Police officer, as
+-// in the user's reference picture); where there is no air it is the air
+-// gear's bowl, with the tank.
++// in the user's reference picture), on Mars too: it is his helmet.
+ struct WorldDomed { short game, costume; };
+ static const WorldDomed kWorldDomed[] = {{kWorldManiacLooks, 15}};
+ inline bool worldDomed(int game, int costume) {
+ 	for (const auto &d : kWorldDomed) if (d.game == game && d.costume == costume) return true;
+ 	return false;
+ }
+-// Characters who roll in a pot on wheels, shown in one of their costume's
+-// directions whichever way they go: Maniac's man-eating plant, whose
+-// directions are its growth stages (left and right a sprout, away the grown
+-// plant; 180, toward the viewer, is its everyday size).
+-struct WorldRoller { short game, costume, facing; };
+-static const WorldRoller kWorldRollers[] = {{kWorldManiacLooks, 19, 180}};
++// Maniac characters who roll, standing still: on a newly drawn pot on
++// wheels (the man-eating plant) or roller skates (Dead Cousin Ted). facing:
++// the costume direction always shown (-1: their own); the plant's
++// directions are its growth stages (left and right a sprout, toward the
++// viewer its everyday size, away the grown plant). gearX: the gear's left
++// edge, in the costume's own layout (facing left), pixels from the actor.
++enum WorldRollerGear { kWorldPot = 0, kWorldSkates = 1 };
++struct WorldRoller { short game, costume, facing, gear, gearX; };
++static const WorldRoller kWorldRollers[] = {
++	{kWorldManiacLooks, 19, 0, kWorldPot, -16},
++	{kWorldManiacLooks, 12, -1, kWorldSkates, -10},
++};
+ inline const WorldRoller *worldRoller(int game, int costume) {
+ 	for (const auto &r : kWorldRollers) if (r.game == game && r.costume == costume) return &r;
+ 	return nullptr;
+ }
++// Characters from other games who glide instead of walking (keeping their
++// standing pose): Day of the Tentacle's Ted on his roller skates. When
++// played, he wears the beauty contest's dress-up, newly drawn over his head:
++// spaghetti for hair and big fake lips. oneWay: every frame looks right, so
++// facing left shows them mirrored.
++struct WorldGlider { short game, costume; bool dressUp, oneWay; };
++static const WorldGlider kWorldGliders[] = {{5, 235, true, true}};
++inline const WorldGlider *worldGlider(int game, int costume) {
++	for (const auto &g : kWorldGliders) if (g.game == game && g.costume == costume) return &g;
++	return nullptr;
++}
+ // Playing as someone from another game: a sandbox character's appearance is
+ // a cast member by key game * 1024 + costume + 1 (0: themselves). Keys are
+ // saved, and stay valid when the cast is regenerated.
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index c58a021a..4361c952 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -376,12 +376,13 @@ byte ClassicCostumeRenderer::mainRoutine(int xmoveCur, int ymoveCur) {
+ 	return drawFlag;
+ }
+ 
+-// Scummverse: the man-eating plant's pot on wheels, newly drawn (the
+-// original paints its pot into the room), in its costume's colors: 1 the
+-// flower's, 2 the stem's, 3 black; a and b the wheels' spokes, which swap
+-// at every step it rolls. Two-pixel cells, laid out facing left like the
+-// costume's own (the stem of its everyday stage stands over cells 3 and 4)
+-// and mirrored with it; the last row is its feet.
++// Scummverse: what a Maniac character rolls on, newly drawn: the plant's
++// pot in its costume's colors (1, 2, 3: black; a and b the wheels' spokes,
++// which swap at every step it rolls), skates red on yellow wheels (1: black;
++// c and d the spokes) to show on any floor. Two-pixel cells laid out facing
++// left like the costume's own, from the roller's gearX, and mirrored with
++// it. The pot ends at its feet (the original paints the pot into its room);
++// the skates fill the rows a skater's feet are lifted by, down to the floor.
+ static const char *const kScummverseRollingPot[] = {
+ 	"33333333",
+ 	"31111113",
+@@ -401,9 +402,20 @@ static const char *const kScummverseRollingPot[] = {
+ 	".ba..ba.",
+ 	".33..33.",
+ };
++static const char *const kScummverseRollerSkates[] = {
++	"3333.3333",
++	"cddc.cddc",
++	"dccd.dccd",
++	"cddc.cddc",
++};
+ 
+ void ClassicCostumeRenderer::drawExtra(const Actor *a) {
+-	if (_vm->_game.id != GID_MANIAC || _loaded._format != 0x57 || !_vm->scummverseRollingPot(a)) return;
++	int gear, gearX;
++	if (_vm->_game.id != GID_MANIAC || _loaded._format != 0x57 || !_vm->scummverseRollingGear(a, gear, gearX)) return;
++	const bool skates = gear == 1;
++	const char *const *art = skates ? kScummverseRollerSkates : kScummverseRollingPot;
++	const int rows = skates ? ARRAYSIZE(kScummverseRollerSkates) : ARRAYSIZE(kScummverseRollingPot);
++	const int first = skates ? 1 : -rows; // the art's first row, from the feet
+ 	int numerator = 1, denominator = 1;
+ 	_vm->scummverseDistantScene(&numerator, &denominator);
+ 	auto scale = [numerator, denominator](int n) {
+@@ -411,18 +423,23 @@ void ClassicCostumeRenderer::drawExtra(const Actor *a) {
+ 	};
+ 	byte palette[4] = {0, 0, 0, 0};
+ 	const int colors = _vm->scummverseColorActor(_actorID);
+-	if (_vm->getCurrentLights() & LIGHTMODE_actor_use_colors) {
++	if (!(_vm->getCurrentLights() & LIGHTMODE_actor_use_colors)) palette[2] = palette[3] = _vm->_gdi->remapColorToRenderMode(11);
++	else if (skates) {
++		palette[1] = _vm->_gdi->remapColorToRenderMode(0);
++		palette[2] = _vm->_gdi->remapColorToRenderMode(7); // (Commodore colors) yellow
++		palette[3] = _vm->_gdi->remapColorToRenderMode(2); // red
++	} else {
+ 		palette[1] = _vm->_gdi->remapColorToRenderMode(colors < ARRAYSIZE(v1MMActorPalatte1) ? v1MMActorPalatte1[colors] : 8);
+ 		palette[2] = _vm->_gdi->remapColorToRenderMode(colors < ARRAYSIZE(v1MMActorPalatte2) ? v1MMActorPalatte2[colors] : 8);
+-	} else palette[2] = palette[3] = _vm->_gdi->remapColorToRenderMode(11);
++	}
+ 	const int phase = (a->getRealPos().x + a->getRealPos().y) & 1;
+-	const int rows = ARRAYSIZE(kScummverseRollingPot);
+ 	int left = _out.w, right = 0, top = _out.h, bottom = 0;
+-	for (int row = 0; row < rows; ++row) for (int cell = 0; cell < 8; ++cell) {
+-		const char c = kScummverseRollingPot[row][cell];
+-		const int value = c == 'a' ? (phase ? 3 : 2) : c == 'b' ? (phase ? 2 : 3) : c >= '1' && c <= '3' ? c - '0' : 0;
++	for (int row = 0; row < rows; ++row) for (int cell = 0; art[row][cell]; ++cell) {
++		const char c = art[row][cell];
++		const int value = c == 'a' ? (phase ? 3 : 2) : c == 'b' ? (phase ? 2 : 3) : c == 'c' ? (phase ? 1 : 2) : c == 'd' ? (phase ? 2 : 1) :
++			c >= '1' && c <= '3' ? c - '0' : 0;
+ 		if (!value) continue;
+-		const int u = -14 + cell * 2, x = _mirror ? 6 - u : u, v = row - rows;
++		const int u = gearX + cell * 2, x = _mirror ? 6 - u : u, v = first + row;
+ 		const int x0 = MAX(0, _actorX + scale(x)), x1 = MIN<int>(_out.w, _actorX + scale(x + 2));
+ 		const int y0 = MAX(0, _actorY + scale(v)), y1 = MIN<int>(_out.h, _actorY + scale(v + 1));
+ 		if (x0 >= x1 || y0 >= y1) continue;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 04cc82fe..678028f8 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1366,11 +1366,15 @@ public:
+ 	// by actor): their own, or that of the Maniac character they play.
+ 	int scummverseColorActor(int id) const;
+ 	// The direction whose animations an actor's costume shows: its own, or
+-	// a rolling character's fixed one; and whether it rolls in a pot on
+-	// wheels or wears a glass dome (scummverse_world_play.inc).
++	// a rolling character's fixed one; the gear it rolls on (a pot on
++	// wheels 0, roller skates 1; its left edge gearX), or false; and whether
++	// it wears a glass dome (scummverse_world_play.inc).
+ 	int scummverseCostumeFacing(const Actor *a) const;
+-	bool scummverseRollingPot(const Actor *a) const;
++	bool scummverseRollingGear(const Actor *a, int &gear, int &gearX) const;
+ 	bool scummverseDomed(const Actor *a) const;
++	// Day of the Tentacle's Ted's beauty contest dress-up over a sprite's head
++	// (mirrored around column ax when the sprite is).
++	void scummverseDrawDressUp(Actor *a, const byte *frame, int width, int height, int x0, int y0, double scale, bool mirror, int ax);
+ 	// A frame laid over this one of this actor (-1: none); see scummverse_worlds.inc.
+ 	int scummverseOverlayFrame(const Actor *a, int frame) const;
+ 	// In other worlds everyone is drawn at the scale of a person standing at
+@@ -1667,7 +1671,10 @@ protected:
+ 	// and characters playing someone else) whenever that set changes.
+ 	void scummverseMountCharacters();
+ 	Common::Array<byte> scummverseCharacterFrames(int game, int costume) const;
+-	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover);
++	// glide: keep the standing pose while moving; dressUp: Ted's contest
++	// dress-up; oneWay: every frame looks right (mirrored facing left).
++	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover,
++		bool glide = false, bool dressUp = false, bool oneWay = false);
+ 	Common::String _scummverseCharactersKey;
+ 	int _scummverseAvatarSprite[kScummverseManiacActors] = {}; // Mounted character index + 1, or 0.
+ 	int _scummverseAvatarTick[kScummverseManiacActors] = {}, _scummverseAvatarShown[kScummverseManiacActors] = {};
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index b7c30ef4..38154a97 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -518,14 +518,13 @@ static const ZakWalkboxOverride zakWalkboxOverrides[] = {
+ 	{96, 6, 0x80}, {96, 7, 0x80}, {96, 8, 0x80},
+ };
+ 
+-// Original global script 9: kids without air gear suffocate in these scenes
+-// (Mars outdoors and the pyramid always; the Face's halls, the hostel
+-// airlock and the antechambers while their air machine or lights are off,
+-// as at the start). The sandbox puts a fishbowl and tank on whoever breathes.
+-static const int zakAirlessRooms[] = {
+-	71, 79, 82, 83, 84, 93, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120,
+-	121, 122, 123, 124, 125, 126, 181, 184, 186, 187,
+-};
++// Where Mars has no air: outdoors (the landing site, the tram station, the
++// Great Pyramid's entrance) and inside the Great Pyramid (its corridor,
++// sarcophagus chamber and crystal room), as in original global script 9.
++// The Face, from its Great Chamber in, and the hostel's airlock have air
++// here (the original's air machine and airlock running, as the user asked).
++// The sandbox puts a fishbowl and tank on whoever breathes.
++static const int zakAirlessRooms[] = {71, 79, 184, 187, 186, 84};
+ static bool zakAirless(int room) {
+ 	for (int r : zakAirlessRooms) if (r == room) return true;
+ 	return false;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index ef483c41..e8e2c715 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -416,8 +416,10 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 	const int id = a->_number;
+ 	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom) {
+ 		const int look = scummverseAppearance(id);
++		const WorldGlider *glider = worldGlider(worldAppearanceGame(look), worldAppearanceCostume(look));
+ 		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id],
+-			inWorld ? scummverseWorldDepth(a) : 1.0, worldHovers(worldAppearanceGame(look), worldAppearanceCostume(look)));
++			inWorld ? scummverseWorldDepth(a) : 1.0, worldHovers(worldAppearanceGame(look), worldAppearanceCostume(look)),
++			glider != nullptr, glider && glider->dressUp, glider && glider->oneWay);
+ 	}
+ 	if (!inWorld || a->_room != _currentRoom) return false;
+ 	const double depth = scummverseWorldDepth(a);
+@@ -431,24 +433,30 @@ bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+ 	const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+-	return scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale, guest && worldHovers(gameIndex, guest->costume));
++	const WorldGlider *glider = guest ? worldGlider(gameIndex, guest->costume) : nullptr;
++	return scummverseDrawSprite(a, _scummverseGuestSprite[k], _scummverseGuestTick[k], _scummverseGuestShown[k], scale,
++		guest && worldHovers(gameIndex, guest->costume), glider != nullptr, false, glider && glider->oneWay);
+ }
+ 
+ // Floating characters (Murray) hover a quarter of their height above their
+-// feet, bobbing gently, and keep their standing pose while they move. The
+-// Purple Meteor's own costume already floats; it bobs as one this tall.
++// feet (a tall one, Chaos, no more than a small one's), bobbing gently, and
++// keep their standing pose while they move. The Purple Meteor's own costume
++// already floats; it bobs as one this tall.
+ static const int kWorldNativeHover = 16;
++// Roller skates lift a Maniac character this much (Maniac's rows are two
++// pixels: four pixels, the skates' height).
++static const int kWorldSkateLift = 2;
+ static int worldHoverLift(int tick, int height) {
+-	return (int)(height / 4 + 2 * sin(tick * 0.08) + 0.5);
++	return (int)(MIN(height / 4, 12) + 2 * sin(tick * 0.08) + 0.5);
+ }
+ 
+-bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover) {
++bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, bool hover, bool glide, bool dressUp, bool oneWay) {
+ 	if (!a->_needRedraw) return true;
+ 	a->_needRedraw = false;
+ 	int index;
+ 	int kind = worldGuestPose(a, getTalkingActor() == a->_number, tick, index);
+ 	scummverseSelfieSpritePose(a, kind, index);
+-	if (hover && kind == 1) { kind = 0; index = 0; }
++	if ((hover || glide) && kind == 1) { kind = 0; index = 0; }
+ 	const int dir = worldGuestDirection(a->getFacing());
+ 	shown = hover ? -1 : (dir * 3 + kind) * 64 + index % 64; // Hovering is never still.
+ 	int dx, dy, width, height;
+@@ -460,22 +468,87 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation() - (hover ? worldHoverLift(tick, (int)(height * scale)) : 0);
+ 	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
+ 	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
+-	const int left = MAX(0, x0), right = MIN<int>(_screenWidth, x0 + w);
++	// Facing left, a one-way character is mirrored around its feet.
++	const bool mirror = oneWay && dir == 0;
++	const int bx = mirror ? 2 * ax - x0 - w + 1 : x0;
++	const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + w);
+ 	const int top = MAX(0, y0), bottom = MIN<int>(vs.h, y0 + h);
+ 	if (left >= right || top >= bottom) return true;
+ 	for (int y = top; y < bottom; ++y) {
+ 		const byte *src = frame + MIN(height - 1, (int)((y - y0) / scale)) * width;
+ 		byte *dst = (byte *)vs.getPixels(left, y);
+ 		for (int x = left; x < right; ++x, ++dst) {
+-			const byte c = src[MIN(width - 1, (int)((x - x0) / scale))];
++			const byte c = src[MIN(width - 1, (int)((mirror ? bx + w - 1 - x : x - x0) / scale))];
+ 			if (c) *dst = c;
+ 		}
+ 	}
+ 	a->_top = top; a->_bottom = bottom;
+ 	markRectAsDirty(kMainVirtScreen, left, right, top, bottom, a->_number);
++	if (dressUp) scummverseDrawDressUp(a, frame, width, height, x0, y0, scale, mirror, ax);
+ 	return true;
+ }
+ 
++// Ted's beauty contest dress-up, newly drawn (as the user remembers it; his
++// game draws him bald): spaghetti for hair, wavy strands over his whole
++// scalp, short over his brow and long down the back of his head, and big red
++// lips with white teeth over his mouth, sticking out past his face. Fitted
++// to his frames (he looks right in every one; mirrored with them): his head
++// is the top 28 rows in 100, his mouth a quarter of the way down.
++static const char *const kWorldContestLips[] = {
++	"..RRRRRRR..",
++	".RLLLLLLLR.",
++	"RLWWWWWWWLR",
++	".RLLLLLLLR.",
++	"..RRRRRRR..",
++};
++
++void ScummEngine::scummverseDrawDressUp(Actor *a, const byte *frame, int width, int height, int x0, int y0, double scale, bool mirror, int ax) {
++	const int headRows = height * 28 / 100, mouth = height / 4;
++	int back = width, front = -1, mouthFront = -1;
++	for (int y = 0; y < headRows; ++y) for (int x = 0; x < width; ++x)
++		if (frame[y * width + x]) { back = MIN(back, x); front = MAX(front, x); if (y == mouth) mouthFront = MAX(mouthFront, x); }
++	if (front < 0) return;
++	if (mouthFront < 0) mouthFront = front;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	enum { kRed = 4, kBrown = 6, kLightRed = 12, kYellow = 14, kWhite = 15 };
++	int gl = _screenWidth, gr = -1, gt = vs.h, gb = -1;
++	// One pixel of his frame, scaled (and mirrored) as the frame is.
++	auto plot = [&](int fx, int fy, byte c) {
++		int sx0 = x0 + (int)floor(fx * scale), sx1 = MAX(sx0 + 1, x0 + (int)floor((fx + 1) * scale));
++		if (mirror) { const int m0 = 2 * ax - sx1 + 1; sx1 = 2 * ax - sx0 + 1; sx0 = m0; }
++		const int sy0 = y0 + (int)floor(fy * scale), sy1 = MAX(sy0 + 1, y0 + (int)floor((fy + 1) * scale));
++		for (int y = MAX(0, sy0); y < MIN<int>(vs.h, sy1); ++y) for (int x = MAX(0, sx0); x < MIN<int>(_screenWidth, sx1); ++x) {
++			*(byte *)vs.getPixels(x, y) = c;
++			gl = MIN(gl, x); gr = MAX(gr, x); gt = MIN(gt, y); gb = MAX(gb, y);
++		}
++	};
++	// Spaghetti: a strand from just above each column of his scalp, down to
++	// over his glasses at the front and past his neck at the back, every
++	// third one in shadow, with a gap here and there between the noodles.
++	const int brow = mouth * 2 / 5, hang = mouth * 13 / 10;
++	for (int x = back - 2; x < front; ++x) {
++		int top = 0;
++		while (x >= 0 && x < width && top < headRows && !frame[top * width + x]) ++top;
++		top = (x >= 0 && x < width && top < headRows ? top : 2) - 2;
++		const double t = (double)(x - back + 2) / MAX(1, front - back + 1); // 0 at the back, 1 at the front
++		const int bottom = (int)(hang + (brow - hang) * t) + (x - back + 2) * 7 % 3;
++		const byte c = (x - back + 2) % 3 == 1 ? kBrown : kYellow;
++		for (int y = top; y <= bottom; ++y) {
++			if (y > top + 1 && (x - back + 2 + y / 3) % 5 == 4) continue;
++			plot(x + (int)floor(0.9 * sin(y * 0.55 + x * 2.1) + 0.5), y, c);
++		}
++	}
++	// The lips, over his mouth.
++	const int lx0 = mouthFront + 3 - ((int)strlen(kWorldContestLips[0]) - 1);
++	for (int j = 0; j < ARRAYSIZE(kWorldContestLips); ++j) for (int i = 0; kWorldContestLips[j][i]; ++i) {
++		const char c = kWorldContestLips[j][i];
++		if (c != '.') plot(lx0 + i, mouth - 2 + j, c == 'R' ? kRed : c == 'L' ? kLightRed : kWhite);
++	}
++	if (gr < 0) return;
++	a->_top = MIN(a->_top, gt); a->_bottom = MAX(a->_bottom, gb + 1);
++	markRectAsDirty(kMainVirtScreen, gl, gr + 1, gt, gb + 1, a->_number);
++}
++
+ // A V1 character drawn at another size: its own renderer draws the current
+ // pose, unmasked, into a screen-wide canvas with headroom above the screen
+ // (a body cut off there may show once smaller), then it is scaled around
+@@ -541,12 +614,15 @@ int ScummEngine::scummverseCostumeFacing(const Actor *a) const {
+ 	if (!_scummverseRoaming) return a->getFacing();
+ 	const int look = scummverseAppearance(a->_number);
+ 	const WorldRoller *roller = worldNativeLook(look) ? worldRoller(kWorldManiacLooks, worldAppearanceCostume(look)) : nullptr;
+-	return roller ? roller->facing : a->getFacing();
++	return roller && roller->facing >= 0 ? roller->facing : a->getFacing();
+ }
+ 
+-bool ScummEngine::scummverseRollingPot(const Actor *a) const {
++bool ScummEngine::scummverseRollingGear(const Actor *a, int &gear, int &gearX) const {
+ 	const int look = _scummverseRoaming && a ? scummverseAppearance(a->_number) : 0;
+-	return worldNativeLook(look) && worldRoller(kWorldManiacLooks, worldAppearanceCostume(look));
++	const WorldRoller *roller = worldNativeLook(look) ? worldRoller(kWorldManiacLooks, worldAppearanceCostume(look)) : nullptr;
++	if (!roller) return false;
++	gear = roller->gear; gearX = roller->gearX;
++	return true;
+ }
+ 
+ bool ScummEngine::scummverseDomed(const Actor *a) const {
+@@ -689,7 +765,13 @@ void ScummEngine::scummverseUpdateGuests(int delta, unsigned chatting) {
+ 			if (!_scummVars[kScummverseHomeCostumeVar + id]) _scummVars[kScummverseHomeCostumeVar + id] = a->_costume;
+ 			a->setActorCostume(costume);
+ 		}
+-		if (!worldHovers(kWorldManiacLooks, costume) || a->_room != _currentRoom) continue;
++		if (a->_room != _currentRoom) continue;
++		if (!worldHovers(kWorldManiacLooks, costume)) {
++			// Up on roller skates, or on the ground.
++			const WorldRoller *roller = worldRoller(kWorldManiacLooks, costume);
++			a->setElevation(roller && roller->gear == kWorldSkates ? kWorldSkateLift : 0);
++			continue;
++		}
+ 		_scummverseAvatarTick[id] += delta;
+ 		a->setElevation(worldHoverLift(_scummverseAvatarTick[id], kWorldNativeHover));
+ 	}

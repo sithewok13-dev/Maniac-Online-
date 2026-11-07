@@ -1,0 +1,541 @@
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index e5892937..0feb7c56 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -555,7 +555,7 @@ int ScummEngine::findObject(int x, int y) {
+ 		int hit=0, area=0x7fffffff;
+ 		for(int i=1;i<_numLocalObjects;++i) {
+ 			const ObjectData &o=_objs[i]; bool travel=zakPadObject(_currentRoom,o.obj_nr) ||
+-				(zakAirport(_currentRoom) && (o.obj_nr==732 || o.obj_nr==736));
++				(zakAirport(_currentRoom) && zakAirportRole(scummverseOriginalObject(_currentRoom,o.obj_nr))!=kZakNoRole);
+ 			for(const auto &link:zakLinks) if(link.room==_currentRoom && link.object==o.obj_nr) travel=true;
+ 			if(travel && x>=o.x_pos && y>=o.y_pos && x<o.x_pos+o.width && y<o.y_pos+o.height && o.width*o.height<area) { hit=o.obj_nr;area=o.width*o.height; }
+ 		}
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 9638a410..36063ccb 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -148,19 +148,15 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+             scummverseRestoreSeats(); return;
+         }
+ 		if(entry==13 || entry==11 || entry==1) {
+-			if(_currentRoom>=61 && zakAirport(_currentRoom)) {
+-				if(object==732) { scummverseBoard(); return; }
+-				if(object==736) { scummverseAirportOffer(); return; }
++			if(_currentRoom>=56 && zakAirport(_currentRoom)) {
++				const ZakAirportRole role=zakAirportRole(scummverseOriginalObject(_currentRoom,object));
++				if(role==kZakGate) { scummverseBoard(); return; }
++				if(role==kZakTerminal) { scummverseAirportOffer(); return; }
+ 			}
+ 			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
+ 		}
+ 
+ 		if (_currentRoom>=56 && (entry==13 || entry==11 || entry==1)) {
+-			if (_currentRoom==57 || _currentRoom==60) {
+-				if(object==732) scummverseBoard();
+-				if(object==736) scummverseAirportOffer();
+-				if(object==733 && _currentRoom==57) scummverseTravel(8);
+-			}
+ 			return;
+ 		}
+ 		if (_currentRoom == 55 && (entry == 13 || entry == 11 || entry == 1)) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 10cf1dcd..dd1957ac 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1622,6 +1622,7 @@ protected:
+ 	bool scummverseTravel(int destination, int arrivalObject = 0, int arrivalX = -1, int arrivalY = -1);
+  void scummverseRestoreTemple();
+  bool scummverseArrivalPoint(int room, int originalObject, Common::Point &point);
++ int scummverseOriginalObject(int room, int object) const;
+  uint16 _scummverseOriginalObjects[ScummverseContent::kImportedRoomCount][33] = {};
+ 	void scummverseRestoreSceneNavigation(bool restoreActors);
+ 	int _scummverseLastEgo = 0;
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 51ca1be1..e3a46fb8 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -2,10 +2,10 @@
+ struct ZakPlace { int file; const char *md5; const char *name; };
+ static const ZakPlace zakPlaces[] = {
+ 	{11, "b282f83c9bbc14ff1026540b0c61c598", "Airplane"},
+-	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Seattle airport"},
++	{8, "5337090e7a6ebdbfb698ebda3750d926", "Seattle airport"},
+ 	{12, "64cf97c1bc33d52908e7bd962207b38f", "Seattle forest"},
+ 	{13, "46d38d85a72cf6065d2c592b15afadcf", "Mt. Rainier cave"},
+-	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Miami airport"},
++	{8, "5337090e7a6ebdbfb698ebda3750d926", "Miami airport"},
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Kinshasa airport, Zaire"},
+ 	{37, "b7179f02fc59661cf75ea23d5519bd42", "Zaire jungle"},
+ 	{38, "0c701e2facdb1b2413d74ca2c9bdf3d6", "Zaire village"},
+@@ -22,7 +22,7 @@ static const ZakPlace zakPlaces[] = {
+ 	{23, "5cf60128d7e51cf36f5d09ad07da930c", "Pyramid passages"},
+ 	{24, "874b5ffbb30b15fb8e5f16a0055ac91c", "Sarcophagus chamber"},
+ 	{25, "d180b092a6d3b60b09dfd922d7f7fcf5", "Crystal chamber"},
+-	{9, "8bd54c735a167c4ef42433780fa8f7ab", "London airport"},
++	{8, "5337090e7a6ebdbfb698ebda3750d926", "London airport"},
+ 	{44, "884a03db3f6a5a41920aeea82bd81a00", "Stonehenge"},
+ 	{27, "3eb16d7dfe8c9f59820896eee2c9392b", "Mars landing site"},
+ 	{28, "6282c2c0caa99bdbb38ba36051fb57d3", "Mars hostel"},
+@@ -30,7 +30,7 @@ static const ZakPlace zakPlaces[] = {
+ 	{32, "4a997a3115ca9b089f3308060ec0ecae", "Mars face entrance"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars Great Chamber"},
+ 	{15, "a6b1451c24ea995971b3e3fe116b7955", "Mars pyramid"},
+-	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Mexico City airport"},
++	{8, "5337090e7a6ebdbfb698ebda3750d926", "Mexico City airport"},
+ 	{37, "b7179f02fc59661cf75ea23d5519bd42", "Mexico jungle"},
+ 	{39, "971834702c89ae68247b02a82df35f25", "Mexico temple"},
+ 	{53, "c7260003f7c70b810560c1def0d04678", "Mexico temple passages 1"},
+@@ -73,7 +73,14 @@ static const ZakPlace zakPlaces[] = {
+ 	{14, "caa7d07c795408c189229f253bfe7447", "Mars rock chamber"},
+ 	{34, "05817bc8b8857342954ff53cb9185073", "Mars burial chamber"},
+ };
+-static bool zakAirport(int r) { return r==53 || (r>=56 && r<56+(int)(sizeof(zakPlaces)/sizeof(zakPlaces[0])) && zakPlaces[r-56].file==9); }
++// Original airports: big terminal resource 8 (logical 141-145) and regional
++// resource 9 (146-149). Script 120 maps tickets to these logical rooms.
++static bool zakAirport(int r) { return r==53 || (r>=56 && r<56+(int)(sizeof(zakPlaces)/sizeof(zakPlaces[0])) && (zakPlaces[r-56].file==8 || zakPlaces[r-56].file==9)); }
++// Airport interactions resolve by original object identity, not import order.
++enum ZakAirportRole { kZakNoRole, kZakGate, kZakTerminal };
++static ZakAirportRole zakAirportRole(int originalObject) {
++ return originalObject==190 || originalObject==217 ? kZakGate : originalObject==194 || originalObject==220 ? kZakTerminal : kZakNoRole;
++}
+ static const int zakFlights[] = {4,3,7,10,11,16,20,27,35,44};
+ static const char *zakFlightNames[] = {"Maniac Mansion","San Francisco","Seattle","Miami","Kinshasa, Zaire","Kathmandu, Nepal","Cairo, Egypt","London, England","Mexico City, Mexico","Lima, Peru"};
+ // Saved travel schema v1: original seven retain their legacy indices.
+@@ -89,7 +96,7 @@ struct ZakLink {
+   : room(r), object(o), destination(d), arrivalObject(a), arrivalX(x), arrivalY(y) {}
+ };
+ static const ZakLink zakLinks[] = {
+-	{57, 733, 58, 0},
++	{57, 734, 58, 0},
+ 	{58, 732, 57, 0},
+ 	{58, 737, 59, 0},
+ 	{59, 732, 58, 0},
+@@ -124,7 +131,7 @@ static const ZakLink zakLinks[] = {
+ 	{75, 739, 76, 0},
+ 	{75, 740, 74, 0},
+ 	{76, 732, 75, 0},
+-	{77, 733, 78, 0},
++	{77, 734, 78, 0},
+ 	{78, 732, 77, 0},
+ 	{79, 743, 80, 0},
+ 	{79, 746, 80, 0},
+@@ -136,7 +143,7 @@ static const ZakLink zakLinks[] = {
+ 	{81, 739, 79, 0},
+ 	{84, 732, 83, 0},
+ 	{84, 742, 83, 0},
+-	{85, 733, 86, 0},
++	{85, 734, 86, 0},
+ 	{86, 734, 85, 0},
+ 	{86, 735, 87, 0},
+ 	{87, 732, 86, 0},
+@@ -827,7 +834,319 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {568,152,0,2},
+   {569,920,0,2},
+  }},
++ // Original logical airports 141-149, Seattle crystal chamber 129, the first
++ // jungle scene entered from each airport (region-specific room colors) and
++ // Stonehenge 133. Generated by tools/gen_zak_scene_setup.py from the original
++ // interpreter with a fixed random seed (entry scripts randomize the plane).
++ {57,144,160,160,3,29,{0,1,2},{0,0,0},{
++  {190,0,24,0},
++  {214,272,72,2},
++  {191,264,40,8},
++  {193,216,72,0},
++  {213,120,88,10},
++  {194,120,72,0},
++  {195,144,40,0},
++  {196,64,80,2},
++  {197,64,80,10},
++  {198,64,80,2},
++  {199,64,80,2},
++  {200,64,80,2},
++  {192,48,64,0},
++  {215,48,8,10},
++  {216,48,8,2},
++  {201,48,8,2},
++  {202,48,8,2},
++  {203,48,8,2},
++  {204,48,8,2},
++  {205,48,8,2},
++  {206,48,8,2},
++  {207,48,8,2},
++  {208,48,8,2},
++  {209,48,8,2},
++  {210,48,8,2},
++  {211,48,8,2},
++  {212,48,8,2},
++  {45,0,0,3},
++  {46,0,0,3}
++ }},
++ {60,143,160,160,3,29,{0,1,2},{0,0,0},{
++  {190,0,24,0},
++  {214,272,72,8},
++  {191,264,40,0},
++  {193,216,72,0},
++  {213,120,88,10},
++  {194,120,72,0},
++  {195,144,40,0},
++  {196,64,80,2},
++  {197,64,80,2},
++  {198,64,80,2},
++  {199,64,80,10},
++  {200,64,80,2},
++  {192,48,64,10},
++  {215,48,8,10},
++  {216,48,8,2},
++  {201,48,8,2},
++  {202,48,8,2},
++  {203,48,8,2},
++  {204,48,8,2},
++  {205,48,8,2},
++  {206,48,8,2},
++  {207,48,8,2},
++  {208,48,8,2},
++  {209,48,8,2},
++  {210,48,8,2},
++  {211,48,8,2},
++  {212,48,8,2},
++  {45,0,0,3},
++  {46,0,0,3}
++ }},
++ {77,141,160,160,3,29,{0,1,2},{0,0,0},{
++  {190,0,24,0},
++  {214,272,72,2},
++  {191,264,40,8},
++  {193,216,72,0},
++  {213,120,88,10},
++  {194,120,72,0},
++  {195,144,40,0},
++  {196,64,80,2},
++  {197,64,80,2},
++  {198,64,80,10},
++  {199,64,80,2},
++  {200,64,80,2},
++  {192,48,64,10},
++  {215,48,8,10},
++  {216,48,8,2},
++  {201,48,8,2},
++  {202,48,8,2},
++  {203,48,8,2},
++  {204,48,8,2},
++  {205,48,8,2},
++  {206,48,8,2},
++  {207,48,8,2},
++  {208,48,8,2},
++  {209,48,8,2},
++  {210,48,8,2},
++  {211,48,8,2},
++  {212,48,8,2},
++  {45,0,0,3},
++  {46,0,0,3}
++ }},
++ {85,142,160,160,3,29,{0,1,2},{0,0,0},{
++  {190,0,24,0},
++  {214,272,72,2},
++  {191,264,40,8},
++  {193,216,72,0},
++  {213,120,88,10},
++  {194,120,72,0},
++  {195,144,40,0},
++  {196,64,80,2},
++  {197,64,80,2},
++  {198,64,80,2},
++  {199,64,80,2},
++  {200,64,80,10},
++  {192,48,64,0},
++  {215,48,8,10},
++  {216,48,8,2},
++  {201,48,8,2},
++  {202,48,8,2},
++  {203,48,8,2},
++  {204,48,8,2},
++  {205,48,8,2},
++  {206,48,8,2},
++  {207,48,8,2},
++  {208,48,8,2},
++  {209,48,8,2},
++  {210,48,8,2},
++  {211,48,8,2},
++  {212,48,8,2},
++  {45,0,0,3},
++  {46,0,0,3}
++ }},
++ {61,147,160,160,3,12,{0,1,2},{0,0,0},{
++  {217,0,24,0},
++  {218,272,24,0},
++  {219,216,72,0},
++  {228,120,88,10},
++  {220,120,72,0},
++  {221,40,8,2},
++  {222,48,16,2},
++  {223,120,24,0},
++  {224,64,88,2},
++  {225,64,88,2},
++  {226,64,88,10},
++  {227,64,88,2}
++ }},
++ {66,148,160,160,3,12,{0,1,2},{0,0,0},{
++  {217,0,24,0},
++  {218,272,24,0},
++  {219,216,72,0},
++  {228,120,88,10},
++  {220,120,72,0},
++  {221,40,8,10},
++  {222,48,16,2},
++  {223,120,24,0},
++  {224,64,88,2},
++  {225,64,88,2},
++  {226,64,88,2},
++  {227,64,88,10}
++ }},
++ {70,146,160,160,3,12,{0,1,2},{0,0,0},{
++  {217,0,24,0},
++  {218,272,24,0},
++  {219,216,72,0},
++  {228,120,88,10},
++  {220,120,72,0},
++  {221,40,8,2},
++  {222,48,16,10},
++  {223,120,24,0},
++  {224,64,88,10},
++  {225,64,88,2},
++  {226,64,88,2},
++  {227,64,88,2}
++ }},
++ {94,149,160,160,3,12,{0,1,2},{0,0,0},{
++  {217,0,24,0},
++  {218,272,24,0},
++  {219,216,72,0},
++  {228,120,88,10},
++  {220,120,72,0},
++  {221,40,8,10},
++  {222,48,16,2},
++  {223,120,24,0},
++  {224,64,88,2},
++  {225,64,88,10},
++  {226,64,88,2},
++  {227,64,88,2}
++ }},
++ {92,129,160,160,14,21,{255,11,14},{0,0,0,0,0,0,0,0,0,0,0,0,128,128},{
++  {297,0,0,0},
++  {292,152,64,0},
++  {296,120,88,2},
++  {309,248,120,8},
++  {300,48,32,2},
++  {299,48,32,6},
++  {293,144,40,6},
++  {302,136,24,2},
++  {301,120,24,6},
++  {304,224,32,2},
++  {303,224,32,6},
++  {308,136,40,2},
++  {57,136,40,3},
++  {56,136,40,3},
++  {307,128,40,6},
++  {306,144,0,2},
++  {294,152,72,2},
++  {305,128,0,2},
++  {295,128,56,0},
++  {55,152,32,1},
++  {298,136,32,6}
++ }},
++ {62,170,160,408,3,6,{255,9,7},{128,0,128},{
++  {570,0,0,2},
++  {571,528,0,2},
++  {572,0,0,8},
++  {573,528,0,8},
++  {574,128,0,8},
++  {575,352,0,8}
++ }},
++ {86,168,160,240,3,6,{255,9,13},{0,128,128},{
++  {570,0,0,2},
++  {571,528,0,2},
++  {572,0,0,8},
++  {573,360,0,8},
++  {574,128,0,8},
++  {575,352,0,2}
++ }},
++ {95,175,328,408,3,6,{255,9,3},{128,128,0},{
++  {570,0,0,2},
++  {571,528,0,2},
++  {572,168,0,8},
++  {573,528,0,8},
++  {574,128,0,2},
++  {575,352,0,2}
++ }},
++ {78,133,160,160,10,19,{0,1,2},{0,96,64,128,128,0,0,0,0,0},{
++  {639,0,0,0},
++  {652,592,0,0},
++  {641,264,40,0},
++  {640,72,72,2},
++  {642,40,72,2},
++  {643,256,16,0},
++  {644,96,40,0},
++  {81,432,72,3},
++  {653,432,72,2},
++  {655,432,72,2},
++  {645,432,72,2},
++  {646,448,72,2},
++  {656,416,32,2},
++  {647,416,24,10},
++  {648,408,80,0},
++  {654,368,8,2},
++  {649,368,8,2},
++  {650,368,8,2},
++  {651,368,8,2}
++ }},
++ // Zaire village 150 and Mars hostel 180 (each shares its resource with a
++ // second logical scene, 151 / 181, on the far side of locked boxes).
++ {63,150,160,480,12,17,{255,5,2},{0,0,0,0,0,0,128,0,0,128,160,0},{
++  {576,608,0,0},
++  {577,24,80,0},
++  {578,48,56,0},
++  {579,936,40,0},
++  {580,88,72,0},
++  {581,32,8,0},
++  {591,408,0,0},
++  {592,520,0,0},
++  {582,240,88,2},
++  {583,240,88,2},
++  {584,240,88,2},
++  {585,240,88,2},
++  {590,736,72,0},
++  {586,904,40,0},
++  {587,728,40,0},
++  {588,816,40,0},
++  {589,872,48,0}
++ }},
++ {80,180,160,264,7,22,{255,10,15},{0,0,0,0,0,128,0},{
++  {463,536,24,8},
++  {468,736,80,0},
++  {464,720,48,0},
++  {465,632,24,8},
++  {466,624,64,0},
++  {467,720,32,0},
++  {469,632,40,0},
++  {471,632,80,3},
++  {64,632,80,1},
++  {470,632,80,4},
++  {67,112,56,9},
++  {68,192,64,0},
++  {478,208,64,0},
++  {69,104,56,1},
++  {479,72,72,0},
++  {473,0,72,0},
++  {472,0,40,0},
++  {474,8,24,0},
++  {475,72,32,0},
++  {476,96,32,0},
++  {477,176,24,0},
++  {70,320,24,1}
++ }},
+ };
++// Original room colors and camera bounds for imported rooms without a full
++// setup (or whose sandbox adapters own object state, like the cabin seats).
++// Values come from each matching logical scene's original entry handler.
++struct ZakSceneView { int room, logicalRoom, cameraMin, cameraMax, color1, color2; };
++static const ZakSceneView zakSceneViews[] = {
++ {56,11,264,640,15,8}, {68,19,160,480,2,9}, {74,23,160,800,8,9}, {75,155,160,320,8,9},
++ {79,185,160,800,15,2}, {81,30,160,160,1,11}, {89,130,160,160,15,7},
++ // Pending reconstruction: not original logical scenes (see scene audit).
++ {65,0,0,0,2,12}, {84,0,0,0,2,4}, {98,0,0,0,2,15},
++};
++static const ZakSceneView *zakSceneView(int room) {
++ for (const auto &view : zakSceneViews) if (view.room == room) return &view;
++ return nullptr;
++}
++
+ static const ZakSceneSetup *zakSceneSetup(int room) {
+  for (const auto &scene : zakSceneSetups) if (scene.room == room) return &scene;
+  return nullptr;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index fb9d3c55..f150d5ca 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -84,8 +84,8 @@ static const MansionPassage mansionPassages[] = {
+ 	{54, 655, 55, 712, false, 35, 56, 40, 59, true},
+ 	{55, 724, 53, 685, false, 92, 59, 30, 60, true},
+ 	{55, 712, 54, 655, false, 43, 36, 30, 56, true},
+-	{57,733,58,732,false,37,60,6,60,true},
+-	{58,732,57,733,false,1,60,30,60,true},
++	{57,734,58,732,false,37,60,6,60,true},
++	{58,732,57,734,false,1,60,30,60,true},
+ 	{58,737,59,732,false,35,60,6,60,true},
+ 	{59,732,58,737,false,1,60,30,60,true},
+ };
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 295bf5ee..7a41cc3d 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -376,23 +376,12 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+         }
+     }
+     if(arrivalX>=0 && arrivalY>=0) {x=arrivalX;y=arrivalY;}
+-	// Shared original resources use different palettes in each destination.
+-	int color1=-1,color2=-1;
+-	switch(room) {
+-	case 62:case 86: color1=9;color2=7;break;
+-	case 95:color1=9;color2=3;break;
+-	case 63:color1=5;color2=2;break;
+-	case 65:color1=2;color2=12;break;
+-	case 89:color1=15;color2=7;break;
+-	case 92:color1=11;color2=14;break;
+-	case 98:color1=2;color2=15;break;
+-	case 68:color1=2;color2=9;break;
+-	case 74:case 75:color1=8;color2=9;break;
+-	case 79:color1=15;color2=2;break;
+-	case 80:color1=10;color2=15;break;
+-	case 84:color1=2;color2=4;break;
+-	}
+-	if(color1>=0) { _roomPalette[0]=255;_roomPalette[1]=color1;_roomPalette[2]=color2; }
++	// Shared original resources use different colors and camera bounds in
++	// each logical scene; the catalog records the original values.
++	if(const auto *view=zakSceneView(room)) {
++		_roomPalette[0]=255;_roomPalette[1]=view->color1;_roomPalette[2]=view->color2;
++		if(view->cameraMin) { VAR(VAR_CAMERA_MIN_X)=view->cameraMin; VAR(VAR_CAMERA_MAX_X)=view->cameraMax; }
++	}
+     if(const auto *scene=zakSceneSetup(room)) for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];
+ 	VAR(VAR_CURRENT_LIGHTS)=LIGHTMODE_room_lights_on|LIGHTMODE_actor_use_colors;
+ 	// Apply scene navigation policy before projecting exits or spawning actors.
+@@ -413,7 +402,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	player->putActor(point.x, point.y, room); player->startAnimActor(player->_standFrame);
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+-	_scummVars[527]=1;
++	_scummVars[527]=1; _scummVars[528]=1;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+@@ -834,12 +823,31 @@ void ScummEngine::scummverseRestoreTemple() {
+    startScene(88,a,0);
+   }
+  }
++ // 528: scene schema 1 (patch 0043) moved Seattle, Miami, London and Mexico
++ // City to the original big-airport resource. A save made inside one of them
++ // holds the old object table; re-enter that room to rebuild its geometry.
++ if(_scummVars[528]<1) {
++  for(int room : {57,60,77,85}) if(_currentRoom==room) {
++   Actor *a=derefActor(VAR(VAR_EGO),"airport migration player");
++   startScene(room,a,0);
++  }
++  _scummVars[528]=1;
++ }
+  if(const auto *scene=zakSceneSetup(_currentRoom)) {
+   VAR(VAR_CAMERA_MIN_X)=scene->cameraMin;VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+   for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];
++ } else if(const auto *view=zakSceneView(_currentRoom)) {
++  _roomPalette[0]=255;_roomPalette[1]=view->color1;_roomPalette[2]=view->color2;
++  if(view->cameraMin) { VAR(VAR_CAMERA_MIN_X)=view->cameraMin; VAR(VAR_CAMERA_MAX_X)=view->cameraMax; }
+  }
+ }
+ 
++// Original identity of an imported scratch object (732..764), or 0.
++int ScummEngine::scummverseOriginalObject(int room, int object) const {
++ if(!ScummverseContent::importedRoom(room) || object<732 || object>=732+33) return 0;
++ return _scummverseOriginalObjects[room-56][object-732];
++}
++
+ // Resolve source doorway anchors without switching the displayed room. NPCs
+ // entering an offscreen logical variant must use that variant's object layout.
+ bool ScummEngine::scummverseArrivalPoint(int room, int originalObject, Common::Point &point) {

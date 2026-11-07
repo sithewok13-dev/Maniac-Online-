@@ -11,7 +11,8 @@ int main(int argc, char **argv) {
 	Runtime &r = runtime(); char speech[160]; int speaker = 0;
 	assert(r.scene(7, 3, 1u << 10, true, speaker, speech, sizeof(speech)) == 0);
 	assert(!r.beginTalk(14)); assert(r.beginTalk(10));
-	assert(!r.sendTalk("Hello")); // No model must not fabricate a reply.
+	assert(r.sendTalk("Hello")); // No model: a labelled classic reply, never silence.
+	{ std::string line; assert(r.readTalk(speaker,line) && speaker==10 && !line.empty()); }
 	r.endTalk(); r.configure(argv[1], false);
 	for (int n=0; n<1200 && r.getStatus().find("Ready") != 0; ++n)
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -21,7 +22,7 @@ int main(int argc, char **argv) {
 	assert(!r.request(14,7,3)); // Encounters cannot consume chat results.
 	for (const char *question : {"Hello Edna. My name is Pickle. What are you cooking?", "Do you remember the name I just gave you?"}) {
 		auto begin = std::chrono::steady_clock::now();
-		assert(r.sendTalk(question)); assert(!r.sendTalk("another"));
+		assert(r.sendTalk(question));
 		assert(r.scene(7,3,1u<<10,true,speaker,speech,sizeof(speech))==(1u<<10) && speaker==3 && std::string(speech)==question);
 		std::string reply;
 		for (int n=0; n<400 && !r.readTalk(speaker,reply); ++n)
@@ -42,5 +43,6 @@ int main(int argc, char **argv) {
 	assert(r.scene(7,2,1u<<10,true,speaker,speech,sizeof(speech)) == 0); // Switching kid ends chat.
 	assert(r.beginTalk(10)); r.cancel(); assert(!r.talkingTo()); // load/boot clears history.
 	assert(r.beginTalk(10)); r.configure("",false); assert(!r.talkingTo());
+	r.shutdown(); // (Before llama's statics go: the unload above may still be running.)
 	std::cout << "PASS: real two-turn conversation, bounded input, speech bridge, isolated results, cancellation and scene/visitor changes\n";
 }

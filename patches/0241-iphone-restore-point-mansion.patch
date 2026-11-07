@@ -1,0 +1,309 @@
+diff --git a/backends/platform/ios7/ios7_common.h b/backends/platform/ios7/ios7_common.h
+index 09b50b4a..3286b110 100644
+--- a/backends/platform/ios7/ios7_common.h
++++ b/backends/platform/ios7/ios7_common.h
+@@ -110,6 +110,10 @@ Common::String iOS7_getZakDirectory();
+ // The app's own copies of game files (Zak imported from the Files app), as
+ // the "connectedworlds:" drive: a game's story can be played from there.
+ Common::String iOS7_getConnectedWorldsDir();
++// The restore point saveState writes as the app is put away (its file, in
++// ScummVM's file system), for base/main.cpp: Explore mode starts the mansion
++// with no launcher to take the restore event first.
++Common::String iOS7_getRestorePointFile();
+ Common::String iOS7_getAppBundleDir();
+ TouchMode iOS7_getCurrentTouchMode();
+ // keyboard_fn_bar for the keyboard (ios7_keyboard.mm), set from the game's
+diff --git a/backends/platform/ios7/ios7_osys_main.cpp b/backends/platform/ios7/ios7_osys_main.cpp
+index 1848ad76..f593f402 100644
+--- a/backends/platform/ios7/ios7_osys_main.cpp
++++ b/backends/platform/ios7/ios7_osys_main.cpp
+@@ -355,6 +355,14 @@ void OSystem_iOS7::clearState() {
+ 	remove(statePath.c_str());
+ }
+ 
++// SCUMMVERSE: the file saveState writes and restoreState reads, for
++// base/main.cpp, which reads it as the app starts (nothing takes the restore
++// event before the mansion plays, and with an engine playing the event only
++// clears the file).
++Common::String iOS7_getRestorePointFile() {
++	return "/scummvm.state";
++}
++
+ uint32 OSystem_iOS7::getMillis(bool skipRecord) {
+ 	CFTimeInterval timeInSeconds = CACurrentMediaTime();
+ 	return (uint32) ((timeInSeconds - _startTime) * 1000.0);
+diff --git a/base/main.cpp b/base/main.cpp
+index 4aff8ea6..8fd1061b 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -103,6 +103,7 @@
+ #include "common/scummverse_world_catalog.h"
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_story.h"
++#include "common/scummverse_restore.h"
+ #include "common/tokenizer.h"
+ 
+ static bool launcherDialog() {
+@@ -189,6 +190,53 @@ static void scummverseStoryHome(const Common::String &maniacTarget, Common::Stri
+ 	slot = saved ? 100 : -1;
+ }
+ 
++// The phone's restore point (common/scummverse_restore.h): the target and
++// autosave slot the iPhone's backend named as the app was put away, the
++// game playing then autosaved. ScummVM's launcher would take it from an
++// event the backend queues as the app starts again; here nothing takes
++// events before a game plays, and a game playing lets that event drop the
++// file. So it is taken as the app starts (scummverseTakeRestorePoint), and
++// the mansion goes on from it at its first start (scummvm_main). Its file:
++// the backend's; elsewhere none, unless a test names its own.
++static const char *const kScummverseRestorePointKey = "scummverse_restore_point";
++static char scummverseRestoreTarget[64]; // (empty: none)
++static int scummverseRestoreSlot = -1;
++static Common::Path scummverseRestorePointFile() {
++#ifdef IPHONE
++	return Common::Path(iOS7_getRestorePointFile());
++#else
++	return ConfMan.hasKey(kScummverseRestorePointKey, Common::ConfigManager::kApplicationDomain) ?
++		ConfMan.getPath(kScummverseRestorePointKey, Common::ConfigManager::kApplicationDomain) : Common::Path();
++#endif
++}
++static void scummverseTakeRestorePoint() {
++	scummverseRestoreTarget[0] = 0;
++	scummverseRestoreSlot = -1;
++	const Common::Path path = scummverseRestorePointFile();
++	if (path.empty()) return;
++	const Common::FSNode file(path);
++	if (!file.exists() || file.isDirectory()) return;
++	Common::Array<char> text;
++	{
++		Common::ScopedPtr<Common::SeekableReadStream> in(file.createReadStream());
++		if (!in || in->size() == 0) return; // (none, or let go already)
++		if (in->size() > 0 && in->size() <= (int64)Scummverse::Restore::kMostBytes) {
++			text.resize((uint)in->size());
++			if (in->read(text.data(), text.size()) != text.size()) text.clear();
++		}
++	}
++	// (Let go at once, whatever it holds: never taken twice, nor again at
++	// the next start if this one stops; the backend's event finds nothing.)
++	Common::ScopedPtr<Common::SeekableWriteStream> out(file.createWriteStream());
++	if (!out) warning("SCUMMVERSE: the phone's restore point could not be let go");
++	out.reset();
++	if (text.empty() || !Scummverse::Restore::parse(text.data(), text.size(), scummverseRestoreTarget, sizeof(scummverseRestoreTarget), scummverseRestoreSlot)) {
++		warning("SCUMMVERSE: the phone's restore point is damaged; not used");
++		return;
++	}
++	debug(1, "SCUMMVERSE: the phone's restore point: %s, slot %d", scummverseRestoreTarget, scummverseRestoreSlot);
++}
++
+ // Story mode's home (common/scummverse_story.h: Story mode and Explore mode
+ // kept apart): the list of the stories found here (Continue where one has a
+ // save, Start where not, or what it still needs), and the way to Explore
+@@ -763,6 +811,8 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 	const Common::Path maniacPath = !sandboxGame && ConfMan.hasKey("path") ? ConfMan.getPath("path") : Common::Path();
+ 	if (!sandboxGame) scummverseAddStoryTargets(maniacPath);
+ 	scummverseManiacPath = maniacPath;
++	// (Before anything takes the backend's events, which let it go.)
++	if (!sandboxGame) scummverseTakeRestorePoint();
+ 	// The story playing when the app was put away goes on (after any
+ 	// exports), from its newest save; the mansion after it, where it was.
+ 	// (Taken now: a game that stops the app as it starts is not opened again
+@@ -1034,6 +1084,29 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 				ConfMan.removeKey(Scummverse::kSandboxOpenKey, Common::ConfigManager::kApplicationDomain);
+ 				ConfMan.flushToDisk();
+ 			}
++			// (The app stopped while the mansion played, put away first: the
++			// phone's restore point, its autosave, as ScummVM's launcher would
++			// have taken it. At its first start only, and not over a save it
++			// was chained to or the new engine's: those are newer.)
++			if (scummverseRestoreTarget[0]) {
++				const Common::String pointTarget(scummverseRestoreTarget);
++				const int pointSlot = scummverseRestoreSlot;
++				scummverseRestoreTarget[0] = 0;
++				// (The mansion's own saves: 0 to 99, as the engine names them.)
++				const Common::String pointFile = Common::String::format("%s.s%02d", maniacTarget.c_str(), pointSlot);
++				Common::ScopedPtr<Common::InSaveFile> saved(!pointTarget.equalsIgnoreCase(maniacTarget) || pointSlot < 0 || pointSlot > 99 ? nullptr :
++					g_system->getSavefileManager()->openForLoading(pointFile));
++				if (transient->contains("save_slot")) {
++					warning("SCUMMVERSE: the phone's restore point set aside: the mansion goes on from a later save");
++				} else if (!pointTarget.equalsIgnoreCase(maniacTarget)) {
++					warning("SCUMMVERSE: the phone's restore point is %s's, not the mansion's", pointTarget.c_str());
++				} else if (!saved) {
++					warning("SCUMMVERSE: the phone's restore point names slot %d, not saved there", pointSlot);
++				} else {
++					warning("SCUMMVERSE: the mansion where it was when the app was put away (its slot %d)", pointSlot);
++					ConfMan.setInt("save_slot", pointSlot, Common::ConfigManager::kTransientDomain);
++				}
++			}
+ 			// (No story to go on in at the next start: the mansion is playing.)
+ 			if (ConfMan.hasKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) {
+ 				ConfMan.removeKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
+diff --git a/common/module.mk b/common/module.mk
+index 29438c6f..2b26b5f3 100644
+--- a/common/module.mk
++++ b/common/module.mk
+@@ -35,6 +35,7 @@ MODULE_OBJS := \
+ 	scummverse_world.o \
+ 	scummverse_stage.o \
+ 	scummverse_panel.o \
++	scummverse_restore.o \
+ 	rational.o \
+ 	rendermode.o \
+ 	rotationmode.o \
+diff --git a/common/scummverse_restore.cpp b/common/scummverse_restore.cpp
+new file mode 100644
+index 00000000..438ec6bc
+--- /dev/null
++++ b/common/scummverse_restore.cpp
+@@ -0,0 +1,83 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: the phone's restore point, read. See scummverse_restore.h.
++#define FORBIDDEN_SYMBOL_ALLOW_ALL
++
++#include "common/scummverse_restore.h"
++
++#include <cstring>
++
++namespace Scummverse {
++namespace Restore {
++
++static bool space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f'; }
++static bool alnum(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
++// (A section's or a key's name: the letters ScummVM's INI reader takes.)
++static bool nameChar(char c) { return alnum(c) || c == '-' || c == '_' || c == '.' || c == ' ' || c == ':'; }
++static char lower(char c) { return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c; }
++static bool named(const char *text, size_t size, const char *name) {
++	if (std::strlen(name) != size) return false;
++	for (size_t i = 0; i < size; ++i)
++		if (lower(text[i]) != name[i]) return false;
++	return true;
++}
++
++bool parse(const char *text, size_t size, char *target, int capacity, int &slot) {
++	slot = -1;
++	if (target && capacity > 0) target[0] = 0;
++	if (!text || !target || capacity <= 0 || size > kMostBytes || std::memchr(text, 0, size)) return false;
++	size_t at = size >= 3 && !std::memcmp(text, "\xEF\xBB\xBF", 3) ? 3 : 0;
++	// (0: before any section; 1: the first state section; 2: any other.)
++	int section = 0;
++	bool stateSeen = false;
++	const char *targetText = nullptr, *slotText = nullptr;
++	size_t targetSize = 0, slotSize = 0;
++	while (at < size) {
++		const char *line = text + at;
++		const char *end = static_cast<const char *>(std::memchr(line, '\n', size - at));
++		size_t n = end ? (size_t)(end - line) : size - at;
++		at += n + (end ? 1 : 0);
++		while (n && space(line[0])) { ++line; --n; }
++		while (n && space(line[n - 1])) --n;
++		if (!n) continue;
++		if (!end) return false; // (cut short: its value may be too)
++		if (line[0] == '#' || line[0] == ';' || line[0] == '(' || (n >= 2 && line[0] == '/' && line[1] == '/')) continue;
++		if (line[0] == '[') {
++			size_t i = 1;
++			while (i < n && nameChar(line[i])) ++i;
++			if (i == 1 || i >= n || line[i] != ']') return false;
++			const bool state = named(line + 1, i - 1, "state");
++			section = state && !stateSeen ? 1 : 2;
++			stateSeen = stateSeen || state;
++			continue;
++		}
++		const char *equals = static_cast<const char *>(std::memchr(line, '=', n));
++		if (!section || !equals) return false;
++		size_t keySize = equals - line;
++		while (keySize && space(line[keySize - 1])) --keySize;
++		if (!keySize) return false;
++		for (size_t i = 0; i < keySize; ++i)
++			if (!nameChar(line[i])) return false;
++		const char *value = equals + 1;
++		size_t valueSize = n - (size_t)(value - line);
++		while (valueSize && space(value[0])) { ++value; --valueSize; }
++		if (section != 1) continue;
++		if (!targetText && named(line, keySize, "restore_target")) { targetText = value; targetSize = valueSize; }
++		else if (!slotText && named(line, keySize, "restore_slot")) { slotText = value; slotSize = valueSize; }
++	}
++	if (!targetText || !slotText || !targetSize || targetSize >= (size_t)capacity || !slotSize) return false;
++	for (size_t i = 0; i < targetSize; ++i)
++		if (!alnum(targetText[i]) && targetText[i] != '-' && targetText[i] != '_') return false;
++	int number = 0;
++	for (size_t i = 0; i < slotSize; ++i) {
++		if (slotText[i] < '0' || slotText[i] > '9') return false;
++		number = number * 10 + (slotText[i] - '0');
++		if (number > kMostSlot) return false;
++	}
++	std::memcpy(target, targetText, targetSize);
++	target[targetSize] = 0;
++	slot = number;
++	return true;
++}
++
++} // End of namespace Restore
++} // End of namespace Scummverse
+diff --git a/common/scummverse_restore.h b/common/scummverse_restore.h
+new file mode 100644
+index 00000000..8db5b7c1
+--- /dev/null
++++ b/common/scummverse_restore.h
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse: the phone's restore point. As the app is put away, the
++// iPhone's backend autosaves the game playing and writes a small file naming
++// it (backends/platform/ios7/ios7_osys_main.cpp, saveState: an INI file,
++// "[state]", "restore_target=<target>", "restore_slot=<slot>", each line
++// ended). ScummVM's launcher would take it at the next start, from an event
++// the backend queues; Explore mode starts the mansion with no launcher, and
++// an engine playing only lets that event drop the file, so base/main.cpp
++// reads the file itself with this, as the app starts. Plain types only.
++#ifndef COMMON_SCUMMVERSE_RESTORE_H
++#define COMMON_SCUMMVERSE_RESTORE_H
++
++#include <cstddef>
++
++namespace Scummverse {
++namespace Restore {
++
++// The most a restore point is read to (a whole one is a few dozen bytes).
++static const size_t kMostBytes = 4096;
++// The highest slot taken (a save slot ScummVM names: the autosave's is 0).
++static const int kMostSlot = 999;
++
++// What a restore point names (text: the file's bytes, size of them): its
++// target (copied into target, capacity bytes with its end) and its slot;
++// false, target "" and slot -1, when it is not a whole restore point:
++// - more than kMostBytes, or a NUL byte in it;
++// - a line that is not blank, a comment (#, ;, // or ( first, as ScummVM's
++//   INI reader skips them), a section ([name]: letters, digits, '-', '_',
++//   '.', ' ' or ':') or a key=value pair in a section (the key of those
++//   letters too): what ScummVM's reader refuses or stops the app at, and a
++//   line with no '=' (which it takes as a key); a last line cut short (no
++//   line end; the backend ends each one), whose value may be cut too;
++// - no restore_target or restore_slot in the state section (the first of
++//   each in the first such section counts; section and keys in any case;
++//   spaces round names and values, a byte-order mark and \r\n line ends are
++//   let be, as ScummVM's reader lets them);
++// - a target that is not a whole target name (1 to capacity - 1 letters,
++//   digits, '-' or '_', as ScummVM names its targets), or a slot that is not
++//   0 to kMostSlot in decimal digits only.
++bool parse(const char *text, size_t size, char *target, int capacity, int &slot);
++
++} // End of namespace Restore
++} // End of namespace Scummverse
++
++#endif
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index 7b7130ea..89bae2f4 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -18,9 +18,12 @@
+ 
+ #ifdef IPHONE
+ // (The backend's: where Zak's files are, and where the app keeps its own
+-// copies of game files, the "connectedworlds:" drive.)
++// copies of game files, the "connectedworlds:" drive; and the restore point
++// it writes as the app is put away, in ScummVM's file system: base/main.cpp,
++// common/scummverse_restore.h.)
+ Common::String iOS7_getZakDirectory();
+ Common::String iOS7_getConnectedWorldsDir();
++Common::String iOS7_getRestorePointFile();
+ #endif
+ 
+ namespace Scummverse {

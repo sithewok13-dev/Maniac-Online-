@@ -1,0 +1,757 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 415efcec..814708b9 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -233,10 +233,15 @@ static const int kWorldExportVersion = 25;
+ // with taken, kWorldKeptClasses' negatives; the spiral carried in its answers
+ // of two, kWorldLateCarried, set in the animal head; its start's scroll
+ // script let go elsewhere, kWorldScrollStarts: Give to two of Algiers'
+-// people answered): "atlantis-v34".
++// people answered): "atlantis-v34"; from 0308 Day of the Tentacle's again
++// (the review of 0303's: Oozo's box drawn as its game draws it, an actor in
++// its costume 116, kWorldActorThings; Oozo gone once popped,
++// kWorldCastThings; the horse asleep kept, bit 104, read by the textbook
++// read to it again, its Talk and the glass's verbs, kWorldValueReaders):
++// "tentacle-v37".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 15 : same(gameid, "tentacle") ? 11 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 15 : same(gameid, "tentacle") ? 12 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "indy3") ? 7 : // (from 0305)
+ 		same(gameid, "samnmax") ? 7 : // (from 0306)
+@@ -893,8 +898,33 @@ static const WorldCloseUp kWorldCloseUps[] = {{10, 9, 219, 43, 68, 255, 63, 4, 0
+ // From 0304 Monkey Island 2's rat (costume 73), the thing 135 of the
+ // laundry (room 14) once it is trapped: off the stage there while that is
+ // carried or shown in the box (its picture 1), as its game takes it there.
++// From 0308 Day of the Tentacle's Oozo (costume 107), the
++// thing 191 of room 26 once he is popped: off the stage there for good once
++// 191, what is left of him, is in its picture 1 (the scalpel used on him:
++// room 26's local script 201; its entry, local script 209, shows 191 so and
++// takes his actor, 7, away), and in no other place till then, as its game
++// has him only there. Before, he stood on beside what was left of him.
+ struct WorldCastThing { short game, costume, room, object; };
+-static const WorldCastThing kWorldCastThings[] = {{10, 16, 51, 45}, {0, 31, 41, 378}, {1, 73, 14, 135}};
++static const WorldCastThing kWorldCastThings[] = {{10, 16, 51, 45}, {0, 31, 41, 378}, {1, 73, 14, 135}, {5, 107, 26, 191}};
++// From 0308 a thing its game draws as an actor in a costume
++// while it is touchable in its place, never in an image of its own (one it
++// has is no picture of it): the export draws its picture 1 as that costume
++// standing at its spot (`x`, `y`, its feet, in the room's pixels; facing
++// `facing`, as its game turns it) over the place, within its rectangle, and
++// files the thing in its picture 1 wherever it is touchable in its place (0
++// else), so each answer shows it as its game does. Day of the Tentacle's
++// Oozo's box (room 26, 185): room 26's local script 209 puts actor 10 in
++// costume 116 at 115, 139, turned right (its animation 249), while 185 is
++// touchable (Oozo popped: its local script 201), and 185's Pick up takes
++// that actor away; 185's own picture 1 is a part of popped Oozo that 191's
++// shows too (no script shows it). Before, the box was touchable but never
++// drawn, and carried by its name.
++struct WorldActorThing { short game, room; int object; short costume, x, y, facing; };
++static const WorldActorThing kWorldActorThings[] = {{5, 26, 185, 116, 115, 139, 90}};
++inline const WorldActorThing *worldActorThing(int game, int room, int object) {
++	for (const WorldActorThing &t : kWorldActorThings) if (t.game == game && t.room == room && t.object == object) return &t;
++	return nullptr;
++}
+ inline bool worldCloseUpFilm(const WorldCloseUp &c) { return !c.presses && !c.turned; }
+ // (A room only a close-up shows: from 0263 not one also a place, `place`.)
+ inline const WorldCloseUp *worldCloseUpScene(int game, int closeUp) {
+@@ -1464,19 +1494,42 @@ inline int worldPlayedIn(int game, int room) {
+ // the new engine carries him). Before, none of his uses was ever played: the
+ // dead guy of room 9 (actor 4: its local script 205) turned inside out for
+ // the carnival tickets (95), and every other answer of his.
+-struct WorldStartThing { short game, room; int object; };
+-static const WorldStartThing kWorldStartThings[] = {{5, 61, 709}, {5, 61, 710}, {5, 61, 711},
+-	{6, 1, 35}}; // (from 0306: Sam & Max's Max)
+-static const int kWorldStartGiven = 0x4002;
++// From 0308 each row given is kept apart: the value
++// kWorldStartGivenRows of its game, bit k its k-th row here (in this table's
++// order: a game's rows only ever appended, at most 31), so a row added later
++// is still given to one who had the others. The one value for all of a
++// game's rows of before (kWorldStartGiven at 1, written from 0303 to 0307)
++// is read back as each of its rows marked `before0308` given (Day of the
++// Tentacle's three and Sam & Max's Max, a row of 0306), and let go; a row
++// added from now on is not. Before, a later row of a game was never given to
++// anyone whose state had that value. (From the review of 0308 Max's row
++// too: a state of 0306's or 0307's, Max given, carried him again.)
++struct WorldStartThing { short game, room; int object; bool before0308; };
++static const WorldStartThing kWorldStartThings[] = {{5, 61, 709, true}, {5, 61, 710, true}, {5, 61, 711, true},
++	{6, 1, 35, true}}; // (from 0306: Sam & Max's Max)
++static const int kWorldStartGiven = 0x4002, kWorldStartGivenRows = 0x4003;
+ inline const WorldStartThing *worldStartThing(int game, int object) {
+ 	for (const WorldStartThing &s : kWorldStartThings) if (s.game == game && s.object == object) return &s;
+ 	return nullptr;
+ }
+-inline bool worldStartGivenValue(int game, int var) {
+-	if (var != kWorldStartGiven) return false;
+-	for (const WorldStartThing &s : kWorldStartThings) if (s.game == game) return true;
+-	return false;
++// (A row's bit among its game's, -1 none; the bits of all its game's rows,
++// or of those of before 0308.)
++inline int worldStartBit(int game, int object) {
++	int k = 0;
++	for (const WorldStartThing &s : kWorldStartThings) {
++		if (s.game != game) continue;
++		if (s.object == object) return k < 31 ? k : -1;
++		++k;
++	}
++	return -1;
++}
++inline int worldStartRows(int game, bool before0308 = false) {
++	int rows = 0, k = 0;
++	for (const WorldStartThing &s : kWorldStartThings)
++		if (s.game == game && k < 31) { if (!before0308 || s.before0308) rows |= 1 << k; ++k; }
++	return rows;
+ }
++inline bool worldStartGivenValue(int game, int var) { return (var == kWorldStartGiven || var == kWorldStartGivenRows) && worldStartRows(game); }
+ // From 0293 a place's story state as a player has it standing there in
+ // control, set as the things export arrives there where it can't be arrived
+ // at otherwise (scummverseExportOwnAnswers' `asPlayer`): a variable (as
+@@ -1906,7 +1959,8 @@ inline int worldKeptClassNumber(const WorldKeptClass &c) { return c.cls < 0 ? -c
+ inline bool worldKeptClassHas(const WorldKeptClass &c, int value) { return (value != 0) != (c.cls < 0); }
+ inline int worldKeptClassValue(const WorldKeptClass &c, bool has) { return has != (c.cls < 0) ? 1 : 0; }
+ // From 0303 Day of the Tentacle's wine put in the time capsule (bit 6: see
+-// kWorldValueReaders).
++// kWorldValueReaders); from 0308 its horse asleep (bit 104:
++// likewise).
+ // From 0301 Monkey Island 2's (its scripts read with descumm, nothing
+ // copied): the class its room 92's local script 201 gives 864 (see
+ // kWorldKeptClasses), and the woodsmith away from his shop (bit 361: room
+@@ -1930,7 +1984,8 @@ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {
+ 	{1, kWorldClassValue + 2, {1, 0, 0, 0}}, {1, 0x8000 + 74, {1, 0, 0, 0}}, {1, 0x8000 + 71, {1, 0, 0, 0}}, {1, 0x8000 + 94, {1, 0, 0, 0}},
+ 	{1, 0x8000 + 77, {1, 0, 0, 0}}, // (from 0304)
+ 	{3, kWorldClassValue + 3, {1, 0, 0, 0}}, {3, kWorldClassValue + 4, {1, 0, 0, 0}}, {3, kWorldClassValue + 5, {1, 0, 0, 0}}, // (from 0305)
+-	{4, kWorldClassValue + 6, {1, 0, 0, 0}}, {4, kWorldClassValue + 7, {1, 0, 0, 0}}}; // (from 0307)
++	{4, kWorldClassValue + 6, {1, 0, 0, 0}}, {4, kWorldClassValue + 7, {1, 0, 0, 0}}, // (from 0307)
++	{5, 0x8000 + 104, {1, 0, 0, 0}}}; // (from 0308)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -1957,7 +2012,12 @@ inline bool worldKeptCount(int game, int var) {
+ // else -1, let go. A damaged state's at another had no answer of its things
+ // by it, so their plain records (Monkey Island 2's 864's class at 2: the
+ // skull never given; bit 361 at 2: the woodsmith's shop as with him in).
++// From 0308 a game's start's things given too: as
++// kWorldStartGivenRows, bits of its rows only; as kWorldStartGiven, of
++// before 0308, only 1.
+ inline int worldKeptValueAs(int game, int var, int value) {
++	if (worldStartGivenValue(game, var))
++		return var == kWorldStartGiven ? (value == 1 ? 1 : -1) : value >= 0 && !(value & ~worldStartRows(game)) ? value : -1;
+ 	int most = 0;
+ 	bool row = false, listed = value == 0;
+ 	for (const WorldKeptValue &k : kWorldKeptValues) {
+@@ -2153,7 +2213,12 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	{4, 76, 1050, kWorldVerbOpen, 0, kWorldCarriedNeed, 0, 0, kWorldClassValue + 6, 0, 0, 0}, {4, 76, 1050, kWorldVerbClose, 0, kWorldCarriedNeed, 0, 0, kWorldClassValue + 6, 0, 0, 0},
+ 	{4, 77, 1056, kWorldVerbUse, 1050, 0, 0, 0, kWorldClassValue + 6, 0, 0, 0},
+ 	{4, 77, 1056, kWorldVerbPickUp, 0, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0}, {4, 77, 1056, kWorldVerbPull, 0, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0},
+-	{4, 77, 1053, kWorldVerbUse, 1056, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0}};
++	{4, 77, 1053, kWorldVerbUse, 1056, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0},
++	// (From 0308 Day of the Tentacle's horse asleep: see below.)
++	{5, 21, 145, kWorldVerbUse, 710, 0, 0, 0, 0x8000 + 104, 0, 0, 0}, {5, 21, 145, kWorldVerbTalk, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0},
++	{5, 21, 146, kWorldVerbLook, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0}, {5, 21, 146, kWorldVerbPickUp, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0},
++	{5, 21, 146, kWorldVerbPush, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0}, {5, 21, 146, kWorldVerbPull, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0},
++	{5, 21, 146, kWorldVerbUse, 0, 0, 0, 0, 0x8000 + 104, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -2309,6 +2374,18 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // never be lit nor the spiral taken: the tomb never opened. (The lamp on a
+ // spiral already loose answers as on one still stuck, its row reading the
+ // lamp's value only.)
++// From 0308 Day of the Tentacle's horse asleep (room 21, read
++// with descumm, nothing copied), by bit 104, which its local script 202 sets
++// as the textbook (710) read to the horse (145, its verb 23) puts it to
++// sleep, the glass (146) shown with the dentures (147) in it, touchable: at 1
++// the horse's verb 23 is the one played's line, its Talk (verb 10) too (at 0
++// its local script 203, the horse's talk), and the glass's Look, Pick up,
++// Push, Pull and Use (each by its local script 204; all but the Look after
++// bit 137, its first time, not kept: played clear) the one played's line,
++// not 204's cut-scene and the horse's talk. Before, each was played as its
++// game starts it: read to again, the horse fell asleep again and the
++// dentures were shown in the glass again, though carried. (Its entry draws
++// the horse asleep then: not shown here.)
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 565f5621..fca18668 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -411,6 +411,50 @@ void ScummEngine::scummverseBoxDepths(Common::Array<byte> &out) {
+ 	}
+ }
+ 
++// A costume's frame, as the guests' are drawn (here from 0308,
++// before the scenes, which draw a thing their game draws as an actor so:
++// kWorldActorThings).
++struct ScummverseGuestFrame {
++	int dir, kind, index, dx, dy, width, height;
++	Common::Array<byte> pixels, mask;
++	bool sameImage(const ScummverseGuestFrame &o) const {
++		return dx == o.dx && dy == o.dy && width == o.width && height == o.height && pixels == o.pixels && mask == o.mask;
++	}
++	// Turned to face the other way, around the feet.
++	void mirror() {
++		for (int y = 0; y < height; ++y)
++			for (int x = 0; x < width / 2; ++x) {
++				const int i = y * width + x, j = y * width + width - 1 - x;
++				SWAP(pixels[i], pixels[j]); SWAP(mask[i], mask[j]);
++			}
++		dx = -dx - width + 1;
++	}
++};
++
++// Draws the actor twice, over different fills: a pixel is the actor's where
++// both passes agree. Cropped, relative to (ax, ay); false if nothing shows.
++static bool scummverseCaptureActor(VirtScreen &vs, int W, int H, Actor *a, int ax, int ay, ScummverseGuestFrame &f) {
++	Common::Array<byte> pass[2];
++	for (int p = 0; p < 2; ++p) {
++		for (int y = 0; y < H; ++y) memset(vs.getPixels(0, y), p ? 255 : 254, W);
++		a->_needRedraw = true; a->drawActorCostume();
++		pass[p].resize(W * H);
++		for (int y = 0; y < H; ++y) memcpy(&pass[p][y * W], vs.getPixels(0, y), W);
++	}
++	int left = W, right = -1, top = H, bottom = -1;
++	for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x)
++		if (pass[0][y * W + x] == pass[1][y * W + x]) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
++	if (right < 0) return false;
++	f.dx = left - ax; f.dy = top - ay; f.width = right - left + 1; f.height = bottom - top + 1;
++	f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
++	for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
++		const int i = (top + y) * W + left + x;
++		f.mask[y * f.width + x] = pass[0][i] == pass[1][i];
++		f.pixels[y * f.width + x] = f.mask[y * f.width + x] ? pass[0][i] : 0;
++	}
++	return true;
++}
++
+ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted, const short *shown, int shownCount, const Common::Array<byte> *depths, Common::Array<int> *things) {
+ 	// v3/v4 pseudo rooms (128+) are instances of a template room that their
+ 	// entry script furnishes; they are always exported with that script.
+@@ -998,6 +1042,61 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			for (uint k = opened.size(); k-- > 0;) { _objs[opened[k]].state = states[opened[k] - 1]; putState(_objs[opened[k]].obj_nr, openedWas[k]); }
+ 			pictures.push_back(p);
+ 		}
++		// (From 0308 a thing its game draws as an actor in a
++		// costume while it is touchable, kWorldActorThings: its picture 1
++		// that costume standing at its spot over the place, within its
++		// rectangle, not its own image (none of it). Drawn by an actor in no
++		// room, as the engine starts it again after (else it would stand in
++		// the room from then on, shown there whenever it is entered); the
++		// scene's pixels are put back below. Day of the Tentacle's Oozo's
++		// box, room 26, 185.)
++		for (const WorldActorThing &t : kWorldActorThings) {
++			if (!game || t.game != (int)(game - kWorldGames) || t.room != room) continue;
++			int at = -1;
++			for (int k = 1, n = 0; k < _numLocalObjects && at < 0; ++k) {
++				if (!_objs[k].obj_nr || _objs[k].width <= 0 || _objs[k].height <= 0) continue;
++				if (_objs[k].obj_nr == t.object) at = n;
++				++n;
++			}
++			Actor *a = nullptr;
++			for (int n = _numActors - 1; n > 0 && !a; --n) if (!_actors[n]->_room && !_actors[n]->_costume) a = _actors[n];
++			ScummverseGuestFrame f;
++			bool drawn = false;
++			if (a && at >= 0 && at < (int)pictures.size() && !pictures[at].states.empty() && t.costume > 0 && t.costume < _numCostumes) {
++				renderSpan(t.x, t.x + 1); // (the camera over its spot)
++				VirtScreen &vs = _virtscr[kMainVirtScreen];
++				ensureResourceLoaded(rtCostume, t.costume);
++				a->initActor(0); a->_visible = false;
++				a->setActorCostume(t.costume);
++				a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
++				putClass(a->_number, kObjectClassNeverClip, true);
++				a->putActor(t.x, t.y, _currentRoom); a->_visible = true;
++				a->_cost.reset(); a->setDirection(t.facing); a->startAnimActor(a->_initFrame); a->startAnimActor(a->_standFrame);
++				a->animateCostume(); scummverseDropAnimCommands();
++				drawn = scummverseCaptureActor(vs, _screenWidth, vs.h, a, t.x - vs.xstart, t.y, f);
++				a->hideActor(); a->initActor(-1);
++			}
++			if (!drawn) { warning("SCUMMVERSE world things: %s room %d: %d not drawn as costume %d (kWorldActorThings)", game->gameid, room, t.object, t.costume); continue; }
++			ObjectPictures &p = pictures[at];
++			Common::Array<byte> picture = p.states[0];
++			int costume = 0;
++			for (int y = 0; y < f.height; ++y)
++				for (int x = 0; x < f.width; ++x) {
++					const int rx = t.x + f.dx + x - p.x, ry = t.y + f.dy + y - p.y;
++					if (!f.mask[y * f.width + x]) continue;
++					++costume;
++					if (rx >= 0 && rx < p.width && ry >= 0 && ry < p.height) picture[ry * p.width + rx] = f.pixels[y * f.width + x];
++				}
++			p.states.resize(1);
++			p.states.push_back(picture);
++			if (p.shown > 1) p.shown = 0;
++			// (Most of it within its rectangle, as its spot puts it, else told:
++			// tools/export_worlds.py fails.)
++			int shows = 0;
++			for (uint i = 0; i < picture.size(); ++i) shows += p.states[1][i] != p.states[0][i];
++			if (shows * 4 < costume * 3) warning("SCUMMVERSE world things: %s room %d: %d's picture 1 shows %d of costume %d's %d pixels (kWorldActorThings)", game->gameid, room, t.object, shows, t.costume, costume);
++			else debug(1, "SCUMMVERSE world things: %s room %d: %d's picture 1 costume %d (%d of its %d pixels, %d by %d)", game->gameid, room, t.object, t.costume, shows, costume, f.width, f.height);
++		}
+ 		// (Put back as the scene has them: states, and the heights drawing rounds.)
+ 		for (int k = 1; k < _numLocalObjects; ++k) { _objs[k].state = states[k - 1]; _objs[k].height = heights[k - 1]; }
+ 		pixels = scene;
+@@ -1102,47 +1201,6 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	return true;
+ }
+ 
+-struct ScummverseGuestFrame {
+-	int dir, kind, index, dx, dy, width, height;
+-	Common::Array<byte> pixels, mask;
+-	bool sameImage(const ScummverseGuestFrame &o) const {
+-		return dx == o.dx && dy == o.dy && width == o.width && height == o.height && pixels == o.pixels && mask == o.mask;
+-	}
+-	// Turned to face the other way, around the feet.
+-	void mirror() {
+-		for (int y = 0; y < height; ++y)
+-			for (int x = 0; x < width / 2; ++x) {
+-				const int i = y * width + x, j = y * width + width - 1 - x;
+-				SWAP(pixels[i], pixels[j]); SWAP(mask[i], mask[j]);
+-			}
+-		dx = -dx - width + 1;
+-	}
+-};
+-
+-// Draws the actor twice, over different fills: a pixel is the actor's where
+-// both passes agree. Cropped, relative to (ax, ay); false if nothing shows.
+-static bool scummverseCaptureActor(VirtScreen &vs, int W, int H, Actor *a, int ax, int ay, ScummverseGuestFrame &f) {
+-	Common::Array<byte> pass[2];
+-	for (int p = 0; p < 2; ++p) {
+-		for (int y = 0; y < H; ++y) memset(vs.getPixels(0, y), p ? 255 : 254, W);
+-		a->_needRedraw = true; a->drawActorCostume();
+-		pass[p].resize(W * H);
+-		for (int y = 0; y < H; ++y) memcpy(&pass[p][y * W], vs.getPixels(0, y), W);
+-	}
+-	int left = W, right = -1, top = H, bottom = -1;
+-	for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x)
+-		if (pass[0][y * W + x] == pass[1][y * W + x]) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
+-	if (right < 0) return false;
+-	f.dx = left - ax; f.dy = top - ay; f.width = right - left + 1; f.height = bottom - top + 1;
+-	f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
+-	for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
+-		const int i = (top + y) * W + left + x;
+-		f.mask[y * f.width + x] = pass[0][i] == pass[1][i];
+-		f.pixels[y * f.width + x] = f.mask[y * f.width + x] ? pass[0][i] : 0;
+-	}
+-	return true;
+-}
+-
+ // Walking frames for a guest drawn standing only (kWorldLegSwings): each
+ // leg is followed up from its foot, row by row, and swings from the hip,
+ // the lighter near legs against the darker far ones.
+@@ -6123,7 +6181,15 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0256, a thing's picture as its game counts it, and set so: the
+ 	// oldest games', its state's picture bit.)
+ 	const bool old = _game.version <= 2;
+-	auto pictureOf = [&](int obj) { return old ? (_objectStateTable[obj] & kObjectStateIntrinsic ? 1 : 0) : (int)_objectStateTable[obj]; };
++	// (From 0308 a thing its game draws as an actor while it is
++	// touchable, kWorldActorThings: in its picture 1 so, 0 else, as its scene
++	// has it; see scummverseExportScene.)
++	Common::HashMap<int, bool> actorThings;
++	for (const WorldActorThing &t : kWorldActorThings) if (t.game == gameIndex) actorThings[t.object] = true;
++	auto pictureOf = [&](int obj) {
++		if (actorThings.contains(obj)) return getOwner(obj) == OF_OWNER_ROOM && !getClass(obj, kObjectClassUntouchable) ? 1 : 0;
++		return old ? (_objectStateTable[obj] & kObjectStateIntrinsic ? 1 : 0) : (int)_objectStateTable[obj];
++	};
+ 	auto showAs = [&](int obj, int picture) { if (old) putState(obj, picture ? getState(obj) | kObjectStateIntrinsic : getState(obj) & ~kObjectStateIntrinsic); else putState(obj, picture); };
+ 	const Common::Array<byte> owners(_objectOwnerTable, _numGlobalObjects);
+ 	const int cursorState = _cursor.state, userPut = _userPut;
+@@ -6595,7 +6661,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (uint k = 0; k + 2 < others.size() && !merged && o != self; k += 3)
+ 				if (others[k + 1] == o && others[k + 2] != ScummverseAnswer::kGiven) { others[k + 2] |= touch; merged = true; }
+ 			if (!merged && others.size() >= 3 * 64) { ++touchCut; continue; }
+-			if (!merged) { others.push_back(o == self ? room : placeIn(o, room)); others.push_back(o); others.push_back(pictureOf(o) | touch | kScummverseTouchOnly); }
++			// (From 0308 a thing its game draws as an actor while
++			// touchable, kWorldActorThings: its picture with its touch.)
++			if (!merged) { others.push_back(o == self ? room : placeIn(o, room)); others.push_back(o); others.push_back(pictureOf(o) | touch | (actorThings.contains(o) ? 0 : kScummverseTouchOnly)); }
+ 			if (o == self) ++touchedSelf; else if (!merged) ++touchedOnly;
+ 			if (now) ++madeUntouchable; else ++madeTouchable;
+ 			debug(2, "SCUMMVERSE world things: %s room %d: %d made %s by %d's answer%s%s", kWorldGames[gameIndex].gameid, room, o, now ? "untouchable" : "touchable", self,
+@@ -6899,7 +6967,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		_scummverseStatesSet = nullptr;
+ 		const bool spent = _scummverseStepBudget == 0;
+ 		_scummverseStepBudget = -1;
+-		const int after = old ? pictureOf(obj) : getState(obj);
++		const int after = old || actorThings.contains(obj) ? pictureOf(obj) : getState(obj); // (from 0308 an actor thing's by its touch)
+ 		e.after = after;
+ 		e.taken = getOwner(obj) != owned[obj] && getOwner(obj) == ego;
+ 		const bool gone = _currentRoom != shownRoom || a->_room != shownRoom;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index dd7e29ea..80b84264 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1041,11 +1041,7 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 		// (From 0288 one of the cast who is that thing off the stage at once,
+ 		// as its script takes them, following no more (as one a timed event
+ 		// takes, from 0264): the Purple Meteor, the meteor taken.)
+-		for (uint n = 0; n < _onStage.size(); ++n) {
+-			if ((int)n == _player || !castThingGone(_onStage[n])) continue;
+-			StageBridge::stop(n); StageBridge::hide(n, true);
+-			if (following(_onStage[n])) follow(_onStage[n], false);
+-		}
++		castThingsOff();
+ 	}
+ 	// (From 0286 a value reader's lines whole, each by who says it: the
+ 	// Green Tentacle's own.)
+@@ -1250,11 +1246,7 @@ bool SandboxEngine::ownAnswer(int id, int kind, int target) {
+ 		if (!carry(_game, _room, id, name, from)) { say("I can't pick that up."); return true; }
+ 		// (From 0292 one of the cast who goes once it is gone (as for the
+ 		// mansion's, effectOf): Monkey Island's seagull, the herring taken.)
+-		for (uint n = 0; n < _onStage.size(); ++n) {
+-			if ((int)n == _player || !castThingGone(_onStage[n])) continue;
+-			StageBridge::stop(n); StageBridge::hide(n, true);
+-			if (following(_onStage[n])) follow(_onStage[n], false);
+-		}
++		castThingsOff();
+ 	}
+ 	sayAnswer(_game, _room, id, kind, from, with, lines, valued);
+ 	if (StageBridge::objectPictures(target) > 1) { if (StageBridge::objectShown(target) != after) showPicture(target, id, after); }
+@@ -1265,6 +1257,7 @@ bool SandboxEngine::ownAnswer(int id, int kind, int target) {
+ 		if (others[4 * k + 3]) carryGiven(_game, others, count, k); // (from 0281 its place as its game leaves it)
+ 		else setPicture(r, o, picture);
+ 	}
++	castThingsOff(); // (from 0308)
+ 	// (From 0267 what it makes touchable or untouchable, itself too.)
+ 	touchesAfter(_game, _room, id, kind, from, with, valued);
+ 	if (reader) valuesAfter(_game, *reader, from, key); // (from 0296)
+@@ -2513,6 +2506,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			} else if (game == _game) setPicture(r, o, picture);
+ 			else _pictures[thingKey(game, r, o)] = picture;
+ 		}
++		castThingsOff(); // (from 0308)
+ 		// (From 0242: a coin in a view's slot, a turn paid for.)
+ 		if (flags & 8) viewPaid(game, room, id, with);
+ 		if (!marked) touchesAfter(game, room, id, p.kind, from, with, keyed);
+@@ -3784,6 +3778,20 @@ bool SandboxEngine::castThingGone(int key) const {
+ 	return false;
+ }
+ 
++// Each of the cast here who is a thing of a place gone now (castThingGone):
++// off the stage at once, following no more, as an answer that takes it
++// leaves them (from 0288; from 0308 also one that sets it so,
++// ownAnswer's and pairOwn's: Day of the Tentacle's Oozo popped, 191 in its
++// picture 1). Before, only a thing taken took them off; Oozo stood on
++// beside what was left of him until the place was entered again.
++void SandboxEngine::castThingsOff() {
++	for (uint n = 0; n < _onStage.size(); ++n) {
++		if ((int)n == _player || !castThingGone(_onStage[n])) continue;
++		StageBridge::stop(n); StageBridge::hide(n, true);
++		if (following(_onStage[n])) follow(_onStage[n], false);
++	}
++}
++
+ // From 0291 one of the cast who is a thing of a place (kWorldCastThings)
+ // there while that thing lies there (not gone, nor taken away: takenAway),
+ // as its game keeps them (the Purple Meteor never leaves the lab): put
+@@ -4266,18 +4274,22 @@ int SandboxEngine::keptValue(int game, int var) const {
+ // From 0303 the things a game's start gives its players where their code
+ // lies in a room no place exports (kWorldStartThings): carried, by their
+ // names (its things file's icons), the first time one of its places is
+-// shown, as its start gives them; once (kWorldStartGiven, kept: "SVS9"; a
+-// state of before 0303, given then), all of them, else not kept so (an
+-// export of before 0303 has none of their icons: given once one has them),
+-// none carried twice. Day of the Tentacle's kids' own: Laverne's scalpel,
+-// Bernard's textbook and Hoagie's can-opener (room 61). Before, none was
+-// ever carried, and what each opens or shows could not be had.
++// shown, as its start gives them; each once (from 0308 kept
++// row by row, kWorldStartGivenRows: "SVS9"; a state of before 0303, given
++// then), one that cannot be yet (an export of before 0303 has none of their
++// icons) given once it can, none carried twice. Day of the Tentacle's kids'
++// own: Laverne's scalpel, Bernard's textbook and Hoagie's can-opener (room
++// 61). Before, none was ever carried, and what each opens or shows could
++// not be had.
+ void SandboxEngine::startCarried(int game) {
+-	if (game < 0 || game >= worldGameCount() || !worldStartGivenValue(game, kWorldStartGiven) || keptValue(game, kWorldStartGiven)) return;
+-	bool all = true;
+-	for (const WorldStartThing &s : kWorldStartThings)
+-		if (s.game == game && !isCarried(game, s.room, s.object)) all = carry(game, s.room, s.object, "", 0) && all;
+-	if (all) _kept[game * 65536 + kWorldStartGiven] = 1;
++	if (game < 0 || game >= worldGameCount() || !worldStartRows(game)) return;
++	const int was = keptValue(game, kWorldStartGivenRows);
++	int given = was;
++	for (const WorldStartThing &s : kWorldStartThings) {
++		const int bit = s.game == game ? worldStartBit(game, s.object) : -1;
++		if (bit >= 0 && !(given >> bit & 1) && (isCarried(game, s.room, s.object) || carry(game, s.room, s.object, "", 0))) given |= 1 << bit;
++	}
++	if (given != was) _kept[game * 65536 + kWorldStartGivenRows] = given;
+ }
+ 
+ // (Whether a record of a game's things file is of that thing used with
+@@ -5377,6 +5389,28 @@ void SandboxEngine::keptFromFilms() {
+ 	}
+ }
+ 
++// From 0308 a state of before it in which a thing its game
++// draws as an actor (kWorldActorThings) was made touchable in its place by
++// an answer, not carried: in its picture 1, as an answer leaves it now,
++// where its things file answers it from there (its Pick up). Day of the
++// Tentacle's Oozo's box, Oozo popped with 0303's export: else touchable in
++// its picture 0, unseen, where nothing answers it any more. (From the review
++// of 0308 not one carried away either, its place's file missing as it is
++// read: else, once the file was back, carried and drawn there too.)
++void SandboxEngine::keptFromActorThings() {
++	for (const WorldActorThing &t : kWorldActorThings) {
++		if (t.game < 0 || t.game >= worldGameCount()) continue;
++		const int key = thingKey(t.game, t.room, t.object);
++		const Common::HashMap<int, int>::const_iterator touch = _touched.find(key), kept = _pictures.find(key);
++		bool away = false;
++		for (const Carried &c : _carriedAway) away = away || (c.game == t.game && c.room == t.room && c.id == t.object);
++		if (touch == _touched.end() || touch->_value != kTouchedTouchable || isCarried(t.game, t.room, t.object) || away || (kept != _pictures.end() && kept->_value == 1)) continue;
++		loadThings(t.game);
++		int after, flags, others[4], count, lines;
++		if (PanelBridge::thingAnswer(t.game, t.room, t.object, kWorldVerbPickUp, 1, 0, after, flags, others, count, 1, lines)) _pictures[key] = 1;
++	}
++}
++
+ int SandboxEngine::playedKid(int game) const {
+ 	const int g = worldAppearanceGame(_playerKey), costume = worldAppearanceCostume(_playerKey);
+ 	return worldManiacKid(game, costume) && (g == game || g == kWorldManiacLooks) ? costume : 0;
+@@ -7955,8 +7989,17 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		for (int i = 0; i < keptCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), var = in->readUint16LE();
+ 			int value = in->readSint32LE();
+-			// (From 0303 its start's things given, kWorldStartThings: only 1.)
+-			if (g >= 0 && g < worldGameCount() && worldStartGivenValue(g, var)) { if (value == 1) keptNow[g * 65536 + var] = 1; continue; }
++			// (From 0303 its start's things given, kWorldStartThings; from 0308
++			// row by row, as worldKeptValueAs reads them: the one value for all
++			// of before 0308 (0303's to 0307's) at 1 as each row of before 0308
++			// given, Day of the Tentacle's three and Sam & Max's Max (from the
++			// review of 0308: before, Max's not).)
++			if (g >= 0 && g < worldGameCount() && worldStartGivenValue(g, var)) {
++				const int as = worldKeptValueAs(g, var, value), at = g * 65536 + kWorldStartGivenRows;
++				const int rows = as < 0 ? 0 : var == kWorldStartGiven ? worldStartRows(g, true) : as;
++				if (rows) keptNow[at] = (keptNow.contains(at) ? keptNow[at] : 0) | rows;
++				continue;
++			}
+ 			// (From 0300 a holder's only one of its holders, its clock within its
+ 			// length: a damaged state's would hold it for good or overflow it.)
+ 			if (g >= 0 && g < worldGameCount() && worldHeldValue(g, var)) {
+@@ -7997,6 +8040,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 			_later = later;
+ 			if (tag != MKTAG('S', 'V', 'S', '9')) keptFromOlder();
+ 			keptFromFilms(); // (from 0291: a state of before 0288, its tag the same)
++			keptFromActorThings(); // (from 0308: a state of before it, its tag the same)
+ 			// (From 0278 a state kept before 0278: what the mansion's package
+ 			// and radio keep inside them, shown taken out by their pick-up then,
+ 			// in them again where the one it is in is carried, it is not, and
+@@ -9405,6 +9449,15 @@ SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
+ 	TentacleThings c;
+ 	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
+ 	const Common::Array<Carried> carriedKept = _carried;
++	// (From 0308 also what forgetThings lets go, the way back,
++	// the random draws and the strolls' clock, as they were, for the checks
++	// after.)
++	const Common::Array<Later> laterKept = _later;
++	const Common::HashMap<int, int> stepsAwayKept = _stepsAway;
++	const StepAway stepAwayKept = _stepAway;
++	const WayBack wayBackKept = _wayBack;
++	const uint32 randomKept = _random.getSeed();
++	const int strollKept = _strollClock;
+ 	const int wasGame = _game, wasRoom = _room;
+ 	Common::String problem;
+ 	int g = -1;
+@@ -9492,14 +9545,24 @@ SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
+ 		what = "Day of the Tentacle's kids' own things from its start (room 61)";
+ 		++c.cases;
+ 		fresh();
+-		_kept[g * 65536 + kWorldStartGiven] = 2; // (as a damaged state has it: let go)
+-		bool ok = check(saved() && !_kept.contains(g * 65536 + kWorldStartGiven) && _carried.empty(), "its start's things given at 2 kept from a damaged state, or something carried");
+-		ok = ok && check(enter(g, 26, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGiven), "its start's things given while self-testing, as the other checks run");
+-		ok = ok && check(shownAsPlayed(26) && ownOnce() && keptValue(g, kWorldStartGiven) == 1, "the scalpel, the textbook and the can-opener not carried by their names, once, the first time a place of it is shown");
+-		ok = ok && check(saved() && ownOnce() && keptValue(g, kWorldStartGiven) == 1 && shownAsPlayed(13) && ownOnce(), "its start's things not kept through a save and a load, or given again");
++		const int all = worldStartRows(g), rows = g * 65536 + kWorldStartGivenRows, oneValue = g * 65536 + kWorldStartGiven;
++		_kept[rows] = all | 1 << 5; _kept[oneValue] = 2; // (as a damaged state has them, a bit of no row: let go)
++		bool ok = check(all == 7 && saved() && !_kept.contains(rows) && !_kept.contains(oneValue) && _carried.empty(), "its start's things given at a value no row has kept from a damaged state, or something carried");
++		ok = ok && check(enter(g, 26, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGivenRows), "its start's things given while self-testing, as the other checks run");
++		ok = ok && check(shownAsPlayed(26) && ownOnce() && keptValue(g, kWorldStartGivenRows) == all, "the scalpel, the textbook and the can-opener not carried by their names, once, the first time a place of it is shown");
++		ok = ok && check(saved() && ownOnce() && keptValue(g, kWorldStartGivenRows) == all && shownAsPlayed(13) && ownOnce(), "its start's things not kept through a save and a load, or given again");
+ 		const int opener = carriedAt(61, 711);
+ 		if (ok && opener >= 0) { PanelBridge::removeItem(opener); _carried.remove_at(opener); }
+ 		ok = ok && check(shownAsPlayed(44) && carriedCount(61, 711) == 0 && carriedCount(61, 709) == 1, "one of its start's things given again once gone");
++		// (From 0308 each row kept apart: 0303's one value read
++		// back as all three given, nothing given again; two of them given
++		// (the scalpel's and the can-opener's rows), the textbook alone.)
++		fresh();
++		_kept[oneValue] = 1;
++		ok = ok && check(saved() && keptValue(g, kWorldStartGivenRows) == all && !_kept.contains(oneValue) && shownAsPlayed(26) && _carried.empty(), "0303's one value for all not read back as each of its rows given");
++		fresh();
++		_kept[rows] = 1 << worldStartBit(g, 709) | 1 << worldStartBit(g, 711);
++		ok = ok && check(saved() && shownAsPlayed(26) && _carried.size() == 1 && carriedCount(61, 710) == 1 && keptValue(g, kWorldStartGivenRows) == all, "a row not given yet not given to one who had the others");
+ 		if (ok) { ++c.played; ++c.kept; }
+ 	}
+ 	// (The textbook read to the horse, the dentures taken; the scalpel on
+@@ -9516,6 +9579,58 @@ SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
+ 			check(tap(kWorldVerbPickUp, 185) && carriedCount(26, 185) == 1 && !shown(185), "Oozo's box not taken as its pick up takes it");
+ 		if (ok) { ++c.played; ++c.kept; }
+ 	}
++	// (From 0308, where its export has the horse's answers by
++	// bit 104, "tentacle-v37": the horse asleep kept, read to again only the
++	// one played's line, the dentures not back in the glass, its Talk and the
++	// glass answered by it too; Oozo gone once popped, at once and on
++	// entering again, his box shown in its picture 1 as his game draws it,
++	// carried from it.)
++	const bool asleep = exported && PanelBridge::valueAnswered(g, 21, 145, kWorldVerbUse, 0, 710, 0, 1);
++	if (asleep) {
++		what = "Day of the Tentacle's horse asleep (room 21), Oozo popped and his box drawn (room 26)";
++		++c.cases;
++		fresh();
++		const int horse = 0x8000 + 104;
++		auto oozoHere = [&]() {
++			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == worldAppearanceKey(g, 107) && !StageBridge::hidden(n)) return true;
++			return false;
++		};
++		bool ok = check(shownAsPlayed(21) && !keptValue(g, horse) && useWith(kWorldVerbUse, carriedAt(61, 710), 145) && shown(147) && pictureHere(146) == 1 && keptValue(g, horse) == 1,
++			"the textbook read to the horse not as its game's the first time (the dentures shown, bit 104 set)") &&
++			check(tap(kWorldVerbPickUp, 147) && carriedCount(21, 147) == 1 && pictureHere(146) == 0, "the dentures not taken");
++		ok = ok && check(saved() && keptValue(g, horse) == 1 && enter(g, 21, 0, problem) && useWith(kWorldVerbUse, carriedAt(61, 710), 145) && !shown(147) && pictureHere(146) == 0 &&
++			carriedCount(21, 147) == 1 && carriedCount(61, 710) == 1 && keptValue(g, horse) == 1, "bit 104 not kept, or the horse read to again as before it slept (the dentures back in the glass)") &&
++			check(valuedNow(g, 21, 145, kWorldVerbUse, 0, 710) && valuedNow(g, 21, 145, kWorldVerbTalk, 0, 0) && valuedNow(g, 21, 146, kWorldVerbLook, 0, 0) && valuedNow(g, 21, 146, kWorldVerbPickUp, 0, 0),
++				"the horse's Talk or its glass not answered by bit 104");
++		ok = ok && check(enter(g, 26, 0, problem) && shown(186) && !shown(185) && pictureHere(185) == 0 && pictureHere(191) == 0 && oozoHere(), "Oozo not there before he is popped") &&
++			check(useWith(kWorldVerbUse, carriedAt(61, 709), 186) && pictureHere(191) == 1 && !oozoHere() && shown(185) && pictureHere(185) == 1, "Oozo not gone at once once popped (191 in its picture 1), or his box not shown in its picture 1") &&
++			check(saved() && enter(g, 21, 0, problem) && enter(g, 26, 0, problem) && !oozoHere() && shown(185) && pictureHere(185) == 1, "Oozo back, or his box not shown, on entering again") &&
++			check(tap(kWorldVerbPickUp, 185) && carriedCount(26, 185) == 1 && _carried[carriedAt(26, 185)].picture == 1 && !shown(185) && pictureHere(185) == 0 && !oozoHere(), "Oozo's box not carried from its picture 1 as its pick up takes it");
++		// (A state of 0303's with Oozo popped, his box touchable as its answer
++		// left it then, in its picture 0: read back in its picture 1, carried
++		// from it; once carried, or made untouchable, not.)
++		const int box = thingKey(g, 26, 185);
++		auto boxKept = [&]() { return _pictures.contains(box) ? _pictures[box] : -1; };
++		fresh();
++		_pictures[thingKey(g, 26, 191)] = 1; _pictures[thingKey(g, 26, 186)] = 0; _touched[box] = kTouchedTouchable;
++		ok = ok && check(saved() && boxKept() == 1 && enter(g, 26, 0, problem) && shown(185) && !oozoHere() && tap(kWorldVerbPickUp, 185) && carriedCount(26, 185) == 1 && pictureHere(185) == 0 &&
++			saved() && boxKept() == 0, "a state of 0303's with Oozo popped not read back with his box in its picture 1");
++		fresh();
++		_pictures[thingKey(g, 26, 191)] = 1; _touched[box] = kTouchedUntouchable;
++		ok = ok && check(saved() && boxKept() == -1, "Oozo's box made untouchable read back in its picture 1");
++		// (From the review of 0308 the box carried away, its place's file
++		// missing as the state is read (loadState leaves it so, as carry
++		// fails): not put in its picture 1 too.)
++		fresh();
++		_pictures[thingKey(g, 26, 191)] = 1; _touched[box] = kTouchedTouchable;
++		Carried awayBox;
++		awayBox.game = g; awayBox.room = 26; awayBox.id = 185; awayBox.picture = 1;
++		_carriedAway.push_back(awayBox);
++		keptFromActorThings();
++		ok = ok && check(boxKept() == -1, "Oozo's box carried away (its place's file missing) put in its picture 1 too");
++		_carriedAway.clear();
++		if (ok) { ++c.played; ++c.kept; }
++	}
+ 	// (The vinegar: the wine put in the past's capsule first.)
+ 	if (exported) {
+ 		what = "Day of the Tentacle's vinegar, the wine put in the time capsule first (rooms 19, 13 and 44)";
+@@ -9556,7 +9671,9 @@ SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
+ 	fresh();
+ 	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
+ 	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	_later = laterKept; _stepsAway = stepsAwayKept; _stepAway = stepAwayKept; _wayBack = wayBackKept;
+ 	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	_random.setSeed(randomKept); _strollClock = strollKept;
+ 	return c;
+ }
+ 
+@@ -9710,7 +9827,8 @@ SandboxEngine::Indy3Things SandboxEngine::indy3ThingsPlayed() {
+ // From 0306 the "verbs" check's (see verbsTest): Sam & Max's Max as a
+ // player plays him, as its things file has him. Max (35), whom its start
+ // gives Sam in room 1, which no place exports (kWorldStartThings): a damaged
+-// state's given-so value (kWorldStartGiven) at 2 let go first; nothing
++// state's given-so value (kWorldStartGiven; from 0308 kWorldStartGivenRows,
++// Max's own bit, read so from the value of before) at 2 let go first; nothing
+ // carried, a place of it shown while self-testing (as the other checks run:
+ // none given), then as a player has it: Max carried by his name, once, his
+ // picture in the box its things file's icon (drawn as the pointer when held);
+@@ -9832,17 +9950,25 @@ SandboxEngine::SamnmaxThings SandboxEngine::samnmaxThingsPlayed() {
+ 		what = "Sam & Max's Max from its start (room 1)";
+ 		++c.cases;
+ 		fresh();
+-		_kept[g * 65536 + kWorldStartGiven] = 2; // (as a damaged state has it: let go)
+-		bool ok = check(saved() && !_kept.contains(g * 65536 + kWorldStartGiven) && _carried.empty(), "its start's things given at 2 kept from a damaged state, or something carried");
+-		ok = ok && check(enter(g, 9, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGiven), "Max given while self-testing, as the other checks run");
+-		ok = ok && check(shownAsPlayed(7) && maxOnce() && keptValue(g, kWorldStartGiven) == 1, "Max not carried by his name, once, the first time a place of it is shown");
++		// (From 0308 by Max's own bit, kWorldStartGivenRows.)
++		const int maxBit = 1 << worldStartBit(g, 35), given = g * 65536 + kWorldStartGivenRows;
++		_kept[given] = 2; // (as a damaged state has it, a bit of no row: let go)
++		bool ok = check(saved() && !_kept.contains(given) && _carried.empty(), "its start's things given at 2 kept from a damaged state, or something carried");
++		ok = ok && check(enter(g, 9, 0, problem) && _carried.empty() && !keptValue(g, kWorldStartGivenRows), "Max given while self-testing, as the other checks run");
++		ok = ok && check(shownAsPlayed(7) && maxOnce() && keptValue(g, kWorldStartGivenRows) == maxBit, "Max not carried by his name, once, the first time a place of it is shown");
+ 		const int item = maxRow ? carriedAt(maxRow->room, 35) : -1;
+ 		ok = ok && check(item >= 0 && holdIt(item) && pictureDrawn(item), "Max not held from the box through its own controls, or not drawn as the pointer by his picture");
+ 		letGo();
+-		ok = ok && check(saved() && maxOnce() && keptValue(g, kWorldStartGiven) == 1 && shownAsPlayed(15) && maxOnce(), "Max not kept through a save and a load, or given again");
++		ok = ok && check(saved() && maxOnce() && keptValue(g, kWorldStartGivenRows) == maxBit && shownAsPlayed(15) && maxOnce(), "Max not kept through a save and a load, or given again");
+ 		const int k = maxRow ? carriedAt(maxRow->room, 35) : -1;
+ 		if (ok && k >= 0) { PanelBridge::removeItem(k); _carried.remove_at(k); }
+ 		ok = ok && check(shownAsPlayed(9) && carriedCount(maxRow ? maxRow->room : 1, 35) == 0, "Max given again once gone");
++		// (From the review of 0308 0306's one value, Max given: read back as
++		// his own bit, not given again.)
++		fresh();
++		_kept[g * 65536 + kWorldStartGiven] = 1;
++		ok = ok && check(saved() && keptValue(g, kWorldStartGivenRows) == maxBit && !_kept.contains(g * 65536 + kWorldStartGiven) && shownAsPlayed(9) && _carried.empty() &&
++			keptValue(g, kWorldStartGivenRows) == maxBit, "0306's one value, Max given, not read back as his own bit, or Max given again");
+ 		if (ok) { ++c.played; ++c.kept; }
+ 	}
+ 	// (Max used on the dead guy of the street: the carnival tickets.)
+@@ -18144,10 +18270,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 		talks.played, talks.cases, talks.choices, talks.kept, talks.earned, talks.failed);
+ 	failed += talks.failed;
+ 	// (From 0303) Day of the Tentacle's kids' own things from its start, what
+-	// they show, and the vinegar of its time capsule, as a player plays them:
+-	// see tentacleThingsPlayed.
+-	const TentacleThings dott = tentacleThingsPlayed();
+-	warning("SCUMMVERSE sandbox selftest Day of the Tentacle's things: %d of %d played as a player plays them (the kids' own things from its start carried, the horse's dentures by the textbook, Oozo's box by the scalpel, the vinegar of the future's time capsule by the wine put in the past's, either order), %d kept through saves and loads; %d failed",
++	// they show, and the vinegar of its time capsule, as a player plays them
++	// (from 0308 the horse asleep, Oozo popped, his box drawn):
++	// see tentacleThingsPlayed. (From 0308 the checks after it
++	// given the random draws, the strolls' clock and the later steps as it
++	// found them.)
++	const uint32 randomBefore = _random.getSeed();
++	const int strollBefore = _strollClock;
++	const uint laterBefore = _later.size(), stepsAwayBefore = _stepsAway.size();
++	TentacleThings dott = tentacleThingsPlayed();
++	if (_random.getSeed() != randomBefore || _strollClock != strollBefore || _later.size() != laterBefore || _stepsAway.size() != stepsAwayBefore) {
++		++dott.failed;
++		warning("SCUMMVERSE sandbox Day of the Tentacle's things: the random draws, the strolls' clock or the later steps not left as found, for the checks after");
++	}
++	warning("SCUMMVERSE sandbox selftest Day of the Tentacle's things: %d of %d played as a player plays them (the kids' own things from its start carried, each once, the horse's dentures by the textbook, the horse asleep after, Oozo's box by the scalpel, Oozo gone and his box drawn, the vinegar of the future's time capsule by the wine put in the past's, either order), %d kept through saves and loads; %d failed",
+ 		dott.played, dott.cases, dott.kept, dott.failed);
+ 	failed += dott.failed;
+ 	// (From 0305) The Last Crusade's things shown by what its game keeps, as
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 9b797987..f6fb430b 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -490,7 +490,8 @@ private:
+ 	void laterStep(int ticks);
+ 	// From 0303 what a game's start gives its players where their code lies
+ 	// in a room no place exports (kWorldStartThings): carried, by their names,
+-	// the first time one of its places is shown (kWorldStartGiven). Not on the
++	// the first time one of its places is shown (from 0308 each
++	// once, kWorldStartGivenRows; 0303's kWorldStartGiven read so). Not on the
+ 	// tour, for a close-up, nor while self-testing but in its own check
+ 	// (_startGiving: tentacleThingsPlayed).
+ 	void startCarried(int game);
+@@ -498,6 +499,7 @@ private:
+ 	bool _startGiving = false;
+ 	void keptFromOlder(); // (a state of before 0282: the record on the Victrola, as givenBack finds it)
+ 	void keptFromFilms(); // (from 0291, a state of before 0288: a value a film's end leaves, by the picture it left its thing in)
++	void keptFromActorThings(); // (from 0308, a state of before it: a thing drawn as an actor made touchable, in its picture 1)
+ 	// From 0276 a thing carried an answer uses up: no longer carried, and
+ 	// untouchable where it was taken from (_touched), as its game's taking
+ 	// leaves it.
+@@ -532,6 +534,7 @@ private:
+ 	bool timedTook(int game, int room, int id) const;
+ 	bool takenAway(int key) const;
+ 	bool castThingGone(int key) const; // (from 0288: one of the cast who is a thing gone from its place, kWorldCastThings)
++	void castThingsOff(); // (from 0308: those of the cast whose thing is gone off the stage at once)
+ 	// From 0291 one of the cast who is a thing of a place while it lies there:
+ 	// put first on that place's stage (enter's keys, as guardPosted), and on
+ 	// no other (away from it: true; the one played never).
+@@ -820,8 +823,9 @@ private:
+ 	// player plays them: the kids' own things from its start carried (then
+ 	// the horse's dentures by the textbook, Oozo's box by the
+ 	// scalpel), and the vinegar of its future's time capsule by the wine put
+-	// in the past's, either order. Counted; `failed` where one is not as its
+-	// things file has it.)
++	// in the past's, either order; from 0308 the horse asleep
++	// and Oozo popped, his box drawn. Counted; `failed` where one is not as
++	// its things file has it.)
+ 	struct TentacleThings { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	TentacleThings tentacleThingsPlayed();
+ 	// (From 0305 the "verbs" check's: the Last Crusade's things shown by what

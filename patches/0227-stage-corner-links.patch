@@ -1,0 +1,171 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 6b4e67bc..93c1b38b 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -174,31 +174,130 @@ static void group(Links &links) {
+ 	}
+ }
+ 
+-Links linksOf(const std::vector<Box> &boxes) {
+-	Links links;
++static double twiceArea(const Box &b) {
++	double s = 0;
++	for (int i = 0; i < 4; ++i) s += b.corner[i].x * b.corner[(i + 1) % 4].y - b.corner[(i + 1) % 4].x * b.corner[i].y;
++	return s;
++}
++
++// How far edge pq runs along edge rs: the stretch of it beside rs (seen
++// across) that is within `gap` of rs's line (0 where they only meet end to
++// end or across).
++static double along(Point p, Point q, Point r, Point s, double gap) {
++	const double length = distance(p, q), other = distance(r, s);
++	if (length <= 0 || other <= 0) return 0;
++	const double ux = (q.x - p.x) / length, uy = (q.y - p.y) / length;
++	const double tr = (r.x - p.x) * ux + (r.y - p.y) * uy, ts = (s.x - p.x) * ux + (s.y - p.y) * uy;
++	double lo = std::max(0.0, std::min(tr, ts)), hi = std::min(length, std::max(tr, ts));
++	// (Off the line by d0 + d1 t, t along pq.)
++	const double d0 = cross(r, s, p) / other, d1 = ((s.x - r.x) * uy - (s.y - r.y) * ux) / other;
++	if (std::fabs(d1) < 1e-12) return hi > lo && std::fabs(d0) <= gap ? hi - lo : 0;
++	const double t0 = (-gap - d0) / d1, t1 = (gap - d0) / d1;
++	lo = std::max(lo, std::min(t0, t1)); hi = std::min(hi, std::max(t0, t1));
++	return std::max(0.0, hi - lo);
++}
++
++// How far across the part of `a` inside `b` is (`a` clipped to `b`, taken
++// as convex; 0: none of it, or a point).
++static double overlap(const Box &a, const Box &b) {
++	const double turn = twiceArea(b);
++	if (turn == 0) return 0;
++	std::vector<Point> in(a.corner, a.corner + 4), out;
++	for (int i = 0; i < 4 && !in.empty(); ++i) {
++		const Point p = b.corner[i], q = b.corner[(i + 1) % 4];
++		out.clear();
++		for (size_t k = 0; k < in.size(); ++k) {
++			const Point c = in[k], d = in[(k + 1) % in.size()];
++			const double sc = cross(p, q, c) * turn, sd = cross(p, q, d) * turn;
++			if (sc >= 0) out.push_back(c);
++			if ((sc >= 0) != (sd >= 0)) out.push_back(Point(c.x + (d.x - c.x) * sc / (sc - sd), c.y + (d.y - c.y) * sc / (sc - sd)));
++		}
++		in.swap(out);
++	}
++	double span = 0;
++	for (size_t i = 0; i < in.size(); ++i)
++		for (size_t j = i + 1; j < in.size(); ++j) span = std::max(span, distance(in[i], in[j]));
++	return span;
++}
++
++// How narrow a box is: across its narrowest way (a convex box's; 0, a line
++// or a point).
++static double across(const Box &b) {
++	double narrowest = 0;
++	bool any = false;
++	for (int i = 0; i < 4; ++i) {
++		const Point p = b.corner[i], q = b.corner[(i + 1) % 4];
++		const double length = distance(p, q);
++		if (length <= 0) continue;
++		double most = 0;
++		for (int j = 0; j < 4; ++j) most = std::max(most, std::fabs(cross(p, q, b.corner[j])) / length);
++		if (!any || most < narrowest) narrowest = most;
++		any = true;
++	}
++	return narrowest;
++}
++
++// Boxes that touch only at a corner: no edge of one along an edge of the
++// other further than the gap (or than half the shorter, a narrow box's
++// end), overlapping no further than twice it; neither of them a line, a
++// point or no wider than the gap (which meet others at their ends, as the
++// games join them).
++static bool cornerOnly(const Box &a, const Box &b) {
++	if (across(a) <= kBoxGap || across(b) <= kBoxGap) return false;
++	for (int i = 0; i < 4; ++i)
++		for (int j = 0; j < 4; ++j) {
++			const Point p = a.corner[i], q = a.corner[(i + 1) % 4], r = b.corner[j], s = b.corner[(j + 1) % 4];
++			const double enough = std::min(kBoxGap, std::min(distance(p, q), distance(r, s)) / 2);
++			if (std::max(along(p, q, r, s, kBoxGap), along(r, s, p, q, kBoxGap)) > enough) return false;
++		}
++	return std::max(overlap(a, b), overlap(b, a)) <= 2 * kBoxGap;
++}
++
++// Boxes that touch meet, and those `joined` (by the game's table), but not
++// two that only touch at a corner (and the table does not join) where a box
++// beside both, along their sides, joins them: the games' boxes meet along
++// their sides (ScummVM's areBoxesNeighbors), and the fewest boxes would go
++// round by the corner instead of through the boxes between (The Dig's 4:
++// out to a strip down the side and back). Each still reaches the other
++// through that box: the groups are as they were.
++static Links linkBoxes(const std::vector<Box> &boxes, const std::vector<char> &joined) {
+ 	const int n = (int)boxes.size();
++	std::vector<char> touch((size_t)n * n, 0), corner((size_t)n * n, 0), side((size_t)n * n, 0);
++	for (int a = 0; a < n; ++a)
++		for (int b = a + 1; b < n; ++b) {
++			const size_t ab = (size_t)a * n + b, ba = (size_t)b * n + a;
++			if (!touching(boxes[a], boxes[b])) continue;
++			touch[ab] = touch[ba] = 1;
++			if (!joined[ab] && cornerOnly(boxes[a], boxes[b])) corner[ab] = corner[ba] = 1;
++			else side[ab] = side[ba] = 1;
++		}
++	Links links;
+ 	links.meet.assign((size_t)n * n, 0);
+ 	links.group.assign(n, -1);
+ 	for (int a = 0; a < n; ++a)
+-		for (int b = a + 1; b < n; ++b)
+-			if (touching(boxes[a], boxes[b])) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++		for (int b = a + 1; b < n; ++b) {
++			const size_t ab = (size_t)a * n + b;
++			bool beside = false;
++			for (int c = 0; c < n && corner[ab] && !beside; ++c) beside = side[(size_t)a * n + c] && side[(size_t)c * n + b];
++			if ((touch[ab] || joined[ab]) && !beside) links.meet[ab] = links.meet[(size_t)b * n + a] = 1;
++		}
+ 	group(links);
+ 	return links;
+ }
+ 
++Links linksOf(const std::vector<Box> &boxes) { return linkBoxes(boxes, std::vector<char>(boxes.size() * boxes.size(), 0)); }
++
+ Links linksOf(const std::vector<Box> &boxes, const std::vector<uint8_t> &next, int count) {
+-	Links links = linksOf(boxes);
+-	if (count <= 0 || next.size() != (size_t)count * count) return links;
++	if (count <= 0 || next.size() != (size_t)count * count) return linksOf(boxes);
+ 	const int n = (int)boxes.size();
+-	links.group.assign(n, -1);
++	std::vector<char> joined((size_t)n * n, 0);
+ 	for (int a = 0; a < n; ++a)
+ 		for (int b = a + 1; b < n; ++b) {
+ 			const int sa = boxes[a].source, sb = boxes[b].source;
+ 			if (sa < 0 || sb < 0 || sa >= count || sb >= count) continue;
+-			if (next[(size_t)sa * count + sb] == sb || next[(size_t)sb * count + sa] == sa) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++			if (next[(size_t)sa * count + sb] == sb || next[(size_t)sb * count + sa] == sa) joined[(size_t)a * n + b] = joined[(size_t)b * n + a] = 1;
+ 		}
+-	group(links);
+-	return links;
++	return linkBoxes(boxes, joined);
+ }
+ 
+ std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to) { return path(boxes, linksOf(boxes), from, to); }
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index a54e88f4..8410032b 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -61,7 +61,10 @@ int boxAt(const std::vector<Box> &boxes, Point p);
+ static const double kBoxGap = 3;
+ bool touching(const Box &a, const Box &b, double gap = kBoxGap);
+ // Which boxes meet (n by n), and the group each belongs to (boxes reachable
+-// from one another share a group).
++// from one another share a group). Two that touch only at a corner do not
++// meet where a box beside both (along their sides) joins them: the games'
++// boxes meet along their sides, the way on is through that box, not round
++// by the corner.
+ struct Links {
+ 	std::vector<char> meet;
+ 	std::vector<int> group;
+@@ -75,7 +78,8 @@ Links linksOf(const std::vector<Box> &boxes);
+ // toward each other one, `count` boxes of the file, 255 none): boxes also
+ // meet where either is the other's next box on the way (the games join
+ // areas apart; touching boxes still meet, as the game may route between
+-// them through a box switched off here).
++// them through a box switched off here; those touching at a corner only as
++// above, unless the table joins them).
+ Links linksOf(const std::vector<Box> &boxes, const std::vector<uint8_t> &next, int count);
+ // From `from` to `to` (moved into the nearest box): the points to walk
+ // through, ending at the destination, or as near to it as the boxes that

@@ -1,0 +1,312 @@
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index bcc94a77..f46c41e1 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -12,6 +12,7 @@
+ #include <atomic>
+ #include <cerrno>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstring>
+ #include <fcntl.h>
+ #include <ifaddrs.h>
+@@ -20,6 +21,7 @@
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
+ #include <poll.h>
++#include <pthread.h>
+ #include <sys/socket.h>
+ #include <sys/types.h>
+ #include <unistd.h>
+@@ -138,6 +140,10 @@ const auto kPingAfter = std::chrono::milliseconds(kPingMs);
+ const auto kSilentLimit = std::chrono::milliseconds(kSilentMs);
+ const auto kAddressRefresh = std::chrono::milliseconds(kAddressRefreshMs);
+ const size_t kMaxBuffered = 64 * 1024;
++// (Connections failing on their way in, one after another in one poll with
++// none accepted between, more than a backlog of kMaxPeers holds: the
++// listener itself has failed, whatever accept() says.)
++const int kAcceptFailures = 4 * kMaxPeers;
+ 
+ // (Session time: the steady clock, plus whatever tests moved it on.)
+ std::atomic<long long> clockShift(0);
+@@ -232,6 +238,8 @@ bool parseAddress(const std::string &text, sockaddr_in &address) {
+ } // End of anonymous namespace
+ 
+ struct Session::Impl {
++	// (One lock for everything here: the engine's calls and the keeper's polls.)
++	std::mutex mutex;
+ 	enum Mode { Off, Hosting, Connecting, Joined } mode = Off;
+ 	int listener = -1, content = 0, port = 0, localActor = 0;
+ 	std::vector<Link> links;        // Host: joined devices. Client: the host.
+@@ -242,13 +250,29 @@ struct Session::Impl {
+ 	Clock::time_point started;
+ 	// (Host: the addresses describe() names, as last looked up; empty until
+ 	// the first look once hosting starts.)
+-	mutable std::string addresses;
+-	mutable Clock::time_point addressesAt;
+-
+-	const std::string &hostAddresses() const {
++	std::string addresses;
++	Clock::time_point addressesAt;
++	// The keeper: a thread that polls in the engine's stead while the engine
++	// is away (kAwayMs), started with the first game (none if the system
++	// gives none: the engine's polls alone, as before). polled: the engine's
++	// last poll, or the game's start; held: what the keeper heard, for the
++	// engine's next poll.
++	pthread_t keeper; bool keeping = false, stopping = false;
++	std::condition_variable wake;
++	Clock::time_point polled;
++	std::vector<Event> held;
++	int keeperPolls = 0;
++
++	const std::string &hostAddresses() {
+ 		if (addresses.empty() || now() - addressesAt >= kAddressRefresh) { addresses = localAddresses(); addressesAt = now(); }
+ 		return addresses;
+ 	}
++	bool connected() const { return mode == Hosting || (mode == Joined && !links.empty() && links[0].welcomed); }
++	int remoteCount() const {
++		if (mode == Hosting) return welcomedCount();
++		int n = 0; for (int actor : remoteActor) if (actor) ++n;
++		return n;
++	}
+ 
+ 	int welcomedCount() const { int n = 0; for (const auto &l : links) if (l.welcomed && !l.dead) ++n; return n; }
+ 	bool actorTaken(int actor, int except) const {
+@@ -266,20 +290,74 @@ struct Session::Impl {
+ 		listener = -1; mode = Off; localSent = false; welcomedAs = 0;
+ 		std::fill(remoteActor.begin(), remoteActor.end(), 0);
+ 	}
++	// (What was held is for this game only: dropped when it ends or another starts.)
++	void closeNow() {
++		held.clear();
++		if (mode == Off) return;
++		Frame bye; bye.type = FrameType::Bye; bye.peer = mode == Hosting ? 0 : welcomedAs;
++		for (auto &l : links) if (l.welcomed) { send(l, bye); flush(l); }
++		reset();
++	}
++	void pollNow(std::vector<Event> &events) {
++		if (mode == Hosting) hostPoll(events);
++		else if (mode != Off && !links.empty()) clientPoll(events);
++	}
++
++	// (A game starts: the engine counts as here, and the keeper watches.)
++	void begin() {
++		polled = now();
++		if (!keeping) keeping = pthread_create(&keeper, nullptr, keep, this) == 0;
++		wake.notify_all();
++	}
++	static void *keep(void *self) {
++		Impl &s = *static_cast<Impl *>(self);
++		std::unique_lock<std::mutex> lock(s.mutex);
++		while (!s.stopping) {
++			if (s.mode == Off) { s.wake.wait(lock); continue; }
++			s.wake.wait_for(lock, std::chrono::milliseconds(kKeepMs));
++			if (s.stopping || s.mode == Off || now() - s.polled < std::chrono::milliseconds(kAwayMs)) continue;
++			std::vector<Event> heard; s.pollNow(heard); ++s.keeperPolls;
++			for (const Event &e : heard) s.hold(e);
++		}
++		return nullptr;
++	}
++	// Held for the engine, for each player: after the last time they left,
++	// only their latest place and their latest line (a leave makes theirs
++	// before it moot; another leave, held already, adds nothing). However
++	// long the engine is away, a few events wait, never a stream.
++	void hold(const Event &e) {
++		if (e.kind == Event::Failed) { held.push_back(e); return; }
++		size_t from = 0;
++		for (size_t i = held.size(); i-- > 0;) if (held[i].peer == e.peer && held[i].kind == Event::Left) { from = i + 1; break; }
++		for (size_t i = held.size(); i-- > from;)
++			if (held[i].peer == e.peer && held[i].kind != Event::Failed && (e.kind == Event::Left || held[i].kind == e.kind)) held.erase(held.begin() + (long)i);
++		if (e.kind == Event::Left && from > 0) return;
++		held.push_back(e);
++	}
+ 
+ 	void hostPoll(std::vector<Event> &events) {
+-		for (;;) {
++		for (int failed = 0;;) {
+ 			const int fd = ::accept(listener, nullptr, nullptr);
+ 			if (fd < 0 && errno == EINTR) continue;
+ 			if (fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+ 			if (fd < 0) {
+-				// (The listener itself failed, as one can after the app was
+-				// away: a new one on the same port; else hosting ends.)
++				const int error = errno;
++				// (Out of descriptors or memory: whoever is joining waits in the
++				// backlog until there are some again; a new listener would fail
++				// as well, and end hosting for everyone.)
++				if (error == EMFILE || error == ENFILE || error == ENOBUFS || error == ENOMEM) break;
++				// (One connection lost on its way in, ECONNABORTED, EPROTO or the
++				// network errors Linux passes on: the next one.)
++				if (error != EBADF && error != ENOTSOCK && error != EINVAL && ++failed < kAcceptFailures) continue;
++				// (EBADF, ENOTSOCK, EINVAL, or failing on and on: the listener
++				// itself failed, as one can after the app was away: a new one on
++				// the same port; else hosting ends.)
+ 				std::string why;
+ 				::close(listener); listener = openListener((uint16_t)port, why);
+ 				if (listener < 0) { fail(events, "Hosting stopped: " + why); return; }
+ 				break;
+ 			}
++			failed = 0;
+ 			quietSocket(fd);
+ 			Link l; l.fd = fd;
+ 			if (links.size() >= (size_t)kMaxPeers + 2) { // Bounded, even before handshakes.
+@@ -437,21 +515,28 @@ struct Session::Impl {
+ };
+ 
+ Session::Session() : _impl(new Impl) {}
+-Session::~Session() { close(); }
++Session::~Session() {
++	Impl &s = *_impl;
++	bool joinKeeper;
++	{ std::lock_guard<std::mutex> guard(s.mutex); s.closeNow(); s.stopping = true; joinKeeper = s.keeping; }
++	s.wake.notify_all();
++	if (joinKeeper) pthread_join(s.keeper, nullptr);
++}
+ 
+ bool Session::host(uint16_t port, int content, int actor, std::string &error) {
+-	close();
+-	Impl &s = *_impl;
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
++	s.closeNow();
+ 	const int fd = openListener(port, error);
+ 	if (fd < 0) { error = "Cannot host: " + error; return false; }
+ 	s.listener = fd; s.mode = Impl::Hosting; s.content = content; s.localActor = actor; s.port = port;
+ 	s.addresses.clear(); // (Looked up afresh: the device may be on another network now.)
++	s.begin();
+ 	return true;
+ }
+ 
+ bool Session::join(const std::string &text, int content, int actor, std::string &error) {
+-	close();
+-	Impl &s = *_impl;
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
++	s.closeNow();
+ 	sockaddr_in address;
+ 	if (!parseAddress(text, address)) { error = "Enter the host's address, like 192.168.1.20"; return false; }
+ 	if (!validActor(actor)) { error = "Choose a character first."; return false; }
+@@ -466,41 +551,29 @@ bool Session::join(const std::string &text, int content, int actor, std::string
+ 	encode(hello, l.out);
+ 	s.links.push_back(l); s.mode = Impl::Connecting; s.content = content; s.localActor = actor;
+ 	s.local = Avatar(); s.local.actor = actor; s.target = text; s.started = now();
++	s.begin();
+ 	return true;
+ }
+ 
+-void Session::close() {
+-	Impl &s = *_impl;
+-	if (s.mode == Impl::Off) return;
+-	Frame bye; bye.type = FrameType::Bye; bye.peer = s.mode == Impl::Hosting ? 0 : s.welcomedAs;
+-	for (auto &l : s.links) if (l.welcomed) { send(l, bye); flush(l); }
+-	s.reset();
+-}
++void Session::close() { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); s.closeNow(); }
+ 
+-bool Session::active() const { return _impl->mode != Impl::Off; }
+-bool Session::hosting() const { return _impl->mode == Impl::Hosting; }
+-bool Session::connected() const {
+-	return _impl->mode == Impl::Hosting || (_impl->mode == Impl::Joined && !_impl->links.empty() && _impl->links[0].welcomed);
+-}
+-int Session::remoteCount() const {
+-	const Impl &s = *_impl;
+-	if (s.mode == Impl::Hosting) return s.welcomedCount();
+-	int n = 0; for (int actor : s.remoteActor) if (actor) ++n;
+-	return n;
+-}
++bool Session::active() const { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); return s.mode != Impl::Off; }
++bool Session::hosting() const { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); return s.mode == Impl::Hosting; }
++bool Session::connected() const { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); return s.connected(); }
++int Session::remoteCount() const { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); return s.remoteCount(); }
+ 
+ void Session::setLocal(const Avatar &avatar) {
+-	Impl &s = *_impl;
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
+ 	if (!validAvatar(avatar) || (s.localSent && avatar == s.local)) return;
+ 	s.local = avatar; s.localActor = avatar.actor;
+ 	Frame f; f.type = FrameType::Avatar; f.avatar = avatar;
+ 	if (s.mode == Impl::Hosting) { s.broadcast(f, -1); s.localSent = true; }
+-	else if (connected()) { f.peer = s.welcomedAs; send(s.links[0], f); s.localSent = true; }
++	else if (s.connected()) { f.peer = s.welcomedAs; send(s.links[0], f); s.localSent = true; }
+ }
+ 
+ bool Session::say(const std::string &text) {
+-	Impl &s = *_impl;
+-	if (!validSay(text) || !validActor(s.localActor) || !connected()) return false;
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
++	if (!validSay(text) || !validActor(s.localActor) || !s.connected()) return false;
+ 	Frame f; f.type = FrameType::Say; f.actor = s.localActor; f.text = text;
+ 	if (s.mode == Impl::Hosting) s.broadcast(f, -1);
+ 	else { f.peer = s.welcomedAs; send(s.links[0], f); }
+@@ -508,23 +581,26 @@ bool Session::say(const std::string &text) {
+ }
+ 
+ void Session::poll(std::vector<Event> &events) {
+-	Impl &s = *_impl;
+-	if (s.mode == Impl::Hosting) s.hostPoll(events);
+-	else if (s.mode != Impl::Off && !s.links.empty()) s.clientPoll(events);
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
++	s.polled = now();
++	events.insert(events.end(), s.held.begin(), s.held.end()); s.held.clear();
++	s.pollNow(events);
+ }
+ 
+ std::string Session::describe() const {
+-	const Impl &s = *_impl;
+-	const int others = remoteCount();
++	Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex);
++	const int others = s.remoteCount();
+ 	const std::string count = others == 1 ? "1 other player" : std::to_string(others) + " other players";
+ 	switch (s.mode) {
+ 	case Impl::Hosting: return "Hosting on " + s.hostAddresses() + " port " + std::to_string(s.port) + " - " + count;
+ 	case Impl::Connecting: return "Connecting to " + s.target + "...";
+-	case Impl::Joined: return connected() ? "Playing with " + s.target + " - " + count : "Joining " + s.target + "...";
++	case Impl::Joined: return s.connected() ? "Playing with " + s.target + " - " + count : "Joining " + s.target + "...";
+ 	default: return "Local WiFi play is off";
+ 	}
+ }
+ 
++int Session::keeperPollsForTests() const { Impl &s = *_impl; std::lock_guard<std::mutex> guard(s.mutex); return s.keeperPolls; }
++
+ std::vector<std::string> reachableAddresses(const std::vector<Interface> &interfaces) {
+ 	// (0: WiFi, 1: the hotspot a phone shares, 2: anything else up.)
+ 	auto rank = [](const std::string &name) { return name.compare(0, 2, "en") == 0 ? 0 : name.compare(0, 6, "bridge") == 0 ? 1 : 2; };
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index 634dfdb5..8ac64946 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -28,6 +28,13 @@ const int kMaxLook = 0xFFFFFF;    // Largest look (catalog appearance key) sent.
+ // (a device off the WiFi without a word: no close ever comes).
+ const int kPingMs = 3000;
+ const int kSilentMs = 15000;
++// Silence is the other device's, never its game loop's: once the engine has
++// not polled for kAwayMs (the ScummVM menu, the pause banner, typing a save's
++// name, the app losing the screen), a thread of the session's own polls every
++// kKeepMs in its stead (links kept, pings sent and heard, players relayed)
++// and holds what it hears for the engine's next poll.
++const int kAwayMs = 1000;
++const int kKeepMs = 100;
+ 
+ enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6, Ping = 7 };
+ enum class RejectReason : uint8_t { Version = 1, Full = 2, ActorTaken = 3 };
+@@ -64,6 +71,7 @@ struct Event {
+ 	std::string text;   // Said text, or the Failed reason
+ };
+ 
++// Safe from any thread (one lock); the engine uses it from its own.
+ class Session {
+ public:
+ 	Session();
+@@ -81,9 +89,13 @@ public:
+ 	void setLocal(const Avatar &avatar);
+ 	bool say(const std::string &text);
+ 	// Non-blocking: accepts, reads, validates, relays, keeps quiet links
+-	// alive and reports.
++	// alive and reports; first what was heard while the engine was away
++	// (for each player only what still matters: whether they left, where
++	// they are, their latest line).
+ 	void poll(std::vector<Event> &events);
+ 	std::string describe() const;
++	// Tests only: polls made in the engine's stead (kAwayMs).
++	int keeperPollsForTests() const;
+ private:
+ 	struct Impl;
+ 	std::unique_ptr<Impl> _impl;

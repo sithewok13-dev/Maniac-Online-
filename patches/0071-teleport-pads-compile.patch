@@ -1,0 +1,21 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 0819e324..58500893 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -19,6 +19,8 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 			if (glyphs[*text-'A'][row] & (16 >> col)) CGContextFillRect(context, CGRectMake(x+col*scale,y+row*scale,scale,scale));
+ 	}
+ }
++// A teleport destination: a Zak site's token-bound command, or an other-world place request.
++struct ScummversePad { std::string label; int command, request; };
+ @interface ScummverseAirportView : UIView
+ @property(nonatomic) NSInteger choice;
+ @property(nonatomic) NSInteger page;
+@@ -33,7 +35,6 @@ static const int scummversePadCount=sizeof(scummversePadNames)/sizeof(scummverse
+ // The pads also reach otherworldly places of the installed other worlds:
+ // each named place and story area of these games whose scene is exported.
+ static const struct { const char *gameid, *label; } scummversePadWorlds[]={{"dig","DIG"},{"loom","LOOM"},{"atlantis","ATLANTIS"}};
+-struct ScummversePad { std::string label; int command, request; }; // Zak site: token-bound command; other world: place request.
+ static std::vector<ScummversePad> scummversePads() {
+ 	std::vector<ScummversePad> pads;
+ 	for (int i=0;i<scummversePadCount;++i) pads.push_back({scummversePadNames[i],50+i,0});

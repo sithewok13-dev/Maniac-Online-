@@ -1,0 +1,142 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 3a0b9d28..e3c58909 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1421,6 +1421,7 @@ void SandboxEngine::newKid() {
+ 	double x, y;
+ 	StageBridge::position(_player, x, y);
+ 	const int before = _playerKey, fromGame = _game, fromRoom = _room, here = place(_game, _room);
++	const bool wasLit = _litKey && _litKey == before;
+ 	const Common::Array<Left> kept = customLeft(), others = standing();
+ 	Common::String problem;
+ 	// (One who cannot be shown is passed over for the next.)
+@@ -1454,6 +1455,8 @@ void SandboxEngine::newKid() {
+ 			double px, py;
+ 			StageBridge::position(_player, px, py);
+ 			if (left >= 0) StageBridge::place(left, shown < 0 && fabs(px - x) < 8 && fabs(py - y) < 8 ? x + 24 : x, y);
++			// (Lit, the one before puts it away beside them, as in castChoose.)
++			if (left >= 0 && wasLit) { StageBridge::light(left, true, false); StageBridge::light(left, false, true); }
+ 			StageBridge::follow(_player);
+ 			customBack(kept);
+ 		}
+@@ -3479,13 +3482,14 @@ void SandboxEngine::pressKey(const Common::KeyState &k) {
+ 	const bool f = k.keycode == Common::KEYCODE_f || k.ascii == 'f' || k.ascii == 'F';
+ 	const bool p = k.keycode == Common::KEYCODE_p || k.ascii == 'p' || k.ascii == 'P';
+ 	if (_player < 0 || (!l && !f && !p)) return;
+-	// (On a map or a floor plan, no pee and no moves: said so, when seen.)
+-	if (!walkable(_game, _room) && (p ? canPee(_player) : canMove(_player))) {
++	// (On a map or a floor plan, no pee, no moves and nothing lit: said so,
++	// when seen. What is lit already is put away at L, moves or not.)
++	if (!walkable(_game, _room) && (p ? canPee(_player) : l ? StageBridge::canLight(_player) && !StageBridge::lit(_player) : canMove(_player))) {
+ 		if (!_touring.on && !_selfie.on && !StageBridge::hidden(_player)) say("Not here.");
+ 		return;
+ 	}
+ 	if (p) { pee(_player); return; } // (Crispy 2's: his leg lifted)
+-	if (!canMove(_player)) { if (l) lightKey(); return; }
++	if (!canMove(_player) || !walkable(_game, _room)) { if (l) lightKey(); return; }
+ 	if (f) { _lTaps = 0; move(_player, kMoveZap); }
+ 	else if (_lTaps) { _lTaps = 0; move(_player, kMoveSwing); }
+ 	else {
+@@ -7983,14 +7987,15 @@ Common::Error SandboxEngine::movesTest() {
+ 	warning("SCUMMVERSE sandbox selftest moves out of sight: %d of %d with no show or pee due beside one out of sight (on the way on a ride, on the tram, hidden%s)",
+ 		heldUnseen, zakRides ? 4 : 3, zakRides ? "; none started at Zak's bus stop" : "");
+ 	if (heldUnseen != (zakRides ? 4 : 3)) fail("a show or a pee due beside one out of sight");
+-	// On a map or a floor plan (no floor there): no pee and no moves, the one
+-	// played told so, none by those left there. At a place's limit, a pee let
+-	// go before his leg is up lets no stain go. A save during a pee (the app
+-	// put away, then closed) has none of it; its stain is saved as it ends.
++	// On a map or a floor plan (no floor there): no pee, no moves and nothing
++	// lit (put away, lit already), the one played told so, none by those left
++	// there. At a place's limit, a pee let go before his leg is up lets no
++	// stain go. A save during a pee (the app put away, then closed) has none
++	// of it; its stain is saved as it ends.
+ 	// L once, then a walk asked for: the walk goes on. Sith Ewok 2 and 3
+-	// switched from lit put it away beside the one played. A show heckled by
+-	// someone else, never the one played.
+-	int maps = 0, mapsOf = 0, limit = 0, midPee = 0, walkOn = 0, putAway = 0, notPlayer = 0;
++	// switched from lit put it away beside the one played (the mansion's New
++	// kid too). A show heckled by someone else, never the one played.
++	int maps = 0, mapsOf = 0, limit = 0, midPee = 0, walkOn = 0, putAway = 0, kidPutAway = 0, kidsOf = 0, notPlayer = 0;
+ 	const int sith2 = worldAppearanceKey(kWorldCustomLooks, 9);
+ 	_showOffClock = 1 << 30; _peeClock = 1 << 30;
+ 	for (int kind = kWorldMapRoom; kind <= kWorldFloorPlan; ++kind) {
+@@ -8016,9 +8021,33 @@ Common::Error SandboxEngine::movesTest() {
+ 		const bool toldF = _speaker == _player && _speech == "Not here.";
+ 		step(2);
+ 		const bool zapped = StageBridge::acting(_player);
+-		pressKey(capital); step(kTapWindow + 2);
++		_speech.clear();
++		pressKey(capital);
++		const bool toldL = _speaker == _player && _speech == "Not here.";
++		step(kTapWindow + 2);
+ 		if (zapped || StageBridge::acting(_player) || StageBridge::switching(_player) || StageBridge::lit(_player) || _heckle.phase) { fail("moves on a map or a floor plan"); continue; }
+-		if (!toldP || !toldF) { fail("a pee or a move on a map or a floor plan refused unsaid"); continue; }
++		if (!toldP || !toldF || !toldL) { fail("a pee or a move on a map or a floor plan refused unsaid"); continue; }
++		// (Nothing lit there by Sith Ewok 2 either, said so; arrived lit,
++		// Sith Ewok 2 and 3 put it away there at L.)
++		_playerKey = sith2;
++		if (!enter(mg, mr, 0, problem)) { fail("a map or a floor plan not entered"); continue; }
++		_speech.clear();
++		pressKey(small); step(2);
++		if (StageBridge::lit(_player) || StageBridge::switching(_player) || _litKey) { fail("lit on a map or a floor plan"); continue; }
++		if (_speaker != _player || _speech != "Not here.") { fail("lit on a map or a floor plan refused unsaid"); continue; }
++		const int stowers[2] = {sith2, ewok};
++		int stowed = 0;
++		for (int k : stowers) {
++			_playerKey = k; _litKey = k;
++			if (!enter(mg, mr, 0, problem) || !StageBridge::lit(_player)) { fail("not lit arriving on a map or a floor plan"); break; }
++			_speech.clear();
++			pressKey(small);
++			const bool putting = StageBridge::switching(_player) && !StageBridge::lit(_player) && !_litKey && _speech.empty();
++			settle(_player);
++			if (!putting || StageBridge::lit(_player) || shown() != StageBridge::kPoseStand) { fail("not put away on a map or a floor plan"); break; }
++			++stowed;
++		}
++		if (stowed != 2) continue;
+ 		// (Left there, not played: Sith Ewok 3 and Crispy 2 beside Crispy,
+ 		// when due, no show and no pee on his own.)
+ 		_playerKey = crispy;
+@@ -8146,14 +8175,39 @@ Common::Error SandboxEngine::movesTest() {
+ 		if (byPlayer || over != 24) fail("a show heckled by the one played");
+ 		else ++notPlayer;
+ 	}
++	// (Sith Ewok 2, then 3, lit in the mansion, then its New kid here: put
++	// away beside the next.)
++	int maniac = -1, first = -1, kids = 0;
++	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
++	for (const WorldCastGuest &c : kWorldCast)
++		if (c.game == maniac && hasCharacter(worldAppearanceKey(c.game, c.guest.costume))) { if (first < 0) first = worldAppearanceKey(c.game, c.guest.costume); ++kids; }
++	for (int k : lighters) {
++		if (maniac < 0 || kids < 2) break;
++		++kidsOf;
++		if (!castChoose(first) || _game != maniac || !castChoose(k) || _player < 0 || _game != maniac) { fail("Sith Ewok 2 or 3 not played in the mansion"); continue; }
++		pressKey(capital);
++		if (canMove(_player)) step(kTapWindow);
++		settle(_player);
++		if (!StageBridge::lit(_player) || _litKey != k) { fail("not lit for New kid"); continue; }
++		const int atGame = _game, atRoom = _room;
++		WanderBridge::send(first, place(_game, _room)); // (the next, here)
++		newKid();
++		int was = -1;
++		for (int n = 0; n < (int)_onStage.size(); ++n) if (n != _player && _onStage[n] == k) was = n;
++		if (_game != atGame || _room != atRoom || _playerKey != first || was < 0) { fail("Sith Ewok 2 or 3 not left beside at New kid"); continue; }
++		const bool putting = StageBridge::switching(was) && !StageBridge::lit(was);
++		settle(was);
++		if (!putting || StageBridge::lit(was) || StageBridge::shownKind(was) != StageBridge::kPoseStand) fail("New kid from lit, not put away beside");
++		else ++kidPutAway;
++	}
+ 	_wanderers = false;
+ 	warning("SCUMMVERSE sandbox selftest moves: %d keys, %d walks stopped, %d heckled in written lines (%d answered, %d in Ewokese), %d with the model's lines, %d written when it is slow, %d waiting for others, %d shows (%d saber, %d lightning), %d held far away or walking; Crispy 2: %d pees (a walk stopped, from the side, a puddle behind him either way, dried to a stain), %d stains kept (back again, saved and read back, %d at most), %d on his own, %d cut short, entered again or played (as big as it got, none before the leg is up, drying on, his while begun again); %d of %d out of sight on a ride (a pee and lightning ended at the stop, a heckle let go, no saber lit seated aboard); "
+-		"%d of %d maps and floor plans (no pee, no moves, said so; none by those left there), %d at a place's limit (no stain let go for a pee let go before the leg is up), "
+-		"%d saved during a pee (none of it) and as it ended, %d walks asked for after L once gone on, %d of 2 put away beside when switched from lit, %d shows heckled by someone else only, %d failed",
++		"%d of %d maps and floor plans (no pee, no moves, nothing lit, said so; put away there; none by those left there), %d at a place's limit (no stain let go for a pee let go before the leg is up), "
++		"%d saved during a pee (none of it) and as it ended, %d walks asked for after L once gone on, %d of 2 put away beside when switched from lit, %d of %d at the mansion's New kid, %d shows heckled by someone else only, %d failed",
+ 		keys, stopped, written, answered, ewokese, modelLines, slowLines, waited, shows, saberShows, zapShows, held, pees, kept, (int)StageBridge::kMarks, own, cutShort, unseen, zakRides ? 3 : 0,
+-		maps, mapsOf, limit, midPee, walkOn, putAway, notPlayer, failed);
++		maps, mapsOf, limit, midPee, walkOn, putAway, kidPutAway, kidsOf, notPlayer, failed);
+ 	if (failed || keys != 6 || !written || !waited || !modelLines || !slowLines || !saberShows || !zapShows || pees != 2 || kept != 3 || own != 1 || cutShort != 6 || unseen != (zakRides ? 3 : 0) ||
+-		maps != mapsOf || limit != 1 || midPee != 1 || walkOn != 1 || putAway != 2 || notPlayer != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		maps != mapsOf || limit != 1 || midPee != 1 || walkOn != 1 || putAway != 2 || kidPutAway != kidsOf || notPlayer != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }

@@ -1,0 +1,200 @@
+diff --git a/common/scummverse_camera.cpp b/common/scummverse_camera.cpp
+index f55b376f..8cc2aae7 100644
+--- a/common/scummverse_camera.cpp
++++ b/common/scummverse_camera.cpp
+@@ -131,10 +131,14 @@ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &
+ 	}
+ 	if (group.empty()) return intersect(view, view);
+ 	std::sort(nearby.begin(), nearby.end());
+-	// Head room above, a little below the feet, some room either side.
++	// Head room above, a little below the feet, some room either side; the
++	// player's side never less than `pad` (the frame is kept for the shots
++	// after: a pose there a little wider, as much as one more strip of the
++	// classic engine's screen, which it is measured in, is not cut).
+ 	const double h = std::max(group.h, 24);
++	const int pad = std::max(8, (int)std::ceil(std::max(player.h, 24) * 0.15));
+ 	double top = group.y - h * 0.22, bottom = group.bottom() + h * 0.08;
+-	double left = group.x - h * 0.15, right = group.right() + h * 0.15;
++	double left = std::min(group.x - h * 0.15, (double)(player.x - pad)), right = std::max(group.right() + h * 0.15, (double)(player.right() + pad));
+ 	// Shown rows are rowAspect times taller: keep 4:5 to 4:3 as seen.
+ 	const double shown = (right - left) / ((bottom - top) * rowAspect);
+ 	if (shown < 0.8) {
+@@ -154,14 +158,17 @@ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &
+ 	else { r.y = view.y; r.h = view.h; }
+ 	r = intersect(r, view);
+ 	// A view too low for that (a wide group in a low room): narrower,
+-	// around the player and as many of the nearest as fit whole; too narrow:
+-	// lower (the room below the feet first, then the head room). The player
+-	// is never cut: wider (or taller) than that only when they alone are.
++	// around the player (with `pad` either side, as much as fits: never
++	// flush with the frame's edge but at the view's) and as many of the
++	// nearest as fit whole with it; too narrow: lower (the room below the
++	// feet first, then the head room). The player is never cut: wider (or
++	// taller) than that only when they alone are.
+ 	Rect me = intersect(player, r);
+ 	if (me.empty()) { me.x = r.x + r.w / 2; me.y = r.y + r.h / 2; me.w = me.h = 0; }
+ 	const int widest = std::max((int)std::floor(r.h * rowAspect * 4 / 3 + 1e-9), me.w);
+ 	if (r.w > widest) {
+-		int from = me.x, to = me.right();
++		const int room = std::min(pad, (widest - me.w) / 2);
++		int from = std::max(r.x, me.x - room), to = std::min(r.right(), me.right() + room);
+ 		for (size_t i = 0; i < nearby.size(); ++i) {
+ 			const Rect o = intersect(others[nearby[i].second], r);
+ 			if (o.empty()) continue;
+diff --git a/common/scummverse_camera_engine.h b/common/scummverse_camera_engine.h
+index 8569cbf3..ba9e4eb9 100644
+--- a/common/scummverse_camera_engine.h
++++ b/common/scummverse_camera_engine.h
+@@ -59,7 +59,10 @@ void factors(int width, int height, int &kx, int &ky);
+ // 1.2; a picture already shown square, 1), inside the view. A view too low
+ // for a wide group at 4:3 gets a narrower frame, around the player and as
+ // many of the nearest as fit whole; one too narrow, a lower one. The player
+-// is never cut (wider or taller than that only when they alone are).
++// is never cut (wider or taller than that only when they alone are), and
++// has some room either side (at least 8, or 0.15 of their height; as much
++// as the view and 4:3 allow): the frame is kept for the shots after the
++// first, where a pose may be a little wider.
+ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view, double rowAspect = 1.2);
+ 
+ // ---- Poses ----
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 294ae8bf..1e6c3096 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -153,10 +153,12 @@ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, b
+ 	// save in slot 100 as it opens Maniac Mansion, startManiac; a save loaded
+ 	// as the game starts; the game's own menus): it would take that one's
+ 	// place, and the game come back from a slot never written. An autosave
+-	// asked for meanwhile (ScummVM's on its timer, the phone's as it puts the
+-	// app away) is made by keeping the one in its slot as it is, as touring
+-	// (so the phone, which drops its restore point first, still points it
+-	// there); with none there, it waits (canSaveAutosaveCurrently).
++	// asked for meanwhile with the game held still (the phone's as it puts
++	// the app away) is made by keeping the one in its slot as it is, as
++	// touring (so the phone, which drops its restore point first, still
++	// points it there); otherwise (ScummVM's on its timer, tried again in a
++	// few minutes), in a story, or with none there, it waits
++	// (canSaveAutosaveCurrently).
+ 	if (_saveLoadFlag)
+ 		return isAutosave && slot == getAutosaveSlot() && canSaveAutosaveCurrently() ? Common::kNoError : Common::kWritingFailed;
+ 	// SCUMMVERSE: an autosave asked for while the game is held still (the
+@@ -256,15 +258,21 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ // the tour began (saveGameState), where there is one: so the phone, putting
+ // the app away, still keeps a place to go on from (it drops the last one
+ // first) and ScummVM's own autosave waits its usual time. So too while a
+-// save or load waits for the next frame, by keeping the autosave there is.
++// save or load waits for the next frame and the game is held still (the
++// phone putting the app away), by keeping the autosave there is.
+ bool ScummEngine::canSaveAutosaveCurrently() {
+ 	if (_scummverseTouring)
+ 		return _setupIsComplete && _scummverseTourAutosaved;
+ 	// (A save or load waiting for the next frame: made by keeping the
+-	// autosave there is, none written, saveGameState.)
++	// autosave there is, none written, saveGameState; only while the game is
++	// held still, iOS's suspend loop, where no frame comes until the app is
++	// back. Else not: ScummVM's own, on its timer, would take that for saved
++	// and wait its whole time, not its few minutes. Nor in a story: it goes
++	// on from its newest save, scummverseStorySlotOf, which the autosave
++	// kept may not be.)
+ 	if (_saveLoadFlag) {
+ 		const int slot = getAutosaveSlot();
+-		if (slot < 0 || !canSaveGameStateCurrently()) return false;
++		if (!isPaused() || _scummverseStory || slot < 0 || !canSaveGameStateCurrently()) return false;
+ 		const SaveStateDescriptor kept = getMetaEngine()->querySaveMetaInfos(_targetName.c_str(), slot);
+ 		return kept.getSaveSlot() != -1 && kept.isAutosave();
+ 	}
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index d1283969..b897de29 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -134,10 +134,14 @@ namespace Scumm {
+ // Use g_scumm from error() ONLY
+ ScummEngine *g_scumm = nullptr;
+ 
+-// SCUMMVERSE: a setting of ours as ConfMan reads it (its registered default
+-// when unset); one it cannot read (a settings file cut short as the app was
+-// stopped writing it) as `otherwise`: its own getInt and getBool end the
+-// app there.
++// SCUMMVERSE: settings of ours, where ConfMan's own getInt and getBool end
++// the app over a value they cannot read (a settings file cut short as the
++// app was stopped writing it). scummverseSetting: the number set (in
++// `domain`, if given); `otherwise` when it is not a number, or not set
++// (hasKey, unlike get, sees no registered default: none is used).
++// scummverseSwitch: true or false as ConfMan.get finds it, a registered
++// default included (empty, or neither set nor registered: false, as
++// ScummVM reads it); `otherwise` when it is something else.
+ static int scummverseSetting(const Common::String &key, int otherwise, const Common::String &domain = Common::String()) {
+ 	if (!ConfMan.hasKey(key, domain)) return otherwise;
+ 	const Common::String text = ConfMan.get(key, domain);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index e931fee0..9af7bac7 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -1403,6 +1403,11 @@ void ScummEngine::scummverseServiceDigTram(int delta) {
+ 	Actor *player = derefActor(VAR(VAR_EGO), "tram passenger");
+ 	int line, end, source;
+ 	const int game = scummverseWorldGameOf(_currentRoom, source);
++	// (A trip no line has, or a time no trip takes, as a damaged save may
++	// hold: none; first, so the ledge's call is not taken for that one under
++	// way.)
++	if (_scummVars[609] && (_scummVars[609] < 0 || _scummVars[609] > kDigTramDone || _scummVars[611] < 1 || _scummVars[611] > 2 * kWorldTramLineCount))
++		_scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
+ 	// Each approach to the ledge calls the car once (not by a rider arriving).
+ 	if (scummverseDigTramStop(line, end) && player->_room == _currentRoom && !(_scummVars[610] & (1u << VAR(VAR_EGO)))) {
+ 		const WorldTramStop &stop = kWorldTramLines[line].ends[end];
+@@ -1414,8 +1419,6 @@ void ScummEngine::scummverseServiceDigTram(int delta) {
+ 			else if (dx <= 2 && dy <= 3 && _scummverseDigTramArmed && !player->_moving) scummverseCallDigTram(line, end);
+ 		}
+ 	}
+-	// (A trip no line has, as a damaged save may hold: none.)
+-	if (_scummVars[609] && (_scummVars[611] < 1 || _scummVars[611] > 2 * kWorldTramLineCount)) _scummVars[609] = _scummVars[610] = _scummVars[611] = 0;
+ 	const int previous = _scummVars[609];
+ 	if (previous) {
+ 		const int phase = _scummVars[609] += MIN(delta, 60);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 6b4f5f95..7a4e17d5 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1934,12 +1934,20 @@ bool SandboxEngine::castChoose(int key) {
+ 	// stop, those following them too, not wherever their own wandering took
+ 	// them meanwhile. The same person as the one chosen to play here
+ 	// (another game's of the same name) does not stay beside them: home,
+-	// where they live, unless that person is there already.)
++	// where they live, unless that person is there already: another of them
++	// wandering there, not the one chosen, played here now, wherever their
++	// own wandering last left them. The one played stands only here.)
+ 	const int here = _wanderers && fromKey != key && keptGame >= 0 ? place(keptGame, keptRoom) : 0;
+ 	const bool twinHere = here && samePersonKeys(fromKey, key) && place(game, room) == here;
++	auto twinThere = [&](int at) {
++		int found[512];
++		const int count = MIN<int>(WanderBridge::at(at, found, ARRAYSIZE(found)), ARRAYSIZE(found));
++		for (int i = 0; i < count; ++i) if (found[i] != key && WanderBridge::twins(fromKey, found[i])) return true;
++		return false;
++	};
+ 	int home = -1;
+ 	if (!twinHere) { if (here) WanderBridge::send(fromKey, here); }
+-	else if (castHome(fromKey, home) && (home = place(worldAppearanceGame(fromKey), home)) && home != here && !WanderBridge::taken(fromKey, home)) WanderBridge::send(fromKey, home);
++	else if (castHome(fromKey, home) && (home = place(worldAppearanceGame(fromKey), home)) && home != here && !twinThere(home)) WanderBridge::send(fromKey, home);
+ 	if (here && aboard) for (int k : _followers) if (following(k)) WanderBridge::send(k, here);
+ 	_playerKey = key;
+ 	Common::String problem;
+@@ -6002,7 +6010,8 @@ Common::Error SandboxEngine::castTest() {
+ 	// The same person as the one played (another game's of the same name)
+ 	// chosen where they live, the one played there (where they stepped
+ 	// aside): played, the one before not left beside them (one person, once)
+-	// but home, out among the wanderers there.
++	// but home, out among the wanderers there, though the one chosen's own
++	// wandering last left them there (played now: not there).
+ 	int twinsChosen = 0, twinsTried = 0;
+ 	{
+ 		int first = 0, second = 0, firstHome = 0, secondHome = 0;
+@@ -6028,6 +6037,9 @@ Common::Error SandboxEngine::castTest() {
+ 			if (!enter(Wander::placeGame(firstHome), Wander::placeRoom(firstHome), 0, problem2)) fail("not shown where the same person lives", "the same person chosen");
+ 			else {
+ 				for (int k : _onStage) firsts += k == first;
++				// (Their wandering: the one played out where they stand; the
++				// one chosen's own last left them at the other's home.)
++				WanderBridge::send(second, firstHome); WanderBridge::send(first, secondHome);
+ 				if (firsts) fail("the same person as the one played shown beside them", "the same person chosen");
+ 				else if (!castChoose(first)) fail("not played", "the same person chosen");
+ 				else {

@@ -1,0 +1,107 @@
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index f46c41e1..339fab00 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -324,7 +324,10 @@ struct Session::Impl {
+ 	// Held for the engine, for each player: after the last time they left,
+ 	// only their latest place and their latest line (a leave makes theirs
+ 	// before it moot; another leave, held already, adds nothing). However
+-	// long the engine is away, a few events wait, never a stream.
++	// long the engine is away, a few events wait, never a stream. Their place
++	// always before their line, whichever came last: the engine takes a line
++	// only from a player it has placed (one who spoke, then moved, or joined
++	// and spoke meanwhile, is heard).
+ 	void hold(const Event &e) {
+ 		if (e.kind == Event::Failed) { held.push_back(e); return; }
+ 		size_t from = 0;
+@@ -332,7 +335,10 @@ struct Session::Impl {
+ 		for (size_t i = held.size(); i-- > from;)
+ 			if (held[i].peer == e.peer && held[i].kind != Event::Failed && (e.kind == Event::Left || held[i].kind == e.kind)) held.erase(held.begin() + (long)i);
+ 		if (e.kind == Event::Left && from > 0) return;
+-		held.push_back(e);
++		size_t at = held.size();
++		if (e.kind == Event::Moved)
++			for (size_t i = from; i < held.size(); ++i) if (held[i].peer == e.peer && held[i].kind == Event::Said) { at = i; break; }
++		held.insert(held.begin() + (long)at, e);
+ 	}
+ 
+ 	void hostPoll(std::vector<Event> &events) {
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 90c53888..e205990a 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -146,11 +146,20 @@ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, b
+ 	// keeping it, so the phone goes on from there if it stops the app.
+ 	if (isAutosave && _scummverseTouring)
+ 		return _scummverseTourAutosaved && slot == getAutosaveSlot() ? Common::kNoError : Common::kWritingFailed;
++	// SCUMMVERSE: never over a save or load already asked for, waiting for
++	// the main loop's next frame (Day of the Tentacle's computer's temporary
++	// save in slot 100 as it opens Maniac Mansion, startManiac; a save loaded
++	// as the game starts; the game's own menus): it would take that one's
++	// place, and the game come back from a slot never written. An autosave
++	// asked for meanwhile (ScummVM's on its timer, the phone's as it puts the
++	// app away) waits (canSaveAutosaveCurrently).
++	if (_saveLoadFlag)
++		return Common::kWritingFailed;
+ 	// SCUMMVERSE: an autosave asked for while the game is held still (the
+ 	// phone putting the app away: iOS's suspend loop, where no frame comes
+ 	// until the app is back, and it may be stopped first) is written now,
+ 	// outside the game's scripts, as the main loop would write it.
+-	if (isAutosave && isPaused() && !_saveLoadFlag && _currentScript == 0xFF && canSaveGameStateCurrently())
++	if (isAutosave && isPaused() && _currentScript == 0xFF && canSaveGameStateCurrently())
+ 		return scummverseSaveNow(slot, desc) ? Common::kNoError : Common::kWritingFailed;
+ 	requestSave(slot, desc);
+ 	return Common::kNoError;
+@@ -246,7 +255,8 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ bool ScummEngine::canSaveAutosaveCurrently() {
+ 	if (_scummverseTouring)
+ 		return _setupIsComplete && _scummverseTourAutosaved;
+-	return canSaveGameStateCurrently();
++	// (Not while a save or load waits for the next frame: saveGameState.)
++	return !_saveLoadFlag && canSaveGameStateCurrently();
+ }
+ 
+ 
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 22d6a39f..c9b0e454 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -341,6 +341,12 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	} else if (destination >= kWorldVanRequest) {
++		// (The van's destinations, shown in its cockpit while the tour was
++		// paused and chosen after it played on: the tour ends there first, as
++		// for a place chosen, and the van takes the one played aboard. It
++		// would fly them off from wherever the tour had gone. Not where the
++		// van takes no destination.)
++		if (_scummVars[kVanPhaseVar] >= kVanLiftoff || (_currentRoom == kVanCockpit && !_scummVars[kVanPhaseVar])) leaveTour();
+ 		scummverseVanRequest(destination - kWorldVanRequest);
+ 	} else if (destination >= kWorldPlaceRequest) {
+ 		destination -= kWorldPlaceRequest;
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 9d040b21..e9aad44a 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -397,6 +397,7 @@ void ScummEngine::scummverseTourEnd(bool home) {
+ 	_scummverseTourPaused = false;
+ 	ScummverseTour::publishPaused(false);
+ 	_scummverseTransitArmed = false; // (home may be at a road's edge)
++	_scummverseTapPending = false; // (a door tapped while paused is not one to take after: Stop, a load, a choice from the menus)
+ 	derefActor(VAR(VAR_EGO), "tour guide")->stopActorMoving();
+ 	if (home) {
+ 		const int room = _scummverseTourHome[0], x = _scummverseTourHome[1], y = _scummverseTourHome[2];
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index b800d575..4209db38 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -436,6 +436,9 @@ void ScummEngine::scummverseRestoreWorld() {
+ 	for (int id = 1; id < kScummverseManiacActors; ++id) _scummverseAvatarSprite[id] = 0;
+ 	scummverseClearVisitors(); // (Visitors are placed again, as the save has them.)
+ 	_scummverseWanderRead = false; // (Everyone's place, read again.)
++	// (A tap made before the load is no door to take after it: in another
++	// game's map a tap is taken at once.)
++	_scummverseTapPending = false;
+ 	int source;
+ 	if (scummverseWorldGameOf(_currentRoom, source) < 0) return;
+ 	_scummverseWorldRoom = 0;

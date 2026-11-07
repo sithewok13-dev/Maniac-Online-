@@ -1,0 +1,372 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index a2aa002c..e83c6829 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -643,14 +643,17 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 			if (const auto *guest = Scummverse::WorldCatalog::worldGuestAt(key, k)) { [place appendFormat:@"%s%s", separator, guest->name]; separator = ", "; }
+ 		return place;
+ 	};
++	// Rooms an export found no place (one color) are not offered.
+ 	for (int i = 0; i < game->sceneCount; ++i) {
+ 		const int command = 160 + base + i;
++		if (!scummverseSceneInstalled(game->gameid, game->scenes[i].room)) continue;
+ 		[menu addAction:[UIAlertAction actionWithTitle:describe([NSString stringWithUTF8String:game->scenes[i].name], game->scenes[i].room) style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 			scummverseWorldRequest(ScummverseLocalAI::sceneToken() | command);
+ 		}]];
+ 	}
+ 	if (const auto *map = Scummverse::WorldCatalog::worldMap(gameIndex))
+ 		for (int i = 0; i < map->areaCount; ++i) {
++			if (!scummverseSceneInstalled(game->gameid, map->areas[i].room)) continue;
+ 			const int request = Scummverse::WorldCatalog::worldPlaceRequest(gameIndex, map->areas[i].room);
+ 			[menu addAction:[UIAlertAction actionWithTitle:describe([NSString stringWithFormat:@"More: %s", map->areas[i].name], map->areas[i].room) style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 				scummverseWorldRequest(request);
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 2009f113..1f9928e3 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -38,14 +38,12 @@ static const struct { const char *gameid, *label; } scummversePadWorlds[]={{"dig
+ static std::vector<ScummversePad> scummversePads() {
+ 	std::vector<ScummversePad> pads;
+ 	for (int i=0;i<scummversePadCount;++i) pads.push_back({scummversePadNames[i],50+i,0});
+-	NSString *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+-	NSFileManager *fm=[NSFileManager defaultManager];
+ 	for (const auto &world : scummversePadWorlds) {
+ 		const Scummverse::WorldCatalog::WorldGame *game=Scummverse::WorldCatalog::worldGame(world.gameid);
+ 		if(!game) continue;
+ 		const int index=(int)(game-Scummverse::WorldCatalog::kWorldGames);
+ 		auto add=[&](int room,const char *name) {
+-			if(![fm fileExistsAtPath:[NSString stringWithFormat:@"%@/worlds/%s-%d.svw",documents,game->gameid,room]]) return;
++			if(!scummverseSceneInstalled(game->gameid,room)) return;
+ 			std::string label=std::string(world.label)+" "+name;
+ 			for(char &c : label) c=(char)toupper((unsigned char)c);
+ 			pads.push_back({label.substr(0,34),0,Scummverse::WorldCatalog::worldPlaceRequest(index,room)});
+@@ -59,11 +57,9 @@ static std::vector<ScummversePad> scummversePads() {
+ // those of the other worlds whose scene is exported.
+ static std::vector<ScummversePad> scummverseVanSites() {
+ 	std::vector<ScummversePad> sites;
+-	NSString *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+-	NSFileManager *fm=[NSFileManager defaultManager];
+ 	for (int i=0;i<Scummverse::WorldCatalog::kWorldVanSiteCount;++i) {
+ 		const auto &site=Scummverse::WorldCatalog::kWorldVanSites[i];
+-		if (site.game>=0 && ![fm fileExistsAtPath:[NSString stringWithFormat:@"%@/worlds/%s-%d.svw",documents,Scummverse::WorldCatalog::kWorldGames[site.game].gameid,site.room]]) continue;
++		if (site.game>=0 && !scummverseSceneInstalled(Scummverse::WorldCatalog::kWorldGames[site.game].gameid,site.room)) continue;
+ 		sites.push_back({site.label,0,Scummverse::WorldCatalog::kWorldVanRequest+i});
+ 	}
+ 	return sites;
+diff --git a/backends/platform/ios7/scummverse_worlds_ui.inc b/backends/platform/ios7/scummverse_worlds_ui.inc
+index 1342b9c1..f79d56a3 100644
+--- a/backends/platform/ios7/scummverse_worlds_ui.inc
++++ b/backends/platform/ios7/scummverse_worlds_ui.inc
+@@ -188,6 +188,15 @@ static NSString *scummverseZakFolderReport(NSURL *selected, NSString *result) {
+ }
+ @end
+ 
++// A game's room in the private cache: exported and not emptied (a later
++// export empties a room it found no place, one color; the engine's
++// scummverseWorldSceneInstalled).
++static BOOL scummverseSceneInstalled(const char *gameid, int room) {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	NSString *file = [NSString stringWithFormat:@"%@/worlds/%s-%d.svw", documents, gameid, room];
++	NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:file error:nil];
++	return attributes && attributes.fileSize > 0;
++}
+ // Where a supplied game stands. Its folder in Documents is matched like
+ // base/main.cpp does: the catalog name, ignoring case and stray spaces, at
+ // the top or one folder further down (the Files app unzips an archive of
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 1fc005e5..c751556f 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -282,11 +282,21 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 		v.walkX = ux(walk ? o.walkX : o.x + o.width / 2); v.walkY = uy(walk ? o.walkY : o.y + o.height);
+ 		out.objects.push_back(v);
+ 	}
+-	// Spawn in the biggest box; edges where walking reaches the room sides.
+-	double bestArea = -1;
++	// Spawn at the foot of the lowest sizeable box (a quarter of the biggest's
++	// area or more): the floor nearest the viewer, so a character arriving
++	// there fits above it (the middle of the biggest box put characters in
++	// aerial and cliff views with their heads off the top), its middle kept
++	// within the picture. Edges where walking reaches the room sides.
++	auto area = [](const V2Box &v) { return ((v.urx - v.ulx) + (v.lrx - v.llx) + 2) * (v.ly - v.uy + 1) / 2.0; };
++	double biggest = 0;
++	for (const V2Box &v : out.boxes) biggest = std::max(biggest, area(v));
++	int lowest = -1;
+ 	for (const V2Box &v : out.boxes) {
+-		const double area = ((v.urx - v.ulx) + (v.lrx - v.llx) + 2) * (v.ly - v.uy + 1) / 2.0;
+-		if (area > bestArea) { bestArea = area; out.spawnX = (v.ulx + v.urx + v.llx + v.lrx) / 4; out.spawnY = (v.uy + v.ly) / 2; }
++		if (area(v) * 4 >= biggest && v.ly > lowest) {
++			lowest = v.ly;
++			out.spawnX = std::max(pad / 8 + 1, std::min((pad + fitted) / 8 - 2, (v.llx + v.lrx) / 2));
++			out.spawnY = std::max(v.uy, v.ly - 1);
++		}
+ 		const int left = std::min(v.ulx, v.llx), right = std::max(v.urx, v.lrx);
+ 		if (left <= pad / 8 + 1 && (out.leftX < 0 || left < out.leftX)) { out.leftX = left; out.leftY = left == v.ulx ? v.uy : v.ly; }
+ 		if (right >= (pad + fitted) / 8 - 2 && right > out.rightX) { out.rightX = right; out.rightY = right == v.urx ? v.uy : v.ly; }
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0847de76..707ae8d6 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 12;
++static const int kWorldExportVersion = 13;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 5f5f251e..77c8af88 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1640,6 +1640,7 @@ protected:
+ 	// Other worlds in the sandbox (scummverse_world_play.inc).
+ 	int _scummverseWorldRoom = 0;
+ 	Common::Path scummverseWorldCache() const;
++	bool scummverseWorldSceneInstalled(int game, int room) const;
+ 	bool scummverseMountWorld(int room);
+ 	void scummverseApplyWorldPalette();
+ 	bool scummverseTravelWorld(int room, int x = -1, int y = -1);
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index a61d4360..510dfaf3 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -27,7 +27,7 @@ static const TourManiacRoom kTourManiacRooms[] = {
+ 	{3, 57, 59, "living room"}, {4, 48, 59, "dungeon passage"}, {5, 23, 57, "phone hall"}, {6, 12, 51, "pool deck"},
+ 	{7, 44, 61, "kitchen"}, {8, 44, 64, "boiler basement"}, {9, 18, 65, "wall-safe closet"}, {10, 36, 60, "grand foyer"},
+ 	{11, 38, 56, "upstairs landing"}, {12, 32, 57, "stair landing with plant"}, {13, 30, 59, "statue hall"},
+-	{14, 14, 54, "art studio"}, {15, 18, 56, "wiring crawlspace"}, {16, 28, 63, "garage"}, {17, 18, 56, "music room"},
++	{14, 26, 64, "art studio"}, {15, 18, 56, "wiring crawlspace"}, {16, 28, 63, "garage"}, {17, 18, 56, "music room"},
+ 	{18, 44, 62, "arcade room"}, {19, 26, 63, "desk bedroom"}, {20, 38, 62, "stereo bedroom"}, {21, 12, 63, "nurse's bedroom"},
+ 	{22, 9, 61, "medical office"}, {23, 26, 61, "photo darkroom"}, {24, 28, 62, "bathroom"}, {25, 40, 60, "muscle-machine gym"},
+ 	{26, 28, 60, "model-plane bedroom"}, {27, 22, 59, "study with plant"}, {28, 8, 61, "observatory"}, {29, 57, 54, "drain tunnel"},
+@@ -163,10 +163,7 @@ bool ScummEngine::scummverseTourAvailable(int index) {
+ 		if (_scummverseTourZak < 0) _scummverseTourZak = scummverseMountZak() ? 1 : 0;
+ 		return _scummverseTourZak == 1;
+ 	}
+-	if (stop.kind == kTourWorld) {
+-		const WorldGame &game = kWorldGames[stop.game];
+-		return Common::FSNode(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", game.gameid, stop.room))).exists();
+-	}
++	if (stop.kind == kTourWorld) return scummverseWorldSceneInstalled(stop.game, stop.room);
+ 	return true;
+ }
+ 
+@@ -187,11 +184,17 @@ bool ScummEngine::scummverseTourPlace(int room, int x, int y) {
+ 	return true;
+ }
+ 
++// Where the guide stands in a Zak room whose own arrival point would hide it
++// (the Mars landing site's is behind the parked tram).
++static const short kTourZakSpots[][3] = {{79, 85, 52}};
++
+ // A Zak room by the sandbox's own travel (the apartment, the airport and the
+ // street have their own destinations).
+ bool ScummEngine::scummverseTourZakRoom(int room) {
+ 	const int destination = room == 54 ? 1 : room == 53 ? 3 : room == 55 ? 5 : room - 50;
+-	return scummverseTravel(destination) && _currentRoom == room;
++	int x = -1, y = -1;
++	for (const auto &spot : kTourZakSpots) if (spot[0] == room) { x = spot[1]; y = spot[2]; }
++	return scummverseTravel(destination, 0, x, y) && _currentRoom == room;
+ }
+ 
+ // Whether the guide stands in a room (another game's: by its own number).
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 908c84ee..b66dfdf4 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -216,8 +216,90 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		for (byte p : pixels) same += p == pixels[0];
+ 		return same < (int)pixels.size() * 99 / 100; // Something besides one color.
+ 	};
+-	// A v3/v4 room drawn entirely by its entry script comes out one color.
+-	if (!render() && _game.version <= 4 && !scripted) return scummverseExportScene(room, file, problem, true, shown, shownCount, depths);
++	// A v3-v6 room drawn entirely by its entry script comes out one color.
++	// Still one color with it, the room is no place (a cutscene's or a text
++	// screen's backdrop).
++	if (!render()) {
++		if (_game.version <= 6 && !scripted) return scummverseExportScene(room, file, problem, true, shown, shownCount, depths);
++		problem = "blank room";
++		return false;
++	}
++	// Loom's rooms leave holes in their pictures (solid black) where
++	// animation frames go, objects in one rectangle (the waterspout, the sea)
++	// that their scripts show one at a time. Drawn without those scripts the
++	// holes stay. A hole: an object's rectangle 95% or more black in the room
++	// as drawn, where the picture around it (8 pixels, other holes left out)
++	// is under 60% black (a night room's dark corners, and the close-ups
++	// in the top left corner, stay as they are).
++	// There, the first frame that leaves half of what is black lit shows alone.
++	if (_game.id == GID_LOOM) {
++		auto dark = [&](int x, int y) {
++			const byte *rgb = _currentPalette + 3 * pixels[y * W + x];
++			return !rgb[0] && !rgb[1] && !rgb[2];
++		};
++		auto black = [&](const ObjectData &o) {
++			int count = 0;
++			for (int y = o.y_pos; y < o.y_pos + o.height; ++y)
++				for (int x = o.x_pos; x < o.x_pos + o.width; ++x) count += dark(x, y);
++			return count;
++		};
++		// Some frames' images are not drawable (strip offsets past the
++		// image; the game never shows them): those are passed over.
++		auto drawable = [&](const ObjectData &o) {
++			const byte *image = getObjectImage(getOBIMFromObjectData(o), getState(o.obj_nr));
++			if (!image) return false;
++			if (!(_game.features & (GF_16COLOR | GF_SMALL_HEADER))) return true; // As drawBitmap reads them.
++			const bool wide = !(_game.features & GF_16COLOR);
++			const uint32 length = wide ? READ_LE_UINT32(image) : READ_LE_UINT16(image);
++			for (int strip = 0; strip < o.width / 8; ++strip) {
++				const uint32 at = wide ? 4 * strip + 4 : 2 * strip + 2;
++				if (at >= length || (wide ? READ_LE_UINT32(image + at) : READ_LE_UINT16(image + at)) >= length) return false;
++			}
++			return true;
++		};
++		Common::Array<bool> candidate(_numLocalObjects, false), hole(_numLocalObjects, false);
++		Common::Array<bool> covered(W * H, false);
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			const ObjectData &o = _objs[i];
++			const bool inside = o.width > 0 && o.height > 0 && o.x_pos >= 0 && o.y_pos >= 0 && o.x_pos + o.width <= W && o.y_pos + o.height <= H;
++			if (!o.obj_nr || !inside || black(o) * 100 < o.width * o.height * 95) continue;
++			candidate[i] = true;
++			for (int y = o.y_pos; y < o.y_pos + o.height; ++y)
++				for (int x = o.x_pos; x < o.x_pos + o.width; ++x) covered[y * W + x] = true;
++		}
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			if (!candidate[i]) continue;
++			const ObjectData &o = _objs[i];
++			int around = 0, aroundDark = 0;
++			for (int y = MAX(0, o.y_pos - 8); y < MIN(H, o.y_pos + o.height + 8); ++y)
++				for (int x = MAX(0, o.x_pos - 8); x < MIN(W, o.x_pos + o.width + 8); ++x)
++					if (!covered[y * W + x]) { ++around; aroundDark += dark(x, y); }
++			hole[i] = around && aroundDark * 10 < around * 6;
++		}
++		bool changed = false;
++		Common::Array<bool> tried(_numLocalObjects, false);
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			if (!hole[i] || tried[i]) continue;
++			const ObjectData &o = _objs[i];
++			Common::Array<int> frames;
++			for (int k = 1; k < _numLocalObjects; ++k)
++				if (_objs[k].obj_nr && _objs[k].x_pos == o.x_pos && _objs[k].y_pos == o.y_pos && _objs[k].width == o.width && _objs[k].height == o.height) { frames.push_back(k); tried[k] = true; }
++			Common::Array<byte> states;
++			for (int k = 1; k < _numLocalObjects; ++k) states.push_back(_objs[k].state);
++			const int before = black(o);
++			bool found = false;
++			for (uint f = 0; f < frames.size() && !found; ++f) {
++				if (!drawable(_objs[frames[f]])) continue;
++				for (int k = 1; k < _numLocalObjects; ++k) _objs[k].state = states[k - 1];
++				for (uint g = 0; g < frames.size(); ++g) _objs[frames[g]].state = g == f ? 1 : 0;
++				render();
++				found = black(o) * 2 <= before;
++			}
++			if (!found) for (int k = 1; k < _numLocalObjects; ++k) _objs[k].state = states[k - 1];
++			changed = true;
++		}
++		if (changed) render();
++	}
+ 	if (preset) {
+ 		// Their animations run: a light bridge is a stream of pulses, so the
+ 		// still keeps every pixel any step drew (one cycle, the latest wins).
+@@ -234,16 +316,21 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		warning("SCUMMVERSE_WORLD_PRESET %s %d %d", game->gameid, room, changed);
+ 		for (int id = 1; id < _numActors; ++id) _actors[id]->putActor(0, 0, 0);
+ 	}
++	// Day of the Tentacle's front yard (room 11) is taller than the view above
++	// the game's controls: the band below is never shown, left in the
++	// painters' key pink where a path leads off the bottom. The picture ends
++	// where the original's view does.
++	const int shownHeight = _game.id == GID_TENTACLE && room == 11 && H > 144 ? 144 : H;
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	// The compressed stream owns (and closes) the file.
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+ 	const int boxes = MIN<int>(getNumBoxes(), 255);
+-	out.write("SVW4", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, H);
++	out.write("SVW4", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, shownHeight);
+ 	out.writeByte(boxes); out.writeByte(0);
+ 	out.write(_currentPalette, 768);
+-	out.write(pixels.data(), pixels.size());
++	out.write(pixels.data(), W * shownHeight);
+ 	for (int b = 0; b < boxes; ++b) {
+ 		const BoxCoords box = getBoxCoordinates(b);
+ 		const Common::Point corners[4] = {box.ul, box.ur, box.lr, box.ll};
+@@ -484,6 +571,9 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		const Common::Path file = dir.appendComponent(Common::String::format("%s-%d.svw", game->gameid, room));
+ 		if (!scummverseExportScene(room, file, problem)) {
+ 			warning("SCUMMVERSE world export: %s room %d skipped (%s)", game->gameid, room, problem.c_str());
++			// An older export's scene of it is emptied (no place to go).
++			Common::DumpFile stale;
++			if (Common::FSNode(file).exists() && stale.open(file, true)) stale.finalize();
+ 			continue;
+ 		}
+ 		++written;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 30e2a929..0f7d83d1 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -77,6 +77,15 @@ Common::Path ScummEngine::scummverseWorldCache() const {
+ 	return Common::Path("worlds");
+ }
+ 
++// A game's room exported here. An empty scene is a room a later export
++// found no place (one color), emptied in place of an older export's.
++bool ScummEngine::scummverseWorldSceneInstalled(int game, int room) const {
++	if (game < 0 || game >= worldGameCount()) return false;
++	const Common::FSNode node(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room)));
++	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
++	return in && in->size() > 0;
++}
++
+ bool ScummEngine::scummverseMountWorld(int room) {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(room, source);
+@@ -798,13 +807,42 @@ void ScummEngine::scummversePlaceGuest(int k, int place) {
+ 	a->_talkColor = guest->talkColor;
+ 	const size_t length = strlen(guest->name) + 1;
+ 	memcpy(_res->createResource(rtActorName, a->_number, length), guest->name, length);
+-	// Spread out on both sides of the arrival point.
++	// Spread out on both sides of the arrival point, on the scene's own
++	// picture, clear of its sides (a narrow scene has dark bands beside it):
++	// of the spots on its floor, the nearest to this guest's side that stands
++	// a character's width from the player and the guests already here, else
++	// the clearest (a narrow scene used to pile them on one spot).
+ 	const int offset = (k / 2 + 1) * 5 * (k % 2 ? -1 : 1);
+ 	a->putActor(WorldBridge::spawnX(), WorldBridge::spawnY(), _currentRoom);
+-	// On the scene's own picture, clear of its sides (a narrow scene has dark
+-	// bands beside it).
+ 	const int left = WorldBridge::contentLeft() / 8 + 2, right = MAX(left, WorldBridge::contentRight() / 8 - 3);
+-	AdjustBoxResult point = a->adjustXYToBeInBox(CLIP<int>(WorldBridge::spawnX() + offset, left, right), WorldBridge::spawnY() + k % 3);
++	// A step behind the arrival point: whoever arrives is drawn in front.
++	const int wantX = CLIP<int>(WorldBridge::spawnX() + offset, left, right), wantY = WorldBridge::spawnY() - 1 - k % 3;
++	// The arrival spot stays clear too: guests take their places before
++	// someone arriving from the menu or the tour stands there.
++	Common::Array<Common::Point> taken;
++	taken.push_back(Common::Point(WorldBridge::spawnX(), WorldBridge::spawnY()));
++	const Actor *player = derefActor(VAR(VAR_EGO), "guest spacing");
++	if (player->_room == _currentRoom) taken.push_back(player->getRealPos());
++	for (int j = 0; j < kScummverseGuestSlots; ++j) {
++		const Actor *other = derefActor(kScummverseGuestActor + j, "guest spacing");
++		if (j != k && other->_room == _currentRoom) taken.push_back(other->getRealPos());
++	}
++	static const int kGuestSpacing = 48; // pixels
++	AdjustBoxResult point = a->adjustXYToBeInBox(wantX, wantY);
++	int bestScore = INT_MIN, bestClear = 0;
++	for (int x = left; x <= right; ++x) {
++		const AdjustBoxResult spot = a->adjustXYToBeInBox(x, wantY);
++		int clear = kGuestSpacing;
++		for (const Common::Point &t : taken) clear = MIN(clear, ABS(spot.x - t.x) * 8 + ABS(spot.y - t.y) * 2);
++		const int score = clear * 100 - ABS(spot.x - wantX) * 8 - ABS(spot.y - wantY) * 2;
++		if (score > bestScore) { bestScore = score; bestClear = clear; point = spot; }
++	}
++	// No room left beside everyone (a narrow scene, wide characters): a step
++	// further back, so whoever arrives is drawn in front.
++	if (bestClear < kGuestSpacing) {
++		const AdjustBoxResult back = a->adjustXYToBeInBox(point.x, point.y - 4);
++		if (back.y < point.y) point = back;
++	}
+ 	a->putActor(point.x, point.y, _currentRoom);
+ 	a->setDirection(180); a->startAnimActor(a->_standFrame); a->showActor();
+ 	_scummverseGuestTick[k] = 0; _scummverseGuestShown[k] = -1; _scummverseGuestGreeted[k] = false; _scummverseGuestHop[k] = 0;

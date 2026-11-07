@@ -1,0 +1,494 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index 3cc58ccd..248b02c6 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -933,6 +933,7 @@ bool ScummEngine::loadState(int slot, bool compat, Common::String &filename) {
+ 	_sound->restoreAfterLoad();
+ 
+ 	scummverseMigrateTravelRecords();
++ scummverseMigrateLegacyWorlds();
+  scummverseRestoreTemple();
+  scummverseRestoreSceneNavigation(true);
+  scummverseRestoreTransportVisibility();
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 536c4045..cad4b24a 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1641,6 +1641,7 @@ protected:
+ 	Common::Point _scummverseWalkPos;
+ 	bool _scummverseTapPending = false;
+ 	void scummverseMigrateWorldRooms();
++	void scummverseMigrateLegacyWorlds();
+ 	int scummverseWorldSceneCount() const;
+ 	// The scene's position in its game: index and the game's scene count.
+ 	bool scummverseWorldPlace(int index, int &scene, int &count) const;
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index fbc94227..a3cad0e3 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -9,7 +9,7 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ 
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+-static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 53;
++static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 68; // 68: Sphinx maze scenes
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 0bec1ebb..06aa2afc 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -18,9 +18,9 @@ static const ZakPlace zakPlaces[] = {
+ 	{9, "8bd54c735a167c4ef42433780fa8f7ab", "Cairo airport"},
+ 	{21, "a6b1551f60dc73fcc76830a87e29e0f1", "Mars pyramid entrance"},
+ 	{20, "2b1b8bb52d3fcbdc64854328d26932b2", "Sphinx and pyramids"},
+-	{22, "7ce9ca6c97324588dc201fa1e566e716", "Pyramid entrance"},
+-	{23, "5cf60128d7e51cf36f5d09ad07da930c", "Pyramid passages"},
+-	{24, "874b5ffbb30b15fb8e5f16a0055ac91c", "Sarcophagus chamber"},
++	{22, "7ce9ca6c97324588dc201fa1e566e716", "Inside the Sphinx's leg"},
++	{23, "5cf60128d7e51cf36f5d09ad07da930c", "Egypt pyramid corridor"},
++	{24, "874b5ffbb30b15fb8e5f16a0055ac91c", "Egypt sarcophagus chamber"},
+ 	{25, "d180b092a6d3b60b09dfd922d7f7fcf5", "Crystal chamber"},
+ 	{8, "5337090e7a6ebdbfb698ebda3750d926", "London airport"},
+ 	{44, "884a03db3f6a5a41920aeea82bd81a00", "Stonehenge"},
+@@ -29,7 +29,7 @@ static const ZakPlace zakPlaces[] = {
+ 	{30, "25c302c01174b88ecc0376241318d4f6", "Shuttle Bug"},
+ 	{32, "4a997a3115ca9b089f3308060ec0ecae", "Mars face entrance"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars Great Chamber"},
+-	{15, "a6b1451c24ea995971b3e3fe116b7955", "Mars pyramid"},
++	{15, "a6b1451c24ea995971b3e3fe116b7955", "Mars pyramid crystal room"},
+ 	{8, "5337090e7a6ebdbfb698ebda3750d926", "Mexico City airport"},
+ 	{37, "b7179f02fc59661cf75ea23d5519bd42", "Mexico jungle"},
+ 	{39, "971834702c89ae68247b02a82df35f25", "Mexico temple"},
+@@ -87,6 +87,18 @@ static const ZakLogicalScene zakLogicalScenes[] = {
+ 	// hostel door (464) leads to the bunks (180).
+ 	{181, 80, "Mars hostel entrance"},
+ 	{184, 79, "Mars tram station"},
++	// Pyramids and the Sphinx (original pseudo rooms; physical 73 = 140,
++	// 74 = 206, 75 = 155, 84 = 188). The Sphinx maze is fourteen cells of the
++	// one corridor resource, each with its own doorways (original entry script).
++	{139, 73, "Inside the Sphinx's other leg"},
++	{186, 75, "Mars sarcophagus chamber"},
++	{187, 74, "Mars pyramid corridor"},
++	{152, 84, "Egypt map room"},
++	{207, 74, "Sphinx maze entrance"},
++	{208, 74, "Sphinx maze"}, {209, 74, "Sphinx maze"}, {210, 74, "Sphinx maze"}, {211, 74, "Sphinx maze"},
++	{212, 74, "Sphinx maze"}, {213, 74, "Sphinx maze"}, {214, 74, "Sphinx maze"}, {215, 74, "Sphinx maze"},
++	{216, 74, "Sphinx maze"}, {217, 74, "Sphinx maze"}, {218, 74, "Sphinx maze"}, {219, 74, "Sphinx maze"},
++	{220, 74, "Sphinx maze dead end"},
+ };
+ // Imported physical room backing a scene (itself for rooms 56..126), or 0.
+ static bool zakPhysicalRoom(int room) { return room >= 56 && room < 56 + (int)(sizeof(zakPlaces) / sizeof(zakPlaces[0])); }
+@@ -183,23 +195,50 @@ static const ZakLink zakLinks[] = {
+ 	{70, 733, 72, 390},
+ 	{72, 736, 70, 218},
+ 	{72, 732, 135, 397},
+-	{72, 734, 73, 0},
+-	{72, 735, 73, 0},
++	{72, 734, 73, 398},
++	{72, 735, 139, 398},
+ 	{135, 737, 72, 386},
+ 	{135, 738, 72, 386},
+ 	{135, 735, 74, 403},
+ 	// Mars pyramid entrance 183 (resource 21) from the landing site.
+ 	{71, 737, 184, 456},
+ 	{71, 738, 184, 456},
+-	{71, 735, 84, 0},
+-	{72, 733, 74, 0},
+-	{73, 732, 72, 0},
+-	{73, 735, 74, 0},
+-	{74, 732, 73, 0},
+-	{74, 733, 75, 0},
+-	{75, 739, 76, 0},
+-	{75, 740, 74, 0},
+-	{76, 732, 75, 0},
++	// Pyramid corridors (resource 23): Egypt 206 (sandbox 74) joins the pyramid
++	// passage and the sarcophagus chamber; Mars 187 joins the pyramid entrance
++	// and its sarcophagus chamber, whose stairs lead to the crystal room 188.
++	{71, 735, 187, 403},
++	{74, 732, 135, 392},
++	{74, 738, 75, 421},
++	{75, 740, 74, 408},
++	{75, 739, 76, 422, 2, 60},
++	{76, 732, 75, 420, 8, 44},
++	{187, 732, 71, 392},
++	{187, 738, 186, 421},
++	{186, 740, 187, 408},
++	{186, 739, 84, 311, 42, 60},
++	{84, 742, 186, 420, 8, 44},
++	// The Sphinx: its secret entryway and the leg's entryway open into the maze
++	// (207); the legs lead back out. Maze doorways per the original entry
++	// script (each cell stores the next cell and the arrival doorway).
++	{72, 733, 207, 403},
++	{73, 732, 72, 388},
++	{73, 735, 207, 403},
++	{139, 732, 72, 387},
++	{207, 732, 73, 400}, {207, 735, 211, 403}, {207, 736, 208, 404},
++	{208, 733, 207, 407}, {208, 734, 209, 407}, {208, 736, 209, 405},
++	{209, 732, 210, 405}, {209, 734, 208, 407}, {209, 736, 208, 405},
++	{210, 733, 211, 406}, {210, 734, 209, 403}, {210, 735, 213, 404},
++	{211, 732, 207, 406}, {211, 733, 212, 403}, {211, 735, 210, 404},
++	{212, 732, 211, 404}, {212, 734, 213, 407}, {212, 736, 213, 405},
++	{213, 733, 210, 406}, {213, 734, 212, 407}, {213, 735, 214, 404}, {213, 736, 212, 405},
++	{214, 733, 213, 406}, {214, 735, 215, 404}, {214, 736, 219, 404},
++	{215, 732, 216, 404}, {215, 733, 214, 406},
++	{216, 733, 215, 403}, {216, 734, 217, 403}, {216, 735, 218, 404},
++	{217, 732, 216, 405}, {217, 736, 218, 405},
++	{218, 733, 216, 406}, {218, 734, 217, 407}, {218, 738, 152, 323},
++	{219, 733, 214, 407}, {219, 738, 220, 408},
++	{220, 738, 219, 408},
++	{152, 732, 218, 408},
+ 	{77, 734, 78, 0},
+ 	{78, 738, 134, 652},
+ 	{134, 733, 78, 644},
+@@ -214,8 +253,6 @@ static const ZakLink zakLinks[] = {
+ 	{80, 748, 181, 464},
+ 	{181, 734, 80, 472},
+ 	{81, 739, 79, 0},
+-	{84, 732, 83, 0},
+-	{84, 742, 83, 0},
+ 	{85, 734, 86, 0},
+ 	{86, 734, 85, 0},
+ 	{86, 735, 87, 0},
+@@ -388,6 +425,8 @@ static const ZakRefusal zakRefusals[] = {
+ struct ZakSceneObjectState { int room, file, object, setBits, clearBits; };
+ static const ZakSceneObjectState zakSceneObjectStates[] = {
+ 	{0, 12, 267, 8, 0},
++	// The Sphinx's secret entryway (original 389), open for exploration.
++	{72, 20, 389, 8, 2},
+  // Mexico crystal chamber is source logical room 130, not other file-14 variants.
+ 	{89, 14, 56, 2, 8},
+ 	{89, 14, 57, 2, 8},
+@@ -1400,16 +1439,296 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {456,0,0,8},
+   {444,944,0,0}
+  }},
++// Pyramids and the Sphinx maze (resource 23 corridor cells, legs, sarcophagus
++// and map rooms): original logical setups from the scene audit captures, plus
++// the exploration presets noted (puzzle-opened passages; cells lit).
++ // Egypt pyramid corridor (original 206); dark in the original, lit for exploration.
++ {74,206,160,800,5,10,{255,8,9},{0,0,0,0,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,744,8,8},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ // Mars pyramid corridor (resource 23 in Mars colors).
++ {187,187,160,800,5,10,{255,12,11},{0,0,0,0,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,744,8,8},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ // Sphinx maze (original logical rooms 207..220 on resource 23).
++ {207,207,160,800,5,10,{255,8,9},{0,0,0,0,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,152,8,2},
++  {406,592,8,8},
++  {407,328,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,8}
++ }},
++ {208,208,160,800,5,10,{255,8,9},{0,0,0,0,0},{
++  {403,0,0,2},
++  {404,920,0,8},
++  {405,416,8,8},
++  {406,152,8,2},
++  {407,64,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {209,209,160,448,5,10,{255,8,9},{0,0,0,64,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,504,8,8},
++  {406,152,8,2},
++  {407,152,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,568,0,10},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {210,210,160,272,5,10,{255,8,9},{0,128,0,0,0},{
++  {403,0,0,2},
++  {404,392,0,8},
++  {405,152,8,8},
++  {406,240,8,8},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {211,211,160,272,5,10,{255,8,9},{0,128,0,0,0},{
++  {403,0,0,8},
++  {404,392,0,8},
++  {405,152,8,2},
++  {406,240,8,8},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {212,212,160,272,5,10,{255,8,9},{0,64,0,0,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,328,8,8},
++  {406,152,8,2},
++  {407,152,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,392,0,10},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {213,213,160,448,5,10,{255,8,9},{0,0,0,128,0},{
++  {403,0,0,2},
++  {404,568,0,8},
++  {405,416,8,8},
++  {406,64,8,8},
++  {407,240,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {214,214,160,448,5,10,{255,8,9},{0,0,0,128,0},{
++  {403,0,0,2},
++  {404,568,0,8},
++  {405,152,8,2},
++  {406,64,8,8},
++  {407,328,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {215,215,160,448,5,10,{255,8,9},{0,0,0,128,0},{
++  {403,0,0,8},
++  {404,568,0,8},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,10},
++  {411,80,40,2}
++ }},
++ {216,216,160,448,5,10,{255,8,9},{0,0,0,128,0},{
++  {403,0,0,2},
++  {404,568,0,8},
++  {405,328,8,8},
++  {406,240,8,8},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {217,217,160,272,5,10,{255,8,9},{0,64,0,0,0},{
++  {403,0,0,8},
++  {404,920,0,2},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,8},
++  {412,152,8,2},
++  {408,152,8,2},
++  {409,392,0,10},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {218,218,160,800,5,10,{255,8,9},{0,0,0,0,0},{
++  {403,0,0,2},
++  {404,920,0,8},
++  {405,768,8,8},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,40,8,8},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {219,219,160,448,5,10,{255,8,9},{0,0,0,128,0},{
++  {403,0,0,2},
++  {404,568,0,8},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,10},
++  {408,152,8,8},
++  {409,920,0,2},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ {220,220,160,800,5,10,{255,8,9},{0,0,0,0,0},{
++  {403,0,0,2},
++  {404,920,0,2},
++  {405,152,8,2},
++  {406,152,8,2},
++  {407,152,8,2},
++  {412,152,8,2},
++  {408,216,8,8},
++  {409,920,0,10},
++  {410,40,8,2},
++  {411,80,40,2}
++ }},
++ // Inside the Sphinx leg with the secret entryway (original 140), opened.
++ {73,140,160,160,3,5,{0,1,2},{0,0,0},{
++  {398,0,0,0},
++  {402,168,72,2},
++  {399,192,88,2},
++  {400,176,64,8},
++  {401,264,0,2}
++ }},
++ // The other Sphinx leg (original 139).
++ {139,139,160,160,3,5,{0,1,2},{0,0,128},{
++  {398,0,0,0},
++  {402,168,72,10},
++  {399,192,88,0},
++  {400,176,64,2},
++  {401,264,0,10}
++ }},
++ // Egypt sarcophagus chamber (155), stairs to room 25 shown.
++ {75,155,160,320,10,9,{255,8,9},{0,0,0,0,0,0,0,0,0,0},{
++  {415,240,56,2},
++  {414,200,56,2},
++  {413,104,56,2},
++  {416,352,24,0},
++  {417,360,16,2},
++  {418,360,16,2},
++  {419,360,16,2},
++  {420,48,16,8},
++  {421,448,16,0}
++ }},
++ // Mars sarcophagus chamber (186), opened.
++ {186,186,160,320,10,9,{255,15,9},{0,0,0,0,0,0,64,0,0,0},{
++  {415,240,56,10},
++  {414,200,56,8},
++  {413,104,56,0},
++  {416,352,24,0},
++  {417,360,16,2},
++  {418,360,16,2},
++  {419,360,16,2},
++  {420,48,16,8},
++  {421,448,16,0}
++ }},
++ // Mars pyramid crystal room (188), stairs shown.
++ {84,188,480,480,16,19,{255,2,4},{128,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},{
++  {323,0,24,0},
++  {316,120,40,0},
++  {317,152,40,0},
++  {318,184,40,0},
++  {319,128,32,0},
++  {320,48,8,0},
++  {321,216,8,0},
++  {322,40,8,2},
++  {310,192,8,0},
++  {324,80,88,2},
++  {311,344,104,8},
++  {326,568,24,0},
++  {325,568,24,0},
++  {327,584,112,0},
++  {58,464,32,1},
++  {312,448,32,0},
++  {313,432,48,10},
++  {314,432,48,2},
++  {315,432,48,2}
++ }},
++ // Egypt map room (152, left half of resource 15).
++ {152,152,160,160,16,19,{255,8,9},{0,128,0,0,0,128,0,0,0,0,0,0,0,0,128,0},{
++  {323,0,24,0},
++  {316,120,40,0},
++  {317,152,40,0},
++  {318,184,40,0},
++  {319,128,32,0},
++  {320,48,8,0},
++  {321,216,8,0},
++  {322,40,8,2},
++  {310,192,8,0},
++  {324,80,88,2},
++  {311,344,104,2},
++  {326,568,24,0},
++  {325,568,24,0},
++  {327,584,112,0},
++  {58,464,32,1},
++  {312,448,32,0},
++  {313,432,48,2},
++  {314,432,48,2},
++  {315,432,48,2}
++ }},
+ };
+ // Original room colors and camera bounds for imported rooms without a full
+ // setup (or whose sandbox adapters own object state, like the cabin seats).
+ // Values come from each matching logical scene's original entry handler.
+ struct ZakSceneView { int room, logicalRoom, cameraMin, cameraMax, color1, color2; };
+ static const ZakSceneView zakSceneViews[] = {
+- {56,11,264,640,15,8}, {68,19,160,480,2,9}, {74,23,160,800,8,9}, {75,155,160,320,8,9},
++ {56,11,264,640,15,8}, {68,19,160,480,2,9},
+  {79,185,160,800,15,2}, {81,30,160,160,1,11}, {89,130,160,160,15,7},
+- // Pending reconstruction: not an original logical scene (see scene audit).
+- {84,0,0,0,2,4},
+ };
+ static const ZakSceneView *zakSceneView(int room) {
+  for (const auto &view : zakSceneViews) if (view.room == room) return &view;
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index fb979911..e196c006 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -209,6 +209,9 @@ void ScummEngine::scummverseStartRoaming() {
+ 		a->putActor(x, y, room);
+ 	}
+ 	_scummverseRoamingReady = true;
++	// A new game uses today's room layout: rooms 200+ are original Zak scenes
++	// (the Sphinx maze), never other-world places of patches 0057..0061.
++	_scummVars[kWorldLayoutVar] = 1;
+ 	_scummverseRosterPending=true;
+ 	_scummverseLastEgo = VAR(VAR_EGO);
+ 	_scummVars[175] = 0;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 91473d2e..05698161 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -311,6 +311,13 @@ void ScummEngine::scummverseMigrateWorldRooms() {
+ 	_scummVars[kWorldLayoutVar] = 1;
+ }
+ 
++// Saves from patches 0057..0061 (layout variable unset) hold other-world
++// places as rooms 200..255, which are original Zak scenes (the Sphinx maze)
++// since patch 0068: move them before the Zak restore steps read the room.
++void ScummEngine::scummverseMigrateLegacyWorlds() {
++	if (_scummverseRoaming && !_scummVars[kWorldLayoutVar]) scummverseMigrateWorldRooms();
++}
++
+ // After a load inside a scene: mount it again, or bring the player to the
+ // airport when the scene is no longer installed.
+ void ScummEngine::scummverseRestoreWorld() {

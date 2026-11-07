@@ -1,0 +1,656 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index eecdb74b..84628fcd 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -1573,7 +1573,10 @@ bool addIcon(int game, int id, const char *name) {
+ 		if (!c) return false;
+ 		Panel::Item item;
+ 		item.name = name ? name : c->name;
+-		item.width = c->width; item.height = c->height; item.picture = c->picture;
++		// (From 0294 one drawn nowhere (its mask empty: a thing its place's
++		// scene lists not, given, its export's): its name alone, as addNamed's.)
++		if (std::any_of(c->picture.begin(), c->picture.end(), [](uint32_t p) { return p != 0; })) { item.width = c->width; item.height = c->height; item.picture = c->picture; }
++		else if (item.name.empty()) return false;
+ 		std::vector<Panel::Item> items = panel().items();
+ 		items.push_back(item);
+ 		panel().setItems(items);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 272a52e0..dbca8274 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -170,12 +170,20 @@ static const int kWorldExportVersion = 25;
+ // arrived at arrived at as a player arrives: the story state their scripts
+ // read there, kWorldArrivalVars, the one played in the place first, a
+ // template room as its instance, a cut-scene no player can skip played on,
+-// its game's clock not waited: "monkey-v36", "atlantis-v32", "ft-v33").
++// its game's clock not waited: "monkey-v36", "atlantis-v32", "ft-v33");
++// from 0294 Monkey Island's, Monkey Island 2's, Fate of Atlantis's and Day
++// of the Tentacle's again (their people given to through the things their
++// games give to by their own entry, kWorldGivesThrough), and those of Monkey
++// Island, Monkey Island 2, Fate of Atlantis, the Last Crusade, Full
++// Throttle, The Dig and the Curse whose answers give a thing its place's
++// scene lists not (no box: carried by its name; Monkey Island's gunpowder,
++// room 8, 105): "monkey-v37", "monkey2-v36", "atlantis-v33",
++// "tentacle-v35", "indy3-v31", "ft-v34", "dig-v33", "comi-v32".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 11 : same(gameid, "monkey2") ? 10 : same(gameid, "tentacle") ? 9 :
+-		same(gameid, "zak") || same(gameid, "ft") ? 8 : same(gameid, "dig") || same(gameid, "atlantis") ? 7 : same(gameid, "samnmax") || same(gameid, "comi") ? 6 :
+-		same(gameid, "indy3") ? 5 : same(gameid, "loom") ? 2 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 12 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
++		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
++		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1450,12 +1458,50 @@ inline int worldStepAwayWhile(const WorldStepAway &w, int nth) {
+ // thing (filed under kWorldPersonThing and their costume as for any of the
+ // cast given to) and records where such an answer takes the one played, as
+ // for an answer of one thing (from 0283).
++// From 0294 also those whom their place has in a costume not their cast's
++// (the export gives to them through their thing, standing as whoever
++// stands under it on arriving, kWorldGivesThrough): Day of the Tentacle's
++// Red Edison (room 16, 113; 85 there, the cast's 83), Nurse Edna (room 28,
++// 204; 119 there) and Dead Cousin Ted (room 36, 333; 187 there).
+ struct WorldGivenAs { short game, room, costume, object; };
+-static const WorldGivenAs kWorldGivenAs[] = {{0, 57, 20, 637}};
++static const WorldGivenAs kWorldGivenAs[] = {{0, 57, 20, 637}, {5, 16, 83, 113}, {5, 28, 330, 204}, {5, 36, 235, 333}};
+ inline const WorldGivenAs *worldGivenAs(int game, int room, int costume) {
+ 	for (const WorldGivenAs &g : kWorldGivenAs) if (g.game == game && g.room == room && g.costume == costume) return &g;
+ 	return nullptr;
+ }
++// From 0294 the games whose sentence gives to a thing of the place by that
++// thing's own entry `entry` (its verb table's, not its default), one of
++// class `cls` where its sentence asks (0: any): Monkey Island's and Monkey
++// Island 2's (their sentence scripts, 2: a thing of class 5, entry 80), Fate
++// of Atlantis's (its sentence script 2 hands a thing of class 5 to its
++// script 12, which starts that entry) and Day of the Tentacle's (its
++// sentence script 121 turns Give round into 80 on the one given to, run
++// where that one has it). Their people are such things drawn over their
++// actor (the bridge's troll, 637; Monkey Island 2's woodsmith, 143); before,
++// the export gave to the actor, which runs only the thing given's own Give,
++// and every one of their answers was the usual one. The export now gives to
++// each of the cast in a place through the one of these that they stand
++// under as the place is arrived at (worldStandsUnder; kWorldGivenAs first),
++// filed under them as before; one nobody of the cast stands under (Monkey
++// Island's poodles, 475, an actor not of its cast; Monkey Island 2's
++// Captain Dread, 239, nobody there) is given to as a thing, filed under it
++// (its Give, the thing given its second), as the new engine looks a Give to
++// a thing up (pairOwn).
++struct WorldGivesThrough { short game, entry, cls; };
++static const WorldGivesThrough kWorldGivesThrough[] = {{0, 80, 5}, {1, 80, 5}, {4, 80, 5}, {5, 80, 0}};
++inline const WorldGivesThrough *worldGivesThrough(int game) {
++	for (const WorldGivesThrough &g : kWorldGivesThrough) if (g.game == game) return &g;
++	return nullptr;
++}
++// (Whether one standing at x, y stands under a thing's box at bx, by of w
++// by h, as its game draws the thing over them: no more than 16 pixels to
++// either side of it, 32 above or below it; how far from it (0 within it),
++// else -1.)
++inline int worldStandsUnder(int x, int y, int bx, int by, int w, int h) {
++	const int dx = x < bx ? bx - x : x > bx + w ? x - bx - w : 0;
++	const int dy = y < by ? by - y : y > by + h ? y - by - h : 0;
++	return dx <= 16 && dy <= 32 ? dx + dy : -1;
++}
+ // Someone given to, in a things file's answers (from 0260, Day of the
+ // Tentacle's and both Monkey Islands' Give: its export plays each thing that
+ // can be carried given to each of the game's people (kWorldCast) in a place
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 84d0c7d6..b3d536ad 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -79,6 +79,13 @@ static const int kScummverseClockWait = 3600;
+ // (In a loop of `count` runs, the n-th played: the n-th, or the n-th from
+ // the end.)
+ static uint scummverseRunAt(uint n, uint count, bool reversed) { return reversed ? count - 1 - n : n; }
++// (From 0294 the names of the things of the places of the game exported
++// last that their scenes list not, having no box (scummverseExportOwnAnswers'
++// `unlisted`), for its things file's icons: by object.)
++static Common::HashMap<int, Common::String> &scummverseUnlistedNames() {
++	static Common::HashMap<int, Common::String> names;
++	return names;
++}
+ // (What a loop so played added to `list` from `first` on put in the order
+ // its runs have played forwards: `order`, each one's place in that.)
+ template<class T> static void scummverseRunOrder(Common::Array<T> &list, uint first, const Common::Array<uint32> &order) {
+@@ -4414,6 +4421,27 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			e.lines = a.lines;
+ 			effects.push_back(e);
+ 		}
++		// (From 0294 each thing given that its place's scene lists not (no
++		// box: see scummverseExportOwnAnswers' `unlisted`) an icon drawn
++		// nowhere (1 by 1, its mask empty) with its name, by object: the new
++		// engine carries it by its name (PanelBridge::addIcon), as one with no
++		// picture of its own; an older one as nothing drawn.)
++		Common::Array<int> unlistedGiven;
++		for (const Effect &e : effects)
++			for (uint k = 0; k + 2 < e.others.size(); k += 3) {
++				const int o = e.others[k + 1];
++				if (e.others[k + 2] == kGiven && scummverseUnlistedNames().contains(o) && Common::find(unlistedGiven.begin(), unlistedGiven.end(), o) == unlistedGiven.end()) unlistedGiven.push_back(o);
++			}
++		Common::sort(unlistedGiven.begin(), unlistedGiven.end());
++		for (int o : unlistedGiven) {
++			if ((int)icons.size() >= Scummverse::PanelBridge::kMostIcons) break;
++			Icon c;
++			c.id = o; c.width = c.height = 1; c.name = scummverseUnlistedNames()[o];
++			c.mask = Common::Array<byte>(1, 0); c.rgb = Common::Array<byte>(3, 0);
++			icons.push_back(c);
++		}
++		if (!unlistedGiven.empty()) debug(1, "SCUMMVERSE world things: %s %d things given that their places' scenes list not, carried by their names", kWorldGames[gameIndex].gameid, (int)unlistedGiven.size());
++		ninth = ninth || !icons.empty();
+ 		// (From 0258: "SVO9" where an answer needs it, as Sam & Max's.)
+ 		for (const Effect &e : effects) {
+ 			ninth = ninth || e.from > 1 || e.after > 1 || e.lines.size() > 1 || (e.lines.size() == 1 && e.lines[0].speaker);
+@@ -4967,10 +4995,41 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	Common::HashMap<uint32, uint> entryIn;
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+ 		for (uint i = 0; i + 4 < things[k].size(); i += 5) entryIn[(uint32)rooms[k] << 16 | (uint16)things[k][i]] = k << 16 | i;
++	// (From 0294 a later game's things of a place its scene lists not, having
++	// no box (no width or no height: one its game shows only once carried,
++	// Monkey Island's gunpowder in room 8, 105, its kegs, 94, picked up),
++	// named: each in the first place (in the places' own order) that has it
++	// as its game sets that place up on arriving, so that one an answer gives
++	// is given there (and carried by its name: its things file's icon drawn
++	// nowhere, scummverseExportThings), and used with others as any thing
++	// carried. Before, one given was left out (a given other is one of a
++	// place), and every puzzle needing it was a dead end.)
++	Common::HashMap<int, int> unlisted;
++	scummverseUnlistedNames().clear();
++	for (uint k = 0; !old && k < rooms.size() && !shouldQuit(); ++k) {
++		const int room = rooms[k];
++		if (worldRideScene(gameIndex, room)) continue;
++		putBack();
++		const int played = worldPlayedIn(gameIndex, room);
++		ego = played > 0 && played < _numActors ? played : startEgo;
++		_rnd.setSeed(0x5C0BE + room);
++		if (!arrive(room, 0)) continue;
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			const ObjectData &o = _objs[i];
++			if (!o.obj_nr || (o.width > 0 && o.height > 0) || placeOf.contains(o.obj_nr) || unlisted.contains(o.obj_nr)) continue;
++			const Common::String name = scummverseObjectName(o.obj_nr);
++			if (name.empty()) continue;
++			unlisted[o.obj_nr] = room;
++			scummverseUnlistedNames()[o.obj_nr] = name;
++		}
++	}
++	putBack();
++	ego = startEgo;
+ 	auto placeIn = [&](int other, int room) {
+ 		if (entryIn.contains((uint32)room << 16 | (uint16)other)) return room;
+ 		for (uint k = 0; k < rooms.size(); ++k)
+ 			if (entryIn.contains((uint32)rooms[k] << 16 | (uint16)other) && worldPlayedIn(gameIndex, rooms[k]) == worldPlayedIn(gameIndex, room)) return rooms[k];
++		if (unlisted.contains(other)) return unlisted[other]; // (from 0294)
+ 		return placeOf[other];
+ 	};
+ 	// (A tram's car and its pictures are the new engine's to show, as it
+@@ -5459,7 +5518,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (!untouchable(other)) reveal((uint32)placeIn(other, room) << 16 | (uint16)other); // (from 0281 Zak's by its state's bit)
+ 		}
+ 		for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+-			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
++			if (o != obj && owned[o] != ego && getOwner(o) == ego && (placeOf.contains(o) || unlisted.contains(o)) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); } // (from 0294 `unlisted` too)
+ 		// (From 0267 what it makes touchable or untouchable, itself too.)
+ 		if ((!gone || going) && !spent) touches(e.others, room, obj, e.taken, Common::Array<int>(), wasBefore, before, owned);
+ 		while (e.others.size() > most) e.others.resize(e.others.size() - 3);
+@@ -5717,20 +5776,36 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0260 someone given to, by their actor: filed under
+ 	// kWorldPersonThing and their costume, its picture 0.)
+ 	// (From 0292 `as`: a thing of the place its game gives to for that actor,
+-	// kWorldGivenAs; 0: the actor.)
+-	struct Target { int room, id, from; bool carried; int actor, as; };
++	// kWorldGivenAs; 0: the actor. From 0294 `give`: a thing of the place
++	// given to, as its game gives to its people (kWorldGivesThrough), filed
++	// under it.)
++	struct Target { int room, id, from; bool carried; int actor, as; bool give; };
+ 	Common::Array<Target> targets;
+ 	Common::HashMap<int, Common::Array<int> > placesOf;
+ 	for (uint k = 0; pairs && k + 1 < ranList.size(); k += 2) {
+ 		placesOf[ranList[k + 1]].push_back(ranList[k]);
+-		if (!carryable.contains(ranList[k + 1])) for (int from = 0; from < 2; ++from) targets.push_back({ranList[k], ranList[k + 1], from, false, 0, 0});
++		if (!carryable.contains(ranList[k + 1])) for (int from = 0; from < 2; ++from) targets.push_back({ranList[k], ranList[k + 1], from, false, 0, 0, false});
+ 	}
+-	for (uint k = 0; pairs && !heldThing && k < carriedOnes.size(); ++k) targets.push_back({carryable[carriedOnes[k]], carriedOnes[k], 0, true, 0, 0});
++	for (uint k = 0; pairs && !heldThing && k < carriedOnes.size(); ++k) targets.push_back({carryable[carriedOnes[k]], carriedOnes[k], 0, true, 0, 0, false});
+ 	// (From 0260 who can be given to: each of the game's people (its cast,
+ 	// by costume) in a place exported as its game sets it up on arriving, but
+ 	// its players; one of a costume a place.)
+-	int people = 0;
++	int people = 0, throughs = 0, throughThings = 0;
+ 	const uint targetsBefore = targets.size();
++	// (From 0294 whether a thing's own verb table has that entry, as its
++	// game's getVerbEntrypoint reads it but not its default (0xFF): one its
++	// game gives to by it, kWorldGivesThrough.)
++	const WorldGivesThrough *through = old || heldThing ? nullptr : worldGivesThrough(gameIndex);
++	auto ownEntry = [&](int obj, int entry) {
++		if (_game.version < 3 || _game.version > 7 || whereIsObject(obj) == WIO_NOT_FOUND) return false;
++		const byte *code = getOBCDFromObject(obj);
++		if (!code) return false;
++		const byte *verb = _game.features & GF_OLD_BUNDLE ? code + 17 : _game.features & GF_SMALL_HEADER ? code + 19 : findResource(MKTAG('V','E','R','B'), code);
++		if (!verb) return false;
++		if (!(_game.features & GF_SMALL_HEADER)) verb += _resourceHeaderSize;
++		for (; *verb; verb += 3) if (*verb == entry) return true;
++		return false;
++	};
+ 	Common::Array<uint32> targetOrder; // (from 0284, reversed: see below)
+ 	for (uint kn = 0; !old && ((givesTo && giveVerb) || heldThing) && kn < rooms.size() && !shouldQuit(); ++kn) {
+ 		const uint k = scummverseRunAt(kn, rooms.size(), reversed);
+@@ -5741,6 +5816,17 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		_rnd.setSeed(0x5C0BE + room);
+ 		if (worldRideScene(gameIndex, room) || !arrive(room, 0)) continue;
+ 		Common::HashMap<int, bool> dressed;
++		// (From 0294 the things of the place its game gives to by their own
++		// entry (kWorldGivesThrough), named, of its class where it asks one:
++		// each of the cast given to through the one they stand under as the
++		// place is arrived at (the nearest; kWorldGivenAs first), the rest
++		// given to as things, from each picture as a thing used on, below.)
++		Common::Array<int> givenThrough;
++		for (int i = 1; through && i < _numLocalObjects; ++i) {
++			const int o = _objs[i].obj_nr;
++			if (o > 0 && ownEntry(o, through->entry) && (!through->cls || getClass(o, through->cls)) && !scummverseObjectName(o).empty()) givenThrough.push_back(i);
++		}
++		Common::HashMap<int, bool> givenAs;
+ 		for (int n = 1; n < _numActors; ++n) {
+ 			const Actor *b = _actors[n];
+ 			// (From 0284 by the costume its cast knows them by, as Sam & Max's:
+@@ -5750,10 +5836,46 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == gameIndex && c.guest.costume == costume);
+ 			if (!b->isInCurrentRoom() || !costume || n == ego || player(n) || !cast || dressed.contains(costume) || kWorldPersonThing + costume >= 0xFFFF) continue;
+ 			dressed[costume] = true;
+-			const WorldGivenAs *as = worldGivenAs(gameIndex, room, costume);
+-			targets.push_back({room, kWorldPersonThing + costume, 0, false, n, as && getObjectIndex(as->object) > 0 ? (int)as->object : 0}); targetOrder.push_back(k);
++			const WorldGivenAs *row = worldGivenAs(gameIndex, room, costume);
++			int as = row && getObjectIndex(row->object) > 0 ? (int)row->object : 0, nearest = -1;
++			const Common::Point at = b->getRealPos();
++			for (uint g = 0; !row && g < givenThrough.size(); ++g) {
++				const ObjectData &od = _objs[givenThrough[g]];
++				const int far = worldStandsUnder(at.x, at.y, od.x_pos, od.y_pos, od.width, od.height);
++				if (far >= 0 && (nearest < 0 || far < nearest)) { nearest = far; as = od.obj_nr; }
++			}
++			if (as) { givenAs[as] = true; ++throughs; debug(2, "SCUMMVERSE world things: %s room %d: costume %d given to through %d", kWorldGames[gameIndex].gameid, room, costume, as); }
++			targets.push_back({room, kWorldPersonThing + costume, 0, false, n, as, false}); targetOrder.push_back(k);
+ 			++people;
+ 		}
++		// (A row of kWorldGivenAs whose costume nobody here wears, as its cast
++		// has them in another (Day of the Tentacle's Red Edison, room 16, wears
++		// 85 there, his cast's 83): given to through its thing, standing as
++		// whoever stands under it, filed under the row's costume.)
++		for (const WorldGivenAs &row : kWorldGivenAs) {
++			if (!through || row.game != gameIndex || row.room != room || dressed.contains(row.costume) || getObjectIndex(row.object) <= 0 || kWorldPersonThing + row.costume >= 0xFFFF) continue;
++			const ObjectData &od = _objs[getObjectIndex(row.object)];
++			int under = 0, nearest = -1;
++			for (int n = 1; n < _numActors; ++n) {
++				const Actor *b = _actors[n];
++				if (!b->isInCurrentRoom() || !b->_costume || n == ego || player(n)) continue;
++				const Common::Point at = b->getRealPos();
++				const int far = worldStandsUnder(at.x, at.y, od.x_pos, od.y_pos, od.width, od.height);
++				if (far >= 0 && (nearest < 0 || far < nearest)) { nearest = far; under = n; }
++			}
++			if (!under) continue;
++			dressed[row.costume] = true; givenAs[row.object] = true; ++throughs;
++			debug(2, "SCUMMVERSE world things: %s room %d: costume %d given to through %d, as %d stands under it", kWorldGames[gameIndex].gameid, room, row.costume, row.object, under);
++			targets.push_back({room, kWorldPersonThing + row.costume, 0, false, under, row.object, false}); targetOrder.push_back(k);
++			++people;
++		}
++		for (int i : givenThrough) {
++			const int o = _objs[i].obj_nr;
++			if (givenAs.contains(o) || !ranListed.contains(room << 16 | o)) continue;
++			for (int from = 0; from < 2; ++from) { targets.push_back({room, o, from, false, 0, 0, true}); targetOrder.push_back(k); }
++			++throughThings;
++			debug(2, "SCUMMVERSE world things: %s room %d: %d given to as a thing", kWorldGames[gameIndex].gameid, room, o);
++		}
+ 	}
+ 	if (reversed) scummverseRunOrder(targets, targetsBefore, targetOrder);
+ 	auto file = [&](const ScummverseAnswer &e, bool carried) {
+@@ -5818,7 +5940,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (first == target.id || shouldQuit()) continue;
+ 			// (From 0260 Day of the Tentacle's Use only with a first its verb
+ 			// script asks "with" for, as a player can make it.)
+-			if (!old && !target.actor && useListed && !wantsSecond(kWorldVerbUse, first)) continue;
++			if (!old && !target.actor && !target.give && useListed && !wantsSecond(kWorldVerbUse, first)) continue;
+ 			if (heldThing && arrival.room == target.room && _currentRoom == here(target.room)) backToArrival(); // (from 0293 `here`: see run)
+ 			else {
+ 				putBack();
+@@ -5870,9 +5992,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					round = false;
+ 				}
+ 				if (target.actor) doSentence(giveVerb, first, target.as ? target.as : target.actor); // (from 0292 `as`: kWorldGivenAs)
+-				else doSentence(useVerb, first, target.id);
++				else doSentence(target.give ? giveVerb : useVerb, first, target.id); // (from 0294 `give`)
+ 			}
+-			e.room = target.room; e.id = target.id; e.kind = target.actor ? kWorldVerbGive : kWorldVerbUse; e.from = target.from; e.with = first;
++			e.room = target.room; e.id = target.id; e.kind = target.actor || target.give ? kWorldVerbGive : kWorldVerbUse; e.from = target.from; e.with = first;
+ 			// (From 0260 each line as for one thing above: ownLines. From 0270
+ 			// a later game's whole, each with who says it, as for one thing
+ 			// (heard); the oldest games' (Zak's) its one line as before.)
+@@ -5932,11 +6054,13 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			// is (from 0283): what it did before leaving (not to the things of
+ 			// the room it arrives in, that room's entry script's), then where it
+ 			// takes them (arrives), its others at most 62 then. Any other answer
+-			// of two that leaves: none, as before.)
+-			const int goneWhy = gone && !spent && target.as ? whyNot(target.room, a) : -1;
++			// of two that leaves: none, as before. From 0294 one given to as a
++			// thing (`give`, kWorldGivesThrough) so too.)
++			const int givenTo = target.as ? target.as : target.give ? target.id : 0;
++			const int goneWhy = gone && !spent && givenTo ? whyNot(target.room, a) : -1;
+ 			const bool going = goneWhy == 0;
+ 			if (goneWhy > 0) countWhy(goneWhy);
+-			auto arrivedIn = [&](int o) { return going && o != target.as && whereIsObject(o) == WIO_ROOM; };
++			auto arrivedIn = [&](int o) { return going && o != givenTo && whereIsObject(o) == WIO_ROOM; };
+ 			Common::Array<bool> wasThere = was;
+ 			for (int o : placeObjects) if (arrivedIn(o)) wasThere[o] = untouchable(o);
+ 			const uint most = 3 * (going ? 62 : 64);
+@@ -5954,7 +6078,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				e.others.push_back(placeIn(other, target.room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 			}
+ 			for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+-				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, target.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
++				if (o != target.id && o != first && owned[o] != ego && getOwner(o) == ego && (placeOf.contains(o) || unlisted.contains(o)) && !ridden.contains(o)) { e.others.push_back(placeIn(o, target.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); } // (from 0294 `unlisted` too)
+ 			// (From 0267 what it makes touchable or untouchable: the one used on
+ 			// too, one here; not the two carried into it.)
+ 			if (!gone || going) {
+@@ -6004,11 +6128,25 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			continue;
+ 		}
+ 		// (The usual answer: the one most seconds have; it uses nothing up
+-		// and gives nothing, those only an own answer does.)
+-		Common::HashMap<Common::String, int> counted;
+-		int most = 0;
++		// and gives nothing, those only an own answer does. From 0294 for
++		// one given to through a thing (`as`, `give`), of those as many the
++		// one of the lowest second, whatever the order they ran in: the
++		// first to be as many is not, as the things that can be carried are
++		// listed in the order their answers ran, and the reversed order took
++		// another (Monkey Island 2's Captain Dread, room 22, 239, says the
++		// name of what he is given: as many of two names). The rest as
++		// before.)
++		const bool lowestFirst = target.give || target.as;
++		Common::HashMap<Common::String, int> counted, lowest;
++		int most = 0, mostLowest = 0;
+ 		Common::String usual;
+-		for (const Common::String &key : keys) if (key != "left" && ++counted[key] > most) { most = counted[key]; usual = key; }
++		for (uint i = 0; i < keys.size(); ++i) {
++			const Common::String &key = keys[i];
++			if (key == "left") continue;
++			const int n = ++counted[key];
++			if (!lowest.contains(key) || tries[i].with < lowest[key]) lowest[key] = tries[i].with;
++			if (n > most || (lowestFirst && n == most && lowest[key] < mostLowest)) { most = n; usual = key; mostLowest = lowest[key]; }
++		}
+ 		bool usualKept = false;
+ 		for (uint i = 0; i < tries.size(); ++i) {
+ 			if (keys[i] == "left") continue;
+@@ -6128,6 +6266,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	if (pairs && (useVerb || heldThing))
+ 		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
+ 			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
++	// (From 0294, kWorldGivesThrough.)
++	if (through)
++		debug(1, "SCUMMVERSE world things: %s given to by their own entry %d: %d of the cast through the thing they stand under, %d things given to as things",
++			kWorldGames[gameIndex].gameid, through->entry, throughs, throughThings);
+ 	// (From 0276 Fate of Atlantis's and the Last Crusade's: a thing its game
+ 	// starts untouchable that an answer of two shows and makes touchable too,
+ 	// played on from the picture it leaves it in, as one an answer of one
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 19105834..9af29d2a 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2339,13 +2339,18 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 	};
+ 	struct Try { int item, thing, withItem, withThing; };
+ 	Common::Array<Try> tries;
+-	if (p.kind == kWorldVerbUse) tries.push_back({p.withItem, p.withThing, p.item, p.thing});
++	// (From 0294 a later game's Give as its Use, filed under the one given
++	// to, the thing given its second: a thing of the place its game gives
++	// to as it gives to its people, kWorldGivesThrough (Monkey Island's
++	// poodles).)
++	const bool turned = p.kind == kWorldVerbUse || (p.kind == kWorldVerbGive && _game >= 0 && !worldHome(_game));
++	if (turned) tries.push_back({p.withItem, p.withThing, p.item, p.thing});
+ 	tries.push_back({p.item, p.thing, p.withItem, p.withThing});
+ 	for (const Try &t : tries) {
+ 		int game, room, id, game2, room2, with;
+ 		if (!idOf(t.item, t.thing, game, room, id) || !idOf(t.withItem, t.withThing, game2, room2, with) || game < 0 || game != game2 || !pairsAnswered(game)) continue;
+ 		const bool later = !worldHome(game);
+-		if (later && p.kind == kWorldVerbUse && &t != &tries[0]) continue;
++		if (later && turned && &t != &tries[0]) continue;
+ 		loadThings(game);
+ 		int after, others[4 * 64], count, flags, sets = 0, lines = 0;
+ 		char said[256] = "";
+@@ -7777,6 +7782,102 @@ SandboxEngine::Herring SandboxEngine::herringPlayed() {
+ 	return h;
+ }
+ 
++// From 0294 the "verbs" check's (see verbsTest): in each game whose people
++// its things file has given to as their game gives to them (by the thing
++// they stand under or a thing of the place, kWorldGivesThrough), their own
++// answers of Give counted (filed under a thing of a place, or under one of
++// the cast), and three played as a player plays them: in the place as its
++// game starts it, nothing else carried, the thing given carried from where
++// it lies, Give chosen with it, then the one given to (the thing, or the one
++// of the cast there) tapped and walked up to. Monkey Island's poodles (room
++// 36, 475, no one of its cast) given the kitchen's meat (room 41, 331) eat
++// it (used up); Monkey Island 2's cartographer (room 8, costume 22, by his
++// thing 65) given his monocle (66): his line, the monocle used up; Day of the
++// Tentacle's Red Edison (room 16, costume 83, in 85 there, by his thing 113)
++// given the help-wanted sign (room 34, 300): his lines in turn, used up. Each
++// kept through a save and a load (used up still). Before, the poodles were
++// "I don't think they want it." and the others their usual line, the thing
++// kept.
++SandboxEngine::GivenThrough SandboxEngine::givenThroughPlayed() {
++	GivenThrough c;
++	struct Case { const char *gameid; int room, id, itemRoom, item; };
++	static const Case kCases[] = {{"monkey", 36, 475, 41, 331}, {"monkey2", 8, kWorldPersonThing + 22, 8, 66}, {"tentacle", 16, kWorldPersonThing + 83, 34, 300}};
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	for (int g = 0; g < worldGameCount(); ++g) {
++		if (!worldGivesThrough(g)) continue;
++		loadThings(g);
++		for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++			int room, id, kind, from, with = 0;
++			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || kind != kWorldVerbGive || !with || with == 0xFFFF) continue;
++			if (id >= kWorldPersonThing) ++c.people; else ++c.things;
++		}
++	}
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
++	for (const Case &t : kCases) {
++		int g = -1;
++		for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, t.gameid)) g = k;
++		int after = 0, flags = 0, others[4 * 64], count = 0, lines = 0;
++		if (g < 0 || !installed(g, t.room) || !installed(g, t.itemRoom)) continue;
++		++c.cases;
++		auto check = [&](bool ok, const char *what) {
++			if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox given through: %s room %d, %d given %d: %s", t.gameid, t.room, t.id, t.item, what); }
++			return ok;
++		};
++		loadThings(g);
++		if (!check(PanelBridge::thingAnswer(g, t.room, t.id, kWorldVerbGive, 0, t.item, after, flags, others, count, 64, lines) && (flags & 8), "no answer of its own in its things file")) continue;
++		fresh();
++		const bool person = t.id >= kWorldPersonThing;
++		if (!check(enter(g, t.room, 0, problem) && carry(g, t.itemRoom, t.item, "", 0, false), "its place not shown, or the thing given not carried")) continue;
++		const int item = _carried.size() - 1;
++		int n = -1, o = -1;
++		for (uint i = 0; person && i < _onStage.size(); ++i) if ((int)i != _player && _onStage[i] == worldAppearanceKey(g, t.id - kWorldPersonThing)) n = i;
++		if (!person) o = thingIn(t.id);
++		if (!check(person ? n >= 0 : o >= 0 && isThing(o), "the one given to not there to tap")) continue;
++		// (Give chosen with the thing carried, then the one given to tapped.)
++		Pair p;
++		p.kind = kWorldVerbGive; p.item = item;
++		_holding = p;
++		if (person) giveTo(n); else useOn(kWorldVerbGive, -1, o);
++		settle();
++		// (Its lines in turn as recorded, by whoever says them (over them, or
++		// told over the place); the thing given used up where it says so.)
++		bool said = lines > 0 || (_speech.empty() && _notice.empty());
++		for (int l = 0; l < lines && said; ++l) {
++			int speaker, costume, color;
++			char text[256];
++			if (l) { if (_speechClock > 0) _speechClock = 1; if (_noticeClock > 0) _noticeClock = 1; step(1); }
++			const Common::String now = !_speech.empty() ? _speech : _notice;
++			said = PanelBridge::answerLine(g, t.room, t.id, kWorldVerbGive, 0, t.item, l, speaker, costume, color, text, sizeof(text)) && now == text;
++		}
++		const bool gone = !isCarried(g, t.itemRoom, t.item);
++		if (check(said && gone == ((flags & 4) != 0), "not as its game answers it (its lines, or the thing given kept or used up)")) ++c.played;
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		if (check(loadState(sg, sr, sx, sy) && !isCarried(g, t.itemRoom, t.item) == ((flags & 4) != 0), "not kept so through a save and a load")) ++c.kept;
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0281 (the "verbs" check): each thing a game starts untouchable that an
+ // answer of its things file makes touchable in the answer's own place (an
+ // answer of one thing, or a thing carried used on one, as its record names
+@@ -14817,6 +14918,107 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest named: %d of %d things later games' answers take or give with no picture of their own in their place carried by their names (drawn in their slots), %d kept through a save and a load; %d failed",
+ 		named, namedAll, namedKept, namedFailed);
+ 	failed += namedFailed;
++	// (From 0294) Each thing a later game's answer of one thing gives that its
++	// place's scene lists not (no box: its things file's icon drawn nowhere),
++	// as a player gets it: its place as its game starts it, nothing carried,
++	// the verb used at the thing: carried, by its name, drawn in its slot
++	// (lettered), kept through a save and a load; Monkey Island's gunpowder
++	// (room 8, 105, its kegs 94 picked up) among them. Before, the answer
++	// gave nothing, and what the thing is for could not be done.
++	int unlistedAll = 0, unlistedCarried = 0, unlistedKept = 0, unlistedFailed = 0;
++	{
++		const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched;
++		const Common::Array<Carried> carriedKept = _carried;
++		const int wasGame = _game, wasRoom = _room;
++		Common::String problem;
++		Common::HashMap<int, bool> tried;
++		bool gunpowder = false;
++		auto thingIn = [&](int id) {
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				int oid, ox, oy, w, h, wx, wy, state;
++				if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++			}
++			return -1;
++		};
++		auto fresh = [&]() {
++			_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going();
++			_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		};
++		for (int g = 0; g < worldGameCount(); ++g) {
++			if (!ownSentences(g) || worldHome(g)) continue;
++			loadThings(g);
++			for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++				int room, id, kind, from, with = 0, after, flags, others[4 * 64], count, lines;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || id >= kWorldPersonThing || !installed(g, room) ||
++					!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 64, lines)) continue;
++				for (int i = 0; i < count; ++i) {
++					const int r = others[4 * i], given = others[4 * i + 1];
++					int found, answers;
++					if (!others[4 * i + 3] || given == id || r <= 0 || PanelBridge::gameThing(g, r, given, found, answers) || tried.contains(thingKey(g, r, given))) continue;
++					fresh();
++					if (!enter(g, room, 0, problem)) continue;
++					const int o = thingIn(id);
++					if (o < 0 || !isThing(o) || (StageBridge::objectPictures(o) > 1 && from >= StageBridge::objectPictures(o))) continue;
++					tried[thingKey(g, r, given)] = true;
++					++unlistedAll;
++					if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from); else _pictures[thingKey(g, room, id)] = from;
++					double x, y;
++					doorPoint(o, x, y);
++					StageBridge::walkable(x, y);
++					StageBridge::place(_player, x, y);
++					_action = kind; _target = o;
++					act();
++					int item = -1;
++					for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == r && _carried[n].id == given) item = n;
++					char held[80] = "";
++					bool ok = item >= 0 && PanelBridge::itemName(item, held, sizeof(held)) > 0;
++					// (Drawn in its slot: the panel there not as it is with nothing carried.)
++					if (ok && PanelBridge::loaded() && !PanelBridge::over()) {
++						int sx, sy, sw, sh;
++						for (int turn = 0; turn < 64 && item - PanelBridge::firstItem() >= PanelBridge::slotCount(); ++turn) PanelBridge::scroll(1);
++						ok = PanelBridge::slotRect(item - PanelBridge::firstItem(), sx, sy, sw, sh);
++						Common::Array<unsigned int> drawn((size_t)_width * _height, 0), without((size_t)_width * _height, 0);
++						PanelBridge::render(drawn.data(), _width, _height);
++						const Common::Array<Carried> carriedNow = _carried;
++						PanelBridge::clearItems();
++						PanelBridge::render(without.data(), _width, _height);
++						_carried.clear();
++						for (const Carried &k2 : carriedNow) carry(k2.game, k2.room, k2.id, k2.name, k2.picture, false);
++						bool differs = false;
++						for (int py = MAX(0, sy); ok && py < MIN(_height, sy + sh); ++py)
++							for (int px = MAX(0, sx); px < MIN(_width, sx + sw); ++px) differs = differs || drawn[py * _width + px] != without[py * _width + px];
++						ok = ok && differs;
++					}
++					if (ok) {
++						++unlistedCarried;
++						gunpowder = gunpowder || (sameId(kWorldGames[g].gameid, "monkey") && r == 8 && given == 105);
++						saveState();
++						fresh();
++						int sg, sr;
++						double sx, sy;
++						ok = loadState(sg, sr, sx, sy) && isCarried(g, r, given);
++						unlistedKept += ok;
++					}
++					if (!ok) {
++						++unlistedFailed;
++						warning("SCUMMVERSE sandbox unlisted %s-%d object %d (verb %d from %d): %d (room %d), which its place's scene lists not, not carried by its name, drawn in its slot and kept", kWorldGames[g].gameid, room, id, kind, from, given, r);
++					}
++				}
++			}
++		}
++		for (int g = 0; g < worldGameCount(); ++g)
++			if (sameId(kWorldGames[g].gameid, "monkey") && installed(g, 8) && !gunpowder) {
++				++unlistedFailed;
++				warning("SCUMMVERSE sandbox unlisted: Monkey Island's gunpowder (room 8, 105) not carried by its name from its kegs (94) picked up");
++			}
++		fresh();
++		for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++		_pictures = picturesKept; _touched = touchedKept;
++		if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	}
++	warning("SCUMMVERSE sandbox selftest unlisted: %d of %d things later games' answers give that their places' scenes list not carried by their names (drawn in their slots), %d kept through a save and a load; %d failed",
++		unlistedCarried, unlistedAll, unlistedKept, unlistedFailed);
++	failed += unlistedFailed;
+ 	// (From 0292) Monkey Island's red herring (room 41, 378), as a player
+ 	// gets it (kWorldStepAways), wherever its things file has its answer
+ 	// with the seagull away: its place as its game starts it, nothing
+@@ -14837,6 +15039,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest herring: %d of %d red herrings as a player gets them (%d times sent off by a step on the plank; taken while the gull is away %d, kept %d; given to the troll %d); %d failed",
+ 		herring.taken ? 1 : 0, herring.all, herring.steps, herring.taken ? 1 : 0, herring.kept ? 1 : 0, herring.troll ? 1 : 0, herring.failed);
+ 	failed += herring.failed;
++	// (From 0294) People given to as their games give to them, through a
++	// thing (kWorldGivesThrough): see givenThroughPlayed.
++	const GivenThrough through = givenThroughPlayed();
++	warning("SCUMMVERSE sandbox selftest given through: %d own answers of Give to a thing of a place, %d to one of the cast, as their games give to their people; %d of %d played as a player gives (Monkey Island's poodles, Monkey Island 2's cartographer, Day of the Tentacle's Red Edison), %d kept through a save and a load; %d failed",
++		through.things, through.people, through.played, through.cases, through.kept, through.failed);
++	failed += through.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 478a0609..7e913be6 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -686,6 +686,11 @@ private:
+ 	// Counted; `failed` where one is not as its game leaves it.)
+ 	struct Herring { int all = 0, steps = 0, failed = 0; bool taken = false, kept = false, troll = false; };
+ 	Herring herringPlayed();
++	// (From 0294 the "verbs" check's: people given to as their games give
++	// to them, through a thing (kWorldGivesThrough), as a player gives.
++	// Counted; `failed` where one is not as its things file has it.)
++	struct GivenThrough { int things = 0, people = 0, cases = 0, played = 0, kept = 0, failed = 0; };
++	GivenThrough givenThroughPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

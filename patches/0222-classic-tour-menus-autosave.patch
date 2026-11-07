@@ -1,0 +1,239 @@
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index a19cc32c..90c53888 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -140,6 +140,12 @@ bool ScummEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+ }
+ 
+ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
++	// SCUMMVERSE: touring, the autosave written as the tour began (where it
++	// began, scummverseTourAutosave) is kept as it is: an autosave asked for
++	// meanwhile (ScummVM's, the phone's as it puts the app away) is made by
++	// keeping it, so the phone goes on from there if it stops the app.
++	if (isAutosave && _scummverseTouring)
++		return _scummverseTourAutosaved && slot == getAutosaveSlot() ? Common::kNoError : Common::kWritingFailed;
+ 	// SCUMMVERSE: an autosave asked for while the game is held still (the
+ 	// phone putting the app away: iOS's suspend loop, where no frame comes
+ 	// until the app is back, and it may be stopped first) is written now,
+@@ -156,9 +162,9 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ 
+ 	// SCUMMVERSE: not during the tour. Its guide stands in a stop (another
+ 	// game's room, the plane, the van in flight), and a save there would go
+-	// on from that stop, the tour and where it began gone. Where it began
+-	// stays as last saved (ScummVM's autosave tries again later; none is
+-	// made as the phone puts the app away).
++	// on from that stop, the tour and where it began gone. Where it began is
++	// the autosave written as it began, kept while touring
++	// (canSaveAutosaveCurrently).
+ 	if (_scummverseTouring) {
+ 		if (msg)
+ 			*msg = Common::U32String("Not during the tour. Stop the tour to save.");
+@@ -233,6 +239,16 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ 	return (VAR_MAINMENU_KEY == 0xFF || (VAR(VAR_MAINMENU_KEY) != 0 && _currentRoom != 0)) && !isOriginalMenuActive;
+ }
+ 
++// SCUMMVERSE: touring, an autosave is "made" by keeping the one written as
++// the tour began (saveGameState), where there is one: so the phone, putting
++// the app away, still keeps a place to go on from (it drops the last one
++// first) and ScummVM's own autosave waits its usual time.
++bool ScummEngine::canSaveAutosaveCurrently() {
++	if (_scummverseTouring)
++		return _setupIsComplete && _scummverseTourAutosaved;
++	return canSaveGameStateCurrently();
++}
++
+ 
+ void ScummEngine::requestSave(int slot, const Common::String &name) {
+ 	_saveLoadSlot = slot;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 7698b42e..fa9d3d6a 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -598,6 +598,7 @@ public:
+ 	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
+ 	Common::Error saveGameState(int slot, const Common::String &desc, bool isAutosave = false) override;
+ 	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
++	bool canSaveAutosaveCurrently() override; // (SCUMMVERSE: the tour's, kept while touring)
+ 
+ 	void pauseEngineIntern(bool pause) override;
+ 
+@@ -1838,6 +1839,8 @@ protected:
+ 	int _scummverseTourZak = -1; // Zak's files: -1 not yet known, 0 missing, 1 mounted
+ 	int _scummverseTourHome[5] = {}; // where it began: room, x, y, other world's game (or -1), its room
+ 	int _scummverseTourWayBack[4] = {}; // the player's way back to the mansion as it began: who, room, x, y
++	bool _scummverseTourAutosaved = false; // the autosave holds where it began (written as it began)
++	bool scummverseTourAutosave();
+ 	void scummverseUpdateTour(int delta);
+ 	bool scummverseTourAdvance(Actor *a, int delta, int total);
+ 	void scummverseTourWalkTo(Actor *a, int x, int y);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 31f253f2..22d6a39f 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -320,10 +320,22 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseCastOffer(); }
+ 	if(_scummverseWindowCall > 0 && (_scummverseWindowCall -= delta) <= 0) scummverseUpdateResident(); // Gone from the window.
+ 	int destination = scummverseWorldPoll();
++	// Somewhere else chosen mid-tour, paused or not (a place from the Worlds
++	// menu or the teleport pads, someone met where they live): the tour ends
++	// where it is first, as a load or playing someone else ends it (the way
++	// back to the mansion as it began), and the one it walked leaves its stop
++	// as though landing (a stop may be the plane's cabin mid-flight).
++	bool leftTour = false;
++	auto leaveTour = [&]() {
++		if (!_scummverseTouring) return;
++		scummverseTourEnd(false);
++		leftTour = _scummverseLanding = true;
++	};
+ 	if (destination >= kWorldSandboxRequest) {
+ 		if (destination == kWorldSandboxRequest) scummverseOpenSandbox();
+ 		else if (destination >= kWorldStoryRequest && destination < kWorldStoryRequest + worldGameCount()) scummverseOpenStory(destination - kWorldStoryRequest);
+ 	} else if (destination >= kWorldCastRequest) {
++		if (destination < kWorldCastActorRequest) leaveTour(); // (Playing someone else ends it itself.)
+ 		scummverseCastChoose(destination);
+ 	} else if (destination >= kWorldAppearanceRequest) {
+ 		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
+@@ -333,30 +345,42 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	} else if (destination >= kWorldPlaceRequest) {
+ 		destination -= kWorldPlaceRequest;
+ 		const int game = destination / 1024, room = destination % 1024;
++		leaveTour();
+ 		if (game == kWorldManiacPlaces || game == kWorldZakPlaces) scummverseTravelHome(game == kWorldZakPlaces, room);
+ 		else scummverseTravelPlace(game, room);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	} else if (destination) {
+ 		int token = destination >> 8;
+-		if (!token || token == _currentRoom * 32 + VAR(VAR_EGO)) {
+-			int command = destination & 255;
++		int command = destination & 255;
++		// (Mid-tour the tour changes the room under the menus: a choice made
++		// there a moment ago is still the player's while they play the same
++		// one. Not the chat's, whose token names who is in the room.)
++		const bool menu = command == 61 || command == 62 || command == 63 || command == 121 || command == 122 ||
++			(command >= 129 && command <= 152) || command >= 160 || (command >= 50 && command < 50 + kZakPadCount);
++		if (!token || token == _currentRoom * 32 + VAR(VAR_EGO) || (_scummverseTouring && menu && token % 32 == VAR(VAR_EGO))) {
+ 			if(command==63) scummverseRosterOffer();
+ 			else if(command==61) scummverseCastOffer();
+ 			else if(command==121 || command==122) scummverseHomePlacesOffer(command==122); // Maniac's or Zak's places
+ 			else if(command>=129 && command<=152) scummverseSwitchActor(command-128);
+-			else if(command>=160 && command<160+worldSceneTotal()) scummverseTravelLandmark(command-160);
++			else if(command>=160 && command<160+worldSceneTotal()) { leaveTour(); scummverseTravelLandmark(command-160); }
+ 			else if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+ 			else if ((command >= 40 && command <= 49) && zakAirport(_currentRoom)) {
+ 				const int *routes=zakFlights; _scummVars[travellerDestinationKey(VAR(VAR_EGO))] = routes[command-40];
+ 				scummverseSay(VAR(VAR_EGO), "Destination selected. Let's head to the gate.");
+ 			} else if(command==62) scummverseTeleportOffer();
+-			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) scummverseTravelPad(command-50);
++			else if(command>=50 && command<50+kZakPadCount && _currentRoom!=56 && !scummverseOnBus()) { leaveTour(); scummverseTravelPad(command-50); }
+ 			else if (command == 24 && _currentRoom == kVanFlightRoom) scummverseVanArrive();
+-			else if (command == 24) scummverseArrive();
+-			else if(command>=1 && command<=48) scummverseTravel(command);
++			else if (command == 24) {
++				// (The tour stopping in the plane's cabin as a flight goes: Arrive
++				// lands it, the one played aboard.)
++				if (_currentRoom == 56 && _scummVars[724] >= 1 && _scummVars[724] <= 48) leaveTour();
++				scummverseArrive();
++			}
++			else if(command>=1 && command<=48) { leaveTour(); scummverseTravel(command); }
+ 		}
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	}
++	if (leftTour) _scummverseLanding = false;
+ 	scummverseUpdateTour(delta);
+ 	scummverseUpdateTransit(delta);
+ 	scummverseUpdateCabinChairs();
+diff --git a/engines/scumm/scummverse_tour.inc b/engines/scumm/scummverse_tour.inc
+index 625bfa56..9d040b21 100644
+--- a/engines/scumm/scummverse_tour.inc
++++ b/engines/scumm/scummverse_tour.inc
+@@ -199,10 +199,10 @@ bool ScummEngine::scummverseTourZakRoom(int room, int x, int y) {
+ 
+ // The Other worlds menu's Maniac Mansion and Zak McKracken: their places as
+ // the tour visits them (a run of numbered places, such as a maze's cells, by
+-// its first), to go to directly.
++// its first), to go to directly. (Offered mid-tour too: one chosen ends the
++// tour where it is first, as any place chosen does: scummverseUpdateRoaming.)
+ void ScummEngine::scummverseHomePlacesOffer(bool zak) {
+ 	const int kind = zak ? kTourZak : kTourManiac;
+-	if (_scummverseTouring) { scummverseSay(VAR(VAR_EGO), "Let's stop the tour first."); return; }
+ 	if (zak && !scummverseMountZak()) {
+ 		if (_scummverseWorldNotice.empty()) _scummverseWorldNotice = "Zak's files are not set up. Put them in Documents/zak and restart the app.";
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str()); scummverseSay(VAR(VAR_EGO), _scummverseWorldNotice.c_str());
+@@ -348,6 +348,18 @@ void ScummEngine::scummverseTourSave() {
+ 	ConfMan.flushToDisk();
+ }
+ 
++// The autosave, written as the tour begins: where it began, kept while
++// touring as the place to go on from (no save is made mid-tour, the phone's
++// autosave as it puts the app away included: canSaveAutosaveCurrently).
++// False where it cannot be written (a save of the player's own in its slot).
++bool ScummEngine::scummverseTourAutosave() {
++	const int slot = getAutosaveSlot();
++	if (slot < 0 || _saveLoadFlag || !canSaveGameStateCurrently()) return false;
++	const SaveStateDescriptor kept = getMetaEngine()->querySaveMetaInfos(_targetName.c_str(), slot);
++	if (kept.getSaveSlot() != -1 && !kept.isAutosave()) return false;
++	return scummverseSaveNow(slot, Common::convertFromU32String(_("Autosave")));
++}
++
+ // Starts (or restarts) the tour at a stop, remembering where it began.
+ void ScummEngine::scummverseTourStart(int index) {
+ 	if (!_scummverseTouring) {
+@@ -355,6 +367,7 @@ void ScummEngine::scummverseTourStart(int index) {
+ 			scummverseSay(VAR(VAR_EGO), "Let's finish this ride before the tour.");
+ 			return;
+ 		}
++		_scummverseTourAutosaved = scummverseTourAutosave();
+ 		const Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
+ 		int source = 0;
+ 		const int game = scummverseWorldGameOf(_currentRoom, source);
+@@ -421,15 +434,17 @@ void ScummEngine::scummverseTourCommand(int command, int number) {
+ 	}
+ }
+ 
+-// Paused: the guide stands where it is (the player may walk it about);
+-// Previous and Next warp from stop to stop and stay paused. Played again,
+-// it walks on to where it was going, from where it is now.
++// Paused: the guide stands where it is (the player may walk it about, and
++// through doors, other games' too); Previous and Next warp from stop to stop
++// and stay paused. Played again, it walks on to where it was going, from
++// where it is now.
+ void ScummEngine::scummverseTourPause(bool pause) {
+ 	if (pause == _scummverseTourPaused || (pause && !_scummverseTouring)) return;
+ 	_scummverseTourPaused = pause;
+ 	ScummverseTour::publishPaused(pause);
+ 	Actor *a = derefActor(VAR(VAR_EGO), "tour guide");
+ 	if (pause) { a->stopActorMoving(); return; }
++	_scummverseTapPending = false; // (a door the player tapped paused is not the tour's to take)
+ 	int x, y;
+ 	if (_scummverseTourPhase == kTourWalking) scummverseTourWalkTo(a, _scummverseTourTarget.x, _scummverseTourTarget.y);
+ 	else if (_scummverseTourPhase == kTourToDoor && scummverseTourDoorPoint(_scummverseTourStop, _scummverseTourLegAt, x, y)) scummverseTourWalkTo(a, x, y);
+@@ -470,6 +485,13 @@ void ScummEngine::scummverseUpdateTour(int delta) {
+ 		ConfMan.setInt("scummverse_tour_speed", speed);
+ 		ConfMan.flushToDisk();
+ 	}
++	// Paused, the player boarded a ride (a flight, the van, a tram, the bus):
++	// the tour ends where it is, as when somewhere else is chosen (it boards
++	// none; played on, it would leave the ride holding them).
++	const int ego = VAR(VAR_EGO);
++	if (_scummverseTouring && _scummverseTourPaused && (scummverseOnBus() || scummverseOnTram() || scummverseOnDigTram() ||
++		scummverseInVan() || (_scummVars[724] && (_scummVars[727] == ego || (_scummVars[725] & (1u << ego))))))
++		scummverseTourEnd(false);
+ 	int command, number;
+ 	// One request a step: taps waiting in turn (three on Next: three stops on).
+ 	if (ScummverseTour::takeRequest(command, number)) scummverseTourCommand(command, number);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 92559e24..9b6da9a0 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -302,8 +302,9 @@ void ScummEngine::scummverseWorldEdges() {
+ // into the walk boxes), so a tap on a door can be told from a tap beside it.
+ void ScummEngine::scummverseWorldTap(int actor, int x, int y) {
+ 	int source;
+-	// (The tour's walks are not taps: it takes its doors itself.)
+-	if (!_scummverseRoaming || _scummverseTouring || actor != VAR(VAR_EGO) || scummverseWorldGameOf(_currentRoom, source) < 0) return;
++	// (The tour's walks are not taps: it takes its doors itself. Paused, the
++	// player has the controls back: their taps on doors are taken.)
++	if (!_scummverseRoaming || (_scummverseTouring && !_scummverseTourPaused) || actor != VAR(VAR_EGO) || scummverseWorldGameOf(_currentRoom, source) < 0) return;
+ 	_scummverseTapX = x; _scummverseTapY = y; _scummverseTapPending = true;
+ }
+ 

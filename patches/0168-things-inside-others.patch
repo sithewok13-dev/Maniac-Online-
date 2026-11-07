@@ -1,0 +1,463 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index c4dbb7a0..3de8fca6 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -177,9 +177,15 @@ const ThingEffect *GameThings::effect(int room, int id, int kind, int from) cons
+ 	return e != effects.end() && key(*e) == wanted ? &*e : nullptr;
+ }
+ 
++const ThingParent *GameThings::parent(int room, int id) const {
++	const auto p = std::lower_bound(parents.begin(), parents.end(), std::make_pair(room, id), [](const ThingParent &a, const std::pair<int, int> &b) { return std::make_pair(a.room, a.id) < b; });
++	return p != parents.end() && p->room == room && p->id == id ? &*p : nullptr;
++}
++
+ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string &error) {
+ 	out = GameThings();
+-	const bool effects = data && size >= 4 && !std::memcmp(data, "SVO2", 4);
++	const bool withParents = data && size >= 4 && !std::memcmp(data, "SVO3", 4);
++	const bool effects = withParents || (data && size >= 4 && !std::memcmp(data, "SVO2", 4));
+ 	if (!data || size < 6 || (!effects && std::memcmp(data, "SVO1", 4))) { error = "not a things file"; return false; }
+ 	Reader r(data + 4, data + size);
+ 	const int rooms = r.u16();
+@@ -215,7 +221,18 @@ bool parseThings(const uint8_t *data, size_t size, GameThings &out, std::string
+ 		if (e.from > 1 || after > 3) { out = GameThings(); error = "bad effect"; return false; }
+ 		out.effects.push_back(e);
+ 	}
++	const int parentCount = withParents && r.ok ? r.u16() : 0;
++	if (parentCount > kMostThings) { out = GameThings(); error = "too many parents"; return false; }
++	for (int i = 0; i < parentCount && r.ok; ++i) {
++		ThingParent p;
++		p.room = r.u16(); p.id = r.u16(); p.parent = r.u16(); p.picture = r.u8();
++		if (p.parent == p.id) { out = GameThings(); error = "bad parent"; return false; }
++		out.parents.push_back(p);
++	}
+ 	if (!r.ok || r.p != r.end) { out = GameThings(); error = "truncated things file"; return false; }
++	std::stable_sort(out.parents.begin(), out.parents.end(), [](const ThingParent &a, const ThingParent &b) { return std::make_pair(a.room, a.id) < std::make_pair(b.room, b.id); });
++	for (size_t i = 1; i < out.parents.size(); ++i)
++		if (out.parents[i].room == out.parents[i - 1].room && out.parents[i].id == out.parents[i - 1].id) { out = GameThings(); error = "a parent twice"; return false; }
+ 	std::stable_sort(out.effects.begin(), out.effects.end(), [](const ThingEffect &a, const ThingEffect &b) {
+ 		return std::make_tuple(a.room, a.id, a.kind, a.from) < std::make_tuple(b.room, b.id, b.kind, b.from);
+ 	});
+@@ -924,6 +941,16 @@ bool thingEffect(int game, int room, int id, int kind, int from, int &after, int
+ 	}
+ 	return false;
+ }
++bool thingParent(int game, int room, int id, int &parent, int &picture) {
++	for (const auto &g : gameThings()) {
++		if (g.first != game) continue;
++		const Panel::ThingParent *p = g.second.parent(room, id);
++		if (!p) return false;
++		parent = p->parent; picture = p->picture;
++		return true;
++	}
++	return false;
++}
+ int effectCount(int game) {
+ 	for (const auto &g : gameThings()) if (g.first == game) return (int)g.second.effects.size();
+ 	return 0;
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 4dadb86e..be1b6b99 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -144,13 +144,19 @@ struct GameThing { int id = 0, picture = 0, answers = 0; };
+ // count of others changed then each u16 room, u16 object, u8 picture, u8
+ // length and the line said). From 0161 also read and pick up, and the
+ // picture after's bit 1: taken by the one who used it.
++// "SVO3" (from 0168) goes on after the effects: u16 count, then per thing
++// inside another (u16 room, u16 object, u16 the one it is in, u8 the picture
++// that one shows it in: drawn and touched only then).
+ struct ThingPart { int room = 0, id = 0, picture = 0; };
+ struct ThingEffect { int room = 0, id = 0, kind = 0, from = 0, after = 0; bool taken = false; std::vector<ThingPart> others; std::string line; };
++struct ThingParent { int room = 0, id = 0, parent = 0, picture = 0; };
+ struct GameThings {
+ 	std::vector<std::pair<int, std::vector<GameThing> > > rooms; // by room, each by id
+ 	std::vector<ThingEffect> effects;                            // by room, id, kind, from
++	std::vector<ThingParent> parents;                            // by room, id
+ 	const GameThing *find(int room, int id) const;
+ 	const ThingEffect *effect(int room, int id, int kind, int from) const;
++	const ThingParent *parent(int room, int id) const;
+ };
+ // (At most this many rooms, objects in one, effects and others in one.)
+ static const int kMostThingRooms = 1024, kMostThings = 4096, kMostEffects = 32768, kMostEffectParts = 64;
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index ee290880..d3a75678 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -135,6 +135,10 @@ bool gameThing(int game, int room, int id, int &picture, int &answers);
+ bool thingEffect(int game, int room, int id, int kind, int from, int &after, int *others, int &count, int capacity, char *line, int lineCapacity, bool *taken = nullptr);
+ int effectCount(int game);
+ bool effectAt(int game, int index, int &room, int &id, int &kind, int &from); // (the checks')
++// The thing a thing is inside, and the picture that one shows it in (it is
++// drawn and touched only then; "SVO3", the mansion's from 0168). False: in
++// none, or not known.
++bool thingParent(int game, int room, int id, int &parent, int &picture);
+ 
+ } // End of namespace PanelBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 804448a5..6ba91dfc 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -637,6 +637,15 @@ bool Scene::picturesDiffer(int object, int a, int b) const {
+ 	return o.pictures[a] != o.pictures[b];
+ }
+ 
++bool Scene::looksAs(int object, int picture) const {
++	if (object < 0 || object >= (int)_source.objects.size()) return false;
++	const World::SourceObject &o = _source.objects[object];
++	if (picture < 0 || picture >= (int)o.pictures.size() || o.pictures[picture].size() != (size_t)o.pictureWidth * o.pictureHeight) return false;
++	for (int y = 0; y < o.pictureHeight; ++y)
++		if (std::memcmp(&_source.pixels[(size_t)(o.pictureY + y) * _source.width + o.pictureX], &o.pictures[picture][(size_t)y * o.pictureWidth], o.pictureWidth)) return false;
++	return true;
++}
++
+ int Scene::groupAt(Point p) const {
+ 	const int b = boxAt(_boxes, p);
+ 	return b < 0 ? -1 : _links.group[b];
+@@ -810,6 +819,7 @@ int objectName(int index, char *name, int capacity) {
+ int objectPictures(int index) { return index >= 0 && index < objectCount() ? (int)stage().source().objects[index].pictures.size() : 0; }
+ int objectShown(int index) { return objectPictures(index) ? stage().showing(index) : 0; }
+ bool picturesDiffer(int index, int a, int b) { return stage().picturesDiffer(index, a, b); }
++bool looksAs(int index, int picture) { return stage().looksAs(index, picture); }
+ void view(int &left, int &top, int &width, int &height, double &rowScale, double &colScale) {
+ 	const Stage::View &v = stage().view();
+ 	left = v.left; top = v.top; width = v.width; height = v.height; rowScale = v.rowScale; colScale = v.colScale;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 42f64f22..0b663298 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -163,6 +163,9 @@ public:
+ 	bool showObject(int object, int picture);
+ 	int showing(int object) const; // the picture an object is in now
+ 	bool picturesDiffer(int object, int a, int b) const;
++	// Whether the scene, where an object is, looks as one of its pictures
++	// (what was drawn over it since).
++	bool looksAs(int object, int picture) const;
+ 	// A second picture of the place: the scene in another state (the same
+ 	// size; The Dig's tram car parked), only where it differs, its colours
+ 	// the scene's own (else the nearest). Not shown until showPicture.
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index a38762fe..de800c1e 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -107,6 +107,8 @@ int objectShown(int index);
+ bool showObject(int index, int picture);
+ // Whether two of an object's pictures look different.
+ bool picturesDiffer(int index, int a, int b);
++// Whether the scene where an object is looks as one of its pictures.
++bool looksAs(int index, int picture);
+ // Where the scaled scene is on screen and its scale (screen pixels a
+ // source row, a source column).
+ void view(int &left, int &top, int &width, int &height, double &rowScale, double &colScale);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index a33f2c87..2ffda010 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -30,12 +30,13 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ static const int kWorldExportVersion = 22;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+ // file also says what each thing's verbs do; from 0161 read and pick up too,
+-// from 0162 not fix): "maniac-v25", the rest as kWorldExportVersion, so only
+-// it is exported again.
++// from 0162 not fix; from 0168 what each thing is inside, drawn with that
++// one open): "maniac-v26", the rest as kWorldExportVersion, so only it is
++// exported again.
+ inline int worldExportVersion(const char *gameid) {
+ 	const char *mansion = "maniac";
+ 	while (*mansion && *gameid == *mansion) { ++mansion; ++gameid; }
+-	return kWorldExportVersion + (!*mansion && !*gameid ? 3 : 0);
++	return kWorldExportVersion + (!*mansion && !*gameid ? 4 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 334cb498..877209e6 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -342,7 +342,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// scummverseExportThings): each object, the picture it is in (its state
+ 	// as drawn; the older games' one image, or none) and the verbs its own
+ 	// script answers (its own entries, not the catch-all one; bit 14 that
+-	// it has one, bit 15 that it cannot be touched there or is carried).
++	// it has one, bit 15 that it cannot be touched there or is carried);
++	// from 0168 also the object it is inside (0: none) and the picture that
++	// one shows it in.
+ 	if (things) {
+ 		things->clear();
+ 		updateObjectStates();
+@@ -363,6 +365,10 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			things->push_back(o.obj_nr);
+ 			things->push_back(_game.version <= 2 ? (o.state & kObjectStateIntrinsic ? 1 : 0) : !o.state ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : o.state);
+ 			things->push_back(answers);
++			// (The one it is inside, and the picture that one shows it in.)
++			const int parent = o.parent && o.parent < _numLocalObjects ? _objs[o.parent].obj_nr : 0;
++			things->push_back(parent);
++			things->push_back(!parent ? 0 : _game.version <= 2 ? (o.parentstate & kObjectStateIntrinsic ? 1 : 0) : o.parentstate);
+ 		}
+ 		return true;
+ 	}
+@@ -568,6 +574,19 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			const int images = !obim ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : CLIP(getObjectImageCount(o.obj_nr), 0, 16);
+ 			// (The older games draw whole rows of 8: none, none drawn.)
+ 			const bool rows = _game.version >= 7 || (o.height & ~7) > 0;
++			// (From 0168 the mansion's thing inside another (the fridge's food,
++			// the key under the mat) is drawn with that one as it shows it: the
++			// one it is in opened while its pictures are taken, then shut
++			// again. The scene keeps it as it was.)
++			Common::Array<int> opened, openedWas;
++			if (_game.id == GID_MANIAC && _game.version <= 1)
++				for (int at = i, depth = 0; _objs[at].parent && _objs[at].parent < _numLocalObjects && depth < 8; at = _objs[at].parent, ++depth) {
++					const int up = _objs[at].parent, want = _objs[at].parentstate & kObjectStateIntrinsic;
++					if ((_objs[up].state & kObjectStateIntrinsic) == want) continue;
++					opened.push_back(up); openedWas.push_back(getState(_objs[up].obj_nr));
++					_objs[up].state = (_objs[up].state & ~kObjectStateIntrinsic) | want;
++					putState(_objs[up].obj_nr, (getState(_objs[up].obj_nr) & ~kObjectStateIntrinsic) | want);
++				}
+ 			if (x0 < x1 && y0 < y1 && images > 0 && rows && scummverseObjectDrawable(o, 1)) {
+ 				p.x = x0; p.y = y0; p.width = x1 - x0; p.height = y1 - y0;
+ 				const int global = getState(o.obj_nr);
+@@ -575,9 +594,10 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				// have one image whatever the state, the oldest draw it while
+ 				// its state's "on" bit is set).
+ 				const int now = old ? (states[i - 1] & kObjectStateIntrinsic ? 1 : 0) : !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
+-				const Common::Array<byte> inScene = grab(scene, p);
+ 				renderSpan(x0, x1);
+ 				const Common::Array<byte> drawn = grab(pixels, p);
++				// (One inside another shut in the scene: as that one opened.)
++				const Common::Array<byte> inScene = opened.empty() ? grab(scene, p) : drawn;
+ 				for (int state = 0; state <= images; ++state) {
+ 					if (state && !scummverseObjectDrawable(o, state)) break;
+ 					const int as = old ? (state ? global | kObjectStateIntrinsic : global & ~kObjectStateIntrinsic) : state;
+@@ -596,9 +616,11 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 						for (byte c : rect) if (++counts[c] > most) { most = counts[c]; block = c; }
+ 						int alike = 0, ring = 0, ringAlike = 0;
+ 						for (byte c : inScene) alike += c == block;
++						// (Around one inside another: that one opened, as drawn now.)
++						const Common::Array<byte> &around = opened.empty() ? scene : pixels;
+ 						for (int y = MAX(0, y0 - 8); y < MIN(shownHeight, y1 + 8); ++y)
+ 							for (int x = MAX(0, x0 - 8); x < MIN(W, x1 + 8); ++x)
+-								if (x < x0 || x >= x1 || y < y0 || y >= y1) { ++ring; ringAlike += scene[y * W + x] == block; }
++								if (x < x0 || x >= x1 || y < y0 || y >= y1) { ++ring; ringAlike += around[y * W + x] == block; }
+ 						if (most * 100 >= (int)rect.size() * 80 && alike * 100 < (int)rect.size() * 80 && ringAlike * 100 <= ring * 2) break;
+ 					}
+ 					p.states.push_back(rect);
+@@ -610,6 +632,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 				drift += p.states[p.shown] != inScene;
+ 				p.states[p.shown] = inScene;
+ 			}
++			for (uint k = opened.size(); k-- > 0;) { _objs[opened[k]].state = states[opened[k] - 1]; putState(_objs[opened[k]].obj_nr, openedWas[k]); }
+ 			pictures.push_back(p);
+ 		}
+ 		// (Put back as the scene has them: states, and the heights drawing rounds.)
+@@ -1474,7 +1497,8 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // pictures after of the things of the places exported it set (even as they
+ // were). Not doors: the new engine opens those as it goes. From 0161 also
+ // read and pick up (not use, unlock or fix: the mansion's want a second
+-// thing), and whether the kid who used it took it.
++// thing), and whether the kid who used it took it. From 0168 "SVO3": then
++// what each thing is inside (see Scummverse::Panel::ThingParent).
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+ 	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+ 	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+@@ -1516,7 +1540,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// (Where each thing is: the first place it was found in.)
+ 		Common::HashMap<int, int> placeOf;
+ 		for (const Room &r : found)
+-			for (uint i = 0; i + 2 < r.things.size(); i += 3) if (!placeOf.contains(r.things[i])) placeOf[r.things[i]] = r.room;
++			for (uint i = 0; i + 4 < r.things.size(); i += 5) if (!placeOf.contains(r.things[i])) placeOf[r.things[i]] = r.room;
+ 		auto quiet = [&]() {
+ 			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) { vm.slot[s].status = ssDead; vm.slot[s].freezeCount = 0; vm.slot[s].cutsceneOverride = 0; }
+ 			_currentScript = 0xFF; vm.numNestedScripts = 0; vm.cutSceneStackPointer = 0; _sentenceNum = 0;
+@@ -1538,7 +1562,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			Common::Array<int> runs;
+ 			putBack();
+ 			if (shouldQuit() || !arrive(r.room)) continue;
+-			for (uint i = 0; i + 2 < r.things.size(); i += 3) {
++			for (uint i = 0; i + 4 < r.things.size(); i += 5) {
+ 				const int obj = r.things[i];
+ 				if (worldLinkFrom(gameIndex, r.room, obj)) continue;
+ 				for (int kind : kinds) {
+@@ -1604,12 +1628,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+-	out.write(effects.empty() ? "SVO1" : "SVO2", 4);
++	out.write(effects.empty() ? "SVO1" : "SVO3", 4);
+ 	scummverseWrite16(out, MIN<uint>(found.size(), 65535));
+ 	for (const Room &r : found) {
+ 		scummverseWrite16(out, r.room);
+-		scummverseWrite16(out, r.things.size() / 3);
+-		for (uint i = 0; i + 2 < r.things.size(); i += 3) {
++		scummverseWrite16(out, r.things.size() / 5);
++		for (uint i = 0; i + 4 < r.things.size(); i += 5) {
+ 			scummverseWrite16(out, r.things[i]); out.writeByte(CLIP(r.things[i + 1], 0, 255)); scummverseWrite16(out, r.things[i + 2]);
+ 		}
+ 	}
+@@ -1622,6 +1646,16 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			for (uint i = 0; i + 2 < e.others.size(); i += 3) { scummverseWrite16(out, e.others[i]); scummverseWrite16(out, e.others[i + 1]); out.writeByte(e.others[i + 2]); }
+ 			out.writeByte(e.line.size()); out.write(e.line.c_str(), e.line.size());
+ 		}
++		// (From 0168, "SVO3": what each thing is inside, and the picture
++		// that one shows it in.)
++		Common::Array<int> parents;
++		for (const Room &r : found)
++			for (uint i = 0; i + 4 < r.things.size(); i += 5)
++				if (r.things[i + 3] && r.things[i + 3] != r.things[i]) { parents.push_back(r.room); parents.push_back(r.things[i]); parents.push_back(r.things[i + 3]); parents.push_back(r.things[i + 4]); }
++		scummverseWrite16(out, MIN<uint>(parents.size() / 4, 4096));
++		for (uint k = 0; k + 3 < parents.size() && k / 4 < 4096; k += 4) {
++			scummverseWrite16(out, parents[k]); scummverseWrite16(out, parents[k + 1]); scummverseWrite16(out, parents[k + 2]); out.writeByte(CLIP(parents[k + 3], 0, 255));
++		}
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index ba003f10..1241432d 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -330,6 +330,8 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 			_placed += StageBridge::showObject(i, picture);
+ 	}
+ 	_game = game; _room = room; _player = -1; _door = -1; _doorGoalLink = -1; _opening = 0; _onStage.clear();
++	// (What is inside another over it where that one is open, else under it.)
++	layInside();
+ 	// The games' own walk: 8 across and 2 up or down a step (Curse of
+ 	// Monkey Island's pixels are half the size).
+ 	const double unit = screenWidthOf(game) / 320.0;
+@@ -825,10 +827,48 @@ bool SandboxEngine::isThing(int object) const {
+ 	int id, ox, oy, w, h, wx, wy, state, picture, answers;
+ 	char name[4];
+ 	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state) || StageBridge::objectName(object, name, sizeof(name)) <= 0 || isCarried(_game, _room, id)) return false;
++	// (Not one inside another shut: the fridge's food, the key under the mat.)
++	if (insideShut(object)) return false;
+ 	// (Not one its game has untouchable or away.)
+ 	return !PanelBridge::gameThing(_game, _room, id, picture, answers) || !(answers & PanelBridge::kThingAway);
+ }
+ 
++// A thing inside another (its game's parent: the fridge's food, the key
++// under the mat; from 0168) is drawn and touched only while that one, and
++// each it is in, shows the picture it is in.
++bool SandboxEngine::insideShut(int object) const {
++	int id, ox, oy, w, h, wx, wy, state, parent, picture;
++	if (_game < 0 || !StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++	for (int depth = 0; depth < 8 && PanelBridge::thingParent(_game, _room, id, parent, picture); ++depth, id = parent)
++		if (pictureOf(_room, parent) != picture) return true;
++	return false;
++}
++
++// Drawn again from the outside in: each thing something is inside, and
++// each inside one shown (over it) where all it is in are open; one inside
++// one shut stays under it.
++void SandboxEngine::layInside() {
++	if (_game < 0) return;
++	Common::Array<int> order[9];
++	for (int o = 0; o < StageBridge::objectCount(); ++o) {
++		int id, ox, oy, w, h, wx, wy, state, parent, picture, depth = 0;
++		if (!StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
++		const bool inside = PanelBridge::thingParent(_game, _room, id, parent, picture);
++		bool holds = false;
++		for (int k = 0; k < StageBridge::objectCount() && !holds; ++k) {
++			int kid, kx, ky, kw, kh, kwx, kwy, ks, kparent, kpicture;
++			holds = StageBridge::object(k, kid, kx, ky, kw, kh, kwx, kwy, ks) && PanelBridge::thingParent(_game, _room, kid, kparent, kpicture) && kparent == id;
++		}
++		if (!inside && !holds) continue;
++		for (int up = id; depth < 8 && PanelBridge::thingParent(_game, _room, up, parent, picture); up = parent) ++depth;
++		order[depth].push_back(o);
++	}
++	for (const Common::Array<int> &level : order)
++		for (int o : level)
++			if (!insideShut(o)) StageBridge::showObject(o, StageBridge::objectShown(o));
++	_dirty = true;
++}
++
+ bool SandboxEngine::isCarried(int game, int room, int id) const {
+ 	for (const Carried &c : _carried) if (c.game == game && c.room == room && c.id == id) return true;
+ 	return false;
+@@ -1315,6 +1355,8 @@ int SandboxEngine::talkIdAt(int screenX, int screenY) const {
+ 
+ void SandboxEngine::showPicture(int object, int id, int picture) {
+ 	if (StageBridge::showObject(object, picture)) _pictures[thingKey(_game, _room, id)] = picture;
++	// (What is inside it, or what it is inside, over or under it.)
++	layInside();
+ 	// (Loom's box shows the thing chosen as it is now.)
+ 	if (object == _chosen && PanelBridge::distaff()) {
+ 		Common::Array<byte> data;
+@@ -3341,7 +3383,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -3577,6 +3619,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (PanelBridge::thingEffect(maniac, room, id, kind, from, after, others, count, 64, said, sizeof(said), &took) &&
+ 				plainAnswer(kind, from, after, took, count, said)) { ++effectsPlain; continue; }
+ 			if ((_game != maniac || _room != room) && !enter(maniac, room, 0, problem)) { fail("a place of the mansion's not shown", maniac); continue; }
++			// (One inside another: that one, and each it is in, as its game
++			// shows it then.)
++			for (int up = id, depth = 0, parent, picture; depth < 8 && PanelBridge::thingParent(maniac, room, up, parent, picture); up = parent, ++depth)
++				setPicture(room, parent, picture);
+ 			const int o = thingIn(id);
+ 			if (o < 0 || !isThing(o)) { ++effectsAway; continue; }
+ 			// (Taken where no picture is without it: the plain rules, not taken.)
+@@ -3620,6 +3666,37 @@ Common::Error SandboxEngine::verbsTest() {
+ 				break;
+ 			}
+ 		}
++		// Things inside others (from 0168, their game's parents): the
++		// fridge's food not touched shut; opened, the cheese taken; shut over
++		// the rest; come back to, shut; opened again, the cheese still gone.
++		// The door mat lifted, the key under it taken.
++		auto putBack = [&](int room, int id) {
++			for (uint c = 0; c < _carried.size(); ++c)
++				if (_carried[c].game == maniac && _carried[c].room == room && _carried[c].id == id) { PanelBridge::removeItem(c); _carried.remove_at(c); break; }
++		};
++		if (maniac >= 0 && installed(maniac, 7)) {
++			for (int id : {89, 90, 91}) _pictures.erase(thingKey(maniac, 7, id));
++			bool ok = enter(maniac, 7, 0, problem) && thingIn(89) >= 0 && thingIn(90) >= 0 && thingIn(91) >= 0;
++			ok = ok && StageBridge::objectShown(thingIn(89)) == 0 && !isThing(thingIn(90)) && StageBridge::looksAs(thingIn(89), 0);
++			ok = ok && doAt(kWorldVerbOpen, thingIn(89)) && StageBridge::objectShown(thingIn(89)) == 1 && isThing(thingIn(90)) &&
++				StageBridge::looksAs(thingIn(90), StageBridge::objectShown(thingIn(90))) && StageBridge::looksAs(thingIn(91), StageBridge::objectShown(thingIn(91)));
++			ok = ok && doAt(kWorldVerbPickUp, thingIn(90)) && isCarried(maniac, 7, 90) && StageBridge::looksAs(thingIn(90), 1);
++			ok = ok && doAt(kWorldVerbClose, thingIn(89)) && StageBridge::looksAs(thingIn(89), 0) && !isThing(thingIn(91));
++			ok = ok && enter(maniac, 7, 0, problem) && StageBridge::looksAs(thingIn(89), 0) && !isThing(thingIn(91));
++			ok = ok && doAt(kWorldVerbOpen, thingIn(89)) && StageBridge::looksAs(thingIn(90), 1) && StageBridge::looksAs(thingIn(91), 0) && isThing(thingIn(91));
++			if (!ok) fail("the fridge's food not inside it", maniac); else ++inside;
++			putBack(7, 90);
++			for (int id : {89, 90, 91}) _pictures.erase(thingKey(maniac, 7, id));
++		}
++		if (maniac >= 0 && installed(maniac, 1)) {
++			for (int id : {54, 55}) _pictures.erase(thingKey(maniac, 1, id));
++			bool ok = enter(maniac, 1, 0, problem) && thingIn(54) >= 0 && thingIn(55) >= 0 && !isThing(thingIn(55));
++			ok = ok && doAt(kWorldVerbPickUp, thingIn(54)) && StageBridge::objectShown(thingIn(54)) == 1 && isThing(thingIn(55)) && StageBridge::looksAs(thingIn(55), 0);
++			ok = ok && doAt(kWorldVerbPickUp, thingIn(55)) && isCarried(maniac, 1, 55) && StageBridge::looksAs(thingIn(55), 1);
++			if (!ok) fail("the key not under the mat", maniac); else ++inside;
++			putBack(1, 55);
++			for (int id : {54, 55}) _pictures.erase(thingKey(maniac, 1, id));
++		}
+ 	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+@@ -3646,7 +3723,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain);
++	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 8ce4b356..f10b4c50 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -83,6 +83,8 @@ private:
+ 	// was used on (the plain rules), saying a line, an object shown in
+ 	// another picture (kept between visits).
+ 	bool isThing(int object) const; // named, and not taken from here
++	bool insideShut(int object) const; // inside another (its game's parent) not showing it
++	void layInside();                  // what is inside another drawn over it, or under it
+ 	bool isCarried(int game, int room, int id) const;
+ 	void sentence(const Common::String &text);
+ 	void chooseVerb(int verb);

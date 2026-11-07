@@ -1,0 +1,181 @@
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index b02f9ce0..91420632 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -116,23 +116,43 @@ static bool inside(Pt p, const V2Box &b) {
+ 	const double left = b.ulx + (b.llx - b.ulx) * t, right = b.urx + (b.lrx - b.urx) * t;
+ 	return p.x >= left - 1e-9 && p.x <= right + 1e-9;
+ }
+-static bool touching(const V2Box &a, const V2Box &b) {
++static double cross(Pt o, Pt a, Pt b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); }
++static bool crossing(Pt a, Pt b, Pt c, Pt d) {
++	const double d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
++	return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
++}
++// How far apart two boxes are (0: they overlap, a corner inside or edges
++// crossing like a plus sign).
++static double gap(const V2Box &a, const V2Box &b) {
+ 	Pt pa[4], pb[4]; polygon(a, pa); polygon(b, pb);
+-	for (int i = 0; i < 4; ++i) if (inside(pa[i], b) || inside(pb[i], a)) return true;
++	for (int i = 0; i < 4; ++i) if (inside(pa[i], b) || inside(pb[i], a)) return 0;
++	for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) if (crossing(pa[i], pa[(i + 1) % 4], pb[j], pb[(j + 1) % 4])) return 0;
+ 	double best = 1e9;
+ 	for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) {
+ 		best = std::min(best, segmentDistance(pa[i], pb[j], pb[(j + 1) % 4]));
+ 		best = std::min(best, segmentDistance(pb[i], pa[j], pa[(j + 1) % 4]));
+ 	}
+-	return best <= 1.0;
++	return best;
+ }
++static bool touching(const V2Box &a, const V2Box &b) { return gap(a, b) <= 1.0; }
+ 
+-std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes) {
++std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes, const std::vector<int> &sources, const std::vector<uint8_t> &sourceNext, int sourceCount) {
+ 	const int n = (int)boxes.size();
+ 	std::vector<int8_t> next((size_t)n * n, -1);
+ 	std::vector<std::vector<int>> links(n);
++	// Boxes that touch here, or whose game connects them directly and that
++	// are still close (a diagonal step apart once in V1 units, say; never a
++	// box that is a single point, as a game's dummy box in a corner that many
++	// connect to).
++	const bool known = sourceCount > 0 && sources.size() == (size_t)n && sourceNext.size() == (size_t)sourceCount * sourceCount;
++	auto point = [](const V2Box &b) { return b.uy == b.ly && b.ulx == b.urx && b.llx == b.lrx && b.ulx == b.llx; };
++	auto connected = [&](int i, int j) {
++		const int a = sources[i], b = sources[j];
++		return a >= 0 && b >= 0 && a < sourceCount && b < sourceCount && !point(boxes[i]) && !point(boxes[j]) &&
++			(sourceNext[(size_t)a * sourceCount + b] == b || sourceNext[(size_t)b * sourceCount + a] == a);
++	};
+ 	for (int i = 0; i < n; ++i) for (int j = i + 1; j < n; ++j)
+-		if (touching(boxes[i], boxes[j])) { links[i].push_back(j); links[j].push_back(i); }
++		if (touching(boxes[i], boxes[j]) || (known && connected(i, j) && gap(boxes[i], boxes[j]) <= 3.0)) { links[i].push_back(j); links[j].push_back(i); }
+ 	for (int from = 0; from < n; ++from) {
+ 		std::vector<int> first(n, -1); first[from] = from;
+ 		std::deque<int> queue; queue.push_back(from);
+@@ -291,7 +311,9 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	// Boxes: scale, then V1 units (x/8, y/2). Disabled boxes are dropped.
+ 	auto ux = [&](int x) { return std::max(0, std::min(255, (int)std::lround((x * scaleX + pad) / 8))); };
+ 	auto uy = [&](int y) { return std::max(0, std::min(targetHeight / 2, (int)std::lround(y * scale / 2))); };
+-	for (const SourceBox &b : src.boxes) {
++	std::vector<int> sources;
++	for (size_t i = 0; i < src.boxes.size(); ++i) {
++		const SourceBox &b = src.boxes[i];
+ 		if (b.flags & 0x80) continue;
+ 		V2Box v;
+ 		v.uy = uy(std::min(b.y[0], b.y[1])); v.ly = uy(std::max(b.y[2], b.y[3]));
+@@ -300,13 +322,13 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 		if (v.llx > v.lrx) std::swap(v.llx, v.lrx);
+ 		if (v.uy > v.ly) { std::swap(v.uy, v.ly); std::swap(v.ulx, v.llx); std::swap(v.urx, v.lrx); }
+ 		v.mask = 0; v.flags = 0;
+-		out.boxes.push_back(v);
++		out.boxes.push_back(v); sources.push_back((int)i);
+ 		const bool flipped = std::min(b.y[0], b.y[1]) > std::max(b.y[2], b.y[3]);
+ 		out.scaleTop.push_back((uint8_t)(flipped ? b.scaleBottom : b.scaleTop));
+ 		out.scaleBottom.push_back((uint8_t)(flipped ? b.scaleTop : b.scaleBottom));
+ 		if ((int)out.boxes.size() == 120) break; // Fits the one-byte box offset layout.
+ 	}
+-	out.next = routeBoxes(out.boxes);
++	out.next = routeBoxes(out.boxes, sources, src.boxNext, (int)src.boxes.size());
+ 	// Objects: rectangles in sandbox pixels, walk-to points in V1 units.
+ 	for (const SourceObject &o : src.objects) {
+ 		SandboxObject v;
+@@ -546,6 +568,8 @@ std::vector<uint8_t> buildV1Room(const SandboxScene &scene) {
+ 		const int fields[8] = {b.uy, b.ly, b.ulx, b.urx, b.llx, b.lrx, b.mask, b.flags};
+ 		for (int f : fields) room.push_back((uint8_t)f);
+ 	}
++	// (A row start past a byte wraps: the engine finds those rows by number,
++	// ScummEngine::getNextBox.)
+ 	for (int i = 0; i < n; ++i) room.push_back((uint8_t)(i * n));
+ 	for (int8_t hop : scene.next) room.push_back((uint8_t)hop);
+ 	const int offsets[5] = {10, 12, 14, 16, 18};
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index ee737a1c..2107c9c4 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -161,7 +161,12 @@ bool fitPicture(const SourceScene &scene, const SourceScene &picture, const Sand
+ 	ScenePicture &out, std::string &error);
+ 
+ // Next-box routing for V2 boxes that touch (shared edge or overlap).
+-std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes);
++// (With the source room's boxes each came from and its next-box table, boxes
++// its game connects directly are joined too while within three units and
++// neither is a single point; the new engine's stage joins them at any
++// distance.)
++std::vector<int8_t> routeBoxes(const std::vector<V2Box> &boxes, const std::vector<int> &sources = std::vector<int>(),
++	const std::vector<uint8_t> &sourceNext = std::vector<uint8_t>(), int sourceCount = 0);
+ 
+ // A V1 room resource for the sandbox: header, boxes, routing and empty tile
+ // streams (the picture is drawn from SandboxScene::pixels). No objects or
+diff --git a/engines/scumm/boxes.cpp b/engines/scumm/boxes.cpp
+index dec075ee..a3d71ff8 100644
+--- a/engines/scumm/boxes.cpp
++++ b/engines/scumm/boxes.cpp
+@@ -766,7 +766,12 @@ int ScummEngine::getNextBox(byte from, byte to) {
+ 		// The v2 box matrix is a real matrix with numOfBoxes rows and columns.
+ 		// The first numOfBoxes bytes contain indices to the start of the corresponding
+ 		// row (although that seems unnecessary to me - the value is easily computable.
+-		boxm += numOfBoxes + boxm[from];
++		// (Scummverse: another game's scene, converted, can have more boxes
++		// than a byte of row start reaches; its rows are in order, so past
++		// that one is found by its number. The original rooms as before.)
++		int source;
++		const int row = from * numOfBoxes > 255 && scummverseWorldGameOf(_currentRoom, source) >= 0 ? from * numOfBoxes : boxm[from];
++		boxm += numOfBoxes + row;
+ 		return (int8)boxm[to];
+ 	}
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 11123d25..f93cd35f 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1883,7 +1883,7 @@ protected:
+ 	// reaches it (at once on a map).
+ 	void scummverseWorldDoors();
+ 	bool scummverseFollowLink(int game, int from, int target, int arrival);
+-	int _scummverseTapX = 0, _scummverseTapY = 0, _scummverseWalkStill = 0, _scummverseWalkSteps = 0;
++	int _scummverseTapX = 0, _scummverseTapY = 0, _scummverseWalkStill = 0, _scummverseWalkSteps = 0, _scummverseWalkBack = 0;
+ 	Common::Point _scummverseWalkPos, _scummverseWalkDest, _scummverseWalkTrail[64]; // the walk's last spots
+ 	bool _scummverseTapPending = false;
+ 	void scummverseMigrateWorldRooms();
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 3d339d1a..c062d5ff 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -256,7 +256,7 @@ bool ScummEngine::scummverseTravelWorld(int room, int x, int y) {
+ 	scummverseUpdateGuests(0, 0);
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	// A tap made before leaving never opens a door here.
+-	_scummverseTapPending = false; _scummverseWalkStill = 0; _scummverseWalkSteps = 0;
++	_scummverseTapPending = false; _scummverseWalkStill = 0; _scummverseWalkSteps = 0; _scummverseWalkBack = 0;
+ 	int source; const int gameIndex = scummverseWorldGameOf(room, source);
+ 	const WorldScene *landmark = worldLandmark(gameIndex, source);
+ 	const char *place = landmark ? landmark->name : "Exploring";
+@@ -316,19 +316,24 @@ void ScummEngine::scummverseWorldDoors() {
+ 	Actor *player = derefActor(VAR(VAR_EGO), "door walker");
+ 	// Some converted box layouts make the V1 walker step back and forth, or
+ 	// go round in a loop: a walk without progress for about a second, or
+-	// back at a spot it has passed, ends where it is.
++	// back at spots it has passed twice running, ends where it is. (Once is
++	// a corner: a path round the end of one box into the next steps back a
++	// step, then on to new spots.)
+ 	if (player->_moving) {
+ 		const Common::Point at = player->getRealPos(), dest = player->scummverseWalkDest();
+-		if (dest != _scummverseWalkDest) { _scummverseWalkDest = dest; _scummverseWalkSteps = 0; }
++		if (dest != _scummverseWalkDest) { _scummverseWalkDest = dest; _scummverseWalkSteps = 0; _scummverseWalkBack = 0; }
+ 		if (at == _scummverseWalkPos) { if (++_scummverseWalkStill > 60) { player->stopActorMoving(); _scummverseWalkStill = 0; } }
+ 		else {
+ 			_scummverseWalkPos = at; _scummverseWalkStill = 0;
+ 			bool seen = false;
+ 			for (int i = 0; i < MIN(_scummverseWalkSteps, (int)ARRAYSIZE(_scummverseWalkTrail)); ++i) seen |= _scummverseWalkTrail[i] == at;
+-			if (seen) { player->stopActorMoving(); _scummverseWalkSteps = 0; }
+-			else _scummverseWalkTrail[_scummverseWalkSteps++ % ARRAYSIZE(_scummverseWalkTrail)] = at;
++			if (seen && ++_scummverseWalkBack > 1) { player->stopActorMoving(); _scummverseWalkSteps = 0; _scummverseWalkBack = 0; }
++			else {
++				if (!seen) _scummverseWalkBack = 0;
++				_scummverseWalkTrail[_scummverseWalkSteps++ % ARRAYSIZE(_scummverseWalkTrail)] = at;
++			}
+ 		}
+-	} else { _scummverseWalkStill = 0; _scummverseWalkSteps = 0; }
++	} else { _scummverseWalkStill = 0; _scummverseWalkSteps = 0; _scummverseWalkBack = 0; }
+ 	if (!_scummverseTapPending) return;
+ 	const bool map = worldRoomKind(gameIndex, source) == kWorldMapRoom || getNumBoxes() == 0;
+ 	if (!map && player->_moving) return;

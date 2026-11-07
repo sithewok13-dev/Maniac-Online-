@@ -1,0 +1,433 @@
+diff --git a/engines/scumm/object.cpp b/engines/scumm/object.cpp
+index c8da2ef5..ef5aa903 100644
+--- a/engines/scumm/object.cpp
++++ b/engines/scumm/object.cpp
+@@ -557,6 +557,10 @@ int ScummEngine::findObject(int x, int y) {
+ 			const ObjectData &o=_objs[i]; bool travel=zakPadObject(_currentRoom,o.obj_nr) ||
+ 				(zakAirport(_currentRoom) && zakAirportRole(scummverseOriginalObject(_currentRoom,o.obj_nr))!=kZakNoRole);
+ 			for(const auto &link:zakLinks) if(link.room==_currentRoom && link.object==o.obj_nr) travel=true;
++			if(zakTramStation(_currentRoom)>=0) {
++				const int original=scummverseOriginalObject(_currentRoom,o.obj_nr);
++				if(original==kZakTramButton || (original==kZakTramObject && !(getState(o.obj_nr)&8))) travel=true;
++			}
+ 			for(const auto &way:zakTraversals) if(way.room==_currentRoom && way.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+ 			for(const auto &refusal:zakRefusals) if(refusal.room==_currentRoom && refusal.object==scummverseOriginalObject(_currentRoom,o.obj_nr)) travel=true;
+ 			if(travel && x>=o.x_pos && y>=o.y_pos && x<o.x_pos+o.width && y<o.y_pos+o.height && o.width*o.height<area) { hit=o.obj_nr;area=o.width*o.height; }
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 3c054a24..2c6a5647 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -153,6 +153,10 @@ void ScummEngine::runObjectScript(int object, int entry, bool freezeResistant, b
+ 				if(role==kZakGate) { scummverseBoard(); return; }
+ 				if(role==kZakTerminal) { scummverseAirportOffer(); return; }
+ 			}
++			if(zakTramStation(_currentRoom)>=0) {
++				const int original=scummverseOriginalObject(_currentRoom,object);
++				if(original==kZakTramObject || original==kZakTramButton) { scummverseTramRequest(VAR(VAR_EGO),original==kZakTramObject); return; }
++			}
+ 			for(const auto &link : zakLinks) if(link.room==_currentRoom && link.object==object) { scummverseTravel(link.destination==55?5:link.destination==54?1:link.destination-50,link.arrivalObject,link.arrivalX,link.arrivalY); return; }
+ 			const int original=scummverseOriginalObject(_currentRoom,object);
+ 			for(const auto &way : zakTraversals) if(way.room==_currentRoom && way.object==original) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 810c8a7f..6e63babd 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1614,6 +1614,19 @@ protected:
+ 	bool scummverseMountExtra(int room);
+ 	void scummverseArrive();
+ 	void scummverseWaitBus();
++	// Bus phases (var 765): 1..kBusBoarding the bus waits at the stop while
++	// riders walk aboard; then it drives until kBusArrival.
++	static const int kBusBoarding = 300, kBusArrival = kBusBoarding + 90;
++	unsigned _scummverseBusBoarded = 0; // Riders already inside (transient).
++	// Mars tram phases (var 797): boarding, then riding until kTramArrival.
++	// 798 is the rider manifest, 799 bit 0 the station it stands at (1 = 184).
++	static const int kTramBoarding = 300, kTramArrival = kTramBoarding + 180;
++	unsigned _scummverseTramBoarded = 0;
++	void scummverseTramRequest(int actor, bool board);
++	void scummverseServiceTram(int delta);
++	void scummverseApplyTramState();
++	void scummverseAnnounce(const char *text);
++	bool scummverseOnTram() const { int ego=_scummVars[VAR_EGO]; return _scummVars[797]>kTramBoarding && (_scummVars[798] & (1u<<ego)); }
+ 	bool scummverseOnBus() const { int ego=_scummVars[VAR_EGO]; return _scummVars[765] && (_scummVars[767]==ego || (_scummVars[766] & (1u<<ego))); }
+ 	void scummverseServiceBus(int delta);
+  void scummverseRestoreTransportVisibility();
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 909192ce..0bec1ebb 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -25,7 +25,7 @@ static const ZakPlace zakPlaces[] = {
+ 	{8, "5337090e7a6ebdbfb698ebda3750d926", "London airport"},
+ 	{44, "884a03db3f6a5a41920aeea82bd81a00", "Stonehenge"},
+ 	{27, "3eb16d7dfe8c9f59820896eee2c9392b", "Mars landing site"},
+-	{28, "6282c2c0caa99bdbb38ba36051fb57d3", "Mars hostel"},
++	{28, "6282c2c0caa99bdbb38ba36051fb57d3", "Mars hostel bunks"},
+ 	{30, "25c302c01174b88ecc0376241318d4f6", "Shuttle Bug"},
+ 	{32, "4a997a3115ca9b089f3308060ec0ecae", "Mars face entrance"},
+ 	{33, "5e9160bac7f7592da53a42e130122b5e", "Mars Great Chamber"},
+@@ -83,7 +83,10 @@ static const ZakLogicalScene zakLogicalScenes[] = {
+ 	{134, 78, "Stonehenge"},
+ 	{135, 71, "Egypt pyramid passage"},
+ 	{151, 63, "Zaire shaman's hut"},
+-	{181, 80, "Mars hostel bunks"},
++	// Original scripts: the landing site's door (449) opens into 181, whose
++	// hostel door (464) leads to the bunks (180).
++	{181, 80, "Mars hostel entrance"},
++	{184, 79, "Mars tram station"},
+ };
+ // Imported physical room backing a scene (itself for rooms 56..126), or 0.
+ static bool zakPhysicalRoom(int room) { return room >= 56 && room < 56 + (int)(sizeof(zakPlaces) / sizeof(zakPlaces[0])); }
+@@ -120,6 +123,13 @@ static const ZakResident *zakResident(int room) {
+ 	for (const auto &resident : zakResidents) if (resident.room == room) return &resident;
+ 	return nullptr;
+ }
++// The Mars tram (original object 445, call button 450) runs between the
++// landing site (185, sandbox 79) and the tram station (184). Original script
++// 51 counts down and lands riders at (13,63); the ride scene (resource 26)
++// is not imported yet.
++static const int kZakTramStations[2] = {79, 184};
++static const int kZakTramObject = 445, kZakTramButton = 450;
++static int zakTramStation(int room) { return room == kZakTramStations[0] ? 0 : room == kZakTramStations[1] ? 1 : -1; }
+ static bool zakAirport(int r) { const int slot=zakSceneSlotRoom(r); return r==53 || (slot && (zakPlaces[slot-56].file==8 || zakPlaces[slot-56].file==9)); }
+ // Airport interactions resolve by original object identity, not import order.
+ enum ZakAirportRole { kZakNoRole, kZakGate, kZakTerminal };
+@@ -179,8 +189,8 @@ static const ZakLink zakLinks[] = {
+ 	{135, 738, 72, 386},
+ 	{135, 735, 74, 403},
+ 	// Mars pyramid entrance 183 (resource 21) from the landing site.
+-	{71, 737, 79, 456},
+-	{71, 738, 79, 456},
++	{71, 737, 184, 456},
++	{71, 738, 184, 456},
+ 	{71, 735, 84, 0},
+ 	{72, 733, 74, 0},
+ 	{73, 732, 72, 0},
+@@ -195,12 +205,12 @@ static const ZakLink zakLinks[] = {
+ 	{134, 733, 78, 644},
+ 	{134, 732, 77, 0},
+ 	{78, 732, 77, 0},
+-	{79, 743, 80, 0},
+-	{79, 746, 80, 0},
++	{79, 743, 181, 463},
++	{79, 746, 81, 488},
+ 	{79, 747, 81, 0},
+-	{79, 752, 71, 396},
++	{184, 752, 71, 396},
+ 	{79, 753, 83, 534},
+-	{80, 732, 79, 449},
++	{181, 732, 79, 449},
+ 	{80, 748, 181, 464},
+ 	{181, 734, 80, 472},
+ 	{81, 739, 79, 0},
+@@ -1366,6 +1376,30 @@ static const ZakSceneSetup zakSceneSetups[] = {
+   {650,368,8,2},
+   {651,368,8,2}
+  }},
++ {184,184,160,160,12,22,{255,15,2},{0,128,0,0,0,128,0,0,0,0,0,128},{
++  {457,216,48,10},
++  {61,0,0,3},
++  {62,0,0,3},
++  {63,0,0,3},
++  {445,32,88,10},
++  {447,216,40,0},
++  {448,232,56,0},
++  {446,200,8,8},
++  {450,496,48,0},
++  {455,520,32,8},
++  {453,552,48,0},
++  {449,512,40,8},
++  {451,360,88,0},
++  {458,744,48,0},
++  {452,824,24,0},
++  {454,256,8,10},
++  {459,808,8,2},
++  {460,808,8,2},
++  {461,808,8,2},
++  {462,808,8,2},
++  {456,0,0,8},
++  {444,944,0,0}
++ }},
+ };
+ // Original room colors and camera bounds for imported rooms without a full
+ // setup (or whose sandbox adapters own object state, like the cabin seats).
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 1cdc82e0..e3e51fc5 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -305,7 +305,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	for (int id : mansionCast) {
+ 		if (id == VAR(VAR_EGO) || scummverseRemoteActor(id) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "sandbox roamer");
+-		if(_scummVars[766] & (1u<<id)) continue;
++		if((_scummVars[766] | (_scummVars[797] ? _scummVars[798] : 0)) & (1u<<id)) continue;
+ 		Roamer &r = _scummverseRoamers[id];
+ 		r.speech = MAX(0, r.speech - delta);
+ 		if (a->_room==56) {
+@@ -395,6 +395,10 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		if (getTalkingActor() == id && VAR(VAR_HAVE_MSG)) continue;
+ 		if(a->_room>=61  && !_scummVars[770+id] && !(chatting & (1u<<id))) {
+ 			r.wait-=delta;
++			if(r.wait<=0 && zakTramStation(a->_room)>=0 && !_rnd.getRandomNumber(1) && _scummVars[797]<=kTramBoarding) {
++				// Mars residents ride the tram too (or call it over).
++				scummverseTramRequest(id,true); r.wait=600+_rnd.getRandomNumber(900); continue;
++			}
+ 			if(r.wait<=0) {
+ 				int exits[12], count=0;
+ 				for(uint k=0;k<ARRAYSIZE(zakLinks);++k) if(zakLinks[k].room==a->_room && count<12) exits[count++]=k;
+@@ -460,7 +464,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		int x, y;
+ 		if(r.exit==78) {
+ 			if(!_scummVars[765]) _scummVars[765]=1;
+-			if(_scummVars[765]<=60) _scummVars[766] |= 1u<<id;
++			if(_scummVars[765]<=kBusBoarding) _scummVars[766] |= 1u<<id;
+ 			continue;
+ 		}
+ 		if (scummverseRoutePoint(r.exit, true, x, y)) {
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 434e6ca4..d403dc00 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -368,6 +368,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	if (zakRetiredRoomReplacement(destination + 50)) return false;
+ 	if (_currentRoom==56 && _scummVars[724] && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Choose Arrive to finish this flight with the other passengers."); return false; }
+ 	if(scummverseOnBus() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"We will reach the airport in a moment."); return false; }
++	if(scummverseOnTram() && !_scummverseLanding) { scummverseSay(VAR(VAR_EGO),"Let's wait until the tram stops."); return false; }
+ 	Actor *player = derefActor(VAR(VAR_EGO), "world traveller");
+ 	if ((destination == 1 && _currentRoom == 54) || (destination == 3 && _currentRoom == 53)) return true;
+ 	if (destination == 2 && _currentRoom < 53) return true;
+@@ -440,7 +441,7 @@ bool ScummEngine::scummverseTravel(int destination, int arrivalObject, int arriv
+ 	setCameraAt(player->getPos().x, player->getPos().y); setCameraFollows(player);
+ 	scummverseUpdateCompanions();
+ 	scummverseUpdateResident();
+-	_scummVars[527]=1; _scummVars[528]=3;
++	_scummVars[527]=1; _scummVars[528]=4;
+ 	resetSentence(); _fullRedraw = true; _scummverseTransitArmed = false;
+ 	_scummverseWorldNotice = room == 56 ? "In flight. Talk, explore, or choose Arrive whenever you like." : room == 57 ? "Seattle airport. Outside leads to the forest." : room == 58 ? "Seattle forest. Enter the opening at the loose dirt, or return to the airport." : room == 59 ? "Mt. Rainier cave. The cave exit leads back to the forest." : room == 60 ? "Miami airport. Use the computer to choose your next flight." : room == 53 ? "Use the airport computer to choose a free destination, then walk to the gate." :
+ 		room == 55 ? "Walk to the bus for a free ride to the airport. The stairs lead to Zak's apartment." :
+@@ -469,6 +470,7 @@ void ScummEngine::scummverseAirportOffer() {
+ 
+ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	scummverseServiceBus(delta);
++	scummverseServiceTram(delta);
+ 	// Retry optional resources together, at most once per 600 timer units.
+ 	if (!_scummverseAirportMounted || !_scummverseStreetMounted || _scummverseZakCastCostumes[0].empty()) {
+ 		_scummverseAirportRetry -= delta;
+@@ -661,7 +663,8 @@ void ScummEngine::scummverseArrive() {
+ 	_scummVars[travellerPartyKey(VAR(VAR_EGO))]=passengers; _scummVars[724]=_scummVars[725]=0; _scummVars[795]=_scummVars[796]=0;
+ }
+ void ScummEngine::scummverseWaitBus() {
+-	if (_currentRoom!=55 || _scummVars[765]>60) return;
++	if (_currentRoom!=55) return;
++	if (_scummVars[765]>kBusBoarding) { scummverseSay(VAR(VAR_EGO),"The bus just left. It'll be right back."); return; }
+ 	if(!scummverseMountAirport()) { scummverseSay(VAR(VAR_EGO),_scummverseWorldNotice.c_str()); return; }
+ 	_scummVars[767]=VAR(VAR_EGO); _scummverseBusEgo=VAR(VAR_EGO);
+ 	if(!_scummVars[765]) _scummVars[765]=1;
+@@ -670,7 +673,12 @@ void ScummEngine::scummverseWaitBus() {
+ void ScummEngine::scummverseRestoreTransportVisibility() {
+  // Scene entry and actor switching can show actors again. The saved manifest
+  // owns visibility while the bus is moving, including before the next tick.
+- if (!_scummverseRoaming || _scummVars[765]<=60 || _scummVars[765]>=150) return;
++ if (!_scummverseRoaming) return;
++ if (_scummVars[797]>kTramBoarding) for (int id : mansionCast) if (_scummVars[798] & (1u<<id)) {
++  Actor *a=derefActor(id,"restore tram visibility");
++  if (a->_room==_currentRoom) { a->stopActorMoving(); a->hideActor(); }
++ }
++ if (_scummVars[765]<=kBusBoarding || _scummVars[765]>=kBusArrival) return;
+  for (int id : mansionCast) if (_scummVars[766] & (1u<<id)) {
+   Actor *a=derefActor(id,"restore bus visibility");
+   a->stopActorMoving();
+@@ -680,12 +688,46 @@ void ScummEngine::scummverseRestoreTransportVisibility() {
+ 
+ void ScummEngine::scummverseServiceBus(int delta) {
+ 	// 765 phase, 766 passenger manifest, 767 player requesting a ride.
+-	// Zero is parked/asleep. Boarding lasts one second; then drive toward the
+-	// foreground, matching the original front-on cab, never sideways.
++	// Zero is parked/asleep. The bus waits kBusBoarding while riders walk to
++	// the door and step in; then it drives toward the foreground, matching
++	// the original front-on cab, never sideways.
+ 	int previous=_scummVars[765];
+ 	if(previous) _scummVars[765]+=MIN(delta,60);
+ 	int phase=_scummVars[765]; _scummverseBusClock=phase;
+-	if(previous<=60 && phase>60) {
++	if(!previous) _scummverseBusBoarded=0;
++	if(previous==1 && phase>1) {
++		// The driver wakes: idle people at the street may decide to ride too.
++		for(int id : mansionCast) {
++			if(id==VAR(VAR_EGO) || scummverseRemoteActor(id) || _scummVars[770+id] || (_scummVars[766] & (1u<<id))) continue;
++			if((id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) continue;
++			Roamer &r=_scummverseRoamers[id];
++			// Busy or deliberately resting characters stay put.
++			if(derefActor(id,"bus hopeful")->_room!=55 || r.wait>1200 || r.speech>0 || _rnd.getRandomNumber(1)) continue;
++			r.exit=78; r.elapsed=0; r.walking=false; r.wait=0;
++		}
++	}
++	if(phase>0 && phase<=kBusBoarding) {
++		// Riders so far: whoever called the bus, their companions, and anyone
++		// who reached the stop. Each walks to the door, then steps inside.
++		unsigned riders=_scummVars[766]; const int ego=_scummVars[767];
++		if(ego>0 && derefActor(ego,"bus caller")->_room==55) {
++			riders |= 1u<<ego;
++			for(int id : mansionCast) if(_scummVars[770+id]==ego && derefActor(id,"bus companion")->_room==55) riders |= 1u<<id;
++		}
++		for(int id : mansionCast) if((riders & (1u<<id)) && !(_scummverseBusBoarded & (1u<<id))) {
++			Actor *a=derefActor(id,"boarding rider");
++			if(a->_room!=55) continue;
++			const bool atDoor=ABS(a->getRealPos().x-101)<=3;
++			if(_currentRoom==55 && !atDoor) {
++				if(!a->_moving) { AdjustBoxResult door=a->adjustXYToBeInBox(101,59); a->startWalkActor(door.x,door.y,-1); }
++				continue;
++			}
++			if(!atDoor && _currentRoom==55) continue;
++			a->stopActorMoving(); a->putActor(103,51,55); if(_currentRoom==55) a->hideActor();
++			_scummverseBusBoarded|=1u<<id; _scummVars[766]|=1u<<id;
++		}
++	}
++	if(previous<=kBusBoarding && phase>kBusBoarding) {
+ 		unsigned passengers=_scummVars[766]; int ego=_scummVars[767];
+ 		if(ego>0 && derefActor(ego,"bus rider")->_room==55) {
+ 			passengers |= 1u<<ego;
+@@ -703,7 +745,7 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 		}
+ 	}
+  scummverseRestoreTransportVisibility();
+-	if(phase>=150) {
++	if(phase>=kBusArrival) {
+ 		unsigned passengers=_scummVars[766]; int ego=_scummVars[767];
+ 		_scummVars[765]=_scummVars[766]=_scummVars[767]=0; _scummverseBusEgo=0; _scummverseBusClock=0;
+ 		if(ego==VAR(VAR_EGO) && (passengers&(1u<<ego))) scummverseTravel(3);
+@@ -713,7 +755,7 @@ void ScummEngine::scummverseServiceBus(int delta) {
+ 		phase=0;
+ 	}
+ 	if(_currentRoom!=55) return;
+-	int shift=phase>60 ? (phase-60)*2 : 0;
++	int shift=phase>kBusBoarding ? (phase-kBusBoarding)*2 : 0;
+ 	_gdi->scummverseBusImage(_scummverseStreetRoom.data(),shift,phase!=0);
+ 	for(int i=1;i<_numLocalObjects;++i) if(_objs[i].obj_nr>=724 && _objs[i].obj_nr<=728) {
+ 		int state=getState(_objs[i].obj_nr) & ~kObjectStateIntrinsic;
+@@ -900,9 +942,112 @@ void ScummEngine::scummverseRestoreSceneObjects() {
+    object.x_pos=source.x;object.y_pos=source.y;
+   }
+  }
++ scummverseApplyTramState();
+  _fullRedraw=true;
+ }
+ 
++// A system line in the message area (original print(255,...) style).
++void ScummEngine::scummverseAnnounce(const char *text) {
++	if (VAR(VAR_HAVE_MSG)) return;
++	_actorToPrintStrFor = 0xFF;
++	_string[0].xpos = 0; _string[0].ypos = 0; _string[0].right = _screenWidth - 1;
++	_string[0].center = false; _string[0].overhead = false;
++	actorTalk((const byte *)text);
++}
++
++// The parked tram is drawn only at the station where it stands (original
++// states: 0 present, 10 away), in either scene sharing the resource.
++void ScummEngine::scummverseApplyTramState() {
++	const int station = zakTramStation(_currentRoom);
++	if (!_scummverseRoaming || station < 0) return;
++	for (int i = 0; i < 33; ++i) {
++		if (scummverseOriginalObject(_currentRoom, 732 + i) != kZakTramObject) continue;
++		const bool here = (_scummVars[799] & 1) == station && _scummVars[797] <= kTramBoarding;
++		if (getState(732 + i) != (here ? 0 : 10)) { putState(732 + i, here ? 0 : 10); _fullRedraw = true; }
++	}
++}
++
++// Board (or call) the tram at the actor's station. Boarding starts the
++// countdown when the tram is idle here; a call sends it over empty.
++void ScummEngine::scummverseTramRequest(int actor, bool board) {
++	Actor *a = derefActor(actor, "tram request");
++	const int station = zakTramStation(a->_room);
++	if (station < 0 || _scummVars[797] > kTramBoarding) return;
++	const bool here = (_scummVars[799] & 1) == station;
++	const bool player = actor == VAR(VAR_EGO);
++	if (!here) {
++		if (_scummVars[797]) { if (player) scummverseSay(actor, "The tram is boarding at the other station."); return; }
++		// Called: it runs over empty and opens for boarding on arrival.
++		_scummVars[797] = kTramBoarding + 1; _scummVars[798] = 0; _scummVars[799] |= 2;
++		if (player) scummverseSay(actor, "I called the tram. It's on its way.");
++		return;
++	}
++	if (!board) { if (player) scummverseSay(actor, "The tram is right here."); return; }
++	if (!_scummVars[797]) { _scummVars[797] = 1; _scummverseTramBoarded = 0; }
++	_scummVars[798] |= 1u << actor;
++	if (player) for (int id : mansionCast)
++		if (_scummVars[770 + id] == actor && derefActor(id, "tram companion")->_room == a->_room) _scummVars[798] |= 1u << id;
++}
++
++void ScummEngine::scummverseServiceTram(int delta) {
++	const int previous = _scummVars[797];
++	if (!previous) return;
++	_scummVars[797] += MIN(delta, 60);
++	const int phase = _scummVars[797], station = _scummVars[799] & 1;
++	const int origin = kZakTramStations[station], destination = kZakTramStations[1 - station];
++	if (phase <= kTramBoarding) {
++		// Original countdown wording (script 51), shortened to the wait here.
++		if (_currentRoom == origin) {
++			if (previous < 8 && phase >= 8) scummverseAnnounce("Tram leaving in 5 seconds.");
++			else if (previous < kTramBoarding - 90 && phase >= kTramBoarding - 90) scummverseAnnounce("All aboard!");
++		}
++		for (int id : mansionCast) if ((_scummVars[798] & (1u << id)) && !(_scummverseTramBoarded & (1u << id))) {
++			Actor *a = derefActor(id, "tram rider");
++			if (a->_room != origin) { _scummVars[798] &= ~(1u << id); continue; } // Walked away.
++			if (_currentRoom == origin) {
++				int index = -1;
++				for (int i = 0; i < 33 && index < 0; ++i) if (scummverseOriginalObject(origin, 732 + i) == kZakTramObject) index = getObjectIndex(732 + i);
++				if (index < 0) continue;
++				const int doorX = _objs[index].walk_x / 8, doorY = _objs[index].walk_y / 2;
++				if (ABS(a->getRealPos().x - doorX) > 3) {
++					if (!a->_moving) { AdjustBoxResult door = a->adjustXYToBeInBox(doorX, doorY); a->startWalkActor(door.x, door.y, -1); }
++					continue;
++				}
++				a->stopActorMoving(); a->hideActor();
++			}
++			_scummverseTramBoarded |= 1u << id;
++		}
++		return;
++	}
++	if (previous <= kTramBoarding) {
++		// Departure: everyone still on the platform who asked is aboard.
++		for (int id : mansionCast) if (_scummVars[798] & (1u << id)) {
++			Actor *a = derefActor(id, "tram departure");
++			if (a->_room != origin) { _scummVars[798] &= ~(1u << id); continue; }
++			a->stopActorMoving(); if (_currentRoom == origin) a->hideActor();
++		}
++		scummverseApplyTramState();
++	}
++	scummverseRestoreTransportVisibility();
++	if (phase < kTramArrival) return;
++	const unsigned riders = _scummVars[798];
++	const bool empty = (_scummVars[799] & 2) != 0;
++	_scummVars[799] = (station ^ 1); _scummVars[797] = _scummVars[798] = 0; _scummverseTramBoarded = 0;
++	const int ego = VAR(VAR_EGO);
++	if (riders & (1u << ego)) { _scummverseLanding = true; scummverseTravel(destination - 50, 0, 13, 63); _scummverseLanding = false; }
++	for (int id : mansionCast) if (riders & (1u << id)) {
++		Actor *a = derefActor(id, "tram arrival");
++		a->stopActorMoving(); a->putActor(13, 63, destination);
++		if (destination == _currentRoom) {
++			a->startAnimActor(a->_standFrame);
++			AdjustBoxResult step = a->adjustXYToBeInBox(13 + id % 8, 51); a->startWalkActor(step.x, step.y, -1);
++		}
++		_scummverseRoamers[id] = Roamer(); _scummverseRoamers[id].wait = 600;
++	}
++	scummverseApplyTramState();
++	if (empty && _currentRoom == destination) scummverseAnnounce("The tram has arrived.");
++}
++
+ void ScummEngine::scummverseRestoreTemple() {
+  if(!_scummverseRoaming) return;
+  // 527 is reserved within the existing 800-variable save layout. Old room 88
+@@ -944,6 +1089,13 @@ void ScummEngine::scummverseRestoreTemple() {
+   if(_scummVars[764]) memcpy(_res->createResource(rtActorName,17,9),"The King",9);
+   _scummVars[528]=3;
+  }
++ // Scene schema 4 (patch 0055): the bus now boards for kBusBoarding instead
++ // of 60. A save made while it drove keeps driving from the same point.
++ if(_scummVars[528]<4) {
++  if(_scummVars[765]>60 && _scummVars[765]<150) _scummVars[765]+=kBusBoarding-60;
++  _scummverseBusClock=_scummVars[765];
++  _scummVars[528]=4;
++ }
+  if(const auto *scene=zakSceneSetup(_currentRoom)) {
+   VAR(VAR_CAMERA_MIN_X)=scene->cameraMin;VAR(VAR_CAMERA_MAX_X)=scene->cameraMax;
+   for(int c=0;c<3;++c) _roomPalette[c]=scene->palette[c];

@@ -1,0 +1,110 @@
+diff --git a/backends/graphics/ios/ios-graphics.cpp b/backends/graphics/ios/ios-graphics.cpp
+index 9f8ce983..93278dab 100644
+--- a/backends/graphics/ios/ios-graphics.cpp
++++ b/backends/graphics/ios/ios-graphics.cpp
+@@ -22,6 +22,7 @@
+ 
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_layout.h"
++#include <atomic>
+ #include "backends/graphics/ios/ios-graphics.h"
+ #include "backends/graphics/ios/renderbuffer.h"
+ #include "backends/graphics/opengl/pipelines/pipeline.h"
+@@ -153,15 +154,24 @@ void iOSGraphicsManager::notifyChatInset(int inset) {
+  recalculateDisplayAreas();
+ }
+ 
++#ifdef SCUMMVERSE_LOCAL_AI
++static std::atomic<int> scummverseGameAspectMilli{0};
++void scummversePublishGameAspect(int milli) { scummverseGameAspectMilli.store(milli); }
++int scummverseGameAspect() { return scummverseGameAspectMilli.load(); }
++#endif
++
+ void iOSGraphicsManager::recalculateDisplayAreas() {
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 	// UIKit and rendering share one point-based layout. Keep the backing
+  // surface full size; mouse conversion follows the resulting game draw rect.
+ 	const int fullHeight=_windowHeight;
+ 	const bool portrait=_windowWidth<_windowHeight && !_overlayInGUI;
++	// Integer milli-aspect so UIKit computes exactly the same layout.
++	const int aspect = getHeight() ? (int)((int64)getDesiredGameAspectRatio() * 1000 / FRAC_ONE) : 0;
++	scummversePublishGameAspect(aspect);
+ 	if(portrait) {
+   const double scale = getHiDPIScreenFactor();
+-  const auto layout = Scummverse::portraitLayout(fullHeight / scale, _chatBottomInset);
++  const auto layout = Scummverse::portraitLayout(fullHeight / scale, _chatBottomInset, _windowWidth / scale, aspect / 1000.0);
+   _windowHeight = MAX(1, (int)(layout.gameHeight * scale));
+  }
+ 	OpenGL::OpenGLGraphicsManager::recalculateDisplayAreas();
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 9491425b..fb362218 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -158,7 +158,7 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+  _follow.hidden=ScummverseLocalAI::runtime().talkingTo()<=0;
+ 	if(_host.bounds.size.width<_host.bounds.size.height) {
+ 		CGFloat w=_host.bounds.size.width-safe.left-safe.right;
+-		auto layout=Scummverse::portraitLayout(_host.bounds.size.height,inset/1000.0);
++		auto layout=Scummverse::portraitLayout(_host.bounds.size.height,inset/1000.0,_host.bounds.size.width,scummverseGameAspect()/1000.0);
+   CGFloat top=layout.chatTop, h=layout.chatHeight;
+   [(iPhoneView *)_host layoutScummverseToolbar:layout.toolbarTop height:layout.toolbarHeight];
+ 		self.frame=CGRectMake(safe.left,top,w,h); self.layer.cornerRadius=0;
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 17713347..2160730c 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -13,6 +13,9 @@ void scummverseAirportOffer(int actor);
+ void scummverseRosterFace(int actor, const unsigned char *rgba);
+ void scummverseRosterShow(int token,unsigned mask);
+ void scummverseOverlayVisible(bool visible);
++// Displayed game aspect x1000, published by the renderer for UIKit layout.
++void scummversePublishGameAspect(int milli);
++int scummverseGameAspect();
+ int scummverseWorldPoll();
+ void scummverseWorldReport(const char *notice);
+ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpeak, int &speaker, char *line, int capacity);
+@@ -28,6 +31,8 @@ inline void scummverseAirportOffer(int) {}
+ inline void scummverseRosterFace(int,const unsigned char *) {}
+ inline void scummverseRosterShow(int,unsigned) {}
+ inline void scummverseOverlayVisible(bool) {}
++inline void scummversePublishGameAspect(int) {}
++inline int scummverseGameAspect() { return 0; }
+ inline int scummverseWorldPoll() { return 0; }
+ inline void scummverseWorldReport(const char *) {}
+ inline unsigned scummverseTalkScene(int, int, unsigned, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+diff --git a/common/scummverse_layout.h b/common/scummverse_layout.h
+index f5015ad8..07d52800 100644
+--- a/common/scummverse_layout.h
++++ b/common/scummverse_layout.h
+@@ -1,4 +1,4 @@
+-// Scummverse portable portrait layout contract v1. GPL-3.0-or-later.
++// Scummverse portable portrait layout contract v2. GPL-3.0-or-later.
+ #ifndef COMMON_SCUMMVERSE_LAYOUT_H
+ #define COMMON_SCUMMVERSE_LAYOUT_H
+ namespace Scummverse {
+@@ -8,7 +8,11 @@ struct PortraitLayout {
+ // All dimensions are host-view points, after the platform applies top/side
+ // safe areas. bottomInset is the larger of the keyboard overlap and safe bottom.
+ // The engine fits the original aspect ratio inside gameHeight. No world state.
+-inline PortraitLayout portraitLayout(double height, double bottomInset) {
++// v2: with the host width and the displayed game aspect (width/height, e.g.
++// 1.6 or 4:3), the game region never exceeds the aspect-fit picture height,
++// so no letterbox bands separate the scene from the toolbar; chat gets the
++// space. Without them (zero), v1 results are unchanged.
++inline PortraitLayout portraitLayout(double height, double bottomInset, double width = 0, double gameAspect = 0) {
+  if (!(height > 0)) return {0, 0, 0, 0, 0};
+  if (!(bottomInset > 0)) bottomInset = 0;
+  if (bottomInset > height) bottomInset = height;
+@@ -17,7 +21,11 @@ inline PortraitLayout portraitLayout(double height, double bottomInset) {
+  double top = available - chatMinimum;
+  if (top > height / 2) top = height / 2;
+  const double toolbar = top < 88 ? top / 2 : 44;
+- return {top - toolbar, top - toolbar, toolbar, top, available - top};
++ double game = top - toolbar;
++ if (width > 0 && gameAspect >= 0.25 && gameAspect <= 4 && width / gameAspect < game) {
++  game = width / gameAspect; top = game + toolbar;
++ }
++ return {game, game, toolbar, top, available - top};
+ }
+ }
+ #endif

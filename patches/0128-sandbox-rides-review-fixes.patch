@@ -1,0 +1,539 @@
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index 79d76fc3..4128ef2b 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -5,6 +5,10 @@
+ // no bundled artwork. Manual reference counting, like this file.
+ 
+ static NSMutableDictionary *scummverseCastTitles, *scummverseCastFolders, *scummverseCastFaces, *scummverseCastPeople;
++// The list of places (below): the request its Cancel sends (0: none), and
++// the list while it is shown.
++static int scummversePlacesCancelRequest;
++static UINavigationController *scummversePlacesList;
+ 
+ static UIImage *scummverseCastImage(NSData *data) {
+ 	CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
+@@ -66,7 +70,11 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 	tableView.userInteractionEnabled = NO;
+ 	[self dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(request); }];
+ }
+-- (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
++- (void)cancel {
++	// (A list of places may say it was closed unchosen: a ride's.)
++	const int request = _screen ? 0 : scummversePlacesCancelRequest;
++	[self dismissViewControllerAnimated:YES completion:^{ if (request) scummverseWorldRequest(request); }];
++}
+ @end
+ 
+ @implementation ScummverseCastController
+@@ -259,8 +267,12 @@ void scummversePlacesBegin(const char *title) {
+ 		[scummversePlacesTitle release]; scummversePlacesTitle = name;
+ 		if (!scummversePlaces) scummversePlaces = [[NSMutableArray alloc] init];
+ 		[scummversePlaces removeAllObjects];
++		scummversePlacesCancelRequest = 0;
+ 	});
+ }
++void scummversePlacesCancel(int request) {
++	dispatch_async(dispatch_get_main_queue(), ^{ scummversePlacesCancelRequest = request; });
++}
+ void scummversePlacesItem(const char *name, int request) {
+ 	if (!name || !*name) return;
+ 	NSString *place = [[NSString alloc] initWithUTF8String:name];
+@@ -273,16 +285,35 @@ static void scummversePlacesPresent(int tries) {
+ 	UIResponder *responder = [iOS7AppDelegate iPhoneView];
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 	UIViewController *controller = (UIViewController *)responder;
+-	if (!controller || !scummversePlaces.count) return;
+-	if (controller.presentedViewController) {
+-		if (tries > 0) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummversePlacesPresent(tries - 1); });
++	if (!scummversePlaces.count) return; // (withdrawn, or nothing in it)
++	if (controller && controller.presentedViewController && tries > 0) {
++		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummversePlacesPresent(tries - 1); });
++		return;
++	}
++	if (!controller || controller.presentedViewController) {
++		// Not shown (something else stays over the game): closed unchosen.
++		const int request = scummversePlacesCancelRequest;
++		[scummversePlaces removeAllObjects]; scummversePlacesCancelRequest = 0;
++		if (request) scummverseWorldRequest(request);
+ 		return;
+ 	}
+ 	ScummverseCastPeopleController *list = [[[ScummverseCastPeopleController alloc] initWithPeople:scummversePlaces title:scummversePlacesTitle screen:nil] autorelease];
+ 	UINavigationController *navigation = [[[UINavigationController alloc] initWithRootViewController:list] autorelease];
+ 	navigation.modalPresentationStyle = UIModalPresentationFormSheet;
++	// (One that says when it is closed is closed by its Cancel, not swiped
++	// away unheard.)
++	if (@available(iOS 13.0, *)) navigation.modalInPresentation = scummversePlacesCancelRequest != 0;
++	[scummversePlacesList release]; scummversePlacesList = [navigation retain];
+ 	[controller presentViewController:navigation animated:YES completion:nil];
+ }
+ void scummversePlacesShow() {
+ 	dispatch_async(dispatch_get_main_queue(), ^{ scummversePlacesPresent(5); });
+ }
++void scummversePlacesHide() {
++	dispatch_async(dispatch_get_main_queue(), ^{
++		[scummversePlaces removeAllObjects]; scummversePlacesCancelRequest = 0;
++		UIViewController *presenting = scummversePlacesList.presentingViewController;
++		if (presenting && !scummversePlacesList.isBeingDismissed) [presenting dismissViewControllerAnimated:YES completion:nil];
++		[scummversePlacesList release]; scummversePlacesList = nil;
++	});
++}
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 3e1e508b..8aa25f84 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -44,9 +44,14 @@ void scummverseCastMember(int slot, const char *name, int request);
+ void scummverseCastShow();
+ // A list of places to go to (the Other worlds menu's Maniac Mansion and Zak
+ // McKracken): a title, then each place with its request, then shown.
++// Cancel: the request sent when it is closed without a choice, or cannot be
++// shown (0, the default each Begin: nothing). Hide: withdrawn, shown or not
++// yet (nothing sent).
+ void scummversePlacesBegin(const char *title);
+ void scummversePlacesItem(const char *name, int request);
++void scummversePlacesCancel(int request);
+ void scummversePlacesShow();
++void scummversePlacesHide();
+ #else
+ inline bool scummverseTalkPicking() { return false; }
+ inline bool scummverseTalkPick(int) { return false; }
+@@ -75,6 +80,8 @@ inline void scummverseCastMember(int, const char *, int) {}
+ inline void scummverseCastShow() {}
+ inline void scummversePlacesBegin(const char *) {}
+ inline void scummversePlacesItem(const char *, int) {}
++inline void scummversePlacesCancel(int) {}
+ inline void scummversePlacesShow() {}
++inline void scummversePlacesHide() {}
+ #endif
+ #endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 7c5a497e..79664067 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -700,11 +700,13 @@ static const int kWorldVanRequest = (1 << 24) + (1 << 20);
+ // above every other request); + 1: back from it to Maniac Mansion; in it,
+ // kWorldSandboxCastRequest: its character screen (whose choices are
+ // kWorldCastRequest + a key), kWorldSandboxVanRequest: aboard the van
+-// where it is parked, kWorldSandboxGameRequest + a game: to that game's
+-// first named place.
++// where it is parked, kWorldSandboxStayRequest: a ride's list of where to
++// closed without a choice, kWorldSandboxGameRequest + a game: to that
++// game's first named place.
+ static const int kWorldSandboxRequest = 1 << 28;
+ static const int kWorldSandboxCastRequest = kWorldSandboxRequest + 2;
+ static const int kWorldSandboxVanRequest = kWorldSandboxRequest + 3; // (board the Shuttle Bug where it is)
++static const int kWorldSandboxStayRequest = kWorldSandboxRequest + 4;
+ static const int kWorldSandboxGameRequest = kWorldSandboxRequest + 16;
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index dbe23e88..f03e9460 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -70,6 +70,7 @@ static const uint32 kCoinHold = 250;
+ // kRideBoarded (then on board, out of sight), the ride until it arrives.
+ enum { kRideWalking = -2, kRideChoosing = -1 };
+ static const int kRideBoarded = 300, kRideTrip[] = {180, 180, 600, 600}; // (bus, tram, plane, van)
++static const int kRideAsk = 60 * 60; // (its list of where to unanswered: withdrawn)
+ // Where the van is parked (kept between launches: game * 1024 + room).
+ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
+ // How long a line no one sees is kept (ticks; the chat shows it).
+@@ -85,7 +86,7 @@ static bool walkable(int game, int room) {
+ 
+ SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
+ 	_phone = {scummverseTalkAppearance, scummverseTalkVisitor, scummverseTalkScene, scummverseTalkPicking, scummverseTalkPick, scummverseTravelScene,
+-		scummverseCastGame, scummverseCastMember, scummverseCastShow, scummversePlacesBegin, scummversePlacesItem, scummversePlacesShow};
++		scummverseCastGame, scummverseCastMember, scummverseCastShow, scummversePlacesBegin, scummversePlacesItem, scummversePlacesCancel, scummversePlacesShow, scummversePlacesHide};
+ }
+ 
+ SandboxEngine::~SandboxEngine() {
+@@ -272,7 +273,7 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 		PanelBridge::layout(_width, _height, PanelBridge::over() ? top : top + height, rowScale, colScale);
+ 	}
+ 	if (_selfie.on) selfieEnd();
+-	_riding = Riding(); // (a ride's own arrival has let it go already)
++	rideOff(); // (a ride's own arrival has let it go already)
+ 	_pointerX = _pointerY = -1;
+ 	_press = Press();
+ 	_chosen = -1; _noteClock = 0;
+@@ -419,23 +420,20 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		if (thing >= 0 && !(PanelBridge::over() && (kind == kWorldVerbUse || kind == kWorldVerbAct) && isDoor(thing))) { useOn(kind, verb, thing); return; }
+ 	}
+ 	sentence("");
+-	// Where a ride is boarded (Zak's bus, the Mars tram, a plane's gate):
+-	// walked to, boarded there.
+-	_riding = Riding();
+-	{
+-		Common::Array<int> boards;
+-		for (int i = 0; i < StageBridge::objectCount(); ++i) {
+-			int id, ox, oy, w, h, wx, wy, state;
+-			if (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id)) boards.push_back(i);
+-		}
+-		const int board = StageBridge::objectAt(x, y, boards.data(), boards.size(), 2);
+-		if (board >= 0 && rideBoard(board)) return;
+-	}
+-	// A door of this room (shown there) under the tap, else near it.
++	// (A ride waited for goes on unless they walk off from it, in rideStep;
++	// one only walked to is given up.)
++	if (_riding.phase == kRideWalking) _riding = Riding();
++	// A door of this room (shown there), or where a ride is boarded (Zak's
++	// bus, the Mars tram, a plane's gate: walked to, boarded there), under
++	// the tap, else near it; where they overlap, the one tapped most nearly.
+ 	Common::Array<int> candidates;
+-	for (int i = 0; i < StageBridge::objectCount(); ++i) if (isDoor(i)) candidates.push_back(i);
++	for (int i = 0; i < StageBridge::objectCount(); ++i) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (isDoor(i) || (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id))) candidates.push_back(i);
++	}
+ 	const int hit = StageBridge::objectAt(x, y, candidates.data(), candidates.size(), 4);
+-	if (hit >= 0) {
++	if (hit >= 0 && rideBoard(hit)) return;
++	if (hit >= 0 && isDoor(hit)) {
+ 		int id, ox, oy, w, h, wx, wy, state;
+ 		StageBridge::object(hit, id, ox, oy, w, h, wx, wy, state);
+ 		const WorldMap *map = worldMap(_game);
+@@ -1014,7 +1012,8 @@ void SandboxEngine::request(int code) {
+ 	if (code >= kWorldPlaceRequest && code < kWorldVanRequest) { rideChosen((code - kWorldPlaceRequest) / 1024, (code - kWorldPlaceRequest) % 1024); return; }
+ 	// The van's site, and the van boarded where it is (the Worlds menu).
+ 	if (code >= kWorldVanRequest && code < kWorldAppearanceRequest) { rideSite(code - kWorldVanRequest); return; }
+-	if (code == kWorldSandboxVanRequest) { vanBoard(); return; }
++	if (code == kWorldSandboxVanRequest) { tourEnd(false); vanBoard(); return; }
++	if (code == kWorldSandboxStayRequest) { rideStay(); return; }
+ 	if (code < kGameRequest) return;
+ 	const int game = code - kGameRequest;
+ 	int room;
+@@ -1387,8 +1386,14 @@ bool SandboxEngine::rideBoard(int object) {
+ 	int id, ox, oy, w, h, wx, wy, state;
+ 	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
+ 	const WorldRide *ride = worldRideAt(_game, _room, id);
+-	if (!ride) return false;
+-	_riding = Riding();
++	// (None while touring: the tour shows places, a paused one too.)
++	if (!ride || _touring.on) return false;
++	// (Tapped again while it waits: walked back to, not boarded again.)
++	if (_riding.ride == ride - kWorldRides && _riding.phase != kRideWalking && _game == _riding.fromGame && _room == _riding.fromRoom) {
++		StageBridge::walkTo(_player, _riding.x, _riding.y);
++		return true;
++	}
++	rideOff();
+ 	_riding.ride = ride - kWorldRides;
+ 	_riding.phase = kRideWalking;
+ 	_riding.fromGame = _game; _riding.fromRoom = _room;
+@@ -1405,10 +1410,12 @@ void SandboxEngine::rideAsk() {
+ 	int offered = 0;
+ 	if (ride.kind == kWorldRidePlane) {
+ 		_phone.placesBegin("Fly to");
++	_phone.placesCancel(kWorldSandboxStayRequest);
+ 		for (const WorldAirport &a : kWorldAirports)
+ 			if (a.game == ride.game && a.room != _room && installed(a.game, a.room)) { _phone.placesItem(a.city, worldPlaceRequest(a.game, a.room)); ++offered; }
+ 	} else {
+ 		_phone.placesBegin("Fly the Shuttle Bug to");
++		_phone.placesCancel(kWorldSandboxStayRequest);
+ 		for (int i = 0; i < kWorldVanSiteCount; ++i) {
+ 			int game, room;
+ 			if (worldVanPlace(i, game, room) && installed(game, room) && !(game == _game && room == _room)) { _phone.placesItem(kWorldVanSites[i].label, kWorldVanRequest + i); ++offered; }
+@@ -1417,6 +1424,7 @@ void SandboxEngine::rideAsk() {
+ 	if (!offered) { announce(ride.kind == kWorldRidePlane ? "No flights today." : "Nowhere to fly to."); _riding = Riding(); return; }
+ 	_phone.placesShow();
+ 	_riding.phase = kRideChoosing;
++	_riding.asked = 0;
+ }
+ 
+ void SandboxEngine::rideChosen(int game, int room) {
+@@ -1436,6 +1444,19 @@ void SandboxEngine::rideSite(int site) {
+ 	announce("Liftoff in 5 seconds.");
+ }
+ 
++// Its list closed without a choice (or not shown at all): not taken.
++void SandboxEngine::rideStay() {
++	if (_riding.ride < 0 || _riding.phase != kRideChoosing) return;
++	const bool plane = kWorldRides[_riding.ride].kind == kWorldRidePlane;
++	_riding = Riding(); // (its list gone already)
++	announce(plane ? "No flight booked." : "The Shuttle Bug stays put.");
++}
++
++void SandboxEngine::rideOff() {
++	if (_riding.phase == kRideChoosing) _phone.placesHide();
++	_riding = Riding();
++}
++
+ // Aboard where it is parked (the Worlds menu); elsewhere, where it is.
+ void SandboxEngine::vanBoard() {
+ 	if (_player < 0 || _game < 0) return;
+@@ -1451,7 +1472,7 @@ void SandboxEngine::vanBoard() {
+ 		announce(where.empty() ? "The Shuttle Bug isn't here." : Common::String::format("The Shuttle Bug is parked at %s.", where.c_str()).c_str());
+ 		return;
+ 	}
+-	_riding = Riding();
++	rideOff();
+ 	_riding.ride = van;
+ 	_riding.fromGame = _game; _riding.fromRoom = _room;
+ 	StageBridge::stop(_player);
+@@ -1473,11 +1494,27 @@ void SandboxEngine::rideStep(int ticks) {
+ 		// (The van boarded at its door only where it is parked.)
+ 		if (ride.kind == kWorldRideVan && _vanPlace != _game * 1024 + _room) { announce("The Shuttle Bug is away."); _riding = Riding(); return; }
+ 		if (ride.kind == kWorldRidePlane || ride.kind == kWorldRideVan) { rideAsk(); return; }
++		// (Its other end not installed: it does not run.)
++		if (!installed(ride.game, ride.target)) {
++			announce(ride.kind == kWorldRideBus ? "The bus isn't running: its other stop isn't installed yet." : "The tram isn't running: its other station isn't installed yet.");
++			_riding = Riding();
++			return;
++		}
+ 		_riding.toGame = ride.game; _riding.toRoom = ride.target; _riding.arrival = ride.arrival; _riding.phase = 1;
+ 		announce(ride.kind == kWorldRideBus ? "The bus leaves in 5 seconds." : "Tram leaving in 5 seconds.");
+ 		return;
+ 	}
+-	if (_riding.phase == kRideChoosing) return;
++	if (_riding.phase == kRideChoosing) {
++		// (Walked off from it, or long unanswered: the list withdrawn.)
++		_riding.asked += ticks;
++		if (!there) rideOff();
++		else if (_riding.asked > kRideAsk) {
++			const bool plane = ride.kind == kWorldRidePlane;
++			rideOff();
++			announce(plane ? "No flight booked." : "The Shuttle Bug stays put.");
++		}
++		return;
++	}
+ 	const int previous = _riding.phase;
+ 	const int phase = _riding.phase += MIN(ticks, 60);
+ 	if (previous <= kRideBoarded) {
+@@ -1503,7 +1540,12 @@ void SandboxEngine::rideStep(int ticks) {
+ 	_riding = Riding();
+ 	if (!enter(done.toGame, done.toRoom, done.arrival, problem)) {
+ 		warning("SCUMMVERSE sandbox: a ride to %s-%d not shown (%s)", kWorldGames[done.toGame].gameid, done.toRoom, problem.c_str());
+-		StageBridge::hide(_player, false);
++		// (Back where it was boarded, as a door's failure is.)
++		if (enter(done.fromGame, done.fromRoom, 0, problem)) {
++			StageBridge::place(_player, done.x, done.y);
++			StageBridge::follow(_player);
++			announce("That ride couldn't get there.");
++		}
+ 		return;
+ 	}
+ 	if (ride.kind == kWorldRidePlane) {
+@@ -2032,6 +2074,7 @@ Common::Error SandboxEngine::run() {
+ 	if (_touring.on) tourKeep();
+ 	saveState();
+ 	_touring.on = false;
++	rideOff();
+ 	talkEnd();
+ 	if (_selfie.on) selfieEnd();
+ 	Camera::reset();
+@@ -3339,8 +3382,10 @@ namespace FakePlaces {
+ struct Item { Common::String name; int request; };
+ static Common::String title;
+ static Common::Array<Item> items;
+-static int shown = 0;
+-static void begin(const char *t) { title = t; items.clear(); }
++static int shown = 0, cancel = 0, hidden = 0;
++static void begin(const char *t) { title = t; items.clear(); cancel = 0; }
++static void cancelWith(int request) { cancel = request; }
++static void hide() { ++hidden; items.clear(); }
+ static void item(const char *name, int request) {
+ 	Item i;
+ 	i.name = name; i.request = request;
+@@ -3357,13 +3402,16 @@ static void show() { ++shown; }
+ // off the ledge) it stays, open. A picture of a car in: tram.png.
+ Common::Error SandboxEngine::ridesTest() {
+ 	_wanderers = false;
+-	int failed = 0, stations = 0, rides = 0, waits = 0, game = -1;
++	int failed = 0, stations = 0, rides = 0, waits = 0, game = -1, zak = -1;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox rides: %s-%d: %s", _game >= 0 ? kWorldGames[_game].gameid : "?", _room, what); };
+-	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "dig")) game = g;
+-	if (game < 0 || !someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: The Dig not installed");
++	for (int g = 0; g < worldGameCount(); ++g) {
++		if (!strcmp(kWorldGames[g].gameid, "dig") && someoneToPlay(g)) game = g;
++		if (!strcmp(kWorldGames[g].gameid, "zak") && someoneToPlay(g)) zak = g;
++	}
++	if (game < 0 && zak < 0) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: neither The Dig nor Zak installed");
+ 	Common::String problem;
+ 	bool pictured = false;
+-	for (int l = 0; l < kWorldTramLineCount; ++l) {
++	for (int l = 0; l < kWorldTramLineCount && game >= 0; ++l) {
+ 		const WorldTramLine &tl = kWorldTramLines[l];
+ 		if (!installed(tl.game, tl.ends[0].room) || !installed(tl.game, tl.ends[1].room)) continue;
+ 		for (int e = 0; e < 2; ++e) {
+@@ -3443,7 +3491,8 @@ Common::Error SandboxEngine::ridesTest() {
+ 	// where one is boarded walks there; walked off before it leaves, it goes
+ 	// without the one played. Taken as a player does.
+ 	_phone.placesBegin = FakePlaces::begin; _phone.placesItem = FakePlaces::item; _phone.placesShow = FakePlaces::show;
+-	int zakRides = 0, flights = 0, missed = 0;
++	_phone.placesCancel = FakePlaces::cancelWith; _phone.placesHide = FakePlaces::hide;
++	int zakRides = 0, flights = 0, missed = 0, doorTaps = 0, closed = 0;
+ 	auto board = [&](int game, int room, int object) {
+ 		Common::String problem;
+ 		if (!enter(game, room, 0, problem)) return false;
+@@ -3475,9 +3524,28 @@ Common::Error SandboxEngine::ridesTest() {
+ 		if (_riding.ride >= 0 || _game != game || _room != to || StageBridge::hidden(_player) || !hidden || !atArrival) { fail(what); return false; }
+ 		return true;
+ 	};
+-	int zak = -1;
+-	for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "zak")) zak = g;
+-	if (zak >= 0 && someoneToPlay(zak)) {
++	// (Walked off by a tap: to the spot here farthest from where it is
++	// boarded that is no door's nor ride's.)
++	auto walkOff = [&]() {
++		Common::Array<int> taken;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) {
++			int id, ox, oy, w, h, wx, wy, state;
++			if (isDoor(i) || (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && worldRideAt(_game, _room, id))) taken.push_back(i);
++		}
++		double xs[12], ys[12], far = -1;
++		int to = -1, sx, sy;
++		const int spots = StageBridge::spots(12, xs, ys);
++		for (int i = 0; i < spots; ++i) {
++			const double d = (xs[i] - _riding.x) * (xs[i] - _riding.x) + (ys[i] - _riding.y) * (ys[i] - _riding.y);
++			if (d > far && StageBridge::objectAt(xs[i], ys[i], taken.data(), taken.size(), 4) < 0) { far = d; to = i; }
++		}
++		if (to < 0) return false;
++		StageBridge::lookAt(xs[to]);
++		StageBridge::toScreen(xs[to], ys[to], sx, sy);
++		tap(sx, sy);
++		return true;
++	};
++	if (zak >= 0) {
+ 		for (const WorldRide &r : kWorldRides) {
+ 			if (r.game != zak || r.kind == kWorldRidePlane || !installed(r.game, r.room) || !installed(r.game, r.target)) continue;
+ 			if (!board(r.game, r.room, r.object)) { fail("a ride not boarded by a tap"); continue; }
+@@ -3485,19 +3553,37 @@ Common::Error SandboxEngine::ridesTest() {
+ 			if (_notice.empty() || _riding.phase < 1) { fail("no countdown"); continue; }
+ 			zakRides += ride(r.game, r.target, r.arrival, "a ride not off at the other end");
+ 		}
+-		// Walked off during the countdown: gone without them.
++		// Walked off during the countdown (a tap away): gone without them.
+ 		const WorldRide &bus = kWorldRides[0];
+ 		if (installed(bus.game, bus.room) && installed(bus.game, bus.target) && board(bus.game, bus.room, bus.object)) {
+ 			for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
+-			double xs[12], ys[12], far = -1;
+-			int to = -1;
+-			const int spots = StageBridge::spots(12, xs, ys);
+-			for (int i = 0; i < spots; ++i) if ((xs[i] - _riding.x) * (xs[i] - _riding.x) + (ys[i] - _riding.y) * (ys[i] - _riding.y) > far) { far = (xs[i] - _riding.x) * (xs[i] - _riding.x) + (ys[i] - _riding.y) * (ys[i] - _riding.y); to = i; }
+-			if (to >= 0) StageBridge::walkTo(_player, xs[to], ys[to]);
++			if (_riding.phase < 1 || !walkOff()) fail("no countdown to walk off from");
+ 			for (int t = 0; t < 2000 && _riding.ride >= 0; ++t) step(1);
+ 			if (_riding.ride >= 0 || _room != bus.room || StageBridge::hidden(_player) || !_notice.contains("without you")) fail("a ride taken though walked off");
+ 			else ++missed;
+ 		}
++		// A door over where a ride is boarded (smaller, tapped where both
++		// are): the door, not the ride.
++		for (const WorldRide &r : kWorldRides) {
++			if (r.game != zak || !installed(r.game, r.room) || !enter(r.game, r.room, 0, problem)) continue;
++			int id, ox, oy, w, h, wx, wy, state, boarded = -1;
++			for (int o = 0; o < StageBridge::objectCount(); ++o) if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == r.object) boarded = o;
++			if (boarded < 0) continue;
++			StageBridge::object(boarded, id, ox, oy, w, h, wx, wy, state);
++			const int rx0 = ox, ry0 = oy, rx1 = ox + w, ry1 = oy + h;
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				if (o == boarded || !isDoor(o) || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) || worldRideAt(r.game, r.room, id) || (long)w * h >= (long)(rx1 - rx0) * (ry1 - ry0)) continue;
++				const int x0 = MAX(ox, rx0), y0 = MAX(oy, ry0), x1 = MIN(ox + w, rx1), y1 = MIN(oy + h, ry1);
++				if (x0 >= x1 || y0 >= y1) continue;
++				if (!enter(r.game, r.room, 0, problem)) break;
++				int sx, sy;
++				StageBridge::lookAt((x0 + x1) / 2.0);
++				StageBridge::toScreen((x0 + x1) / 2.0, (y0 + y1) / 2.0, sx, sy);
++				tap(sx, sy);
++				if (_riding.ride >= 0 || (_door < 0 && _room == r.room)) fail("a ride boarded by a tap on a door");
++				else ++doorTaps;
++			}
++		}
+ 		// Planes: from San Francisco to each other airport in turn, each by the
+ 		// list it asks with (a choice not of it, nor where it is, does nothing).
+ 		int from = 145;
+@@ -3523,6 +3609,53 @@ Common::Error SandboxEngine::ridesTest() {
+ 			}
+ 			from = a.room;
+ 		}
++		// A plane's list closed unchosen (its Cancel, or not shown): none
++		// taken, a late choice too; left unanswered, or walked off from, or
++		// somewhere else chosen meanwhile: withdrawn.
++		const WorldAirport *sf = worldAirport(zak, 145);
++		int pick = -1;
++		auto ask = [&]() {
++			pick = -1;
++			if (!sf || !board(zak, 145, sf->gate)) return false;
++			for (int t = 0; t < 6000 && _riding.phase == -2; ++t) step(1);
++			for (const FakePlaces::Item &i : FakePlaces::items) if (i.request != worldPlaceRequest(zak, 145)) pick = i.request;
++			return _riding.phase == -1 && pick >= 0 && FakePlaces::cancel == kWorldSandboxStayRequest;
++		};
++		if (installed(zak, 145)) {
++			int hidden = FakePlaces::hidden;
++			if (!ask()) fail("no list to close");
++			else {
++				request(FakePlaces::cancel);
++				request(pick);
++				if (_riding.ride >= 0 || !_notice.contains("No flight") || FakePlaces::hidden != hidden) fail("a flight taken though its list was closed");
++				else ++closed;
++			}
++			if (!ask()) fail("no list to leave");
++			else {
++				for (int t = 0; t <= kRideAsk + 60 && _riding.ride >= 0; ++t) step(1);
++				if (_riding.ride >= 0 || FakePlaces::hidden != ++hidden || !_notice.contains("No flight")) fail("a list left up unanswered");
++				else ++closed;
++			}
++			if (!ask() || !walkOff()) fail("no list to walk off from");
++			else {
++				for (int t = 0; t < 2000 && _riding.ride >= 0; ++t) step(1);
++				if (_riding.ride >= 0 || FakePlaces::hidden != ++hidden) fail("a list left up though walked off");
++				else ++closed;
++			}
++			if (!ask()) fail("no list to go elsewhere from");
++			else {
++				request(kGameRequest + zak);
++				request(pick);
++				if (_riding.ride >= 0 || FakePlaces::hidden != ++hidden) fail("a list left up though gone elsewhere");
++				else ++closed;
++			}
++		}
++		// (Touring, paused too: no ride boarded, the tap a walk.)
++		if (installed(bus.game, bus.room)) {
++			_touring.on = _touring.paused = true;
++			if (board(bus.game, bus.room, bus.object)) fail("a ride boarded while touring");
++			_touring.on = _touring.paused = false;
++		}
+ 	}
+ 	// The Shuttle Bug: boarded at its door on Mars, flown to a site of
+ 	// another game (chosen from the list it asks with), boarded there from
+@@ -3560,8 +3693,9 @@ Common::Error SandboxEngine::ridesTest() {
+ 		}
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d van flights, %d failed", stations, rides, waits, zakRides, flights, missed, vanFlights, failed);
+-	if (failed || !rides) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest rides: %d tram stations, %d rides, %d waited, %d bus and tram rides, %d flights, %d missed, %d door taps beside rides, %d lists closed, %d van flights, %d failed",
++		stations, rides, waits, zakRides, flights, missed, doorTaps, closed, vanFlights, failed);
++	if (failed || !(rides || zakRides || flights)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 87a3f4e6..5a3a2011 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -209,6 +209,7 @@ private:
+ 		int fromGame = -1, fromRoom = 0;            // where it is boarded
+ 		int toGame = -1, toRoom = 0, arrival = 0;   // where to, at which object (0: anywhere)
+ 		double x = 0, y = 0;
++		int asked = 0;     // ticks its list of where to has been up (kRideChoosing)
+ 	};
+ 	Riding _riding;
+ 	bool rideBoard(int object); // a tap on it: true when it is where a ride is boarded
+@@ -216,6 +217,8 @@ private:
+ 	void rideStep(int ticks);
+ 	void rideChosen(int game, int room); // (a plane's list's choice)
+ 	void rideSite(int site);             // (the van's)
++	void rideStay();                     // (its list closed unchosen)
++	void rideOff();                      // none taken (its list withdrawn)
+ 	// The Shuttle Bug (the van) flies from wherever it is parked to any of
+ 	// kWorldVanSites installed; boarded at its door on Mars, else from the
+ 	// Worlds menu where it stands (it is not drawn there yet).
+@@ -291,7 +294,9 @@ private:
+ 		void (*castShow)();
+ 		void (*placesBegin)(const char *title);
+ 		void (*placesItem)(const char *name, int request);
++		void (*placesCancel)(int request);
+ 		void (*placesShow)();
++		void (*placesHide)();
+ 	};
+ 	Phone _phone;
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)

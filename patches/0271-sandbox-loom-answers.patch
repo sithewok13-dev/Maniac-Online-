@@ -1,0 +1,702 @@
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 28c2409f..9b0c1bf4 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -34,6 +34,13 @@
+ // SVO9 are read as before (their answers say nothing of it). Bridge:
+ // answerTouches, thingsTouch; thingEffect, pairEffect and thingAnswer leave
+ // out an other that is only that (its picture not set).
++//
++// From 0271 Loom's things file ("SVOA" as the others') files what its own
++// controls answer under their kinds: kWalk a tap on a thing (chosen, walked
++// to), kLook a second tap, and a draft spun on the thing chosen under
++// WorldCatalog::kWorldVerbDraft and the draft's index as Panel::play gives
++// it (32 to 63: past every VerbKind). The layout is unchanged; an answer's
++// kind is any byte.
+ #ifndef COMMON_SCUMMVERSE_PANEL_H
+ #define COMMON_SCUMMVERSE_PANEL_H
+ 
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index ab8f81c8..ef7da87c 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -97,12 +97,14 @@ static const int kWorldExportVersion = 25;
+ // 0270 Day of the Tentacle's, both Monkey Islands', Fate of Atlantis's and
+ // the Last Crusade's again (their two things' answers whole, each line with
+ // who says it, as their one thing's: "tentacle-v30", "monkey-v31",
+-// "monkey2-v32", "atlantis-v29", "indy3-v28").
++// "monkey2-v32", "atlantis-v29", "indy3-v28"); from 0271 Loom's (its things
++// placed and what its own controls answer on them: a tap, a second, each
++// draft spun on the distaff; its things file "SVOA" as theirs: "loom-v27").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 16 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 : same(gameid, "tentacle") ? 5 :
+ 		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") || same(gameid, "atlantis") ? 4 :
+-		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 1 : 0);
++		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1521,10 +1523,19 @@ inline const WorldCoin *worldCoin(int game) {
+ // are its verbs 1 to 8, each lit in a frame of its glow (the verb `glow`
+ // and every fifth on: its glow's fourth frame of five, its colour bright);
+ // the thing chosen is shown in `icon` (x, y, width, height of the game's
+-// screen).
+-struct WorldDistaff { short game, choice, drafts, learned, redraw, glow; short icon[4]; };
++// screen). From 0271 (for the export's answers, read with descumm): a
++// draft's first variable also has 0x1000 when it can be spun backwards and
++// 0x2000 once known, its second the verb its game's scripts answer it with
++// on the thing chosen (its low byte; backwards, its high byte); a click on
++// the scene (its input script's) is its script `click`, which chooses a
++// thing its class lets be chosen (into the variable `chosen`), walks up to
++// it and answers on arriving, then goes on following the pointer, its first
++// local 0 again once the click is done; once the distaff is in hand (its
++// notes played only so) its bit variable `held` (as descumm numbers it) is
++// set and `redraw` given `inHand`, as its scripts do when Bobbin takes it.
++struct WorldDistaff { short game, choice, drafts, learned, redraw, glow; short icon[4]; short click, chosen, held, inHand; };
+ static const WorldDistaff kWorldDistaffs[] = {
+-	{2, 877, 50, 122, 18, 12, {248, 152, 48, 40}},
++	{2, 877, 50, 122, 18, 12, {248, 152, 48, 40}, 6, 103, 3425, 2},
+ };
+ inline const WorldDistaff *worldDistaff(int game) {
+ 	for (const auto &d : kWorldDistaffs) if (d.game == game) return &d;
+@@ -1532,12 +1543,20 @@ inline const WorldDistaff *worldDistaff(int game) {
+ }
+ // Loom's sixteen drafts, in the order of their variables. Opening opens
+ // what is chosen, and played backwards (Closing) shuts it; the others are
+-// not taken up by the plain rules yet.
++// not taken up by the plain rules. From 0271 each as its game's own scripts
++// answer it, where its things file says (kWorldVerbDraft).
+ static const char *const kWorldDrafts[16] = {
+ 	"Opening", "Straw into Gold", "Dyeing", "Night Vision", "Twisting", "Sleep", "Emptying", "Invisibility",
+ 	"Terror", "Sharpening", "Reflection", "Healing", "Silence", "Shaping", "Unmaking", "Transcendence"
+ };
+ static const int kWorldDraftOpening = 0;
++// From 0271, the kinds Loom's things file files what its own controls answer
++// under (an answer's verb kind): a tap on a thing (chosen, walked up to, its
++// click answering), kWorldVerbWalk; a second tap at once (its double click:
++// examined), kWorldVerbLook; a draft spun on the thing chosen, this and the
++// draft's index as the distaff's Panel::play gives it (16 more played
++// backwards): 32 to 63.
++static const int kWorldVerbDraft = 32;
+ inline int worldVerbKind(int game, int verb) {
+ 	for (const auto &v : kWorldVerbs) if (v.game == game && v.verb == verb) return v.kind;
+ 	return 0;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index dafea570..259f945c 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1626,8 +1626,8 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ 		if (!scummverseExportPanel(gameIndex, ui, problem)) {
+ 			warning("SCUMMVERSE world export: %s verb panel skipped (%s)", game->gameid, problem.c_str());
+ 			empty(ui); empty(things);
+-		} else if (!worldPanel(gameIndex) && _game.id != GID_SAMNMAX && _game.id != GID_DIG && _game.id != GID_FT && _game.id != GID_CMI) {
+-			// (Loom's things are not placed yet; The Curse's are from 0262.)
++		} else if (!worldPanel(gameIndex) && _game.id != GID_SAMNMAX && _game.id != GID_DIG && _game.id != GID_FT && _game.id != GID_CMI && _game.id != GID_LOOM) {
++			// (The Curse's things are placed from 0262, Loom's from 0271.)
+ 			warning("SCUMMVERSE_WORLD_PANEL %s", game->gameid);
+ 			empty(things);
+ 		} else {
+@@ -1678,7 +1678,9 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // leaves them. Every other game's is "SVO3" with no effects (before,
+ // "SVO1"), so that what is inside another is known there too; from 0247
+ // Sam & Max's is "SVO7" with what its things answer to its pointer's verbs
+-// (as its own sentences run them; no main power, no close-ups). From 0248
++// (as its own sentences run them; no main power, no close-ups); from 0271
++// Loom's with what its own controls answer (a tap, a second, each draft; see
++// scummverseExportOwnAnswers). From 0248
+ // the mansion's is "SVO8": each close-up also has a film's lead, the one
+ // there, its lines and pictures on their ticks (none for a keypad or a
+ // view), then the marks (kWorldMarks) and the answers that read them
+@@ -1712,7 +1714,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	const Common::Array<uint16> inventory(_inventory, _numInventory);
+ 	auto putBack = [&]() {
+ 		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+-		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
++		if (_roomVars && !roomVars.empty()) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32)); // (from 0271: Loom has none)
+ 		memcpy(_bitVars, bits.data(), bits.size());
+ 		memcpy(_objectStateTable, states.data(), states.size());
+ 		memcpy(_objectOwnerTable, owners.data(), owners.size());
+@@ -3479,7 +3481,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			for (uint k = 0; k + 2 < e.others.size(); k += 3) ninth = ninth || (e.others[k + 2] > 1 && e.others[k + 2] != kGiven);
+ 		}
+ 	} else if ((((_game.id == GID_DIG || _game.id == GID_FT || _game.id == GID_TENTACLE || !strcmp(kWorldGames[gameIndex].gameid, "monkey") || !strcmp(kWorldGames[gameIndex].gameid, "monkey2") ||
+-		_game.id == GID_INDY4 || _game.id == GID_INDY3 || _game.id == GID_CMI) && VAR_SENTENCE_SCRIPT != 0xFF) || (_game.id == GID_ZAK && _game.version <= 2)) && VAR_EGO != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
++		_game.id == GID_INDY4 || _game.id == GID_INDY3 || _game.id == GID_CMI) && VAR_SENTENCE_SCRIPT != 0xFF) || (_game.id == GID_ZAK && _game.version <= 2) ||
++		(_game.id == GID_LOOM && worldDistaff(gameIndex) && VAR_VERB_SCRIPT != 0xFF)) && VAR_EGO != 0xFF && VAR(VAR_EGO) > 0 && VAR(VAR_EGO) < _numActors) {
+ 		// (From 0251, The Dig's and Full Throttle's, "SVO7" with effects as
+ 		// Sam & Max's: what their own verbs answer, see
+ 		// scummverseExportOwnAnswers; from 0253 Day of the Tentacle's, its
+@@ -3487,7 +3490,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// theirs; from 0256 Zak's, with its two things; from 0258 "SVO9" where
+ 		// they need it; from 0261 Fate of Atlantis's and Indiana Jones and the
+ 		// Last Crusade's, their panels'; from 0262 The Curse of Monkey
+-		// Island's, its coin's.)
++		// Island's, its coin's; from 0271 Loom's, its distaff's.)
+ 		Common::Array<int> placeRooms;
+ 		Common::Array<Common::Array<int> > placeThings;
+ 		for (const Room &r : found) { placeRooms.push_back(r.room); placeThings.push_back(r.things); }
+@@ -3719,8 +3722,37 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ // films end at once while exporting: SmushPlayer::play); a run that reads
+ // arrays never made there over and over (its random line, waiting on tables
+ // its story makes later) spends its steps (see ScummEngine_v6::readArray)
+-// and is none.
++// and is none. From 0271 Loom's: it has no sentences, so its own controls
++// are told its input script as its engine tells them (a click on the scene
++// where its game finds the thing, a note of the distaff clicked), Bobbin
++// with the distaff in hand, every note and draft known (as the distaff's
++// export leaves them), at the thing: a tap on it (kWorldVerbWalk: its click
++// script chooses it, walks up and answers on arriving), a second tap at
++// once (kWorldVerbLook: the double click, examined) and each draft of its
++// table, forwards and, where the table lets it be, backwards (kWorldVerbDraft
++// and its index), spun on it once a tap has chosen it (its scripts answer
++// with the draft's own verb, else their catch-all for drafts); the tap's own
++// answer run to its end first and not part of theirs; none where no click
++// finds the thing (another over it all), where that tap leaves it in
++// another picture or takes Bobbin away, or a draft where the tap does not
++// choose it (its class does not let it be chosen); its answers whole, as
++// the others' (every line and who says it), those it reveals so too.
+ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<int> &rooms, const Common::Array<Common::Array<int> > &things, Common::Array<ScummverseAnswer> &answers, const Common::Path &scenes) {
++	// (From 0271, Loom's: its distaff in hand, as its own scripts give it to
++	// Bobbin (kWorldDistaffs' `held`, `inHand`: each place's own entry then
++	// keeps it so), from the start its distaff's export left, every note and
++	// draft known.)
++	const WorldDistaff *distaff = _game.id == GID_LOOM ? worldDistaff(gameIndex) : nullptr;
++	if (distaff && VAR_VERB_SCRIPT != 0xFF && distaff->drafts + 31 < _numVariables && distaff->chosen > 0 && distaff->chosen < _numVariables &&
++		distaff->held > 0 && distaff->held < 0x1000 && (distaff->held >> 4) < _numVariables) {
++		writeVar(0x8000 | distaff->held, 1);
++		int args[NUM_SCRIPT_LOCAL];
++		memset(args, 0, sizeof(args));
++		args[0] = distaff->inHand;
++		runScript(distaff->redraw, 0, 0, args);
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) vm.slot[s].status = ssDead;
++		_currentScript = 0xFF;
++	} else distaff = nullptr;
+ 	// (The one played: its start's, else the one of that place, from 0253.)
+ 	const int startEgo = VAR(VAR_EGO);
+ 	int ego = startEgo;
+@@ -3747,7 +3779,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	const Common::Array<VerbSlot> verbSlots(_verbs, _numVerbs);
+ 	auto putBack = [&]() {
+ 		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+-		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
++		if (_roomVars && !roomVars.empty()) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32)); // (from 0271: Loom has none)
+ 		memcpy(_bitVars, bits.data(), bits.size());
+ 		memcpy(_objectStateTable, states.data(), states.size());
+ 		memcpy(_objectOwnerTable, owners.data(), owners.size());
+@@ -3840,6 +3872,25 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		for (const WorldOwnVerb &own : kWorldOwnVerbs) if (own.game == gameIndex && own.kind == v.kind) verb = own.verb;
+ 		kinds.push_back(v.kind); verbs.push_back(verb);
+ 	}
++	// (From 0271, Loom's: no verbs, no sentences; its own controls (see
++	// click and spin below): a tap on the thing (kWorldVerbWalk: chosen,
++	// walked up to, answered on arriving), a second at once (kWorldVerbLook:
++	// its double click, examined), and each draft its table has known (as its
++	// distaff's export leaves it: every one a player can learn, Transcendence
++	// known from the start), spun on the thing chosen, and backwards where its
++	// table lets it be (kWorldVerbDraft and its index, 16 more backwards); no
++	// verb of their own (its scripts answer a draft with the verb its table
++	// names for it, on the thing chosen: see spin).)
++	if (distaff) {
++		kinds.push_back(kWorldVerbWalk); verbs.push_back(0);
++		kinds.push_back(kWorldVerbLook); verbs.push_back(0);
++		for (int back = 0; back < 2; ++back)
++			for (int d = 0; d < 16; ++d) {
++				const int notes = VAR(distaff->drafts + 2 * d);
++				if (!(notes & 0x2000) || (back && !(notes & 0x1000))) continue;
++				kinds.push_back(kWorldVerbDraft + d + 16 * back); verbs.push_back(0);
++			}
++	}
+ 	Common::HashMap<int, int> placeOf;
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+ 		for (uint i = 0; i + 4 < things[k].size(); i += 5) if (!placeOf.contains(things[k][i])) placeOf[things[k][i]] = rooms[k];
+@@ -3937,8 +3988,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// starts untouchable there that an answer shows and makes touchable (its
+ 	// class cleared after the run: what is under a pile picked up, inside a
+ 	// thing opened), played on from that picture, touchable then. From 0262
+-	// The Curse of Monkey Island's too.)
+-	const bool revealedToo = _game.id == GID_INDY4 || _game.id == GID_INDY3 || _game.id == GID_CMI;
++	// The Curse of Monkey Island's too, from 0271 Loom's.)
++	const bool revealedToo = _game.id == GID_INDY4 || _game.id == GID_INDY3 || _game.id == GID_CMI || distaff;
+ 	Common::HashMap<uint32, bool> revealed;
+ 	struct From { int room, obj, picture; };
+ 	Common::Array<From> todo;
+@@ -3998,6 +4049,62 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (revealedToo && !now && changed && o != self) revealed[(uint32)placeIn(o, room) << 16 | (uint16)o] = true;
+ 		}
+ 	};
++	// (From 0271, Loom's controls as a player uses them, told its input
++	// script (VAR_VERB_SCRIPT) as its engine tells it: a click on the scene
++	// where its game finds the thing (findObject; none where another covers
++	// it all: none a player can touch), the virtual pointer there; its click
++	// script (kWorldDistaffs' `click`) stopped once that click is done (its
++	// first local 0 again, following the pointer on); a note, its verb (1 to
++	// 8) clicked. A frame as below; `settle` until nothing runs.)
++	int hidden = 0, retapped = 0, unchosen = 0;
++	auto clickPoint = [&](int obj, int &cx, int &cy) {
++		const int at = getObjectIndex(obj);
++		if (at <= 0) return false;
++		const ObjectData &o = _objs[at];
++		for (int k = -1; k < 81; ++k) {
++			cx = k < 0 ? o.x_pos + o.width / 2 : o.x_pos + (o.width - 1) * (k % 9) / 8;
++			cy = k < 0 ? o.y_pos + o.height / 2 : o.y_pos + (o.height - 1) * (k / 9) / 8;
++			if (findObject(cx, cy) == obj) return true;
++		}
++		return false;
++	};
++	auto click = [&](int cx, int cy) {
++		VAR(VAR_VIRT_MOUSE_X) = cx; VAR(VAR_VIRT_MOUSE_Y) = cy;
++		runInputScript(kSceneClickArea, 0, 1);
++	};
++	auto clickDone = [&]() {
++		for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s)
++			if (vm.slot[s].status != ssDead && vm.slot[s].where == WIO_GLOBAL && vm.slot[s].number == distaff->click) {
++				if (vm.localvar[s][0]) return;
++				stopScript(distaff->click);
++				return;
++			}
++	};
++	auto spin = [&](int draft) {
++		const int notes = VAR(distaff->drafts + 2 * (draft & 15));
++		for (int k = 0; k < 4; ++k) runInputScript(kVerbClickArea, 1 + ((notes >> 3 * (draft & 16 ? 3 - k : k)) & 7), 1);
++	};
++	auto oneFrame = [&]() {
++		if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++		_talkDelay = 0; _drawObjectQueNr = 0;
++		runAllScripts(); walkActors(); _sound->stopAllSounds();
++		for (int n = 1; n < _numActors; ++n)
++			if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
++		scummverseDropAnimCommands();
++	};
++	auto settle = [&](int room) {
++		for (int n = 0; n < 600 && _currentRoom == room && !shouldQuit(); ++n) {
++			clickDone();
++			bool running = false;
++			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
++				if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++				running = running || vm.slot[s].status == ssRunning;
++			}
++			if (!running) break;
++			oneFrame();
++		}
++		stopTalk();
++	};
+ 	// (One run: the verb (its index in kinds) on the thing from that picture.)
+ 	auto run = [&](int room, int obj, int from, uint v) {
+ 		// (From 0256, not the inside of a ride: see below.)
+@@ -4023,13 +4130,31 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		Actor *a = _actors[ego];
+ 		a->putActor(x, y, room);
+ 		for (int n = 1; n < _numActors; ++n) costumes[n] = _actors[n]->isInCurrentRoom() ? _actors[n]->_costume : 0;
++		// (From 0271 Loom's: where its click finds it, else none. Its double
++		// click and a draft: chosen first by a click, as a player does, what
++		// that click answers (its own record) run to its end; none from here
++		// where that click takes them elsewhere or leaves it in another
++		// picture (that picture's are its own), nor a draft where it is not
++		// chosen then (its game chooses only those its class lets be).)
++		int cx = 0, cy = 0;
++		if (distaff && !clickPoint(obj, cx, cy)) { ++hidden; _scummverseStepBudget = -1; return; }
++		if (distaff && kinds[v] != kWorldVerbWalk) {
++			click(cx, cy);
++			settle(room);
++			if (_scummverseStepBudget == 0) { ++overran; quiet(); _scummverseStepBudget = -1; return; }
++			if (_currentRoom != room || a->_room != room) { ++left; quiet(); _scummverseStepBudget = -1; return; }
++			if (pictureOf(obj) != from) { ++retapped; quiet(); _scummverseStepBudget = -1; return; }
++			if (kinds[v] >= kWorldVerbDraft && VAR(distaff->chosen) != obj) { ++unchosen; quiet(); _scummverseStepBudget = -1; return; }
++		}
+ 		const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
+ 		const Common::Array<bool> was = untouchables(); // (from 0267: see touches)
+ 		Common::Array<int> set;
+ 		_scummverseStatesSet = &set;
+ 		_charsetBuffer[0] = 0;
+ 		if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+-		doSentence(verbs[v], obj, 0);
++		if (!distaff) doSentence(verbs[v], obj, 0);
++		else if (kinds[v] >= kWorldVerbDraft) spin(kinds[v] - kWorldVerbDraft);
++		else click(cx, cy);
+ 		ScummverseAnswer e;
+ 		e.room = room; e.id = obj; e.kind = kinds[v]; e.from = from;
+ 		round = false;
+@@ -4037,6 +4162,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		Common::String theirs, someone, anything; // (Monkey Island's as before 0258: see ownLines)
+ 		for (int frame = 0; frame < 600 && _currentRoom == room && !shouldQuit(); ++frame) {
+ 			checkAndRunSentenceScript();
++			if (distaff) clickDone(); // (from 0271)
+ 			bool running = _sentenceNum > 0;
+ 			for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+ 				if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
+@@ -4159,6 +4285,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0267, so far.)
+ 	debug(1, "SCUMMVERSE world things: %s one thing: %d made touchable, %d untouchable (%d others only that, %d things themselves; %d as they were), %d not listed (others full)",
+ 		kWorldGames[gameIndex].gameid, madeTouchable, madeUntouchable, touchedOnly, touchedSelf, touchedAsWas, touchCut);
++	// (From 0271, Loom's controls.)
++	if (distaff)
++		debug(1, "SCUMMVERSE world things: %s its controls, %d a thing (a tap, a second, %d drafts): %d runs not made where no click finds the thing, %d where its first click leaves it in another picture, %d drafts on one that click does not choose",
++			kWorldGames[gameIndex].gameid, (int)kinds.size(), (int)kinds.size() - 2, hidden, retapped, unchosen);
+ 	// (From 0256, the oldest games' two things (Zak's): Use with a thing that
+ 	// can be carried (one an answer above took or gave), as a player uses
+ 	// it: that one first, carried (in the kid's inventory as its game's pick
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index aa66d5de..67df1eea 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -113,11 +113,12 @@ static int screenWidthOf(int game) { return squarePixels(game) ? 640 : 320; }
+ // Island 2's (their panels') from 0254, Zak's (its panel's; Use with a thing
+ // carried: pairOwn) from 0256, Fate of Atlantis's and Indiana Jones and the
+ // Last Crusade's (their panels') from 0261, The Curse of Monkey Island's
+-// (its coin's: hand, skull, parrot) from 0262.
++// (its coin's: hand, skull, parrot) from 0262, Loom's (its distaff's: a tap
++// on a thing, a second, each draft; kWorldVerbDraft) from 0271.
+ static bool ownSentences(int game) {
+ 	return game >= 0 && game < worldGameCount() && (sameId(kWorldGames[game].gameid, "samnmax") || sameId(kWorldGames[game].gameid, "dig") || sameId(kWorldGames[game].gameid, "ft") ||
+ 		sameId(kWorldGames[game].gameid, "tentacle") || sameId(kWorldGames[game].gameid, "monkey") || sameId(kWorldGames[game].gameid, "monkey2") || sameId(kWorldGames[game].gameid, "zak") ||
+-		sameId(kWorldGames[game].gameid, "atlantis") || sameId(kWorldGames[game].gameid, "indy3") || sameId(kWorldGames[game].gameid, "comi"));
++		sameId(kWorldGames[game].gameid, "atlantis") || sameId(kWorldGames[game].gameid, "indy3") || sameId(kWorldGames[game].gameid, "comi") || sameId(kWorldGames[game].gameid, "loom"));
+ }
+ // A game whose two things answer as its own sentences do (its things file's
+ // effects of two, pairOwn): the mansion's from 0171, Zak's from 0256; from
+@@ -1815,18 +1816,34 @@ void SandboxEngine::chooseThing(int thing) {
+ 	double tx, ty;
+ 	doorPoint(thing, tx, ty);
+ 	StageBridge::walkTo(_player, tx, ty);
++	// (From 0271, reached: as its game's click answers on arriving, act.)
++	if (loomOwn()) { _action = kWorldVerbWalk; _target = thing; }
+ }
+ 
+ // Four notes played: Opening spins open the thing chosen (walked to), and
+ // backwards shuts it; another of its drafts does nothing yet; notes that
+-// spin no draft, nothing at all.
++// spin no draft, nothing at all. From 0271, where Loom's things file has
++// its own answers (loomOwn), each draft on the thing chosen (walked to) as
++// its game's scripts answer it (act).
+ void SandboxEngine::spin(int draft) {
+ 	if (draft < 0) return;
++	// (From 0271 nothing spun while the one played is still on the way to the
++	// thing just tapped, its tap's answer on arriving yet to come: as Loom's
++	// own distaff, which spins nothing short of the thing chosen. The walk
++	// and that answer go on; before, the draft took the answer's place.)
++	if (loomOwn() && _chosen >= 0 && _action == kWorldVerbWalk && _target == _chosen) { say("I can't reach that."); return; }
++	if (loomOwn() && _chosen >= 0 && isThing(_chosen)) { useOn(kWorldVerbDraft + draft, -1, _chosen); return; }
+ 	const int kind = draft == kWorldDraftOpening ? kWorldVerbOpen : draft == kWorldDraftOpening + 16 ? kWorldVerbClose : 0;
+-	if (kind && _chosen >= 0 && isThing(_chosen)) { useOn(kind, -1, _chosen); return; }
++	if (kind && !loomOwn() && _chosen >= 0 && isThing(_chosen)) { useOn(kind, -1, _chosen); return; }
+ 	say("Nothing happens.");
+ }
+ 
++// From 0271: Loom played with its things file's own answers (its export's,
++// what its controls answer: kWorldVerbDraft), not the plain rules.
++bool SandboxEngine::loomOwn() const {
++	return _game >= 0 && PanelBridge::distaff() && ownSentences(_game) && PanelBridge::thingsLoaded(_game) && PanelBridge::effectCount(_game) > 0;
++}
++
+ // The next of the game's people (its cast's order), played where they are
+ // (among the wanderers, else where they live), as the mansion's New kid goes
+ // to the kid chosen; the one played before stays where they stand (out
+@@ -2585,6 +2602,15 @@ void SandboxEngine::act() {
+ 		(px >= ox - reach && px <= ox + w + reach && py >= oy - reach && py <= oy + h + reach);
+ 	// (The Dig's tap needs a hand only for what it takes or opens: looking does not.)
+ 	const bool acting = kind == kWorldVerbAct;
++	// (From 0271, Loom's own answers: a thing tapped, reached, as its click
++	// answers on arriving (none, or not reached: nothing more); a draft spun
++	// on the thing chosen as its scripts answer it (none: nothing happens).)
++	if (loomOwn() && (kind == kWorldVerbWalk || kind >= kWorldVerbDraft)) {
++		if (!near) { if (kind != kWorldVerbWalk) say("I can't reach that."); return; }
++		if (!door && effectOf(id, kind, thingBit(target, id), target)) { if (!_testing) saveState(); return; }
++		if (kind != kWorldVerbWalk) say("Nothing happens.");
++		return;
++	}
+ 	if (!looking && !near && !acting) { say("I can't reach that."); return; }
+ 	int picture = -1, gamePicture = 0, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+@@ -5814,26 +5840,51 @@ Common::Error SandboxEngine::verbsTest() {
+ 		return _speech != "I can't reach that.";
+ 	};
+ 	// Loom's distaff: looking is a second tap on a thing chosen; opening and
+-	// shutting, its Opening draft played forwards and backwards on it.
++	// shutting, its Opening draft played forwards and backwards on it. From
++	// 0271 also a tap alone (kWorldVerbWalk: chosen, reached, its answer on
++	// arriving) and any draft (kWorldVerbDraft and its index: its notes, or
++	// backwards), as Loom's own answers have them; the thing chosen afresh,
++	// tapped where a tap finds it (none: false), and what that tap answers
++	// over (its lines let go) before the second tap or the notes.
++	auto distaffPoint = [&](int object, int &sx, int &sy) {
++		Common::Array<int> things, doors;
++		for (int i = 0; i < StageBridge::objectCount(); ++i) {
++			int id, x_, y_, w_, h_, wx, wy, state;
++			if (isThing(i) && !isDoor(i)) things.push_back(i);
++			if ((isDoor(i) && !insideShut(i)) || (StageBridge::object(i, id, x_, y_, w_, h_, wx, wy, state) && worldRideAt(_game, _room, id))) doors.push_back(i);
++		}
++		int id, ox, oy, ow, oh, wx, wy, state;
++		if (!StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		StageBridge::lookAt(ox + ow / 2.0);
++		for (int k = -1; k < 81; ++k) {
++			StageBridge::toScreen(k < 0 ? ox + ow / 2.0 : ox + (ow - 1) * (k % 9) / 8.0, k < 0 ? oy + oh / 2.0 : oy + (oh - 1) * (k / 9) / 8.0, sx, sy);
++			if (sx < 0 || sx >= _width || sy < 0 || sy >= PanelBridge::top()) continue;
++			double tx, ty;
++			StageBridge::toScene(sx, sy, tx, ty);
++			if (StageBridge::objectAt(tx, ty, things.data(), things.size(), 2) == object && !tapsDoorFirst(StageBridge::objectAt(tx, ty, doors.data(), doors.size(), 4), tx, ty)) return true;
++		}
++		return false;
++	};
+ 	auto useDistaff = [&](int kind, int object) {
+-		int id, ox, oy, ow, oh, wx, wy, state, sx, sy, notes[4], verb;
+-		if ((kind != kWorldVerbLook && kind != kWorldVerbOpen && kind != kWorldVerbClose) || isDoor(object) ||
+-			!PanelBridge::draftNotes(kWorldDraftOpening, notes) || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		int sx, sy, notes[4], verb;
++		const int draft = kind == kWorldVerbOpen ? kWorldDraftOpening : kind == kWorldVerbClose ? kWorldDraftOpening + 16 :
++			kind >= kWorldVerbDraft && kind < kWorldVerbDraft + 32 ? kind - kWorldVerbDraft : -1;
++		if ((kind != kWorldVerbWalk && kind != kWorldVerbLook && draft < 0) || isDoor(object) || (draft >= 0 && !PanelBridge::draftNotes(draft & 15, notes))) return false;
+ 		_speech.clear();
+-		StageBridge::lookAt(ox + ow / 2.0);
+-		StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
+-		if (sx < 0 || sx >= _width || sy < 0 || sy >= PanelBridge::top()) return false;
++		_chosen = -1; PanelBridge::unchoose();
++		if (!distaffPoint(object, sx, sy)) return false;
+ 		tap(sx, sy);
+ 		if (_chosen != object) return false;
+ 		settle();
++		if (kind == kWorldVerbWalk) return true;
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
+ 		if (kind == kWorldVerbLook) {
+-			StageBridge::lookAt(ox + ow / 2.0);
+-			StageBridge::toScreen(ox + ow / 2.0, oy + oh / 2.0, sx, sy);
++			if (!distaffPoint(object, sx, sy)) return false;
+ 			tap(sx, sy);
+ 		} else {
+ 			for (int k = 0; k < 4; ++k) {
+ 				int x, y, w, h;
+-				if (!PanelBridge::noteVerb(notes[kind == kWorldVerbOpen ? k : 3 - k], verb) || !PanelBridge::verbRect(verb, x, y, w, h)) return false;
++				if (!PanelBridge::noteVerb(notes[draft & 16 ? 3 - k : k], verb) || !PanelBridge::verbRect(verb, x, y, w, h)) return false;
+ 				tapRect(x, y, w, h);
+ 			}
+ 		}
+@@ -6153,12 +6204,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 			break;
+ 		}
+ 		// (Loom's first place, its tents, has nothing named: its other
+-		// places, its Opening draft spun on one and backwards, back after.)
++		// places, its Opening draft spun on one and backwards, back after.
++		// From 0271, with its own answers (loomOwn), every draft as its game
++		// answers it instead: each record replayed below.)
+ 		if (PanelBridge::distaff()) {
++			const bool plainDrafts = !loomOwn();
+ 			Common::Array<int> others;
+ 			for (int i = 0; i < kWorldGames[g].sceneCount; ++i) others.push_back(kWorldGames[g].scenes[i].room);
+ 			if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->roomCount; ++i) others.push_back(map->rooms[i].room);
+-			for (uint k = 0; k < others.size() && k < 80 && (looked == lookedBefore || opened == openedBefore); ++k) {
++			for (uint k = 0; k < others.size() && k < 80 && (looked == lookedBefore || (plainDrafts && opened == openedBefore)); ++k) {
+ 				if (others[k] == room || !installed(g, others[k]) || !enter(g, others[k], 0, problem)) continue;
+ 				for (int o = 0; o < StageBridge::objectCount(); ++o) {
+ 					if (!isThing(o)) continue;
+@@ -6172,22 +6226,23 @@ Common::Error SandboxEngine::verbsTest() {
+ 						}
+ 					}
+ 					const int pictures = StageBridge::objectPictures(o);
+-					if (opened > openedBefore || pictures < 2 || StageBridge::objectShown(o) != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !use(kWorldVerbOpen, o)) continue;
++					if (!plainDrafts || opened > openedBefore || pictures < 2 || StageBridge::objectShown(o) != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !use(kWorldVerbOpen, o)) continue;
+ 					if (StageBridge::objectShown(o) != 1) { fail("not opened by its draft", g); continue; }
+ 					++opened;
+ 					if (!use(kWorldVerbClose, o) || StageBridge::objectShown(o) != 0) fail("not closed by its draft backwards", g); else ++closed;
+ 				}
+ 			}
+-			if (looked == lookedBefore || opened == openedBefore) fail("its drafts not spun on anything", g);
++			if (looked == lookedBefore || (plainDrafts && opened == openedBefore)) fail("its drafts not spun on anything", g);
+ 			if (!enter(g, room, 0, problem)) { fail("its first place not shown again", g); continue; }
+ 			things.clear();
+ 			for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 		}
+-		// Open then close (one that shows none of its pictures), push.
++		// Open then close (one that shows none of its pictures), push. (From
++		// 0271 not Loom's with its own answers: its drafts are its records'.)
+ 		for (int o : things) {
+ 			int id, pictures, shown; bool door, small;
+ 			facts(o, id, pictures, shown, door, small);
+-			if (pictures < 2 || shown != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !answer(o, kWorldVerbOpen, kWorldVerbClose) ||
++			if (pictures < 2 || (PanelBridge::distaff() && loomOwn()) || shown != 0 || !StageBridge::picturesDiffer(o, 0, 1) || !answer(o, kWorldVerbOpen, kWorldVerbClose) ||
+ 				effectAfter(o, kWorldVerbOpen, 0) == 0 || effectAfter(o, kWorldVerbClose, 1) == 1 || !use(kWorldVerbOpen, o)) continue;
+ 			if (StageBridge::objectShown(o) != 1) { fail("not opened", g); break; }
+ 			++opened;
+@@ -9502,6 +9557,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 		int pairsCast = 0, pairsPast = 0; // (from 0265)
+ 		int offStage = 0, overThem = 0, pairsBySomeone = 0, pairsOverThem = 0, pairsOffStage = 0; // (from 0270)
+ 		int madeAll = 0, made = 0, later = 0, unmadeAll = 0, unmade = 0, touchesKept = 0, touchesAll = 0;
++		int taps = 0, looks = 0, drafts = 0, backwards = 0, answeredThings = 0, draftedThings = 0, draftsApart = 0, backwardsApart = 0; // (from 0271, Loom's)
++		int tapsKept = 0; // (from 0271, Loom's: a draft spun on the way, its tap's answer kept)
+ 		int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things;
+ 		HeldRecords held; // (from 0269: heldReplay)
+ 	};
+@@ -9510,20 +9567,56 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// panel's things. From 0254 Monkey Island's and Monkey Island 2's so too,
+ 	// from 0261 Fate of Atlantis's and the Last Crusade's, from 0262 The Curse
+ 	// of Monkey Island's (its coin's hand, skull and parrot; one taken with its
+-	// coin's hand, seen in its chest from a right click).)
+-	OwnRecords ownDig, ownFt, ownDott, ownMonkey, ownMonkey2, ownAtlantis, ownIndy3, ownComi;
++	// coin's hand, seen in its chest from a right click). From 0271 Loom's,
++	// each record through its own controls (useDistaff, the one played put
++	// at the thing first): a tap on the thing, a second tap, or a tap and the
++	// draft's notes on the distaff (backwards too); what the first tap
++	// answers put back after, as the record's own is.)
++	OwnRecords ownDig, ownFt, ownDott, ownMonkey, ownMonkey2, ownAtlantis, ownIndy3, ownComi, ownLoom;
+ 	for (int g = 0; g < worldGameCount(); ++g) {
+ 		OwnRecords *c = sameId(kWorldGames[g].gameid, "dig") ? &ownDig : sameId(kWorldGames[g].gameid, "ft") ? &ownFt : sameId(kWorldGames[g].gameid, "tentacle") ? &ownDott :
+ 			sameId(kWorldGames[g].gameid, "monkey") ? &ownMonkey : sameId(kWorldGames[g].gameid, "monkey2") ? &ownMonkey2 :
+ 			sameId(kWorldGames[g].gameid, "atlantis") ? &ownAtlantis : sameId(kWorldGames[g].gameid, "indy3") ? &ownIndy3 :
+-			sameId(kWorldGames[g].gameid, "comi") ? &ownComi : nullptr;
++			sameId(kWorldGames[g].gameid, "comi") ? &ownComi : sameId(kWorldGames[g].gameid, "loom") ? &ownLoom : nullptr;
+ 		if (!c) continue;
++		const bool distaffed = c == &ownLoom;
+ 		loadThings(g);
+ 		c->game = g; c->count = PanelBridge::effectCount(g);
+ 		for (int k = 0; k < c->count; ++k) {
+ 			int room, id, kind, from, with = 0;
+ 			c->all += PanelBridge::effectAt(g, k, room, id, kind, from, &with) && !with;
+ 		}
++		// (From 0271 Loom's records as its game answers its drafts: on most of
++		// the things with any answer, and told apart: on some thing one draft
++		// answered otherwise than another, and one backwards otherwise than
++		// forwards (each its own verb, as its table names them). An answer:
++		// its first line, its picture after and what else it sets.)
++		if (distaffed) {
++			auto answerOf = [&](int room, int id, int kind, int from, Common::String &said) {
++				int after, flags, others[4 * 64], count, lines, speaker, costume, color;
++				char text[256] = "";
++				if (!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 64, lines)) return false;
++				if (lines) PanelBridge::answerLine(g, room, id, kind, from, 0, 0, speaker, costume, color, text, sizeof(text));
++				said = Common::String::format("%d %d %d %s", after, flags, count, text);
++				return true;
++			};
++			Common::HashMap<int, bool> answeredSo, draftedSo, apartSo, backSo;
++			for (int k = 0; k < c->count; ++k) {
++				int room, id, kind, from, with = 0;
++				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with) continue;
++				const int key = room * 65536 + id;
++				answeredSo[key] = true;
++				if (kind < kWorldVerbDraft) continue;
++				draftedSo[key] = true;
++				Common::String mine, other;
++				answerOf(room, id, kind, from, mine);
++				for (int d = 0; d < 32 && !apartSo.contains(key); ++d)
++					if (kWorldVerbDraft + d != kind && answerOf(room, id, kWorldVerbDraft + d, from, other) && other != mine) apartSo[key] = true;
++				if (kind >= kWorldVerbDraft + 16 && answerOf(room, id, kind - 16, from, other) && other != mine) backSo[key] = true;
++			}
++			c->answeredThings = answeredSo.size(); c->draftedThings = draftedSo.size(); c->draftsApart = apartSo.size(); c->backwardsApart = backSo.size();
++			if (c->all && (2 * c->draftedThings <= c->answeredThings || !c->draftsApart || !c->backwardsApart)) fail("its drafts not answered as its game answers them (on too few things, or none told apart)", g);
++		}
+ 		const char *title = kWorldGames[g].title;
+ 		Common::String problem;
+ 		auto thingIn = [&](int id) {
+@@ -9691,11 +9784,63 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (StageBridge::objectPictures(o) > 1 && (from >= StageBridge::objectPictures(o) || after >= StageBridge::objectPictures(o))) { ++c->unshown; continue; }
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from);
+ 			else _pictures[thingKey(g, room, id)] = from;
+-			if (!doAt(kind, o)) { fail("a thing not reached", g); continue; }
+-			if (answered(o, room, id, kind, from, false)) { ++c->seen; c->things[room * 65536 + id] = true; }
+-			else fail("a thing not as its game's own sentence answers", g);
++			if (distaffed) {
++				// (From 0271 Loom's through its controls, from beside the thing.)
++				double x, y;
++				_speech.clear(); _saying.clear(); _notice.clear(); _noticeClock = 0;
++				if (!doorPoint(o, x, y)) { fail("a thing not reached", g); continue; }
++				StageBridge::walkable(x, y);
++				StageBridge::place(_player, x, y);
++				if (!PanelBridge::distaff() || !use(kind, o)) { fail("a thing not reached with its distaff", g); continue; }
++			} else if (!doAt(kind, o)) { fail("a thing not reached", g); continue; }
++			if (answered(o, room, id, kind, from, false)) {
++				++c->seen; c->things[room * 65536 + id] = true;
++				c->taps += kind == kWorldVerbWalk; c->looks += kind == kWorldVerbLook; c->drafts += kind >= kWorldVerbDraft; c->backwards += kind >= kWorldVerbDraft + 16;
++			} else fail("a thing not as its game's own sentence answers", g);
++			// (Loom's: what the tap before it answered, put back.)
++			int tapAfter, tapFlags, tapOthers[4 * 64], tapCount = 0, tapLines, tapTouched[3 * 64], tapTouches = 0, tapSelf = 0;
++			if (distaffed && kind != kWorldVerbWalk && PanelBridge::thingAnswer(g, room, id, kWorldVerbWalk, from, 0, tapAfter, tapFlags, tapOthers, tapCount, 64, tapLines)) {
++				for (int i = 0; i < tapCount; ++i) putBack(tapOthers[4 * i], tapOthers[4 * i + 1]);
++				if (PanelBridge::answerTouches(g, room, id, kWorldVerbWalk, from, 0, tapTouched, tapTouches, 64, tapSelf))
++					for (int i = 0; i < tapTouches; ++i) putBack(tapTouched[3 * i], tapTouched[3 * i + 1]);
++				putBack(room, id);
++			}
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, pictureNow(o, id));
+ 		}
++		// (From 0271 Loom's: a draft's notes played on the way to a thing just
++		// tapped, one whose tap its game answers, from as far as its part of the
++		// place goes, spin nothing there (as its own distaff short of the thing
++		// chosen): the walk goes on and the tap's answer is given on arriving,
++		// not lost to the draft.)
++		bool tapLost = false;
++		for (int k = 0; k < c->count && distaffed && !c->tapsKept && !tapLost; ++k) {
++			const TouchedKept touchedKept{_touched, _touched};
++			int room, id, kind, from, with = 0, notes[4], verb, x, y, w, h, sx, sy;
++			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || kind != kWorldVerbWalk || !installed(g, room) ||
++				!PanelBridge::draftNotes(kWorldDraftOpening, notes)) continue;
++			if ((_game != g || _room != room) && !enter(g, room, 0, problem)) continue;
++			const int o = thingIn(id);
++			double tx, ty, xs[12], ys[12], farthest = -1;
++			if (o < 0 || !isThing(o) || pictureNow(o, id) != from || !doorPoint(o, tx, ty)) continue;
++			StageBridge::walkable(tx, ty);
++			const int spots = StageBridge::spots(12, xs, ys, StageBridge::group(tx, ty));
++			for (int i = 0; i < spots; ++i) {
++				const double d = (xs[i] - tx) * (xs[i] - tx) + (ys[i] - ty) * (ys[i] - ty);
++				if (d > farthest) { farthest = d; StageBridge::place(_player, xs[i], ys[i]); }
++			}
++			_speech.clear(); _saying.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++			_chosen = -1; PanelBridge::unchoose();
++			if (!distaffPoint(o, sx, sy)) continue;
++			tap(sx, sy);
++			// (Not chosen, or there already: no way to be on, its answer not given.)
++			if (_chosen != o || !StageBridge::moving(_player)) { _action = 0; _target = -1; continue; }
++			for (int n = 0; n < 4; ++n) if (PanelBridge::noteVerb(notes[n], verb) && PanelBridge::verbRect(verb, x, y, w, h)) tapRect(x, y, w, h);
++			const bool answerPending = _action == kWorldVerbWalk && _target == o;
++			settle();
++			if (!answerPending || !answered(o, room, id, kWorldVerbWalk, from, true)) { fail("a draft spun on the way to a thing tapped took the place of its tap's answer", g); tapLost = true; }
++			else ++c->tapsKept;
++		}
++		if (distaffed && c->taps && !c->tapsKept && !tapLost) fail("no draft spun on the way to a thing tapped (one its tap answers)", g);
+ 		// (The first taken that its controls reach, as a player takes it;
+ 		// carried, in its box.)
+ 		for (int k = 0; k < c->count && !c->controls; ++k) {
+@@ -9886,6 +10031,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 		Common::String kinds;
+ 		for (int kind = 1; kind <= kWorldVerbNote; ++kind) if (c->byKind[kind]) kinds += Common::String::format("%s%d of verb %d", kinds.empty() ? "" : ", ", c->byKind[kind], kind);
+ 		if (c->refused) kinds += Common::String::format("%s%d taken by its game refused, no picture of their own to carry", kinds.empty() ? "" : ", ", c->refused);
++		// (From 0271, Loom's controls: each of them among those replayed.)
++		if (distaffed && c->all && (!c->taps || !c->looks || !c->drafts || !c->backwards)) fail("its controls' answers not all replayed (a tap, a second tap, drafts both ways)", g);
++		if (distaffed)
++			kinds += Common::String::format("%s%d taps, %d second taps, %d drafts (%d backwards) through its distaff; of %d things answered, %d answer drafts, %d one draft otherwise than another, %d one backwards otherwise than forwards",
++				kinds.empty() ? "" : ", ", c->taps, c->looks, c->drafts, c->backwards, c->answeredThings, c->draftedThings, c->draftsApart, c->backwardsApart);
++		// (From 0271, a draft spun on the way to a thing tapped: nothing there, its tap's answer kept.)
++		if (distaffed) kinds += Common::String::format("; %d drafts spun on the way to a thing tapped, spinning nothing short of it, its tap's answer given on arriving", c->tapsKept);
+ 		warning("SCUMMVERSE sandbox selftest %s: %d of %d records of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken, %d given, %d of them with no picture to carry; %s), %d taken with its own controls, in its box; %d of %d doors its game keeps untouchable shown by another's answer, then gone through; %d of %d things it keeps untouchable all the same shown so, not things; "
+ 			"whole: %d of several lines said in turn, %d lines by someone else, %d from or to a picture past the second (%d in a picture their places have not)",
+ 			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden, c->kept, c->keptAll,
+@@ -10202,7 +10354,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// among those seen, their places still showing them as the answers
+ 		// before left them, not counted later.)
+ 		(ownComi.all && (ownComi.seen + ownComi.away + ownComi.unshown != ownComi.all || !ownComi.seen || !ownComi.taken || ownComi.controls != 1 ||
+-			ownComi.kept != ownComi.keptAll || !ownComi.madeAll || ownComi.made != ownComi.madeAll)))
++			ownComi.kept != ownComi.keptAll || !ownComi.madeAll || ownComi.made != ownComi.madeAll)) ||
++		// (Loom's, from 0271: every record through its controls; taps, second
++		// taps and drafts both ways among them, what they make touchable kept.)
++		(ownLoom.all && (ownLoom.seen + ownLoom.away + ownLoom.unshown != ownLoom.all || !ownLoom.seen || !ownLoom.taps || !ownLoom.looks || !ownLoom.drafts || !ownLoom.backwards ||
++			ownLoom.touchesKept != ownLoom.touchesAll || !ownLoom.touchesAll || 2 * ownLoom.draftedThings <= ownLoom.answeredThings || !ownLoom.draftsApart || !ownLoom.backwardsApart ||
++			// (From 0271 a draft spun on the way to a thing tapped, its tap's answer kept.)
++			(ownLoom.taps && !ownLoom.tapsKept))))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index e61b6810..b2c0bc77 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -150,9 +150,13 @@ private:
+ 	void drag(int screenX, int screenY);
+ 	void release(int screenX, int screenY);
+ 	// Loom's distaff (step 2f): a thing tapped is chosen (shown in the box,
+-	// walked to), tapped again examined; four notes spin a draft on it.
++	// walked to), tapped again examined; four notes spin a draft on it. From
++	// 0271, where its things file has its own answers (loomOwn), each as its
++	// game's scripts answer it: the tap on arriving, the second tap, every
++	// draft (none: nothing happens).
+ 	void chooseThing(int thing);
+ 	void spin(int draft);
++	bool loomOwn() const;
+ 	void act();
+ 	void say(const Common::String &line); // (the one played)
+ 	void sayAs(int actor, const Common::String &line); // (lines waiting let go)

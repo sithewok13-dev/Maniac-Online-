@@ -1,0 +1,1395 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 535462ee..66701c74 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -50,7 +50,7 @@ static const char *actorName(int id) {
+ 	if (const ZakResident *resident = sceneResident(id)) return resident->name;
+ 	if (const auto *guest = sceneGuest(id)) return guest->name;
+ 	static const char *names[] = {"", "Syd", "Razor", "Dave", "Michael", "Bernard", "Wendy", "Jeff", "", "Dr Fred", "Nurse Edna", "Weird Ed", "", "Purple Tentacle", "Green Tentacle"};
+-	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Zaire villager" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
++	return id==8 ? "Caponian" : id==17 ? "The King" : id==18 ? "Zaire shaman" : id==19 ? "Plant" : id == 20 ? "Annie Larris" : id == 21 ? "Melissa China" : id == 22 ? "Leslie Bennett" : id == 24 ? "Zak McKracken" : id == 23 ? "Sandy" : (id > 0 && id < 15 ? names[id] : "visitor");
+ }
+ static const char *personality(int id) {
+ 	if (const auto *who = sceneAppearance(id)) return who->personality;
+@@ -67,7 +67,6 @@ static const char *personality(int id) {
+ 	case 8: return "a Caponian alien disguised as a telephone-company employee; evasive, bureaucratic, and comically suspicious";
+ 	case 17: return "The King, a legendary rock-and-roll singer who has been living aboard an alien spacecraft in the Bermuda Triangle; warm, charming, nostalgic about touring, and grateful to his audience";
+ 	case 18: return "a knowledgeable shaman from the Zaire village, familiar with ancient crystals; observant and wry, speaking natural English without a caricature accent";
+-	case 19: return "a resident of the Zaire village, curious about visitors and knowledgeable about the local jungle; friendly and practical, speaking natural English without a caricature accent";
+ 	case 9: return "an eccentric scientist distracted by experiments";
+ 	case 10: return "a sharp-tongued nurse annoyed by messy houseguests";
+ 	case 11: return "a suspicious military enthusiast devoted to his hamster";
+@@ -102,7 +101,6 @@ static std::string classicReply(int id, unsigned turn) {
+ 	case 14: lines[0] = "Cool! Want to hear my new song?"; lines[1] = "That makes me hungry for snacks."; lines[2] = "You seem nice. Mostly."; break;
+ 	case 17: lines[0] = "Thank you. Thank you very much."; lines[1] = "I've played bigger rooms than this one."; lines[2] = "Those spaceships sure get lonely."; break;
+ 	case 18: lines[0] = "The crystals would tell you more."; lines[1] = "Listen carefully. The jungle remembers."; lines[2] = "Patience. Answers come in time."; break;
+-	case 19: lines[0] = "Welcome. Mind the jungle paths."; lines[1] = "Visitors always ask that."; lines[2] = "The shaman would know better."; break;
+ 	case 20: lines[0] = "That fits with my research."; lines[1] = "Let's look for evidence first."; lines[2] = "The ancient builders knew something."; break;
+ 	case 21: lines[0] = "Let's plan that properly."; lines[1] = "Leslie would love to hear that."; lines[2] = "I'll add it to our notes."; break;
+ 	case 22: lines[0] = "Ha! Let's go find out."; lines[1] = "Melissa will want details."; lines[2] = "Now this is an adventure."; break;
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index ca019ac0..0790e422 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -16,6 +16,9 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 	return image;
+ }
+ 
++// How long a box is held for everyone in its game (the bar fills meanwhile).
++static const NSTimeInterval kScummverseCastHold = 0.6;
++
+ @interface ScummverseCastController : UIViewController {
+ 	UIScrollView *_grid;
+ }
+@@ -69,7 +72,7 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 	self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.02 blue:0.12 alpha:1];
+ 	UILabel *title = [[[UILabel alloc] init] autorelease]; title.tag = 100; title.text = @"Who do you want to play?";
+ 	title.textColor = UIColor.whiteColor; title.font = [UIFont boldSystemFontOfSize:22]; title.adjustsFontSizeToFitWidth = YES; title.minimumScaleFactor = 0.6; [self.view addSubview:title];
+-	UILabel *note = [[[UILabel alloc] init] autorelease]; note.tag = 102; note.text = @"Long press a game for everyone in it";
++	UILabel *note = [[[UILabel alloc] init] autorelease]; note.tag = 102; note.text = @"Long press to play as another character";
+ 	note.textColor = [UIColor colorWithWhite:0.8 alpha:1]; note.font = [UIFont systemFontOfSize:14]; note.adjustsFontSizeToFitWidth = YES; note.minimumScaleFactor = 0.6; [self.view addSubview:note];
+ 	UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; close.tag = 101; [close setTitle:@"Done" forState:UIControlStateNormal];
+ 	[close addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside]; [self.view addSubview:close];
+@@ -81,19 +84,23 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 		tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1]; tile.layer.cornerRadius = 8; tile.alpha = here ? 1 : 0.45;
+ 		UIImageView *face = [[[UIImageView alloc] initWithImage:scummverseCastFaces[slot]] autorelease]; face.tag = 200;
+ 		face.contentMode = UIViewContentModeScaleAspectFit; face.layer.magnificationFilter = kCAFilterNearest; [tile addSubview:face];
+-		UILabel *name = [[[UILabel alloc] init] autorelease]; name.tag = 201; name.textAlignment = NSTextAlignmentCenter; name.textColor = UIColor.whiteColor;
+-		name.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]; name.adjustsFontSizeToFitWidth = YES; name.minimumScaleFactor = 0.6;
+-		name.text = here ? people[0][0] : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:name];
+-		UILabel *game = [[[UILabel alloc] init] autorelease]; game.tag = 202; game.textAlignment = NSTextAlignmentCenter;
+-		game.textColor = [UIColor colorWithWhite:0.75 alpha:1]; game.font = [UIFont systemFontOfSize:11]; game.numberOfLines = 2;
+-		game.adjustsFontSizeToFitWidth = YES; game.minimumScaleFactor = 0.6;
++		// The game's name (not its character's); a game not added says how.
++		UILabel *game = [[[UILabel alloc] init] autorelease]; game.tag = 201; game.textAlignment = NSTextAlignmentCenter; game.textColor = UIColor.whiteColor;
++		game.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]; game.numberOfLines = 2; game.adjustsFontSizeToFitWidth = YES; game.minimumScaleFactor = 0.6;
+ 		game.text = scummverseCastTitles[slot]; [tile addSubview:game];
++		UILabel *hint = [[[UILabel alloc] init] autorelease]; hint.tag = 202; hint.textAlignment = NSTextAlignmentCenter;
++		hint.textColor = [UIColor colorWithWhite:0.75 alpha:1]; hint.font = [UIFont systemFontOfSize:11]; hint.adjustsFontSizeToFitWidth = YES; hint.minimumScaleFactor = 0.6;
++		hint.text = here ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
++		// Holding a box fills this bar until the list of everyone opens.
++		UIView *bar = [[[UIView alloc] init] autorelease]; bar.tag = 203; bar.userInteractionEnabled = NO;
++		bar.backgroundColor = [UIColor colorWithRed:0.75 green:0.45 blue:1 alpha:1]; bar.layer.cornerRadius = 2; bar.hidden = !here; [tile addSubview:bar];
+ 		tile.accessibilityLabel = here ? [NSString stringWithFormat:@"Play as %@, %@", people[0][0], scummverseCastTitles[slot]] : [NSString stringWithFormat:@"%@, not added", scummverseCastTitles[slot]];
+ 		tile.accessibilityHint = here ? @"Long press for everyone in this game" : nil;
+ 		[tile addTarget:self action:@selector(choose:) forControlEvents:UIControlEventTouchUpInside];
+ 		[tile addTarget:self action:@selector(press:) forControlEvents:UIControlEventTouchDown | UIControlEventTouchDragEnter];
+ 		[tile addTarget:self action:@selector(unpress:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchDragExit | UIControlEventTouchCancel];
+ 		UILongPressGestureRecognizer *hold = [[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(hold:)] autorelease];
++		hold.minimumPressDuration = kScummverseCastHold;
+ 		[tile addGestureRecognizer:hold];
+ 		[_grid addSubview:tile];
+ 	}
+@@ -115,9 +122,11 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 		if (![tile isKindOfClass:UIButton.class]) continue;
+ 		tile.frame = CGRectMake(i % cols * width + 3, i / cols * height + 3, width - 6, height - 6);
+ 		const CGFloat w = width - 6, h = height - 6;
+-		[tile viewWithTag:200].frame = CGRectMake(6, 4, w - 12, h - 50);
+-		[tile viewWithTag:201].frame = CGRectMake(3, h - 46, w - 6, 18);
+-		[tile viewWithTag:202].frame = CGRectMake(3, h - 28, w - 6, 26);
++		[tile viewWithTag:200].frame = CGRectMake(6, 4, w - 12, h - 54);
++		[tile viewWithTag:201].frame = CGRectMake(3, h - 50, w - 6, 30);
++		[tile viewWithTag:202].frame = CGRectMake(3, h - 20, w - 6, 14);
++		// A box being held keeps its filling bar.
++		if (!((UIButton *)tile).tracking) [self resetBar:(UIButton *)tile];
+ 		++i;
+ 	}
+ 	_grid.contentSize = CGSizeMake(_grid.bounds.size.width, rows * height);
+@@ -126,8 +135,27 @@ static UIImage *scummverseCastImage(NSData *data) {
+ 	scummverseWorldRequest(request);
+ 	[self done];
+ }
+-- (void)press:(UIButton *)tile { tile.backgroundColor = [UIColor colorWithRed:0.38 green:0.12 blue:0.50 alpha:1]; }
+-- (void)unpress:(UIButton *)tile { tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1]; }
++// The hold bar: empty along the box's foot, filling over the long press.
++- (void)resetBar:(UIButton *)tile {
++	UIView *bar = [tile viewWithTag:203];
++	[bar.layer removeAllAnimations];
++	bar.frame = CGRectMake(6, tile.bounds.size.height - 6, 0, 4);
++}
++- (void)press:(UIButton *)tile {
++	tile.backgroundColor = [UIColor colorWithRed:0.38 green:0.12 blue:0.50 alpha:1];
++	UIView *bar = [tile viewWithTag:203];
++	[self resetBar:tile];
++	const CGFloat full = tile.bounds.size.width - 12;
++	// The scroll view hands a touch over a moment late (delaysContentTouches):
++	// the bar fills that much sooner, so it is full when the list opens.
++	[UIView animateWithDuration:MAX(0.1, kScummverseCastHold - 0.15) delay:0 options:UIViewAnimationOptionCurveLinear | UIViewAnimationOptionAllowUserInteraction animations:^{
++		CGRect f = bar.frame; f.size.width = full; bar.frame = f;
++	} completion:nil];
++}
++- (void)unpress:(UIButton *)tile {
++	tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1];
++	[self resetBar:tile];
++}
+ - (void)choose:(UIButton *)tile {
+ 	if (self.presentedViewController) return;
+ 	NSNumber *slot = @(tile.tag - 1);
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index c751556f..70f0a74e 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -440,7 +440,7 @@ const SpriteFrame *SandboxSprite::frame(int dir, int kind, int index) const {
+ 	static const int facings[kGuestDirections][4] = {
+ 		{kGuestLeft, kGuestFront, kGuestRight, kGuestBack}, {kGuestRight, kGuestFront, kGuestLeft, kGuestBack},
+ 		{kGuestFront, kGuestLeft, kGuestRight, kGuestBack}, {kGuestBack, kGuestFront, kGuestLeft, kGuestRight}};
+-	static const int kinds[kGuestKinds][2] = {{kGuestStand, kGuestStand}, {kGuestWalk, kGuestStand}, {kGuestTalk, kGuestStand}};
++	static const int kinds[kGuestKinds][2] = {{kGuestStand, kGuestStand}, {kGuestWalk, kGuestStand}, {kGuestTalk, kGuestStand}, {kGuestSeated, kGuestStand}};
+ 	if (dir < 0 || dir >= kGuestDirections || kind < 0 || kind >= kGuestKinds) return nullptr;
+ 	for (int k : kinds[kind]) for (int d : facings[dir]) {
+ 		const int count = frameCount(d, k);
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index e76cf9f4..e264d87b 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -70,9 +70,10 @@ struct SandboxScene {
+ };
+ 
+ // A character from another game: frames rendered by its own engine ("SVC1"),
+-// facing left, right, the viewer or away, standing, walking or talking.
++// facing left, right, the viewer or away, standing, walking or talking (and
++// some, made from their stance, seated).
+ enum GuestDirection { kGuestLeft, kGuestRight, kGuestFront, kGuestBack, kGuestDirections };
+-enum GuestKind { kGuestStand, kGuestWalk, kGuestTalk, kGuestKinds };
++enum GuestKind { kGuestStand, kGuestWalk, kGuestTalk, kGuestSeated, kGuestKinds };
+ 
+ struct SourceFrame {
+ 	int dir = 0, kind = 0, index = 0;
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 4902771c..092f0b70 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 13;
++static const int kWorldExportVersion = 14;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -151,11 +151,155 @@ static const WorldCostumeVariant kWorldCostumeVariants[] = {
+ 	{0, 906, 9, 6, 7, 8, 9, 8, 0},     // Monkey Island cannibal, second mask
+ 	{0, 911, 9, 11, 12, 13, 14, 13, 0}, // Monkey Island cannibal, third mask
+ 	{9, 949, 49, -1, -1, -1, -1, -1, 11}, // Curse's Murray in the green of the ship's hold
++	{8, 128, 128, 1, 15, 15, -1, -1, 0}, // The Dig's nest monster: its crawl is animation 15, still its first step
++	{9, 49, 12, -1, -1, -1, -1, -1, 14}, // Curse's Murray: his head alone (costume 12, not 49's plank), bone white in Plunder Island's colours (his own room's make him orange)
+ };
+ inline const WorldCostumeVariant *worldCostumeVariant(int game, int costume) {
+ 	for (const auto &v : kWorldCostumeVariants) if (v.game == game && v.costume == costume) return &v;
+ 	return nullptr;
+ }
++// Walks the game drew in one facing only, a side view kept under another
++// facing (`right`: drawn facing right): every direction walks in it,
++// mirrored to face the other way. A remote picture (drawn away from the
++// actor, one facing) turns both ways.
++struct WorldSideWalk { short game, costume, facing; bool right; };
++static const WorldSideWalk kWorldSideWalks[] = {
++	{6, 201, 180, false}, // Sam & Max's Shuv-Oohl, under the front facing
++	{8, 128, 180, true},  // The Dig's nest monster
++};
++inline const WorldSideWalk *worldSideWalk(int game, int costume) {
++	for (const auto &w : kWorldSideWalks) if (w.game == game && w.costume == costume) return &w;
++	return nullptr;
++}
++// Guests the game only ever drew sitting: their own head (limb `head`, its
++// mouth `mouth`) on a relative's stance and walk, the relative's clothes
++// repainted in the guest's colors (palette indices both costumes fix). The
++// relative's head goes, down to `neck` rows below where its clothes start;
++// `flip`: the guest's head faces the other way from the relative's body
++// (it is turned to match).
++struct WorldCostumeGraft { short game, costume, body, head, mouth, neck; bool flip; unsigned char recolor[3][2]; };
++static const WorldCostumeGraft kWorldCostumeGrafts[] = {
++	// Doug the Mole Man in his uncle Shuv-Oohl's, the purple robe in Doug's
++	// browns; Doug's head faces right, Shuv-Oohl's body left.
++	{6, 102, 201, 3, 4, 6, true, {{228, 208}, {229, 210}, {230, 213}}},
++};
++inline const WorldCostumeGraft *worldCostumeGraft(int game, int costume) {
++	for (const auto &g : kWorldCostumeGrafts) if (g.game == game && g.costume == costume) return &g;
++	return nullptr;
++}
++// Guests crammed into a plane seat (the user: "hilariously oversized
++// sitting in the plane seats", "conform [to the] general shape of the seats
++// and look like they're crammed in them"): their seated pose if they have
++// one (kWorldSeatPoses), else as they stand, squeezed into `width` pixels
++// from the seat's back (at most `squash` percent narrower than their own
++// shape), their top against the overhead bins at row `top`, `sink` percent
++// of them below the seat's front.
++struct WorldSeatFit { short game, costume, sink, top, squash, width; };
++static const WorldSeatFit kWorldSeatFits[] = {
++	{8, 321, 35, 18, 200, 56}, // The Dig's Creator
++	{8, 128, 15, 20, 120, 60}, // The Dig's nest monster, sprawled in it
++	{4, 93, 22, 14, 120, 52},  // Fate of Atlantis' camel, sitting back
++	{6, 248, 22, 14, 130, 58}, // Sam & Max's virtual reality dragon
++	{0, 34, 10, 28, 100, 44},  // Monkey Island's three-headed monkey, facing the front
++};
++inline const WorldSeatFit *worldSeatFit(int game, int costume) {
++	for (const auto &f : kWorldSeatFits) if (f.game == game && f.costume == costume) return &f;
++	return nullptr;
++}
++// Seated poses for guests the game drew standing or crawling (the user:
++// "the camel needs to be in a seated, not standing position", the nest
++// monster "reimagined sitting in the seat"), made from their stance facing
++// right: each part, the rectangle (x0, y0)-(x1, y1) of it, turned `angle`
++// degrees about its pivot (positive lifts its front) at `scale` percent,
++// the pivot set at (atX, atY) from the pose's origin, or (`on` >= 0) at the
++// point (atX, atY) of part `on`, wherever that part put it. Drawn in order;
++// the rest of the stance is left out (no parts: all of it). Parts marked
++// `front` are drawn over the seat's front (a leg over the armrest), the
++// rest behind it, as Maniac's own sit. With `fill` (a palette index, -1:
++// none) every gap down each column and across each row, between its
++// outermost pixels, is filled, so nothing behind shows through (the user:
++// "Why can you see through the three headed monkey?"). Their seated frames
++// are kind kWorldSeatedKind (GuestKind kGuestSeated): the picture behind
++// the seat's front, then (if any) the one over it, the same size.
++static const int kWorldSeatedKind = 3;
++struct WorldSeatPart { short x0, y0, x1, y1, pivotX, pivotY, angle, scale, on, atX, atY, front; };
++struct WorldSeatPose { short game, costume; WorldSeatPart parts[6]; short fill; };
++static const WorldSeatPose kWorldSeatPoses[] = {
++	// Fate of Atlantis' camel sits back in the seat (the user: "a more
++	// relaxed pose with its leg on the armrest", "his head in a neutral
++	// position facing the right of the plane like everyone else"): leaning
++	// back, the far hind leg under it, forelegs folded, head level, the near
++	// hind leg slung over the armrest.
++	{4, 93, {{9, 29, 20, 62, 14, 31, 60, 100, 1, 14, 31, 0}, {0, 0, 54, 37, 6, 30, 105, 100, -1, 0, 0, 0},
++		{30, 34, 58, 62, 44, 36, -40, 100, 1, 44, 35, 0}, {46, 0, 92, 32, 52, 26, 0, 100, 1, 50, 20, 0},
++		{1, 29, 11, 47, 6, 31, 95, 100, 1, 6, 32, 1}, {1, 46, 11, 62, 6, 46, 5, 100, 4, 6, 46, 1}}, -1},
++	// Sam & Max's dragon upright, its tail curled up the seat's back.
++	{6, 248, {{0, 52, 54, 82, 52, 70, -55, 100, -1, -4, -30, 0}, {46, 0, 120, 91, 60, 91, 0, 100, -1, 0, 0, 0}}, -1},
++	// The Dig's nest monster sprawled in the seat: legs over its back and
++	// over its armrest, its body and eyes on the cushion.
++	{8, 128, {{10, 0, 74, 50, 72, 40, -60, 75, -1, -14, -30, 0}, {112, 0, 156, 50, 114, 40, -75, 75, -1, 18, -24, 0},
++		{66, 0, 122, 50, 94, 50, 0, 100, -1, 0, 0, 0}}, -1},
++	// Monkey Island's three-headed monkey (its side view) sits as one black
++	// furry body under its three heads.
++	{0, 34, {}, 0},
++};
++inline const WorldSeatPose *worldSeatPose(int game, int costume) {
++	for (const auto &p : kWorldSeatPoses) if (p.game == game && p.costume == costume) return &p;
++	return nullptr;
++}
++// Guests drawn only from the front, seen from the side (the user: "facing
++// the front of the plane. Create the views if you need to"): a relative's
++// side views (stance and walk), its palette indices repainted in the
++// guest's (up to eight pairs), its head (found by its `face` colour)
++// replaced by the guest's own, newly drawn facing right (`head`, '.' clear,
++// else the colour at that letter's place in `legend`), `heads` of them, each
++// one behind (stepX, stepY) further back and up, joined to the shoulders by
++// a neck in colour `neck` (the user: "Why can you see through the three
++// headed monkey?"); `size` percent of the relative's size (as tall as the
++// guest's own front view).
++struct WorldSideView {
++	short game, costume, body, heads, size, stepX, stepY; unsigned char face, neck, recolor[8][2];
++	const char *const *head; short headRows; const char *legend; unsigned char inks[8];
++};
++// The three-headed monkey's head from the side (the user's picture as a
++// guide): black fur with a dark grey streak, a brown face, lighter brow,
++// pale muzzle, red mouth, a black eye.
++static const char *const kWorldMonkeyHead[] = {
++	"....KKKKK....",
++	"..KKKKKKKKK..",
++	".KKKKDKKKKKK.",
++	".KKKDKKBBBK..",
++	"KBKKKKBBLLB..",
++	"KLBKKBBLEBBB.",
++	"KBKKKBBLLLBWW",
++	".KKKKBBBBWWWW",
++	".KKKKKBBWWRR.",
++	"..KKKKKBBWW..",
++	"...KKKKKKK...",
++	"....KKKKK....",
++};
++static const WorldSideView kWorldSideViews[] = {
++	// Monkey Island's three-headed monkey as the island's monkey: black and
++	// grey fur, three heads on black necks.
++	{0, 34, 6, 3, 120, 7, 5, 15, 0, {{7, 0}, {243, 246}, {246, 0}, {15, 245}, {241, 245}, {244, 246}, {9, 0}},
++		kWorldMonkeyHead, 12, "KDBLWRE", {0, 246, 252, 237, 242, 236, 0}},
++};
++inline const WorldSideView *worldSideView(int game, int costume) {
++	for (const auto &v : kWorldSideViews) if (v.game == game && v.costume == costume) return &v;
++	return nullptr;
++}
++// Four-legged guests the game drew standing only: walking, their legs swing
++// from the hips (`hip` percent down the picture), the near pair against the
++// far one as a camel paces, the feet `reach` pixels each way.
++struct WorldLegSwing { short game, costume, hip, reach; };
++static const WorldLegSwing kWorldLegSwings[] = {
++	{4, 93, 60, 6}, // Fate of Atlantis' camel
++};
++static const int kWorldLegSwingFrames = 8;
++inline const WorldLegSwing *worldLegSwing(int game, int costume) {
++	for (const auto &s : kWorldLegSwings) if (s.game == game && s.costume == costume) return &s;
++	return nullptr;
++}
+ // Exploration presets the exporter applies before drawing a game's rooms,
+ // with numbers from the game's own scripts. The Dig's light bridges: a beam
+ // object without class 32 (Untouchable) is a bridge switched on and var 430
+@@ -261,6 +405,9 @@ static const WorldGuest kWorldZakCast[] = {
+ 	{49, "Skolarian",
+ 	 "a Skolarian, one of the ancient guardians of Earth, appearing as a glowing projection deep inside Mars; solemn, wise, a little weary after ages of waiting, and determined to see the Caponians stopped", 14,
+ 	 {"The crystals hold more power than you know.", "We have waited a very long time for you.", "Beware the Caponians and their machines."}},
++	{41, "Zaire villager",
++	 "a resident of the Zaire village, curious about visitors and knowledgeable about the local jungle; friendly and practical, speaking natural English without a caricature accent", 9,
++	 {"Welcome. Mind the jungle paths.", "Visitors always ask that.", "The shaman would know better."}},
+ };
+ // Maniac Mansion's rooms and Zak's places in the Other worlds menu travel by
+ // worldPlaceRequest under these game numbers (the looks' pseudo games), each
+@@ -268,7 +415,7 @@ static const WorldGuest kWorldZakCast[] = {
+ static const int kWorldManiacPlaces = kWorldManiacLooks, kWorldZakPlaces = kWorldZakLooks;
+ // The colour each one's costume is drawn in (the original scripts').
+ struct WorldTint { short costume, color; };
+-static const WorldTint kWorldZakTints[] = {{44, 1}, {45, 3}, {50, 9}, {46, 9}, {47, 9}, {42, 4}, {43, 1}, {48, 9}, {49, 14}};
++static const WorldTint kWorldZakTints[] = {{44, 1}, {45, 3}, {50, 9}, {46, 9}, {47, 9}, {42, 4}, {43, 1}, {48, 9}, {49, 14}, {41, 9}};
+ inline int worldLookTint(int game, int costume) {
+ 	if (game == kWorldZakLooks)
+ 		for (const auto &t : kWorldZakTints) if (t.costume == costume) return t.color;
+@@ -337,10 +484,14 @@ inline const WorldRoller *worldRoller(int game, int costume) {
+ 	return nullptr;
+ }
+ // Characters whose costume shows them only from the front (Dead Cousin
+-// Ted): facing left or right they are drawn from the side, newly drawn
+-// (engines/scumm/costume.cpp).
+-struct WorldProfile { short game, costume; };
+-static const WorldProfile kWorldProfiles[] = {{kWorldManiacLooks, 12}};
++// Ted; the man-eating plant, whose costume's facings are how grown it is):
++// facing left or right they are drawn from the side, newly drawn
++// (engines/scumm/costume.cpp); seatedOnly, only in a plane seat.
++struct WorldProfile { short game, costume; bool seatedOnly; };
++static const WorldProfile kWorldProfiles[] = {
++	{kWorldManiacLooks, 12, false}, // Dead Cousin Ted
++	{kWorldManiacLooks, 19, true},  // the man-eating plant, facing the front of the plane
++};
+ inline const WorldProfile *worldProfile(int game, int costume) {
+ 	for (const auto &p : kWorldProfiles) if (p.game == game && p.costume == costume) return &p;
+ 	return nullptr;
+@@ -371,7 +522,7 @@ static const int kWorldCastActorRequest = (1 << 26) + (1 << 24);
+ struct WorldLead { short game, costume, room; };
+ static const WorldLead kWorldLeads[] = {
+ 	{0, 1, 33}, {1, 1, 4}, {2, 1, 2}, {3, 2, 6}, {4, 2, 1},
+-	{5, 302, 26}, {6, 2, 7}, {7, 12, 6}, {8, 14, 23}, {9, 2, 15},
++	{5, 6, 29}, {6, 2, 7}, {7, 12, 6}, {8, 14, 23}, {9, 2, 15}, // (Day of the Tentacle: Purple Tentacle)
+ };
+ inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1; }
+ inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
+diff --git a/engines/scumm/costume.cpp b/engines/scumm/costume.cpp
+index c4bec15b..0667ebb2 100644
+--- a/engines/scumm/costume.cpp
++++ b/engines/scumm/costume.cpp
+@@ -499,6 +499,85 @@ static const char *const kScummverseTedSide[] = {
+ 	"22222222..",
+ };
+ 
++// The man-eating plant from the side, facing left, newly drawn (its costume
++// shows it only from the front; its facings are how grown it is): 1 its
++// head, open jaws with black teeth, 2 the stem curving up to the head's
++// back and its two leaves, 3 their outline and veins. Over the costume's
++// place: its head as high and its stem as long as the grown plant's.
++static const char *const kScummversePlantSide[] = {
++	"....111111....",
++	"..1111111111..",
++	".111111111111.",
++	"11111111111113",
++	"33311111111113",
++	"3.3.3.31111113",
++	"......31111123",
++	".......3111123",
++	"......31111123",
++	"3.3.3.31111113",
++	"33311111111113",
++	"11111111111113",
++	".111111111113.",
++	"..1111111133..",
++	"....333333322.",
++	"..........22..",
++	"..........22..",
++	".........22...",
++	".........22...",
++	".........22...",
++	"........22....",
++	"........22....",
++	"........22....",
++	"..2....22.....",
++	"..22...22.2...",
++	".222..22.22...",
++	".2232.22.22...",
++	".2232222222...",
++	"22232222232...",
++	"22232222232...",
++	"32223222232...",
++	"32223222322...",
++	".3222322322...",
++	".322232232....",
++	"..3222223.....",
++	"..332222......",
++	"...33222......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++	"......22......",
++};
++static const int kScummversePlantCostume = 19, kScummversePlantTop = -87, kScummversePlantX = -14;
++
+ bool ClassicCostumeRenderer::drawsFigure(const Actor *a) {
+ 	return _vm->_game.id == GID_MANIAC && _loaded._format == 0x57 && _vm->scummverseProfile(a) != 0;
+ }
+@@ -509,7 +588,9 @@ byte ClassicCostumeRenderer::drawExtra(const Actor *a) {
+ 	// The figure from the side: over the costume's own place (its 20
+ 	// pixels, from 10 left of the actor).
+ 	const bool side = drawsFigure(a);
+-	if (side) clipped |= drawArt(a, kScummverseTedSide, ARRAYSIZE(kScummverseTedSide), -10, 1 - (int)ARRAYSIZE(kScummverseTedSide), false);
++	if (side && _loaded._id == kScummversePlantCostume)
++		clipped |= drawArt(a, kScummversePlantSide, ARRAYSIZE(kScummversePlantSide), kScummversePlantX, kScummversePlantTop, false);
++	else if (side) clipped |= drawArt(a, kScummverseTedSide, ARRAYSIZE(kScummverseTedSide), -10, 1 - (int)ARRAYSIZE(kScummverseTedSide), false);
+ 	int gear, gearX;
+ 	if (!_vm->scummverseRollingGear(a, gear, gearX)) return clipped;
+ 	// Rows from the feet: skates under them, the pot around them.
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index 5910113a..9108eefc 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -1162,6 +1162,8 @@ void ScummEngine::runEntryScript() {
+ 			_scummVars[174] = 2; // Full-grown plant/attic ladder.
+ 			_scummVars[193] = 1; // Safe to climb.
+ 		}
++		// Nurse Edna's ladder up to the room above (the sandbox's route).
++		if (_currentRoom == 21) putState(235, getState(235) | kObjectStateIntrinsic);
+ 	}
+ 	if (VAR_ENTRY_SCRIPT != 0xFF && VAR(VAR_ENTRY_SCRIPT))
+ 		runScript(VAR(VAR_ENTRY_SCRIPT), 0, 0, nullptr);
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 0f57f8a0..b5cd45c4 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -104,6 +104,7 @@ class GlyphRenderer_v7;
+ struct Box;
+ struct BoxCoords;
+ struct FindObjectInRoom;
++struct ScummverseGuestFrame;
+ 
+ // Use g_scumm from error() ONLY
+ extern ScummEngine *g_scumm;
+@@ -1643,10 +1644,15 @@ protected:
+ 	int scummverseExportWorld(const Common::Path &dir);
+ 	bool scummverseTravelPad(int index);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
++	bool scummverseGraftGuest(int costume, Common::Array<ScummverseGuestFrame> &frames, Common::String &problem);
++	void scummverseCapturePose(int costume, int facing, int kind, int most, uint32 limbs, Common::Array<ScummverseGuestFrame> &out);
++	void scummverseSideViews(int costume, Common::Array<ScummverseGuestFrame> &frames);
++	bool scummverseWriteGuest(int costume, Common::Array<ScummverseGuestFrame> &frames, bool remote, const Common::Path &file, Common::String &problem);
+ 	// Drops animation commands queued for the main loop (AKOS editions).
+ 	virtual void scummverseDropAnimCommands() {}
+ 	// Other worlds in the sandbox (scummverse_world_play.inc).
+ 	int _scummverseWorldRoom = 0;
++	int _scummverseWorldKey = 0; // The place mounted there (game * 1024 + room + 1): a slot can be given to another.
+ 	Common::Path scummverseWorldCache() const;
+ 	bool scummverseWorldSceneInstalled(int game, int room) const;
+ 	bool scummverseMountWorld(int room);
+@@ -1692,6 +1698,7 @@ protected:
+ 	struct ScummverseSpriteStyle {
+ 		bool hover = false, glide = false, dressUp = false, oneWay = false;
+ 		int hop = -1, jaw = 0;
++		int seatSink = 0, seatTop = 0, seatSquash = 0, seatWidth = 0; // Crammed into a plane seat (kWorldSeatFits).
+ 	};
+ 	bool scummverseDrawSprite(Actor *a, int sprite, int &tick, int &shown, double scale, const ScummverseSpriteStyle &style);
+ 	Common::String _scummverseCharactersKey;
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index cbd6ff3e..9c18ec05 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -153,40 +153,45 @@ struct ZakResident {
+ // The bakery's doorbell on Zak's street (original object 147, the room's
+ // third: street objects are 712 + their place in the room).
+ static const int kZakBakeryBell = 714, kZakBakeryRoom = 55;
++// Maniac's man-eating plant (actor and costume 19); Zak's Zaire villager.
++static const int kManiacPlantActor = 19, kZakVillagerCostume = 41;
+ static const ZakResident zakResidents[] = {
+ 	{67, 42, 80, 11, 250, 4, 4, "Nepal guard",
+ 	 "a guard posted at the Guru's temple door in Kathmandu; formal, watchful, and politely firm that only devotees of the Guru may enter",
+-	 {"Only devotees of the Guru may enter.", "Keep moving, traveler.", "The Guru sees visitors in his own time."}},
++	 {"Only devotees of the Guru may enter.", "Keep moving, traveler.", "The Guru sees visitors in his own time."}, false},
+ 	{68, 43, 60, 56, 251, 1, 15, "Guru",
+ 	 "the Guru of Kathmandu, a serene teacher who meditates above the floor and instructs devotees in the ways of the crystals; calm, cryptic, and kind",
+-	 {"Patience. The crystal reveals itself slowly.", "You carry restless energy. Breathe.", "A clear mind travels farther than any plane."}},
++	 {"Patience. The crystal reveals itself slowly.", "You carry restless energy. Breathe.", "A clear mind travels farther than any plane."}, false},
+ 	{100, 44, 30, 36, 250, 1, 1, "Lou",
+ 	 "Lou, who runs Lou's Loans, the pawn shop on 14th Avenue in San Francisco; a fast-talking, sharp-eyed dealer who will take almost anything in and sell it back for more, friendly enough but never sentimental about a price",
+-	 {"Everything in here is for sale. Everything.", "I'll give you two bucks for it. Final offer.", "No refunds, no exceptions, no kidding."}},
++	 {"Everything in here is for sale. Everything.", "I'll give you two bucks for it. Final offer.", "No refunds, no exceptions, no kidding."}, false},
+ 	{56, 45, 91, 54, 248, 3, 3, "Stewardess",
+ 	 "a stewardess on the airline that flies Zak around the world; cheerful, brisk and endlessly patient, with a practised smile for every passenger, even the ones who keep pressing the call button",
+-	 {"Please keep your seat belt fastened.", "Peanuts? We have plenty of peanuts.", "We'll be landing shortly. Probably."}},
++	 {"Please keep your seat belt fastened.", "Peanuts? We have plenty of peanuts.", "We'll be landing shortly. Probably."}, false},
+ 	{60, 46, 30, 46, 250, 9, 8, "Bum",
+ 	 "a down-on-his-luck man who has made the Miami airport terminal his home; chatty, philosophical, and sure that the next traveller will spare some change or at least a good story",
+-	 {"Spare a little change for a fellow traveller?", "I've been to every gate in this airport. Never left.", "Nice day for not flying anywhere."}},
++	 {"Spare a little change for a fellow traveller?", "I've been to every gate in this airport. Never left.", "Nice day for not flying anywhere."}, false},
+ 	{53, 47, 10, 46, 250, 9, 8, "Devotee",
+ 	 "a robed devotee who greets travellers at the San Francisco airport; serene, earnest and relentlessly cheerful, always hoping to share a flower and a few words about inner peace",
+-	 {"Peace be with you, traveller.", "Would you like a flower? It's free.", "Every journey begins with a single step."}},
++	 {"Peace be with you, traveller.", "Would you like a flower? It's free.", "Every journey begins with a single step."}, false},
+ 	{64, 42, 10, 60, 248, 12, 15, "Policeman",
+ 	 "a policeman at the Kathmandu guard station; dutiful, unhurried and fond of paperwork, keeping an eye on every visitor who wanders in from the street",
+-	 {"Papers, please. Just kidding. Mostly.", "Quiet day at the station.", "Don't make me fill out a form about you."}},
++	 {"Papers, please. Just kidding. Mostly.", "Quiet day at the station.", "Don't make me fill out a form about you."}, false},
+ 	{78, 48, 5, 56, 250, 9, 8, "Sentry",
+ 	 "a sentry who keeps watch at Stonehenge; stiff, serious and suspicious of anyone who comes near the stones, especially at night",
+-	 {"Stay back from the stones, please.", "Nothing to see here. Just very old rocks.", "I've got my eye on you."}},
++	 {"Stay back from the stones, please.", "Nothing to see here. Just very old rocks.", "I've got my eye on you."}, false},
+ 	{113, 49, 4, 58, 250, 14, 14, "Skolarian",
+ 	 "a Skolarian, one of the ancient guardians of Earth, appearing as a glowing projection deep inside Mars; solemn, wise, a little weary after ages of waiting, and determined to see the Caponians stopped",
+-	 {"The crystals hold more power than you know.", "We have waited a very long time for you.", "Beware the Caponians and their machines."}},
++	 {"The crystals hold more power than you know.", "We have waited a very long time for you.", "Beware the Caponians and their machines."}, false},
+ 	{55, 51, 23, 22, 250, 1, 15, "Baker",
+ 	 "the baker on 13th Avenue, Zak's street in San Francisco, who comes to the bakery window rather than open the door; grumpy before his coffee, proud of his fresh bread, and allergic to customers after closing time",
+ 	 {"We're closed. Come back in the morning.", "The fresh bread's all gone. Sorry.", "Ring that bell one more time, I dare you."}, true},
++	{63, 41, 27, 60, 250, 9, 9, "Zaire villager",
++	 "a resident of the Zaire village, curious about visitors and knowledgeable about the local jungle; friendly and practical, speaking natural English without a caricature accent",
++	 {"Welcome. Mind the jungle paths.", "Visitors always ask that.", "The shaman would know better."}, false},
+ 	{57, 50, 40, 46, 249, 9, 8, "Pilot",
+ 	 "an airline pilot between flights, in dark glasses and a crisp uniform; laid-back, full of tall tales about turbulence, and in no hurry to get back to the cockpit",
+-	 {"This is your captain speaking. Just kidding.", "Turbulence? I've seen worse.", "I could fly this route with my eyes closed."}},
++	 {"This is your captain speaking. Just kidding.", "Turbulence? I've seen worse.", "I could fly this route with my eyes closed."}, false},
+ };
+ static const ZakResident *zakResident(int room) {
+ 	for (const auto &resident : zakResidents) if (resident.room == room) return &resident;
+diff --git a/engines/scumm/scummverse_plane.h b/engines/scumm/scummverse_plane.h
+index 5f50ada2..89a445ff 100644
+--- a/engines/scumm/scummverse_plane.h
++++ b/engines/scumm/scummverse_plane.h
+@@ -9,10 +9,14 @@ static const int seatX[] = {63,52,41,30,19,74};
+ // (columns 0..4, rows 6..11 from the chair's column) replace the painted
+ // passenger in the picture, color and mask maps alike.
+ static const int kEmptyChair = 74;
++// Under a painted passenger the seat's front shows dark, not the cabin wall
++// through it: a held chair takes that row (11) from one of them (0096: the
++// user's "make that area black like it is for the painted characters").
++static const int kPaintedChair = 52;
+ inline bool emptyChair(unsigned char *map, int columns, int rows, int seat) {
+  if(columns<kEmptyChair+5 || rows!=16 || seat<0 || seat+5>columns) return false;
+  for(int dx=0;dx<5;++dx) for(int y=6;y<12;++y)
+-  map[(seat+dx)*rows+y]=map[(kEmptyChair+dx)*rows+y];
++  map[(seat+dx)*rows+y]=map[((y==11 ? kPaintedChair : kEmptyChair)+dx)*rows+y];
+  return true;
+ }
+ // Only the source player's chair is foreground-masked. Reuse its original mask
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index b66dfdf4..be7b47af 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -19,7 +19,7 @@
+ // full size). Readers also accept "SVW1".."SVW3".
+ //
+ // Character file ("SVC1"): u16 costume, u16 frameCount, palette[768], then
+-// per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk),
++// per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk, seated),
+ // u8 index, u8 reserved, int16 dx, dy (top left relative to the feet),
+ // u16 width, height, pixels[width*height], opaque mask[width*height].
+ // "<gameid>-v<kWorldExportVersion>.svx" marks a finished export of that game;
+@@ -363,15 +363,435 @@ struct ScummverseGuestFrame {
+ 	bool sameImage(const ScummverseGuestFrame &o) const {
+ 		return dx == o.dx && dy == o.dy && width == o.width && height == o.height && pixels == o.pixels && mask == o.mask;
+ 	}
++	// Turned to face the other way, around the feet.
++	void mirror() {
++		for (int y = 0; y < height; ++y)
++			for (int x = 0; x < width / 2; ++x) {
++				const int i = y * width + x, j = y * width + width - 1 - x;
++				SWAP(pixels[i], pixels[j]); SWAP(mask[i], mask[j]);
++			}
++		dx = -dx - width + 1;
++	}
+ };
+ 
++// Draws the actor twice, over different fills: a pixel is the actor's where
++// both passes agree. Cropped, relative to (ax, ay); false if nothing shows.
++static bool scummverseCaptureActor(VirtScreen &vs, int W, int H, Actor *a, int ax, int ay, ScummverseGuestFrame &f) {
++	Common::Array<byte> pass[2];
++	for (int p = 0; p < 2; ++p) {
++		for (int y = 0; y < H; ++y) memset(vs.getPixels(0, y), p ? 255 : 254, W);
++		a->_needRedraw = true; a->drawActorCostume();
++		pass[p].resize(W * H);
++		for (int y = 0; y < H; ++y) memcpy(&pass[p][y * W], vs.getPixels(0, y), W);
++	}
++	int left = W, right = -1, top = H, bottom = -1;
++	for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x)
++		if (pass[0][y * W + x] == pass[1][y * W + x]) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
++	if (right < 0) return false;
++	f.dx = left - ax; f.dy = top - ay; f.width = right - left + 1; f.height = bottom - top + 1;
++	f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
++	for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
++		const int i = (top + y) * W + left + x;
++		f.mask[y * f.width + x] = pass[0][i] == pass[1][i];
++		f.pixels[y * f.width + x] = f.mask[y * f.width + x] ? pass[0][i] : 0;
++	}
++	return true;
++}
++
++// Walking frames for a guest drawn standing only (kWorldLegSwings): each
++// leg is followed up from its foot, row by row, and swings from the hip,
++// the lighter near legs against the darker far ones.
++static void scummverseSwingLegs(const WorldLegSwing &swing, const byte *palette, Common::Array<ScummverseGuestFrame> &frames) {
++	static const int kMaxLegs = 32;
++	Common::Array<ScummverseGuestFrame> walks;
++	for (const ScummverseGuestFrame &stand : frames) {
++		if (stand.kind != 0 || stand.index != 0) continue;
++		const int w = stand.width, h = stand.height, hip = h * swing.hip / 100;
++		if (h - hip < 4) continue;
++		Common::Array<int> leg(w * h, -1);
++		int legs = 0;
++		for (int y = h - 1; y >= hip; --y)
++			for (int x = 0; x < w;) {
++				if (!stand.mask[y * w + x]) { ++x; continue; }
++				int end = x;
++				while (end < w && stand.mask[y * w + end]) ++end;
++				// The leg below that this run touches most; a new one at a foot.
++				int count[kMaxLegs] = {0}, best = -1;
++				for (int k = MAX(0, x - 1); y + 1 < h && k < MIN(w, end + 1); ++k)
++					if (leg[(y + 1) * w + k] >= 0) ++count[leg[(y + 1) * w + k]];
++				for (int l = 0; l < legs; ++l) if (count[l] && (best < 0 || count[l] > count[best])) best = l;
++				if (best < 0 && legs < kMaxLegs) best = legs++;
++				for (int k = x; k < end; ++k) leg[y * w + k] = best;
++				x = end;
++			}
++		// Near or far: brighter or darker than the middle leg.
++		double shade[kMaxLegs] = {0};
++		int size[kMaxLegs] = {0};
++		for (int i = 0; i < w * h; ++i)
++			if (leg[i] >= 0) {
++				const byte *c = palette + 3 * stand.pixels[i];
++				shade[leg[i]] += 3 * c[0] + 6 * c[1] + c[2]; ++size[leg[i]];
++			}
++		Common::Array<double> shades;
++		for (int l = 0; l < legs; ++l) if (size[l]) { shade[l] /= size[l]; if (size[l] >= 12) shades.push_back(shade[l]); }
++		Common::sort(shades.begin(), shades.end());
++		const double middle = shades.empty() ? 0 : shades[shades.size() / 2];
++		const int reach = swing.reach;
++		for (int n = 0; n < kWorldLegSwingFrames; ++n) {
++			ScummverseGuestFrame f;
++			f.dir = stand.dir; f.kind = 1; f.index = n;
++			f.dx = stand.dx - reach; f.dy = stand.dy; f.width = w + 2 * reach; f.height = h;
++			f.pixels.resize(f.width * h, 0); f.mask.resize(f.width * h, 0);
++			// Far legs first, then the body, then the near legs over it.
++			for (int layer = 0; layer < 3; ++layer)
++				for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
++					const int i = y * w + x, l = leg[i];
++					if (!stand.mask[i]) continue;
++					const bool far = l >= 0 && shade[l] < middle;
++					if (layer != (l < 0 ? 1 : far ? 0 : 2)) continue;
++					int to = x + reach;
++					if (l >= 0) to += (int)lround(reach * (double)(y - hip) / (h - 1 - hip) * sin(2 * M_PI * n / kWorldLegSwingFrames + (far ? M_PI : 0)));
++					if (to < 0 || to >= f.width) continue;
++					f.pixels[y * f.width + to] = stand.pixels[i]; f.mask[y * f.width + to] = 1;
++				}
++			walks.push_back(f);
++		}
++	}
++	if (walks.empty()) return;
++	Common::Array<ScummverseGuestFrame> kept;
++	for (const ScummverseGuestFrame &f : frames) if (f.kind != 1) kept.push_back(f);
++	for (const ScummverseGuestFrame &f : walks) kept.push_back(f);
++	frames = kept;
++}
++
++// Up to `most` steps of one pose (0 stand, 1 walk, 2 talk) of a costume at
++// a facing, till the cycle repeats, relative to its feet; `limbs` keeps
++// only those limbs.
++void ScummEngine::scummverseCapturePose(int costume, int facing, int kind, int most, uint32 limbs, Common::Array<ScummverseGuestFrame> &out) {
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	const int W = _screenWidth, H = vs.h;
++	Actor *a = _actors[1];
++	a->initActor(0); a->setActorCostume(costume);
++	a->_ignoreBoxes = true; a->setScale(255, 255); a->_forceClip = 0; a->setAnimSpeed(0);
++	putClass(a->_number, kObjectClassNeverClip, true); a->_visible = true;
++	a->putActor(camera._cur.x, H - 4, _currentRoom);
++	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation();
++	a->_cost.reset(); a->setDirection(facing); a->startAnimActor(a->_initFrame);
++	a->startAnimActor(kind == 1 ? a->_walkFrame : kind == 2 ? a->_talkStartFrame : a->_standFrame);
++	for (int i = 0; i < most; ++i) {
++		a->animateCostume(); scummverseDropAnimCommands();
++		for (int l = 0; l < 16; ++l) if (!(limbs & (1u << l))) a->_cost.curpos[l] = 0xFFFF;
++		ScummverseGuestFrame f;
++		if (!scummverseCaptureActor(vs, W, H, a, ax, ay, f)) continue;
++		if (!out.empty() && f.sameImage(out[0])) break;
++		out.push_back(f);
++	}
++	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false); a->_ignoreBoxes = false;
++}
++
++// A guest drawn only from the front (kWorldSideViews) seen from the side:
++// a relative's stance and walk facing left and right, the relative's colours
++// repainted in the guest's, its head replaced by the guest's own, drawn
++// anew facing right, and (the three-headed monkey) more of them behind it,
++// each a step back and up. Their own front and back stay; from the side they
++// talk standing.
++void ScummEngine::scummverseSideViews(int costume, Common::Array<ScummverseGuestFrame> &frames) {
++	const WorldGame *game = worldGame(_game.gameid);
++	const WorldSideView *view = game ? worldSideView((int)(game - kWorldGames), costume) : nullptr;
++	if (!view || !view->head || view->headRows <= 0 || view->body <= 0 || view->body >= _numCostumes ||
++		(_game.version >= 4 && !_res->_types[rtCostume][view->body]._roomno)) return;
++	auto paint = [&](byte c) {
++		for (const auto &r : view->recolor) if ((r[0] || r[1]) && r[0] == c) return r[1];
++		return c;
++	};
++	const int artWidth = (int)strlen(view->head[0]), artHeight = view->headRows, extra = MAX(0, view->heads - 1);
++	Common::Array<ScummverseGuestFrame> made;
++	for (int dir = 0; dir < 2; ++dir) for (int kind = 0; kind < 2; ++kind) {
++		Common::Array<ScummverseGuestFrame> poses;
++		scummverseCapturePose(view->body, dir ? 90 : 270, kind, kind ? 12 : 1, 0xFFFF, poses);
++		for (uint i = 0; i < poses.size(); ++i) {
++			// Made facing right, turned back to face left.
++			ScummverseGuestFrame body = poses[i];
++			if (!dir) body.mirror();
++			// The face: the first rows down with its colour (lower down, the
++			// same colour is a chest or a hand). The head is around it.
++			int faceLeft = body.width, faceRight = -1, faceTop = -1, faceBottom = -1;
++			for (int y = 0; y < body.height; ++y) {
++				bool row = false;
++				for (int x = 0; x < body.width; ++x)
++					if (body.mask[y * body.width + x] && body.pixels[y * body.width + x] == view->face) {
++						faceLeft = MIN(faceLeft, x); faceRight = MAX(faceRight, x); row = true;
++					}
++				if (row) { if (faceTop < 0) faceTop = y; faceBottom = y; } else if (faceTop >= 0) break;
++			}
++			if (faceTop < 0) continue;
++			const int headLeft = faceLeft - 3, headRight = faceRight + 4, headTop = faceTop - 3, headBottom = faceBottom + 1;
++			// The new head reaches a pixel past the old one's front, a row below its top.
++			const int artX = headRight + 2 - artWidth, artY = headTop + 1;
++			int left = MIN(0, artX - view->stepX * extra), top = MIN(0, artY - view->stepY * extra);
++			int right = MAX(body.width, artX + artWidth), bottom = MAX(body.height, artY + artHeight);
++			ScummverseGuestFrame f;
++			f.dir = 1; f.kind = kind; f.index = i;
++			f.dx = body.dx + left; f.dy = body.dy + top; f.width = right - left; f.height = bottom - top;
++			f.pixels.resize(f.width * f.height, 0); f.mask.resize(f.width * f.height, 0);
++			auto head = [&](int ox, int oy) {
++				for (int y = 0; y < artHeight; ++y) for (int x = 0; x < artWidth; ++x) {
++					const char *ink = view->head[y][x] == '.' ? nullptr : strchr(view->legend, view->head[y][x]);
++					if (!ink) continue;
++					const int o = (oy + y - top) * f.width + ox + x - left;
++					f.pixels[o] = view->inks[ink - view->legend]; f.mask[o] = 1;
++				}
++			};
++			// The heads behind first, each on a neck down to where the head
++			// in front sits (as wide as a head's chin, so nothing shows
++			// through between them), then the body without its own head, then
++			// the head in front.
++			int chinRow = artHeight - 1, chinLeft = artWidth, chinRight = -1;
++			for (int y = MAX(0, artHeight - 3); y < artHeight; ++y) {
++				int l = 0, r = artWidth - 1;
++				while (l < artWidth && view->head[y][l] == '.') ++l;
++				while (r >= 0 && view->head[y][r] == '.') --r;
++				if (r - l > chinRight - chinLeft) { chinRow = y; chinLeft = l; chinRight = r; }
++			}
++			for (int k = extra; k > 0 && chinRight >= chinLeft; --k) {
++				const int rise = view->stepY * k, back = view->stepX * k;
++				for (int y = 0; y <= rise; ++y) {
++					const int shift = rise ? back * y / rise : 0;
++					for (int x = chinLeft; x <= chinRight; ++x) {
++						const int o = (artY - rise + chinRow + y - top) * f.width + artX - back + shift + x - left;
++						f.pixels[o] = view->neck; f.mask[o] = 1;
++					}
++				}
++			}
++			for (int k = extra; k > 0; --k) head(artX - view->stepX * k, artY - view->stepY * k);
++			for (int y = 0; y < body.height; ++y) for (int x = 0; x < body.width; ++x) {
++				const int s = y * body.width + x;
++				if (!body.mask[s] || (x >= headLeft && x <= headRight && y >= headTop && y <= headBottom)) continue;
++				const int o = (y - top) * f.width + x - left;
++				f.pixels[o] = paint(body.pixels[s]); f.mask[o] = 1;
++			}
++			head(artX, artY);
++			// As big as asked, scaled around the feet (nearest pixel).
++			if (view->size > 0 && view->size != 100) {
++				ScummverseGuestFrame g = f;
++				g.width = MAX(1, f.width * view->size / 100); g.height = MAX(1, f.height * view->size / 100);
++				g.dx = f.dx * view->size / 100; g.dy = (f.dy + f.height) * view->size / 100 - g.height;
++				g.pixels.clear(); g.mask.clear(); g.pixels.resize(g.width * g.height, 0); g.mask.resize(g.width * g.height, 0);
++				for (int y = 0; y < g.height; ++y) for (int x = 0; x < g.width; ++x) {
++					const int s = MIN(f.height - 1, y * 100 / view->size) * f.width + MIN(f.width - 1, x * 100 / view->size);
++					g.pixels[y * g.width + x] = f.pixels[s]; g.mask[y * g.width + x] = f.mask[s];
++				}
++				f = g;
++			}
++			if (!dir) { f.mirror(); f.dir = 0; }
++			made.push_back(f);
++		}
++	}
++	if (made.empty()) return;
++	Common::Array<ScummverseGuestFrame> kept;
++	for (const ScummverseGuestFrame &f : frames) if (f.dir >= 2) kept.push_back(f);
++	for (const ScummverseGuestFrame &f : made) kept.push_back(f);
++	frames = kept;
++}
++
++// A seated pose (kWorldSeatPoses), made from the stance facing right: its
++// parts cut out, turned and set as the catalog says (or all of it), as the
++// picture behind the seat's front and (parts marked front) the one over it,
++// the same size, standing on the stance's feet, gaps filled if asked.
++// Returns the pictures made: none if a part reaches outside the stance or
++// is set on a part that never gets set.
++static int scummverseSeatPose(const WorldSeatPose &pose, const ScummverseGuestFrame &stand, ScummverseGuestFrame out[2]) {
++	// Down each column, then across each row, from its first pixel to its last.
++	auto fill = [&](ScummverseGuestFrame &f) {
++		if (pose.fill < 0) return;
++		for (int across = 0; across < 2; ++across) {
++			const int lines = across ? f.height : f.width, along = across ? f.width : f.height;
++			for (int i = 0; i < lines; ++i) {
++				auto at = [&](int j) { return across ? i * f.width + j : j * f.width + i; };
++				int first = -1, last = -1;
++				for (int j = 0; j < along; ++j) if (f.mask[at(j)]) { if (first < 0) first = j; last = j; }
++				for (int j = MAX(0, first); first >= 0 && j <= last; ++j)
++					if (!f.mask[at(j)]) { f.pixels[at(j)] = (byte)pose.fill; f.mask[at(j)] = 1; }
++			}
++		}
++	};
++	const int most = ARRAYSIZE(pose.parts);
++	struct Placed { double c, s, scale; int x, y, left, top, right, bottom; bool set; } placed[ARRAYSIZE(pose.parts)];
++	int count = 0;
++	while (count < most && pose.parts[count].x1 > pose.parts[count].x0) {
++		const WorldSeatPart &p = pose.parts[count++];
++		if (p.x0 < 0 || p.y0 < 0 || p.x1 > stand.width || p.y1 > stand.height || p.y1 <= p.y0 || p.scale <= 0 || p.on >= most) return 0;
++	}
++	if (!count) {
++		out[0] = stand;
++		out[0].dir = 1; out[0].kind = kWorldSeatedKind; out[0].index = 0;
++		fill(out[0]);
++		return 1;
++	}
++	// Where each pivot lands: the parts set from the origin first, then
++	// those set on parts already set (a shin on a thigh on a body).
++	for (int i = 0; i < count; ++i) placed[i].set = false;
++	for (int pass = 0, unset = count; pass < count && unset > 0; ++pass)
++		for (int i = 0; i < count; ++i) {
++			const WorldSeatPart &p = pose.parts[i];
++			if (placed[i].set || (p.on >= 0 && (p.on >= count || !placed[p.on].set))) continue;
++			Placed &q = placed[i];
++			const double t = p.angle * M_PI / 180;
++			q.c = cos(t); q.s = sin(t); q.scale = p.scale / 100.0;
++			double x = p.atX, y = p.atY;
++			if (p.on >= 0) {
++				const WorldSeatPart &b = pose.parts[p.on];
++				const Placed &o = placed[p.on];
++				const double px = (p.atX - b.pivotX) * o.scale, py = (p.atY - b.pivotY) * o.scale;
++				x = o.x + px * o.c + py * o.s; y = o.y - px * o.s + py * o.c;
++			}
++			q.x = (int)floor(x); q.y = (int)floor(y);
++			// The part's reach around its pivot, a pixel to spare.
++			double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
++			for (int cx : {p.x0, p.x1}) for (int cy : {p.y0, p.y1}) {
++				const double px = (cx - p.pivotX) * q.scale, py = (cy - p.pivotY) * q.scale;
++				const double rx = px * q.c + py * q.s, ry = -px * q.s + py * q.c;
++				minX = MIN(minX, rx); maxX = MAX(maxX, rx); minY = MIN(minY, ry); maxY = MAX(maxY, ry);
++			}
++			q.left = q.x + (int)minX - 1; q.right = q.x + (int)maxX + 1; q.top = q.y + (int)minY - 1; q.bottom = q.y + (int)maxY + 1;
++			q.set = true; --unset;
++		}
++	int left = INT_MAX, top = INT_MAX, right = INT_MIN, bottom = INT_MIN;
++	for (int i = 0; i < count; ++i) {
++		if (!placed[i].set) return 0;
++		left = MIN(left, placed[i].left); right = MAX(right, placed[i].right);
++		top = MIN(top, placed[i].top); bottom = MAX(bottom, placed[i].bottom);
++	}
++	const int w = right - left + 1, h = bottom - top + 1;
++	Common::Array<byte> pixels[2], mask[2];
++	for (int k = 0; k < 2; ++k) { pixels[k].resize(w * h, 0); mask[k].resize(w * h, 0); }
++	for (int i = 0; i < count; ++i) {
++		const WorldSeatPart &p = pose.parts[i];
++		const Placed &q = placed[i];
++		const int k = p.front ? 1 : 0;
++		for (int y = q.top; y <= q.bottom; ++y) for (int x = q.left; x <= q.right; ++x) {
++			const double X = x - q.x, Y = y - q.y;
++			const int u = (int)floor((X * q.c - Y * q.s) / q.scale + p.pivotX), v = (int)floor((X * q.s + Y * q.c) / q.scale + p.pivotY);
++			if (u < p.x0 || u >= p.x1 || v < p.y0 || v >= p.y1 || !stand.mask[v * stand.width + u]) continue;
++			pixels[k][(y - top) * w + x - left] = stand.pixels[v * stand.width + u]; mask[k][(y - top) * w + x - left] = 1;
++		}
++	}
++	// Both cropped to what either shows.
++	int l = w, r = -1, t = h, b = -1;
++	bool over = false;
++	for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
++		if (mask[0][y * w + x] || mask[1][y * w + x]) {
++			l = MIN(l, x); r = MAX(r, x); t = MIN(t, y); b = MAX(b, y); over = over || mask[1][y * w + x];
++		}
++	if (r < 0) return 0;
++	const int made = over ? 2 : 1;
++	for (int k = 0; k < made; ++k) {
++		ScummverseGuestFrame &f = out[k];
++		f.dir = 1; f.kind = kWorldSeatedKind; f.index = k;
++		f.width = r - l + 1; f.height = b - t + 1;
++		f.dx = stand.dx + (stand.width - f.width) / 2; f.dy = stand.dy + stand.height - f.height;
++		f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
++		for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
++			f.pixels[y * f.width + x] = pixels[k][(t + y) * w + l + x]; f.mask[y * f.width + x] = mask[k][(t + y) * w + l + x];
++		}
++	}
++	fill(out[0]);
++	return made;
++}
++
++// A guest the game only drew sitting (kWorldCostumeGrafts): the relative's
++// stance and walk, its clothes repainted, its head cut off at the neck and
++// the guest's own head (standing, or talking) set on the neck instead. All
++// of it faces left as drawn, mirrored to face right.
++bool ScummEngine::scummverseGraftGuest(int costume, Common::Array<ScummverseGuestFrame> &frames, Common::String &problem) {
++	const WorldGame *game = worldGame(_game.gameid);
++	const int gameIndex = game ? (int)(game - kWorldGames) : -1;
++	const WorldCostumeGraft *graft = worldCostumeGraft(gameIndex, costume);
++	if (!graft) { problem = "no graft"; return false; }
++	for (int c : {(int)graft->costume, (int)graft->body})
++		if (c <= 0 || c >= _numCostumes || (_game.version >= 4 && !_res->_types[rtCostume][c]._roomno)) { problem = "costume missing"; return false; }
++	const WorldSideWalk *side = worldSideWalk(gameIndex, graft->body);
++	auto pose = [&](int id, int facing, int kind, int most, uint32 limbs, Common::Array<ScummverseGuestFrame> &out) {
++		scummverseCapturePose(id, facing, kind, most, limbs, out);
++	};
++	Common::Array<ScummverseGuestFrame> heads, talks, stands, walks;
++	const uint32 head = (1u << graft->head) | (1u << graft->mouth);
++	pose(graft->costume, 180, 0, 1, head, heads);
++	pose(graft->costume, 180, 2, 6, head, talks);
++	pose(graft->body, 180, 0, 1, 0xFFFF, stands);
++	pose(graft->body, side ? side->facing : 270, 1, 12, 0xFFFF, walks);
++	if (heads.empty() || stands.empty()) { problem = "graft draws nothing"; return false; }
++	// Turned to face as the body does (mirrored around its own middle).
++	if (graft->flip)
++		for (auto *set : {&heads, &talks})
++			for (ScummverseGuestFrame &h : *set) { const int middle = 2 * h.dx + h.width - 1; h.mirror(); h.dx += middle; }
++	if (talks.empty()) talks.push_back(heads[0]);
++	if (walks.empty()) walks.push_back(stands[0]);
++	auto cloth = [&](byte c) {
++		for (const auto &r : graft->recolor) if ((r[0] || r[1]) && r[0] == c) return true;
++		return false;
++	};
++	const ScummverseGuestFrame &still = heads[0];
++	auto join = [&](const ScummverseGuestFrame &body, const ScummverseGuestFrame &face, ScummverseGuestFrame &f) {
++		// Where the clothes start: the first row with a few of their pixels.
++		int top = -1, left = body.width, right = -1;
++		for (int y = 0; y < body.height && top < 0; ++y) {
++			int n = 0;
++			for (int x = 0; x < body.width; ++x) n += body.mask[y * body.width + x] && cloth(body.pixels[y * body.width + x]);
++			if (n >= 3) top = y;
++		}
++		if (top < 0) return false;
++		for (int y = top; y < MIN(top + 3, body.height); ++y) for (int x = 0; x < body.width; ++x)
++			if (body.mask[y * body.width + x] && cloth(body.pixels[y * body.width + x])) { left = MIN(left, x); right = MAX(right, x); }
++		// The head on the neck, a talking one where it moves from the still one.
++		const int hx = body.dx + (left + right) / 2 - still.width / 2 - 1 + face.dx - still.dx;
++		const int hy = body.dy + top + graft->neck + 2 - still.height + face.dy - still.dy;
++		f.dx = MIN(body.dx, hx); f.dy = MIN(body.dy, hy);
++		f.width = MAX(body.dx + body.width, hx + face.width) - f.dx; f.height = MAX(body.dy + body.height, hy + face.height) - f.dy;
++		f.pixels.clear(); f.mask.clear(); f.pixels.resize(f.width * f.height, 0); f.mask.resize(f.width * f.height, 0);
++		for (int y = 0; y < body.height; ++y) for (int x = 0; x < body.width; ++x) {
++			const int i = y * body.width + x;
++			if (!body.mask[i] || (y < top + graft->neck && !cloth(body.pixels[i]))) continue;
++			byte c = body.pixels[i];
++			for (const auto &r : graft->recolor) if ((r[0] || r[1]) && r[0] == c) { c = r[1]; break; }
++			const int o = (body.dy - f.dy + y) * f.width + body.dx - f.dx + x;
++			f.pixels[o] = c; f.mask[o] = 1;
++		}
++		for (int y = 0; y < face.height; ++y) for (int x = 0; x < face.width; ++x) {
++			const int i = y * face.width + x;
++			if (!face.mask[i]) continue;
++			const int o = (hy - f.dy + y) * f.width + hx - f.dx + x;
++			f.pixels[o] = face.pixels[i]; f.mask[o] = 1;
++		}
++		return true;
++	};
++	for (int dir = 0; dir < 4; ++dir) for (int kind = 0; kind < 3; ++kind) {
++		const Common::Array<ScummverseGuestFrame> &bodies = kind == 1 ? walks : stands;
++		const int count = kind == 1 ? bodies.size() : kind == 2 ? talks.size() : 1;
++		for (int i = 0; i < count; ++i) {
++			ScummverseGuestFrame f;
++			if (!join(kind == 1 ? bodies[i] : stands[0], kind == 2 ? talks[i] : still, f)) { problem = "graft has no clothes"; return false; }
++			f.dir = dir; f.kind = kind; f.index = i;
++			if (dir == 1) f.mirror();
++			frames.push_back(f);
++		}
++	}
++	return true;
++}
++
+ // Renders one of the running game's costumes, with its own costume
+ // renderer, in the room exported last. Each pose is drawn twice over
+ // different fills: a pixel is opaque when both passes agree.
+ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem) {
+-	// A virtual costume: another costume with its own animation set.
+ 	const WorldGame *game = worldGame(_game.gameid);
+-	const WorldCostumeVariant *variant = game ? worldCostumeVariant((int)(game - kWorldGames), costume) : nullptr;
++	const int gameIndex = game ? (int)(game - kWorldGames) : -1;
++	if (worldCostumeGraft(gameIndex, costume)) {
++		Common::Array<ScummverseGuestFrame> frames;
++		return scummverseGraftGuest(costume, frames, problem) && scummverseWriteGuest(costume, frames, false, file, problem);
++	}
++	// A virtual costume: another costume with its own animation set.
++	const int named = costume;
++	const WorldCostumeVariant *variant = worldCostumeVariant(gameIndex, costume);
+ 	if (variant) costume = variant->real;
+ 	if (costume <= 0 || costume >= _numCostumes) { problem = "costume out of range"; return false; }
+ 	if (_game.version >= 4 && !_res->_types[rtCostume][costume]._roomno) { problem = "costume missing"; return false; }
+@@ -420,27 +840,7 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 		ax = a->getPos().x - vs.xstart; ay = a->getPos().y - a->getElevation();
+ 	};
+ 	place(camera._cur.x, H - 4);
+-	Common::Array<byte> pass[2];
+-	auto capture = [&](ScummverseGuestFrame &f) {
+-		for (int p = 0; p < 2; ++p) {
+-			for (int y = 0; y < H; ++y) memset(vs.getPixels(0, y), p ? 255 : 254, W);
+-			a->_needRedraw = true; a->drawActorCostume();
+-			pass[p].resize(W * H);
+-			for (int y = 0; y < H; ++y) memcpy(&pass[p][y * W], vs.getPixels(0, y), W);
+-		}
+-		int left = W, right = -1, top = H, bottom = -1;
+-		for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x)
+-			if (pass[0][y * W + x] == pass[1][y * W + x]) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
+-		if (right < 0) return false;
+-		f.dx = left - ax; f.dy = top - ay; f.width = right - left + 1; f.height = bottom - top + 1;
+-		f.pixels.resize(f.width * f.height); f.mask.resize(f.width * f.height);
+-		for (int y = 0; y < f.height; ++y) for (int x = 0; x < f.width; ++x) {
+-			const int i = (top + y) * W + left + x;
+-			f.mask[y * f.width + x] = pass[0][i] == pass[1][i];
+-			f.pixels[y * f.width + x] = f.mask[y * f.width + x] ? pass[0][i] : 0;
+-		}
+-		return true;
+-	};
++	auto capture = [&](ScummverseGuestFrame &f) { return scummverseCaptureActor(vs, W, H, a, ax, ay, f); };
+ 	// Animation steps queue sounds and aux frames for the main loop, which
+ 	// does not run here: drop them so the 32-entry queue never overflows.
+ 	auto step = [&]() { a->animateCostume(); scummverseDropAnimCommands(); };
+@@ -455,13 +855,15 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	auto drawn = [&]() { a->_needRedraw = true; a->drawActorCostume(); return a->_bottom > a->_top; };
+ 	auto setUp = [&](int facing) { a->_cost.reset(); a->setDirection(facing); a->startAnimActor(a->_initFrame); };
+ 	const int tries[] = {a->_standFrame, a->_initFrame, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
++	// A stand the catalog names is the only one tried.
++	const int tryCount = variant && variant->init >= 0 ? 1 : ARRAYSIZE(tries);
+ 	static const int spotsX[] = {0, -1, 1, -2, 2, -3, 3, -4, 4}; // Half screens left or right.
+ 	const int spotsY[] = {H - 4, H / 2, 0, -H / 2, -H, -2 * H};
+ 	const int homeX = a->getPos().x;
+ 	int stand = a->_standFrame, only = -1, spot = 0;
+ 	for (; spot < ARRAYSIZE(spotsX) * ARRAYSIZE(spotsY) && only < 0; ++spot) {
+ 		place(homeX + spotsX[spot % ARRAYSIZE(spotsX)] * W / 2, spotsY[spot / ARRAYSIZE(spotsX)]);
+-		for (int t = 0; t < ARRAYSIZE(tries) && only < 0; ++t)
++		for (int t = 0; t < tryCount && only < 0; ++t)
+ 			for (int dir = 0; dir < 4 && only < 0; ++dir) {
+ 				ScummverseGuestFrame f;
+ 				setUp(facings[(dir + 2) % 4]); a->startAnimActor(tries[t]);
+@@ -484,9 +886,14 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 	const bool remote = only >= 0 && spot > 1;
+ 	if (!remote) only = -1;
+ 	Common::Array<ScummverseGuestFrame> frames;
++	const WorldSideWalk *side = worldSideWalk(gameIndex, named);
+ 	for (int dir = 0; dir < 4; ++dir) for (int kind = 0; kind < 3; ++kind) {
+ 		if (only >= 0 && dir != only) continue;
+-		a->setDirection(facings[dir]);
++		// No talk of its own (a variant's -1): it talks standing.
++		if (kind == 2 && variant && variant->init >= 0 && variant->talkStart < 0) continue;
++		// A walk drawn under one facing serves them all.
++		const bool sideways = kind == 1 && side && !remote;
++		a->setDirection(sideways ? side->facing : facings[dir]);
+ 		a->startAnimActor(stand); step();
+ 		if (kind) a->startAnimActor(kind == 1 ? a->_walkFrame : a->_talkStartFrame);
+ 		const uint first = frames.size();
+@@ -502,10 +909,40 @@ bool ScummEngine::scummverseExportGuest(int costume, const Common::Path &file, C
+ 			frames.push_back(f);
+ 			step();
+ 		}
++		if (sideways && dir == (side->right ? 0 : 1)) for (uint i = first; i < frames.size(); ++i) frames[i].mirror();
++	}
++	if (side && remote && !frames.empty()) {
++		// Stood on its own feet, the one facing turns both ways.
++		const int footX = frames[0].dx + frames[0].width / 2, footY = frames[0].dy + frames[0].height;
++		const uint count = frames.size();
++		for (uint i = 0; i < count; ++i) { frames[i].dx -= footX; frames[i].dy -= footY; }
++		for (int dir = 0; dir < 2; ++dir)
++			for (uint i = 0; i < count && dir != only; ++i) {
++				ScummverseGuestFrame f = frames[i];
++				f.dir = dir;
++				if (dir != (side->right ? 1 : 0)) f.mirror();
++				frames.push_back(f);
++			}
+ 	}
+ 	if (tables) for (int k = 0; k < 8; ++k) for (int c = 0; c < 2; ++c) _shadowPalette[k * 256 + 254 + c] = shades[k][c];
+ 	a->hideActor(); putClass(a->_number, kObjectClassNeverClip, false); a->_shadowMode = 0;
+ 	a->_ignoreBoxes = false;
++	if (!remote) scummverseSideViews(named, frames);
++	if (const WorldLegSwing *swing = worldLegSwing(gameIndex, named)) scummverseSwingLegs(*swing, _currentPalette, frames);
++	// Seated (kWorldSeatPoses), made from the stance facing right.
++	if (const WorldSeatPose *pose = worldSeatPose(gameIndex, named))
++		for (uint i = 0; i < frames.size(); ++i)
++			if (frames[i].dir == 1 && frames[i].kind == 0 && frames[i].index == 0) {
++				ScummverseGuestFrame seated[2];
++				const int made = scummverseSeatPose(*pose, frames[i], seated);
++				for (int k = 0; k < made; ++k) frames.push_back(seated[k]);
++				break;
++			}
++	// Written in this room's colors (or the variant's room, till we return).
++	return scummverseWriteGuest(named, frames, remote, file, problem);
++}
++
++bool ScummEngine::scummverseWriteGuest(int costume, Common::Array<ScummverseGuestFrame> &frames, bool remote, const Common::Path &file, Common::String &problem) {
+ 	if (frames.empty()) { problem = "costume draws nothing"; return false; }
+ 	// A picture that does not stand on the actor's feet (a remote one, or
+ 	// one drawn beside or well below them) stands on its own bottom center.
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index c59c45d1..a0bf3eec 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -91,7 +91,10 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 	const int gameIndex = scummverseWorldGameOf(room, source);
+ 	if (gameIndex < 0) return false;
+ 	const WorldGame *game = &kWorldGames[gameIndex];
+-	if (_scummverseWorldRoom == room && WorldBridge::mounted()) return true;
++	// (A slot given to another place since is mounted again, not shown as
++	// the place it held.)
++	const int key = gameIndex * 1024 + source + 1;
++	if (_scummverseWorldRoom == room && _scummverseWorldKey == key && WorldBridge::mounted()) return true;
+ 	const WorldScene *landmark = worldLandmark(gameIndex, source);
+ 	const Common::String placeName = landmark ? Common::String(landmark->name) : Common::String::format("A place in %s", game->title);
+ 	const Common::Path file = scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", game->gameid, source));
+@@ -110,7 +113,7 @@ bool ScummEngine::scummverseMountWorld(int room) {
+ 		_scummverseWorldNotice = Common::String::format("%s could not be shown (%s). Export it again.", placeName.c_str(), problem);
+ 		return false;
+ 	}
+-	_scummverseWorldRoom = room;
++	_scummverseWorldRoom = room; _scummverseWorldKey = key;
+ 	// The place's characters are optional: any whose frames are missing stay
+ 	// away. They are mounted with anyone playing someone else (in
+ 	// scummverseMountCharacters, before they are placed).
+@@ -436,7 +439,7 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+ 	const bool inWorld = gameIndex >= 0 && WorldBridge::mounted();
+ 	// Someone from another game, in any room (frames mounted at this room's
+-	// scale; other worlds add their depth).
++	// scale; other worlds add their depth, Zak's long shots their size).
+ 	const int id = a->_number;
+ 	if (id > 0 && id < kScummverseManiacActors && _scummverseAvatarSprite[id] && a->_room == _currentRoom) {
+ 		const int look = scummverseAppearance(id), game = worldAppearanceGame(look), costume = worldAppearanceCostume(look);
+@@ -446,8 +449,13 @@ bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
+ 		style.hover = worldHovers(game, costume);
+ 		style.glide = glider != nullptr; style.dressUp = glider && glider->dressUp; style.oneWay = glider && glider->oneWay;
+ 		style.hop = bouncer ? _scummverseAvatarHop[id] : -1; style.jaw = bouncer ? bouncer->jaw : 0;
+-		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id],
+-			inWorld ? scummverseWorldDepth(a) : 1.0, style);
++		if (const WorldSeatFit *fit = worldSeatFit(game, costume)) {
++			style.seatSink = fit->sink; style.seatTop = fit->top; style.seatSquash = fit->squash; style.seatWidth = fit->width;
++		}
++		int numerator = 1, denominator = 1;
++		const double scale = inWorld ? scummverseWorldDepth(a) :
++			scummverseDistantScene(&numerator, &denominator) ? (double)numerator / denominator : 1.0;
++		return scummverseDrawSprite(a, _scummverseAvatarSprite[id] - 1, _scummverseAvatarTick[id], _scummverseAvatarShown[id], scale, style);
+ 	}
+ 	if (!inWorld || a->_room != _currentRoom) return false;
+ 	const double depth = scummverseWorldDepth(a);
+@@ -493,10 +501,19 @@ static const int kWorldHopTicks = 24;
+ // seated sprite is drawn this far right of its place, to the chair's middle.
+ static const int kWorldSeatCushion = 80;
+ static const int kWorldSeatShift = 12;
+-// Seated, nobody is taller than this, and anyone shorter than kWorldSeatSmall
+-// sits on the cushion rather than in the seat.
+-static const int kWorldSeatTallest = 84;
++// Seated, nobody is taller (a seated Maniac teenager's height) or wider (the
++// seat's) than this, and anyone shorter than kWorldSeatSmall sits on the
++// cushion rather than in the seat; the rest sink to their waist
++// (kWorldSeatWaist percent of their height below the cushion), so a person
++// standing in the art sits; nobody starts left of the seat's back. The big
++// ones (kWorldSeatFits) are crammed in from kWorldSeatFitBack right of the
++// seat's place (its back) to past its armrest.
++static const int kWorldSeatTallest = 72;
++static const int kWorldSeatWidest = 44;
+ static const int kWorldSeatSmall = 48;
++static const int kWorldSeatWaist = 53;
++static const int kWorldSeatBack = 2;
++static const int kWorldSeatFitBack = 4;
+ static bool worldHop(int &hop, bool moving, int delta) {
+ 	if (!moving && !hop) return false;
+ 	hop += delta;
+@@ -532,19 +549,63 @@ bool ScummEngine::scummverseDrawSprite(Actor *a, int sprite, int &tick, int &sho
+ 	const bool seated = a->_room == 56 && scummverseSeated(a->_number) && !scummverseRenderingPortrait();
+ 	int seatLift = 0, zbuf = 0;
+ 	if (seated) {
+-		// A giant shrinks to fit the seat; someone small sits on the
+-		// cushion, whole; the rest sink to their middle.
+-		scale = MIN(scale, (double)kWorldSeatTallest / height);
++		// No taller than someone seated, no wider than the seat; someone
++		// small sits on the cushion, a little into it; the rest sink to their
++		// waist (below zero, lower than where they stand).
++		scale = MIN(scale, MIN((double)kWorldSeatTallest / height, (double)kWorldSeatWidest / width));
+ 		const int feet = a->getPos().y - a->getElevation(), tall = (int)(height * scale);
+-		seatLift = MAX(0, feet - kWorldSeatCushion - (tall < kWorldSeatSmall ? 0 : tall * 45 / 100));
++		seatLift = feet - kWorldSeatCushion - tall * (tall < kWorldSeatSmall ? 20 : kWorldSeatWaist) / 100;
+ 		zbuf = MIN<int>(getMaskFromBox(a->_walkbox), _gdi->_numZBuffer - 1);
+ 	}
++	if (seated && style.seatWidth > 0) {
++		// Someone big crammed into the seat: seated if they have a pose for
++		// it, fitted between the seat's back and past its armrest (squeezed,
++		// never more than seatSquash percent), from the overhead bins (row
++		// seatTop) down, seatSink percent of them below the seat's front;
++		// what the pose puts over the seat's front (a leg over the armrest)
++		// drawn over it.
++		const byte *over = nullptr;
++		if (WorldBridge::guestFrames(sprite, 1, kWorldSeatedKind) > 0) {
++			frame = WorldBridge::guestFrame(sprite, 1, kWorldSeatedKind, 0, dx, dy, width, height);
++			int odx, ody, ow = 0, oh = 0;
++			if (WorldBridge::guestFrames(sprite, 1, kWorldSeatedKind) > 1)
++				over = WorldBridge::guestFrame(sprite, 1, kWorldSeatedKind, 1, odx, ody, ow, oh);
++			if (ow != width || oh != height) over = nullptr;
++		}
++		if (!frame) return true;
++		const double total = (kWorldSeatCushion - style.seatTop) * 100.0 / (100 - style.seatSink);
++		const double sy = total / height, sx = MAX((double)style.seatWidth / width, sy * 100 / style.seatSquash);
++		const int bw = (int)(width * sx), bh = (int)(height * sy);
++		const int bx = a->getPos().x - vs.xstart + kWorldSeatFitBack, by = kWorldSeatCushion + (int)(total * style.seatSink / 100) - bh;
++		const int left = MAX(0, bx), right = MIN<int>(_screenWidth, bx + bw), top = MAX(0, by);
++		int bottom = top;
++		for (int layer = 0; layer < (over ? 2 : 1); ++layer) {
++			const byte *picture = layer ? over : frame;
++			const int end = layer ? MIN<int>(vs.h, by + bh) : MIN(kWorldSeatCushion, by + bh);
++			for (int y = top; y < end; ++y) {
++				const byte *mask = !layer && zbuf > 0 ? getMaskBuffer(0, y, zbuf) : nullptr;
++				const byte *src = picture + MIN(height - 1, (int)((y - by) / sy)) * width;
++				byte *dst = (byte *)vs.getPixels(left, y);
++				for (int x = left; x < right; ++x, ++dst) {
++					if (mask && (mask[x / 8] & revBitMask(x & 7))) continue;
++					const int col = MIN(width - 1, (int)((x - bx) / sx));
++					if (src[col]) *dst = src[col];
++				}
++			}
++			bottom = MAX(bottom, end);
++		}
++		if (left >= right || top >= bottom) return true;
++		a->_top = top; a->_bottom = bottom;
++		markRectAsDirty(kMainVirtScreen, left, right, top, bottom, a->_number);
++		return true;
++	}
+ 	// Scaled around the feet, nearest pixel so outlines stay crisp; lifted
+ 	// while floating or in a hop (posing for a selfie, on the ground).
+ 	const int lift = seated ? seatLift : style.hover ? worldHoverLift(tick, (int)(height * scale)) :
+ 		style.hop > 0 && !posing ? worldBounceLift(style.hop, (int)(height * scale)) : 0;
+ 	const int ax = a->getPos().x - vs.xstart + (seated ? kWorldSeatShift : 0), ay = a->getPos().y - a->getElevation() - lift;
+-	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
++	// Seated, their back against the seat's back (not over it).
++	const int x0 = MAX(ax + (int)floor(dx * scale), seated ? a->getPos().x - vs.xstart + kWorldSeatBack : INT_MIN), y0 = ay + (int)floor(dy * scale);
+ 	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
+ 	// Facing left, a one-way character is mirrored around its feet.
+ 	const bool mirror = style.oneWay && dir == 0;
+@@ -717,7 +778,8 @@ int ScummEngine::scummverseCostumeFacing(const Actor *a) const {
+ // Facing left (-1) or right (1) as a profile, or 0.
+ int ScummEngine::scummverseProfile(const Actor *a) const {
+ 	const int look = _scummverseRoaming && a ? scummverseAppearance(a->_number) : 0;
+-	if (!worldNativeLook(look) || !worldProfile(worldAppearanceGame(look), worldAppearanceCostume(look))) return 0;
++	const WorldProfile *profile = worldNativeLook(look) ? worldProfile(worldAppearanceGame(look), worldAppearanceCostume(look)) : nullptr;
++	if (!profile || (profile->seatedOnly && !(a->_room == 56 && scummverseSeated(a->_number)))) return 0;
+ 	const int dir = newDirToOldDir(a->getFacing()); // as the costume turns: 0 left, 1 right
+ 	return dir == 0 ? -1 : dir == 1 ? 1 : 0;
+ }
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 39cbb1dd..7eb37b2c 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1,8 +1,10 @@
+ #include "scumm/scummverse_places.inc"
+ #include "scumm/scummverse_plane.h"
+ static_assert(ARRAYSIZE(zakPlaces)==ScummverseContent::kImportedRoomCount, "Imported room catalog/capacity mismatch");
+-static const int mansionCast[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 23, 24, 20, 21, 22, 8, 17, 18, 19};
+-static bool scummverseZakGuest(int id) { return (id >= 20 && id <= 22) || id==8 || id==17 || id==18 || id==19; }
++// (Actor 19 is Maniac's man-eating plant; Zak's Zaire villager, who had it
++// before 0098, is a resident of the village now.)
++static const int mansionCast[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 23, 24, 20, 21, 22, 8, 17, 18};
++static bool scummverseZakGuest(int id) { return (id >= 20 && id <= 22) || id==8 || id==17 || id==18; }
+ // Connected-world adapters. GPL-3.0-or-later. No original game data included.
+ // Stable identities: maniac:<native room>, zak:airport, zak:apartment, zak:street, zak:zak.
+ // Native rooms 53/54 and added room 55; costume 34, actor 24, objects 650..731.
+@@ -273,10 +275,10 @@ void ScummEngine::scummverseInitVisitors() {
+ 		_scummVars[763] = 1;
+ 	}
+ 	if (!_scummVars[764] && scummverseMountZakCast()) {
+-		const int ids[]={8,17,18,19}, rooms[]={90,91,63,63}, colors[]={10,1,9,9};
++		const int ids[]={8,17,18}, rooms[]={90,91,63}, colors[]={10,1,9};
+ 		// Zak costume 27 is "The King" (original room 10 object script), not a pilot.
+-		const char *names[]={"Caponian", "The King", "Zaire shaman", "Zaire villager"};
+-		for(int i=0;i<4;++i) {
++		const char *names[]={"Caponian", "The King", "Zaire shaman"};
++		for(int i=0;i<3;++i) {
+ 			Actor *a=derefActor(ids[i],"Zak resident"); a->stopActorMoving(); a->setActorCostume(38+i);
+ 			a->setPalette(1,colors[i]); a->_talkColor=colors[i]; a->putActor(18+i*3,60,rooms[i]); a->startAnimActor(a->_standFrame);
+ 			memcpy(_res->createResource(rtActorName,ids[i],strlen(names[i])+1),names[i],strlen(names[i])+1);
+@@ -284,6 +286,20 @@ void ScummEngine::scummverseInitVisitors() {
+ 		}
+ 		_scummVars[764]=1;
+ 	}
++	// A save from before 0098 has the villager in actor 19, Maniac's plant:
++	// the plant again (the study's entry script puts it in its pot), off any
++	// ride. Not while the player is the villager: once they play someone else.
++	if (_scummVars[764] && VAR(VAR_EGO) != kManiacPlantActor) {
++		Actor *plant = derefActor(kManiacPlantActor, "plant");
++		if (plant->_costume == kZakVillagerCostume) {
++			plant->stopActorMoving(); plant->setActorCostume(kManiacPlantActor); plant->setPalette(1, 0); plant->_talkColor = 15;
++			plant->putActor(0, 0, 0);
++			const char *name = "Plant";
++			memcpy(_res->createResource(rtActorName, kManiacPlantActor, strlen(name) + 1), name, strlen(name) + 1);
++			_scummverseRoamers[kManiacPlantActor] = Roamer(); _scummVars[770 + kManiacPlantActor] = 0;
++			for (int ride : {725, 766, 610}) _scummVars[ride] &= ~(1u << kManiacPlantActor);
++		}
++	}
+ 	// The King as on the Caponians' ship (original room 10's button script):
+ 	// a white suit (color 1), with his Elvis quiff (scummverseOverlayFrame);
+ 	// also for characters set up earlier.
+@@ -371,7 +387,7 @@ int ScummEngine::scummverseWorldResource(ResType type, ResId id) {
+ 	}
+ 	if (_scummverseRoaming && type == rtRoom && id == ScummverseContent::kForeignRoom) {
+ 		// The other-worlds scene in view (mounted on demand, e.g. after a load).
+-		if (_scummverseWorldRoom != _currentRoom || !::Scummverse::WorldBridge::mounted()) scummverseMountWorld(_currentRoom);
++		scummverseMountWorld(_currentRoom); // (At once when the place there is the one mounted.)
+ 		if (!::Scummverse::WorldBridge::mounted()) {
+ 			// Never fail a load: an empty screen until the player is moved out.
+ 			int size = 0; const byte *blank = ::Scummverse::WorldBridge::blankRoom(size);
+@@ -533,7 +549,8 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 		}
+ 	}
+ 	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || ((!_scummVars[763] || !_scummVars[764]) && !_scummverseZakCastCostumes[0].empty()) || (_scummverseStreetMounted && !_scummVars[762]) ||
+-		(_scummVars[764] && _actors[17]->_costume == kZakKingCostume && _actors[17]->_talkColor != 1))) scummverseInitVisitors();
++		(_scummVars[764] && _actors[17]->_costume == kZakKingCostume && _actors[17]->_talkColor != 1) ||
++		(_scummVars[764] && VAR(VAR_EGO) != kManiacPlantActor && _actors[kManiacPlantActor]->_costume == kZakVillagerCostume))) scummverseInitVisitors();
+ 	// A flight with nobody controlling it aboard lands on its own (var 795 is
+ 	// its saved clock); the player's own flight lands when they choose Arrive.
+ 	if (_scummVars[724] && derefActor(VAR(VAR_EGO), "flight clock")->_room != 56) {
+@@ -1003,11 +1020,11 @@ void ScummEngine::scummverseCastOffer() {
+ 	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"Let's finish this bus ride first."); return; }
+ 	const bool zak=scummverseMountZak();
+ 	if(zak) scummverseInitVisitors();
+-	// Maniac Mansion (Dave first) and Zak (Zak first): the characters there,
+-	// by their own names (not a look they wear).
++	// Maniac Mansion (Dr Fred first) and Zak (Zak first): the characters
++	// there, by their own names (not a look they wear).
+ 	auto ownName=[&](int id) { return (const char *)getResourceAddress(rtActorName,id); };
+ 	for(int slot=0;slot<2;++slot) {
+-		const int lead=slot ? 24 : 3;
++		const int lead=slot ? 24 : 9;
+ 		Actor *first=derefActor(lead,"character screen lead");
+ 		const bool here=first->_costume && first->_room && (slot==0 || zak) && !scummverseRemoteActor(lead) && ownName(lead);
+ 		byte face[64*64*4];

@@ -9,6 +9,9 @@ if __name__ == '__main__':
     parser.add_argument('maniac', type=Path)
     parser.add_argument("--build", choices=("null", "asan"), default="null")
     args = parser.parse_args()
-    # The default sibling 'zak' directory is also the iPhone layout.
+    # The default sibling 'zak' directory is also the iPhone layout. The game
+    # starts without it (the boot reaches the sandbox before the probe runs)
+    # and the probe then removes the missing path.
     run_probe(args.maniac.resolve(), (ROOT/'tools/probes/worlds.inc').read_text(),
-              'scummverse_roaming', 'SCUMMVERSE_WORLDS_PASS', 'worlds', PRELUDE, args.build)
+              'scummverse_roaming', 'SCUMMVERSE_WORLDS_PASS', 'worlds', PRELUDE, args.build,
+              extra_config='scummverse_zak_path=/nonexistent/zak\n')

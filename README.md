@@ -57,6 +57,12 @@ Launching the binary with no arguments uses `maniac/` beneath the current workin
 directory. `--path=/path/to/data` overrides that location. Startup always selects
 Maniac Mansion/original DOS V1. Diagnostic commands such as `--version`, `--list-games`, and
 `--detect` remain available. Errors and game exit cannot open the ScummVM launcher.
+Two modes, kept apart: Explore mode (the mansion, other worlds, the new
+engine) and Story mode (the original games, each from its folder in
+Documents in its own engine as ScummVM runs it, Maniac Mansion's own story
+among them). The Worlds menu switches between them; Story mode's list starts
+or continues each game, and leaving a game saves its place (slot 99,
+"Story"). The app reopens in the mode, and the game, it was left in.
 
 ## Headless verification
 

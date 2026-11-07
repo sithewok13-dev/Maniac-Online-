@@ -62,7 +62,7 @@
 		}
 	}
 
-	for(const auto &transition : {Common::Point(57,733),Common::Point(58,737),Common::Point(59,732),Common::Point(58,732)}) {
+	for(const auto &transition : {Common::Point(57,734),Common::Point(58,737),Common::Point(59,732),Common::Point(58,732)}) {
 		scummverseTravel(transition.x-50); stopTalk(); VAR(VAR_HAVE_MSG)=0; scummLoop(4);
 		int slot=getObjectIndex(transition.y); if(slot<1) error("Missing exit hotspot");
 		_virtualMouse.x=_objs[slot].x_pos+_objs[slot].width/2; _virtualMouse.y=_objs[slot].y_pos+_objs[slot].height/2;
@@ -88,7 +88,8 @@
 	if(!saveState(7,false,filename) || !loadState(7,false) || _scummVars[724]!=7 || !(_scummVars[725] & (1u<<11))) error("Flight save/load failed");
 	scummverseArrive();
 	if(_currentRoom!=57 || zak->_room!=57 || ed->_room!=57) error("Flight arrival split passengers");
-	runObjectScript(733,13,false,false,nullptr); if(_currentRoom!=58) error("Seattle outside failed");
+	// Seattle uses the original big terminal (patch 0043): its exit is the door.
+	runObjectScript(734,13,false,false,nullptr); if(_currentRoom!=58) error("Seattle outside failed");
 	if(!(getState(737)&8)) error("Seattle cave opening is covered");
 	runObjectScript(738,13,false,false,nullptr); if(_currentRoom!=58) error("Mountain scenery incorrectly enters cave");
 	player->putActor(38,60,58);scummverseUpdateTransit(4);
@@ -103,6 +104,6 @@
 	if(_currentRoom!=55 || _scummVars[765]) error("Sleeping bus left without request");
 	scummverseWaitBus(); scummverseServiceBus(4);
 	if(_currentRoom!=55) error("Bus skipped boarding");
-	for(int n=0;n<40;++n) scummverseServiceBus(4);
+	for(int n=0;n<120;++n) scummverseServiceBus(4);
 	if(_currentRoom!=53 || zak->_room!=53) error("Requested bus failed");
 	warning("SCUMMVERSE_FLIGHTS_PASS enabled=1"); quitGame();

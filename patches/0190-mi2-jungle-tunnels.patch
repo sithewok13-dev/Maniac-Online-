@@ -1,0 +1,187 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 04d09149..007329cf 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -35,10 +35,11 @@ static const int kWorldExportVersion = 22;
+ // two things do together, from 0172 from each picture): "maniac-v29", the
+ // rest as kWorldExportVersion, so only it is exported again. From 0183 The
+ // Curse of Monkey Island's is one ahead too (its coin, from its fonts), and
+-// from 0189 Loom's (its dark rooms' animation holes filled).
++// from 0189 Loom's (its dark rooms' animation holes filled), from 0190
++// Monkey Island 2's (its tunnels' rooms in their run-time looks).
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") || same(gameid, "loom") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") || same(gameid, "loom") || same(gameid, "monkey2") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -386,6 +387,29 @@ inline bool worldPresetRoom(int game, int room) {
+ 	for (const auto &p : kWorldPresetScripts) if (p.game == game && p.room == room) return true;
+ 	return false;
+ }
++// A room exported with the look one of its run-time states gives it (its
++// scripts set each object's picture and draw some elsewhere, drawObject in
++// 8-pixel units), for the doors the door map gives it there. Numbers from
++// the game's own scripts. Monkey Island 2's tunnel junction under Dinky
++// Island (93): its elevator hall (pseudo room 161), with 160's ceiling hole
++// and 162's back door beside the elevator; the elevator car at the tunnel
++// level (88: its gates open, the tunnel wall seen through them).
++struct WorldPresetState { short game, room, object, state; };
++static const WorldPresetState kWorldPresetStates[] = {
++	{1, 93, 872, 3}, {1, 93, 873, 2}, {1, 93, 874, 1}, {1, 93, 875, 1}, {1, 93, 877, 1}, {1, 93, 878, 1},
++	{1, 93, 883, 1}, {1, 93, 889, 1}, {1, 93, 890, 1},
++	{1, 93, 876, 0}, {1, 93, 879, 0}, {1, 93, 880, 0}, {1, 93, 881, 0}, {1, 93, 882, 0}, {1, 93, 884, 0},
++	{1, 93, 885, 0}, {1, 93, 886, 0}, {1, 93, 887, 0}, {1, 93, 888, 0}, {1, 93, 891, 0}, {1, 93, 892, 0},
++	{1, 93, 893, 0}, {1, 93, 894, 0},
++	{1, 88, 813, 4}, {1, 88, 818, 1}, {1, 88, 819, 0},
++};
++struct WorldPresetPlace { short game, room, object, x8, y8; };
++static const WorldPresetPlace kWorldPresetPlaces[] = {{1, 93, 874, 27, 6}};
++inline bool worldStagedRoom(int game, int room) {
++	for (const auto &p : kWorldPresetStates) if (p.game == game && p.room == room) return true;
++	for (const auto &p : kWorldPresetPlaces) if (p.game == game && p.room == room) return true;
++	return false;
++}
+ // The Dig's tram (original scripts): five lines, each from a station off
+ // the Nexus (end 0) to one at a spire (end 1). Per station: its room, the
+ // car (a door to the other end in the door map), the car's pictures (state
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index 962fb2be..651cb40e 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -74,37 +74,37 @@ static const WorldRoom kWorldMap_monkey2Rooms[] = {
+ 	{98, 0, 98},
+ };
+ static const WorldLink kWorldMap_monkey2Links[] = {
+-	{2, 16, 16, 153, 0}, {2, 20, 22, 0, 0}, {2, 17, 7, 43, 0}, {2, 18, 23, 242, 0}, {2, 19, 4, 22, 0}, {2, 21, 20, 202, 0},
+-	{4, 22, 2, 19, 0}, {4, 30, 6, 38, 0}, {4, 27, 6, 38, 0}, {6, 38, 4, 30, 0}, {7, 40, 12, 102, 0}, {7, 41, 8, 64, 0},
+-	{7, 42, 9, 72, 0}, {7, 43, 2, 17, 0}, {7, 44, 14, 126, 0}, {7, 47, 15, 139, 0}, {7, 48, 11, 92, 0}, {8, 65, 7, 41, 0},
+-	{8, 64, 7, 41, 0}, {9, 72, 7, 42, 0}, {11, 91, 9, 75, 0}, {11, 92, 7, 48, 0}, {12, 102, 7, 40, 0}, {12, 100, 13, 108, 0},
+-	{13, 119, 21, 0, 0}, {13, 117, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0}, {16, 155, 18, 187, 0},
+-	{16, 163, 17, 0, 0}, {16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0}, {18, 187, 16, 155, 0},
+-	{20, 202, 2, 21, 0}, {20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0}, {22, 238, 82, 0, 0},
+-	{23, 241, 22, 234, 0}, {23, 242, 2, 18, 0}, {24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0}, {26, 248, 38, 378, 0},
+-	{26, 247, 37, 369, 0}, {26, 253, 27, 262, 0}, {26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0}, {27, 256, 29, 275, 0},
+-	{27, 257, 26, 249, 0}, {27, 262, 26, 253, 0}, {27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0}, {29, 275, 27, 256, 0},
+-	{29, 291, 27, 256, 0}, {30, 293, 27, 258, 0}, {33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0}, {35, 360, 93, 873, 0},
+-	{35, 363, 26, 252, 0}, {36, 367, 35, 359, 0}, {37, 368, 38, 378, 0}, {37, 371, 93, 872, 0}, {37, 369, 26, 247, 0}, {38, 378, 26, 248, 0},
+-	{38, 374, 39, 387, 0}, {39, 387, 38, 374, 0}, {40, 425, 37, 370, 0}, {41, 429, 42, 435, 0}, {41, 430, 26, 250, 0}, {42, 432, 43, 437, 0},
+-	{42, 435, 41, 429, 0}, {43, 437, 42, 432, 0}, {45, 472, 22, 0, 0}, {45, 467, 46, 477, 0}, {45, 468, 51, 0, 0}, {45, 469, 52, 593, 0},
+-	{45, 470, 58, 661, 0}, {45, 471, 60, 665, 0}, {45, 473, 47, 489, 0}, {46, 476, 48, 512, 0}, {46, 474, 49, 553, 0}, {46, 477, 45, 467, 0},
+-	{46, 478, 47, 488, 0}, {46, 475, 50, 576, 0}, {46, 484, 22, 0, 0}, {47, 488, 46, 478, 0}, {47, 489, 45, 473, 0}, {48, 512, 46, 476, 0},
+-	{49, 553, 46, 474, 0}, {50, 576, 46, 475, 0}, {51, 588, 52, 590, 0}, {52, 590, 45, 469, 0}, {52, 593, 45, 469, 0}, {53, 597, 54, 605, 0},
+-	{53, 598, 52, 591, 0}, {53, 599, 54, 604, 0}, {53, 601, 54, 604, 0}, {53, 602, 52, 0, 0}, {53, 596, 55, 611, 0}, {54, 604, 53, 599, 0},
+-	{54, 605, 53, 597, 0}, {54, 606, 57, 659, 0}, {55, 611, 53, 596, 0}, {55, 612, 56, 648, 0}, {56, 648, 55, 612, 0}, {57, 659, 54, 606, 0},
+-	{58, 661, 45, 470, 0}, {58, 662, 59, 0, 0}, {60, 665, 45, 471, 0}, {60, 666, 45, 471, 0}, {60, 685, 61, 693, 0}, {60, 686, 61, 693, 0},
+-	{60, 687, 61, 693, 0}, {60, 688, 61, 693, 0}, {60, 689, 61, 693, 0}, {60, 691, 61, 693, 0}, {60, 692, 61, 693, 0}, {61, 693, 60, 669, 0},
+-	{61, 694, 62, 697, 0}, {62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0}, {71, 719, 70, 716, 0}, {71, 720, 72, 731, 0},
+-	{71, 721, 72, 732, 0}, {72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0}, {72, 744, 71, 721, 0}, {72, 745, 71, 721, 0},
+-	{72, 746, 71, 721, 0}, {72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0}, {72, 732, 71, 721, 0}, {73, 752, 74, 753, 0},
+-	{73, 749, 72, 731, 0}, {73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0}, {82, 782, 46, 484, 0}, {82, 783, 27, 264, 0},
+-	{85, 784, 98, 1068, 0}, {85, 796, 86, 805, 0}, {86, 803, 97, 1052, 0}, {86, 804, 85, 784, 0}, {86, 805, 85, 784, 0}, {86, 807, 56, 0, 0},
+-	{88, 816, 93, 0, 0}, {88, 813, 93, 877, 0}, {88, 820, 89, 822, 0}, {89, 822, 88, 813, 0}, {90, 838, 93, 874, 0}, {91, 842, 93, 874, 0},
+-	{92, 862, 93, 874, 0}, {93, 876, 92, 0, 0}, {93, 877, 88, 813, 0}, {93, 874, 91, 842, 0}, {93, 872, 37, 371, 0}, {93, 873, 35, 360, 0},
+-	{96, 1041, 85, 784, 0}, {96, 1042, 85, 784, 0}, {96, 1043, 85, 784, 0}, {96, 1044, 85, 784, 0}, {97, 1052, 85, 784, 0}, {97, 1053, 85, 784, 0},
+-	{97, 1054, 85, 784, 0}, {97, 1055, 85, 784, 0}, {97, 1056, 85, 784, 0}, {97, 1051, 85, 784, 0}, {97, 1050, 85, 784, 0}, {98, 1068, 85, 784, 0},
+-	{98, 1069, 85, 784, 0}, {98, 1070, 85, 784, 0}, {98, 1071, 85, 784, 0}, {98, 1072, 85, 784, 0}, {98, 1073, 85, 784, 0}, {98, 1074, 85, 784, 0},
++	{35, 360, 37, 371, 0}, {37, 371, 35, 360, 0}, {85, 784, 98, 1068, 0}, {85, 796, 86, 805, 0}, {86, 803, 97, 1052, 0}, {86, 804, 98, 1074, 0},
++	{86, 805, 85, 796, 0}, {86, 807, 93, 875, 0}, {88, 813, 93, 877, 0}, {88, 816, 89, 822, 0}, {89, 822, 88, 813, 0}, {90, 838, 93, 872, 0},
++	{91, 842, 93, 874, 0}, {92, 862, 93, 873, 0}, {93, 872, 90, 838, 0}, {93, 873, 92, 862, 0}, {93, 874, 91, 842, 1}, {93, 875, 86, 807, 0},
++	{93, 877, 88, 813, 0}, {96, 1041, 98, 1072, 0}, {96, 1042, 97, 1053, 0}, {96, 1043, 98, 1070, 0}, {96, 1044, 97, 1055, 0}, {97, 1050, 98, 1071, 0},
++	{97, 1051, 98, 1069, 0}, {97, 1052, 86, 803, 0}, {97, 1053, 96, 1042, 0}, {97, 1054, 98, 1074, 0}, {97, 1055, 96, 1044, 0}, {97, 1056, 98, 1073, 0},
++	{98, 1068, 85, 784, 0}, {98, 1069, 97, 1051, 0}, {98, 1070, 96, 1043, 0}, {98, 1071, 97, 1050, 0}, {98, 1072, 96, 1041, 0}, {98, 1073, 97, 1056, 0},
++	{98, 1074, 97, 1054, 0}, {2, 16, 16, 153, 0}, {2, 20, 22, 0, 0}, {2, 17, 7, 43, 0}, {2, 18, 23, 242, 0}, {2, 19, 4, 22, 0},
++	{2, 21, 20, 202, 0}, {4, 22, 2, 19, 0}, {4, 30, 6, 38, 0}, {4, 27, 6, 38, 0}, {6, 38, 4, 30, 0}, {7, 40, 12, 102, 0},
++	{7, 41, 8, 64, 0}, {7, 42, 9, 72, 0}, {7, 43, 2, 17, 0}, {7, 44, 14, 126, 0}, {7, 47, 15, 139, 0}, {7, 48, 11, 92, 0},
++	{8, 65, 7, 41, 0}, {8, 64, 7, 41, 0}, {9, 72, 7, 42, 0}, {11, 91, 9, 75, 0}, {11, 92, 7, 48, 0}, {12, 102, 7, 40, 0},
++	{12, 100, 13, 108, 0}, {13, 119, 21, 0, 0}, {13, 117, 21, 0, 0}, {13, 123, 12, 100, 0}, {14, 126, 7, 44, 0}, {15, 139, 7, 47, 0},
++	{16, 155, 18, 187, 0}, {16, 163, 17, 0, 0}, {16, 168, 2, 16, 0}, {16, 153, 2, 16, 0}, {17, 177, 16, 0, 0}, {17, 178, 16, 0, 0},
++	{18, 187, 16, 155, 0}, {20, 202, 2, 21, 0}, {20, 210, 70, 0, 0}, {20, 203, 21, 214, 0}, {21, 214, 20, 203, 0}, {22, 234, 23, 241, 0},
++	{22, 238, 82, 0, 0}, {23, 241, 22, 234, 0}, {23, 242, 2, 18, 0}, {24, 244, 22, 0, 0}, {26, 251, 22, 0, 0}, {26, 249, 27, 257, 0},
++	{26, 248, 38, 378, 0}, {26, 247, 37, 369, 0}, {26, 253, 27, 262, 0}, {26, 250, 41, 430, 0}, {26, 252, 35, 363, 0}, {27, 258, 30, 293, 0},
++	{27, 256, 29, 275, 0}, {27, 257, 26, 249, 0}, {27, 262, 26, 253, 0}, {27, 255, 33, 350, 0}, {27, 259, 34, 0, 0}, {27, 264, 22, 0, 0},
++	{29, 275, 27, 256, 0}, {29, 291, 27, 256, 0}, {30, 293, 27, 258, 0}, {33, 350, 27, 255, 0}, {34, 356, 27, 259, 0}, {35, 359, 36, 367, 0},
++	{35, 363, 26, 252, 0}, {36, 367, 35, 359, 0}, {37, 368, 38, 378, 0}, {37, 369, 26, 247, 0}, {38, 378, 26, 248, 0}, {38, 374, 39, 387, 0},
++	{39, 387, 38, 374, 0}, {40, 425, 37, 370, 0}, {41, 429, 42, 435, 0}, {41, 430, 26, 250, 0}, {42, 432, 43, 437, 0}, {42, 435, 41, 429, 0},
++	{43, 437, 42, 432, 0}, {45, 472, 22, 0, 0}, {45, 467, 46, 477, 0}, {45, 468, 51, 0, 0}, {45, 469, 52, 593, 0}, {45, 470, 58, 661, 0},
++	{45, 471, 60, 665, 0}, {45, 473, 47, 489, 0}, {46, 476, 48, 512, 0}, {46, 474, 49, 553, 0}, {46, 477, 45, 467, 0}, {46, 478, 47, 488, 0},
++	{46, 475, 50, 576, 0}, {46, 484, 22, 0, 0}, {47, 488, 46, 478, 0}, {47, 489, 45, 473, 0}, {48, 512, 46, 476, 0}, {49, 553, 46, 474, 0},
++	{50, 576, 46, 475, 0}, {51, 588, 52, 590, 0}, {52, 590, 45, 469, 0}, {52, 593, 45, 469, 0}, {53, 597, 54, 605, 0}, {53, 598, 52, 591, 0},
++	{53, 599, 54, 604, 0}, {53, 601, 54, 604, 0}, {53, 602, 52, 0, 0}, {53, 596, 55, 611, 0}, {54, 604, 53, 599, 0}, {54, 605, 53, 597, 0},
++	{54, 606, 57, 659, 0}, {55, 611, 53, 596, 0}, {55, 612, 56, 648, 0}, {56, 648, 55, 612, 0}, {57, 659, 54, 606, 0}, {58, 661, 45, 470, 0},
++	{58, 662, 59, 0, 0}, {60, 665, 45, 471, 0}, {60, 666, 45, 471, 0}, {60, 685, 61, 693, 0}, {60, 686, 61, 693, 0}, {60, 687, 61, 693, 0},
++	{60, 688, 61, 693, 0}, {60, 689, 61, 693, 0}, {60, 691, 61, 693, 0}, {60, 692, 61, 693, 0}, {61, 693, 60, 669, 0}, {61, 694, 62, 697, 0},
++	{62, 697, 61, 694, 0}, {70, 716, 71, 719, 0}, {71, 730, 72, 731, 0}, {71, 719, 70, 716, 0}, {71, 720, 72, 731, 0}, {71, 721, 72, 732, 0},
++	{72, 741, 71, 721, 0}, {72, 742, 71, 721, 0}, {72, 743, 71, 721, 0}, {72, 744, 71, 721, 0}, {72, 745, 71, 721, 0}, {72, 746, 71, 721, 0},
++	{72, 747, 71, 721, 0}, {72, 748, 71, 721, 0}, {72, 731, 71, 721, 0}, {72, 732, 71, 721, 0}, {73, 752, 74, 753, 0}, {73, 749, 72, 731, 0},
++	{73, 750, 74, 753, 0}, {75, 756, 72, 732, 0}, {82, 781, 2, 0, 0}, {82, 782, 46, 484, 0}, {82, 783, 27, 264, 0},
+ };
+ static const WorldArea kWorldMap_monkey2Areas[] = {
+ 	{73, "LeChuck's fortress"},
+@@ -112,8 +112,6 @@ static const WorldArea kWorldMap_monkey2Areas[] = {
+ 	{40, "Basement"},
+ 	{66, "Galleon"},
+ 	{75, "LeChuck's dungeon"},
+-	{90, "Storage room"},
+-	{96, "Jungle"},
+ };
+ static const WorldRoom kWorldMap_loomRooms[] = {
+ 	{2, 0, 2}, {3, 0, 3}, {4, 0, 4}, {5, 0, 5}, {6, 0, 6}, {7, 0, 7}, {8, 0, 8}, {9, 0, 9}, {10, 0, 10}, {13, 0, 13},
+@@ -555,7 +553,7 @@ static const WorldArea kWorldMap_zakAreas[] = {
+ };
+ static const WorldMap kWorldMaps[] = {
+ 	{kWorldMap_monkeyRooms, 81, kWorldMap_monkeyLinks, 231, kWorldMap_monkeyAreas, 9},
+-	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 186, kWorldMap_monkey2Areas, 7},
++	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 185, kWorldMap_monkey2Areas, 5},
+ 	{kWorldMap_loomRooms, 40, kWorldMap_loomLinks, 96, kWorldMap_loomAreas, 3},
+ 	{kWorldMap_indy3Rooms, 110, kWorldMap_indy3Links, 340, kWorldMap_indy3Areas, 5},
+ 	{kWorldMap_atlantisRooms, 73, kWorldMap_atlantisLinks, 237, kWorldMap_atlantisAreas, 8},
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index d3ee9ddc..32b0a1fb 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -338,6 +338,22 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		}
+ 		if (!hidden.empty()) updateObjectStates(); // Drawing reads the room's copy.
+ 	}
++	// A room exported in one of its run-time looks (catalog): its objects
++	// at the places and in the pictures that state's scripts give them.
++	const bool staged = game && worldStagedRoom((int)(game - kWorldGames), room);
++	if (staged) {
++		const int gameIndex = (int)(game - kWorldGames);
++		for (const auto &p : kWorldPresetPlaces) {
++			const int idx = p.game == gameIndex && p.room == room ? getObjectIndex(p.object) : -1;
++			if (idx <= 0) continue;
++			ObjectData &od = _objs[idx];
++			od.walk_x += p.x8 * 8 - od.x_pos; od.x_pos = p.x8 * 8;
++			od.walk_y += p.y8 * 8 - od.y_pos; od.y_pos = p.y8 * 8;
++		}
++		for (const auto &p : kWorldPresetStates)
++			if (p.game == gameIndex && p.room == room && getObjectIndex(p.object) > 0) putState(p.object, p.state);
++		updateObjectStates();
++	}
+ 	// Only what its entry script left (the things pass, see
+ 	// scummverseExportThings): each object, the picture it is in (its state
+ 	// as drawn; the older games' one image, or none) and the verbs its own
+@@ -563,7 +579,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		// (Drawing takes the image from the game's own state table, and
+ 		// whether to draw from the room's copy, which the game brings up
+ 		// to date each frame: in the rooms its scripts set up, as it would.)
+-		if (scripted || preset) updateObjectStates();
++		if (scripted || preset || staged) updateObjectStates();
+ 		Common::Array<byte> states;
+ 		Common::Array<int> heights;
+ 		for (int k = 1; k < _numLocalObjects; ++k) { states.push_back(_objs[k].state); heights.push_back(_objs[k].height); }
+@@ -687,8 +703,9 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	for (int i = 1; i < _numLocalObjects; ++i) {
+ 		const ObjectData &o = _objs[i];
+ 		if (!o.obj_nr || o.width <= 0 || o.height <= 0 || !inWindow(o.x_pos, o.width)) continue;
+-		// Its state only where the room's script set it up (shown otherwise).
+-		const int state = !scripted ? 1 : old ? (getState(o.obj_nr) & kObjectStateIntrinsic ? 1 : 0) : getState(o.obj_nr);
++		// Its state only where the room's script set it up, or a preset look
++		// (shown otherwise).
++		const int state = !scripted && !staged ? 1 : old ? (getState(o.obj_nr) & kObjectStateIntrinsic ? 1 : 0) : getState(o.obj_nr);
+ 		const int fields[8] = {o.obj_nr, o.x_pos - left, o.y_pos, o.width, o.height, o.walk_x || o.walk_y ? o.walk_x - left : 0, o.walk_y, state};
+ 		for (int f : fields) scummverseWrite16(out, f);
+ 	}

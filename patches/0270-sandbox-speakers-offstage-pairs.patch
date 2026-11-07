@@ -1,0 +1,582 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 1f0d7b30..ab8f81c8 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -93,12 +93,16 @@ static const int kWorldExportVersion = 25;
+ // "ft-v28", "atlantis-v28", "comi-v28", "indy3-v27"); from 0269 Sam & Max's,
+ // The Dig's, Full Throttle's and The Curse of Monkey Island's again (a thing
+ // from their box, grid, skull or chest held and used on a thing or someone,
+-// kWorldHeldThings: "samnmax-v29", "dig-v29", "ft-v29", "comi-v29").
++// kWorldHeldThings: "samnmax-v29", "dig-v29", "ft-v29", "comi-v29"); from
++// 0270 Day of the Tentacle's, both Monkey Islands', Fate of Atlantis's and
++// the Last Crusade's again (their two things' answers whole, each line with
++// who says it, as their one thing's: "tentacle-v30", "monkey-v31",
++// "monkey2-v32", "atlantis-v29", "indy3-v28").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 16 : same(gameid, "monkey2") ? 6 : same(gameid, "monkey") ? 5 :
+-		same(gameid, "zak") || same(gameid, "tentacle") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 4 :
+-		same(gameid, "atlantis") ? 3 : same(gameid, "indy3") ? 2 : same(gameid, "loom") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 16 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 : same(gameid, "tentacle") ? 5 :
++		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") || same(gameid, "atlantis") ? 4 :
++		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index d52e1bfa..dafea570 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4284,6 +4284,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		for (int room : placesOf[e.id]) { ScummverseAnswer copy = e; copy.room = room; answers.push_back(copy); }
+ 	};
+ 	int pairRuns = 0, pairAnswers = 0, pairLeft = 0, pairOwn = 0, pairSilent = 0;
++	int pairSpoken = 0, pairUnshown = 0; // (from 0270: lines by someone else; first lines not shown)
+ 	// (From 0269 a game whose box's things are held (kWorldHeldThings): the
+ 	// place arrived at once for each thing used on (its arrival is the costly
+ 	// part of a run: The Dig's some 160 ms), then for each thing held put back
+@@ -4409,10 +4410,20 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				const int on = target.actor ? target.actor : target.id;
+ 				if (heldThing->heldFirst || (target.actor && target.actor >= heldThing->firstFrom && target.actor <= heldThing->firstTo)) doSentence(heldThing->verb, first, on);
+ 				else doSentence(heldThing->verb, on, first);
+-			} else if (target.actor) doSentence(giveVerb, first, target.actor);
+-			else doSentence(useVerb, first, target.id);
++			} else {
++				// (From 0270 a later game's lines with who says them too, as for
++				// one thing (heard), each in the costume the place had them in.)
++				if (!old) {
++					for (int n = 1; n < _numActors; ++n) costumes[n] = _actors[n]->isInCurrentRoom() ? _actors[n]->_costume : 0;
++					round = false;
++				}
++				if (target.actor) doSentence(giveVerb, first, target.actor);
++				else doSentence(useVerb, first, target.id);
++			}
+ 			e.room = target.room; e.id = target.id; e.kind = target.actor ? kWorldVerbGive : kWorldVerbUse; e.from = target.from; e.with = first;
+-			// (From 0260 each line as for one thing above: ownLines.)
++			// (From 0260 each line as for one thing above: ownLines. From 0270
++			// a later game's whole, each with who says it, as for one thing
++			// (heard); the oldest games' (Zak's) its one line as before.)
+ 			Common::String theirs, someone, anything;
+ 			for (int frame = 0; frame < 600 && _currentRoom == target.room && !shouldQuit(); ++frame) {
+ 				checkAndRunSentenceScript();
+@@ -4424,6 +4435,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				if (heldThing) heard(e);
+ 				else if (ownLines) said(theirs, someone, anything);
+ 				else if (e.line.empty()) e.line = lineOf();
++				if (!old && !heldThing) heard(e);
+ 				if (!running && frame > 1) break;
+ 				// (As for one thing above.)
+ 				if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+@@ -4433,13 +4445,27 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
+ 				scummverseDropAnimCommands();
+ 			}
++			if (!old) heard(e);
+ 			if (heldThing) {
+-				heard(e);
+ 				e.line = e.lines.empty() ? Common::String() : e.lines[0].text;
+ 			} else if (ownLines) {
+ 				said(theirs, someone, anything);
+ 				e.line = theirs.empty() ? anything : theirs;
++				// (From 0270 with who says it where their game shows it, else the
++				// one played's, as for one thing.)
++				ScummverseAnswer::Line chosen;
++				chosen.text = e.line;
++				for (const ScummverseAnswer::Line &l : e.lines) if (l.text == e.line) { chosen = l; break; }
++				e.lines.clear();
++				if (!chosen.text.empty()) e.lines.push_back(chosen);
+ 			} else if (e.line.empty()) e.line = lineOf();
++			if (!old && !heldThing && !ownLines) {
++				// (From 0270 its first line the first shown, as for one thing: one
++				// of someone not there is not shown.)
++				pairUnshown += !e.line.empty() && (e.lines.empty() || e.lines[0].text != e.line);
++				e.line = e.lines.empty() ? Common::String() : e.lines[0].text;
++			}
++			for (const ScummverseAnswer::Line &l : e.lines) pairSpoken += l.speaker != 0;
+ 			_scummverseStatesSet = nullptr;
+ 			const bool spent = _scummverseStepBudget == 0;
+ 			_scummverseStepBudget = -1;
+@@ -4480,8 +4506,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				}
+ 				key += Common::String::format("%d.%d.%d ", e.others[i], e.others[i + 1], value);
+ 			}
+-			// (From 0269 a thing held's, every line with who says it.)
+-			for (uint i = 0; !gone && heldThing && i < e.lines.size(); ++i) key += Common::String::format("|%d.%d.%d.%s", e.lines[i].speaker, e.lines[i].costume, e.lines[i].color, e.lines[i].text.c_str());
++			// (From 0269 a thing held's, every line with who says it; from 0270
++			// any later game's whose lines are not the one played's one, as
++			// theirs.)
++			bool spoken = heldThing || e.lines.size() > 1;
++			for (const ScummverseAnswer::Line &l : e.lines) spoken = spoken || l.speaker;
++			for (uint i = 0; !gone && !old && spoken && i < e.lines.size(); ++i) key += Common::String::format("|%d.%d.%d.%s", e.lines[i].speaker, e.lines[i].costume, e.lines[i].color, e.lines[i].text.c_str());
+ 			tries.push_back(e); keys.push_back(key);
+ 		}
+ 		// (From 0269 a game whose thing held is its sentence's first (Full
+@@ -4619,8 +4649,8 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		}
+ 	}
+ 	if (pairs && (useVerb || heldThing))
+-		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out)",
+-			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured);
++		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
++			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
+ 	// (From 0267 every answer's touches settled (scummverseSettleTouches); one
+ 	// left saying and changing nothing then, none.)
+ 	int settled = 0, touching = 0;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 26cfe06a..aa66d5de 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2010,6 +2010,10 @@ void SandboxEngine::speak(int actor, const Common::String &line, int color) {
+ 
+ // From 0258, an answer's lines (its things file's "SVO9"; one, by the one
+ // played, before): the first now, the rest in turn (sayNext, from step).
++// From 0270 each in its speaker's colour (the one played's own in theirs),
++// one of someone not here told over the place (speakerHere), as no one's
++// are: before, said by the one played in their colour, as if theirs (Full
++// Throttle's room 54, its bartender's 172 lines Ben's).
+ void SandboxEngine::sayAnswer(int game, int room, int id, int kind, int from, int with, int lines) {
+ 	_saying.clear();
+ 	for (int k = 0; k < lines; ++k) {
+@@ -2018,10 +2022,7 @@ void SandboxEngine::sayAnswer(int game, int room, int id, int kind, int from, in
+ 		if (!PanelBridge::answerLine(game, room, id, kind, from, with, k, speaker, costume, color, text, sizeof(text)) || !*text) continue;
+ 		Said s;
+ 		s.actor = speakerHere(game, speaker, costume); s.text = text;
+-		// (In the speaker's colour; the one played's own lines, and those of
+-		// someone not here (said by the one played), in the one played's.)
+-		const bool theirs = s.actor >= 0 && s.actor < (int)_onStage.size() && _onStage[s.actor] == worldAppearanceKey(game, costume);
+-		s.color = speaker == PanelBridge::kSpeakerNone || (speaker != PanelBridge::kSpeakerPlayed && theirs) ? color : -1;
++		s.color = speaker == PanelBridge::kSpeakerPlayed ? -1 : color;
+ 		_saying.push_back(s);
+ 	}
+ 	if (!_saying.empty()) sayNext();
+@@ -2029,14 +2030,32 @@ void SandboxEngine::sayAnswer(int game, int room, int id, int kind, int from, in
+ 
+ // Who says it here: the one played their own lines; someone else's, the one
+ // here its game's cast knows by that costume (the one played, where it is
+-// them); none of them here, the one played; no one's: -1.
++// them); no one's: -1. From 0270 someone not here (none here its cast knows
++// so, one hidden, or no costume: someone its game does not show), -1 too:
++// told over the place, not by the one played (who said it before).
+ int SandboxEngine::speakerHere(int game, int speaker, int costume) const {
+ 	if (speaker == PanelBridge::kSpeakerNone) return -1;
+-	if (speaker == PanelBridge::kSpeakerPlayed || !costume) return _player;
++	if (speaker == PanelBridge::kSpeakerPlayed) return _player;
++	if (!costume) return -1;
+ 	const int key = worldAppearanceKey(game, costume);
+ 	if (_player >= 0 && _player < (int)_onStage.size() && _onStage[_player] == key) return _player;
+ 	for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == key && !StageBridge::hidden((int)n)) return (int)n;
+-	return _player;
++	return -1;
++}
++
++// (From 0270, for the self-tests: `here` (an actor on the stage, -1 the
++// place) is who says a line by that speaker: the one played their own; no
++// one's the place; someone else's the one here of that costume (the one
++// played where they are them, else one shown), the place only where none
++// here is them; never the one played otherwise.)
++bool SandboxEngine::speakerRight(int game, int speaker, int costume, int here) const {
++	if (speaker == PanelBridge::kSpeakerPlayed) return here == _player && here >= 0;
++	if (speaker == PanelBridge::kSpeakerNone) return here == -1;
++	const int key = costume ? worldAppearanceKey(game, costume) : 0;
++	if (here >= 0) return key && here < (int)_onStage.size() && _onStage[here] == key && (here == _player || !StageBridge::hidden(here));
++	if (here != -1) return false;
++	for (uint n = 0; n < _onStage.size(); ++n) if (key && _onStage[n] == key && ((int)n == _player || !StageBridge::hidden((int)n))) return false;
++	return true;
+ }
+ 
+ void SandboxEngine::sayNext() {
+@@ -6117,18 +6136,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!tapOnly) break;
+ 			const int shownBefore = StageBridge::objectShown(o), carriedBefore = (int)_carried.size();
+ 			if (!use(kWorldVerbAct, o)) continue;
+-			if (_speech.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == carriedBefore) fail("a tap did nothing", g);
++			if (_speech.empty() && _notice.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == carriedBefore) fail("a tap did nothing", g);
+ 			else ++looked;
+ 			break;
+ 		}
++		// (From 0270 its line may be told over the place: one of someone not
++		// here, Day of the Tentacle's first place's 32.)
+ 		const int lookedBefore = looked, openedBefore = opened;
+ 		for (int o : things) {
+ 			if (tapOnly || (!use(kWorldVerbLook, o) && !use(kWorldVerbWhatIs, o))) continue;
+-			if (_speech.empty()) { fail("looking said nothing", g); break; }
++			if (_speech.empty() && _notice.empty()) { fail("looking said nothing", g); break; }
+ 			++looked;
+ 			_dirty = false;
+-			for (int t = 0; t < 600 && !_speech.empty(); ++t) step(1);
+-			if (_speech.empty() && _dirty) ++gone; else fail("a line not gone", g);
++			for (int t = 0; t < 600 && (!_speech.empty() || !_notice.empty()); ++t) step(1);
++			if (_speech.empty() && _notice.empty() && _dirty) ++gone; else fail("a line not gone", g);
+ 			break;
+ 		}
+ 		// (Loom's first place, its tents, has nothing named: its other
+@@ -6183,7 +6204,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (verbOf(kWorldVerbHand) < 0 || (int)_carried.size() > carriedBefore) break;
+ 			const int shownBefore = StageBridge::objectShown(o), had = (int)_carried.size();
+ 			if (!use(kWorldVerbHand, o)) continue;
+-			if (_speech.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == had) { fail("the hand did nothing", g); break; }
++			if (_speech.empty() && _notice.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == had) { fail("the hand did nothing", g); break; }
+ 			++handed;
+ 		}
+ 		// Things carried in the box: the last named by a tap on its cell and
+@@ -6373,20 +6394,22 @@ Common::Error SandboxEngine::verbsTest() {
+ 					};
+ 					// (From 0260 a later game's own answer to the two, where its things
+ 					// file has one (as pairOwn plays it): its line, and whether it uses
+-					// the one carried up or takes the one here.)
++					// the one carried up or takes the one here. From 0270 who says it:
++					// the one on the stage saying it, -1 told over the place.)
++					int saidBy = _player;
+ 					auto pairLine = [&](int thing, bool &usesUp) {
+ 						Common::String line = "That doesn't seem to work.";
+-						int on, ox, oy, ow, oh, wx, wy, st, after, others[4], count, flags, lines, speaker, costume, color;
++						int on, ox, oy, ow, oh, wx, wy, st, after, others[4], count, flags, lines, speaker = PanelBridge::kSpeakerPlayed, costume = 0, color;
+ 						char said[256] = "";
+ 						const int item = PanelBridge::itemCount() - 1;
+-						usesUp = false;
++						usesUp = false; saidBy = _player;
+ 						if (!pairsAnswered(g) || worldHome(g) || item < 0 || item >= (int)_carried.size() || _carried[item].game != g || !StageBridge::object(thing, on, ox, oy, ow, oh, wx, wy, st)) return line;
+ 						const int from = pictureNow(thing, on);
+ 						// (From 0265 read whole, as pairOwn reads it: its first line.)
+ 						if (from < 0 || from > 1 || !PanelBridge::thingAnswer(g, _room, on, kWorldVerbUse, from, _carried[item].id, after, flags, others, count, 1, lines)) return line;
+ 						if (lines) PanelBridge::answerLine(g, _room, on, kWorldVerbUse, from, _carried[item].id, 0, speaker, costume, color, said, sizeof(said));
+ 						if (!(flags & 8)) flags &= ~6;
+-						if ((flags & 8) || *said || count || (flags & 1) || after != from) line = said;
++						if ((flags & 8) || *said || count || (flags & 1) || after != from) { line = said; if (*said) saidBy = speakerHere(g, speaker, costume); }
+ 						usesUp = (flags & 5) != 0;
+ 						return line;
+ 					};
+@@ -6399,15 +6422,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 					for (int k = 0; k < StageBridge::objectCount() && other < 0; ++k) if (isThing(k) && shownAt(k, sx, sy) && (pairLine(k, usesUp), !usesUp)) other = k;
+ 					if (other < 0) break;
+ 					const Common::String expected = pairLine(other, usesUp);
++					const int expectedBy = saidBy;
+ 					bool ok = pick(using_);
+ 					if (ok) tapRect(x, y, w, h);
+ 					PanelBridge::sentenceText(text, sizeof(text));
+ 					ok = ok && _holding.kind == kWorldVerbUse && PanelBridge::selected() == using_ && Common::String(text).contains(name) && Common::String(text).hasSuffix(" with");
+-					if (ok) { _speech.clear(); tap(sx, sy); settle(); }
++					if (ok) { _speech.clear(); _notice.clear(); _noticeClock = 0; tap(sx, sy); settle(); }
+ 					// (The mansion's own answer where its scripts give one: checked
+ 					// below, each as recorded; from 0256 Zak's likewise. From 0260 a
+-					// later game's own, where it has one.)
+-					ok = ok && !_holding.kind && (_speech == expected || worldHome(g));
++					// later game's own, where it has one; from 0270 by who says it.)
++					ok = ok && !_holding.kind && (worldHome(g) || (expectedBy >= 0 ? _speech == expected && (expected.empty() || _speaker == expectedBy) : _speech.empty() && _notice == expected));
+ 					pairedOwn += ok && expected != "That doesn't seem to work.";
+ 					// (Let go on the floor: a roomy spot with no thing at it.)
+ 					double xs[12], ys[12];
+@@ -6446,9 +6470,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				if (giving >= 0 && person >= 0 && twoThings(kWorldVerbGive, true) && PanelBridge::itemCount() > 0 && PanelBridge::slotRect(PanelBridge::itemCount() - 1 - PanelBridge::firstItem(), x, y, w, h) && pick(giving)) {
+ 					// (From 0260 as their game's own sentence answers, where its
+-					// things file has it: its line, said by the one played.)
++					// things file has it: its line, said by the one played; from
++					// 0270 by who says it, -1 told over the place.)
+ 					Common::String expected = "No, thanks.";
+ 					int speaker = person;
++					bool own = false;
+ 					const int item = PanelBridge::itemCount() - 1, key = _onStage[person], costume = worldAppearanceCostume(key);
+ 					if (pairsAnswered(g) && !worldHome(g) && item < (int)_carried.size() && _carried[item].game == g && worldAppearanceGame(key) == g) {
+ 						int after, others[4], count, flags, lines, by, costumeBy, color;
+@@ -6457,13 +6483,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 						const int home = personAnswerRoom(g, _room, costume, _carried[item].id), them = kWorldPersonThing + costume;
+ 						if (home >= 0 && PanelBridge::thingAnswer(g, home, them, kWorldVerbGive, 0, _carried[item].id, after, flags, others, count, 1, lines) &&
+ 							(!lines || PanelBridge::answerLine(g, home, them, kWorldVerbGive, 0, _carried[item].id, 0, by, costumeBy, color, said, sizeof(said))) &&
+-							((flags & 8) || lines || count)) { expected = said; speaker = _player; }
++							((flags & 8) || lines || count)) { expected = said; speaker = lines ? speakerHere(g, by, costumeBy) : _player; own = true; }
+ 					}
+ 					tapRect(x, y, w, h);
+ 					bool ok = _holding.kind == kWorldVerbGive;
+-					if (ok) { _speech.clear(); tap(px, py); settle(); }
+-					ok = ok && !_holding.kind && _speech == expected && (expected.empty() || _speaker == speaker);
+-					givenOwn += ok && speaker == _player;
++					if (ok) { _speech.clear(); _notice.clear(); _noticeClock = 0; tap(px, py); settle(); }
++					ok = ok && !_holding.kind && (speaker >= 0 ? _speech == expected && (expected.empty() || _speaker == speaker) : _speech.empty() && _notice == expected);
++					givenOwn += ok && own;
+ 					if (!ok) fail("Give to someone not as two things", g); else ++given;
+ 				}
+ 				// (Someone in front of what is behind them: looked at, them.)
+@@ -8622,7 +8648,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// it, someone not on the stage there. Once, the thing held let go by a
+ 	// right click, by a tap on the floor (walking there), by the box opened
+ 	// and by another place.
+-	struct HeldRecords { int pairs = 0, seen = 0, away = 0, usual = 0, people = 0, usedUp = 0, noPicture = 0, thingAway = 0, untapped = 0, nobody = 0, several = 0, bySomeone = 0, given = 0, unpictured = 0, drawn = 0, letGo = 0, heldUsual = 0, touching = 0; };
++	struct HeldRecords { int pairs = 0, seen = 0, away = 0, usual = 0, people = 0, usedUp = 0, noPicture = 0, thingAway = 0, untapped = 0, nobody = 0, several = 0, bySomeone = 0, given = 0, unpictured = 0, drawn = 0, letGo = 0, heldUsual = 0, touching = 0;
++		int offStage = 0, overThem = 0; }; // (from 0270)
+ 	auto heldReplay = [&](int g, HeldRecords &c) {
+ 		Common::String problem;
+ 		loadThings(g);
+@@ -8800,7 +8827,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			bool same = false;
+ 			const bool own = (flags & 8) != 0;
+ 			if (!own) flags &= ~6;
+-			int by = 0, unpictured = 0;
++			int by = 0, unpictured = 0, offStage = 0, overThem = 0;
+ 			if (there) {
+ 				_speech.clear(); _saying.clear(); _notice.clear(); _noticeClock = 0;
+ 				tapAt(sx, sy);
+@@ -8822,10 +8849,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 					if (l) { if (_speechClock > 0) _speechClock = 1; if (_noticeClock > 0) _noticeClock = 1; step(1); }
+ 					const int who = !_speech.empty() ? _speaker : -1, shownColor = !_speech.empty() ? _speechColor : _noticeColor;
+ 					const Common::String said = !_speech.empty() ? _speech : _notice;
++					// (From 0270 one of someone not here told over the place in
++					// their colour, not by the one played: as for one thing.)
+ 					const int here = speaker == PanelBridge::kSpeakerNone ? -1 : speaker == PanelBridge::kSpeakerPlayed ? _player : speakerHere(g, speaker, costume);
+-					const bool theirs = here >= 0 && here < (int)_onStage.size() && _onStage[here] == worldAppearanceKey(g, costume);
+-					same = same && said == text && who == here && shownColor == (speaker == PanelBridge::kSpeakerNone || (speaker != PanelBridge::kSpeakerPlayed && theirs) ? color : -1);
++					same = same && said == text && who == here && speakerRight(g, speaker, costume, here) && shownColor == (speaker == PanelBridge::kSpeakerPlayed ? -1 : color);
+ 					by += speaker != PanelBridge::kSpeakerPlayed;
++					if (speaker != PanelBridge::kSpeakerPlayed && speaker != PanelBridge::kSpeakerNone) { if (here < 0) ++offStage; else ++overThem; }
+ 				}
+ 				same = same && (lines || (_speech.empty() && _notice.empty()));
+ 				// (What it makes touchable or untouchable, as touchesAfter keeps it.)
+@@ -8839,6 +8868,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				if (same) {
+ 					++c.seen; c.usual += !own; c.people += person; c.usedUp += own && (flags & 4); c.several += lines > 1; c.bySomeone += by; c.unpictured += unpictured;
++					c.offStage += offStage; c.overThem += overThem;
+ 					for (int i = 0; i < count; ++i) c.given += others[4 * i + 3];
+ 				} else {
+ 					warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d with %d held: said %d letters by %d (its record: %d lines, %d, flags %d)", kWorldGames[g].gameid, id, room, kind, from, first, (int)(_speech.size() + _notice.size()), _speaker, lines, after, flags);
+@@ -8897,14 +8927,18 @@ Common::Error SandboxEngine::verbsTest() {
+ 		if (c.pairs && (c.seen + c.away != c.pairs || !c.seen)) fail("its two things through its own controls not tried", g);
+ 		warning("SCUMMVERSE sandbox selftest %s two things: %d of %d records of two things through its own controls as its own sentences answer (%d not tried: %d with one carried that has no picture to carry, %d away there, %d where no tap finds it, %d nobody there; %d a usual answer, %d given to someone, %d using up, %d of several lines, %d lines by someone else, %d giving one, %d of them with no picture to carry); %d held drawn as the pointer, %d let go by a right click, the floor, the box and another place; %d a thing held's usual answer, on one with none of its own; %d making something touchable or untouchable",
+ 			kWorldGames[g].title, c.seen, c.pairs, c.away, c.noPicture, c.thingAway, c.untapped, c.nobody, c.usual, c.people, c.usedUp, c.several, c.bySomeone, c.given, c.unpictured, c.drawn, c.letGo, c.heldUsual, c.touching);
++		// (From 0270 who says them: as for one thing.)
++		warning("SCUMMVERSE sandbox selftest %s two things held speakers: %d lines by someone else said over them here, %d by someone not here told over the place in their colour, not by the one played",
++			kWorldGames[g].title, c.overThem, c.offStage);
+ 	};
+ 	// Sam & Max's things as its own sentences answer (its things file, from
+ 	// 0247; from 0258 "SVO9", its answers whole): every record, the thing in
+ 	// the picture it starts from (past the second too, where its place has
+ 	// that picture), as a player uses that verb on it there: its lines in
+ 	// turn, each by who says it (the one played; no one's told over the
+-	// place; someone else's by the one here its cast knows so, else by the
+-	// one played) in their colour, its picture after, taken (carried, its
++	// place; someone else's by the one here its cast knows so, else (from
++	// 0270) told over the place, not by the one played) in their colour, its
++	// picture after, taken (carried, its
+ 	// place as the game leaves it), the others it sets and the things it
+ 	// gives (carried; by their own inventory pictures where their places have
+ 	// none of them); then put back for the next. One taken also with its
+@@ -9019,12 +9053,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 				}
+ 				saidNow(who, said, shownColor);
+ 				// (The one played's own over them, no one's over the place,
+-				// someone else's by the one here its cast knows so, else by the
+-				// one played.)
++				// someone else's by the one here its cast knows so, else (from
++				// 0270) told over the place in their colour: never by the one
++				// played but where they are them.)
+ 				const int here = speaker == PanelBridge::kSpeakerNone ? -1 : speaker == PanelBridge::kSpeakerPlayed ? _player : speakerHere(snm, speaker, costume);
+-				const bool theirs = here >= 0 && here < (int)_onStage.size() && _onStage[here] == worldAppearanceKey(snm, costume);
+-				same = same && said == text && who == here && shownColor == (speaker == PanelBridge::kSpeakerNone || (speaker != PanelBridge::kSpeakerPlayed && theirs) ? color : -1);
+-				if (speaker != PanelBridge::kSpeakerPlayed) ++by[here < 0 ? 1 : theirs && here != _player ? 0 : 2];
++				same = same && said == text && who == here && speakerRight(snm, speaker, costume, here) && shownColor == (speaker == PanelBridge::kSpeakerPlayed ? -1 : color);
++				if (speaker != PanelBridge::kSpeakerPlayed) ++by[here >= 0 ? 0 : speaker == PanelBridge::kSpeakerNone ? 1 : 2];
+ 				// (Drawn so, where it is drawn: over them or over the place, in that colour.)
+ 				Common::Array<Overlay> drawn;
+ 				overlays(drawn);
+@@ -9188,7 +9222,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			_playerKey = keyWas;
+ 		}
+ 	}
+-	warning("SCUMMVERSE sandbox selftest Sam & Max whole: %d taken gone as things, the place as its game leaves it, their box pictures their own; %d of %d answers from or to a picture past the second (%d in a picture their places have not), %d of %d of several lines said in turn, %d of %d lines by someone else (%d by the one here its cast knows so, %d told over the place, %d by the one played as theirs is not here), %d of %d things given carried by their own inventory pictures (%d kept through a save and a load; %d with none, not carried); %d lines drawn in their speakers' colours; %d of Max's lines said by him as he follows, over him in his colour, %d answer of several lines played through as time passes (%d let go by a line said meanwhile and by another place)",
++	warning("SCUMMVERSE sandbox selftest Sam & Max whole: %d taken gone as things, the place as its game leaves it, their box pictures their own; %d of %d answers from or to a picture past the second (%d in a picture their places have not), %d of %d of several lines said in turn, %d of %d lines by someone else (%d by the one here its cast knows so, %d told over the place, %d told over the place in their colour as they are not here), %d of %d things given carried by their own inventory pictures (%d kept through a save and a load; %d with none, not carried); %d lines drawn in their speakers' colours; %d of Max's lines said by him as he follows, over him in his colour, %d answer of several lines played through as time passes (%d let go by a line said meanwhile and by another place)",
+ 		ownTakenLook, ownPast, wantPast, ownUnshown, ownSeveral, wantSeveral, ownOthersSaid, wantOthers, ownByThem, ownByNoOne, ownByPlayed, ownIconed, wantIcons, ownIconKept, ownUnpictured, ownDrawn, ownMax, ownTimed, ownLetGo);
+ 	// Zak's things as its own sentences answer (its things file, from
+ 	// 0256), as Sam & Max's above: every record of one thing, the thing in
+@@ -9386,6 +9420,53 @@ Common::Error SandboxEngine::verbsTest() {
+ 	}
+ 	warning("SCUMMVERSE sandbox selftest Zak McKracken: %d of %d records of one thing of %d things as its own sentences answer (%d away; %d lines, %d pictures changed, %d taken (%d places entered again as left), %d given, %d of them with no picture to carry), %d taken with its panel, in its slots; %d of %d of two things (Use) as its own sentence answers (%d not tried; %d a usual answer, %d using up, %d with both carried)",
+ 		zakSeen, zakSingles, (int)zakThings.size(), zakAway, zakLines, zakPictures, zakTaken, zakKept, zakGiven, zakUnpictured, zakPanel, zakPairsSeen, zakPairs, zakPairsAway, zakUsual, zakUsedUp, zakBothCarried);
++	// (From 0270 who says a line here, whatever the things files hold, in a
++	// place of a later game with someone of its own there: the one played
++	// their own lines; no one's the place; someone here's over them, the
++	// one played's over them where it is theirs; someone hidden, of a costume
++	// nobody here wears, or of none, the place, never the one played. A line
++	// of the queue told over the place in its speaker's colour, one over
++	// someone in theirs; each drawn so.)
++	{
++		int ruled = 0, tried = 0, lastGame = -1;
++		Common::String problem;
++		for (const WorldCastGuest &cast : kWorldCast) {
++			if (ruled || tried >= 40 || worldHome(cast.game) || !installed(cast.game, cast.room)) continue;
++			++tried; lastGame = cast.game;
++			if (!enter(cast.game, cast.room, 0, problem)) continue;
++			const int g = cast.game;
++			int n = -1;
++			for (uint i = 0; i < _onStage.size() && n < 0; ++i)
++				if ((int)i != _player && worldAppearanceGame(_onStage[i]) == g && worldAppearanceCostume(_onStage[i]) > 0 && !StageBridge::hidden((int)i)) n = i;
++			if (n < 0) continue;
++			const int costume = worldAppearanceCostume(_onStage[n]), unknown = 1000;
++			bool ok = speakerHere(g, PanelBridge::kSpeakerPlayed, 0) == _player && speakerHere(g, PanelBridge::kSpeakerNone, costume) == -1 &&
++				speakerHere(g, 7, costume) == n && speakerHere(g, 7, 0) == -1 && speakerHere(g, 7, unknown) == -1 && speakerRight(g, 7, costume, n) && !speakerRight(g, 7, costume, _player);
++			if (worldAppearanceGame(_playerKey) == g) ok = ok && speakerHere(g, 7, worldAppearanceCostume(_playerKey)) == _player;
++			StageBridge::hide(n, true);
++			ok = ok && speakerHere(g, 7, costume) == -1 && speakerRight(g, 7, costume, -1);
++			StageBridge::hide(n, false);
++			// (The queue: told over the place in its colour, then over them in theirs.)
++			_speech.clear(); _notice.clear(); _noticeClock = 0; _saying.clear();
++			Said away, there;
++			away.actor = -1; away.color = 5; away.text = "(a line of someone not here)";
++			there.actor = n; there.color = 7; there.text = "(a line of someone here)";
++			_saying.push_back(away); _saying.push_back(there);
++			sayNext();
++			Common::Array<Overlay> drawn;
++			overlays(drawn);
++			bool told = false;
++			for (const Overlay &d : drawn) told = told || (d.kind == kOverNotice && d.text == away.text && d.color == 5);
++			ok = ok && told && _speech.empty() && _notice == away.text && _noticeColor == 5 && (int)_saying.size() == 1;
++			_noticeClock = 1; step(1);
++			ok = ok && _speaker == n && _speech == there.text && _speechColor == 7 && _saying.empty();
++			_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++			if (_speaker >= 0) { StageBridge::talk(_speaker, false); _speaker = -1; }
++			if (ok) ++ruled; else fail("a line not said by who says it here (the one played, someone here, else over the place)", g);
++		}
++		if (tried && !ruled) fail("who says a line not tried: nobody of a later game's own found in a place", lastGame);
++		warning("SCUMMVERSE sandbox selftest speakers: %d places where who says a line is as its record has it (someone not here, hidden or unknown told over the place in their colour, not by the one played)", ruled);
++	}
+ 	// The Dig's and Full Throttle's things as their own sentences answer
+ 	// (their things files, from 0251), as Sam & Max's above: every record,
+ 	// the thing in the picture it starts from, as a player uses that verb on
+@@ -9419,6 +9500,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 		int game = -1, all = 0, seen = 0, away = 0, lines = 0, pictures = 0, taken = 0, given = 0, unpictured = 0, controls = 0, hidden = 0, shown = 0, refused = 0, keptAll = 0, kept = 0, several = 0, bySomeone = 0, past = 0, unshown = 0;
+ 		int count = 0, pairs = 0, pairsSeen = 0, pairsAway = 0, pairsUsual = 0, pairsPeople = 0, pairsUsedUp = 0, pairsBoth = 0, pairsUnpictured = 0, pairsNobody = 0, pairsThingAway = 0, pairsNoPicture = 0;
+ 		int pairsCast = 0, pairsPast = 0; // (from 0265)
++		int offStage = 0, overThem = 0, pairsBySomeone = 0, pairsOverThem = 0, pairsOffStage = 0; // (from 0270)
+ 		int madeAll = 0, made = 0, later = 0, unmadeAll = 0, unmade = 0, touchesKept = 0, touchesAll = 0;
+ 		int byKind[kWorldVerbNote + 1] = {}; Common::HashMap<int, bool> things;
+ 		HeldRecords held; // (from 0269: heldReplay)
+@@ -9505,7 +9587,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 			}
+ 			// (Its lines in turn, each once the one before is done: the one
+ 			// played's over them, no one's over the place, someone else's by the
+-			// one here its cast knows so, else by the one played; in their colour.)
++			// one here its cast knows so, else (from 0270) told over the place,
++			// not by the one played; in their colour, drawn so.)
++			int offStage = 0, overThem = 0;
+ 			for (int l = 0; l < lines && same && !noPicture; ++l) {
+ 				int speaker, costume, color;
+ 				char text[256];
+@@ -9514,9 +9598,18 @@ Common::Error SandboxEngine::verbsTest() {
+ 				const int who = !_speech.empty() ? _speaker : -1, shownColor = !_speech.empty() ? _speechColor : _noticeColor;
+ 				const Common::String said = !_speech.empty() ? _speech : _notice;
+ 				const int here = speaker == PanelBridge::kSpeakerNone ? -1 : speaker == PanelBridge::kSpeakerPlayed ? _player : speakerHere(g, speaker, costume);
+-				const bool theirs = here >= 0 && here < (int)_onStage.size() && _onStage[here] == worldAppearanceKey(g, costume);
+-				same = same && said == text && who == here && shownColor == (speaker == PanelBridge::kSpeakerNone || (speaker != PanelBridge::kSpeakerPlayed && theirs) ? color : -1);
++				same = same && said == text && who == here && speakerRight(g, speaker, costume, here) && shownColor == (speaker == PanelBridge::kSpeakerPlayed ? -1 : color);
+ 				by += speaker != PanelBridge::kSpeakerPlayed;
++				if (speaker == PanelBridge::kSpeakerPlayed || speaker == PanelBridge::kSpeakerNone) continue;
++				// (Told over the place: drawn there in their colour; over them,
++				// in it where they are drawn.)
++				Common::Array<Overlay> drawn;
++				overlays(drawn);
++				bool drawnSo = here >= 0;
++				for (const Overlay &d : drawn)
++					if (d.kind == (here < 0 ? kOverNotice : kOverSpeech) && d.text == said) drawnSo = d.color == color;
++				same = same && drawnSo;
++				if (here < 0) ++offStage; else ++overThem;
+ 			}
+ 			same = noPicture || (same && (lines || (_speech.empty() && _notice.empty())));
+ 			for (int i = 0; i < count && !controls; ++i)
+@@ -9564,6 +9657,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 			else if (same && !controls) {
+ 				c->lines += lines > 0; c->pictures += after != from; c->taken += took; c->unpictured += unpictured;
+ 				c->several += lines > 1; c->bySomeone += by; c->past += from > 1 || after > 1;
++				c->offStage += offStage; c->overThem += overThem;
+ 				for (int i = 0; i < count; ++i) c->given += others[4 * i + 3];
+ 				if (kind >= 0 && kind <= kWorldVerbNote) ++c->byKind[kind];
+ 			}
+@@ -9632,8 +9726,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// carried too) and each Give of one to someone here, as a player has
+ 		// them (pairUp, as on reaching them): for a usual answer the first
+ 		// thing that can be carried (one a record of one thing takes or gives)
+-		// with no answer of its own there; its line (said by the one played),
+-		// the picture after of the one here, either used up (an own answer
++		// with no answer of its own there; its line (said by the one played;
++		// from 0270 by who says it, as for one thing), the picture after of
++		// the one here, either used up (an own answer
+ 		// only), the others it sets and gives; then put back for the next.
+ 		// Not tried: someone not on the stage there (the new engine's cast),
+ 		// a thing away there, or one carried already. Every record of two
+@@ -9663,7 +9758,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || !with || !installed(g, room)) continue;
+ 				++c->pairs;
+ 				const bool person = kind == kWorldVerbGive && id >= kWorldPersonThing;
+-				int first = with == 0xFFFF ? -1 : with, after, others[4 * 64], count, flags, lines = 0, speaker, costume, color;
++				int first = with == 0xFFFF ? -1 : with, after, others[4 * 64], count, flags, lines = 0, speaker = PanelBridge::kSpeakerPlayed, costume = 0, color = -1;
+ 				char said[256] = "";
+ 				for (uint a = 0; first < 0 && a < carriedOnes.size(); ++a)
+ 					if (carriedOnes[a] != id && PanelBridge::pairEffect(g, room, id, kind, from, carriedOnes[a], after, others, count, 1, said, sizeof(said), flags) && !(flags & 8)) first = carriedOnes[a];
+@@ -9705,10 +9800,19 @@ Common::Error SandboxEngine::verbsTest() {
+ 					if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from); else _pictures[thingKey(g, room, id)] = from;
+ 					p.withThing = o;
+ 				}
+-				_speech.clear();
++				_speech.clear(); _notice.clear(); _noticeClock = 0;
+ 				pairUp(p);
+ 				const bool own = (flags & 8) != 0;
+-				bool same = _speech == said && (!*said || _speaker == _player) && (carried || person || pictureNow(o, id) == after) &&
++				// (From 0270 its first line by who says it, as for one thing: the
++				// one played's over them, someone else's over the one here its
++				// cast knows so (one given to: them), else told over the place; in
++				// their colour. Before, all by the one played, as its export
++				// recorded them.)
++				const bool someone = *said && speaker != PanelBridge::kSpeakerPlayed && speaker != PanelBridge::kSpeakerNone;
++				const int here = !*said || speaker == PanelBridge::kSpeakerPlayed ? _player : speaker == PanelBridge::kSpeakerNone ? -1 : speakerHere(g, speaker, costume);
++				const bool saidSo = !*said ? _speech.empty() : here >= 0 ? _speech == said && _speaker == here && _speechColor == (speaker == PanelBridge::kSpeakerPlayed ? -1 : color) :
++					_speech.empty() && _notice == said && _noticeColor == color;
++				bool same = saidSo && (!*said || speakerRight(g, speaker, costume, here)) && (carried || person || pictureNow(o, id) == after) &&
+ 					isCarried(g, carryable[first], first) == !(own && (flags & 4)) && (!carried || isCarried(g, room, id) == !(own && (flags & 2)));
+ 				// (One given that has no picture of its own in its place cannot be
+ 				// carried here: not given, as for one thing.)
+@@ -9724,7 +9828,10 @@ Common::Error SandboxEngine::verbsTest() {
+ 					// (From 0259's placeIn: each filed under the place it is used in.)
+ 					if (filedElsewhere(g, room, r, other)) { same = false; warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d with %d: %d set in room %d, not where it is used", kWorldGames[g].gameid, id, room, kind, first, other, r); }
+ 				}
+-				if (same) { ++c->pairsSeen; c->pairsUsual += !own; c->pairsPeople += person; c->pairsUsedUp += own && (flags & 6); c->pairsBoth += carried; c->pairsPast += past; }
++				if (same) {
++					++c->pairsSeen; c->pairsUsual += !own; c->pairsPeople += person; c->pairsUsedUp += own && (flags & 6); c->pairsBoth += carried; c->pairsPast += past;
++					if (someone) { ++c->pairsBySomeone; if (here >= 0) ++c->pairsOverThem; else ++c->pairsOffStage; } // (from 0270)
++				}
+ 				else {
+ 					warning("SCUMMVERSE sandbox: %s %d in room %d, verb %d from %d with %d: said %d letters (its sentence: %d letters, %d, flags %d)", kWorldGames[g].gameid, id, room, kind, from, first, (int)_speech.size(), (int)strlen(said), after, flags);
+ 					fail("two things not as its game's own sentence answers", g);
+@@ -9783,6 +9890,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 			"whole: %d of several lines said in turn, %d lines by someone else, %d from or to a picture past the second (%d in a picture their places have not)",
+ 			title, c->seen, c->all, (int)c->things.size(), c->away, c->lines, c->pictures, c->taken, c->given, c->unpictured, kinds.empty() ? "none" : kinds.c_str(), c->controls, c->shown, c->hidden, c->kept, c->keptAll,
+ 			c->several, c->bySomeone, c->past, c->unshown);
++		// (From 0270 who says them: someone else's over them where they are
++		// here, else told over the place in their colour, never by the one
++		// played; and two things' first lines likewise, as recorded.)
++		warning("SCUMMVERSE sandbox selftest %s speakers: %d lines of one thing by someone else said over them here, %d by someone not here told over the place in their colour, not by the one played; "
++			"two things: %d first lines by someone else as recorded (%d over them here, %d told over the place in their colour)",
++			title, c->overThem, c->offStage, c->pairsBySomeone, c->pairsOverThem, c->pairsOffStage);
+ 		if (c->madeAll && !PanelBridge::thingsTouch(g)) warning("SCUMMVERSE sandbox selftest %s: %d of %d things it starts untouchable made touchable by another's answer, things then; %d records of theirs answered so", title, c->made, c->madeAll, c->later);
+ 		// (From 0267, its things file saying so.)
+ 		if (PanelBridge::thingsTouch(g))
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index a7c3d835..e61b6810 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -159,13 +159,15 @@ private:
+ 	// An answer's lines (from 0258, its things file's "SVO9"): each said in
+ 	// turn once the one before is done, by who says it (speakerHere) in
+ 	// their colour (an index into the panel's colours; -1: the speaker's
+-	// own); no one's told over the place, as a film's lines are. Another
+-	// line said meanwhile, or another place, lets the rest go.
++	// own); no one's told over the place, as a film's lines are (from 0270
++	// those of someone not here too, in their colour). Another line said
++	// meanwhile, or another place, lets the rest go.
+ 	struct Said { int actor = -1, color = -1; Common::String text; };
+ 	Common::Array<Said> _saying;
+ 	int _speechColor = -1, _noticeColor = -1; // (the line said now, told now)
+ 	void sayAnswer(int game, int room, int id, int kind, int from, int with, int lines);
+-	int speakerHere(int game, int speaker, int costume) const; // a stage actor; -1: no one's (the place's notice)
++	int speakerHere(int game, int speaker, int costume) const; // a stage actor; -1: no one's, or someone not here (the place's notice)
++	bool speakerRight(int game, int speaker, int costume, int here) const; // (from 0270, the self-tests': whether `here` is who says it)
+ 	void speak(int actor, const Common::String &line, int color);
+ 	void sayNext();
+ 	// The iPhone's chat (step 4; common/scummverse_ai.h): who is here, each

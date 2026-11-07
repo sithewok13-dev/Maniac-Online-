@@ -1,0 +1,1015 @@
+diff --git a/common/scummverse_panel_engine.h b/common/scummverse_panel_engine.h
+index 562676ba..dbb14c33 100644
+--- a/common/scummverse_panel_engine.h
++++ b/common/scummverse_panel_engine.h
+@@ -208,8 +208,10 @@ int answerHands(int game, int room, int id, int kind, int from, int with, int *h
+ // `capacity` as (ticks since it, room, object, picture, touch: 0 left
+ // alone, kMadeTouchable or kMadeUntouchable) in `steps`, five each, in the
+ // order done. Each returns how many. The most a file has: answers so, values
+-// left by one, later steps of one and their ticks.
+-static const int kMostValued = 256, kMostLeaves = 8, kMostLaterSteps = 32, kMostLaterTicks = 1 << 20;
++// left by one, later steps of one and their ticks. (From 0297 answers so
++// 1024, was 256: Monkey Island's mugs used with what they are used with as
++// each can hold grog, kWorldHolders.)
++static const int kMostValued = 1024, kMostLeaves = 8, kMostLaterSteps = 32, kMostLaterTicks = 1 << 20;
+ bool valueAnswered(int game, int room, int id, int kind, int from, int with, int need, int value);
+ int valueLeaves(int game, int room, int id, int kind, int from, int with, int need, int value, int *leaves, int capacity);
+ int valueLater(int game, int room, int id, int kind, int from, int with, int need, int value, int *steps, int capacity);
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index b4507395..488c30f9 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -183,10 +183,13 @@ static const int kWorldExportVersion = 25;
+ // leave, kWorldKeptValues and kWorldValueReaders as the mansion's: its ghost
+ // crew tickled, its captain's chest looked in with its lid open; a place
+ // whose entry reads one arrived at with it, kWorldValueArrivals, and its
+-// things changed so answered under it: the SCUMM Bar's mugs): "monkey-v38".
++// things changed so answered under it: the SCUMM Bar's mugs): "monkey-v38";
++// from 0297 Monkey Island's again (two of its trials, the treasure dug and
++// the idol brought up onto the dock, room 83, a place now; its mugs of grog,
++// kWorldHolders: filled, poured, drunk at Otis's lock): "monkey-v39".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 13 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 14 : same(gameid, "monkey2") ? 11 : same(gameid, "tentacle") ? 10 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+@@ -1703,11 +1706,26 @@ struct WorldKeptValue { short game; int var; short values[4]; };
+ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {10, 94, {25, 44, 0, 0}}, {10, 82, {2, 0, 0, 0}}, {10, 101, {1, 2, 3, 0}},
+ 	{10, 151, {1, 0, 0, 0}}, {10, 2960, {0, 0, 0, 0}}, // (from 0287)
+ 	{10, 160, {1, 2, 0, 0}}, {10, 108, {2, 0, 0, 0}}, {10, 162, {1, 2, 0, 0}}, // (from 0288)
+-	{0, 236, {1, 2, 0, 0}}, {0, 195, {1, 2, 3, 0}}}; // (from 0296)
++	{0, 236, {1, 2, 0, 0}}, {0, 195, {1, 2, 3, 0}}, // (from 0296)
++	{0, 0x8000 + 85, {1, 0, 0, 0}}, {0, 0x8000 + 86, {1, 0, 0, 0}}, {0, 0x8000 + 421, {1, 0, 0, 0}}, {0, 0x8000 + 76, {1, 0, 0, 0}}, {0, 0x8000 + 134, {1, 0, 0, 0}}}; // (from 0297)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+ }
++// From 0297 a value kept that its game's scripts only ever add to, whatever
++// it holds (Monkey Island's trials done, 195: its global script 68 adds one
++// for each trial, `+= 1`, and sets that trial's own bit, 83 + its number:
++// the idol's 85 and the treasure's 86 kept too, which their own scripts
++// read so that a trial is done once). The export files what an answer adds
++// to it (what it holds after less what it held before), the new engine
++// adds that to what it keeps, so the trials count in whatever order they
++// are done.
++struct WorldKeptCount { short game; int var; };
++static const WorldKeptCount kWorldKeptCounts[] = {{0, 195}};
++inline bool worldKeptCount(int game, int var) {
++	for (const WorldKeptCount &k : kWorldKeptCounts) if (k.game == game && k.var == var) return true;
++	return false;
++}
+ // An answer whose script reads a value kept or leaves one (from 0282): a
+ // verb kind on a thing of a room, with a second (`with`, carried; 0 none);
+ // `need` a thing of its room in its picture 1 first, `bare` one in its
+@@ -1842,7 +1860,9 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	{10, 51, 45, kWorldVerbPickUp, 0, 0, 0, 0, 108, 0, 0, 0},
+ 	{10, 16, 151, kWorldVerbUse, 45, 0, 0, 0, 0, 0, 0, 0},
+ 	// (From 0296, Monkey Island's: see below.)
+-	{0, 73, 764, kWorldVerbUse, 780, 0, 0, 0, 236, 0, 0, 0}, {0, 7, 83, kWorldVerbLook, 0, 84, 0, 0, 0, 0, 0, 0}};
++	{0, 73, 764, kWorldVerbUse, 780, 0, 0, 0, 236, 0, 0, 0}, {0, 7, 83, kWorldVerbLook, 0, 84, 0, 0, 0, 0, 0, 0},
++	// (From 0297 two of Monkey Island's trials: see below.)
++	{0, 64, 726, kWorldVerbUse, 410, 0, 0, 0, 0x8000 + 86, 0, 0, 0}, {0, 42, 586, kWorldVerbPickUp, 0, 0, 0, 0, 195, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -1860,6 +1880,21 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // the piece of paper (91) and the cinnamon sticks (904) while they are
+ // still there; before, the export looked at it with the lid as the start
+ // has it, shut, and they were never given.
++// From 0297 two of its three trials (rooms 64 and 42, read with descumm,
++// nothing copied). The treasure: the X (726) dug with the shovel (410), as
++// its script reads the trial's own bit (86): at 0 its local script 200 digs
++// (a cut-scene whose camera pans, played on as its game moves the camera)
++// and gives the T-shirt (729), its global script 68 adding the trial (195,
++// kWorldKeptCounts) and setting 86; at 1 the one played's line, nothing
++// dug. Before, the export's run stopped waiting on the camera, so the dig
++// showed its hole and gave nothing. The idol: the fabulous idol (586) picked
++// up under the harbour, its local script 203 (the one played untied) then
++// 200 up the ladder (585): 68 adds the trial (and sets 85), 276 says whether
++// it was the last (read by the dock's entry, not modelled here), and the
++// one played climbs out onto the dock (room 83, a place from 0297: see
++// kWorldStoryPlaces), filed by the trials done before (195 at 0 to 2).
++// Before, its run left for a room not exported and was left out, so the
++// idol could not be taken.
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+@@ -1884,7 +1919,9 @@ inline int worldValueNeed(const WorldValueReader &v) { return v.need || !v.kids
+ // export has it: not kept), the mugs still there (373 to 377) shown full of
+ // grog and touchable, its patrons' tables as they are then; a mug is what
+ // carries grog to Otis's lock (room 31, 416). Before, the export had the
+-// bar only as the game starts it, and no mug could ever be taken.
++// bar only as the game starts it, and no mug could ever be taken. (From 0297:
++// shown as empty mugs, as its entry makes them, its class 12 set and 18, the
++// grog's, cleared; the grog is the kitchen's barrel's, kWorldHolders.)
+ struct WorldValueArrival { short game, room; int var; short first, last; };
+ static const WorldValueArrival kWorldValueArrivals[] = {{0, 28, 195, 3, 3}};
+ static const int kWorldArrivalAnswer = 0xFFFE;
+@@ -1892,6 +1929,78 @@ inline const WorldValueArrival *worldValueArrival(int game, int room) {
+ 	for (const WorldValueArrival &w : kWorldValueArrivals) if (w.game == game && w.room == room) return &w;
+ 	return nullptr;
+ }
++// From 0297 things carried that one at a time hold what their game fills
++// them with, and lose it on its clock (Monkey Island's mugs of grog: its
++// global scripts 65, 66 and 67, the SCUMM Bar's entry and the kitchen's
++// barrel, rooms 28 and 41, read with descumm, nothing copied). `first` to
++// `last` are things of `room` (the bar's mugs, 373 to 377; mugs, empty,
++// once the trials are done, as its entry makes them, kWorldValueArrivals).
++// One used with `fill` (the kitchen's barrel, room 41's 380) is filled, as
++// that script starts `script` (65) on it; held so, it waits `wait` ticks,
++// melts `amount` (500) by `rate` (1) a frame of `frame` ticks (6, as its
++// game's boot sets its frame), `rates` in `rooms` (2 on the dock, 33; 3
++// under the archway, 35; 5 on the high street, 34), holds it `near` ticks
++// more, then is a wad, no longer one (its class `is` cleared), `wad` ticks,
++// and goes back to its place (its owner its room again). One poured into
++// another (one used with another, 66) leaves the other holding it, its clock
++// from the start, and goes back; one used at a lock it is drunk (67: Otis's
++// cell, room 31's 414 and 416, and the other cell's, 415 and 417), and goes
++// back. Its game's own classes say so to its scripts (`holds` 18, `is` 12).
++// The export plays each answer of one of them used with each thing of
++// kWorldHolderUses (or another of them) with them as each can be, filed
++// under kWorldHolderAnswer and worldHolderCode, what holds it after (the
++// values kWorldHeld and kWorldHeldFor, 0: its clock from the start), and
++// checks the clock against its script (a mismatch fails the export); the new
++// engine keeps which holds it and how far its clock is (those two, as values
++// kept), answers each such use by them, and puts back the one it leaves.
++struct WorldHolder { short game, room, first, last, fillRoom; int fill; short script, wait, amount, near, wad, frame, rate, holds, is; short rooms[3], rates[3]; };
++static const WorldHolder kWorldHolders[] = {{0, 28, 373, 377, 41, 380, 65, 300, 500, 300, 300, 6, 1, 18, 12, {33, 35, 34}, {2, 3, 5}}};
++// (The values kept of a game with one: the thing holding it now, 0 none; and
++// its clock, in ticks as at `rate`: its wait, then `amount` frames, its near
++// and wad waits.)
++static const int kWorldHeld = 0x4000, kWorldHeldFor = 0x4001, kWorldHolderAnswer = 0xFFFD;
++inline const WorldHolder *worldHolderOf(int game) {
++	for (const WorldHolder &h : kWorldHolders) if (h.game == game) return &h;
++	return nullptr;
++}
++inline bool worldHolder(int game, int room, int object) {
++	const WorldHolder *h = worldHolderOf(game);
++	return h && h->room == room && object >= h->first && object <= h->last;
++}
++// (A wait of its script as its game counts it down, a frame at a time until
++// past it: 300 ticks at 6 a frame, 306.)
++inline int worldHolderWaits(const WorldHolder &h, int ticks) { return (ticks / h.frame + 1) * h.frame; }
++inline int worldHolderClock(const WorldHolder &h) { return worldHolderWaits(h, h.wait) + h.amount * h.frame + worldHolderWaits(h, h.near) + worldHolderWaits(h, h.wad); }
++// (How far its clock is when it is a wad: from then on no longer one.)
++inline int worldHolderWad(const WorldHolder &h) { return worldHolderWaits(h, h.wait) + h.amount * h.frame + worldHolderWaits(h, h.near); }
++inline bool worldHeldValue(int game, int var) { return worldHolderOf(game) && (var == kWorldHeld || var == kWorldHeldFor); }
++// The things one of them is used with that answer by what they hold (and
++// the fill by `reads` too, a value kept: its first time, bit 421, as script
++// 65 says its line only then).
++struct WorldHolderUse { short game, room; int object, reads; };
++static const WorldHolderUse kWorldHolderUses[] = {{0, 41, 380, 0x8000 + 421}, {0, 31, 414, 0}, {0, 31, 416, 0}, {0, 31, 415, 0}, {0, 31, 417, 0}};
++inline const WorldHolderUse *worldHolderUse(int game, int room, int object) {
++	for (const WorldHolderUse &u : kWorldHolderUses) if (u.game == game && u.room == room && u.object == object) return &u;
++	return nullptr;
++}
++// (A holder as its scripts see it: 1 one, empty; 2 holding it; 3 a wad. What
++// an answer is filed under: the one used's, the other's (0 not one of them)
++// times 4, 16 where a third is held (its clock on), 32 where `reads` is set.)
++enum { kWorldHolderEmpty = 1, kWorldHolderHolds = 2, kWorldHolderWad = 3 };
++inline int worldHolderCode(int with, int target, bool third, bool read) { return with + 4 * target + (third ? 16 : 0) + (read ? 32 : 0); }
++// From 0297 one of a game's cast gone for good once a value kept is set
++// (Monkey Island's Otis, costume 13, freed from the jail by grog on his
++// cell's lock: bit 76, as its jail's entry puts him in only while it is
++// clear; the rat, 42, out of the other cell so: bit 134).
++struct WorldCastGone { short game, costume; int var; };
++static const WorldCastGone kWorldCastGones[] = {{0, 13, 0x8000 + 76}, {0, 42, 0x8000 + 134}};
++// From 0297 places only a place's answer takes the one played to (0283's
++// answers that go elsewhere), no door of its map leading in: kept with their
++// own doors by tools/world_maps.py (its STORY_PLACES), reached from `from`.
++// Monkey Island's dock (room 83), from under the harbour (42): the idol
++// picked up, the ladder climbed (kWorldValueReaders' row of 586).
++struct WorldStoryPlace { short game, room, from; };
++static const WorldStoryPlace kWorldStoryPlaces[] = {{0, 83, 42}};
+ // Timed events (from 0250): what a game's script does a while after the one
+ // played leaves a place (`from`, for `to`; 0: anywhere else) with things of
+ // it in pictures (`need`: a thing and its picture each; 0: none) and marks
+diff --git a/common/scummverse_world_maps.inc b/common/scummverse_world_maps.inc
+index 5be23630..850c3d47 100644
+--- a/common/scummverse_world_maps.inc
++++ b/common/scummverse_world_maps.inc
+@@ -6,10 +6,10 @@ static const WorldRoom kWorldMap_monkeyRooms[] = {
+ 	{28, 0, 28}, {29, 0, 29}, {30, 0, 30}, {31, 0, 31}, {32, 0, 32}, {33, 0, 33}, {34, 0, 34}, {35, 0, 35}, {36, 0, 36}, {37, 0, 37},
+ 	{38, 0, 38}, {39, 0, 39}, {40, 0, 40}, {41, 0, 41}, {42, 0, 42}, {43, 0, 43}, {44, 0, 44}, {48, 0, 48}, {51, 0, 51}, {52, 0, 52},
+ 	{53, 0, 53}, {57, 0, 57}, {59, 0, 59}, {60, 0, 60}, {61, 0, 61}, {64, 0, 64}, {65, 0, 65}, {69, 0, 69}, {70, 0, 70}, {71, 0, 71},
+-	{72, 0, 72}, {73, 0, 73}, {74, 0, 74}, {75, 0, 75}, {77, 0, 77}, {78, 0, 78}, {80, 0, 80}, {85, 1, 85}, {130, 0, 1}, {131, 0, 1},
+-	{132, 0, 1}, {201, 0, 58}, {202, 0, 58}, {203, 0, 58}, {204, 0, 58}, {205, 0, 58}, {206, 0, 58}, {207, 0, 58}, {208, 0, 58}, {209, 0, 58},
+-	{210, 0, 58}, {211, 0, 58}, {212, 0, 58}, {213, 0, 58}, {214, 0, 58}, {215, 0, 58}, {216, 0, 58}, {217, 0, 58}, {218, 0, 58}, {219, 0, 58},
+-	{220, 0, 58},
++	{72, 0, 72}, {73, 0, 73}, {74, 0, 74}, {75, 0, 75}, {77, 0, 77}, {78, 0, 78}, {80, 0, 80}, {83, 0, 83}, {85, 1, 85}, {130, 0, 1},
++	{131, 0, 1}, {132, 0, 1}, {201, 0, 58}, {202, 0, 58}, {203, 0, 58}, {204, 0, 58}, {205, 0, 58}, {206, 0, 58}, {207, 0, 58}, {208, 0, 58},
++	{209, 0, 58}, {210, 0, 58}, {211, 0, 58}, {212, 0, 58}, {213, 0, 58}, {214, 0, 58}, {215, 0, 58}, {216, 0, 58}, {217, 0, 58}, {218, 0, 58},
++	{219, 0, 58}, {220, 0, 58},
+ };
+ static const WorldLink kWorldMap_monkeyLinks[] = {
+ 	{1, 46, 5, 0, 0}, {1, 72, 5, 0, 0}, {130, 17, 3, 0, 0}, {130, 18, 3, 0, 0}, {130, 46, 5, 0, 0}, {130, 71, 3, 0, 0},
+@@ -50,7 +50,7 @@ static const WorldLink kWorldMap_monkeyLinks[] = {
+ 	{73, 761, 77, 804, 0}, {74, 771, 75, 784, 0}, {75, 782, 73, 760, 0}, {75, 784, 74, 771, 1}, {77, 801, 72, 754, 1}, {77, 803, 71, 750, 1},
+ 	{77, 804, 73, 761, 0}, {77, 818, 70, 748, 0}, {78, 819, 34, 447, 0}, {78, 820, 34, 447, 0}, {80, 847, 3, 0, 0}, {85, 872, 33, 435, 0},
+ 	{85, 868, 38, 496, 0}, {85, 866, 218, 668, 0}, {85, 867, 52, 623, 0}, {85, 865, 48, 597, 0}, {85, 869, 57, 636, 0}, {85, 870, 59, 679, 0},
+-	{85, 871, 43, 593, 0}, {85, 864, 48, 597, 0}, {85, 994, 61, 719, 0},
++	{85, 871, 43, 593, 0}, {85, 864, 48, 597, 0}, {85, 994, 61, 719, 0}, {83, 862, 33, 0, 0}, {83, 863, 33, 0, 0},
+ };
+ static const WorldArea kWorldMap_monkeyAreas[] = {
+ 	{70, "Catacombs and the ghost ship"},
+@@ -548,7 +548,7 @@ static const WorldArea kWorldMap_zakAreas[] = {
+ 	{143, "Miami airport"},
+ };
+ static const WorldMap kWorldMaps[] = {
+-	{kWorldMap_monkeyRooms, 81, kWorldMap_monkeyLinks, 231, kWorldMap_monkeyAreas, 9},
++	{kWorldMap_monkeyRooms, 82, kWorldMap_monkeyLinks, 233, kWorldMap_monkeyAreas, 9},
+ 	{kWorldMap_monkey2Rooms, 71, kWorldMap_monkey2Links, 176, kWorldMap_monkey2Areas, 7},
+ 	{kWorldMap_loomRooms, 39, kWorldMap_loomLinks, 94, kWorldMap_loomAreas, 2},
+ 	{kWorldMap_indy3Rooms, 110, kWorldMap_indy3Links, 340, kWorldMap_indy3Areas, 5},
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 5c20c52a..1b7ce8ed 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -6338,7 +6338,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			for (uint k = 0; k + 2 < others.size(); k += 3) {
+ 				const int value = others[k + 2], other = others[k + 1];
+ 				const uint32 at = (uint32)others[k] << 16 | (uint16)other;
+-				if (value == ScummverseAnswer::kGiven || (value & kScummverseTouchAsWas) || !revealed.contains(at)) continue;
++				if (value == ScummverseAnswer::kGiven || (value & kScummverseTouchAsWas) || scummverseGoesPart(value) || !revealed.contains(at)) continue; // (from 0297 not where one goes)
+ 				const uint entry = entryIn.contains(at) ? entryIn[at] : entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
+ 				const uint place = entry >> 16;
+ 				if (place >= rooms.size() || place >= things.size() || worldLinkFrom(gameIndex, rooms[place], other)) continue;
+@@ -6431,10 +6431,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 						if (ownLines) said(theirs, someone, anything);
+ 						heard(e);
+ 						if (!running && frame > 1) break;
+-						// (As for one thing above.)
++						// (As for one thing above. From 0297 the camera moved as its
++						// game moves it each frame, so a cut-scene that waits on its
++						// camera goes on: Monkey Island's dig, panned and waited for.)
+ 						if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
+ 						_talkDelay = 0; _drawObjectQueNr = 0;
+-						runAllScripts(); walkActors(); _sound->stopAllSounds();
++						runAllScripts(); walkActors(); moveCamera(); _sound->stopAllSounds();
+ 						for (int n = 1; n < _numActors; ++n)
+ 							if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
+ 						scummverseDropAnimCommands(); dropTexts();
+@@ -6453,30 +6455,55 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					_scummverseStatesSet = nullptr;
+ 					const bool spent = _scummverseStepBudget == 0;
+ 					_scummverseStepBudget = -1;
+-					if (spent || _currentRoom != shownRoom || a->_room != shownRoom) { quiet(); ++valuedLeft; continue; }
++					// (From 0297 one that takes the one played to another place of
++					// its game exported, as 0283's above (whyNot): what it did before
++					// leaving, not to the things of the room it arrives in, then
++					// where it takes them once there it settles (arrives): Monkey
++					// Island's idol, up the harbour's ladder onto the dock.)
++					// (Its new room's entry may start a cut-scene there, played on
++					// until it settles.)
++					const bool gone = _currentRoom != shownRoom || a->_room != shownRoom;
++					const int why = gone && !spent ? whyNot(v.room, a) : -1;
++					const bool going = why == 0 || why == 2;
++					if (spent || (gone && !going)) { quiet(); ++valuedLeft; continue; }
++					auto arrivedIn = [&](int o) { return going && whereIsObject(o) == WIO_ROOM; };
++					Common::Array<int> setBefore;
++					for (int s : set) if (!arrivedIn(s < 0 ? -s : s)) setBefore.push_back(s);
++					Common::Array<bool> wasBefore = was;
++					for (int o : placeObjects) if (arrivedIn(o)) wasBefore[o] = untouchable(o);
++					const uint most = 3 * (going ? 62 : 64);
+ 					e.after = pictureOf(v.object);
+ 					e.taken = getOwner(v.object) != owned[v.object] && getOwner(v.object) == ego;
+ 					e.secondGone = v.with && getOwner(v.with) != ego;
+ 					Common::HashMap<int, bool> listed;
+-					for (int other : set) {
+-						if (other <= 0 || other == v.object || other == v.with || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
++					for (int other : setBefore) {
++						if (other <= 0 || other == v.object || other == v.with || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= most) continue;
+ 						listed[other] = true;
+ 						e.others.push_back(placeIn(other, v.room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+ 					}
+-					for (int o = 1; o < (int)owned.size() && e.others.size() < 3 * 64; ++o)
++					for (int o = 1; o < (int)owned.size() && e.others.size() < most; ++o)
+ 						if (o != v.object && o != v.with && owned[o] != ego && getOwner(o) == ego && (placeOf.contains(o) || unlisted.contains(o)) && !ridden.contains(o)) {
+ 							e.others.push_back(placeIn(o, v.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven);
+ 						}
+ 					Common::Array<int> carried;
+ 					if (v.with) carried.push_back(v.with);
+-					touches(e.others, v.room, v.object, e.taken, carried, was, set, owned);
+-					while (e.others.size() > 3 * 64) e.others.resize(e.others.size() - 3);
++					touches(e.others, v.room, v.object, e.taken, carried, wasBefore, setBefore, owned);
++					while (e.others.size() > most) e.others.resize(e.others.size() - 3);
++					// (From 0297 a value its game only adds to, kWorldKeptCounts: what
++					// the answer added.)
+ 					Common::Array<int> leaves;
+ 					uint kv = 0;
+ 					for (const WorldKeptValue &k : kWorldKeptValues) {
+ 						if (k.game != gameIndex) continue;
+ 						const int now = readVar(k.var), before = varsWere[kv++];
+-						if (now != before && leaves.size() < 2 * (uint)Scummverse::PanelBridge::kMostLeaves) { leaves.push_back(k.var); leaves.push_back(now); }
++						if (now != before && leaves.size() < 2 * (uint)Scummverse::PanelBridge::kMostLeaves) { leaves.push_back(k.var); leaves.push_back(worldKeptCount(gameIndex, k.var) ? now - before : now); }
++					}
++					if (going) {
++						int goesRoom = 0, goesX = 0, goesY = 0, goesFacing = 0;
++						if (!arrives(v.room, v.object, v.kind, from, a, goesRoom, goesX, goesY, goesFacing)) { quiet(); ++valuedLeft; continue; }
++						e.others.push_back(goesRoom); e.others.push_back(goesX); e.others.push_back(kScummverseGoes | goesFacing);
++						e.others.push_back(goesRoom); e.others.push_back(goesY); e.others.push_back(kScummverseGoesY);
++						debug(2, "SCUMMVERSE world things: %s room %d: %d's verb %d with %d from %d played with %d at %d goes to %d, at %d,%d facing %d", kWorldGames[gameIndex].gameid, v.room, v.object, v.kind, v.with, from, v.reads, x, goesRoom, goesX, goesY, goesFacing);
+ 					}
+ 					quiet();
+ 					if (e.lines.empty() && e.line.empty() && e.after == from && !e.taken && !e.secondGone && e.others.empty() && leaves.empty()) { ++valuedSilent; continue; }
+@@ -6484,6 +6511,242 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					keep(e, worldValueNeed(v), x, leaves);
+ 				}
+ 		}
++		// (From 0297 this game's holders, kWorldHolders: first their clock
++		// against its script, one of them held (its classes so, carried, its
++		// first time's line said before) with the room its script reads that
++		// of each of `rooms` and of `fillRoom`, frames played as its game plays
++		// them (waits counted down by its frame's ticks): the ticks to each
++		// change of its name (melting, near its end), to its class `is`
++		// cleared (a wad) and to its owner no longer the one played (gone
++		// back), against the row's; told, else warned (tools/export_worlds.py
++		// fails). Then each of them used with each thing of kWorldHolderUses
++		// and each other of them as a player uses it, with them as each can
++		// be then (worldHolderCode: an empty one, one holding it, a wad; a
++		// third holding it; the first time or not), from its pictures 0 and 1:
++		// the place arrived at as a player finds it (the bar with the trials
++		// done, kWorldValueArrivals), the one used carried, their classes so,
++		// the clock of the one holding it on (its script started on it, held
++		// still: what holding it is to its scripts), the game's own sentence
++		// run until it ends, a clock it starts held still once started (its
++		// line said); its answer whole, filed under kWorldHolderAnswer and the
++		// code, with the values kept it leaves changed and which holds it after
++		// (kWorldHeld; kWorldHeldFor 0 where its clock starts again).)
++		int holderRuns = 0, holderMissed = 0, holderLeft = 0, holderSilent = 0;
++		for (uint hn = 0; !old && !heldThing && hn < ARRAYSIZE(kWorldHolders) && !shouldQuit(); ++hn) {
++			const WorldHolder &h = kWorldHolders[hn];
++			if (h.game != gameIndex || !useVerb) continue;
++			auto clockSlot = [&](int skip) {
++				for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) if ((int)s != skip && vm.slot[s].number == h.script && vm.slot[s].status != ssDead && vm.slot[s].where == WIO_GLOBAL) return (int)s;
++				return -1;
++			};
++			auto shape = [&](int obj, int state) { putClass(obj, h.is, state != kWorldHolderWad); putClass(obj, h.holds, state != kWorldHolderEmpty); };
++			// (Carried as `carry` carries one, from its place, `room`.)
++			auto carryHolder = [&](int obj) {
++				if (whereIsObject(obj) == WIO_INVENTORY) return;
++				addObjectToInventory(obj, resourceOf(h.room));
++				putOwner(obj, ego);
++				putClass(obj, kObjectClassUntouchable, 1); putState(obj, 1);
++			};
++			auto clockOn = [&](int obj) {
++				int args[NUM_SCRIPT_LOCAL];
++				memset(args, 0, sizeof(args));
++				args[0] = obj;
++				runScript(h.script, false, false, args);
++				const int s = clockSlot(-1);
++				if (s >= 0) { vm.slot[s].status |= 0x80; vm.slot[s].freezeCount = 1; }
++				return s;
++			};
++			const WorldHolderUse *filling = worldHolderUse(gameIndex, h.fillRoom, h.fill);
++			const int firstTime = filling ? filling->reads : 0;
++			Common::String measured, named;
++			int same = 0;
++			for (int rn = 0; rn < 4 && !shouldQuit(); ++rn) {
++				const int room = rn < 3 ? h.rooms[rn] : h.fillRoom, rate = rn < 3 ? h.rates[rn] : h.rate;
++				putBack();
++				ego = startEgo;
++				_scummverseStepBudget = kRunSteps;
++				if (firstTime) writeVar(firstTime, 1);
++				carryHolder(h.first);
++				shape(h.first, kWorldHolderHolds);
++				if (VAR_ROOM != 0xFF) VAR(VAR_ROOM) = room;
++				int args[NUM_SCRIPT_LOCAL];
++				memset(args, 0, sizeof(args));
++				args[0] = h.first;
++				runScript(h.script, false, false, args);
++				const byte *name = getObjOrActorName(h.first);
++				Common::String was = name ? (const char *)name : "";
++				int elapsed = 0, at = 0, ticks[4] = {-1, -1, -1, -1};
++				for (int f = 0; f < 2000 && at < 4 && clockSlot(-1) >= 0 && _scummverseStepBudget && !shouldQuit(); ++f) {
++					if (VAR_ROOM != 0xFF) VAR(VAR_ROOM) = room;
++					elapsed += stepFrame();
++					name = getObjOrActorName(h.first);
++					const Common::String now = name ? (const char *)name : "";
++					if (at < 2 && now != was) { ticks[at++] = elapsed; was = now; }
++					else if (at == 2 && !getClass(h.first, h.is)) ticks[at++] = elapsed;
++					else if (at == 3 && getOwner(h.first) != ego) ticks[at++] = elapsed;
++				}
++				if (at == 3 && getOwner(h.first) != ego) ticks[at++] = elapsed;
++				quiet();
++				_scummverseStepBudget = -1;
++				const int melt = (h.amount + rate - 1) / rate * h.frame, wait = worldHolderWaits(h, h.wait), near = worldHolderWaits(h, h.near), wad = worldHolderWaits(h, h.wad);
++				const int want[4] = {wait, wait + melt, wait + melt + near, wait + melt + near + wad};
++				for (int k = 0; k < 4; ++k) {
++					measured += Common::String::format(" %d", ticks[k]); named += Common::String::format(" %d", want[k]);
++					same += ticks[k] == want[k];
++				}
++				measured += ";"; named += ";";
++			}
++			const bool frameSo = VAR_TIMER_NEXT == 0xFF || h.frame == CLIP<int>(VAR(VAR_TIMER_NEXT), 1, 15);
++			if (same == 16 && frameSo)
++				debug(1, "SCUMMVERSE world things: %s %d's clock (its script %d) as named:%s ticks", kWorldGames[gameIndex].gameid, h.first, h.script, measured.c_str());
++			else
++				warning("SCUMMVERSE world things: %s: timed event of a holder's clock (%d, its script %d):%s ticks, not%s as named%s", kWorldGames[gameIndex].gameid, h.first, h.script,
++					measured.c_str(), named.c_str(), frameSo ? "" : " (its frame not its game's)");
++			struct Used { int room, object, reads; bool holder; };
++			Common::Array<Used> uses;
++			for (const WorldHolderUse &u : kWorldHolderUses) if (u.game == gameIndex) { Used t = {u.room, (int)u.object, (int)u.reads, false}; uses.push_back(t); }
++			for (int n = h.first; n <= h.last; ++n) { Used t = {h.room, n, 0, true}; uses.push_back(t); }
++			struct Case { int with, target; bool third, read; };
++			for (int mn = 0; mn <= h.last - h.first && !shouldQuit(); ++mn) {
++				const int m = h.first + (int)scummverseRunAt(mn, h.last - h.first + 1, reversed);
++				for (uint tn = 0; tn < uses.size() && !shouldQuit(); ++tn) {
++					const Used &t = uses[scummverseRunAt(tn, uses.size(), reversed)];
++					if (t.holder && t.object == m) continue;
++					Common::Array<Case> cases;
++					auto add = [&](int with, int target, bool third, bool read) { Case c = {with, target, third, read}; cases.push_back(c); };
++					if (t.holder) {
++						add(kWorldHolderEmpty, kWorldHolderEmpty, false, true); add(kWorldHolderHolds, kWorldHolderEmpty, false, true); add(kWorldHolderWad, kWorldHolderEmpty, false, true);
++						add(kWorldHolderEmpty, kWorldHolderHolds, false, true); add(kWorldHolderEmpty, kWorldHolderWad, false, true); add(kWorldHolderEmpty, kWorldHolderEmpty, true, true);
++					} else {
++						add(kWorldHolderEmpty, 0, false, true); add(kWorldHolderEmpty, 0, true, true); add(kWorldHolderHolds, 0, false, true); add(kWorldHolderWad, 0, false, true);
++						if (t.reads) add(kWorldHolderEmpty, 0, false, false);
++					}
++					for (uint cn = 0; cn < cases.size() && !shouldQuit(); ++cn)
++						for (int fn = 0; fn < 2 && !shouldQuit(); ++fn) {
++							const Case &cs = cases[scummverseRunAt(cn, cases.size(), reversed)];
++							const int from = scummverseRunAt(fn, 2, reversed);
++							putBack();
++							const int played = worldPlayedIn(gameIndex, t.room);
++							ego = played > 0 && played < _numActors ? played : startEgo;
++							_rnd.setSeed(0x5C0BE + t.room);
++							_scummverseStepBudget = kRunSteps;
++							if (const WorldValueArrival *w = worldValueArrival(gameIndex, t.room)) { valueSet.var = w->var; valueSet.value = w->first; }
++							const bool there = arrive(t.room, t.object) && getObjectIndex(t.object) > 0;
++							valueSet = ValueSet();
++							if (!there) { _scummverseStepBudget = -1; ++holderMissed; continue; }
++							++holderRuns;
++							const int shownRoom = here(t.room);
++							showAs(t.object, from);
++							carryHolder(m);
++							if (firstTime) writeVar(firstTime, cs.read ? 1 : 0);
++							shape(m, cs.with);
++							if (t.holder) shape(t.object, cs.target);
++							int third = 0;
++							for (int o = h.first; cs.third && o <= h.last && !third; ++o) if (o != m && o != t.object) third = o;
++							if (third) shape(third, kWorldHolderHolds);
++							const int heldBefore = cs.with != kWorldHolderEmpty ? m : t.holder && cs.target != kWorldHolderEmpty ? t.object : third;
++							const int clock = heldBefore ? clockOn(heldBefore) : -1;
++							int ox = 0, oy = 0, dir = 0;
++							getObjectXYPos(t.object, ox, oy, dir);
++							Actor *a = _actors[ego];
++							a->putActor(ox, oy, shownRoom);
++							Common::Array<int> varsWere;
++							for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex) varsWere.push_back(readVar(k.var));
++							const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
++							const Common::Array<bool> was = untouchables();
++							Common::Array<int> set;
++							_scummverseStatesSet = &set;
++							_charsetBuffer[0] = 0;
++							for (int n = 1; n < _numActors; ++n) costumes[n] = _actors[n]->isInCurrentRoom() ? _actors[n]->_costume : 0;
++							round = false;
++							if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++							doSentence(useVerb, m, t.object);
++							ScummverseAnswer e;
++							e.room = t.room; e.id = t.object; e.kind = kWorldVerbUse; e.from = from; e.with = m;
++							Common::String theirs, someone, anything;
++							int restarted = -1;
++							for (int frame = 0; frame < 600 && _currentRoom == shownRoom && !shouldQuit(); ++frame) {
++								checkAndRunSentenceScript();
++								bool running = _sentenceNum > 0;
++								for (uint sl = 0; sl < NUM_SCRIPT_SLOT; ++sl) {
++									if (vm.slot[sl].status == ssPaused) { vm.slot[sl].delay = 0; vm.slot[sl].status = ssRunning; }
++									running = running || vm.slot[sl].status == ssRunning;
++								}
++								if (ownLines) said(theirs, someone, anything);
++								heard(e);
++								if (!running && frame > 1) break;
++								if (VAR_HAVE_MSG != 0xFF) VAR(VAR_HAVE_MSG) = 0;
++								_talkDelay = 0; _drawObjectQueNr = 0;
++								runAllScripts(); walkActors(); moveCamera(); _sound->stopAllSounds();
++								for (int n = 1; n < _numActors; ++n)
++									if (_actors[n]->isInCurrentRoom() && _actors[n]->_costume) { _actors[n]->animateCostume(); _actors[n]->_needRedraw = false; }
++								scummverseDropAnimCommands(); dropTexts();
++								// (A clock it starts, any not held still (its start stops the
++								// one held still, whose slot it may take): held still, its first
++								// slice played.)
++								for (uint sl = 0; sl < NUM_SCRIPT_SLOT; ++sl)
++									if (vm.slot[sl].number == h.script && vm.slot[sl].status != ssDead && vm.slot[sl].where == WIO_GLOBAL && !(vm.slot[sl].status & 0x80)) {
++										vm.slot[sl].status |= 0x80; vm.slot[sl].freezeCount = 1; restarted = sl;
++									}
++							}
++							heard(e);
++							if (ownLines) {
++								said(theirs, someone, anything);
++								e.line = theirs.empty() ? anything : theirs;
++								ScummverseAnswer::Line chosen;
++								chosen.text = e.line;
++								for (const ScummverseAnswer::Line &l : e.lines) if (l.text == e.line) { chosen = l; break; }
++								e.lines.clear();
++								if (!chosen.text.empty()) e.lines.push_back(chosen);
++							} else e.line = e.lines.empty() ? Common::String() : e.lines[0].text;
++							_scummverseStatesSet = nullptr;
++							const bool spent = _scummverseStepBudget == 0;
++							_scummverseStepBudget = -1;
++							if (spent || _currentRoom != shownRoom || a->_room != shownRoom) { quiet(); ++holderLeft; continue; }
++							e.after = pictureOf(t.object);
++							e.taken = getOwner(t.object) != owned[t.object] && getOwner(t.object) == ego;
++							e.secondGone = getOwner(m) != ego;
++							Common::HashMap<int, bool> listed;
++							for (int other : set) {
++								if (other <= 0 || other == t.object || other == m || listed.contains(other) || !placeOf.contains(other) || ridden.contains(other) || e.others.size() >= 3 * 64) continue;
++								listed[other] = true;
++								e.others.push_back(placeIn(other, t.room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
++							}
++							for (int o = 1; o < (int)owned.size() && e.others.size() < 3 * 64; ++o)
++								if (o != t.object && o != m && owned[o] != ego && getOwner(o) == ego && (placeOf.contains(o) || unlisted.contains(o)) && !ridden.contains(o)) {
++									e.others.push_back(placeIn(o, t.room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven);
++								}
++							Common::Array<int> carried;
++							carried.push_back(m);
++							touches(e.others, t.room, t.object, e.taken, carried, was, set, owned);
++							while (e.others.size() > 3 * 64) e.others.resize(e.others.size() - 3);
++							Common::Array<int> leaves;
++							uint kv = 0;
++							for (const WorldKeptValue &k : kWorldKeptValues) {
++								if (k.game != gameIndex) continue;
++								const int now = readVar(k.var), before = varsWere[kv++];
++								if (now != before && leaves.size() + 2 < 2 * (uint)Scummverse::PanelBridge::kMostLeaves) { leaves.push_back(k.var); leaves.push_back(worldKeptCount(gameIndex, k.var) ? now - before : now); }
++							}
++							// (Which holds it after: the one its clock restarted on, from
++							// the start; else the one held before, still; else none.)
++							const int heldAfter = restarted >= 0 ? (int)vm.localvar[restarted][0] : clock >= 0 && vm.slot[clock].number == h.script && vm.slot[clock].status != ssDead ? heldBefore : 0;
++							if (heldAfter != heldBefore || restarted >= 0) { leaves.push_back(kWorldHeld); leaves.push_back(heldAfter); }
++							if (restarted >= 0) { leaves.push_back(kWorldHeldFor); leaves.push_back(0); }
++							if (heldBefore && heldAfter != heldBefore && getOwner(heldBefore) == ego)
++								warning("SCUMMVERSE world things: %s room %d: %d used with %d (holders %d): %d no longer holds it but is not given back", kWorldGames[gameIndex].gameid, t.room, m, t.object,
++									worldHolderCode(cs.with, t.holder ? cs.target : 0, cs.third, t.reads && cs.read), heldBefore);
++							quiet();
++							if (e.lines.empty() && e.line.empty() && e.after == from && !e.taken && !e.secondGone && e.others.empty() && leaves.empty()) { ++holderSilent; continue; }
++							debug(2, "SCUMMVERSE world things: %s room %d: %d used with %d from %d, holders %d: %d others, %d values left changed, held after %d", kWorldGames[gameIndex].gameid, t.room, t.object, m, from,
++								worldHolderCode(cs.with, t.holder ? cs.target : 0, cs.third, t.reads && cs.read), (int)e.others.size() / 3, (int)leaves.size() / 2, heldAfter);
++							keep(e, kWorldHolderAnswer, worldHolderCode(cs.with, t.holder ? cs.target : 0, cs.third, t.reads && cs.read), leaves);
++						}
++				}
++			}
++		}
++		if (holderRuns || holderMissed)
++			debug(1, "SCUMMVERSE world things: %s %d runs of its holders used (%d not arrived at, %d leaving the place or running on, %d saying, changing and leaving nothing)",
++				kWorldGames[gameIndex].gameid, holderRuns, holderMissed, holderLeft, holderSilent);
+ 		for (const ScummverseValuedAnswer &a : valuedOut) revealedBy(a.others);
+ 		for (uint wn = 0; !old && !heldThing && wn < ARRAYSIZE(kWorldValueArrivals) && !shouldQuit(); ++wn) {
+ 			const WorldValueArrival &w = kWorldValueArrivals[scummverseRunAt(wn, ARRAYSIZE(kWorldValueArrivals), reversed)];
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index caa23b0f..183b3870 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -2387,8 +2387,15 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		bool dead = false;
+ 		const WorldValueReader *reader = valueReader(game, room, id, p.kind, from, with, valued, &dead);
+ 		if (dead) return true;
++		// (From 0297 one of a game's holders used with what it is used with, as
++		// its game answers it by what they hold: Monkey Island's mugs of grog,
++		// filled at the kitchen's barrel, poured from one to another, drunk at
++		// Otis's lock.)
++		const bool held = !reader && later && holderKey(game, room, id, p.kind, from, with, valued);
++		if (held) reader = nullptr;
++		const int *keyed = reader || held ? valued : nullptr;
+ 		if (later) {
+-			if (!PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines, reader ? valued : nullptr)) continue;
++			if (!PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines, keyed)) continue;
+ 		} else if (reader) {
+ 			int speaker, costume, color;
+ 			PanelBridge::thingAnswer(game, room, id, p.kind, from, with, after, flags, others, count, 64, lines, valued);
+@@ -2406,7 +2413,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		}
+ 		// (From 0267 what it makes touchable or untouchable is a change too.)
+ 		int touched[3 * 64], touchedCount = 0, self = 0;
+-		if (!marked) PanelBridge::answerTouches(game, room, id, p.kind, from, with, touched, touchedCount, 64, self, reader ? valued : nullptr);
++		if (!marked) PanelBridge::answerTouches(game, room, id, p.kind, from, with, touched, touchedCount, 64, self, keyed);
+ 		// (Only an own answer uses up; the usual one never does. A usual one
+ 		// that says nothing and changes nothing: the next, else the plain
+ 		// rules, as for one thing.)
+@@ -2419,7 +2426,7 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			StageBridge::objectName(t.thing, name, sizeof(name));
+ 			if (!carry(game, room, id, name, from)) { say("I can't pick that up."); return true; }
+ 		}
+-		if (later) sayAnswer(game, room, id, p.kind, from, with, lines, reader ? valued : nullptr);
++		if (later) sayAnswer(game, room, id, p.kind, from, with, lines, keyed);
+ 		else if (reader && *said) sayAnswer(game, room, id, p.kind, from, with, lines, valued); // (from 0286 its lines whole)
+ 		else if (*said) say(said);
+ 		// (The one here: its picture after, as its script leaves it.)
+@@ -2460,10 +2467,11 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 		}
+ 		// (From 0242: a coin in a view's slot, a turn paid for.)
+ 		if (flags & 8) viewPaid(game, room, id, with);
+-		if (!marked) touchesAfter(game, room, id, p.kind, from, with, reader ? valued : nullptr);
++		if (!marked) touchesAfter(game, room, id, p.kind, from, with, keyed);
+ 		leaveMarks(game, sets);
+ 		if (marked && t.thing >= 0) timedAnswered(game, room, id, from, after); // (from 0287)
+ 		if (reader) valuesAfter(game, *reader, from, valued); // (from 0282)
++		if (held) holderAfter(game, room, id, p.kind, from, with, valued); // (from 0297)
+ 		// (From 0286 what the mansion's answer of two hands on, after it, as
+ 		// one thing's: the cassette put in the Green Tentacle's stereo while
+ 		// it is on turns it on again, playing it; a key used with its door
+@@ -3754,6 +3762,7 @@ bool SandboxEngine::takenAway(int key) const {
+ 	if (!key || key == _playerKey) return false;
+ 	if (guardGone(key)) return true; // (from 0287)
+ 	if (castThingGone(key)) return true; // (from 0288)
++	if (castGone(key)) return true; // (from 0297)
+ 	for (const Timed &t : _timed) {
+ 		const WorldTimed *w = t.phase == 2 && t.event >= 0 && t.event < kWorldTimedCount ? &kWorldTimed[t.event] : nullptr;
+ 		if (w && w->once == 2 && w->person && worldAppearanceKey(w->game, w->person) == key) return true;
+@@ -4206,7 +4215,8 @@ bool SandboxEngine::arrivedWith(int game, int room, int *key) const {
+ // (kWorldValueArrivals; its things file's arrival answer, "SVOB"): each of
+ // its things there so in its picture and touch, each time (as its entry
+ // runs each time), not one carried. The SCUMM Bar's mugs, once the trials
+-// are done, full of grog on its tables.
++// are done, full of grog on its tables (from 0297: empty mugs, as its entry
++// makes them; filled at the kitchen's barrel, kWorldHolders).
+ void SandboxEngine::arrivalShown() {
+ 	int key[2], after, flags, others[4 * 64], count, lines, touched[3 * 64], touchedCount = 0, self = 0;
+ 	if (!arrivedWith(_game, _room, key) ||
+@@ -4243,6 +4253,106 @@ const WorldValueReader *SandboxEngine::valueReader(int game, int room, int id, i
+ 	return nullptr;
+ }
+ 
++// From 0297 whether a verb on a thing (with a second, 0 none) is answered now
++// by a value kept, as its game answers it then (a later game's rows of
++// kWorldValueReaders): not by its plain record.
++bool SandboxEngine::valuedNow(int game, int room, int id, int kind, int from, int with) const {
++	int valued[2];
++	return game >= 0 && game < worldGameCount() && !worldHome(game) && (valueReader(game, room, id, kind, from, with, valued) != nullptr || holderKey(game, room, id, kind, from, with, valued));
++}
++
++// ---- Holders (from 0297; kWorldHolders) ----
++
++// A thing of the game's used with one of its holders (`with`, carried), where
++// it is one of kWorldHolderUses or another of them: the key its things file
++// files that answer under now (kWorldHolderAnswer and worldHolderCode: what
++// each holds, as kWorldHeld and kWorldHeldFor keep it; a third holding it;
++// the use's value read), where it has one.
++bool SandboxEngine::holderKey(int game, int room, int id, int kind, int from, int with, int *key) const {
++	const WorldHolder *h = game >= 0 && game < worldGameCount() ? worldHolderOf(game) : nullptr;
++	if (!h || kind != kWorldVerbUse || with < h->first || with > h->last) return false;
++	const bool holder = worldHolder(game, room, id);
++	const WorldHolderUse *use = holder ? nullptr : worldHolderUse(game, room, id);
++	if (!holder && !use) return false;
++	const int held = keptValue(game, kWorldHeld);
++	auto state = [&](int o) { return o != held ? (int)kWorldHolderEmpty : keptValue(game, kWorldHeldFor) < worldHolderWad(*h) ? (int)kWorldHolderHolds : (int)kWorldHolderWad; };
++	key[0] = kWorldHolderAnswer;
++	key[1] = worldHolderCode(state(with), holder ? state(id) : 0, held && held != with && (!holder || held != id), use && use->reads && keptValue(game, use->reads));
++	return PanelBridge::valueAnswered(game, room, id, kind, from, with, key[0], key[1]);
++}
++
++// What such an answer leaves: the values kept it changes; which holds it now
++// (kWorldHeld; its clock from the start where it says so, kWorldHeldFor 0);
++// the one that held it before and no longer does put back in its place, as
++// its game gives it back (poured out, drunk, melted).
++void SandboxEngine::holderAfter(int game, int room, int id, int kind, int from, int with, const int *key) {
++	int leaves[2 * PanelBridge::kMostLeaves];
++	const int left = PanelBridge::valueLeaves(game, room, id, kind, from, with, key[0], key[1], leaves, PanelBridge::kMostLeaves);
++	const int was = keptValue(game, kWorldHeld);
++	int now = was;
++	bool restart = false;
++	for (int k = 0; k < left; ++k) {
++		const int var = leaves[2 * k], value = leaves[2 * k + 1];
++		if (var == kWorldHeld) now = value;
++		else if (var == kWorldHeldFor) restart = true;
++		else if (worldKeptValue(game, var)) _kept[game * 65536 + var] = value + (worldKeptCount(game, var) ? keptValue(game, var) : 0);
++	}
++	const WorldHolder *h = worldHolderOf(game);
++	if (!h || now < 0 || (now && (now < h->first || now > h->last))) return;
++	if (now) { _kept[game * 65536 + kWorldHeld] = now; if (restart || now != was) _kept[game * 65536 + kWorldHeldFor] = 0; }
++	else { _kept.erase(game * 65536 + kWorldHeld); _kept.erase(game * 65536 + kWorldHeldFor); }
++	if (was && was != now) holderBack(game, was);
++}
++
++// Its clock, as its game's script runs it: `wait` ticks, then melting by its
++// rate where the one played is (`rates` in `rooms`, else `rate`) each tick
++// as each frame of its, `near` and `wad` ticks; then no longer held, put
++// back. Not while touring, as timed events.
++void SandboxEngine::holderStep(int ticks) {
++	for (const WorldHolder &h : kWorldHolders) {
++		if (h.game < 0 || h.game >= worldGameCount() || !keptValue(h.game, kWorldHeld)) continue;
++		int at = keptValue(h.game, kWorldHeldFor);
++		for (int t = 0; t < ticks; ++t) {
++			int rate = 1;
++			if (at >= worldHolderWaits(h, h.wait) && at < worldHolderWaits(h, h.wait) + h.amount * h.frame) {
++				rate = h.rate;
++				for (int k = 0; k < 3; ++k) if (_game == h.game && _room == h.rooms[k] && h.rooms[k]) rate = h.rates[k];
++			}
++			at += rate;
++		}
++		if (at < worldHolderClock(h)) { _kept[h.game * 65536 + kWorldHeldFor] = at; continue; }
++		const int held = keptValue(h.game, kWorldHeld);
++		_kept.erase(h.game * 65536 + kWorldHeld); _kept.erase(h.game * 65536 + kWorldHeldFor);
++		holderBack(h.game, held);
++	}
++}
++
++// One put back in its place as its game gives it back (its owner its room
++// again): no longer carried, nor kept untouchable there (its place shows it as
++// its arrival does: the bar's mugs once the trials are done).
++void SandboxEngine::holderBack(int game, int id) {
++	const WorldHolder *h = worldHolderOf(game);
++	if (!h || id < h->first || id > h->last) return;
++	for (uint n = 0; n < _carried.size(); ++n)
++		if (_carried[n].game == game && _carried[n].room == h->room && _carried[n].id == id) {
++			if (_holding.item == (int)n) _holding = Pair();
++			PanelBridge::removeItem(n);
++			_carried.remove_at(n);
++			break;
++		}
++	_touched.erase(thingKey(game, h->room, id));
++	if (_game == game && _room == h->room) arrivalShown();
++	_dirty = true;
++}
++
++// One of a game's cast gone for good once a value kept is set
++// (kWorldCastGones: Otis freed).
++bool SandboxEngine::castGone(int key) const {
++	for (const WorldCastGone &c : kWorldCastGones)
++		if (c.game >= 0 && c.game < worldGameCount() && worldAppearanceKey(c.game, c.costume) == key && keptValue(c.game, c.var)) return true;
++	return false;
++}
++
+ // From 0286 one of its game's cast on the stage here, by the costume its
+ // cast knows them by (not hidden: a film's).
+ bool SandboxEngine::personHere(int game, int room, int costume) const {
+@@ -4255,13 +4365,15 @@ bool SandboxEngine::personHere(int game, int room, int costume) const {
+ // What its answer leaves kept; its later steps under way from now (that
+ // script's under way before let go: its game starts it again). From 0286
+ // the marks it leaves set too (their variable at their value), and a value
+-// kept only at one its variable holds here (kWorldKeptValues').
++// kept only at one its variable holds here (kWorldKeptValues'). From 0297 a
++// value its game only adds to (kWorldKeptCounts: Monkey Island's trials
++// done) what it holds now and what the answer adds.
+ void SandboxEngine::valuesAfter(int game, const WorldValueReader &v, int from, const int *valued) {
+ 	int leaves[2 * PanelBridge::kMostLeaves], steps[5];
+ 	const int left = PanelBridge::valueLeaves(game, v.room, v.object, v.kind, from, v.with, valued[0], valued[1], leaves, PanelBridge::kMostLeaves);
+ 	int sets = 0;
+ 	for (int k = 0; k < left; ++k) {
+-		const int var = leaves[2 * k], value = leaves[2 * k + 1];
++		const int var = leaves[2 * k], value = leaves[2 * k + 1] + (worldKeptCount(game, leaves[2 * k]) ? keptValue(game, leaves[2 * k]) : 0);
+ 		bool held = !value;
+ 		for (const WorldKeptValue &kv : kWorldKeptValues)
+ 			for (short x : kv.values) held = held || (kv.game == game && kv.var == var && x && x == value);
+@@ -4859,6 +4971,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_going.room && _saying.empty() && _speechClock <= 0 && _noticeClock <= 0) goThere(); // (from 0283, its lines said)
+ 	if (!_touring.on) timedStep(ticks);
+ 	if (!_touring.on) laterStep(ticks); // (from 0282)
++	if (!_touring.on) holderStep(ticks); // (from 0297)
+ 	stepAwayStep(); // (from 0292)
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+@@ -6934,7 +7047,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		const int keptCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+ 		for (int i = 0; i < keptCount && !in->eos(); ++i) {
+ 			const int g = in->readSint16LE(), var = in->readUint16LE(), value = in->readSint32LE();
+-			if (g >= 0 && g < worldGameCount() && worldKeptValue(g, var)) keptNow[g * 65536 + var] = value;
++			if (g >= 0 && g < worldGameCount() && (worldKeptValue(g, var) || worldHeldValue(g, var))) keptNow[g * 65536 + var] = value; // (from 0297 a holder's too)
+ 		}
+ 		Common::Array<Later> later;
+ 		const int laterCount = tag == MKTAG('S', 'V', 'S', '9') ? in->readUint16LE() : 0;
+@@ -7939,7 +8052,8 @@ SandboxEngine::GivenThrough SandboxEngine::givenThroughPlayed() {
+ // done (195 at 0, or 2) no mug (373 to 377) there to touch; with them done
+ // (195 kept at 3, as its global script 68 leaves it after the third: none of
+ // the trials is an answer the new engine plays), the mugs shown and touchable,
+-// one looked at (its line as its game answers it then, full of grog), one
++// one looked at (its line as its game answers it then, full of grog; from
++// 0297: a mug, empty, as its entry makes it), one
+ // picked up and carried, kept with the value through a save and a load, the
+ // others there still on coming back. Before, the crew gave their usual
+ // answer each time and the jug never came, the chest never gave them, and no
+@@ -8064,6 +8178,167 @@ SandboxEngine::KeptValues SandboxEngine::keptValuesPlayed() {
+ 	return c;
+ }
+ 
++// From 0297 the "verbs" check's (see verbsTest): two of Monkey Island's three
++// trials as a player plays them, as its things file has them (kWorldValueReaders'
++// rows of room 64 and 42, kWorldKeptCounts). The treasure: the shovel (room 30,
++// 410, carried) used on the X (room 64, 726): the T-shirt (729) carried, the
++// trial counted (195 one more) and done (86); again, nothing given, nothing
++// counted. The idol: the fabulous idol (room 42, 586) picked up: carried, the
++// trial counted and done (85), and the one played up the ladder onto the dock
++// (room 83), its ends leading to the harbour street (33). Each through a save
++// and a load; in either order (and with the Sword Master's trial counted first,
++// as its fight leaves it: not played here), the count only one more each time;
++// with all three done, the SCUMM Bar's mugs (373 to 377) there and touchable.
++// Before, the dig gave nothing and the idol could not be taken.
++SandboxEngine::Trials SandboxEngine::trialsPlayed() {
++	Trials c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "monkey")) g = k;
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox trials: %s: %s", what, how); }
++		return ok;
++	};
++	auto tap = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto useWith = [&](int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0) return false;
++		Pair p;
++		p.kind = kWorldVerbUse; p.item = item;
++		_holding = p;
++		useOn(kWorldVerbUse, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	const int trial2 = 0x8000 + 85, trial3 = 0x8000 + 86;
++	// (The treasure dug: the shovel carried (as its shop's Pick up gives it).)
++	auto dig = [&](int before) {
++		bool ok = check(enter(g, 64, 0, problem) && carry(g, 30, 410, "", 0, false), "the X's clearing not shown, or the shovel not carried") &&
++			check(useWith(carriedAt(30, 410), 726) && isCarried(g, 64, 729), "the T-shirt not given digging the X with the shovel") &&
++			check(keptValue(g, 195) == before + 1 && keptValue(g, trial3) == 1, "the trial not counted, or not done, by the dig");
++		ok = ok && check(saved() && keptValue(g, 195) == before + 1 && keptValue(g, trial3) == 1 && isCarried(g, 64, 729), "the dig not kept through a save and a load") &&
++			check(enter(g, 64, 0, problem) && useWith(carriedAt(30, 410), 726) && keptValue(g, 195) == before + 1 && !(_speech.empty() && _notice.empty() && _saying.empty()),
++				"dug again: counted again, or nothing said");
++		return ok;
++	};
++	// (The idol picked up: up the ladder onto the dock, its way to the harbour street.)
++	auto idol = [&](int before) {
++		bool ok = check(enter(g, 42, 0, problem) && thingIn(586) >= 0 && isThing(thingIn(586)), "under the harbour not shown, or its idol not there") && check(tap(kWorldVerbPickUp, 586), "the idol not tapped");
++		for (int t = 0; t < 600 && ok && _room == 42; ++t) step(1);
++		ok = ok && check(_game == g && _room == 83 && isCarried(g, 42, 586), "the idol not carried up the ladder onto the dock (room 83)") &&
++			check(keptValue(g, 195) == before + 1 && keptValue(g, trial2) == 1, "the trial not counted, or not done, by the idol");
++		ok = ok && check(saved() && keptValue(g, 195) == before + 1 && keptValue(g, trial2) == 1 && isCarried(g, 42, 586), "the idol not kept through a save and a load");
++		int dock = -1;
++		if (const WorldMap *map = worldMap(g)) for (int i = 0; i < map->linkCount; ++i) if (map->links[i].room == 83 && map->links[i].target == 33) dock = i;
++		ok = ok && check(dock >= 0 && enter(g, 83, 0, problem) && travel(dock) && _room == 33, "the dock's way to the harbour street not gone through");
++		return ok;
++	};
++	if (g >= 0 && installed(g, 64) && installed(g, 42) && installed(g, 83) && installed(g, 33) &&
++		PanelBridge::valueAnswered(g, 64, 726, kWorldVerbUse, 0, 410, 0, 0) && PanelBridge::valueAnswered(g, 42, 586, kWorldVerbPickUp, 0, 0, 0, 0)) {
++		// (The treasure, then the idol; the idol, then the treasure; the Sword
++		// Master's trial counted first and the idol last, and the bar then.)
++		for (int order = 0; order < 3; ++order) {
++			what = order == 0 ? "Monkey Island's treasure then its idol" : order == 1 ? "Monkey Island's idol then its treasure" : "Monkey Island's three trials, the idol last";
++			++c.cases;
++			fresh();
++			if (order == 2) _kept[g * 65536 + 195] = 1; // (as the Sword Master's fight won leaves it: not played here)
++			const int first = order == 2 ? 1 : 0;
++			bool ok = order == 1 ? idol(first) && dig(first + 1) : dig(first) && idol(first + 1);
++			if (ok && order == 2) {
++				ok = check(keptValue(g, 195) == 3, "not three trials done") &&
++					check(installed(g, 28) && enter(g, 28, 0, problem) && thingIn(373) >= 0 && isThing(thingIn(373)) && pictureNow(thingIn(373), 373) == 1, "the SCUMM Bar's mugs not there with the trials done") &&
++					check(tap(kWorldVerbPickUp, 373) && isCarried(g, 28, 373) && saved() && isCarried(g, 28, 373) && keptValue(g, 195) == 3, "a mug not taken and kept");
++				// (The grog, kWorldHolders: a second mug taken; the first filled at
++				// the kitchen's barrel (its first time), held, its clock on; the
++				// second not filled while the first holds it; held through a save
++				// and a load; melting five times as fast on the high street (34) as
++				// in the kitchen; poured into the second, the first put back on the
++				// bar's table, the second's clock from the start; drunk at Otis's
++				// lock, Otis freed (76) and gone from the jail, the mug put back;
++				// through a save and a load. Then a third filled and left to melt:
++				// a wad at Otis's lock does nothing, and at its clock's end it is
++				// put back, on the bar's table again.)
++				const WorldHolder *h = worldHolderOf(g);
++				what = "Monkey Island's mug of grog carried to Otis's lock";
++				auto heldNow = [&]() { return keptValue(g, kWorldHeld); };
++				ok = ok && h && check(installed(g, 41) && installed(g, 31) && installed(g, 34) && enter(g, 28, 0, problem) && tap(kWorldVerbPickUp, 374) && isCarried(g, 28, 374), "a second mug not taken") &&
++					check(enter(g, 41, 0, problem) && useWith(carriedAt(28, 373), 380) && heldNow() == 373 && keptValue(g, kWorldHeldFor) < worldHolderWaits(*h, h->wait) && keptValue(g, 0x8000 + 421) == 1, "a mug not filled at the kitchen's barrel") &&
++					check(useWith(carriedAt(28, 374), 380) && heldNow() == 373 && isCarried(g, 28, 374), "a second mug filled while the first holds it") &&
++					check(saved() && heldNow() == 373 && isCarried(g, 28, 373) && isCarried(g, 28, 374), "the mug holding it not kept through a save and a load");
++				const int melting = h ? worldHolderWaits(*h, h->wait) + 60 : 0;
++				if (ok) {
++					_kept[g * 65536 + kWorldHeldFor] = melting;
++					for (int t = 0; t < 60; ++t) step(1);
++					const int kitchen = keptValue(g, kWorldHeldFor) - melting;
++					ok = check(enter(g, 34, 0, problem), "the high street not shown");
++					_kept[g * 65536 + kWorldHeldFor] = melting;
++					for (int t = 0; t < 60; ++t) step(1);
++					ok = ok && check(kitchen == 60 && keptValue(g, kWorldHeldFor) - melting == 300 && heldNow() == 373, "not melting as its script melts it where the one played is");
++				}
++				if (ok) {
++					Pair p;
++					p.kind = kWorldVerbUse; p.item = carriedAt(28, 373); p.withItem = carriedAt(28, 374);
++					_holding = Pair();
++					pairUp(p);
++					settle();
++					ok = check(heldNow() == 374 && keptValue(g, kWorldHeldFor) < melting && !isCarried(g, 28, 373) && isCarried(g, 28, 374), "the grog not poured into the second mug (its clock from the start), the first not put back");
++				}
++				ok = ok && check(enter(g, 31, 0, problem) && personHere(g, 31, 13), "Otis not in his cell") &&
++					check(useWith(carriedAt(28, 374), 416) && keptValue(g, 0x8000 + 76) == 1 && heldNow() == 0 && !isCarried(g, 28, 374), "Otis not freed by the grog at his lock, or the mug not put back") &&
++					check(saved() && keptValue(g, 0x8000 + 76) == 1 && heldNow() == 0 && enter(g, 31, 0, problem) && !personHere(g, 31, 13), "Otis not gone from the jail once freed, through a save and a load");
++				ok = ok && check(enter(g, 28, 0, problem) && thingIn(373) >= 0 && isThing(thingIn(373)) && tap(kWorldVerbPickUp, 375) && enter(g, 41, 0, problem) && useWith(carriedAt(28, 375), 380) && heldNow() == 375,
++					"a mug put back not on the bar's table, or a third not filled");
++				if (ok) {
++					_kept[g * 65536 + kWorldHeldFor] = worldHolderWad(*h) + 6;
++					ok = check(enter(g, 31, 0, problem) && useWith(carriedAt(28, 375), 414) && heldNow() == 375 && isCarried(g, 28, 375), "a wad at a lock not as its game answers it");
++					for (int t = 0; t < worldHolderClock(*h) && ok && heldNow(); ++t) step(1);
++					ok = ok && check(!heldNow() && !isCarried(g, 28, 375) && enter(g, 28, 0, problem) && thingIn(375) >= 0 && isThing(thingIn(375)), "a mug melted not put back on the bar's table at its clock's end");
++				}
++			}
++			if (ok) { ++c.played; ++c.kept; }
++		}
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0281 (the "verbs" check): each thing a game starts untouchable that an
+ // answer of its things file makes touchable in the answer's own place (an
+ // answer of one thing, or a thing carried used on one, as its record names
+@@ -14315,7 +14590,9 @@ Common::Error SandboxEngine::verbsTest() {
+ 				// (From 0265 read whole, as pairOwn and pairPerson read it: an
+ 				// other in a picture past 1 too; its first line.)
+ 				*said = 0;
+-				if (first < 0 || !carryable.contains(first) || isCarried(g, carryable[first], first) || (carried && isCarried(g, room, id)) ||
++				// (From 0297 not one answered now by a value kept, as its game
++				// answers it then: its own check's, trialsPlayed's.)
++				if (first < 0 || !carryable.contains(first) || isCarried(g, carryable[first], first) || (carried && isCarried(g, room, id)) || valuedNow(g, room, id, kind, from, first) ||
+ 					!PanelBridge::thingAnswer(g, room, id, kind, from, first, after, flags, others, count, 64, lines) ||
+ 					(lines && !PanelBridge::answerLine(g, room, id, kind, from, first, 0, speaker, costume, color, said, sizeof(said)))) { ++c->pairsAway; continue; }
+ 				if ((_game != g || _room != room) && !enter(g, room, 0, problem)) { fail("a place not shown", g); continue; }
+@@ -14901,7 +15178,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 					const bool takenShown = worldHome(g);
+ 					for (int kind : kinds)
+ 						for (int from = 0; from < pictures; ++from) {
+-							if (recorded(g, room, id, kind, from)) continue;
++							if (recorded(g, room, id, kind, from) || valuedNow(g, room, id, kind, from, 0)) continue; // (from 0297 nor one a value kept answers)
+ 							const bool there = played(g, room, id, from) || (from <= 1 && answersNothing(g, room, id));
+ 							if (!there && from != now && !(from < 32 && reached.contains(thingKey(g, room, id)) && (reached[thingKey(g, room, id)] & 1u << from))) continue;
+ 							const bool differs = StageBridge::picturesDiffer(o, 0, takenShown ? 1 : from);
+@@ -15237,6 +15514,11 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest kept values: %d of %d later games' answers and places by a value kept played as a player plays them (Monkey Island's ghost crew tickled twice, its captain's chest looked in, its SCUMM Bar's mugs with the trials done), %d kept through a save and a load; %d failed",
+ 		valuesKept.played, valuesKept.cases, valuesKept.kept, valuesKept.failed);
+ 	failed += valuesKept.failed;
++	// (From 0297) Monkey Island's trials as a player plays them: see trialsPlayed.
++	const Trials trials = trialsPlayed();
++	warning("SCUMMVERSE sandbox selftest Monkey Island's trials: %d of %d orders played as a player plays them (the treasure dug, the idol brought up onto the dock, each counted once; the SCUMM Bar's mugs with all three), %d kept through saves and loads; %d failed",
++		trials.played, trials.cases, trials.kept, trials.failed);
++	failed += trials.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 5b9b7052..de94eb80 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -400,6 +400,16 @@ private:
+ 	bool personHere(int game, int room, int costume) const; // (from 0286: one of its cast on the stage here)
+ 	const WorldCatalog::WorldValueReader *valueReader(int game, int room, int id, int kind, int from, int with, int *valued, bool *dead = nullptr) const;
+ 	void valuesAfter(int game, const WorldCatalog::WorldValueReader &v, int from, const int *valued);
++	bool valuedNow(int game, int room, int id, int kind, int from, int with) const; // (from 0297)
++	// (From 0297 the holders, kWorldHolders: the key a thing used with one is
++	// answered by now, where its things file has it; what that answer leaves
++	// (which holds it, the one it leaves put back); its clock on this
++	// engine's; one put back in its place; one of the cast gone so.)
++	bool holderKey(int game, int room, int id, int kind, int from, int with, int *key) const;
++	void holderAfter(int game, int room, int id, int kind, int from, int with, const int *key);
++	void holderStep(int ticks);
++	void holderBack(int game, int id);
++	bool castGone(int key) const;
+ 	// (From 0296 a place whose entry reads a value kept, kWorldValueArrivals:
+ 	// while it is so, the key its arrival is filed under; shown so.)
+ 	bool arrivedWith(int game, int room, int *key) const;
+@@ -700,6 +710,12 @@ private:
+ 	// where one is not as its things file has it.)
+ 	struct KeptValues { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	KeptValues keptValuesPlayed();
++	// (From 0297 the "verbs" check's: Monkey Island's trials as a player plays
++	// them (the treasure dug, the idol brought up), in either order, each
++	// counted once, then the SCUMM Bar with its mugs. Counted; `failed`
++	// where one is not as its things file has it.)
++	struct Trials { int cases = 0, played = 0, kept = 0, failed = 0; };
++	Trials trialsPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

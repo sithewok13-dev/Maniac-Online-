@@ -1,0 +1,396 @@
+diff --git a/common/scummverse_wander.cpp b/common/scummverse_wander.cpp
+index c41b37b8..b0b8841d 100644
+--- a/common/scummverse_wander.cpp
++++ b/common/scummverse_wander.cpp
+@@ -8,14 +8,22 @@
+ namespace Scummverse {
+ namespace Wander {
+ 
+-int Map::add(int code) {
++int Map::add(int code, int weight) {
+ 	const int known = find(code);
+ 	if (known >= 0) return known;
+ 	places.push_back(code);
+ 	doors.push_back(std::vector<int>());
++	weights.push_back(std::max(1, weight)); total += weights.back();
+ 	return (int)places.size() - 1;
+ }
+ 
++int Map::pick(Random &random) const {
++	if (places.empty() || total <= 0) return 0;
++	long at = (long)(random.next() % (uint32_t)total);
++	for (size_t i = 0; i < places.size(); ++i) if ((at -= weights[i]) < 0) return places[i];
++	return places.back();
++}
++
+ void Map::link(int from, int to) {
+ 	const int a = find(from), b = find(to);
+ 	if (a < 0 || b < 0 || a == b) return;
+@@ -27,6 +35,25 @@ int Map::find(int code) const {
+ 	return -1;
+ }
+ 
++void Cast::add(int character, int home, int weight) {
++	if (character <= 0 || find(character) >= 0) return;
++	who.push_back(character); homes.push_back(home); weights.push_back(std::max(1, weight));
++}
++
++int Cast::find(int character) const {
++	for (size_t i = 0; i < who.size(); ++i) if (who[i] == character) return (int)i;
++	return -1;
++}
++
++// One of `pool` (cast indices), by the cast's weights.
++static int pickCast(const std::vector<int> &pool, const Cast &cast, Random &random) {
++	long total = 0;
++	for (int c : pool) total += cast.weights[c];
++	long at = total > 0 ? (long)(random.next() % (uint32_t)total) : 0;
++	for (size_t k = 0; k < pool.size(); ++k) if ((at -= cast.weights[pool[k]]) < 0) return (int)k;
++	return (int)pool.size() - 1;
++}
++
+ uint32_t Random::next() {
+ 	state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+ 	return state;
+@@ -60,37 +87,47 @@ bool Wanderers::send(int character, int place) {
+ 	return false;
+ }
+ 
+-void Wanderers::start(const std::vector<int> &cast, const Map &map, int count, Random &random) {
++void Wanderers::start(const Cast &cast, const Map &map, int count, Random &random) {
+ 	if (map.places.empty()) return;
+ 	std::vector<int> pool;
+-	for (int c : cast) if (c && !out(c)) pool.push_back(c);
++	for (size_t c = 0; c < cast.size(); ++c) if (!out(cast.who[c])) pool.push_back((int)c);
+ 	int free = 0;
+ 	for (int i = 0; i < kMostWanderers; ++i) free += !_who[i];
+ 	count = std::min(count, free);
+ 	for (int i = 0; i < count && !pool.empty(); ++i) {
+-		const int pick = random.below((int)pool.size());
+-		send(pool[pick], map.places[random.below((int)map.places.size())]);
++		const int pick = pickCast(pool, cast, random);
++		send(cast.who[pool[pick]], map.pick(random));
+ 		pool.erase(pool.begin() + pick);
+ 	}
+ }
+ 
+ // Where wanderer i goes next: through a door of its place, else (or now and
+-// then) anywhere, or to another wanderer.
+-int Wanderers::moveFrom(int i, const Map &map, const Rules &rules, Random &random) const {
++// then) anywhere (by weight), to another wanderer, or toward the player (a
++// place next to the player's), so they are met wherever the player is; but
++// not into the player's place once a crowd is there (those there stay while
++// the player watches, so they would only pile up).
++int Wanderers::moveFrom(int i, int player, const Map &map, const Rules &rules, Random &random) const {
+ 	const int roll = random.below(100);
++	int next = 0;
+ 	if (roll < rules.join) {
+ 		std::vector<int> others;
+ 		for (int j = 0; j < kMostWanderers; ++j) if (j != i && _who[j] && _where[j] != _where[i] && map.find(_where[j]) >= 0) others.push_back(_where[j]);
+-		if (!others.empty()) return others[random.below((int)others.size())];
++		if (!others.empty()) next = others[random.below((int)others.size())];
+ 	}
+-	const int here = map.find(_where[i]);
+-	if (roll >= rules.join + rules.jump && here >= 0 && !map.doors[here].empty())
+-		return map.places[map.doors[here][random.below((int)map.doors[here].size())]];
+-	return map.places[random.below((int)map.places.size())];
++	const int near = map.find(player), here = map.find(_where[i]);
++	if (next) {
++		// (Joining another wanderer.)
++	} else if (roll >= rules.join && roll < rules.join + rules.toward && near >= 0 && !map.doors[near].empty()) {
++		next = map.places[map.doors[near][random.below((int)map.doors[near].size())]];
++	} else if (roll >= rules.join + rules.toward + rules.jump && here >= 0 && !map.doors[here].empty()) {
++		next = map.places[map.doors[here][random.below((int)map.doors[here].size())]];
++	} else {
++		next = map.pick(random);
++	}
++	return next == player && player && at(player, nullptr, 0) >= rules.crowd ? _where[i] : next;
+ }
+ 
+-bool Wanderers::advance(int ticks, int here, const std::vector<int> &cast, const std::vector<int> &homes, const Map &map,
+-		const Rules &rules, Random &random) {
++bool Wanderers::advance(int ticks, int here, const Cast &cast, const Map &map, const Rules &rules, Random &random) {
+ 	if (map.places.empty() || ticks <= 0) return false;
+ 	bool changed = false;
+ 	const int hop = std::max(1, rules.hop);
+@@ -100,7 +137,7 @@ bool Wanderers::advance(int ticks, int here, const std::vector<int> &cast, const
+ 		if (_where[i] == here) continue;
+ 		if ((_clock[i] -= ticks) > 0) continue;
+ 		_clock[i] = hop / 2 + random.below(hop);
+-		const int next = moveFrom(i, map, rules, random);
++		const int next = moveFrom(i, here, map, rules, random);
+ 		if (next != _where[i]) { _where[i] = next; changed = true; }
+ 	}
+ 	// Taking turns: one (not where the player is) goes home, and someone not
+@@ -114,16 +151,15 @@ bool Wanderers::advance(int ticks, int here, const std::vector<int> &cast, const
+ 	std::vector<int> leaving, setting;
+ 	for (int i = 0; i < kMostWanderers; ++i) {
+ 		if (!_who[i] || _where[i] == here) continue;
+-		const std::vector<int>::const_iterator c = std::find(cast.begin(), cast.end(), _who[i]);
+-		const size_t at = (size_t)(c - cast.begin());
+-		if (here && at < homes.size() && homes[at] == here) continue;
++		const int c = cast.find(_who[i]);
++		if (here && c >= 0 && cast.homes[c] == here) continue;
+ 		leaving.push_back(i);
+ 	}
+-	for (size_t c = 0; c < cast.size() && c < homes.size(); ++c) if (!out(cast[c]) && homes[c] != here && homes[c]) setting.push_back((int)c);
++	for (size_t c = 0; c < cast.size(); ++c) if (!out(cast.who[c]) && cast.homes[c] != here && cast.homes[c]) setting.push_back((int)c);
+ 	if (leaving.empty() || setting.empty()) return changed;
+ 	const int i = leaving[random.below((int)leaving.size())];
+-	const int c = setting[random.below((int)setting.size())];
+-	_who[i] = cast[c]; _where[i] = homes[c]; _clock[i] = -1;
++	const int c = setting[pickCast(setting, cast, random)];
++	_who[i] = cast.who[c]; _where[i] = cast.homes[c]; _clock[i] = -1;
+ 	return true;
+ }
+ 
+@@ -139,7 +175,7 @@ namespace WanderBridge {
+ namespace {
+ struct Bridge {
+ 	Wander::Map map;
+-	std::vector<int> cast, homes;
++	Wander::Cast cast;
+ 	Wander::Random random;
+ 	Wander::Rules rules;
+ 	int *who = nullptr, *where = nullptr;
+@@ -150,16 +186,12 @@ Bridge &bridge() { static Bridge b; return b; }
+ 
+ void reset(unsigned seed) {
+ 	Bridge &b = bridge();
+-	b.map = Wander::Map(); b.cast.clear(); b.homes.clear(); b.wanderers.clear();
++	b.map = Wander::Map(); b.cast = Wander::Cast(); b.wanderers.clear();
+ 	b.random = Wander::Random(seed); b.rules = Wander::Rules(); b.who = b.where = nullptr;
+ }
+-void addPlace(int code) { if (code > 0) bridge().map.add(code); }
++void addPlace(int code, int weight) { if (code > 0) bridge().map.add(code, weight); }
+ void addDoor(int from, int to) { bridge().map.link(from, to); }
+-void addCast(int character, int home) {
+-	Bridge &b = bridge();
+-	if (character <= 0 || std::find(b.cast.begin(), b.cast.end(), character) != b.cast.end()) return;
+-	b.cast.push_back(character); b.homes.push_back(home);
+-}
++void addCast(int character, int home, int weight) { bridge().cast.add(character, home, weight); }
+ int places() { return (int)bridge().map.places.size(); }
+ int cast() { return (int)bridge().cast.size(); }
+ void bind(int *who, int *where) {
+@@ -174,7 +206,7 @@ void start(int count) {
+ }
+ bool advance(int ticks, int here) {
+ 	Bridge &b = bridge();
+-	return !b.wanderers.empty() && b.wanderers[0].advance(ticks, here, b.cast, b.homes, b.map, b.rules, b.random);
++	return !b.wanderers.empty() && b.wanderers[0].advance(ticks, here, b.cast, b.map, b.rules, b.random);
+ }
+ int at(int place, int *characters, int most) {
+ 	Bridge &b = bridge();
+diff --git a/common/scummverse_wander.h b/common/scummverse_wander.h
+index ab81206b..1d93f616 100644
+--- a/common/scummverse_wander.h
++++ b/common/scummverse_wander.h
+@@ -4,8 +4,10 @@
+ // other games'), a few dozen at a time, taking turns (the user: "more actors
+ // roaming outside their home games. It'll be more interesting to find them in
+ // odd places"). Off-screen a wanderer is only a note, who and where: now and
+-// then it moves on through a door of its place, sometimes somewhere far away,
+-// sometimes to where another wanderer is (so a few gather); every so often
++// then it moves on through a door of its place, sometimes somewhere far away
++// (the places the player is most often in weigh more), sometimes to where
++// another wanderer is (so a few gather), sometimes toward the player (so
++// they are met wherever the player goes); every so often
+ // one goes home and someone else sets out. The wanderers in the player's
+ // place stay put while the player is there. The game shows those
+ // (engines/scumm/scummverse_wander.inc). Plain types; the same seed moves
+@@ -15,21 +17,13 @@
+ 
+ #include "common/scummverse_wander_engine.h"
+ 
++#include <cstddef>
+ #include <cstdint>
+ #include <vector>
+ 
+ namespace Scummverse {
+ namespace Wander {
+ 
+-// The places and the doors between them.
+-struct Map {
+-	std::vector<int> places;             // place codes
+-	std::vector<std::vector<int>> doors; // per place, the places (indices) its doors lead to
+-	int add(int code);                   // its index (added if new)
+-	void link(int from, int to);         // a door between two added places (codes), once
+-	int find(int code) const;            // its index, or -1
+-};
+-
+ // A small random source (xorshift): the same seed, the same moves.
+ struct Random {
+ 	uint32_t state;
+@@ -38,31 +32,54 @@ struct Random {
+ 	int below(int n); // 0..n-1 (0 when n <= 0)
+ };
+ 
++// The places and the doors between them. A place's weight is how often,
++// against the others, a wanderer setting out or going anywhere picks it.
++struct Map {
++	std::vector<int> places;             // place codes
++	std::vector<std::vector<int>> doors; // per place, the places (indices) its doors lead to
++	std::vector<int> weights;            // per place (1 or more)
++	long total = 0;                      // of the weights
++	int add(int code, int weight = 1);   // its index (added if new; a known place keeps its weight)
++	void link(int from, int to);         // a door between two added places (codes), once
++	int find(int code) const;            // its index, or -1
++	int pick(Random &random) const;      // a place code, by weight (0: none)
++};
++
+ // How they move, in game ticks (60 a second).
+ struct Rules {
+ 	int hop = 60 * 90;   // a wanderer moves on about this often (half as long to half as long again)
+ 	int turn = 60 * 150; // one goes home and someone else sets out this often
+ 	int jump = 12;       // percent of moves that go anywhere at all
+ 	int join = 8;        // percent of moves to where another wanderer is
++	int toward = 5;      // percent of moves to a place next to the player's
++	int crowd = 4;       // nobody moves into the player's place once this many are there
++};
++
++// Everyone who may wander: each character, its home place (0: none known)
++// and weight (how often, against the others, it is the one to set out; a
++// game's characters share one game's worth).
++struct Cast {
++	std::vector<int> who, homes, weights;
++	void add(int character, int home, int weight = 1); // once each; nobody 0
++	int find(int character) const;                       // its index, or -1
++	size_t size() const { return who.size(); }
+ };
+ 
+ // The wanderers, kept in the game's saved arrays (kMostWanderers each): who
+-// (a character's number, 0: nobody) and where (a place code). The cast is
+-// everyone who may wander, with their home places (the same order).
++// (a character's number, 0: nobody) and where (a place code).
+ class Wanderers {
+ public:
+ 	Wanderers(int *who, int *where) : _who(who), _where(where), _clock(kMostWanderers, -1), _turnClock(-1) {}
+ 	// Sets out up to `count` of the cast not out yet (as many as there are
+ 	// free places among the wanderers), each at a random place of the map.
+-	void start(const std::vector<int> &cast, const Map &map, int count, Random &random);
++	void start(const Cast &cast, const Map &map, int count, Random &random);
+ 	bool started() const;
+ 	// Time passes: the wanderers elsewhere move on now and then; one goes
+ 	// home and another, not out yet, sets out from home. Nobody in the place
+ 	// `here` moves or goes home, and nobody living there goes home or sets
+ 	// out (the player is watching). True when anyone moved, went home or set
+ 	// out.
+-	bool advance(int ticks, int here, const std::vector<int> &cast, const std::vector<int> &homes, const Map &map,
+-		const Rules &rules, Random &random);
++	bool advance(int ticks, int here, const Cast &cast, const Map &map, const Rules &rules, Random &random);
+ 	bool out(int character) const;
+ 	int where(int character) const; // its place, or 0
+ 	// The wanderers in a place, in order (at most `most`); how many there are.
+@@ -72,7 +89,7 @@ public:
+ 	bool send(int character, int place);
+ 
+ private:
+-	int moveFrom(int i, const Map &map, const Rules &rules, Random &random) const;
++	int moveFrom(int i, int here, const Map &map, const Rules &rules, Random &random) const;
+ 	int *_who, *_where;
+ 	std::vector<int> _clock; // ticks until each moves on (-1: not counted yet)
+ 	int _turnClock;
+diff --git a/common/scummverse_wander_engine.h b/common/scummverse_wander_engine.h
+index dd4f0e6b..28315aca 100644
+--- a/common/scummverse_wander_engine.h
++++ b/common/scummverse_wander_engine.h
+@@ -30,9 +30,13 @@ namespace WanderBridge {
+ // Forgets the places, the cast and the clocks (a game starting); moves are
+ // drawn from `seed`.
+ void reset(unsigned seed);
+-void addPlace(int code);
++// A place, picked `weight` times as often as one of weight 1 by wanderers
++// setting out or going anywhere.
++void addPlace(int code, int weight = 1);
+ void addDoor(int from, int to); // between added places
+-void addCast(int character, int home);
++// A character who may wander, living at `home` (0: unknown); picked to set
++// out `weight` times as often as one of weight 1.
++void addCast(int character, int home, int weight = 1);
+ int places();
+ int cast();
+ // The game's saved arrays of who and where (Wander::kMostWanderers each).
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index e8190416..55c8b36f 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -16,6 +16,10 @@ namespace Wander = ::Scummverse::Wander;
+ 
+ // Out at once (the user's number).
+ static const int kWanderCount = 40;
++// Every game (the mansion, Zak's world, each other game) has an equal share
++// of the wanderers, whatever its size: a place weighs kWanderGameShare over
++// its game's places, a character the same over its game's characters.
++static const int kWanderGameShare = 100000;
+ // A visitor stands at least this far (pixels) from everyone else.
+ static const int kVisitorSpacing = 40;
+ 
+@@ -47,13 +51,21 @@ void ScummEngine::scummverseWanderBuild() {
+ 	_scummverseWanderersOn = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
+ 	if (!_scummverseWanderersOn) return;
+ 	WanderBridge::reset(_rnd.getRandomNumber(0x7FFFFFFE) + 1);
++	// One game's places, each weighing an equal share of the game.
++	auto addGame = [](const Common::Array<int> &places) {
++		for (int code : places) WanderBridge::addPlace(code, MAX<int>(1, kWanderGameShare / (int)places.size()));
++	};
+ 	auto maniac = [](int room) { return Wander::placeCode(Wander::kManiac, 0, room); };
+-	for (const auto &r : kTourManiacRooms) WanderBridge::addPlace(maniac(r.room));
++	Common::Array<int> places;
++	for (const auto &r : kTourManiacRooms) places.push_back(maniac(r.room));
++	addGame(places);
+ 	for (const MansionPassage &p : mansionPassages) if (!p.transit) WanderBridge::addDoor(maniac(p.room), maniac(p.destination));
+ 	if (scummverseMountZak()) {
+ 		auto zak = [](int room) { return Wander::placeCode(Wander::kZak, 0, room); };
+-		for (int room = 53; room < ScummverseContent::kRoomCount; ++room) if (wanderZakRoom(room)) WanderBridge::addPlace(zak(room));
+-		for (const auto &scene : zakLogicalScenes) WanderBridge::addPlace(zak(scene.room));
++		places.clear();
++		for (int room = 53; room < ScummverseContent::kRoomCount; ++room) if (wanderZakRoom(room)) places.push_back(zak(room));
++		for (const auto &scene : zakLogicalScenes) if (scene.room >= ScummverseContent::kRoomCount) places.push_back(zak(scene.room));
++		addGame(places);
+ 		for (const ZakLink &link : zakLinks) WanderBridge::addDoor(zak(link.room), zak(link.destination));
+ 	}
+ 	for (int game = 0; game < worldGameCount(); ++game) {
+@@ -62,25 +74,30 @@ void ScummEngine::scummverseWanderBuild() {
+ 			return Common::FSNode(scummverseWorldCache().appendComponent(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room))).exists();
+ 		};
+ 		auto place = [&](int room) { return Wander::placeCode(Wander::kWorld, game, room); };
+-		for (int i = 0; i < kWorldGames[game].sceneCount; ++i) {
+-			const int room = kWorldGames[game].scenes[i].room;
+-			if (wanderWorldRoom(game, room) && installed(room)) WanderBridge::addPlace(place(room));
+-		}
+-		if (!map) continue;
+-		for (int i = 0; i < map->roomCount; ++i) {
+-			const int room = map->rooms[i].room;
+-			if (wanderWorldRoom(game, room) && installed(room)) WanderBridge::addPlace(place(room));
+-		}
+-		for (int i = 0; i < map->linkCount; ++i) {
++		auto take = [&](int room) {
++			const int code = place(room);
++			if (!wanderWorldRoom(game, room) || Common::find(places.begin(), places.end(), code) != places.end() || !installed(room)) return;
++			places.push_back(code);
++		};
++		places.clear();
++		for (int i = 0; i < kWorldGames[game].sceneCount; ++i) take(kWorldGames[game].scenes[i].room);
++		for (int i = 0; map && i < map->roomCount; ++i) take(map->rooms[i].room);
++		addGame(places);
++		for (int i = 0; map && i < map->linkCount; ++i) {
+ 			const WorldLink &l = map->links[i];
+ 			if (wanderWorldRoom(game, l.target)) { WanderBridge::addDoor(place(l.room), place(l.target)); continue; }
+ 			for (int j = 0; j < map->linkCount; ++j)
+ 				if (map->links[j].room == l.target && map->links[j].target != l.room) WanderBridge::addDoor(place(l.room), place(map->links[j].target));
+ 		}
+ 	}
++	// The cast, each game's characters sharing one game's worth.
++	int games[64] = {};
++	for (const auto &cast : kWorldCast)
++		if (cast.game < 64 && scummverseCharacterInstalled(cast.game, cast.guest.costume)) ++games[cast.game];
+ 	for (const auto &cast : kWorldCast)
+-		if (scummverseCharacterInstalled(cast.game, cast.guest.costume))
+-			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room));
++		if (cast.game < 64 && scummverseCharacterInstalled(cast.game, cast.guest.costume))
++			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room),
++				MAX(1, kWanderGameShare / games[cast.game]));
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 

@@ -1,0 +1,241 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 351e6fb5..186a70bd 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -153,7 +153,9 @@ int SandboxEngine::place(int game, int room) const {
+ // Everyone out (common/scummverse_wander.h, as Maniac's other-world
+ // wanderers): every installed place but maps, the games' doors between
+ // them (a door to a map leads on to where the map's doors go), and every
+-// installed character but the one played, each game an equal share.
++// installed character, each game an equal share. (The one played is among
++// them, whoever is played: passed by wherever people come on the stage, and
++// out again once someone else is played.)
+ void SandboxEngine::buildWanderers() {
+ 	WanderBridge::reset(_random.getRandomNumber(0x7FFFFFFE) + 1);
+ 	for (int game = 0; game < worldGameCount(); ++game) {
+@@ -176,7 +178,7 @@ void SandboxEngine::buildWanderers() {
+ 		if (cast.game < 64 && hasCharacter(worldAppearanceKey(cast.game, cast.guest.costume))) ++games[cast.game];
+ 	for (const WorldCastGuest &cast : kWorldCast) {
+ 		const int key = worldAppearanceKey(cast.game, cast.guest.costume);
+-		if (cast.game >= 64 || !hasCharacter(key) || key == _playerKey) continue;
++		if (cast.game >= 64 || !hasCharacter(key)) continue;
+ 		WanderBridge::addCast(key, place(cast.game, cast.room), 2 + cast.game, MAX(1, kGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
+ 	}
+ 	WanderBridge::start();
+@@ -573,8 +575,8 @@ void SandboxEngine::spin(int draft) {
+ }
+ 
+ // The next of the game's people (its cast's order), played where the one
+-// played stands. (The one before is not left standing there: who wanders is
+-// chosen when the engine starts, without the one played then.)
++// played stands. (The one before is not left standing there; they wander as
++// everyone does.)
+ void SandboxEngine::newKid() {
+ 	Common::Array<int> keys;
+ 	for (const WorldCastGuest &c : kWorldCast)
+@@ -719,40 +721,56 @@ void SandboxEngine::castOffer() {
+ 		const int g = order[i], slot = worldHome(g) ? (int)i : 2 + g;
+ 		int lead = -1;
+ 		for (const WorldLead &l : kWorldLeads) if (l.game == g) lead = l.costume;
+-		// Its lead's face from their own file (none: the game is not here).
+-		byte face[64 * 64 * 4];
+-		Common::Array<byte> data;
+-		const bool here = lead >= 0 && hasCharacter(worldAppearanceKey(g, lead)) &&
+-			read(Common::String::format("%s-c%d.svc", kWorldGames[g].gameid, lead), data) && WorldBridge::spritePortrait(data.data(), data.size(), 64, face);
+-		_phone.castGame(slot, kWorldGames[g].title, kWorldGames[g].folder, here ? face : nullptr);
+-		if (!here) continue;
+-		// The lead first, then everyone of the game installed, once each by name.
+-		Common::Array<Common::String> named;
++		// Those who can be played, the lead first, each once (by name and by
++		// look: some of the cast share one).
++		Common::Array<int> keys;
++		Common::Array<const char *> names;
+ 		auto add = [&](int costume, const char *name) {
+ 			const int key = worldAppearanceKey(g, costume);
+-			for (const Common::String &n : named) if (n == name) return;
+-			if (!hasCharacter(key)) return;
+-			named.push_back(name);
+-			_phone.castMember(slot, name, kWorldCastRequest + key);
++			int room;
++			for (int k : keys) if (k == key) return;
++			for (const char *n : names) if (!strcmp(n, name)) return;
++			if (!castHome(key, room)) return;
++			keys.push_back(key); names.push_back(name);
+ 		};
+ 		for (const WorldCastGuest &cast : kWorldCast) if (cast.game == g && cast.guest.costume == lead) { add(lead, cast.guest.name); break; }
+ 		for (const WorldCastGuest &cast : kWorldCast) if (cast.game == g) add(cast.guest.costume, cast.guest.name);
++		// The face of the first of them, whom a tap on the box plays, from their
++		// own file (no one: the game is not here).
++		byte face[64 * 64 * 4];
++		Common::Array<byte> data;
++		const bool here = !keys.empty() && read(Common::String::format("%s-c%d.svc", kWorldGames[g].gameid, worldAppearanceCostume(keys[0])), data) &&
++			WorldBridge::spritePortrait(data.data(), data.size(), 64, face);
++		_phone.castGame(slot, kWorldGames[g].title, kWorldGames[g].folder, here ? face : nullptr);
++		for (uint k = 0; here && k < keys.size(); ++k) _phone.castMember(slot, names[k], kWorldCastRequest + keys[k]);
+ 	}
+ 	_phone.castShow();
+ }
+ 
+-// Where they live (their place in the cast, else their game's first), as
+-// them. (The wanderers carry on: whoever is played is passed by when people
+-// come on the stage, so never shown twice.)
+-bool SandboxEngine::castChoose(int key) {
+-	const WorldGuest *who = worldAppearance(key);
+-	if (!who || !hasCharacter(key) || _broken.contains(key)) return false;
++bool SandboxEngine::castHome(int key, int &room) const {
++	room = -1;
++	if (!worldAppearance(key) || !hasCharacter(key) || _broken.contains(key)) return false;
+ 	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
+-	int room = -1;
+ 	for (const WorldCastGuest &cast : kWorldCast)
+ 		if (room < 0 && cast.game == game && cast.guest.costume == costume && installed(game, cast.room) && walkable(game, cast.room)) room = cast.room;
+-	if (room < 0 && !firstPlace(game, room)) return false;
+-	const int fromGame = _game, fromRoom = _room, fromKey = _playerKey;
++	return room >= 0 || firstPlace(game, room);
++}
++
++// Where they live, as them; refused aloud when they cannot be (not for a
++// request that is no one's: the chat's in this range). Not shown there, the
++// one played before stays, where they stood.
++bool SandboxEngine::castChoose(int key) {
++	const WorldGuest *who = worldAppearance(key);
++	if (!who) return false;
++	auto refuse = [&]() {
++		if (!_testing) g_system->displayMessageOnOSD(Common::U32String(Common::String::format("%s can't be played here yet.", who->name)));
++		return false;
++	};
++	int room;
++	if (!castHome(key, room)) return refuse();
++	const int game = worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
++	double x = 0, y = 0;
++	if (_player >= 0) StageBridge::position(_player, x, y);
+ 	_playerKey = key;
+ 	Common::String problem;
+ 	if (enter(game, room, 0, problem)) {
+@@ -761,8 +779,8 @@ bool SandboxEngine::castChoose(int key) {
+ 	}
+ 	warning("SCUMMVERSE sandbox: %s-%d not shown as %s (%s)", kWorldGames[game].gameid, room, who->name, problem.c_str());
+ 	_playerKey = fromKey;
+-	if (fromGame >= 0) enter(fromGame, fromRoom, 0, problem);
+-	return false;
++	if (fromGame >= 0 && enter(fromGame, fromRoom, 0, problem)) { StageBridge::place(_player, x, y); StageBridge::follow(_player); }
++	return refuse();
+ }
+ 
+ // The one in front under the tap (the lowest feet).
+@@ -1052,7 +1070,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y) {
+ 	for (int i = 0; i < values; ++i) packed[i] = in->readSint32LE();
+ 	const bool everyone = !in->err() && !in->eos();
+ 	if (_wanderers) {
+-		buildWanderers(); // (without the one played)
++		buildWanderers();
+ 		if (everyone && signature == WanderBridge::signature() && values == WanderBridge::packedCount())
+ 			for (int i = 0; i < values; ++i) WanderBridge::unpack(i, packed[i]);
+ 	}
+@@ -1996,38 +2014,77 @@ Common::Error SandboxEngine::castTest() {
+ 		for (const WorldLead &l : kWorldLeads) if (l.game == g) lead = l.costume;
+ 		for (const FakeCast::Box &b : FakeCast::boxes) if (b.slot == slot) { ++boxes; face = b.face; if (b.title != kWorldGames[g].title) fail("titled otherwise", id); }
+ 		if (boxes != 1) { fail("not one box", id); continue; }
+-		const bool here = lead >= 0 && hasCharacter(worldAppearanceKey(g, lead));
+-		if (here != (face > 0)) fail(here ? "the lead's face not drawn" : "a face for a game not here", id);
+-		faces += face > 0;
+ 		Common::Array<FakeCast::Member> people;
+ 		for (const FakeCast::Member &m : members) if (m.slot == slot) people.push_back(m);
+-		if (!here && !people.empty()) fail("people for a game not here", id);
++		// A face exactly where someone can be played (a tap on the box plays
++		// the first of them).
++		if ((face > 0) != !people.empty()) fail(face ? "a face with no one to play" : "people with no face", id);
++		const bool leadHere = lead >= 0 && hasCharacter(worldAppearanceKey(g, lead));
++		if (leadHere && !face) fail("the lead installed, no face", id);
++		if (face) { ++faces; if (face < 64) fail("a face of a few pixels", id); }
+ 		if (people.empty()) continue;
+ 		listed += people.size();
+ 		for (uint i = 0; i < people.size(); ++i) {
+ 			const int key = people[i].request - kWorldCastRequest;
+ 			if (worldAppearanceGame(key) != g || !hasCharacter(key)) fail("someone listed not installed", id);
+-			for (uint j = 0; j < i; ++j) if (people[j].name == people[i].name) fail("listed twice", id);
++			for (uint j = 0; j < i; ++j) if (people[j].name == people[i].name || people[j].request == people[i].request) fail("listed twice (by name or by look)", id);
+ 		}
+-		for (const WorldCastGuest &cast : kWorldCast)
+-			if (cast.game == g && cast.guest.costume == lead) { if (people[0].name != cast.guest.name) fail("the lead not first", id); break; }
+-		// The lead, then the last of them, chosen as the screen sends it.
+-		for (uint pick : {0u, people.size() - 1}) {
+-			if (pick && people.size() < 2) break;
++		if (leadHere && people[0].request != kWorldCastRequest + worldAppearanceKey(g, lead)) fail("the lead not first", id);
++		// The lead (in their own room: kWorldLeads), then the last of them (in
++		// their place in the cast), chosen as the screen sends it; else in the
++		// game's first place.
++		Common::Array<uint> picks;
++		picks.push_back(0);
++		if (people.size() > 1) picks.push_back(people.size() - 1);
++		for (uint pick : picks) {
+ 			++expected;
+-			const int key = people[pick].request - kWorldCastRequest;
++			const int key = people[pick].request - kWorldCastRequest, costume = worldAppearanceCostume(key);
+ 			request(people[pick].request);
+ 			step(1);
+-			int home = -1, first = -1;
++			int home = -1;
++			if (costume == lead) for (const WorldLead &l : kWorldLeads) if (l.game == g && installed(g, l.room) && walkable(g, l.room)) home = l.room;
+ 			for (const WorldCastGuest &cast : kWorldCast)
+-				if (home < 0 && cast.game == g && cast.guest.costume == worldAppearanceCostume(key) && installed(g, cast.room) && walkable(g, cast.room)) home = cast.room;
+-			if (home < 0) firstPlace(g, first);
++				if (home < 0 && costume != lead && cast.game == g && cast.guest.costume == costume && installed(g, cast.room) && walkable(g, cast.room)) home = cast.room;
++			if (home < 0) firstPlace(g, home);
+ 			int times = 0;
+ 			for (int k : _onStage) times += k == key;
+-			if (_playerKey != key || _game != g || _room != (home >= 0 ? home : first) || _onStage.empty() || _onStage[_player] != key || times != 1) { fail("not played where they live", people[pick].name.c_str()); continue; }
++			if (_playerKey != key || _game != g || _room != home || _onStage.empty() || _onStage[_player] != key || times != 1) { fail("not played where they live", people[pick].name.c_str()); continue; }
+ 			++played;
+ 		}
+ 	}
++	// Each box its own face.
++	for (uint a = 0; a < FakeCast::boxes.size(); ++a)
++		for (uint b = 0; b < a; ++b)
++			if (!FakeCast::boxes[a].rgba.empty() && FakeCast::boxes[a].rgba == FakeCast::boxes[b].rgba) fail("two boxes with one face", FakeCast::boxes[a].title.c_str());
++	// With everyone out: someone wandering chosen is passed by while played
++	// (sent here as a wanderer: shown once, as people come and on entering
++	// again), and the one played before is out among them.
++	_wanderers = true;
++	buildWanderers();
++	const int before = _playerKey;
++	int chosen = -1;
++	for (const FakeCast::Member &m : members) {
++		const int k = m.request - kWorldCastRequest;
++		if (chosen < 0 && k != before && worldAppearanceGame(k) != worldAppearanceGame(before) && WanderBridge::where(k)) chosen = k;
++	}
++	if (chosen < 0 || !castChoose(chosen) || !place(_game, _room)) fail("no one wandering played", "wanderers");
++	else {
++		int most = 0;
++		WanderBridge::send(chosen, place(_game, _room));
++		for (int t = 0; t < 3600; ++t) {
++			step(1);
++			int times = 0;
++			for (int k : _onStage) times += k == chosen;
++			most = MAX(most, times);
++		}
++		WanderBridge::send(chosen, place(_game, _room));
++		enter(_game, _room, 0, problem);
++		int times = 0;
++		for (int k : _onStage) times += k == chosen;
++		if (most != 1 || times != 1) fail("the one played shown twice", "wanderers");
++		if (!WanderBridge::where(before)) fail("the one played before not out", "wanderers");
++	}
++	_wanderers = false;
+ 	// Kept; and a request in the screen's range that is no one's (the chat's
+ 	// scene token) changes nothing.
+ 	const int key = _playerKey, atGame = _game, atRoom = _room;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 53184573..81e66ef5 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -116,6 +116,9 @@ private:
+ 	// people installed (the lead first); a choice plays them where they live.
+ 	void castOffer();
+ 	bool castChoose(int key);
++	// Who can be played (installed, shown before, in the cast) and where they
++	// live (their place in the cast, else their game's first).
++	bool castHome(int key, int &room) const;
+ 	int talkIdAt(int screenX, int screenY) const; // someone here under a tap (0: no one)
+ 	void showPicture(int object, int id, int picture);
+ 	bool carry(int game, int room, int id, const Common::String &name, int picture); // (in that picture)

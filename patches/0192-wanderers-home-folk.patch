@@ -1,0 +1,270 @@
+diff --git a/common/scummverse_wander.cpp b/common/scummverse_wander.cpp
+index 92e35c40..028b0315 100644
+--- a/common/scummverse_wander.cpp
++++ b/common/scummverse_wander.cpp
+@@ -15,8 +15,9 @@ int Map::add(int code, int weight, int group) {
+ 	doors.push_back(std::vector<int>());
+ 	weights.push_back(std::max(1, weight)); total += weights.back();
+ 	groups.push_back(std::max(0, group));
+-	if ((int)members.size() <= groups.back()) members.resize(groups.back() + 1);
++	if ((int)members.size() <= groups.back()) { members.resize(groups.back() + 1); sums.resize(groups.back() + 1, 0); }
+ 	members[groups.back()].push_back((int)places.size() - 1);
++	sums[groups.back()] += weights.back();
+ 	return (int)places.size() - 1;
+ }
+ 
+@@ -43,10 +44,18 @@ int Map::pickIn(int group, Random &random) const {
+ 	return places[members[group][random.below((int)members[group].size())]];
+ }
+ 
+-void Cast::add(int character, int home, int game, int weight, bool tiny) {
++int Map::pickOutside(int group, Random &random) const {
++	const long others = total - (group >= 0 && group < (int)sums.size() ? sums[group] : 0);
++	if (places.empty() || others <= 0) return 0;
++	long at = (long)(random.next() % (uint32_t)others);
++	for (size_t i = 0; i < places.size(); ++i) if (groups[i] != group && (at -= weights[i]) < 0) return places[i];
++	return 0;
++}
++
++void Cast::add(int character, int home, int game, int weight, bool tiny, bool elsewhere) {
+ 	if (character <= 0 || find(character) >= 0) return;
+ 	who.push_back(character); homes.push_back(home); games.push_back(std::max(0, game));
+-	weights.push_back(std::max(1, weight)); small.push_back(tiny);
++	weights.push_back(std::max(1, weight)); small.push_back(tiny); away.push_back(elsewhere);
+ }
+ 
+ int Cast::find(int character) const {
+@@ -92,13 +101,20 @@ int Wanderers::crowdAt(int place, const Cast &cast) const {
+ }
+ 
+ // In the character's own game most of the time (`lean`), else anywhere (by
+-// weight: every game an equal share).
++// weight: every game an equal share); an away one anywhere but its own game.
+ int Wanderers::anywhere(int index, const Cast &cast, const Map &map, const Rules &rules, Random &random) const {
++	if (index >= 0 && index < (int)cast.away.size() && cast.away[index]) return map.pickOutside(cast.games[index], random);
+ 	if (random.below(100) < rules.lean && index < (int)cast.games.size())
+ 		if (const int home = map.pickIn(cast.games[index], random)) return home;
+ 	return map.pick(random);
+ }
+ 
++bool Wanderers::barred(int index, int place, const Cast &cast, const Map &map) const {
++	if (index < 0 || index >= (int)cast.away.size() || !cast.away[index]) return false;
++	const int p = map.find(place);
++	return p >= 0 && map.groups[p] == cast.games[index];
++}
++
+ // Where character `index` goes next: through a door of its place, else (or
+ // now and then) anywhere, to where another one is, or toward the player (a
+ // room next to the player's), so they are met wherever the player is; but not
+@@ -116,7 +132,7 @@ int Wanderers::moveFrom(int index, int player, const Cast &cast, const Map &map,
+ 	} else if (roll >= rules.join + rules.toward + rules.jump && here >= 0 && !map.doors[here].empty()) {
+ 		next = map.places[map.doors[here][random.below((int)map.doors[here].size())]];
+ 	}
+-	if (!next) next = anywhere(index, cast, map, rules, random);
++	if (!next || barred(index, next, cast, map)) next = anywhere(index, cast, map, rules, random);
+ 	if (next != player || !player) return next;
+ 	return (index < (int)cast.small.size() && cast.small[index]) || crowdAt(player, cast) < rules.crowd ? next : _where[index];
+ }
+@@ -163,7 +179,7 @@ void reset(unsigned seed) {
+ }
+ void addPlace(int code, int weight, int group) { if (code > 0 && code < 65536) bridge().map.add(code, weight, group); }
+ void addDoor(int from, int to) { bridge().map.link(from, to); }
+-void addCast(int character, int home, int group, int weight, bool small) { bridge().cast.add(character, home, group, weight, small); }
++void addCast(int character, int home, int group, int weight, bool small, bool away) { bridge().cast.add(character, home, group, weight, small, away); }
+ int places() { return (int)bridge().map.places.size(); }
+ int cast() { return (int)bridge().cast.size(); }
+ void start() {
+diff --git a/common/scummverse_wander.h b/common/scummverse_wander.h
+index a2ef8e21..b257c9b8 100644
+--- a/common/scummverse_wander.h
++++ b/common/scummverse_wander.h
+@@ -41,12 +41,14 @@ struct Map {
+ 	std::vector<int> weights;            // per place (1 or more)
+ 	std::vector<int> groups;             // per place, its game
+ 	std::vector<std::vector<int>> members; // per game, its places (indices)
++	std::vector<long> sums;              // per game, its places' weights
+ 	long total = 0;                      // of the weights
+ 	int add(int code, int weight = 1, int group = 0); // its index (added if new; a known place stays as it was)
+ 	void link(int from, int to);         // a door between two added places (codes), once
+ 	int find(int code) const;            // its index, or -1
+ 	int pick(Random &random) const;      // a place code, by weight (0: none)
+ 	int pickIn(int group, Random &random) const; // one of a game's places (0: it has none)
++	int pickOutside(int group, Random &random) const; // by weight, but none of a game's (0: no others)
+ };
+ 
+ // How they move, in game ticks (60 a second); chances in thousandths of a move.
+@@ -61,12 +63,14 @@ struct Rules {
+ 
+ // Everyone who wanders: each character, its home place (0: none known), its
+ // game, weight (how often, against the others, it is the one to set out; a
+-// game's characters share one game's worth) and whether it is small (an
+-// animal or a critter: never part of a crowd).
++// game's characters share one game's worth), whether it is small (an
++// animal or a critter: never part of a crowd) and whether it stays out of
++// its own game's places (away: the mansion's and Zak's people, whose own
++// actors are there; with nowhere else to go, nowhere: at home).
+ struct Cast {
+ 	std::vector<int> who, homes, games, weights;
+-	std::vector<bool> small;
+-	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false); // once each; nobody 0
++	std::vector<bool> small, away;
++	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false, bool elsewhere = false); // once each; nobody 0
+ 	int find(int character) const;     // its index, or -1
+ 	size_t size() const { return who.size(); }
+ 	uint32_t signature() const;        // the same cast in the same order, the same number (never 0)
+@@ -89,6 +93,7 @@ public:
+ 
+ private:
+ 	int moveFrom(int index, int player, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
++	bool barred(int index, int place, const Cast &cast, const Map &map) const; // an away one's own game's place
+ 	int anywhere(int index, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
+ 	std::vector<int> _where, _clock; // per cast index: its place; ticks until it moves on (-1: not counted yet)
+ };
+diff --git a/common/scummverse_wander_engine.h b/common/scummverse_wander_engine.h
+index 4bf797da..71863187 100644
+--- a/common/scummverse_wander_engine.h
++++ b/common/scummverse_wander_engine.h
+@@ -34,8 +34,9 @@ void addPlace(int code, int weight = 1, int group = 0);
+ void addDoor(int from, int to); // between added places
+ // A character who wanders, living at `home` (0: unknown) in game `group`;
+ // picked `weight` times as often as one of weight 1; a small one (an
+-// animal, a critter) never counts toward a crowd.
+-void addCast(int character, int home, int group = 0, int weight = 1, bool small = false);
++// animal, a critter) never counts toward a crowd; an away one never goes to
++// its own game's places.
++void addCast(int character, int home, int group = 0, int weight = 1, bool small = false, bool away = false);
+ int places();
+ int cast();
+ // Everyone out afresh (at places by the rules).
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 94ffc9af..a8172a96 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -757,6 +757,11 @@ static const WorldLead kWorldLeads[] = {
+ 	{5, 6, 29}, {6, 2, 7}, {7, 12, 6}, {8, 14, 23}, {9, 2, 15}, // (Day of the Tentacle: Purple Tentacle)
+ 	{10, 3, 1}, {11, 1, 1}, // (the mansion: Dave; Zak McKracken)
+ };
++// The mansion's seven kids (its costumes 1..7): the party played there, its
++// own actors, taken along to other worlds, so never among the wanderers.
++inline bool worldManiacKid(int game, int costume) {
++	return game >= 0 && game < worldGameCount() && sameId(kWorldGames[game].gameid, "maniac") && costume >= 1 && costume <= 7;
++}
+ inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1; }
+ inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
+ inline const WorldGuest *worldAppearance(int key) {
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index de92ab05..9e638c4f 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ // Scummverse wanderers (included by scumm.cpp): characters from the other
+-// games out of their home rooms, roaming every place the player can stand
++// games out of their home rooms (and the mansion's and Zak's own people,
++// away from their own places), roaming every place the player can stand
+ // in (Maniac Mansion's rooms, Zak's, the other games'), so they turn up in
+ // odd places (the user: "I just want more actors roaming outside their home
+ // games"). The bookkeeping is common/scummverse_wander.h: forty out at once,
+@@ -100,14 +101,21 @@ void ScummEngine::scummverseWanderBuild() {
+ 				if (map->links[j].room == l.target && map->links[j].target != l.room) WanderBridge::addDoor(place(l.room), place(map->links[j].target));
+ 		}
+ 	}
+-	// The cast, each game's characters sharing one game's worth.
++	// The cast, each game's characters sharing one game's worth. The
++	// mansion's and Zak's own people too (the user: "the mansion's and Zak's
++	// own characters in the wanderer pool too"), but never in their own
++	// game's places, which this engine plays with their own actors (so never
++	// two of anyone in view); the mansion's kids, the party, stay home.
++	auto wanders = [this](int game, int costume) {
++		return game < 64 && !worldManiacKid(game, costume) && scummverseCharacterInstalled(game, costume);
++	};
++	auto castGroup = [](int game) { return !worldHome(game) ? 2 + game : sameId(kWorldGames[game].gameid, "maniac") ? 0 : 1; };
+ 	int games[64] = {};
++	for (const auto &cast : kWorldCast) if (wanders(cast.game, cast.guest.costume)) ++games[cast.game];
+ 	for (const auto &cast : kWorldCast)
+-		if (cast.game < 64 && !worldHome(cast.game) && scummverseCharacterInstalled(cast.game, cast.guest.costume)) ++games[cast.game];
+-	for (const auto &cast : kWorldCast)
+-		if (cast.game < 64 && !worldHome(cast.game) && scummverseCharacterInstalled(cast.game, cast.guest.costume))
++		if (wanders(cast.game, cast.guest.costume))
+ 			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room),
+-				2 + cast.game, MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
++				castGroup(cast.game), MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume), worldHome(cast.game));
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1f023c52..e23d4a0d 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -267,6 +267,14 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		}
+ 		~StateKeep() { put(); }
+ 	} keep;
++	// A staged room's pictures are set before its scripts run too, so they
++	// see them (Fate of Atlantis's pit room reads its pit: open, as after
++	// the digger, its things touchable); put back after, like the rest.
++	const bool staged = game && worldStagedRoom((int)(game - kWorldGames), room);
++	if (staged) {
++		keep.take(this);
++		for (const auto &p : kWorldPresetStates) if (p.game == (int)(game - kWorldGames) && p.room == room) putState(p.object, p.state);
++	}
+ 	if (scripted) {
+ 		if (_game.version <= 2) {
+ 			keep.take(this);
+@@ -275,7 +283,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		}
+ 		// (An instance's own settings first; all of it put back after.)
+ 		if (instance) {
+-			keep.take(this);
++			if (!keep.vm) keep.take(this);
+ 			_rnd.setSeed(0x5C0BE + logical);
+ 			const int gameIndex = (int)(game - kWorldGames);
+ 			for (const auto &p : kWorldPresetInstanceVars) if (p.game == gameIndex && p.room == room) writeVar(p.var, p.value);
+@@ -353,7 +361,6 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	}
+ 	// A room exported in one of its run-time looks (catalog): its objects
+ 	// at the places and in the pictures that state's scripts give them.
+-	const bool staged = game && worldStagedRoom((int)(game - kWorldGames), room);
+ 	if (staged) {
+ 		const int gameIndex = (int)(game - kWorldGames);
+ 		for (const auto &p : kWorldPresetPlaces) {
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index b5afb3c2..3d339d1a 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -951,9 +951,25 @@ void ScummEngine::scummverseMountCharacters() {
+ 		const int look = scummverseAppearance(id);
+ 		if (look && _actors[id]->_room == _currentRoom) key += Common::String::format(" %d=%d", id, look);
+ 	}
++	// One of the mansion's or Zak's people visiting whose own actor, or
++	// someone playing them, is here already steps aside.
++	auto twinHere = [&](int who) {
++		const int game = worldAppearanceGame(who);
++		const WorldGuest *visitor = worldAppearance(who);
++		if (!worldHome(game) || !visitor) return false;
++		const bool maniac = sameId(kWorldGames[game].gameid, "maniac");
++		for (int id = 1; id < kScummverseManiacActors; ++id) {
++			if (_actors[id]->_room != _currentRoom) continue;
++			const int look = scummverseAppearance(id);
++			const WorldGuest *played = look ? worldAppearance(look) : nullptr;
++			if (look ? worldNativeLook(look) && played && !strcmp(played->name, visitor->name) : maniac && _actors[id]->_costume == worldAppearanceCostume(who))
++				return true;
++		}
++		return false;
++	};
+ 	// Wanderers visiting, and the scene's own characters out wandering.
+ 	for (int s = 0; s < kScummverseVisitorSlots; ++s)
+-		if (_scummverseVisitors[s].who) key += Common::String::format(" v%d:%d", s, _scummverseVisitors[s].who);
++		if (_scummverseVisitors[s].who) key += Common::String::format(" v%d:%d%s", s, _scummverseVisitors[s].who, twinHere(_scummverseVisitors[s].who) ? "t" : "");
+ 	for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+ 		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) key += Common::String::format(" out%d", k);
+@@ -995,7 +1011,7 @@ void ScummEngine::scummverseMountCharacters() {
+ 	// someone; one stays away while someone here plays them.
+ 	for (ScummverseVisitor &v : _scummverseVisitors) {
+ 		v.sprite = 0;
+-		if (!v.who || v.frames.empty() || (key + " ").contains(Common::String::format("=%d ", v.who))) continue;
++		if (!v.who || v.frames.empty() || (key + " ").contains(Common::String::format("=%d ", v.who)) || twinHere(v.who)) continue;
+ 		v.sprite = count + 1;
+ 		data[count] = v.frames.data(); sizes[count] = v.frames.size();
+ 		scales[count] = CLIP(person / kWorldGames[worldAppearanceGame(v.who)].heroHeight, 0.06, 4.0);

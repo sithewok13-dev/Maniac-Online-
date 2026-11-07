@@ -1,0 +1,352 @@
+diff --git a/backends/graphics/ios/ios-graphics.cpp b/backends/graphics/ios/ios-graphics.cpp
+index 93278dab..ce26bd3f 100644
+--- a/backends/graphics/ios/ios-graphics.cpp
++++ b/backends/graphics/ios/ios-graphics.cpp
+@@ -149,8 +149,9 @@ bool iOSGraphicsManager::notifyMousePosition(Common::Point &mouse) {
+ 	return true;
+ }
+ 
+-void iOSGraphicsManager::notifyChatInset(int inset) {
++void iOSGraphicsManager::notifyChatInset(int inset, int flags) {
+  _chatBottomInset = inset > 0 ? inset / 1000.0 : 0;
++ _chatFlags = flags;
+  recalculateDisplayAreas();
+ }
+ 
+@@ -164,19 +165,28 @@ void iOSGraphicsManager::recalculateDisplayAreas() {
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 	// UIKit and rendering share one point-based layout. Keep the backing
+  // surface full size; mouse conversion follows the resulting game draw rect.
+-	const int fullHeight=_windowHeight;
++	const int fullHeight=_windowHeight, fullWidth=_windowWidth;
+ 	const bool portrait=_windowWidth<_windowHeight && !_overlayInGUI;
+ 	// Integer milli-aspect so UIKit computes exactly the same layout.
+ 	const int aspect = getHeight() ? (int)((int64)getDesiredGameAspectRatio() * 1000 / FRAC_ONE) : 0;
+ 	scummversePublishGameAspect(aspect);
+-	if(portrait) {
+-  const double scale = getHiDPIScreenFactor();
+-  const auto layout = Scummverse::portraitLayout(fullHeight / scale, _chatBottomInset, _windowWidth / scale, aspect / 1000.0);
+-  _windowHeight = MAX(1, (int)(layout.gameHeight * scale));
+- }
++	// Contract v3: in portrait the game area is the top region; with chat open
++	// in landscape it is one half, and the picture is shifted into that half.
++	const double scale = getHiDPIScreenFactor();
++	const bool landscapeSplit = !portrait && !_overlayInGUI && (_chatFlags & 1);
++	const auto layout = Scummverse::splitLayout(fullWidth / scale, fullHeight / scale, _chatBottomInset,
++		aspect / 1000.0, (_chatFlags & 1) != 0, (_chatFlags & 2) == 0);
++	int shiftX = 0;
++	if(portrait) _windowHeight = MAX(1, (int)(layout.gameArea.h * scale));
++	if(landscapeSplit) { _windowWidth = MAX(1, (int)(layout.gameArea.w * scale)); shiftX = (int)(layout.gameArea.x * scale); }
+ 	OpenGL::OpenGLGraphicsManager::recalculateDisplayAreas();
+-	_windowHeight=fullHeight;
+-	if(portrait && _targetBuffer) _targetBuffer->setScissorBox(_gameDrawRect.left,
++	_windowHeight=fullHeight; _windowWidth=fullWidth;
++	if(shiftX) {
++		_gameDrawRect.translate(shiftX, 0);
++		if(!_overlayInGUI) _activeArea.drawRect = _gameDrawRect;
++		notifyActiveAreaChanged();
++	}
++	if((portrait || landscapeSplit) && _targetBuffer) _targetBuffer->setScissorBox(_gameDrawRect.left,
+ 		fullHeight-_gameDrawRect.bottom,_gameDrawRect.width(),_gameDrawRect.height());
+ #else
+ 	OpenGL::OpenGLGraphicsManager::recalculateDisplayAreas();
+diff --git a/backends/graphics/ios/ios-graphics.h b/backends/graphics/ios/ios-graphics.h
+index 89b86467..f749573a 100644
+--- a/backends/graphics/ios/ios-graphics.h
++++ b/backends/graphics/ios/ios-graphics.h
+@@ -40,7 +40,7 @@ public:
+ 	 */
+ 	virtual void notifyResize(const int width, const int height) = 0;
+  // UIKit publishes layout changes through the engine event queue (millipoints).
+- virtual void notifyChatInset(int) {}
++ virtual void notifyChatInset(int, int) {}
+ 
+ 	virtual Common::Point getMousePosition() = 0;
+ 	virtual bool notifyMousePosition(Common::Point &mouse) = 0;
+@@ -84,7 +84,7 @@ public:
+ 
+ 	void notifyResize(const int width, const int height) override;
+ 	void recalculateDisplayAreas() override;
+- void notifyChatInset(int inset) override;
++ void notifyChatInset(int inset, int flags) override;
+ 
+ 	virtual iOSCommonGraphics::State getState() const override;
+ 	virtual bool setState(const iOSCommonGraphics::State &state) override;
+@@ -103,6 +103,8 @@ protected:
+ 
+ 	void refreshScreen() override;
+  double _chatBottomInset = 0;
++ // Chat split (layout contract v3): bit 0 open, bit 1 chat on the right.
++ int _chatFlags = 0;
+ };
+ 
+ #endif
+diff --git a/backends/platform/ios7/ios7_osys_events.cpp b/backends/platform/ios7/ios7_osys_events.cpp
+index 81f0c7ea..b1cb9e00 100644
+--- a/backends/platform/ios7/ios7_osys_events.cpp
++++ b/backends/platform/ios7/ios7_osys_events.cpp
+@@ -148,7 +148,7 @@ bool OSystem_iOS7::pollEvent(Common::Event &event) {
+ 			break;
+ 
+   case kInputChatLayoutChanged:
+-   dynamic_cast<iOSCommonGraphics *>(_graphicsManager)->notifyChatInset(internalEvent.value1);
++   dynamic_cast<iOSCommonGraphics *>(_graphicsManager)->notifyChatInset(internalEvent.value1, internalEvent.value2);
+    event.type = Common::EVENT_SCREEN_CHANGED;
+    break;
+ 
+diff --git a/backends/platform/ios7/ios7_video.h b/backends/platform/ios7/ios7_video.h
+index 21ea5903..453f082c 100644
+--- a/backends/platform/ios7/ios7_video.h
++++ b/backends/platform/ios7/ios7_video.h
+@@ -98,6 +98,7 @@ uint getSizeNextPOT(uint size);
+ 
+ #ifdef SCUMMVERSE_LOCAL_AI
+ - (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height;
++- (void)layoutScummverseLandscapeButtons:(CGFloat)right;
+ #endif
+ - (void)addEvent:(InternalEvent)event;
+ - (bool)fetchEvent:(InternalEvent *)event;
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index a703b325..61cd0c93 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -611,6 +611,19 @@ void scummverseAirportOffer(int actor) {
+ #endif
+ 
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
++// Landscape: the button column hugs the right edge of the game half (the
++// whole view unless the conversation sits on the right).
++- (void)layoutScummverseLandscapeButtons:(CGFloat)right {
++ if(self.bounds.size.width < self.bounds.size.height) return;
++ const CGFloat margin = right >= self.bounds.size.width - 1 && self.safeAreaInsets.right > 0 ? self.safeAreaInsets.right/4 : 10;
++ const CGFloat x = right - margin;
++ const CGSize touch = _toggleTouchModeButton.imageView.image.size, menu = _menuButton.imageView.image.size;
++ _toggleTouchModeButton.frame = CGRectMake(x - touch.width, margin, touch.width, touch.height);
++ _menuButton.frame = CGRectMake(x - menu.width, touch.height + margin, menu.width, menu.height);
++ _scummverseAIButton.frame = CGRectMake(x - 44, CGRectGetMaxY(_menuButton.frame) + 6, 44, 36);
++ _scummverseTalkButton.frame = CGRectMake(x - 54, CGRectGetMaxY(_scummverseAIButton.frame) + 4, 54, 40);
++ _scummverseWorldsButton.frame = CGRectMake(x - 64, CGRectGetMaxY(_scummverseTalkButton.frame) + 4, 64, 36);
++}
+ - (void)layoutScummverseToolbar:(CGFloat)top height:(CGFloat)height {
+  if(self.bounds.size.width >= self.bounds.size.height) return;
+  const CGFloat y=top+4;
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index 364ac118..25edeb71 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -7,14 +7,14 @@ static BOOL scummverseSystemMenu=NO;
+ 	UITextField *_input;
+ 	UILabel *_status;
+ 	UIScrollView *_chips;
+-	UIButton *_send, *_follow, *_historyButton, *_close, *_arrive;
++	UIButton *_send, *_follow, *_historyButton, *_close, *_arrive, *_swap;
+ 	UITextView *_history;
+ 	NSTimer *_timer;
+ 	NSString *_error;
+ 	CGRect _keyboardFrame;
+ 	CGFloat _keyboard;
+-	int _publishedInset;
+-	BOOL _open, _showHistory, _hasTranscript;
++	int _publishedInset, _publishedFlags;
++	BOOL _open, _showHistory, _hasTranscript, _chatRight;
+ 	unsigned _chipScene, _chipMask;
+ 	uint32_t _revision;
+ 	int _scene, _chipTalk;
+@@ -32,7 +32,8 @@ static BOOL scummverseSystemMenu=NO;
+ }
+ - (id)initWithHost:(UIView *)host {
+ 	if ((self=[super initWithFrame:CGRectZero])) {
+-		_host=host; _publishedInset=-1; _chipScene=_chipMask=~0u; _chipTalk=-99;
++		_host=host; _publishedInset=-1; _publishedFlags=-1; _chipScene=_chipMask=~0u; _chipTalk=-99;
++		_chatRight=[[NSUserDefaults standardUserDefaults] boolForKey:@"scummverseChatRight"];
+ 		self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
+ 		// Header: one chip per character here (tap to add/remove), then Follow,
+ 		// transcript toggle (landscape) and close.
+@@ -40,6 +41,7 @@ static BOOL scummverseSystemMenu=NO;
+ 		_follow=[self button:@"Follow" action:@selector(follow)];
+ 		_historyButton=[self button:@"Log" action:@selector(history)]; _historyButton.accessibilityLabel=@"Show conversation";
+ 		_close=[self button:@"✕" action:@selector(close)]; _close.accessibilityLabel=@"Close conversation";
++		_swap=[self button:@"⇄" action:@selector(swapSides)]; _swap.accessibilityLabel=@"Move the conversation to the other side";
+ 		_status=[[[UILabel alloc] init] autorelease]; _status.textColor=[UIColor colorWithWhite:0.8 alpha:1]; _status.font=[UIFont systemFontOfSize:12]; _status.adjustsFontSizeToFitWidth=YES; [self addSubview:_status];
+ 		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend;
+ 		// Curly quotes and dashes are not V1 speech-bubble characters.
+@@ -59,6 +61,11 @@ static BOOL scummverseSystemMenu=NO;
+ 	if (ScummverseLocalAI::runtime().actorsInRoom()) [_input becomeFirstResponder];
+ }
+ - (void)history { _showHistory=!_showHistory; [self layoutBar]; }
++- (void)swapSides {
++	_chatRight=!_chatRight;
++	[[NSUserDefaults standardUserDefaults] setBool:_chatRight forKey:@"scummverseChatRight"];
++	[self layoutBar];
++}
+ - (void)follow {
+ 	int actor=ScummverseLocalAI::runtime().talkingTo(); if(actor<=0) return;
+ 	scummverseWorldRequest(ScummverseLocalAI::sceneToken() | ((ScummverseLocalAI::follows(actor)?96:64)+actor));
+@@ -67,6 +74,7 @@ static BOOL scummverseSystemMenu=NO;
+ - (void)close {
+ 	[self endEditing:YES]; _open=NO; _showHistory=NO; self.hidden=YES;
+ 	ScummverseLocalAI::runtime().endTalk(); [_error release]; _error=nil;
++	[self layoutBar]; // Give the picture its full area back.
+ }
+ - (void)chip:(UIButton *)chip {
+ 	auto &r=ScummverseLocalAI::runtime();
+@@ -198,55 +206,51 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	CGRect overlap=CGRectIntersection(_host.bounds,keyboard);
+ 	_keyboard=CGRectIsNull(overlap) || CGRectIsEmpty(overlap) ? 0 :
+ 		CGRectGetMaxY(_host.bounds)-CGRectGetMinY(overlap);
+-	int inset=(int)(MAX(safe.bottom,_keyboard)*1000);
+-	if(inset!=_publishedInset) {
+-		_publishedInset=inset;
+-		[(iPhoneView *)_host addEvent:InternalEvent(kInputChatLayoutChanged,inset,0)];
++	const BOOL portrait=_host.bounds.size.width<_host.bounds.size.height;
++	const BOOL split=_open && !scummverseSystemMenu;
++	const int inset=(int)(MAX(safe.bottom,_keyboard)*1000), flags=(split?1:0)|(_chatRight?2:0);
++	if(inset!=_publishedInset || flags!=_publishedFlags) {
++		// The renderer applies the same layout contract (v3) to the picture.
++		_publishedInset=inset; _publishedFlags=flags;
++		[(iPhoneView *)_host addEvent:InternalEvent(kInputChatLayoutChanged,inset,flags)];
+ 	}
++	const auto layout=Scummverse::splitLayout(_host.bounds.size.width,_host.bounds.size.height,inset/1000.0,
++		scummverseGameAspect()/1000.0,split,!_chatRight);
+ 	const BOOL single=ScummverseLocalAI::runtime().talkingTo()>0;
+-	_chips.hidden=_status.hidden=NO;
+-	if(_host.bounds.size.width<_host.bounds.size.height) {
+-		// Portrait: people row, status, transcript, composer.
+-		CGFloat w=_host.bounds.size.width-safe.left-safe.right;
+-		auto layout=Scummverse::portraitLayout(_host.bounds.size.height,inset/1000.0,_host.bounds.size.width,scummverseGameAspect()/1000.0);
+-		CGFloat top=layout.chatTop, h=layout.chatHeight;
+-		[(iPhoneView *)_host layoutScummverseToolbar:layout.toolbarTop height:layout.toolbarHeight];
+-		self.frame=CGRectMake(safe.left,top,w,h); self.layer.cornerRadius=0;
+-		_historyButton.hidden=YES; _close.hidden=!_open && !ScummverseLocalAI::runtime().talkingWith();
+-		CGFloat right=w-4;
+-		_close.frame=CGRectMake(right-40,0,40,32); right-=44;
+-		_follow.hidden=!single; if(single) { _follow.frame=CGRectMake(right-72,0,72,32); right-=76; }
+-		_chips.frame=CGRectMake(8,0,MAX(0,right-8),32);
+-		_status.frame=CGRectMake(8,32,w-16,18);
+-		_history.hidden=NO; _history.frame=CGRectMake(8,50,w-16,MAX(0,h-98));
+-		_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-44,w-78,38); _send.frame=CGRectMake(w-66,h-44,60,38);
+-		_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-78,MAX(0,layout.gameHeight-40),72,36);
+-		if(h<130) {
+-			// Very small/occluded hosts keep the people row and the composer.
+-			_status.hidden=_history.hidden=YES;
+-			CGFloat composer=MIN(38,MAX(0,h-34));
+-			_input.frame=CGRectMake(8,MAX(32,h-composer),w-78,composer);
+-			_send.frame=CGRectMake(w-66,MAX(32,h-composer),60,composer);
+-		}
++	_chips.hidden=_status.hidden=NO; _swap.hidden=portrait; _historyButton.hidden=YES;
++	if(portrait) [(iPhoneView *)_host layoutScummverseToolbar:layout.toolbar.y height:layout.toolbar.h];
++	else [(iPhoneView *)_host layoutScummverseLandscapeButtons:split ? layout.gameArea.x+layout.gameArea.w : _host.bounds.size.width];
++	if(!portrait && !split) {
++		// Landscape, closed: the bar is hidden; only the Arrive button may show.
++		_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-76,MIN(safe.top+340,_host.bounds.size.height-safe.bottom-48),72,40);
+ 		return;
+ 	}
+-	// Landscape: a compact bar over the bottom of the scene; the transcript
+-	// opens above the composer on demand and while not typing.
+-	CGFloat w=MIN(640,_host.bounds.size.width-safe.left-safe.right-80);
+-	const BOOL transcript=_showHistory && !_keyboard;
+-	CGFloat h=50+44+(transcript ? 120:0);
+-	self.frame=CGRectMake(safe.left+8,MAX(safe.top,_host.bounds.size.height-MAX(safe.bottom,_keyboard)-h-4),w,h);
++	// One column in either orientation: people row, status, transcript and
++	// composer. Portrait spans the width below the game half; landscape fills
++	// the chat half beside the game.
++	const CGRect frame=portrait ? CGRectMake(safe.left,layout.chat.y,_host.bounds.size.width-safe.left-safe.right,layout.chat.h) :
++		CGRectMake(layout.chat.x+(_chatRight?0:safe.left),layout.chat.y+safe.top,
++			MAX(0,layout.chat.w-(_chatRight?safe.right:safe.left)),MAX(0,layout.chat.h-safe.top));
++	self.frame=frame; self.layer.cornerRadius=portrait ? 0 : 8;
++	const CGFloat w=frame.size.width, h=frame.size.height;
++	_close.hidden=portrait && !_open && !ScummverseLocalAI::runtime().talkingWith();
+ 	CGFloat right=w-4;
+-	_close.hidden=NO; _close.frame=CGRectMake(right-40,0,40,32); right-=44;
+-	_historyButton.hidden=NO; _historyButton.frame=CGRectMake(right-48,0,48,32); right-=52;
+-	[_historyButton setTitle:_showHistory ? @"Hide" : @"Log" forState:UIControlStateNormal];
++	_close.frame=CGRectMake(right-40,0,40,32); right-=44;
++	if(!portrait) { _swap.frame=CGRectMake(right-40,0,40,32); right-=44; }
+ 	_follow.hidden=!single; if(single) { _follow.frame=CGRectMake(right-72,0,72,32); right-=76; }
+ 	_chips.frame=CGRectMake(8,0,MAX(0,right-8),32);
+ 	_status.frame=CGRectMake(8,32,w-16,18);
+-	_history.hidden=!transcript; _history.frame=CGRectMake(8,50,w-16,MAX(0,h-98));
+-	_input.hidden=_send.hidden=NO;
+-	_input.frame=CGRectMake(8,h-42,w-78,36); _send.frame=CGRectMake(w-66,h-42,60,36);
+-	_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-76,MIN(safe.top+340,_host.bounds.size.height-safe.bottom-48),72,40);
++	_history.hidden=NO; _history.frame=CGRectMake(8,50,w-16,MAX(0,h-98));
++	_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-44,w-78,38); _send.frame=CGRectMake(w-66,h-44,60,38);
++	if(portrait) _arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-78,MAX(0,layout.toolbar.y-40),72,36);
++	else _arrive.frame=CGRectMake(layout.gameArea.x+layout.gameArea.w-80,MIN(safe.top+300,_host.bounds.size.height-safe.bottom-48),72,40);
++	if(h<130) {
++		// Very small/occluded hosts keep the people row and the composer.
++		_status.hidden=_history.hidden=YES;
++		const CGFloat composer=MIN(38,MAX(0,h-34));
++		_input.frame=CGRectMake(8,MAX(32,h-composer),w-78,composer);
++		_send.frame=CGRectMake(w-66,MAX(32,h-composer),60,composer);
++	}
+ }
+ @end
+ static ScummverseTalkBar *scummverseTalkBar;
+diff --git a/common/scummverse_layout.h b/common/scummverse_layout.h
+index 07d52800..853614fd 100644
+--- a/common/scummverse_layout.h
++++ b/common/scummverse_layout.h
+@@ -1,4 +1,4 @@
+-// Scummverse portable portrait layout contract v2. GPL-3.0-or-later.
++// Scummverse portable mobile layout contract v3. GPL-3.0-or-later.
+ #ifndef COMMON_SCUMMVERSE_LAYOUT_H
+ #define COMMON_SCUMMVERSE_LAYOUT_H
+ namespace Scummverse {
+@@ -27,5 +27,56 @@ inline PortraitLayout portraitLayout(double height, double bottomInset, double w
+  }
+  return {game, game, toolbar, top, available - top};
+ }
++
++// v3: split screen while the conversation is open. Boxes are host points.
++// Portrait: the game half is on top (picture aspect-fit and centered, the
++// toolbar row along its bottom), the chat half below; both end above the
++// keyboard or safe inset. Landscape: chat takes one half (chatFirst = the
++// left half) and stops above the keyboard; the game picture is aspect-fit and
++// centered in the other, full-height half. Closed: portrait keeps v2 and
++// landscape gives the game the whole host (chat box empty).
++struct Box { double x, y, w, h; };
++struct SplitLayout { Box game, gameArea, toolbar, chat; bool split; };
++inline Box fitBox(Box area, double aspect) {
++ if (!(aspect >= 0.25 && aspect <= 4) || area.w <= 0 || area.h <= 0) return area;
++ double w = area.w, h = w / aspect;
++ if (h > area.h) { h = area.h; w = h * aspect; }
++ return {area.x + (area.w - w) / 2, area.y + (area.h - h) / 2, w, h};
++}
++inline SplitLayout splitLayout(double width, double height, double bottomInset, double gameAspect, bool chatOpen, bool chatFirst = true) {
++ SplitLayout out = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, false};
++ if (!(width > 0) || !(height > 0)) return out;
++ if (!(bottomInset > 0)) bottomInset = 0;
++ if (bottomInset > height) bottomInset = height;
++ const double available = height - bottomInset;
++ if (width < height) {
++  if (!chatOpen) {
++   const PortraitLayout v2 = portraitLayout(height, bottomInset, width, gameAspect);
++   out.gameArea = {0, 0, width, v2.gameHeight};
++   out.game = fitBox(out.gameArea, gameAspect);
++   out.toolbar = {0, v2.toolbarTop, width, v2.toolbarHeight};
++   out.chat = {0, v2.chatTop, width, v2.chatHeight};
++   return out;
++  }
++  const double half = available / 2, toolbar = half < 88 ? half / 2 : 44;
++  out.gameArea = {0, 0, width, half - toolbar};
++  out.game = fitBox(out.gameArea, gameAspect);
++  out.toolbar = {0, half - toolbar, width, toolbar};
++  out.chat = {0, half, width, available - half};
++  out.split = true;
++  return out;
++ }
++ if (!chatOpen) {
++  out.gameArea = {0, 0, width, height};
++  out.game = fitBox(out.gameArea, gameAspect);
++  return out;
++ }
++ const double half = width / 2;
++ out.chat = {chatFirst ? 0 : half, 0, half, available};
++ out.gameArea = {chatFirst ? half : 0, 0, half, height};
++ out.game = fitBox(out.gameArea, gameAspect);
++ out.split = true;
++ return out;
++}
+ }
+ #endif

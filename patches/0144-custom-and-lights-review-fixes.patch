@@ -1,0 +1,225 @@
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+index a26699ca..d6356df1 100644
+--- a/backends/platform/ios7/scummverse_cast_ui.inc
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -113,7 +113,8 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 		game.text = scummverseCastTitles[slot]; [tile addSubview:game];
+ 		UILabel *hint = [[[UILabel alloc] init] autorelease]; hint.tag = 202; hint.textAlignment = NSTextAlignmentCenter;
+ 		hint.textColor = [UIColor colorWithWhite:0.75 alpha:1]; hint.font = [UIFont systemFontOfSize:11]; hint.adjustsFontSizeToFitWidth = YES; hint.minimumScaleFactor = 0.6;
+-		hint.text = here ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
++		// (No folder: nothing to add, the custom characters'.)
++		hint.text = here || !scummverseCastFolders[slot].length ? @"" : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:hint];
+ 		// Holding a box runs this ring round it until the list of everyone opens.
+ 		CAShapeLayer *ring = [CAShapeLayer layer]; ring.name = @"hold"; ring.hidden = !here;
+ 		ring.fillColor = UIColor.clearColor.CGColor; ring.strokeColor = [UIColor colorWithRed:0.20 green:0.90 blue:0.35 alpha:1].CGColor;
+@@ -136,7 +137,8 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 	[self.view viewWithTag:101].frame = CGRectMake(CGRectGetMaxX(safe) - 70, safe.origin.y, 64, 44);
+ 	[self.view viewWithTag:102].frame = CGRectMake(safe.origin.x + 12, safe.origin.y + 38, safe.size.width - 24, 20);
+ 	_grid.frame = CGRectMake(safe.origin.x + 6, safe.origin.y + 62, safe.size.width - 12, safe.size.height - 64);
+-	// All twelve on one screen: three across in portrait, six in landscape.
++	// All on one screen (the twelve games' and the custom characters'): three
++	// across in portrait, six in landscape.
+ 	int count = 0;
+ 	for (UIView *tile in _grid.subviews) if ([tile isKindOfClass:UIButton.class]) ++count;
+ 	const int cols = _grid.bounds.size.width > _grid.bounds.size.height ? 6 : 3, rows = MAX(1, (count + cols - 1) / cols);
+@@ -192,8 +194,9 @@ static CAShapeLayer *scummverseHoldRing(UIView *tile) {
+ 	NSNumber *slot = @(tile.tag - 1);
+ 	NSArray *people = scummverseCastPeople[slot];
+ 	if (people.count) { [self play:[people[0][1] intValue]]; return; }
++	NSString *folder = scummverseCastFolders[slot];
+ 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:scummverseCastTitles[slot]
+-		message:[NSString stringWithFormat:@"Copy your own copy of this game into a folder in Documents named \"%@\", then restart the app.", scummverseCastFolders[slot]]
++		message:folder.length ? [NSString stringWithFormat:@"Copy your own copy of this game into a folder in Documents named \"%@\", then restart the app.", folder] : @"None of them can be played here yet."
+ 		preferredStyle:UIAlertControllerStyleAlert];
+ 	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+ 	[self presentViewController:alert animated:YES completion:nil];
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 32516eda..99afbd2d 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -882,6 +882,11 @@ bool ScummEngine::scummverseSetAppearance(int id, int key) {
+ 	Actor *a = derefActor(id, "appearance");
+ 	const WorldGuest *who = worldAppearance(key);
+ 	if (key && !who) { _scummverseWorldNotice = "That character is not in the catalog."; return false; }
++	// (A custom character, the new engine's own, has no game here.)
++	if (who && !worldNativeLook(key) && worldAppearanceGame(key) >= worldGameCount()) {
++		_scummverseWorldNotice = Common::String::format("%s can be played in the new engine.", who->name);
++		return false;
++	}
+ 	if (who && worldAppearanceGame(key) == kWorldZakLooks && !scummverseMountZakCast()) {
+ 		_scummverseWorldNotice = Common::String::format("%s needs Zak's files. Add them to Documents/zak and restart.", who->name);
+ 		return false;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index ba9b124f..6d25aa2c 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -419,12 +419,17 @@ bool SandboxEngine::isLight(int object) const {
+ 
+ void SandboxEngine::lights(bool on) {
+ 	if (_game < 0) return;
+-	if (on) _dark.erase(_game * 1024 + _room); else _dark[_game * 1024 + _room] = true;
++	const int key = _game * 1024 + _room;
++	const bool changed = _dark.contains(key) == on;
++	if (on) _dark.erase(key); else _dark[key] = true;
+ 	StageBridge::setDark(!on);
+ 	_dirty = true;
+-	if (_testing) return;
++	if (changed && !_testing) lightsSave(true);
++}
++
++void SandboxEngine::lightsSave(bool flush) const {
+ 	ConfMan.set(kDarkKey, lightsKept());
+-	ConfMan.flushToDisk();
++	if (flush) ConfMan.flushToDisk();
+ }
+ 
+ // (Kept as the places' numbers, in order, between commas.)
+@@ -905,7 +910,7 @@ void SandboxEngine::castOffer() {
+ 	Common::Array<byte> data;
+ 	const int first = worldAppearanceKey(kWorldCustomLooks, kWorldCustomArt[0].costume);
+ 	const bool drawn = readCharacter(first, data) && WorldBridge::spritePortrait(data.data(), data.size(), 64, face);
+-	_phone.castGame(customSlot, "Custom characters", "custom", drawn ? face : nullptr);
++	_phone.castGame(customSlot, "Custom characters", "", drawn ? face : nullptr); // (no folder to add)
+ 	for (const WorldGuest &guest : kWorldCustomCast) {
+ 		const int key = worldAppearanceKey(kWorldCustomLooks, guest.costume);
+ 		int room;
+@@ -941,12 +946,24 @@ bool SandboxEngine::castChoose(int key) {
+ 	const bool custom = customArt(key);
+ 	const int game = custom ? _game : worldAppearanceGame(key), fromGame = _game, fromRoom = _room, fromKey = _playerKey;
+ 	double x = 0, y = 0;
+-	if (_player >= 0) StageBridge::position(_player, x, y);
++	const bool stood = _player >= 0;
++	if (stood) StageBridge::position(_player, x, y);
++	// (A custom one here: the one before stays, out among the wanderers here.)
++	const int here = custom && _wanderers && fromKey != key ? place(fromGame, fromRoom) : 0;
++	if (here) WanderBridge::send(fromKey, here);
+ 	_playerKey = key;
+ 	Common::String problem;
+ 	if (enter(game, room, 0, problem)) {
+-		// (A custom one where the one before stood.)
+-		if (custom && _player >= 0) { StageBridge::place(_player, x, y); StageBridge::follow(_player); if (!_testing) saveState(); }
++		// (A custom one where the one before stood, they beside.)
++		if (custom && stood && _player >= 0) {
++			StageBridge::place(_player, x, y);
++			int left = -1;
++			for (uint n = 0; n < _onStage.size(); ++n) if ((int)n != _player && _onStage[n] == fromKey) left = n;
++			if (left < 0 && here && (left = addPerson(fromKey)) >= 0) { _onStage.push_back(fromKey); _people = _onStage.size(); }
++			if (left >= 0) StageBridge::place(left, x + 24, y);
++			StageBridge::follow(_player);
++			if (!_testing) saveState();
++		}
+ 		if (!_testing) g_system->displayMessageOnOSD(Common::U32String(Common::String::format("You are playing %s.", who->name)));
+ 		return true;
+ 	}
+@@ -2967,9 +2984,13 @@ Common::Error SandboxEngine::verbsTest() {
+ 				if (!lightsOff && ConfMan.hasKey("scummverse_shots")) { present(); shot("lights-off.png"); }
+ 				++lightsOff;
+ 				if (lightsKept() != Common::String::format("%d", maniac * 1024 + room)) fail(("not kept as written: " + what).c_str(), maniac);
++				// (Kept in the settings and read back from them, as at launch.)
+ 				const Common::String kept = lightsKept();
+-				lightsRead(kept);
+-				if (lightsKept() != kept) fail("not read back as written", maniac);
++				lightsSave(false);
++				_dark.clear();
++				lightsRead(ConfMan.get(kDarkKey));
++				ConfMan.removeKey(kDarkKey, ConfMan.getActiveDomainName());
++				if (lightsKept() != kept) fail("not read back from the settings as written", maniac);
+ 				if (!use(kWorldVerbTurnOn, o)) { fail(("not reached to turn on: " + what).c_str(), maniac); continue; }
+ 				seen(lit, grey);
+ 				if (StageBridge::dark() || !lit || !lightsKept().empty()) { fail(("not lit when turned on: " + what).c_str(), maniac); continue; }
+@@ -3049,7 +3070,7 @@ Common::Error SandboxEngine::talkTest() {
+ 	_phone.appearance = FakeTalk::appearance; _phone.visitor = FakeTalk::visitorOf; _phone.scene = FakeTalk::scene;
+ 	_phone.picking = FakeTalk::isPicking; _phone.pick = FakeTalk::pick; _phone.travel = FakeTalk::travel;
+ 	_wanderers = false;
+-	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, coloured = 0, failed = 0;
++	int places = 0, lines = 0, picks = 0, walked = 0, unseen = 0, coloured = 0, colouredManiac = 0, failed = 0;
+ 	bool maniac = false, shown = false;
+ 	auto fail = [&](const char *what) { ++failed; warning("SCUMMVERSE sandbox talk: %s-%d: %s", kWorldGames[_game].gameid, _room, what); };
+ 	auto told = [&]() {
+@@ -3145,7 +3166,8 @@ Common::Error SandboxEngine::talkTest() {
+ 			const Common::String line = _speech;
+ 			_speech.clear(); present(); _speech = line;
+ 			for (uint32 p : _frame) without += p == own;
+-			if (with - without < 20) fail("a line not in its speaker's own colour"); else ++coloured;
++			if (with - without < 20) fail("a line not in its speaker's own colour");
++			else { ++coloured; colouredManiac += !strcmp(kWorldGames[g].gameid, "maniac"); }
+ 		}
+ 		FakeTalk::next = second;
+ 		int waited = 1;
+@@ -3199,7 +3221,7 @@ Common::Error SandboxEngine::talkTest() {
+ 	if (!cleared) { ++failed; warning("SCUMMVERSE sandbox talk: the chat not cleared on leaving"); }
+ 	g_system->updateScreen();
+ 	warning("SCUMMVERSE sandbox selftest talk: %d places, %d lines said (%d out of view), %d picked, %d stopped walking, Maniac's rooms %s, %d in their speakers' own colours, %d failed", places, lines, unseen, picks, walked, maniac ? "seen" : "not here", coloured, failed);
+-	if (!places || failed || lines != places * 3 || picks != places || !walked || (maniac && !coloured)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	if (!places || failed || lines != places * 3 || picks != places || !walked || (maniac && !colouredManiac)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+@@ -3375,7 +3397,7 @@ Common::Error SandboxEngine::castTest() {
+ 	// first), each carried; each chosen (from the start's lead) played where
+ 	// the player is, standing where the one before stood, as tall against
+ 	// the lead as drawn to be (Crispy about a third of a person).
+-	int customs = 0;
++	int customs = 0, customsAmong = 0;
+ 	double tall = 0;
+ 	{
+ 		const int slot = 2 + worldGameCount();
+@@ -3429,6 +3451,33 @@ Common::Error SandboxEngine::castTest() {
+ 			}
+ 		}
+ 	}
++	// With everyone out: the one played before a custom one stays, beside
++	// them, once, out among the wanderers here.
++	if (customs) {
++		_wanderers = true;
++		buildWanderers();
++		int lead = -1;
++		for (const WorldLead &l : kWorldLeads) if (l.game == game) lead = l.costume;
++		const int leadKey = worldAppearanceKey(game, lead), crispy = worldAppearanceKey(kWorldCustomLooks, kWorldCustomArt[0].costume);
++		double lx, ly, px, py, bx = 0, by = 0;
++		if (lead < 0 || !castChoose(leadKey)) fail("the start's lead not played", "custom among the wanderers");
++		else {
++			StageBridge::position(_player, lx, ly);
++			const int here = place(_game, _room);
++			if (!castChoose(crispy)) fail("not played", "custom among the wanderers");
++			else {
++				int times = 0, beside = -1;
++				for (uint n = 0; n < _onStage.size(); ++n) if (_onStage[n] == leadKey) { ++times; beside = n; }
++				StageBridge::position(_player, px, py);
++				if (beside >= 0) StageBridge::position(beside, bx, by);
++				if (times != 1 || beside == _player || WanderBridge::where(leadKey) != here) fail("the one before not left here once", "custom among the wanderers");
++				else if (fabs(px - lx) > 1 || fabs(py - ly) > 1 || fabs(bx - lx) > 30 || fabs(by - ly) > 30) fail("not where the one before stood, they beside", "custom among the wanderers");
++				else if ((int)_onStage.size() != StageBridge::actorCount() || _people != (int)_onStage.size()) fail("the stage and the actors out of step", "custom among the wanderers");
++				else ++customsAmong;
++			}
++		}
++		_wanderers = false;
++	}
+ 	// Kept; and a request in the screen's range that is no one's (the chat's
+ 	// scene token) changes nothing.
+ 	const int key = _playerKey, atGame = _game, atRoom = _room;
+@@ -3456,9 +3505,9 @@ Common::Error SandboxEngine::castTest() {
+ 		shot("cast.png");
+ 	}
+ 	g_system->updateScreen();
+-	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall), %d failed",
+-		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, failed);
+-	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast)) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++	warning("SCUMMVERSE sandbox selftest cast: %d boxes (%d faces), %d people listed, %d of %d played where they live, %d new kids where they are (%d here already), %d custom played where the player is (%.2f of a person tall; %d among the wanderers), %d failed",
++		(int)FakeCast::boxes.size() - 1, faces, listed, played, expected, newKids, newKidsHere, customs, tall, customsAmong, failed);
++	if (failed || !faces || !listed || played != expected || played < 2 || customs != ARRAYSIZE(kWorldCustomCast) || customsAmong != 1) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	return Common::kNoError;
+ }
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 66a5dc68..a51a2e8e 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -117,6 +117,7 @@ private:
+ 	// people installed (the lead first); a choice plays them where they live.
+ 	bool isLight(int object) const;         // one of the mansion's lights, turned on and off
+ 	void lights(bool on);                   // here lit, or dark (kept)
++	void lightsSave(bool flush) const;      // (into the settings)
+ 	Common::String lightsKept() const;
+ 	void lightsRead(const Common::String &kept);
+ 	void castOffer();

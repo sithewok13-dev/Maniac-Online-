@@ -1,0 +1,43 @@
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 83b8cbca..fc13146f 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -162,7 +162,7 @@ static const ZakResident *zakResident(int room) {
+ // 51 counts down and lands riders at (13,63); the ride scene (resource 26)
+ // is not imported yet.
+ static const int kZakTramStations[2] = {79, 184};
+-static const int kZakTramObject = 445, kZakTramButton = 450;
++static const int kZakTramObject = 445, kZakTramButton = 450, kZakTramSand = 451;
+ static int zakTramStation(int room) { return room == kZakTramStations[0] ? 0 : room == kZakTramStations[1] ? 1 : -1; }
+ static bool zakAirport(int r) { const int slot=zakSceneSlotRoom(r); return r==53 || (slot && (zakPlaces[slot-56].file==8 || zakPlaces[slot-56].file==9)); }
+ // Airport interactions resolve by original object identity, not import order.
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 55fb52d2..3626ded5 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -1125,10 +1125,16 @@ void ScummEngine::scummverseAnnounce(const char *text) {
+ }
+ 
+ // The parked tram is drawn only at the station where it stands (original
+-// states: 0 present, 10 away), in either scene sharing the resource.
++// states: 0 present, 10 away), in either scene sharing the resource. The
++// sand drifted over the platform is swept off, as befits a tram that runs
++// (the original's own picture of the platform, its state 8).
+ void ScummEngine::scummverseApplyTramState() {
+ 	const int station = zakTramStation(_currentRoom);
+ 	if (!_scummverseRoaming || station < 0) return;
++	for (int i = 0; i < 33; ++i)
++		if (scummverseOriginalObject(_currentRoom, 732 + i) == kZakTramSand && !(getState(732 + i) & kObjectStateIntrinsic)) {
++			putState(732 + i, getState(732 + i) | kObjectStateIntrinsic); updateObjectStates(); _fullRedraw = true;
++		}
+ 	for (int i = 0; i < 33; ++i) {
+ 		if (scummverseOriginalObject(_currentRoom, 732 + i) != kZakTramObject) continue;
+ 		const bool here = (_scummVars[799] & 1) == station && _scummVars[797] <= kTramBoarding;
+@@ -1159,6 +1165,7 @@ void ScummEngine::scummverseTramRequest(int actor, bool board) {
+ }
+ 
+ void ScummEngine::scummverseServiceTram(int delta) {
++	if (zakTramStation(_currentRoom) >= 0) scummverseApplyTramState(); // The swept platform, from the first look.
+ 	const int previous = _scummVars[797];
+ 	if (!previous) {
+ 		// Idle at the other end: someone waiting at a station brings it over

@@ -1,0 +1,659 @@
+diff --git a/common/scummverse_panel.cpp b/common/scummverse_panel.cpp
+index f8c47e44..a7588622 100644
+--- a/common/scummverse_panel.cpp
++++ b/common/scummverse_panel.cpp
+@@ -47,7 +47,7 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 	if (!r.bytes(768, palette) || !r.bytes((size_t)out.screenWidth * out.rows, out.pixels) || (over && !r.bytes((size_t)out.screenWidth * out.rows, out.mask))) {
+ 		error = "truncated panel"; return false;
+ 	}
+-	for (uint8_t &m : out.mask) m = m != 0;
++	for (uint8_t m : out.mask) if (m > 2) { error = "bad mask"; return false; }
+ 	std::memcpy(out.palette, palette.data(), 768);
+ 	const int verbs = r.u8();
+ 	for (int i = 0; i < verbs && r.ok; ++i) {
+@@ -59,7 +59,7 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 		v.name.assign(name.begin(), name.end());
+ 		r.bytes((size_t)v.rect.width * v.rect.height, v.lit);
+ 		if (!r.ok) break;
+-		if (v.kind < kWalk || v.kind > kTakeOff || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
++		if (v.kind < kWalk || v.kind > kAct || !within(v.rect, out.screenWidth, out.rows)) { error = "bad verb"; return false; }
+ 		out.verbs.push_back(v);
+ 	}
+ 	out.sentenceX = r.s16(); out.sentenceY = r.s16();
+@@ -114,6 +114,7 @@ bool parse(const uint8_t *data, size_t size, Source &out, std::string &error) {
+ 		if (!picture(out.button) || (r.ok && (out.button.pixels.empty() || !within(out.button.rect, out.screenWidth, out.screenHeight)))) { error = "bad button"; return false; }
+ 		out.close = r.rect();
+ 		if (r.ok && !within(out.close, out.screenWidth, out.rows)) { error = "bad button"; return false; }
++		out.shade = r.u8();
+ 	}
+ 	if (!r.ok) { error = "truncated panel"; return false; }
+ 	if (r.p != r.end) { error = "truncated panel"; return false; }
+@@ -208,6 +209,15 @@ Outcome decide(int kind, const Thing &thing, const std::string &name) {
+ 		return say("I can't wear that.");
+ 	case kTakeOff:
+ 		return say("I'm not wearing that.");
++	case kAct: {
++		// (One tap, The Dig's way: what can be taken is, what is shut opens,
++		// else it is looked at.)
++		const Outcome take = decide(kPickUp, thing, name);
++		if (take.result == kTake) return take;
++		const Outcome opened = decide(kOpen, thing, name);
++		if (opened.result == kShow) return opened;
++		return decide(kLook, thing, name);
++	}
+ 	default:
+ 		return o;
+ 	}
+@@ -401,7 +411,8 @@ void Panel::text(std::vector<uint32_t> &canvas, int font, const std::string &s,
+ void Panel::compose(std::vector<uint32_t> &canvas) const {
+ 	const int W = _source.screenWidth, H = _source.rows;
+ 	canvas.resize((size_t)W * H);
+-	for (size_t i = 0; i < canvas.size(); ++i) canvas[i] = color(_source.pixels[i]);
++	// (Where the box darkens the scene: nothing of its own, 0, unless drawn on.)
++	for (size_t i = 0; i < canvas.size(); ++i) canvas[i] = _source.over && _source.mask[i] == 2 ? 0u : color(_source.pixels[i]);
+ 	if (_selected >= 0 && _selected < (int)_source.verbs.size()) {
+ 		const Verb &v = _source.verbs[_selected];
+ 		for (int y = 0; y < v.rect.height; ++y)
+@@ -460,7 +471,12 @@ void Panel::render(uint32_t *screen, int pitch, int screenHeight) const {
+ 		for (int x = 0; x < _screenWidth; ++x) {
+ 			if (x < _left || x >= _left + _columns) { if (!over) out[x] = 0xFF000000u; continue; }
+ 			const size_t at = (size_t)y * W + std::min(W - 1, (int)((x - _left) / _colScale));
+-			if (!over || _source.mask[at]) out[x] = canvas[at];
++			if (!over || _source.mask[at] == 1 || (_source.mask[at] == 2 && (canvas[at] >> 24))) out[x] = canvas[at];
++			else if (_source.mask[at] == 2) {
++				// (Darkened as the game's shadow colours darken: by its shade.)
++				const uint32_t c = out[x], k = (uint32_t)_source.shade;
++				out[x] = (c & 0xFF000000u) | (((c >> 16 & 255) * k / 255) << 16) | (((c >> 8 & 255) * k / 255) << 8) | ((c & 255) * k / 255);
++			}
+ 		}
+ 	}
+ }
+diff --git a/common/scummverse_panel.h b/common/scummverse_panel.h
+index 5d4d4384..d970789f 100644
+--- a/common/scummverse_panel.h
++++ b/common/scummverse_panel.h
+@@ -27,7 +27,8 @@ namespace Panel {
+ // What a verb does (the catalog's WorldVerbKind).
+ enum VerbKind {
+ 	kWalk = 1, kLook, kPickUp, kOpen, kClose, kPush, kPull, kUse, kGive, kTalk, kTurnOn, kTurnOff, kWhatIs,
+-	kRead, kUnlock, kFix, kNewKid, kPutOn, kTakeOff // (the oldest games' own)
++	kRead, kUnlock, kFix, kNewKid, kPutOn, kTakeOff, // (the oldest games' own)
++	kAct // (one tap does what fits: The Dig's)
+ };
+ 
+ struct Rect {
+@@ -48,7 +49,8 @@ struct Font {
+ // later games); `lit` is its rectangle drawn highlighted.
+ struct Verb { int kind = 0, id = 0; Rect rect; std::string name; std::vector<uint8_t> lit; };
+ // A picture of the controls over the scene: palette indices, `mask` 1 where
+-// it is drawn (elsewhere the scene shows); a pointer's hot spot.
++// it is drawn, 2 where it darkens the scene (The Dig's grid), 0 where the
++// scene shows; a pointer's hot spot.
+ struct Picture { Rect rect; int hotX = 0, hotY = 0; std::vector<uint8_t> pixels, mask; };
+ struct Source {
+ 	int screenWidth = 0, screenHeight = 0, top = 0, rows = 0;
+@@ -64,14 +66,16 @@ struct Source {
+ 	int talkColor = 0;
+ 	Font fonts[2]; // the sentence line's, the talk's
+ 	// Over the scene ("SVI2"): the panel is a box over it (`mask` 1 where it
+-	// is drawn), opened from `button` (on the game's screen); each verb's
++	// is drawn, 2 where it darkens the scene to `shade` / 255 of its
++	// brightness), opened from `button` (on the game's screen); each verb's
+ 	// pointer (cursors[k] is verbs[k]'s, none where it has no rectangle);
+-	// the icon that shuts the box.
++	// the icon that shuts the box (none: a tap off it does).
+ 	bool over = false;
+ 	std::vector<uint8_t> mask;
+ 	std::vector<Picture> cursors;
+ 	Picture button;
+ 	Rect close;
++	int shade = 255;
+ };
+ // Bytes of an "SVI1" or "SVI2" file (uncompressed); false (with `error`) when
+ // malformed.
+@@ -96,7 +100,8 @@ struct Outcome { int result = kNothing; int picture = -1; std::string say; };
+ // and turn on show picture 1 when it shows none, close and turn off picture
+ // 0; push and pull switch one with two pictures, else step through those
+ // showing it; pick up takes what is small, shown and not a door; the rest is
+-// said not to work ("new kid" is the player's, not the thing's).
++// said not to work ("new kid" is the player's, not the thing's); one tap
++// (act) picks up what can be, opens what is shut, else looks.
+ // Where its game's script is known, each also needs the thing to answer
+ // that verb there (open or close for either, on or off, push or pull, pick
+ // up): a pirate is not taken, a wall not opened.
+@@ -147,7 +152,8 @@ public:
+ 	bool over() const { return _loaded && _source.over; }
+ 	void open(bool open) { _open = open && over(); }
+ 	bool isOpen() const { return _open; }
+-	int pointerVerb() const { return _selected >= 0 ? _selected : walkVerb(); }
++	// (A game without a walk verb, The Dig: its first verb, its tap.)
++	int pointerVerb() const { return _selected >= 0 ? _selected : walkVerb() >= 0 ? walkVerb() : over() && !_source.verbs.empty() ? 0 : -1; }
+ 	void nextVerb();
+ 	// The button where the scene is (screen pixels; none under the scene).
+ 	Rect buttonOnScreen() const;
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 3d29741e..15f91757 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 19;
++static const int kWorldExportVersion = 20;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+@@ -672,7 +672,9 @@ enum WorldVerbKind {
+ 	kWorldVerbWalk = 1, kWorldVerbLook, kWorldVerbPickUp, kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush,
+ 	kWorldVerbPull, kWorldVerbUse, kWorldVerbGive, kWorldVerbTalk, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbWhatIs,
+ 	// The oldest games' own (the mansion's, Zak's).
+-	kWorldVerbRead, kWorldVerbUnlock, kWorldVerbFix, kWorldVerbNewKid, kWorldVerbPutOn, kWorldVerbTakeOff
++	kWorldVerbRead, kWorldVerbUnlock, kWorldVerbFix, kWorldVerbNewKid, kWorldVerbPutOn, kWorldVerbTakeOff,
++	// One tap does what fits (The Dig's way: pick up, open, else look).
++	kWorldVerbAct
+ };
+ // The verb a things file's answers count one under (bit k: kind k, 1..13):
+ // the oldest games' own verbs as the nearest of those.
+@@ -681,7 +683,7 @@ inline int worldVerbAnswerKind(int kind) {
+ 	case kWorldVerbRead: return kWorldVerbLook;
+ 	case kWorldVerbUnlock: return kWorldVerbOpen;
+ 	case kWorldVerbFix: case kWorldVerbPutOn: case kWorldVerbTakeOff: return kWorldVerbUse;
+-	case kWorldVerbNewKid: return 0;
++	case kWorldVerbNewKid: case kWorldVerbAct: return 0;
+ 	default: return kind;
+ 	}
+ }
+@@ -719,6 +721,8 @@ static const WorldVerb kWorldVerbs[] = {
+ 	// Sam & Max Hit the Road: five, its pointer's (see kWorldOverlays).
+ 	{6, 7, kWorldVerbWalk}, {6, 4, kWorldVerbLook}, {6, 5, kWorldVerbUse}, {6, 6, kWorldVerbTalk},
+ 	{6, 3, kWorldVerbPickUp},
++	// The Dig: one, its tap (no verb of its own scripts' numbers; 1 here).
++	{8, 1, kWorldVerbAct},
+ };
+ // (start: a global script that sets the verbs up, run instead of the game's
+ // own start: the mansion's, as the original engine's sandbox does; the
+@@ -742,15 +746,20 @@ inline const WorldPanel *worldPanel(int game) {
+ // and a right click the next one (`verbs`, the game's own numbers in the
+ // order its pointer goes round: walking, look, use, talk, pick up); a box of
+ // things opens from a button (`button`, the actor in the scene's corner)
+-// over the scene: the object that is its picture (`box`), each verb's icon
+-// in it (`icons`, by object; 0 none) and the one that shuts it (`close`);
+-// its cells (the first's top left, their size, how many across and down).
++// over the scene: the object that is its picture (`box`; `blast`: one the
++// game draws as a blast object, The Dig's grid), each verb's icon in it
++// (`icons`, by object; 0 none) and the one that shuts it (`close`; 0: a tap
++// off it or a right click); its cells (the first's top left, their size,
++// from one to the next across and down, how many across and down). The
++// Dig: one verb, its tap (kWorldVerbAct), a grid of things from its button.
+ struct WorldOverlay {
+-	short game, button, box, close, cellX, cellY, cellWidth, cellHeight, columns, rows;
++	short game, button, box, close, cellX, cellY, cellWidth, cellHeight, stepX, stepY, columns, rows;
++	bool blast;
+ 	short verbs[6], icons[6]; // (a 0 verb ends them)
+ };
+ static const WorldOverlay kWorldOverlays[] = {
+-	{6, 1, 995, 888, 40, 48, 40, 24, 6, 5, {7, 4, 5, 6, 3, 0}, {0, 879, 880, 881, 882, 0}},
++	{6, 1, 995, 888, 40, 48, 40, 24, 40, 24, 6, 5, false, {7, 4, 5, 6, 3, 0}, {0, 879, 880, 881, 882, 0}},
++	{8, 2, 627, 0, 32, 30, 32, 24, 32, 25, 8, 5, true, {1, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0}},
+ };
+ inline const WorldOverlay *worldOverlay(int game) {
+ 	for (const auto &o : kWorldOverlays) if (o.game == game) return &o;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index fe0e1f37..921dc8d9 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1653,8 +1653,12 @@ protected:
+ 	virtual bool scummverseExportPanelOld(int game, const Common::Path &file, Common::String &problem) { problem = "no verb panel"; return false; }
+ 	// (Controls over the scene: Sam & Max's pointer and box of things.)
+ 	bool scummverseExportOverlay(int game, const Common::Path &file, Common::String &problem);
+-	bool scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask);
++	bool scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Array<int> &blasts, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask, Common::Array<uint16> *shaded = nullptr);
+ 	void scummverseCaptureLetters(int slot, int charset, int ink, VirtScreen &vs, int top, int rows, ScummverseUiFont &font);
++	void scummverseCaptureLettersV7(int charset, int ink, ScummverseUiFont &font);
++	// (v6 on: a blast object the game draws this frame, where; it drawn alone.)
++	virtual bool scummverseBlast(int obj, Common::Rect &rect) { return false; }
++	virtual void scummverseDrawBlast(int obj) {}
+ 	int _scummverseMusicTimer = -1; // The panel export's own music clock (-1: the music's).
+ 	bool _scummverseExporting = false; // In the other worlds' export (scripts run out of their story's order).
+ 	bool _scummverseAuditedManiac = false; // (Maniac Mansion DOS V1 English, its tables checked against)
+diff --git a/engines/scumm/scumm_v6.h b/engines/scumm/scumm_v6.h
+index d678e9bb..48935da8 100644
+--- a/engines/scumm/scumm_v6.h
++++ b/engines/scumm/scumm_v6.h
+@@ -309,6 +309,8 @@ protected:
+ 	                   int objectHeight, int scaleX, int scaleY, int image, int mode);
+ 	void drawBlastObjects();
+ 	void drawBlastObject(BlastObject *eo);
++	bool scummverseBlast(int obj, Common::Rect &rect) override;
++	void scummverseDrawBlast(int obj) override;
+ 
+ 	void restoreBlastObjectRect(Common::Rect r);
+ 
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 69f74c5f..3ed1fdf1 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -1545,6 +1545,7 @@ struct ScummverseUi {
+ 	Common::Array<ScummverseUiPicture> cursors;
+ 	ScummverseUiPicture button;
+ 	ScummverseUiRect close = {0, 0, 0, 0};
++	int shade = 255; // (the brightness a darkened pixel keeps, of 255)
+ };
+ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file, Common::String &problem) {
+ 	Common::DumpFile *dump = new Common::DumpFile();
+@@ -1592,6 +1593,7 @@ static bool scummverseWriteUi(const ScummverseUi &ui, const Common::Path &file,
+ 		}
+ 		scummverseWrite16(out, ui.button.x); scummverseWrite16(out, ui.button.y); picture(ui.button);
+ 		for (int f : {ui.close.x, ui.close.y, ui.close.width, ui.close.height}) scummverseWrite16(out, f);
++		out.writeByte(ui.shade);
+ 	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+@@ -1678,7 +1680,8 @@ void ScummEngine::scummverseCaptureLetters(int slot, int charset, int ink, VirtS
+ // the letterings: u8 pointer count and per pointer u8 its verb (an index
+ // into the verbs), int16 hot spot x, y, u16 width, height, pixels and mask;
+ // the button: int16 x, y (screen pixels), u16 width, height, pixels, mask;
+-// the icon that shuts the panel: int16 x, y, u16 width, height.
++// the icon that shuts the panel: int16 x, y, u16 width, height (0: none);
++// u8 the brightness kept (of 255) where the panel's mask is 2 (shaded).
+ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file, Common::String &problem) {
+ 	const WorldPanel *panel = worldPanel(gameIndex);
+ 	if (!panel && worldOverlay(gameIndex)) return scummverseExportOverlay(gameIndex, file, problem);
+@@ -1919,29 +1922,35 @@ bool ScummEngine::scummverseExportPanel(int gameIndex, const Common::Path &file,
+ 	return scummverseWriteUi(ui, file, problem);
+ }
+ 
+-// Objects as the game draws them, alone, over `area` of the main screen (its
+-// own rows and the visible columns): what they draw (mask 1) against what
+-// they leave clear, each drawn twice over two fills; the screen as it was
+-// after (all of it: an object draws whole, past `area`).
+-bool ScummEngine::scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask) {
++// Objects (and blast objects) as the game draws them, alone, over `area` of
++// the main screen (its own rows and the visible columns): what they draw
++// (mask 1) against what they leave clear (0), or darken through the game's
++// shadow colours (2: The Dig's grid; `shaded` the two fills each such pixel
++// turned into, first << 8 | second), each drawn twice over two fills; the
++// screen as it was after (all of it: an object draws whole, past `area`).
++bool ScummEngine::scummverseCaptureObjects(const Common::Array<int> &objects, const Common::Array<int> &blasts, const Common::Rect &area, Common::Array<byte> &pixels, Common::Array<byte> &mask, Common::Array<uint16> *shaded) {
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+ 	const Common::Rect r(MAX<int>(0, area.left), MAX<int>(0, area.top), MIN<int>(area.right, _screenWidth), MIN<int>(area.bottom, vs.h));
+ 	if (r.isEmpty() || !vs.hasTwoBuffers || vs.w < _screenWidth) return false;
+ 	const int w = r.width(), h = r.height(), W = _screenWidth, H = vs.h;
+-	Common::Array<byte> front(W * H), back(W * H), pass[2];
++	// (Three fills: a darkening that makes two of them one colour still
++	// differs from the third.)
++	static const byte fills[3] = {254, 255, 128};
++	Common::Array<byte> front(W * H), back(W * H), pass[3];
+ 	for (int y = 0; y < H; ++y) {
+ 		memcpy(&front[y * W], vs.getPixels(0, y), W);
+ 		memcpy(&back[y * W], vs.getBackPixels(0, y), W);
+ 	}
+-	for (int p = 0; p < 2; ++p) {
++	for (int p = 0; p < 3; ++p) {
+ 		for (int y = 0; y < h; ++y) {
+-			memset(vs.getPixels(r.left, r.top + y), p ? 255 : 254, w);
+-			memset(vs.getBackPixels(r.left, r.top + y), p ? 255 : 254, w);
++			memset(vs.getPixels(r.left, r.top + y), fills[p], w);
++			memset(vs.getBackPixels(r.left, r.top + y), fills[p], w);
+ 		}
+ 		for (int obj : objects) {
+ 			const int i = getObjectIndex(obj);
+ 			if (i > 0) drawObject(i, 0);
+ 		}
++		for (int obj : blasts) scummverseDrawBlast(obj);
+ 		pass[p].resize(w * h);
+ 		for (int y = 0; y < h; ++y) memcpy(&pass[p][y * w], vs.getPixels(r.left, r.top + y), w);
+ 	}
+@@ -1950,10 +1959,76 @@ bool ScummEngine::scummverseCaptureObjects(const Common::Array<int> &objects, co
+ 		memcpy(vs.getBackPixels(0, y), &back[y * W], W);
+ 	}
+ 	pixels.resize(w * h); mask.resize(w * h);
+-	for (int i = 0; i < w * h; ++i) { mask[i] = pass[0][i] == pass[1][i]; pixels[i] = mask[i] ? pass[0][i] : 0; }
++	for (int i = 0; i < w * h; ++i) {
++		const bool same = pass[0][i] == pass[1][i] && pass[1][i] == pass[2][i];
++		const bool clear = pass[0][i] == fills[0] && pass[1][i] == fills[1] && pass[2][i] == fills[2];
++		mask[i] = same ? 1 : clear ? 0 : 2;
++		pixels[i] = mask[i] == 1 ? pass[0][i] : 0;
++		if (mask[i] == 2 && shaded) shaded->push_back(pass[0][i] << 8 | pass[1][i]);
++	}
+ 	return true;
+ }
+ 
++// The blast objects queued this frame (v6 on: the later games' inventory
++// pictures): where one is, and it drawn again alone (where it was queued).
++bool ScummEngine_v6::scummverseBlast(int obj, Common::Rect &rect) {
++	for (int i = 0; i < _blastObjectQueuePos; ++i)
++		if (_blastObjectQueue[i].number == obj) { rect = _blastObjectQueue[i].rect; return true; }
++	return false;
++}
++
++void ScummEngine_v6::scummverseDrawBlast(int obj) {
++	for (int i = 0; i < _blastObjectQueuePos; ++i)
++		if (_blastObjectQueue[i].number == obj) { BlastObject eo = _blastObjectQueue[i]; drawBlastObject(&eo); return; }
++}
++
++// The later games' lettering (v7, drawn by their own glyph renderer): each
++// character alone at a pen in a picture of its own, in `ink`.
++void ScummEngine::scummverseCaptureLettersV7(int charset, int ink, ScummverseUiFont &font) {
++	font.glyphs.clear();
++#ifdef ENABLE_SCUMM_7_8
++	// (Full Throttle's and The Dig's: charsets of the classic kind, as many
++	// letters as theirs has. The Curse's own fonts are not taken yet.)
++	if (_game.version != 7 || _game.heversion || charset < 0 || charset >= _numCharsets) return;
++	const byte *resource = getResourceAddress(rtCharset, charset);
++	if (!resource) return;
++	const int count = MIN<int>(READ_LE_UINT16(resource + 29 + 2), 256);
++	GlyphRenderer_v7 *glyphs = static_cast<CharsetRendererV7 *>(_charset);
++	_charset->setCurID(charset);
++	// (Its own colours, as the game loads them for each line it draws.)
++	if (charset < (int)ARRAYSIZE(_charsetData)) memcpy(_charsetColorMap, _charsetData[charset], _game.id == GID_DIG ? sizeof(_charsetColorMap) : 4);
++	font.height = MIN(_charset->getFontHeight(), 255);
++	// (Nothing drawn: a colour neither the ink nor one of the charset's.)
++	int none = 255;
++	auto used = [&](int c) {
++		if (c == ink) return true;
++		for (int k = 0; k < 16; ++k) if (_charsetColorMap[k] == c) return true;
++		return false;
++	};
++	while (none > 0 && used(none)) --none;
++	font.ink = ink; font.none = none;
++	const int boxW = 64, boxH = 64, penX = 8, penY = 8;
++	Common::Array<byte> box(boxW * boxH);
++	for (int code = 32; code < count; ++code) {
++		if (code == '@') continue;
++		for (byte &b : box) b = none;
++		Common::Rect clip(0, 0, boxW, boxH);
++		glyphs->drawCharV7(box.data(), clip, penX, penY, boxW, ink, kStyleAlignLeft, (byte)code);
++		int x0 = boxW, y0 = boxH, x1 = 0, y1 = 0;
++		for (int y = 0; y < boxH; ++y)
++			for (int x = 0; x < boxW; ++x)
++				if (box[y * boxW + x] != none) { x0 = MIN(x0, x); y0 = MIN(y0, y); x1 = MAX(x1, x + 1); y1 = MAX(y1, y + 1); }
++		ScummverseUiGlyph g;
++		g.code = code; g.advance = CLIP(glyphs->getCharWidth(code), 0, 255);
++		if (x0 >= x1) { x0 = penX; y0 = penY; x1 = x0; y1 = y0; }
++		g.x = CLIP(x0 - penX, -128, 127); g.y = CLIP(y0 - penY, -128, 127);
++		g.width = MIN(x1 - x0, 64); g.height = MIN(y1 - y0, 64);
++		for (int y = y0; y < y0 + g.height; ++y) for (int x = x0; x < x0 + g.width; ++x) g.pixels.push_back(box[y * boxW + x]);
++		if (g.advance || g.width) font.glyphs.push_back(g);
++	}
++#endif
++}
++
+ // The controls a game keeps over the scene ("<game>-ui.svi" as "SVI2", the
+ // new engine's step 2f; see kWorldOverlays): from its own start, run on at
+ // once until its button stands in the scene and the player has the pointer;
+@@ -2018,10 +2093,11 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 		return c;
+ 	};
+ 	auto same = [](const ScummverseUiPicture &a, const ScummverseUiPicture &b) { return a.width == b.width && a.height == b.height && a.pixels == b.pixels && a.mask == b.mask; };
++	// (One verb, The Dig's tap: its pointer as it is, no right click.)
+ 	for (int k = 0; k < verbCount; ++k) {
+ 		ui.cursors.push_back(pointer());
+ 		if (k && same(ui.cursors[k], ui.cursors[k - 1])) { _scummverseMusicTimer = -1; problem = "its pointer did not change"; return false; }
+-		click(_rightBtnPressed); frames(20);
++		if (verbCount > 1) { click(_rightBtnPressed); frames(20); }
+ 	}
+ 	if (!verbCount || !same(pointer(), ui.cursors[0])) { _scummverseMusicTimer = -1; problem = "its pointer does not go round"; return false; }
+ 	// The button, as drawn alone (the screen put back after).
+@@ -2036,19 +2112,42 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 		ui.button.pixels = f.pixels; ui.button.mask = f.mask;
+ 	}
+ 	// The box, opened by a tap on the button.
+-	auto shown = [&](int obj) { return obj > 0 && getObjectIndex(obj) > 0 && getState(obj) > 0; };
++	Common::Rect blastRect;
++	auto shown = [&](int obj) { return obj > 0 && (overlay->blast && obj == overlay->box ? scummverseBlast(obj, blastRect) : getObjectIndex(obj) > 0 && getState(obj) > 0); };
+ 	_mouse.x = ui.button.x + ui.button.width / 2; _mouse.y = top + ui.button.y + ui.button.height / 2;
+ 	frames(3);
+ 	click(_leftBtnPressed);
+ 	int open = 0;
+ 	for (int n = 0; n < 300 && !shouldQuit() && open < 10; ++n) { frames(1); open = shown(overlay->box) ? open + 1 : 0; }
+ 	if (open < 10) { _scummverseMusicTimer = -1; problem = "its box never opened"; return false; }
+-	Common::Array<int> parts;
+-	parts.push_back(overlay->box);
++	Common::Array<int> parts, blasts;
++	(overlay->blast ? blasts : parts).push_back(overlay->box);
+ 	for (int k = 0; k < verbCount; ++k) if (overlay->icons[k]) parts.push_back(overlay->icons[k]);
+ 	if (overlay->close) parts.push_back(overlay->close);
+ 	for (int obj : parts) if (!shown(obj)) { _scummverseMusicTimer = -1; problem = "its box is not whole"; return false; }
+-	if (!scummverseCaptureObjects(parts, Common::Rect(0, 0, W, rows), ui.image, ui.mask)) { _scummverseMusicTimer = -1; problem = "its box cannot be drawn"; return false; }
++	Common::Array<uint16> shaded;
++	if (!scummverseCaptureObjects(parts, blasts, Common::Rect(0, 0, W, rows), ui.image, ui.mask, &shaded)) { _scummverseMusicTimer = -1; problem = "its box cannot be drawn"; return false; }
++	// (Where it darkens the scene: how much, as the game's shadow table it
++	// draws through does on average, brightness kept against brightness;
++	// the table the one most of its pixels make of the two fills.)
++	if (!shaded.empty() && _shadowPalette) {
++		Common::HashMap<uint16, int> counts;
++		uint16 most = shaded[0];
++		for (uint16 pair : shaded) if (++counts[pair] > counts[most]) most = pair;
++		int table = -1;
++		for (int k = 0; k < 8 && table < 0 && (k + 1) * 256 <= (int)_shadowPaletteSize; ++k)
++			if (_shadowPalette[k * 256 + 254] == most >> 8 && _shadowPalette[k * 256 + 255] == (most & 255)) table = k;
++		double kept = 0;
++		int counted = 0;
++		// (No table that does it: half its brightness, as most of the games' shadows.)
++		for (int c = 0; c < 256 && table >= 0; ++c) {
++			const byte *a = _currentPalette + 3 * c, *b = _currentPalette + 3 * _shadowPalette[table * 256 + c];
++			const int before = a[0] + a[1] + a[2];
++			if (before < 48) continue;
++			kept += MIN(1.0, (b[0] + b[1] + b[2]) / (double)before); ++counted;
++		}
++		ui.shade = counted ? CLIP<int>((int)(255 * kept / counted + 0.5), 0, 255) : 128;
++	}
+ 	// An object's rectangle on the box (screen pixels, cut to it).
+ 	auto place = [&](int obj) {
+ 		const ObjectData &o = _objs[getObjectIndex(obj)];
+@@ -2072,12 +2171,12 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 			pair.push_back(overlay->box); pair.push_back(icon);
+ 			const bool next = getObjectImageCount(icon) > state;
+ 			if (next) putState(icon, state + 1);
+-			const bool drawn = next && scummverseCaptureObjects(pair, Common::Rect(r.x, r.y, r.x + r.width, r.y + r.height), lit, litMask);
++			const bool drawn = next && scummverseCaptureObjects(pair, Common::Array<int>(), Common::Rect(r.x, r.y, r.x + r.width, r.y + r.height), lit, litMask);
+ 			if (next) putState(icon, state);
+ 			for (int y = 0; y < r.height; ++y)
+ 				for (int x = 0; x < r.width; ++x) {
+ 					const int at = y * r.width + x;
+-					v.lit.push_back(drawn && litMask[at] ? lit[at] : ui.image[(r.y + y) * W + r.x + x]);
++					v.lit.push_back(drawn && litMask[at] == 1 ? lit[at] : ui.image[(r.y + y) * W + r.x + x]);
+ 				}
+ 		}
+ 		ui.verbs.push_back(v);
+@@ -2087,16 +2186,18 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 	ui.slotKind = 2;
+ 	for (int row = 0; row < overlay->rows; ++row)
+ 		for (int column = 0; column < overlay->columns; ++column) {
+-			const ScummverseUiRect r = {overlay->cellX + column * overlay->cellWidth, overlay->cellY + row * overlay->cellHeight, overlay->cellWidth, overlay->cellHeight};
++			const ScummverseUiRect r = {overlay->cellX + column * overlay->stepX, overlay->cellY + row * overlay->stepY, overlay->cellWidth, overlay->cellHeight};
+ 			if (r.x >= 0 && r.y >= 0 && r.x + r.width <= W && r.y + r.height <= rows) ui.slots.push_back(r);
+ 		}
+-	// Shut again (the start as it was for the things after).
++	// Shut again (by its icon, else a right click).
+ 	if (overlay->close) {
+ 		_mouse.x = ui.close.x + ui.close.width / 2; _mouse.y = top + ui.close.y + ui.close.height / 2;
+ 		frames(3);
+ 		click(_leftBtnPressed);
+-		frames(30);
++	} else {
++		click(_rightBtnPressed);
+ 	}
++	frames(30);
+ 	// The talk lettering, in the player's talk colour, drawn by a verb of
+ 	// its own (the game has none on the screen).
+ 	const int ego = VAR_EGO != 0xFF ? VAR(VAR_EGO) : 0;
+@@ -2104,8 +2205,13 @@ bool ScummEngine::scummverseExportOverlay(int gameIndex, const Common::Path &fil
+ 	int slot = -1;
+ 	for (int i = 1; i < _numVerbs && slot < 0; ++i) if (!_verbs[i].verbid) slot = i;
+ 	const int charset = _string[0]._default.charset;
+-	if (slot < 0 || charset < 0 || charset >= _numCharsets || !getResourceAddress(rtCharset, charset)) { _scummverseMusicTimer = -1; problem = "no lettering"; return false; }
+-	{
++	// (The later games draw their letters with a renderer of their own.)
++	if (_game.version >= 7) {
++		scummverseCaptureLettersV7(charset, ui.talk, ui.fonts[1]);
++		if (ui.fonts[1].glyphs.empty()) { _scummverseMusicTimer = -1; problem = "no lettering"; return false; }
++	} else if (slot < 0 || charset < 0 || charset >= _numCharsets || !getResourceAddress(rtCharset, charset)) {
++		_scummverseMusicTimer = -1; problem = "no lettering"; return false;
++	} else {
+ 		Common::Array<byte> front(W * rows), back(W * rows);
+ 		for (int y = 0; y < rows; ++y) { memcpy(&front[y * W], vs.getPixels(0, y), W); memcpy(&back[y * W], vs.getBackPixels(0, y), W); }
+ 		VerbSlot &v = _verbs[slot];
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index cd972bcc..91e92235 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -363,7 +363,8 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	_door = -1; _action = 0; _target = -1;
+ 	// With a verb other than walking: the thing it is used on (named and
+ 	// shown here), walked to first; else walking.
+-	const int verb = PanelBridge::loaded() ? PanelBridge::selected() : -1;
++	// (Over the scene the pointer is the verb: The Dig's is always its tap.)
++	const int verb = !PanelBridge::loaded() ? -1 : PanelBridge::over() ? PanelBridge::pointerVerb() : PanelBridge::selected();
+ 	const int kind = verb >= 0 ? PanelBridge::verbKind(verb) : (int)kWorldVerbWalk;
+ 	// (A panel's verb is used once; a pointer stays the verb it is.)
+ 	if (!PanelBridge::over()) PanelBridge::select(-1);
+@@ -371,8 +372,9 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 		Common::Array<int> things;
+ 		for (int i = 0; i < StageBridge::objectCount(); ++i) if (isThing(i)) things.push_back(i);
+ 		const int thing = StageBridge::objectAt(x, y, things.data(), things.size(), 2);
+-		// (Sam & Max's use pointer on a door goes through it, as its game's does.)
+-		if (thing >= 0 && !(PanelBridge::over() && kind == kWorldVerbUse && isDoor(thing))) {
++		// (Sam & Max's use pointer and The Dig's tap on a door go through it, as
++		// their games' do.)
++		if (thing >= 0 && !(PanelBridge::over() && (kind == kWorldVerbUse || kind == kWorldVerbAct) && isDoor(thing))) {
+ 			char name[80], verbName[40];
+ 			StageBridge::objectName(thing, name, sizeof(name));
+ 			PanelBridge::verbName(verb, verbName, sizeof(verbName));
+@@ -499,7 +501,7 @@ void SandboxEngine::useItem(int item) {
+ 	PanelBridge::itemName(item, name, sizeof(name));
+ 	// (In Sam & Max's box the pointer stays the verb it is; walking there looks.)
+ 	if (!PanelBridge::over()) PanelBridge::select(-1);
+-	else if (kind == kWorldVerbWalk) kind = kWorldVerbLook;
++	else if (kind == kWorldVerbWalk || kind == kWorldVerbAct) kind = kWorldVerbLook;
+ 	if (kind == kWorldVerbWalk) { sentence(name); return; }
+ 	sentence("");
+ 	int picture;
+@@ -556,10 +558,14 @@ void SandboxEngine::act() {
+ 	const double reach = 2 * kDoorReach * screenWidthOf(_game) / 320.0;
+ 	const bool near = (px - tx) * (px - tx) + (py - ty) * (py - ty) <= reach * reach ||
+ 		(px >= ox - reach && px <= ox + w + reach && py >= oy - reach && py <= oy + h + reach);
+-	if (!looking && !near) { say("I can't reach that."); return; }
++	// (The Dig's tap needs a hand only for what it takes or opens: looking does not.)
++	const bool acting = kind == kWorldVerbAct;
++	if (!looking && !near && !acting) { say("I can't reach that."); return; }
+ 	int picture = -1, gamePicture, answers = -1;
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+-	switch (PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown)) {
++	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
++	if (acting && !near && result != 1) { say("I can't reach that."); return; }
++	switch (result) {
+ 	case 1: say(line); break;
+ 	case 2: showPicture(target, id, picture); break;
+ 	case 3:
+@@ -908,15 +914,22 @@ Common::Error SandboxEngine::verbsTest() {
+ 	auto fail = [&](const char *what, int g) { ++failed; warning("SCUMMVERSE sandbox verbs: %s: %s", kWorldGames[g].gameid, what); };
+ 	auto tapRect = [&](int x, int y, int w, int h) { tap(x + w / 2, y + h / 2); };
+ 	auto settle = [&]() { for (int t = 0; t < 40000 && (StageBridge::moving(_player) || _action); ++t) step(1); };
++	// (Over the scene a verb may be only the pointer's: The Dig's tap.)
+ 	auto verbOf = [&](int kind) {
+-		for (int v = 0; v < PanelBridge::verbCount(); ++v) if (PanelBridge::verbKind(v) == kind && PanelBridge::verbShown(v)) return v;
++		for (int v = 0; v < PanelBridge::verbCount(); ++v)
++			if (PanelBridge::verbKind(v) == kind && (PanelBridge::verbShown(v) || PanelBridge::over())) return v;
+ 		return -1;
+ 	};
+ 	// A verb chosen as a player does: a tap on it; over the scene (Sam &
+ 	// Max), its icon in the box the button opens.
+ 	auto pick = [&](int v) {
+ 		int x, y, w, h, bx, by, bw, bh;
+-		if (!PanelBridge::verbRect(v, x, y, w, h)) return false;
++		if (!PanelBridge::verbRect(v, x, y, w, h)) {
++			// (Only the pointer's: right clicks round to it.)
++			if (!PanelBridge::over()) return false;
++			for (int k = 0; k < PanelBridge::verbCount() && PanelBridge::pointerVerb() != v; ++k) rightClick(_width / 2, _height / 2);
++			return PanelBridge::pointerVerb() == v;
++		}
+ 		if (PanelBridge::over()) {
+ 			if (!PanelBridge::buttonRect(bx, by, bw, bh)) return false;
+ 			tapRect(bx, by, bw, bh);
+@@ -930,7 +943,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	auto use = [&](int kind, int object) {
+ 		const int v = verbOf(kind);
+ 		int id, ox, oy, ow, oh, wx, wy, state, sx, sy;
+-		if (v < 0 || !PanelBridge::verbShown(v) || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
++		if (v < 0 || !StageBridge::object(object, id, ox, oy, ow, oh, wx, wy, state)) return false;
+ 		_speech.clear();
+ 		if (!pick(v)) return false;
+ 		// (The pointer stays the verb it is: back to walking after.)
+@@ -962,14 +975,16 @@ Common::Error SandboxEngine::verbsTest() {
+ 		// each verb round as the pointer, back to walking.
+ 		if (over) {
+ 			int bx, by, bw, bh, cx, cy, cw, ch;
+-			if (!PanelBridge::buttonRect(bx, by, bw, bh) || !PanelBridge::closeRect(cx, cy, cw, ch)) fail("no button", g);
++			if (!PanelBridge::buttonRect(bx, by, bw, bh)) fail("no button", g);
+ 			else {
+ 				tapRect(bx, by, bw, bh);
+ 				if (!PanelBridge::isOpen()) fail("the box not opened", g);
+-				// (Its own icon shuts it, the pointer walking again.)
+-				PanelBridge::select(verbOf(kWorldVerbLook));
+-				tapRect(cx, cy, cw, ch);
+-				if (PanelBridge::isOpen() || PanelBridge::selected() != -1) fail("the box not shut by its icon", g);
++				// (Its own icon, where it has one, shuts it, the pointer walking again.)
++				if (PanelBridge::closeRect(cx, cy, cw, ch)) {
++					PanelBridge::select(verbOf(kWorldVerbLook));
++					tapRect(cx, cy, cw, ch);
++					if (PanelBridge::isOpen() || PanelBridge::selected() != -1) fail("the box not shut by its icon", g);
++				} else PanelBridge::open(false);
+ 				tapRect(bx, by, bw, bh); tap(0, 0);
+ 				if (PanelBridge::isOpen()) fail("the box not shut by a tap off it", g);
+ 				tapRect(bx, by, bw, bh); rightClick(_width / 2, _height / 2);
+@@ -977,14 +992,17 @@ Common::Error SandboxEngine::verbsTest() {
+ 			}
+ 			Common::HashMap<int, bool> round;
+ 			PanelBridge::select(-1);
++			const int first = PanelBridge::pointerVerb();
+ 			for (int k = 0; k < PanelBridge::verbCount(); ++k) { round[PanelBridge::pointerVerb()] = true; rightClick(_width / 2, _height / 2); }
+-			if ((int)round.size() != PanelBridge::verbCount() || PanelBridge::selected() != -1) fail("the pointer not round its verbs", g);
+-			// The use pointer on a door goes through it (walked to).
+-			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			if ((int)round.size() != PanelBridge::verbCount() || PanelBridge::pointerVerb() != first) fail("the pointer not round its verbs", g);
++			PanelBridge::select(-1);
++			// The use pointer (or The Dig's tap) on a door goes through it (walked to).
++			const int through = verbOf(kWorldVerbUse) >= 0 ? verbOf(kWorldVerbUse) : verbOf(kWorldVerbAct);
++			for (int o = 0; o < StageBridge::objectCount() && through >= 0; ++o) {
+ 				int id, ox, oy, w, h, wx, wy, state, sx, sy;
+ 				if (!isDoor(o) || !StageBridge::object(o, id, ox, oy, w, h, wx, wy, state)) continue;
+ 				StageBridge::toScreen(ox + w / 2.0, oy + h / 2.0, sx, sy);
+-				if (sx < 0 || sx >= _width || sy < 0 || sy >= _height || !pick(verbOf(kWorldVerbUse))) continue;
++				if (sx < 0 || sx >= _width || sy < 0 || sy >= _height || !pick(through)) continue;
+ 				tap(sx, sy);
+ 				if (_door < 0 || _action) fail("a door not gone to with the use pointer", g);
+ 				_door = -1; _action = 0; _target = -1;
+@@ -1022,7 +1040,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 			if (!walk) tapRect(x, y, w, h);
+ 			if (PanelBridge::selected() != -1) fail("a verb not let go", g);
+ 		}
+-		if (shownVerbs < (over ? 4 : 9)) fail("fewer verbs than the game has", g);
++		// (Over the scene: its icons, where it has more than its tap.)
++		if (over ? PanelBridge::verbCount() < 1 || (PanelBridge::verbCount() > 1 && shownVerbs < 4) : shownVerbs < 9) fail("fewer verbs than the game has", g);
+ 		Common::Array<int> things;
+ 		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isThing(o)) things.push_back(o);
+ 		auto facts = [&](int o, int &id, int &pictures, int &shown, bool &door, bool &small) {
+@@ -1047,8 +1066,19 @@ Common::Error SandboxEngine::verbsTest() {
+ 		};
+ 		// Looking (the first thing a tap finds): it is named; the line goes,
+ 		// and the screen is drawn again then.
++		// (The Dig's tap: what fits is done, a line said, a picture shown or a
++		// thing taken.)
++		const bool tapOnly = verbOf(kWorldVerbLook) < 0 && verbOf(kWorldVerbWhatIs) < 0 && verbOf(kWorldVerbAct) >= 0;
++		for (int o : things) {
++			if (!tapOnly) break;
++			const int shownBefore = StageBridge::objectShown(o), carriedBefore = (int)_carried.size();
++			if (!use(kWorldVerbAct, o)) continue;
++			if (_speech.empty() && StageBridge::objectShown(o) == shownBefore && (int)_carried.size() == carriedBefore) fail("a tap did nothing", g);
++			else ++looked;
++			break;
++		}
+ 		for (int o : things) {
+-			if (!use(kWorldVerbLook, o) && !use(kWorldVerbWhatIs, o)) continue;
++			if (tapOnly || (!use(kWorldVerbLook, o) && !use(kWorldVerbWhatIs, o))) continue;
+ 			if (_speech.empty()) { fail("looking said nothing", g); break; }
+ 			++looked;
+ 			_dirty = false;

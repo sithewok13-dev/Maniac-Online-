@@ -1,0 +1,143 @@
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index de0a4376..918ce0e0 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1591,6 +1591,8 @@ protected:
+ 	bool scummverseMountZakCast();
+ 	Common::Array<byte> _scummverseZakCastCostumes[9];
+ 	void scummverseUpdateResident();
++	bool scummverseNpcBoard(int id, int origin, int destination);
++	bool scummverseLandUnattendedFlight(bool npcOnly);
+ 	void scummverseAirportOffer();
+ 	void scummverseRosterOffer();
+ 	bool scummverseSwitchActor(int id);
+diff --git a/engines/scumm/scummverse_places.inc b/engines/scumm/scummverse_places.inc
+index 06141186..909192ce 100644
+--- a/engines/scumm/scummverse_places.inc
++++ b/engines/scumm/scummverse_places.inc
+@@ -126,6 +126,7 @@ enum ZakAirportRole { kZakNoRole, kZakGate, kZakTerminal };
+ static ZakAirportRole zakAirportRole(int originalObject) {
+  return originalObject==190 || originalObject==217 ? kZakGate : originalObject==194 || originalObject==220 ? kZakTerminal : kZakNoRole;
+ }
++static const int kNpcFlightTime = 1800; // timer units, about 30 seconds
+ static const int zakFlights[] = {4,3,7,10,11,16,20,27,35,44};
+ static const char *zakFlightNames[] = {"Maniac Mansion","San Francisco","Seattle","Miami","Kinshasa, Zaire","Kathmandu, Nepal","Cairo, Egypt","London, England","Mexico City, Mexico","Lima, Peru"};
+ // Saved travel schema v1: original seven retain their legacy indices.
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 4d1f27bd..3648dcbd 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -323,19 +323,11 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 				_scummverseNpcBoarding[id]-=delta;
+ 				if(a->_room==_currentRoom && !a->_moving) a->startWalkActor(2,60,-1);
+ 				if(_scummverseNpcBoarding[id]<=0) {
+-					int dest=_scummverseNpcDestination[id], room=dest==4?1:dest==3?53:dest+50;
+-     if(_scummVars[724]==dest && _scummVars[726]==a->_room) {
+-      // Join the same local flight instead of teleporting past its passengers.
+-      if(scummverseMountExtra(56) && scummverseReserveSeats(1u<<id,true)) {
+-       a->stopActorMoving(); a->putActor(35+id%6*3,60,56);
+-       a->startAnimActor(a->_standFrame); _scummVars[725] |= 1u<<id;
+-       scummverseRestoreSeats();
+-       _scummverseNpcDestination[id]=0; _scummVars[travellerDestinationKey(id)]=0;
+-      }
+-     } else if(room<56 || scummverseMountExtra(room)) {
+-      a->putActor(20,60,room); _scummverseNpcDestination[id]=0;
+-      _scummVars[travellerDestinationKey(id)]=0;
+-     }
++					// Board a real flight (joining one on the same route, or
++					// starting one); otherwise wait at the gate. Never teleport.
++					if(scummverseNpcBoard(id,a->_room,_scummverseNpcDestination[id])) {
++						_scummverseNpcDestination[id]=0; _scummVars[travellerDestinationKey(id)]=0;
++					} else _scummverseNpcBoarding[id]=300;
+ 				}
+ 				continue;
+ 			}
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 586684e4..b013ff60 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -480,6 +480,12 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 		}
+ 	}
+ 	if (_scummverseAirportMounted && (!_scummVars[760] || !_scummVars[761] || ((!_scummVars[763] || !_scummVars[764]) && !_scummverseZakCastCostumes[0].empty()) || (_scummverseStreetMounted && !_scummVars[762]))) scummverseInitVisitors();
++	// A flight with nobody controlling it aboard lands on its own (var 795 is
++	// its saved clock); the player's own flight lands when they choose Arrive.
++	if (_scummVars[724] && derefActor(VAR(VAR_EGO), "flight clock")->_room != 56) {
++		_scummVars[795] += delta;
++		if (_scummVars[795] >= kNpcFlightTime) scummverseLandUnattendedFlight(false);
++	}
+ 	Actor *player = derefActor(VAR(VAR_EGO), "walking traveller");
+ 	if (_scummverseTransitRoom != _currentRoom || _scummverseTransitEgo != VAR(VAR_EGO)) {
+ 		_scummverseTransitRoom = _currentRoom; _scummverseTransitEgo = VAR(VAR_EGO); _scummverseTransitArmed = false;
+@@ -548,6 +554,8 @@ void ScummEngine::scummverseBoard() {
+ 	if (!valid) {
+ 		scummverseSay(VAR(VAR_EGO), "Choose a destination at the airport computer first."); return;
+ 	}
++ // A flight elsewhere that nobody controls is landed rather than blocking.
++ if(_scummVars[724] && (_scummVars[724]!=choice || _scummVars[726]!=_currentRoom)) scummverseLandUnattendedFlight(true);
+  const bool joining=_scummVars[724]!=0;
+  if(joining && (_scummVars[724]!=choice || _scummVars[726]!=_currentRoom)) {
+   scummverseSay(VAR(VAR_EGO),"That flight has a different route. Finish it before starting another."); return;
+@@ -579,7 +587,7 @@ void ScummEngine::scummverseBoard() {
+   if(owner>0 && owner<25) manifest |= 1u<<owner;
+   _scummVars[725]=manifest;
+  } else {
+-  _scummVars[724]=choice; _scummVars[725]=passengers;
++  _scummVars[724]=choice; _scummVars[725]=passengers; _scummVars[795]=_scummVars[796]=0;
+   _scummVars[726]=origin; _scummVars[727]=ego;
+  }
+ 	_scummVars[travellerDestinationKey(ego)]=0;
+@@ -592,6 +600,44 @@ void ScummEngine::scummverseBoard() {
+ 	}
+  scummverseRestoreSeats();
+ }
++static int flightRoom(int destination) { return destination==4 ? 1 : destination==3 ? 53 : destination+50; }
++
++// NPC travellers take the same cabin as everyone else: join the flight on
++// their route at their gate, or start one when the cabin is free (var 796
++// marks an NPC-started flight). Otherwise the NPC waits at the gate.
++bool ScummEngine::scummverseNpcBoard(int id, int origin, int destination) {
++	bool route=false; for(int r : zakFlights) if(r==destination) route=true;
++	const int room=flightRoom(destination);
++	if(!route || !scummverseMountExtra(56) || (room>=56 && !scummverseMountExtra(room))) return false;
++	if(_scummVars[724] && (_scummVars[724]!=destination || _scummVars[726]!=origin) && !scummverseLandUnattendedFlight(true)) return false;
++	if(!scummverseReserveSeats(1u<<id,true)) return false;
++	if(!_scummVars[724]) { _scummVars[724]=destination; _scummVars[725]=0; _scummVars[726]=origin; _scummVars[727]=id; _scummVars[795]=0; _scummVars[796]=1; }
++	_scummVars[725] |= 1u<<id;
++	Actor *a=derefActor(id,"npc passenger"); a->stopActorMoving();
++	a->putActor(35+id%6*3,60,56); a->startAnimActor(a->_standFrame);
++	_scummverseRoamers[id]=Roamer(); scummverseRestoreSeats();
++	return true;
++}
++
++// Land a flight the controlled actor is not on: every rider arrives at the
++// route's destination airport and the cabin is free for the next flight.
++// npcOnly: only a flight NPCs started; a player's flight runs its clock.
++bool ScummEngine::scummverseLandUnattendedFlight(bool npcOnly) {
++	if(!_scummVars[724] || (npcOnly && !_scummVars[796]) || derefActor(VAR(VAR_EGO),"unattended flight")->_room==56) return false;
++	const int room=flightRoom(_scummVars[724]);
++	if(room>=56 && !scummverseMountExtra(room)) return false;
++	for(int id : mansionCast) {
++		Actor *a=derefActor(id,"landing passenger"); if(a->_room!=56) continue;
++		a->stopActorMoving(); a->setElevation(0); a->putActor(20+id%5*2,60,room);
++		a->startAnimActor(a->_standFrame);
++		_scummverseRoamers[id]=Roamer(); _scummverseRoamers[id].wait=600;
++		_scummverseNpcDestination[id]=0; _scummverseNpcBoarding[id]=0;
++	}
++	for(int id=1;id<25;++id) _scummVars[501+id]=0;
++	_scummVars[526]=0; _scummVars[724]=_scummVars[725]=_scummVars[726]=_scummVars[727]=0; _scummVars[795]=_scummVars[796]=0;
++	return true;
++}
++
+ void ScummEngine::scummverseArrive() {
+ 	if (_currentRoom!=56 || _scummVars[724]<1 || _scummVars[724]>48) return;
+ 	unsigned passengers=_scummVars[725];
+@@ -612,7 +658,7 @@ void ScummEngine::scummverseArrive() {
+ 		_scummverseRoamers[id]=Roamer(); _scummverseRoamers[id].wait=600;
+ 		_scummverseNpcDestination[id]=0; _scummverseNpcBoarding[id]=0;
+ 	}
+-	_scummVars[travellerPartyKey(VAR(VAR_EGO))]=passengers; _scummVars[724]=_scummVars[725]=0;
++	_scummVars[travellerPartyKey(VAR(VAR_EGO))]=passengers; _scummVars[724]=_scummVars[725]=0; _scummVars[795]=_scummVars[796]=0;
+ }
+ void ScummEngine::scummverseWaitBus() {
+ 	if (_currentRoom!=55 || _scummVars[765]>60) return;

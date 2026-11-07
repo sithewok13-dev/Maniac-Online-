@@ -1,0 +1,82 @@
+diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
+index 0bc1565b..ddcf715e 100644
+--- a/engines/scumm/charset.cpp
++++ b/engines/scumm/charset.cpp
+@@ -733,10 +733,19 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 		return;
+ 	}
+ 
+-	if (_shadowType == kOutlineShadowType) {
++	// Sandbox speech on phones: fill each glyph cell's empty pixels black so
++	// lines read as a solid subtitle band over any scene. The sandbox's forced
++	// V1 outline applies only there; verbs and message lines keep upstream
++	// drawing (their small surfaces have no room for the outline offset).
++	const bool backdrop = _vm->scummverseSandbox() && &dest == &_vm->_textSurface;
++	const ShadowType shadow = (_shadowType == kOutlineShadowType && _vm->scummverseSandbox() &&
++		_vm->_game.version <= 2 && !backdrop) ? kNoShadowType : _shadowType;
++	if (shadow == kOutlineShadowType) {
+ 		x++;
+ 		y++;
+ 	}
++	byte *const surfaceStart = (byte *)dest.getPixels(), *const surfaceEnd = surfaceStart + dest.h * dest.pitch;
++	auto inside = [&](const byte *p) { return p >= surfaceStart && p < surfaceEnd; };
+ 
+ 	byte *dst = (byte *)dest.getBasePtr(x, y);
+ 	byte bits = 0;
+@@ -748,9 +757,6 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 	byte prevBits = 0;
+ 	bool leftShadePixel = false;
+ 	int savedX = x;
+-	// Sandbox speech on phones: fill each glyph cell's empty pixels black so
+-	// lines read as a solid subtitle band over any scene. Verbs are unchanged.
+-	const bool backdrop = _vm->scummverseSandbox() && &dest == &_vm->_textSurface;
+ 	// Dark EGA speaker colors become their bright counterparts on the band.
+ 	if (backdrop && _vm->_game.version <= 2)
+ 		col = (col >= 1 && col <= 5) ? col + 8 : col == 6 ? 14 : col == 8 ? 7 : col;
+@@ -763,7 +769,7 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 				leftShadePixel = true;
+ 			}
+ 			if ((bits & revBitMask(x % 8)) && y + drawTop >= 0) {
+-				if (_shadowType == kNormalShadowType) {
++				if (shadow == kNormalShadowType) {
+ 					dst[1] = dst2[1] = _shadowColor;
+ 
+ 					// Mac and DOS/V versions of Japanese INDY4 don't
+@@ -771,27 +777,30 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 					// Verified from disasm.
+ 					if (!_vm->_isIndy4Jap)
+ 						dst2[0] = _shadowColor;
+-				} else if (_shadowType == kHorizontalShadowType) {
++				} else if (shadow == kHorizontalShadowType) {
+ 					dst[1] = _shadowColor;
+-				} else if (_shadowType == kOutlineShadowType) {
+-					dst[1] = dst2[0] = dst2[1] = _shadowColor;
++				} else if (shadow == kOutlineShadowType) {
++					// Bounded: the outline offset can reach past the surface edge.
++					auto shade = [&](byte *p) { if (inside(p)) *p = _shadowColor; };
++					shade(dst + 1); shade(dst2); shade(dst2 + 1);
+ 					if (leftShadePixel) {
+-						dst3[0] = _shadowColor;
++						shade(dst3);
+ 						leftShadePixel = false;
+ 					}
+ 					if (prevBits & revBitMask(x % 8))
+-						dst4[0] = _shadowColor;
++						shade(dst4);
+ 				}
+ 
+ 				// Since C64 texts are moved one pixel forward in the X axis, let's avoid
+ 				// any out-of-line pixel drawing...
+-				if (_vm->_game.platform != Common::kPlatformC64 || (savedX + x < dest.pitch)) {
++				if ((_vm->_game.platform != Common::kPlatformC64 || (savedX + x < dest.pitch)) &&
++					(shadow != kOutlineShadowType || inside(dst))) {
+ 					dst[0] = col;
+ 				}
+ 
+ 			} else if (!(bits & revBitMask(x % 8))) {
+ 				leftShadePixel = true;
+-				if (backdrop && y + drawTop >= 0 && dst[0] == CHARSET_MASK_TRANSPARENCY)
++				if (backdrop && y + drawTop >= 0 && inside(dst) && dst[0] == CHARSET_MASK_TRANSPARENCY)
+ 					dst[0] = _shadowColor;
+ 				if (y < height - 1 && _vm->_useCJKMode && _vm->_game.platform == Common::kPlatformSegaCD)
+ 					dst[0] = 0;

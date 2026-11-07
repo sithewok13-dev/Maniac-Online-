@@ -1,0 +1,123 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 4a739ae0..973601e9 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -583,11 +583,12 @@ bool SandboxEngine::effectOf(int id, int kind, int from, int target) {
+ 	bool taken = false;
+ 	if (!PanelBridge::thingEffect(_game, _room, id, kind, from, after, others, count, 64, said, sizeof(said), &taken)) return false;
+ 	// (Read or picked up, saying nothing and changing nothing, or taken
+-	// from the picture without it, or where no picture is without it (one in
+-	// a thing shut when exported: the fridge's, the mat's): the plain rules,
+-	// as before 0161.)
++	// from the picture without it: the plain rules, as before 0161.)
+ 	if (plainAnswer(kind, from, after, taken, count, said) || (taken && isCarried(_game, _room, id))) return false;
+-	if (taken && (StageBridge::objectPictures(target) < 2 || !StageBridge::picturesDiffer(target, 0, 1))) return false;
++	// (Taken where its two pictures are the same (the garage's, room 16: its
++	// export has no picture without it): carried all the same, as its game
++	// gives it, the place as it was.)
++	if (taken && StageBridge::objectPictures(target) < 2) return false;
+ 	if (taken) {
+ 		// (Taken: carried, gone from the place, as the plain rules take one.)
+ 		char name[80];
+@@ -3679,9 +3680,11 @@ void SandboxEngine::saveState() const {
+ 		out->writeSint16LE(i->_key / 65536 / 1024); out->writeSint16LE(i->_key / 65536 % 1024);
+ 		out->writeUint16LE(i->_key % 65536); out->writeByte(i->_value);
+ 	}
+-	out->writeUint16LE(MIN<uint>(_carried.size(), 65535));
+-	for (uint i = 0; i < _carried.size() && i < 65535; ++i) {
+-		const Carried &c = _carried[i];
++	// (And those from a place no longer installed: kept for when it is again.)
++	const uint carriedAll = _carried.size() + _carriedAway.size();
++	out->writeUint16LE(MIN<uint>(carriedAll, 65535));
++	for (uint i = 0; i < carriedAll && i < 65535; ++i) {
++		const Carried &c = i < _carried.size() ? _carried[i] : _carriedAway[i - _carried.size()];
+ 		out->writeSint16LE(c.game); out->writeSint16LE(c.room); out->writeUint16LE(c.id); out->writeByte(MAX(0, c.picture));
+ 		const uint length = MIN<uint>(c.name.size(), 255);
+ 		out->writeByte(length); out->write(c.name.c_str(), length);
+@@ -3722,7 +3725,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 	}
+ 	// What was changed and taken, and what is carried (dropped as a whole
+ 	// when the file ends early).
+-	_pictures.clear(); _carried.clear(); PanelBridge::clearItems(); _stains.clear();
++	_pictures.clear(); _carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); _stains.clear();
+ 	if (tag != MKTAG('S', 'V', 'S', '1') && everyone) {
+ 		Common::HashMap<int, int> pictures;
+ 		const int changed = in->readUint16LE();
+@@ -3751,7 +3754,7 @@ bool SandboxEngine::loadState(int &game, int &room, double &x, double &y, bool *
+ 		}
+ 		if (!in->err() && !in->eos()) {
+ 			_pictures = pictures;
+-			for (const Carried &c : carried) carry(c.game, c.room, c.id, c.name, c.picture, false);
++			for (const Carried &c : carried) if (!carry(c.game, c.room, c.id, c.name, c.picture, false)) _carriedAway.push_back(c);
+ 			_stains = stains;
+ 		}
+ 	}
+@@ -4573,7 +4576,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// verb, then a tap on it): off, the place black but for everyone in the
+ 	// dark grey, again so on coming back, and only there; on, lit again; the
+ 	// places dark kept as written.
+-	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0;
++	int lightsOff = 0, lightsOn = 0, lightRoom = -1, flashlit = 0, pools = 0, links = 0, powered = 0, effectsSeen = 0, effectsAway = 0, effectsPlain = 0, effectsTaken = 0, effectsRead = 0, inside = 0, effectsPairs = 0, pairsSeen = 0, pairsAway = 0, pairsFound = 0, padlocks = 0, sameTaken = 0;
+ 	{
+ 		int maniac = -1;
+ 		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
+@@ -4870,12 +4873,15 @@ Common::Error SandboxEngine::verbsTest() {
+ 				setPicture(room, parent, picture);
+ 			const int o = thingIn(id);
+ 			if (o < 0 || !isThing(o)) { ++effectsAway; continue; }
+-			// (Taken where no picture is without it: the plain rules, not taken.)
+-			if (took && (StageBridge::objectPictures(o) < 2 || !StageBridge::picturesDiffer(o, 0, 1))) {
++			// (Taken with no picture of its own: the plain rules, not taken. One
++			// whose two pictures are the same (the garage's, from 0203) is
++			// taken all the same, the place as it was.)
++			if (took && StageBridge::objectPictures(o) < 2) {
+ 				if (!doAt(kind, o) || isCarried(maniac, room, id)) fail("taken where no picture is without it", maniac);
+ 				++effectsPlain;
+ 				continue;
+ 			}
++			sameTaken += took && !StageBridge::picturesDiffer(o, 0, 1);
+ 			// (In the picture the record starts from: shown, or kept for one
+ 			// with no second picture.)
+ 			if (StageBridge::objectPictures(o) > 1) showPicture(o, id, from);
+@@ -5082,6 +5088,20 @@ Common::Error SandboxEngine::verbsTest() {
+ 		const bool loaded = loadState(game, room, x, y);
+ 		for (Common::HashMap<int, int>::const_iterator i = shown.begin(); i != shown.end(); ++i) same &= _pictures.contains(i->_key) && _pictures[i->_key] == i->_value;
+ 		if (!loaded || !same || _carried.size() != carried || _pictures.size() != pictures || PanelBridge::itemCount() != (int)carried) fail("not kept", _game);
++		// (One carried from a place no longer installed: kept through a save
++		// and a load, not shown, the rest as they were.)
++		if (!_carried.empty()) {
++			Carried gone = _carried[0];
++			gone.room = 1023;
++			_carried.push_back(gone);
++			saveState();
++			bool kept = loadState(game, room, x, y) && _carried.size() == carried && _carriedAway.size() == 1 && PanelBridge::itemCount() == (int)carried;
++			saveState();
++			kept = kept && loadState(game, room, x, y) && _carried.size() == carried && _carriedAway.size() == 1 && _carriedAway[0].room == 1023;
++			if (!kept) fail("a thing carried from a place gone let go", _game);
++			_carriedAway.clear();
++			saveState();
++		}
+ 		// The place again: what was taken stays gone.
+ 		Common::String problem;
+ 		for (const Carried &c : _carried) {
+@@ -5096,7 +5116,7 @@ Common::Error SandboxEngine::verbsTest() {
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+ 	warning("SCUMMVERSE sandbox selftest pairs: %d games used a thing carried with a thing here; %d of the mansion's own as its scripts answer (%d not tried; %d as found); %d gave one to someone", paired, pairsSeen, pairsAway, pairsFound, given);
+-	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside);
++	warning("SCUMMVERSE sandbox selftest effects: %d as the mansion's own scripts answer (%d away, %d taken, %d read carried, %d left to the plain rules; %d inside others; %d taken whose pictures are the same)", effectsSeen, effectsAway, effectsTaken, effectsRead, effectsPlain, inside, sameTaken);
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index f6d8d1d1..5c191fa6 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -497,6 +497,7 @@ private:
+ 	int _chosen = -1, _noteClock = 0;       // (Loom's: the thing chosen; a note lit so long)
+ 	struct Carried { int game, room, id, picture; Common::String name; };
+ 	Common::Array<Carried> _carried;        // things carried, in order
++	Common::Array<Carried> _carriedAway;    // carried from a place no longer installed: kept, not shown
+ 	bool isFlashlight(const Carried &c) const;
+ 	Common::RandomSource _random;
+ };

@@ -1,0 +1,380 @@
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index a7c6a266..bc9fee77 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -18,7 +18,8 @@ static int readS16(const uint8_t *p) { return (int16_t)(uint16_t)read16(p); }
+ 
+ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error) {
+ 	scene = SourceScene();
+-	const bool v2 = data && size >= 4 && !std::memcmp(data, "SVW2", 4);
++	const bool v3 = data && size >= 4 && !std::memcmp(data, "SVW3", 4);
++	const bool v2 = v3 || (data && size >= 4 && !std::memcmp(data, "SVW2", 4));
+ 	if (!data || size < 12 + 768 || (!v2 && std::memcmp(data, "SVW1", 4))) { error = "not a scene file"; return false; }
+ 	scene.room = read16(data + 4); scene.width = read16(data + 6); scene.height = read16(data + 8);
+ 	const int boxes = data[10];
+@@ -38,7 +39,7 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ 	if (v2) {
+ 		if (size < fixed + 2) { error = "truncated scene"; return false; }
+ 		const int objects = read16(p); p += 2;
+-		if (size != fixed + 2 + (size_t)objects * 14) { error = "truncated scene"; return false; }
++		if (size != fixed + 2 + (size_t)objects * 14 + (v3 ? (size_t)boxes * 2 : 0)) { error = "truncated scene"; return false; }
+ 		for (int i = 0; i < objects; ++i, p += 14) {
+ 			SourceObject o;
+ 			o.id = read16(p); o.x = readS16(p + 2); o.y = readS16(p + 4); o.width = readS16(p + 6); o.height = readS16(p + 8);
+@@ -46,6 +47,11 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ 			if (o.width < 0 || o.height < 0) { error = "bad object"; return false; }
+ 			scene.objects.push_back(o);
+ 		}
++		// "SVW3": per box, the character scale at its top and bottom edges.
++		for (int i = 0; v3 && i < boxes; ++i, p += 2) {
++			scene.boxes[i].scaleTop = std::max(1, (int)p[0]);
++			scene.boxes[i].scaleBottom = std::max(1, (int)p[1]);
++		}
+ 	}
+ 	return true;
+ }
+@@ -193,6 +199,9 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 		if (v.uy > v.ly) { std::swap(v.uy, v.ly); std::swap(v.ulx, v.llx); std::swap(v.urx, v.lrx); }
+ 		v.mask = 0; v.flags = 0;
+ 		out.boxes.push_back(v);
++		const bool flipped = std::min(b.y[0], b.y[1]) > std::max(b.y[2], b.y[3]);
++		out.scaleTop.push_back((uint8_t)(flipped ? b.scaleBottom : b.scaleTop));
++		out.scaleBottom.push_back((uint8_t)(flipped ? b.scaleTop : b.scaleBottom));
+ 		if ((int)out.boxes.size() == 120) break; // Fits the one-byte box offset layout.
+ 	}
+ 	out.next = routeBoxes(out.boxes);
+@@ -221,6 +230,15 @@ bool fitScene(const SourceScene &src, int targetHeight, int firstSlot, int slotC
+ 	return true;
+ }
+ 
++int SandboxScene::boxScale(int box, int y) const {
++	if (box < 0 || box >= (int)boxes.size() || box >= (int)scaleTop.size()) return 255;
++	const V2Box &b = boxes[box];
++	const int top = scaleTop[box], bottom = scaleBottom[box];
++	if (b.ly <= b.uy || y <= b.uy) return top;
++	if (y >= b.ly) return bottom;
++	return top + (bottom - top) * (y - b.uy) / (b.ly - b.uy);
++}
++
+ // ---- Characters -------------------------------------------------------------
+ 
+ bool parseSprite(const uint8_t *data, size_t size, SourceSprite &sprite, std::string &error) {
+@@ -460,6 +478,8 @@ int leftX() { return current().scene.leftX; }
+ int leftY() { return current().scene.leftY; }
+ int rightX() { return current().scene.rightX; }
+ int rightY() { return current().scene.rightY; }
++double sceneScale() { return current().scene.scale; }
++int boxScale(int box, int y) { return current().scene.boxScale(box, y); }
+ const unsigned char *blankRoom(int &size) {
+ 	static std::vector<uint8_t> room;
+ 	if (room.empty()) { World::SandboxScene empty; empty.width = 320; empty.height = 128; room = World::buildV1Room(empty); }
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index 2e7845f6..1c9e5870 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -17,6 +17,9 @@ namespace World {
+ struct SourceBox {
+ 	int x[4], y[4];   // ul, ur, lr, ll (pixels)
+ 	int flags = 0, mask = 0;
++	// The source game's character scale (255 = full size) at the box's top
++	// and bottom edges ("SVW3"; full size in older files).
++	int scaleTop = 255, scaleBottom = 255;
+ };
+ 
+ // A room object (door, hotspot) of the source room, in source pixels.
+@@ -27,7 +30,7 @@ struct SourceScene {
+ 	uint8_t palette[768] = {};
+ 	std::vector<uint8_t> pixels;     // width*height palette indices
+ 	std::vector<SourceBox> boxes;
+-	std::vector<SourceObject> objects; // "SVW2" only
++	std::vector<SourceObject> objects; // "SVW2" and later
+ };
+ 
+ // A room object in the sandbox: rectangle in sandbox pixels, walk-to point
+@@ -50,6 +53,12 @@ struct SandboxScene {
+ 	int leftY = 0, rightY = 0;
+ 	double scale = 1;                // sandbox pixels per source pixel
+ 	std::vector<SandboxObject> objects;
++	// Per box (as boxes): the source game's character scale at its top and
++	// bottom rows, 1..255.
++	std::vector<uint8_t> scaleTop, scaleBottom;
++	// The character scale (1..255) at row y (V1 units) of a box; 255 when
++	// the box is unknown.
++	int boxScale(int box, int y) const;
+ };
+ 
+ // A character from another game: frames rendered by its own engine ("SVC1"),
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 0bc656fa..5fd41e64 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,10 +27,14 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 3;
++static const int kWorldExportVersion = 4;
++// heroHeight: the standing height of the game's lead character at full
++// scale, in the game's own pixels (measured from the audited editions), so
++// visitors are drawn as tall as a person there.
+ struct WorldGame {
+ 	const char *gameid, *title, *folder; int version;
+ 	const WorldScene *scenes; int sceneCount;
++	int heroHeight;
+ };
+ static const WorldScene kWorldMonkey[] = {
+ 	{33, "Melee Island town"},
+@@ -80,19 +84,19 @@ static const WorldScene kWorldComi[] = {
+ 	{55, "Blood Island village"},
+ 	{67, "Blood Island cemetery"}, {86, "Carnival of the Damned"},
+ };
+-#define SCUMMVERSE_WORLD(id, title, folder, version, scenes) \
+-	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0]))}
++#define SCUMMVERSE_WORLD(id, title, folder, version, scenes, hero) \
++	{id, title, folder, version, scenes, (int)(sizeof(scenes) / sizeof(scenes[0])), hero}
+ static const WorldGame kWorldGames[] = {
+-	SCUMMVERSE_WORLD("monkey", "The Secret of Monkey Island", "monkey", 4, kWorldMonkey),
+-	SCUMMVERSE_WORLD("monkey2", "Monkey Island 2", "monkey2", 5, kWorldMonkey2),
+-	SCUMMVERSE_WORLD("loom", "Loom", "loom", 3, kWorldLoom),
+-	SCUMMVERSE_WORLD("indy3", "Indiana Jones and the Last Crusade", "indy3", 3, kWorldIndy3),
+-	SCUMMVERSE_WORLD("atlantis", "Indiana Jones and the Fate of Atlantis", "atlantis", 5, kWorldAtlantis),
+-	SCUMMVERSE_WORLD("tentacle", "Day of the Tentacle", "tentacle", 6, kWorldTentacle),
+-	SCUMMVERSE_WORLD("samnmax", "Sam & Max Hit the Road", "samnmax", 6, kWorldSamnmax),
+-	SCUMMVERSE_WORLD("ft", "Full Throttle", "ft", 7, kWorldFt),
+-	SCUMMVERSE_WORLD("dig", "The Dig", "dig", 7, kWorldDig),
+-	SCUMMVERSE_WORLD("comi", "The Curse of Monkey Island", "comi", 8, kWorldComi),
++	SCUMMVERSE_WORLD("monkey", "The Secret of Monkey Island", "monkey", 4, kWorldMonkey, 47),
++	SCUMMVERSE_WORLD("monkey2", "Monkey Island 2", "monkey2", 5, kWorldMonkey2, 47),
++	SCUMMVERSE_WORLD("loom", "Loom", "loom", 3, kWorldLoom, 45),
++	SCUMMVERSE_WORLD("indy3", "Indiana Jones and the Last Crusade", "indy3", 3, kWorldIndy3, 45),
++	SCUMMVERSE_WORLD("atlantis", "Indiana Jones and the Fate of Atlantis", "atlantis", 5, kWorldAtlantis, 50),
++	SCUMMVERSE_WORLD("tentacle", "Day of the Tentacle", "tentacle", 6, kWorldTentacle, 74),
++	SCUMMVERSE_WORLD("samnmax", "Sam & Max Hit the Road", "samnmax", 6, kWorldSamnmax, 70),
++	SCUMMVERSE_WORLD("ft", "Full Throttle", "ft", 7, kWorldFt, 94),
++	SCUMMVERSE_WORLD("dig", "The Dig", "dig", 7, kWorldDig, 63),
++	SCUMMVERSE_WORLD("comi", "The Curse of Monkey Island", "comi", 8, kWorldComi, 268),
+ };
+ #undef SCUMMVERSE_WORLD
+ inline bool sameId(const char *a, const char *b) {
+diff --git a/common/scummverse_world_engine.h b/common/scummverse_world_engine.h
+index 931abc4b..fb329933 100644
+--- a/common/scummverse_world_engine.h
++++ b/common/scummverse_world_engine.h
+@@ -27,6 +27,11 @@ int leftX();                       // -1 when walking cannot reach the edge
+ int leftY();
+ int rightX();
+ int rightY();
++// Sandbox pixels per source pixel of the mounted scene.
++double sceneScale();
++// The source game's character scale (1..255, 255 = full size) at row y
++// (V1 units) of walk box `box`; 255 for an unknown box.
++int boxScale(int box, int y);
+ // The mounted scene's room objects (doors, hotspots): rectangle in sandbox
+ // pixels, walk-to point in V1 units. False past the end.
+ int objectCount();
+diff --git a/engines/scumm/actor.cpp b/engines/scumm/actor.cpp
+index d4b2793c..be9ebff8 100644
+--- a/engines/scumm/actor.cpp
++++ b/engines/scumm/actor.cpp
+@@ -2544,7 +2544,7 @@ void Actor::drawActorCostume(bool hitTestMode) {
+ 	if (_costume == 0)
+ 		return;
+ 
+-	if (!hitTestMode && _vm->scummverseDrawGuest(this))
++	if (!hitTestMode && _vm->scummverseDrawWorldActor(this))
+ 		return;
+ 
+ 	if (!hitTestMode) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 4b4be453..11858611 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1360,8 +1360,12 @@ public:
+ 	virtual int getCurrentLights() const;
+ 	bool scummverseDistantScene() const;
+ 	bool scummverseRenderingPortrait() const { return _scummversePortrait; }
+-	// Other-world guests are drawn from exported frames (scummverse_world_play.inc).
+-	bool scummverseDrawGuest(Actor *a);
++	// In other worlds everyone is drawn at the scale of a person standing at
++	// that spot of the scene; guests from their exported frames
++	// (scummverse_world_play.inc). False: draw the actor as usual.
++	bool scummverseDrawWorldActor(Actor *a);
++	bool scummverseDrawGuest(Actor *a, double scale);
++	bool scummverseDrawScaledActor(Actor *a, double scale);
+ 	// Other-world doors: the player's walk targets (scummverse_world_play.inc).
+ 	void scummverseWorldTap(int actor, int x, int y);
+  bool scummverseSeated(int id) const;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 96034567..2a67b1d8 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -5,11 +5,12 @@
+ // ever reads that cache. Room scripts are not run: the scene is the room's
+ // background with its initially drawn objects.
+ //
+-// Cache file (little endian, gzip-compressed): "SVW2", u16 room, u16 width,
++// Cache file (little endian, gzip-compressed): "SVW3", u16 room, u16 width,
+ // u16 height, u8 boxCount, u8 reserved, palette[768], pixels[width*height],
+ // then per box int16 ulx,uly,urx,ury,lrx,lry,llx,lly, u8 flags, u8 mask,
+ // then u16 objectCount and per object u16 id, int16 x, y, width, height,
+-// walkX, walkY (room pixels). Readers also accept the older "SVW1".
++// walkX, walkY (room pixels), then per box u8 character scale at its top and
++// bottom edges (255 = full size). Readers also accept "SVW1" and "SVW2".
+ //
+ // Character file ("SVC1"): u16 costume, u16 frameCount, palette[768], then
+ // per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk),
+@@ -31,7 +32,14 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	if (_game.features & GF_SMALL_HEADER) setDirtyColors(0, 255);
+ 	_fullRedraw = true; _currentRoom = room; VAR(VAR_ROOM) = room; _roomResource = room;
+ 	if (VAR_ROOM_RESOURCE != 0xFF) VAR(VAR_ROOM_RESOURCE) = room;
++	// Scale slots come from the room's own data; ones only its scripts would
++	// set stay unknown (full size) rather than leaking from the last room.
++	for (auto &slot : _scaleSlots) slot = ScaleSlot();
+ 	ensureResourceLoaded(rtRoom, room); clearRoomObjects(); setupRoomSubBlocks(); resetRoomSubBlocks();
++	for (int i = 1; i <= ARRAYSIZE(_scaleSlots); ++i) {
++		const ScaleSlot &slot = _scaleSlots[i - 1];
++		if (slot.y1 == slot.y2 && slot.x1 == slot.x2) setScaleSlot(i, 0, 0, 255, 0, 199, 255);
++	}
+ 	if (_roomHeight <= 0 || _roomHeight > _screenHeight || _roomWidth < _screenWidth) { problem = "unsupported room size"; return false; }
+ 	if (_virtscr[kMainVirtScreen].h != _roomHeight) {
+ 		const int top = _roomHeight + 16 <= _screenHeight ? 16 : 0;
+@@ -65,7 +73,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+ 	const int boxes = MIN<int>(getNumBoxes(), 255);
+-	out.write("SVW2", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, H);
++	out.write("SVW3", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, H);
+ 	out.writeByte(boxes); out.writeByte(0);
+ 	out.write(_currentPalette, 768);
+ 	out.write(pixels.data(), pixels.size());
+@@ -85,6 +93,17 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		const int fields[7] = {o.obj_nr, o.x_pos, o.y_pos, o.width, o.height, o.walk_x, o.walk_y};
+ 		for (int f : fields) scummverseWrite16(out, f);
+ 	}
++	// Per box, the scale the game gives characters at its top and bottom edges.
++	for (int b = 0; b < boxes; ++b) {
++		const BoxCoords box = getBoxCoordinates(b);
++		const int x = (box.ul.x + box.ur.x + box.lr.x + box.ll.x) / 4;
++		const int top = MIN(box.ul.y, box.ur.y), bottom = MAX(box.ll.y, box.lr.y);
++		const bool scripted = _game.id == GID_SAMNMAX && (getBoxFlags(b) & kBoxIgnoreScale);
++		for (int y : {top, bottom}) {
++			const int scale = scripted ? 255 : getScale(b, x, y);
++			out.writeByte(scale >= 1 && scale <= 255 ? scale : 255);
++		}
++	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+ 	return true;
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 895a3260..b34c4832 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -355,7 +355,25 @@ static int worldGuestPose(const Actor *a, bool talking, int tick, int &index) {
+ 	return kind;
+ }
+ 
+-bool ScummEngine::scummverseDrawGuest(Actor *a) {
++// A Maniac teenager's standing height in V1 pixels (Dave, Michael and Jeff
++// measure 72; the others are drawn in proportion).
++static const int kWorldManiacHeight = 72;
++
++// Other worlds: everyone is as tall as a person standing at that spot of the
++// scene, i.e. the scene's lead character (heroHeight, fitted like the scene)
++// at the scale its own game gives the walk box there. Guests are stored at
++// the scene's full scale; Maniac and Zak characters at their V1 size.
++bool ScummEngine::scummverseDrawWorldActor(Actor *a) {
++	int source;
++	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
++	if (gameIndex < 0 || !WorldBridge::mounted() || a->_room != _currentRoom) return false;
++	// A few far boxes scale to almost nothing; keep a visible minimum.
++	const double depth = MAX(0.1, WorldBridge::boxScale(a->_walkbox, a->getRealPos().y) / 255.0);
++	if (scummverseGuestSlot(a) >= 0) return scummverseDrawGuest(a, depth);
++	return scummverseDrawScaledActor(a, kWorldGames[gameIndex].heroHeight * WorldBridge::sceneScale() * depth / kWorldManiacHeight);
++}
++
++bool ScummEngine::scummverseDrawGuest(Actor *a, double scale) {
+ 	const int k = scummverseGuestSlot(a);
+ 	if (k < 0) return false;
+ 	if (!a->_needRedraw) return true;
+@@ -367,22 +385,75 @@ bool ScummEngine::scummverseDrawGuest(Actor *a) {
+ 	int dx, dy, width, height;
+ 	const byte *frame = WorldBridge::guestFrame(_scummverseGuestSprite[k], dir, kind, index, dx, dy, width, height);
+ 	a->_top = 0x7fffffff; a->_bottom = 0;
+-	if (!frame) return true;
++	if (!frame || !(scale > 0)) return true;
+ 	VirtScreen &vs = _virtscr[kMainVirtScreen];
+-	const int x0 = a->getPos().x - vs.xstart + dx, y0 = a->getPos().y - a->getElevation() + dy;
+-	const int left = MAX(0, x0), right = MIN<int>(_screenWidth, x0 + width);
+-	const int top = MAX(0, y0), bottom = MIN<int>(vs.h, y0 + height);
++	// Scaled around the feet, nearest pixel so outlines stay crisp.
++	const int ax = a->getPos().x - vs.xstart, ay = a->getPos().y - a->getElevation();
++	const int x0 = ax + (int)floor(dx * scale), y0 = ay + (int)floor(dy * scale);
++	const int w = MAX(1, (int)(width * scale + 0.5)), h = MAX(1, (int)(height * scale + 0.5));
++	const int left = MAX(0, x0), right = MIN<int>(_screenWidth, x0 + w);
++	const int top = MAX(0, y0), bottom = MIN<int>(vs.h, y0 + h);
+ 	if (left >= right || top >= bottom) return true;
+ 	for (int y = top; y < bottom; ++y) {
+-		const byte *src = frame + (y - y0) * width + (left - x0);
++		const byte *src = frame + MIN(height - 1, (int)((y - y0) / scale)) * width;
+ 		byte *dst = (byte *)vs.getPixels(left, y);
+-		for (int x = left; x < right; ++x, ++src, ++dst) if (*src) *dst = *src;
++		for (int x = left; x < right; ++x, ++dst) {
++			const byte c = src[MIN(width - 1, (int)((x - x0) / scale))];
++			if (c) *dst = c;
++		}
+ 	}
+ 	a->_top = top; a->_bottom = bottom;
+ 	markRectAsDirty(kMainVirtScreen, left, right, top, bottom, a->_number);
+ 	return true;
+ }
+ 
++// A V1 character drawn at another size: its own renderer draws the current
++// pose, unmasked, into a screen-wide canvas with headroom above the screen
++// (a body cut off there may show once smaller), then it is scaled around
++// its feet.
++bool ScummEngine::scummverseDrawScaledActor(Actor *a, double scale) {
++	if (_game.version > 1 || !(scale > 0) || (scale > 0.97 && scale < 1.03)) return false;
++	if (!a->_needRedraw) return true;
++	a->_needRedraw = false;
++	VirtScreen &vs = _virtscr[kMainVirtScreen];
++	static const int kAbove = 64;
++	static VirtScreen canvas;
++	if (canvas.w != _screenWidth || canvas.h != vs.h + kAbove) {
++		canvas.free(); canvas.create(_screenWidth, vs.h + kAbove, Graphics::PixelFormat::createFormatCLUT8());
++	}
++	memset(canvas.getPixels(0, 0), 255, canvas.pitch * canvas.h);
++	ClassicCostumeRenderer renderer(this);
++	_scummversePortrait = true;
++	a->prepareDrawActorCostume(&renderer);
++	renderer._zbuf = 0; renderer._actorY += kAbove;
++	renderer.drawCostume(canvas, _gdi->_numStrips, a, false);
++	_scummversePortrait = false;
++	a->_top = 0x7fffffff; a->_bottom = 0;
++	// Feet: (ax, ay) in the canvas, (ax, ay - kAbove) on the screen.
++	const int ax = renderer._actorX, ay = renderer._actorY, sy = ay - kAbove;
++	int left = canvas.w, right = -1, top = canvas.h, bottom = -1;
++	for (int y = 0; y < canvas.h; ++y) for (int x = 0; x < canvas.w; ++x)
++		if (*(const byte *)canvas.getBasePtr(x, y) != 255) { left = MIN(left, x); right = MAX(right, x); top = MIN(top, y); bottom = MAX(bottom, y); }
++	if (right < 0) return true;
++	const int x0 = ax + (int)floor((left - ax) * scale), y0 = sy + (int)floor((top - ay) * scale);
++	const int x1 = ax + (int)ceil((right + 1 - ax) * scale), y1 = sy + (int)ceil((bottom + 1 - ay) * scale);
++	const int dl = MAX(0, x0), dr = MIN<int>(_screenWidth, x1), dt = MAX(0, y0), db = MIN<int>(vs.h, y1);
++	for (int y = dt; y < db; ++y) {
++		const int cy = CLIP(ay + (int)floor((y + 0.5 - sy) / scale), 0, canvas.h - 1);
++		byte *dst = (byte *)vs.getPixels(dl, y);
++		for (int x = dl; x < dr; ++x, ++dst) {
++			const int cx = CLIP(ax + (int)floor((x + 0.5 - ax) / scale), 0, canvas.w - 1);
++			const byte c = *(const byte *)canvas.getBasePtr(cx, cy);
++			if (c != 255) *dst = c;
++		}
++	}
++	if (dl < dr && dt < db) {
++		a->_top = dt; a->_bottom = db;
++		markRectAsDirty(kMainVirtScreen, dl, dr, dt, db, a->_number);
++	}
++	return true;
++}
++
+ // Places the viewed scene's characters, or sends them away outside other
+ // worlds; then animation, one greeting at a time, short strolls, and
+ // standing still while chatting.

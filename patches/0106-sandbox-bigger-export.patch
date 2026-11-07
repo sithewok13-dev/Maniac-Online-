@@ -1,0 +1,719 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index c48f9d2b..3f92fe78 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -126,14 +126,9 @@ static Point crossing(const Box &from, const Box &into, Point at, Point goal) {
+ 	return best;
+ }
+ 
+-Links linksOf(const std::vector<Box> &boxes) {
+-	Links links;
+-	const int n = (int)boxes.size();
+-	links.meet.assign((size_t)n * n, 0);
+-	links.group.assign(n, -1);
+-	for (int a = 0; a < n; ++a)
+-		for (int b = a + 1; b < n; ++b)
+-			if (touching(boxes[a], boxes[b])) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++// The groups of boxes reachable from one another, from which meet.
++static void group(Links &links) {
++	const int n = (int)links.group.size();
+ 	for (int s = 0, g = 0; s < n; ++s) {
+ 		if (links.group[s] >= 0) continue;
+ 		std::vector<int> queue(1, s);
+@@ -143,6 +138,32 @@ Links linksOf(const std::vector<Box> &boxes) {
+ 				if (links.group[j] < 0 && links.meet[(size_t)queue[q] * n + j]) { links.group[j] = g; queue.push_back(j); }
+ 		++g;
+ 	}
++}
++
++Links linksOf(const std::vector<Box> &boxes) {
++	Links links;
++	const int n = (int)boxes.size();
++	links.meet.assign((size_t)n * n, 0);
++	links.group.assign(n, -1);
++	for (int a = 0; a < n; ++a)
++		for (int b = a + 1; b < n; ++b)
++			if (touching(boxes[a], boxes[b])) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++	group(links);
++	return links;
++}
++
++Links linksOf(const std::vector<Box> &boxes, const std::vector<uint8_t> &next, int count) {
++	Links links = linksOf(boxes);
++	if (count <= 0 || next.size() != (size_t)count * count) return links;
++	const int n = (int)boxes.size();
++	links.group.assign(n, -1);
++	for (int a = 0; a < n; ++a)
++		for (int b = a + 1; b < n; ++b) {
++			const int sa = boxes[a].source, sb = boxes[b].source;
++			if (sa < 0 || sb < 0 || sa >= count || sb >= count) continue;
++			if (next[(size_t)sa * count + sb] == sb || next[(size_t)sb * count + sa] == sa) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++		}
++	group(links);
+ 	return links;
+ }
+ 
+@@ -197,6 +218,7 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ 		Box b;
+ 		for (int i = 0; i < 4; ++i) { b.corner[i].x = s.x[i]; b.corner[i].y = s.y[i]; }
+ 		b.scaleTop = s.scaleTop; b.scaleBottom = s.scaleBottom;
++		b.source = (int)(&s - &scene.boxes[0]);
+ 		boxes.push_back(b);
+ 	}
+ 	return boxes;
+@@ -205,18 +227,21 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
+ 	World::SourceScene source;
+ 	if (!World::parseScene(data, size, source, error)) return false;
+-	_source = source; _boxes = boxesOf(_source); _links = linksOf(_boxes); _actors.clear(); _follow = -1; _cameraGoal = 0;
++	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _follow = -1; _cameraGoal = 0;
++	_links = linksOf(_boxes, _source.boxNext, (int)_source.boxes.size());
+ 	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
+-	uint32_t colors[256];
+ 	for (int c = 0; c < 256; ++c)
+-		colors[c] = 0xFF000000u | (uint32_t)_source.palette[c * 3] << 16 | (uint32_t)_source.palette[c * 3 + 1] << 8 | _source.palette[c * 3 + 2];
+-	_scaled.assign((size_t)_view.width * _view.height, 0xFF000000u);
+-	std::vector<int> columns(_view.width);
+-	for (int x = 0; x < _view.width; ++x) columns[x] = std::min(_source.width - 1, (int)(x / _view.colScale));
++		_palette[c] = _colors[c] = 0xFF000000u | (uint32_t)_source.palette[c * 3] << 16 | (uint32_t)_source.palette[c * 3 + 1] << 8 | _source.palette[c * 3 + 2];
++	_cycles.clear();
++	for (const World::SourceCycle &cycle : _source.cycles) { Cycle k; k.cycle = cycle; _cycles.push_back(k); }
++	_scaled.assign((size_t)_view.width * _view.height, 0);
++	_columns.resize(_view.width); _rows.resize(_view.height);
++	for (int x = 0; x < _view.width; ++x) _columns[x] = std::min(_source.width - 1, (int)(x / _view.colScale));
++	for (int y = 0; y < _view.height; ++y) _rows[y] = std::min(_source.height - 1, (int)(y / _view.rowScale));
+ 	for (int y = 0; y < _view.height; ++y) {
+-		const uint8_t *row = &_source.pixels[(size_t)std::min(_source.height - 1, (int)(y / _view.rowScale)) * _source.width];
+-		uint32_t *out = &_scaled[(size_t)y * _view.width];
+-		for (int x = 0; x < _view.width; ++x) out[x] = colors[row[columns[x]]];
++		const uint8_t *row = &_source.pixels[(size_t)_rows[y] * _source.width];
++		uint8_t *out = &_scaled[(size_t)y * _view.width];
++		for (int x = 0; x < _view.width; ++x) out[x] = row[_columns[x]];
+ 	}
+ 	return true;
+ }
+@@ -278,6 +303,24 @@ static void stepAlong(Actor &a, double across, double down) {
+ }
+ 
+ void Scene::update(int ticks) {
++	// Colour cycles, as the games move them: a step each `delay` ticks (at
++	// most one an update, as theirs at most once a frame). Rotations turn
++	// the colours as they are now (overlapping cycles add up); the older
++	// games' sweep maps each entry to one of the range's own colours.
++	for (Cycle &k : _cycles) {
++		const World::SourceCycle &c = k.cycle;
++		const int n = c.last - c.first + 1;
++		if (n < 2 || c.delay <= 0) continue;
++		k.clock += ticks;
++		if (k.clock < c.delay) continue;
++		k.clock %= c.delay;
++		k.step = (k.step + 1) % n;
++		uint32_t *range = _colors + c.first;
++		if (c.mode == 0) std::rotate(range, range + n - 1, range + n);
++		else if (c.mode == 1) std::rotate(range, range + 1, range + n);
++		else for (int at = 0; at < n; ++at) range[at] = _palette[c.first + ((k.step - at) % n + n) % n];
++		++_paletteVersion;
++	}
+ 	for (Actor &a : _actors) {
+ 		a.tick += ticks;
+ 		if (!a.moving) continue;
+@@ -341,8 +384,11 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const View &v = _view;
+ 	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+ 	const int shown = std::min(v.width - v.camera, v.screenWidth - v.left);
+-	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y)
+-		std::memcpy(pixels + (size_t)(y + v.top) * pitch + v.left, &_scaled[(size_t)y * v.width + v.camera], shown * sizeof(uint32_t));
++	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y) {
++		const uint8_t *in = &_scaled[(size_t)y * v.width + v.camera];
++		uint32_t *out = pixels + (size_t)(y + v.top) * pitch + v.left;
++		for (int x = 0; x < shown; ++x) out[x] = _colors[in[x]];
++	}
+ 	std::vector<int> order(_actors.size());
+ 	for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+ 	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return _actors[a].at.y < _actors[b].at.y; });
+@@ -366,6 +412,25 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	}
+ }
+ 
++bool Scene::showObject(int object, int picture) {
++	if (object < 0 || object >= (int)_source.objects.size()) return false;
++	const World::SourceObject &o = _source.objects[object];
++	if (picture < 0 || picture >= (int)o.pictures.size() || o.pictures[picture].size() != (size_t)o.pictureWidth * o.pictureHeight) return false;
++	for (int y = 0; y < o.pictureHeight; ++y)
++		std::memcpy(&_source.pixels[(size_t)(o.pictureY + y) * _source.width + o.pictureX], &o.pictures[picture][(size_t)y * o.pictureWidth], o.pictureWidth);
++	// The scaled rows and columns drawn from it.
++	const int x0 = (int)(std::lower_bound(_columns.begin(), _columns.end(), o.pictureX) - _columns.begin());
++	const int x1 = (int)(std::lower_bound(_columns.begin(), _columns.end(), o.pictureX + o.pictureWidth) - _columns.begin());
++	const int y0 = (int)(std::lower_bound(_rows.begin(), _rows.end(), o.pictureY) - _rows.begin());
++	const int y1 = (int)(std::lower_bound(_rows.begin(), _rows.end(), o.pictureY + o.pictureHeight) - _rows.begin());
++	for (int y = y0; y < y1; ++y) {
++		const uint8_t *row = &_source.pixels[(size_t)_rows[y] * _source.width];
++		uint8_t *out = &_scaled[(size_t)y * _view.width];
++		for (int x = x0; x < x1; ++x) out[x] = row[_columns[x]];
++	}
++	return true;
++}
++
+ int Scene::groupAt(Point p) const {
+ 	const int b = boxAt(_boxes, p);
+ 	return b < 0 ? -1 : _links.group[b];
+@@ -511,6 +576,17 @@ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &wa
+ 	id = o.id; x = o.x; y = o.y; width = o.width; height = o.height; walkX = o.walkX; walkY = o.walkY; state = o.state;
+ 	return true;
+ }
++int objectName(int index, char *name, int capacity) {
++	if (!name || capacity <= 0) return 0;
++	const std::string text = index >= 0 && index < objectCount() ? stage().source().objects[index].name : std::string();
++	const size_t n = std::min(text.size(), (size_t)capacity - 1);
++	std::memcpy(name, text.data(), n); name[n] = 0;
++	return (int)n;
++}
++int objectPictures(int index) { return index >= 0 && index < objectCount() ? (int)stage().source().objects[index].pictures.size() : 0; }
++int objectShown(int index) { return objectPictures(index) ? stage().source().objects[index].shown : 0; }
++bool showObject(int index, int picture) { return stage().showObject(index, picture); }
++int paletteVersion() { return stage().paletteVersion(); }
+ int objectAt(double x, double y, const int *candidates, int count, double slack) {
+ 	return stage().objectAt(Stage::Point(x, y), std::vector<int>(candidates, candidates + std::max(0, count)), slack);
+ }
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index a9da6e84..bc5ba9b6 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -50,6 +50,7 @@ struct View {
+ struct Box {
+ 	Point corner[4];
+ 	int scaleTop = 255, scaleBottom = 255; // the game's own character scale at its top and bottom (1..255)
++	int source = -1; // its number in the scene file (the game's own)
+ };
+ bool inside(const Box &box, Point p, double slack = 0.5);
+ Point closest(const Box &box, Point p);
+@@ -70,6 +71,12 @@ struct Links {
+ 	}
+ };
+ Links linksOf(const std::vector<Box> &boxes);
++// With the game's own connections too ("SVW5": the next box from each box
++// toward each other one, `count` boxes of the file, 255 none): boxes also
++// meet where either is the other's next box on the way (the games join
++// areas apart; touching boxes still meet, as the game may route between
++// them through a box switched off here).
++Links linksOf(const std::vector<Box> &boxes, const std::vector<uint8_t> &next, int count);
+ // From `from` to `to` (moved into the nearest box): the points to walk
+ // through, ending at the destination, or as near to it as the boxes that
+ // can be reached allow; empty when there are no boxes.
+@@ -133,6 +140,10 @@ public:
+ 	std::vector<Point> spots(int n) const;
+ 	// The screen rectangle an actor covers (false when off screen).
+ 	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
++	// An object shown in one of its pictures (0: without it; "SVW5").
++	bool showObject(int object, int picture);
++	// Changes each time colours move (a colour cycle stepping).
++	int paletteVersion() const { return _paletteVersion; }
+ 	// The room object a tap is for, among `candidates` (indices into the
+ 	// scene's objects): one under the tap beats one only within `slack`
+ 	// pixels of it (of those, the nearest), then the smallest; -1 when none.
+@@ -143,7 +154,14 @@ private:
+ 	World::SourceScene _source;
+ 	std::vector<Box> _boxes;
+ 	Links _links;
+-	std::vector<uint32_t> _scaled; // the scene at the view's size
++	// The scene at the view's size (palette indices) and its colours now
++	// (0xAARRGGBB; colour cycles move them), as loaded.
++	std::vector<uint8_t> _scaled;
++	std::vector<int> _columns, _rows; // the source column and row of each
++	uint32_t _palette[256] = {}, _colors[256] = {};
++	struct Cycle { World::SourceCycle cycle; int clock = 0, step = 0; };
++	std::vector<Cycle> _cycles;
++	int _paletteVersion = 0;
+ 	std::vector<Actor> _actors;
+ 	int _follow = -1;
+ 	int _cameraGoal = 0;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index ed414b3d..a165ce30 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -54,6 +54,15 @@ bool object(int index, int &id, int &x, int &y, int &width, int &height, int &wa
+ // Which of `candidates` (object indices) a tap at x, y is for (under it
+ // before near it, then the smallest; -1: none).
+ int objectAt(double x, double y, const int *candidates, int count, double slack);
++// An object's name as its game has it (the length; "" in older exports).
++int objectName(int index, char *name, int capacity);
++// How many pictures an object has (0 without; else 1 + its states: picture
++// 0 is the place without it), the one the scene shows, and showing it in one.
++int objectPictures(int index);
++int objectShown(int index);
++bool showObject(int index, int picture);
++// Changes each time colours move (a colour cycle stepping): draw again.
++int paletteVersion();
+ 
+ } // End of namespace StageBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world.cpp b/common/scummverse_world.cpp
+index 673f376f..4506f561 100644
+--- a/common/scummverse_world.cpp
++++ b/common/scummverse_world.cpp
+@@ -10,6 +10,7 @@
+ #include <deque>
+ #include <unordered_map>
+ #include <unordered_set>
++#include <utility>
+ 
+ namespace Scummverse {
+ namespace World {
+@@ -19,7 +20,8 @@ static int readS16(const uint8_t *p) { return (int16_t)(uint16_t)read16(p); }
+ 
+ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::string &error) {
+ 	scene = SourceScene();
+-	const bool v4 = data && size >= 4 && !std::memcmp(data, "SVW4", 4);
++	const bool v5 = data && size >= 4 && !std::memcmp(data, "SVW5", 4);
++	const bool v4 = v5 || (data && size >= 4 && !std::memcmp(data, "SVW4", 4));
+ 	const bool v3 = v4 || (data && size >= 4 && !std::memcmp(data, "SVW3", 4));
+ 	const bool v2 = v3 || (data && size >= 4 && !std::memcmp(data, "SVW2", 4));
+ 	if (!data || size < 12 + 768 || (!v2 && std::memcmp(data, "SVW1", 4))) { error = "not a scene file"; return false; }
+@@ -42,7 +44,8 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ 		if (size < fixed + 2) { error = "truncated scene"; return false; }
+ 		const int objects = read16(p); p += 2;
+ 		const size_t record = v4 ? 16 : 14; // "SVW4" adds the object's state.
+-		if (size != fixed + 2 + (size_t)objects * record + (v3 ? (size_t)boxes * 2 : 0)) { error = "truncated scene"; return false; }
++		const size_t known = fixed + 2 + (size_t)objects * record + (v3 ? (size_t)boxes * 2 : 0);
++		if (v5 ? size < known : size != known) { error = "truncated scene"; return false; }
+ 		for (int i = 0; i < objects; ++i, p += record) {
+ 			SourceObject o;
+ 			o.id = read16(p); o.x = readS16(p + 2); o.y = readS16(p + 4); o.width = readS16(p + 6); o.height = readS16(p + 8);
+@@ -56,6 +59,39 @@ bool parseScene(const uint8_t *data, size_t size, SourceScene &scene, std::strin
+ 			scene.boxes[i].scaleTop = std::max(1, (int)p[0]);
+ 			scene.boxes[i].scaleBottom = std::max(1, (int)p[1]);
+ 		}
++		// "SVW5": the box connections, colour cycles, objects' names and pictures.
++		if (v5) {
++			const uint8_t *end = data + size;
++			auto need = [&](size_t n) { return (size_t)(end - p) >= n; };
++			if (!need((size_t)boxes * boxes + 1)) { error = "truncated scene"; return false; }
++			scene.boxNext.assign(p, p + (size_t)boxes * boxes); p += (size_t)boxes * boxes;
++			const int cycles = *p++;
++			if (!need((size_t)cycles * 5)) { error = "truncated scene"; return false; }
++			for (int i = 0; i < cycles; ++i, p += 5) {
++				SourceCycle cycle;
++				cycle.delay = read16(p); cycle.first = p[2]; cycle.last = p[3]; cycle.mode = p[4];
++				if (cycle.first > cycle.last || cycle.mode > 2) { error = "bad colour cycle"; return false; }
++				scene.cycles.push_back(cycle);
++			}
++			for (SourceObject &o : scene.objects) {
++				if (!need(1)) { error = "truncated scene"; return false; }
++				const int length = *p++;
++				if (!need((size_t)length + 1)) { error = "truncated scene"; return false; }
++				o.name.assign((const char *)p, length); p += length;
++				const int pictures = *p++;
++				if (!pictures) continue;
++				if (!need(9)) { error = "truncated scene"; return false; }
++				o.shown = *p++;
++				o.pictureX = readS16(p); o.pictureY = readS16(p + 2); o.pictureWidth = read16(p + 4); o.pictureHeight = read16(p + 6); p += 8;
++				const size_t area = (size_t)o.pictureWidth * o.pictureHeight;
++				if (!area || o.shown >= pictures || o.pictureX < 0 || o.pictureY < 0 || o.pictureX + o.pictureWidth > scene.width || o.pictureY + o.pictureHeight > scene.height) {
++					error = "bad object picture"; return false;
++				}
++				if (!need(area * pictures)) { error = "truncated scene"; return false; }
++				for (int k = 0; k < pictures; ++k, p += area) o.pictures.push_back(std::vector<uint8_t>(p, p + area));
++			}
++			if (p != end) { error = "truncated scene"; return false; }
++		}
+ 	}
+ 	return true;
+ }
+@@ -553,7 +589,7 @@ bool mount(const unsigned char *data, size_t size, int targetHeight, int firstSl
+ 	}
+ 	Mounted &m = current();
+ 	m.scene = scene; m.room = World::buildV1Room(m.scene); m.ok = true;
+-	m.source = source; m.picture = World::ScenePicture(); m.clean.clear(); m.hasPicture = false; m.slotCapacity = slotCount;
++	m.source = std::move(source); m.picture = World::ScenePicture(); m.clean.clear(); m.hasPicture = false; m.slotCapacity = slotCount;
+ 	characters().clear(); // The engine mounts the new scene's characters next.
+ 	return true;
+ }
+diff --git a/common/scummverse_world.h b/common/scummverse_world.h
+index e264d87b..f49d5958 100644
+--- a/common/scummverse_world.h
++++ b/common/scummverse_world.h
+@@ -25,7 +25,19 @@ struct SourceBox {
+ // A room object (door, hotspot) of the source room, in source pixels.
+ // state: 0 when a script-built room left it switched off ("SVW4"; 1 =
+ // shown or unknown).
+-struct SourceObject { int id = 0, x = 0, y = 0, width = 0, height = 0, walkX = 0, walkY = 0, state = 1; };
++struct SourceObject {
++	int id = 0, x = 0, y = 0, width = 0, height = 0, walkX = 0, walkY = 0, state = 1;
++	// "SVW5": its name as the game has it, and its pictures within
++	// pictureX..+pictureWidth, pictureY..+pictureHeight (clipped to the
++	// scene): pictures[0] the rectangle without it, then in each of its
++	// states (palette indices of the scene); pictures[shown] is the scene's.
++	std::string name;
++	int pictureX = 0, pictureY = 0, pictureWidth = 0, pictureHeight = 0, shown = 0;
++	std::vector<std::vector<uint8_t> > pictures;
++};
++// A colour cycle ("SVW5"): palette entries first..last move a step every
++// `delay` ticks: mode 0 up, 1 down, 2 the older games' sweep.
++struct SourceCycle { int delay = 0, first = 0, last = 0, mode = 0; };
+ 
+ struct SourceScene {
+ 	int room = 0, width = 0, height = 0;
+@@ -33,6 +45,10 @@ struct SourceScene {
+ 	std::vector<uint8_t> pixels;     // width*height palette indices
+ 	std::vector<SourceBox> boxes;
+ 	std::vector<SourceObject> objects; // "SVW2" and later
++	// "SVW5": the game's own next box from each box toward each other one
++	// (boxes * boxes, from-major; 255: none), its colour cycles.
++	std::vector<uint8_t> boxNext;
++	std::vector<SourceCycle> cycles;
+ 	// Shown this much wider than tall per pixel (set by the caller, not the
+ 	// file): a game drawn in square pixels beside 320x200 art that is
+ 	// displayed 1.2 times taller (Curse of Monkey Island) is widened 1.2.
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index c4b26f98..d3b16ff1 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -27,7 +27,7 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // places in saves); any exported room of a game can be visited.
+ // Bumped when the catalog's scenes or characters change, so installed games
+ // export once more (marker "<gameid>-v<version>.svx").
+-static const int kWorldExportVersion = 16;
++static const int kWorldExportVersion = 17;
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+ static const int kWorldExportAttempts = 2;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 602c1b4c..4c75e63c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1641,6 +1641,8 @@ protected:
+ 	// Other worlds (scummverse_world_export.inc): catalog scene export.
+ 	bool scummverseExportScene(int room, const Common::Path &file, Common::String &problem, bool scripted = false, const short *shown = nullptr, int shownCount = 0, const Common::Array<byte> *depths = nullptr);
+ 	void scummverseBoxDepths(Common::Array<byte> &out);
++	Common::String scummverseObjectName(int obj);
++	bool scummverseObjectDrawable(const ObjectData &o, int state);
+ 	int scummverseExportWorld(const Common::Path &dir);
+ 	bool scummverseTravelPad(int index);
+ 	bool scummverseExportGuest(int costume, const Common::Path &file, Common::String &problem);
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 32e6e919..4e2cadc1 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -16,7 +16,16 @@
+ // then u16 objectCount and per object u16 id, int16 x, y, width, height,
+ // walkX, walkY (room pixels), u16 state (0: a script-built room switched it
+ // off), then per box u8 character scale at its top and bottom edges (255 =
+-// full size). Readers also accept "SVW1".."SVW3".
++// full size). "SVW5" goes on: per pair of boxes the game's own next box on
++// the way (u8 boxCount * boxCount, from-major; 255: none), u8 colour cycle
++// count and per cycle u16 delay (ticks a step), u8 first, last, u8 mode (0
++// rotate up, 1 down, 2 the older games' sweep), then per object (in order)
++// u8 name length, name (the game's own, printable), u8 picture count and,
++// when any, u8 the one the scene shows, int16 x, y, u16 width, height
++// (clipped to the scene) and each picture (width * height palette
++// indices): the rectangle without the object (state 0), then in each of
++// its states, all else as the scene has it. Readers also accept
++// "SVW1".."SVW4".
+ //
+ // Character file ("SVC1"): u16 costume, u16 frameCount, palette[768], then
+ // per frame u8 dir (left, right, front, back), u8 kind (stand, walk, talk, seated),
+@@ -27,6 +36,57 @@
+ 
+ static void scummverseWrite16(Common::WriteStream &out, int value) { out.writeUint16LE((uint16)value); }
+ 
++// An object's image in a state can be drawn: there, and each of its strips
++// where the game's own drawing looks for it (some frames the game never
++// shows point past the image).
++bool ScummEngine::scummverseObjectDrawable(const ObjectData &o, int state) {
++	// (Within the room's rows: drawBitmap only warns past them.)
++	if (!o.OBIMoffset && (_game.features & GF_SMALL_HEADER)) return false;
++	if (o.y_pos < 0 || o.y_pos + o.height > _virtscr[kMainVirtScreen].h) return false;
++	const byte *image = getObjectImage(getOBIMFromObjectData(o), state);
++	if (!image) return false;
++	const byte *smap = image;
++	if (!(_game.features & GF_SMALL_HEADER) && _game.version != 8 && !(smap = findResource(MKTAG('S','M','A','P'), image))) return false;
++	for (int strip = 0; strip < o.width / 8; ++strip) {
++		int64 offset = -1, length;
++		if (_game.features & GF_16COLOR) {
++			length = READ_LE_UINT16(smap);
++			if (strip * 2 + 2 < length) offset = READ_LE_UINT16(smap + strip * 2 + 2);
++		} else if (_game.features & GF_SMALL_HEADER) {
++			length = READ_LE_UINT32(smap);
++			if (strip * 4 + 4 < length) offset = READ_LE_UINT32(smap + strip * 4 + 4);
++		} else if (_game.version == 8) {
++			length = READ_BE_UINT32(smap + 4);
++			if (strip * 4 + 8 < length) offset = READ_LE_UINT32(smap + 24 + strip * 4 + 8);
++		} else {
++			length = READ_BE_UINT32(smap + 4);
++			if (strip * 4 + 8 < length) offset = READ_LE_UINT32(smap + strip * 4 + 8);
++		}
++		if (offset < 0 || offset >= length) return false;
++	}
++	return true;
++}
++
++// An object's name as the game has it, printable: no leading "/id/" (the
++// later games' message keys), no padding or escape codes.
++Common::String ScummEngine::scummverseObjectName(int obj) {
++	const byte *raw = getObjOrActorName(obj);
++	Common::String name;
++	if (!raw) return name;
++	if (*raw == '/') { const byte *end = (const byte *)strchr((const char *)raw + 1, '/'); if (end) raw = end + 1; }
++	for (; *raw && name.size() < 64; ++raw) {
++		if (*raw == 0xFF || *raw == 0xFE) { // (an escape, its code and any two bytes it carries)
++			if (!raw[1]) break;
++			const byte code = *++raw;
++			for (int skip = code == 1 || code == 2 || code == 3 || code == 8 ? 0 : 2; skip && raw[1]; --skip) ++raw;
++			continue;
++		}
++		if (*raw >= 32 && *raw < 127 && *raw != '@') name += (char)*raw;
++	}
++	name.trim();
++	return name;
++}
++
+ // Per box, the character scale at its top and bottom edges (as written).
+ void ScummEngine::scummverseBoxDepths(Common::Array<byte> &out) {
+ 	out.clear();
+@@ -68,6 +128,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// set stay unknown (full size) rather than leaking from the last room.
+ 	// A walk box on a slot nothing set reads the marker scale 1 at first.
+ 	for (auto &slot : _scaleSlots) slot = ScaleSlot();
++	stopCycle(0); // (As startScene: the last room's colour cycles stop.)
+ 	ensureResourceLoaded(rtRoom, resource); clearRoomObjects(); setupRoomSubBlocks(); resetRoomSubBlocks();
+ 	for (int i = 1; i <= ARRAYSIZE(_scaleSlots); ++i) {
+ 		const ScaleSlot &slot = _scaleSlots[i - 1];
+@@ -197,21 +258,28 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	const int W = _roomWidth, H = _roomHeight;
+ 	Common::Array<byte> pixels; pixels.resize(W * H);
+ 	bool actors = false;
+-	auto render = [&]() {
+-		// One screen at a time across the room (camera centers).
++	// One screen at a time across the room (camera centers), those over
++	// columns [from, to) only.
++	auto renderSpan = [&](int from, int to) {
+ 		for (int center = _screenWidth / 2;; center += _screenWidth) {
+ 			const int c = MIN(center, W - _screenWidth / 2);
+-			// v7+ cameras also track a vertical center within the screen.
+-			camera._cur.y = camera._dest.y = _screenHeight / 2;
+-			setCameraAt(c, _screenHeight / 2); camera._cur.x = camera._dest.x = c; cameraMoved();
+-			_fullRedraw = true; scummLoop_handleDrawing();
+-			if (actors) scummLoop_handleActors();
+-			const int left = c - _screenWidth / 2, xs = _virtscr[kMainVirtScreen].xstart;
+-			for (int y = 0; y < H; ++y)
+-				for (int x = 0; x < _screenWidth; ++x)
+-					pixels[y * W + left + x] = *((const byte *)_virtscr[kMainVirtScreen].getBasePtr(xs + x, y));
++			const int left = c - _screenWidth / 2;
++			if (left < to && left + _screenWidth > from) {
++				// v7+ cameras also track a vertical center within the screen.
++				camera._cur.y = camera._dest.y = _screenHeight / 2;
++				setCameraAt(c, _screenHeight / 2); camera._cur.x = camera._dest.x = c; cameraMoved();
++				_fullRedraw = true; scummLoop_handleDrawing();
++				if (actors) scummLoop_handleActors();
++				const int xs = _virtscr[kMainVirtScreen].xstart;
++				for (int y = 0; y < H; ++y)
++					for (int x = 0; x < _screenWidth; ++x)
++						pixels[y * W + left + x] = *((const byte *)_virtscr[kMainVirtScreen].getBasePtr(xs + x, y));
++			}
+ 			if (c >= W - _screenWidth / 2) break;
+ 		}
++	};
++	auto render = [&]() {
++		renderSpan(0, W);
+ 		int same = 0;
+ 		for (byte p : pixels) same += p == pixels[0];
+ 		return same < (int)pixels.size() * 99 / 100; // Something besides one color.
+@@ -321,13 +389,78 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// painters' key pink where a path leads off the bottom. The picture ends
+ 	// where the original's view does.
+ 	const int shownHeight = _game.id == GID_TENTACLE && room == 11 && H > 144 ? 144 : H;
++	// Each object's pictures: its rectangle without it, then in each of its
++	// states, and which of them the scene shows, and its name. Each is the
++	// scene with what that state changes: the rectangle drawn in it against
++	// drawn as it is (the room's other objects as drawn), so what the
++	// room's scripts and animations drew there stays.
++	struct ObjectPictures { int x = 0, y = 0, width = 0, height = 0, shown = 0; Common::Array<Common::Array<byte> > states; Common::String name; };
++	Common::Array<ObjectPictures> pictures;
++	{
++		const Common::Array<byte> scene = pixels;
++		// (Drawing takes the image from the game's own state table, and
++		// whether to draw from the room's copy, which the game brings up
++		// to date each frame: in the rooms its scripts set up, as it would.)
++		if (scripted || preset) updateObjectStates();
++		Common::Array<byte> states;
++		Common::Array<int> heights;
++		for (int k = 1; k < _numLocalObjects; ++k) { states.push_back(_objs[k].state); heights.push_back(_objs[k].height); }
++		auto grab = [&](const Common::Array<byte> &from, const ObjectPictures &p) {
++			Common::Array<byte> rect;
++			rect.resize(p.width * p.height);
++			for (int y = 0; y < p.height; ++y)
++				for (int x = 0; x < p.width; ++x) rect[y * p.width + x] = from[(p.y + y) * W + p.x + x];
++			return rect;
++		};
++		int drift = 0;
++		for (int i = 1; i < _numLocalObjects; ++i) {
++			const ObjectData &o = _objs[i];
++			if (!o.obj_nr || o.width <= 0 || o.height <= 0) continue;
++			ObjectPictures p;
++			p.name = scummverseObjectName(o.obj_nr);
++			const int x0 = MAX<int>(0, o.x_pos), y0 = MAX<int>(0, o.y_pos), x1 = MIN<int>(W, o.x_pos + o.width), y1 = MIN<int>(shownHeight, o.y_pos + o.height);
++			const byte *obim = getOBIMFromObjectData(o);
++			const int images = !obim ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : CLIP(getObjectImageCount(o.obj_nr), 0, 16);
++			// (The older games draw whole rows of 8: none, none drawn.)
++			const bool rows = _game.version >= 7 || (o.height & ~7) > 0;
++			if (x0 < x1 && y0 < y1 && images > 0 && rows && scummverseObjectDrawable(o, 1)) {
++				p.x = x0; p.y = y0; p.width = x1 - x0; p.height = y1 - y0;
++				const int global = getState(o.obj_nr);
++				const Common::Array<byte> inScene = grab(scene, p);
++				renderSpan(x0, x1);
++				const Common::Array<byte> drawn = grab(pixels, p);
++				for (int state = 0; state <= images; ++state) {
++					if (state && !scummverseObjectDrawable(o, state)) break;
++					_objs[i].state = state;
++					putState(o.obj_nr, state);
++					renderSpan(x0, x1);
++					Common::Array<byte> rect = grab(pixels, p);
++					for (uint at = 0; at < rect.size(); ++at) if (rect[at] == drawn[at]) rect[at] = inScene[at];
++					p.states.push_back(rect);
++				}
++				_objs[i].state = states[i - 1];
++				putState(o.obj_nr, global);
++				// The one shown: its state, drawn (else none; the older games
++				// have one image whatever the state); exactly the scene.
++				const int now = !states[i - 1] ? 0 : (_game.features & GF_SMALL_HEADER) ? 1 : global;
++				p.shown = now < (int)p.states.size() ? now : 0;
++				drift += p.states[p.shown] != inScene;
++				p.states[p.shown] = inScene;
++			}
++			pictures.push_back(p);
++		}
++		// (Put back as the scene has them: states, and the heights drawing rounds.)
++		for (int k = 1; k < _numLocalObjects; ++k) { _objs[k].state = states[k - 1]; _objs[k].height = heights[k - 1]; }
++		pixels = scene;
++		if (drift) warning("SCUMMVERSE_WORLD_PICTURE_DRIFT %s %d %d", game ? game->gameid : _game.gameid, room, drift);
++	}
+ 	Common::DumpFile *dump = new Common::DumpFile();
+ 	if (!dump->open(file, true)) { delete dump; problem = "cannot write cache"; return false; }
+ 	// The compressed stream owns (and closes) the file.
+ 	Common::ScopedPtr<Common::WriteStream> compressed(Common::wrapCompressedWriteStream(dump));
+ 	Common::WriteStream &out = *compressed;
+ 	const int boxes = MIN<int>(getNumBoxes(), 255);
+-	out.write("SVW4", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, shownHeight);
++	out.write("SVW5", 4); scummverseWrite16(out, room); scummverseWrite16(out, W); scummverseWrite16(out, shownHeight);
+ 	out.writeByte(boxes); out.writeByte(0);
+ 	out.write(_currentPalette, 768);
+ 	out.write(pixels.data(), W * shownHeight);
+@@ -340,6 +473,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// The room's objects (doors and hotspots) with their walk-to points.
+ 	int objects = 0;
+ 	for (int i = 1; i < _numLocalObjects; ++i) if (_objs[i].obj_nr && _objs[i].width > 0 && _objs[i].height > 0) ++objects;
++	if (objects != (int)pictures.size()) { problem = "objects changed while drawn"; return false; }
+ 	scummverseWrite16(out, objects);
+ 	for (int i = 1; i < _numLocalObjects; ++i) {
+ 		const ObjectData &o = _objs[i];
+@@ -352,6 +486,44 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	Common::Array<byte> scales;
+ 	if (depths && depths->size() == (uint)boxes * 2) scales = *depths; else scummverseBoxDepths(scales);
+ 	out.write(scales.data(), scales.size());
++	// "SVW5": the game's own box connections (getNextBox, from its matrix;
++	// a room without one has none).
++	const bool matrix = getResourceAddress(rtMatrix, 1) != nullptr;
++	for (int from = 0; from < boxes; ++from)
++		for (int to = 0; to < boxes; ++to) {
++			const int next = from == to ? to : matrix ? getNextBox(from, to) : 255;
++			out.writeByte(next >= 0 && next < boxes ? next : 255);
++		}
++	// The room's colour cycles (water, fire, lights), as cyclePalette runs
++	// them: the older games sweep one step a frame (those started, a
++	// counter set); the others rotate a step each `delay` ticks, at most a
++	// step a frame (none with EGA dithering). A frame is taken as 4 ticks,
++	// the games' usual pace (the room's own timer is not running here).
++	const int frame = 4;
++	const bool sweep = (_game.features & GF_SMALL_HEADER) != 0;
++	Common::Array<int> cycles;
++	for (int i = 0; i < 16; ++i) {
++		const ColorCycle &c = _colorCycle[i];
++		const bool on = sweep ? c.counter != 0 && c.delay && c.delay != 0x0AAA : c.delay != 0 && !_enableEGADithering;
++		if (on && c.start < c.end) cycles.push_back(i);
++	}
++	out.writeByte(cycles.size());
++	for (int i : cycles) {
++		const ColorCycle &c = _colorCycle[i];
++		scummverseWrite16(out, sweep ? frame : MAX<int>(c.delay, frame));
++		out.writeByte(c.start); out.writeByte(c.end);
++		out.writeByte(sweep ? 2 : (c.flags & 2) ? 1 : 0);
++	}
++	// Per object: its name and pictures.
++	for (const ObjectPictures &p : pictures) {
++		const int length = MIN<int>(p.name.size(), 255);
++		out.writeByte(length); out.write(p.name.c_str(), length);
++		out.writeByte(p.states.size());
++		if (p.states.empty()) continue;
++		out.writeByte(p.shown);
++		scummverseWrite16(out, p.x); scummverseWrite16(out, p.y); scummverseWrite16(out, p.width); scummverseWrite16(out, p.height);
++		for (const Common::Array<byte> &picture : p.states) out.write(picture.data(), picture.size());
++	}
+ 	out.finalize();
+ 	if (out.err()) { problem = "cannot write cache"; return false; }
+ 	return true;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 527e4266..3e73ed85 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -543,7 +543,7 @@ Common::Error SandboxEngine::run() {
+ 	if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
+ 	if (resumed) { StageBridge::place(_player, x, y); StageBridge::follow(_player); saveState(); }
+ 	uint32 last = g_system->getMillis();
+-	int carry = 0;
++	int carry = 0, palette = StageBridge::paletteVersion();
+ 	bool changed = true;
+ 	while (!shouldQuit()) {
+ 		Common::Event event;
+@@ -559,6 +559,8 @@ Common::Error SandboxEngine::run() {
+ 			changed = changed || StageBridge::busy();
+ 			step(carry / 1000);
+ 			changed = changed || cameraBefore != StageBridge::camera() || roomBefore != _room || peopleBefore != _people;
++			// (And when colours move: water, fire, lights cycling.)
++			if (palette != StageBridge::paletteVersion()) { palette = StageBridge::paletteVersion(); changed = true; }
+ 			// (Kept every half minute too: iOS may close the app without a word.)
+ 			if ((_saveClock += carry / 1000) >= 60 * 30) { _saveClock = 0; saveState(); }
+ 			carry %= 1000;
+@@ -646,7 +648,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		}
+ 		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d failed",
+ 			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, failed);
+-		if (!tried || failed || through + elsewhere < tried * 95 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		if (!tried || failed || through + elsewhere < tried * 96 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+ 	}
+@@ -692,6 +694,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		places.push_back(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
+ 	}
+ 	int shown = 0, skipped = 0, failed = 0, people = 0, arrivedCount = 0, unreached = 0, colors = 0;
++	int objects = 0, named = 0, pictured = 0, cycling = 0;
+ 	for (const Common::String &name : places) {
+ 		int g = -1, r = 0;
+ 		for (int i = 0; i < worldGameCount() && g < 0; ++i) {
+@@ -751,11 +754,26 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			for (uint i = 0; i < _frame.size(); ++i) seen[_frame[i]] = true;
+ 			colors = seen.size();
+ 		}
++		// Its objects: named; each picture shown, then the one it is in.
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			char objectName[80];
++			int id, ox, oy, w, h, wx, wy, state;
++			StageBridge::object(o, id, ox, oy, w, h, wx, wy, state);
++			++objects;
++			named += StageBridge::objectName(o, objectName, sizeof(objectName)) > 0;
++			const int pictures = StageBridge::objectPictures(o);
++			pictured += pictures > 0;
++			for (int k = 0; k < pictures; ++k)
++				if (!StageBridge::showObject(o, k)) { warning("SCUMMVERSE sandbox: %s object %d picture %d not shown", name.c_str(), id, k); ++failed; }
++			if (pictures) StageBridge::showObject(o, StageBridge::objectShown(o));
++		}
++		cycling += StageBridge::paletteVersion() > 0; // (time has passed while walking)
+ 		if (ConfMan.hasKey("scummverse_shots") && !one && worldLandmark(g, r)) shot(name + ".png");
+ 	}
+ 	g_system->updateScreen();
+ 	warning("SCUMMVERSE sandbox selftest %s: %d shown, %d people, %d walked across, %d as near as they go, %d skipped, %d failed, %d colours, screen %dx%d %s",
+ 		mode.c_str(), shown, people, arrivedCount, unreached, skipped, failed, colors, _width, _height, _format.toString().c_str());
++	warning("SCUMMVERSE sandbox selftest %s objects: %d, %d named, %d with pictures; %d places with colours moving", mode.c_str(), objects, named, pictured, cycling);
+ 	if (!shown || failed) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 	warning("SCUMMVERSE sandbox selftest PASS");
+ 	if (mode == "back") {

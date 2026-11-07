@@ -1,0 +1,34 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index a59fde78..1ec0a611 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -32,8 +32,11 @@ struct WorldCastGuest { short game, room, slot; WorldGuest guest; };
+ // others point at too has its pictures; every game's things file says what
+ // is inside what, and has the rooms whose entry script leaves them. 24: an
+ // object's pictures leave out what is drawn over it only where that draws,
+-// the rest as the scene shows it (drawn again, the rest may differ).
+-static const int kWorldExportVersion = 24;
++// the rest as the scene shows it (drawn again, the rest may differ). 25:
++// each scene drawn as the game draws a frame, the room's copy of its
++// objects' states brought up to date first (before, the copy from before
++// its entry script ran, or the last room's: what its scripts set was missing).
++static const int kWorldExportVersion = 25;
+ // From 0155 the mansion's own export is ahead of the others' (its things
+ // file also says what each thing's verbs do; from 0161 read and pick up too,
+ // from 0162 not fix; from 0168 what each thing is inside, drawn with that
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index d7845b99..a3aaa821 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -502,6 +502,11 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		for (byte p : pixels) same += p == pixels[0];
+ 		return same < (int)pixels.size() * 99 / 100; // Something besides one color.
+ 	};
++	// Drawn as the game draws each frame: the room's copy of each object's
++	// state brought up to the game's own first (scummLoop's
++	// updateObjectStates), so what its scripts set shows, as on arriving
++	// (before, the copy left from the last room or from before its scripts).
++	updateObjectStates();
+ 	// A v3-v6 room drawn entirely by its entry script comes out one color.
+ 	// Still one color with it, the room is no place (a cutscene's or a text
+ 	// screen's backdrop).

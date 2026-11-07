@@ -1,0 +1,46 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 05074f79..04d09149 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -34,10 +34,11 @@ static const int kWorldExportVersion = 22;
+ // one open; from 0169 one its state makes untouchable away; from 0171 what
+ // two things do together, from 0172 from each picture): "maniac-v29", the
+ // rest as kWorldExportVersion, so only it is exported again. From 0183 The
+-// Curse of Monkey Island's is one ahead too (its coin, from its fonts).
++// Curse of Monkey Island's is one ahead too (its coin, from its fonts), and
++// from 0189 Loom's (its dark rooms' animation holes filled).
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") ? 1 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 7 : same(gameid, "comi") || same(gameid, "loom") ? 1 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 8b049b9c..d3ee9ddc 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -453,6 +453,7 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 	// is under 60% black (a night room's dark corners, and the close-ups
+ 	// in the top left corner, stay as they are).
+ 	// There, the first frame that leaves half of what is black lit shows alone.
++	// (0189: also the tiles of a dark room's animations, below.)
+ 	if (_game.id == GID_LOOM) {
+ 		auto dark = [&](int x, int y) {
+ 			const byte *rgb = _currentPalette + 3 * pixels[y * W + x];
+@@ -495,7 +496,14 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 			for (int y = MAX(0, o.y_pos - 8); y < MIN(H, o.y_pos + o.height + 8); ++y)
+ 				for (int x = MAX(0, o.x_pos - 8); x < MIN(W, o.x_pos + o.width + 8); ++x)
+ 					if (!covered[y * W + x]) { ++around; aroundDark += dark(x, y); }
+-			hole[i] = around && aroundDark * 10 < around * 6;
++			// (Or one of an animation's tiles: a dark room's holes are
++			// covered by several tiles a frame, other objects the same size
++			// in the same place being the other frames; the picture around
++			// is dark there, and other tiles. Not the close-up corner.)
++			int twins = 0;
++			for (int k = 1; k < _numLocalObjects; ++k)
++				twins += k != i && _objs[k].obj_nr && _objs[k].x_pos == o.x_pos && _objs[k].y_pos == o.y_pos && _objs[k].width == o.width && _objs[k].height == o.height;
++			hole[i] = (around && aroundDark * 10 < around * 6) || (twins && (o.x_pos || o.y_pos));
+ 		}
+ 		bool changed = false;
+ 		Common::Array<bool> tried(_numLocalObjects, false);

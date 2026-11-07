@@ -1,0 +1,16 @@
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index c9b0e454..3e76012f 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -455,8 +455,10 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		}
+ 
+ 		if (r.room != a->_room) {
++			// Somewhere new: a short wait, or the longer one it was given on
++			// the way here (after a door, a ride, a friend letting it go).
+ 			r.room = a->_room; r.exit = -1; r.walking = false;
+-			r.wait = 30 + _rnd.getRandomNumber(120); r.nearPlayer = false;
++			r.wait = MAX<int>(r.wait, 30 + _rnd.getRandomNumber(120)); r.nearPlayer = false;
+ 		}
+ 		if (chatting & (1u << id)) {
+ 			a->stopActorMoving(); a->startAnimActor(a->_standFrame); r.walking = false;

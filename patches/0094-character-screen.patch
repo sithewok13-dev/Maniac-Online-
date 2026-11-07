@@ -1,0 +1,609 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index e83c6829..80ed5681 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -90,6 +90,7 @@ bool iOS7_fetchEvent(InternalEvent *event) {
+ #include "backends/platform/ios7/scummverse_worlds_ui.inc"
+ #include "backends/platform/ios7/scummverse_airport_ui.inc"
+ #include "backends/platform/ios7/scummverse_roster_ui.inc"
++#include "backends/platform/ios7/scummverse_cast_ui.inc"
+ #include "backends/platform/ios7/scummverse_camera_ui.inc"
+ #include "backends/platform/ios7/scummverse_tour_ui.inc"
+ 
+@@ -530,14 +531,11 @@ void scummverseAirportOffer(int actor) {
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Choose Zak folder..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [[ScummverseZakImporter shared] chooseFrom:controller]; }];
+ 	}]];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Choose character" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 63); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Crystal teleport pads" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 62); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Visit other worlds" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummverseOtherWorldsFrom:controller]; }];
+ 	}]];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-		[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAsFrom:controller]; }];
+-	}]];
++	[menu addAction:[UIAlertAction actionWithTitle:@"Play as someone else" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { int token=ScummverseLocalAI::sceneToken(); [controller dismissViewControllerAnimated:YES completion:^{ scummverseWorldRequest(token | 61); }]; }]];
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Tour every location (watch for bugs)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+ 		[controller dismissViewControllerAnimated:YES completion:^{ scummverseShowTour(controller); }];
+ 	}]];
+@@ -580,57 +578,6 @@ static BOOL scummverseWorldInstalled(const Scummverse::WorldCatalog::WorldGame &
+ 	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
+ 	[controller presentViewController:menu animated:YES completion:nil];
+ }
+-// Playing someone from another game: the character you control takes on a
+-// cast member's look, name and voice in chat (engine scummverseSetAppearance).
+-- (void)showScummversePlayAsFrom:(UIViewController *)controller {
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Play as someone else" message:@"The character you control becomes someone else: the Purple Meteor, the Meteor Police, the man-eating plant or someone from your other games, with their look, name and conversation. Switch characters to play several of them at once." preferredStyle:UIAlertControllerStyleAlert];
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Be yourself again" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-		scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(0));
+-	}]];
+-	// Maniac's own (always here): drawn from the game itself.
+-	for (const auto &look : Scummverse::WorldCatalog::kWorldManiacCast) {
+-		const int key = Scummverse::WorldCatalog::worldAppearanceKey(Scummverse::WorldCatalog::kWorldManiacLooks, look.costume);
+-		[menu addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%s (Maniac Mansion)", look.name] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-			scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(key));
+-		}]];
+-	}
+-	for (const auto &game : Scummverse::WorldCatalog::kWorldGames) {
+-		const BOOL installed = scummverseWorldInstalled(game);
+-		NSString *title = installed ? [NSString stringWithUTF8String:game.title] : [NSString stringWithFormat:@"%s (add Documents/%s)", game.title, game.folder];
+-		const Scummverse::WorldCatalog::WorldGame *chosen = &game;
+-		UIAlertAction *action = [UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-			[controller dismissViewControllerAnimated:YES completion:^{ [self showScummversePlayAs:chosen from:controller]; }];
+-		}];
+-		action.enabled = installed;
+-		[menu addAction:action];
+-	}
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
+-	[controller presentViewController:menu animated:YES completion:nil];
+-}
+-- (void)showScummversePlayAs:(const Scummverse::WorldCatalog::WorldGame *)game from:(UIViewController *)controller {
+-	const int gameIndex = (int)(game - Scummverse::WorldCatalog::kWorldGames);
+-	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose who to play." preferredStyle:UIAlertControllerStyleAlert];
+-	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+-	NSFileManager *fm = [NSFileManager defaultManager];
+-	// Everyone exported from this game, once each (some stand in several rooms), by name.
+-	NSMutableDictionary<NSString *, NSNumber *> *people = [NSMutableDictionary dictionary];
+-	for (const auto &cast : Scummverse::WorldCatalog::kWorldCast) {
+-		if (cast.game != gameIndex) continue;
+-		NSString *frames = [NSString stringWithFormat:@"%@/worlds/%s-c%d.svc", documents, game->gameid, cast.guest.costume];
+-		NSString *name = [NSString stringWithUTF8String:cast.guest.name];
+-		if (people[name] || ![fm fileExistsAtPath:frames]) continue;
+-		people[name] = @(Scummverse::WorldCatalog::worldAppearanceKey(gameIndex, cast.guest.costume));
+-	}
+-	for (NSString *name in [people.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
+-		const int key = people[name].intValue;
+-		[menu addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+-			scummverseWorldRequest(Scummverse::WorldCatalog::worldAppearanceRequest(key));
+-		}]];
+-	}
+-	if (!people.count) menu.message = @"No characters are set up for this game yet. Restart the app to set it up.";
+-	[menu addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
+-	[controller presentViewController:menu animated:YES completion:nil];
+-}
+ - (void)showScummverseScenes:(const Scummverse::WorldCatalog::WorldGame *)game base:(int)base from:(UIViewController *)controller {
+ 	UIAlertController *menu = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:game->title] message:@"Choose a place, then walk through doors and off the sides to explore the rest. \"More\" places are parts the game reaches by story. Characters from the game greet you and can chat." preferredStyle:UIAlertControllerStyleAlert];
+ 	const int gameIndex = (int)(game - Scummverse::WorldCatalog::kWorldGames);
+diff --git a/backends/platform/ios7/scummverse_cast_ui.inc b/backends/platform/ios7/scummverse_cast_ui.inc
+new file mode 100644
+index 00000000..ca431633
+--- /dev/null
++++ b/backends/platform/ios7/scummverse_cast_ui.inc
+@@ -0,0 +1,201 @@
++// The character screen: a box per game (Maniac Mansion, Zak, then the other
++// worlds), each with its lead's face; a tap plays the lead, a long press
++// lists everyone in that game. The engine draws the faces from the player's
++// own game files (scummverseCastOffer) and decides what each choice does;
++// no bundled artwork. Manual reference counting, like this file.
++
++static NSMutableDictionary *scummverseCastTitles, *scummverseCastFolders, *scummverseCastFaces, *scummverseCastPeople;
++
++static UIImage *scummverseCastImage(NSData *data) {
++	CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
++	CGColorSpaceRef color = CGColorSpaceCreateDeviceRGB();
++	CGImageRef raw = CGImageCreate(64, 64, 8, 32, 64 * 4, color, kCGBitmapByteOrderDefault | kCGImageAlphaLast, provider, NULL, false, kCGRenderingIntentDefault);
++	UIImage *image = raw ? [UIImage imageWithCGImage:raw] : nil;
++	if (raw) CGImageRelease(raw);
++	CGColorSpaceRelease(color); CGDataProviderRelease(provider);
++	return image;
++}
++
++@interface ScummverseCastController : UIViewController {
++	UIScrollView *_grid;
++}
++- (void)play:(int)request;
++@end
++
++// Everyone in one game, from a long press: a list, since some games have
++// dozens of people.
++@interface ScummverseCastPeopleController : UITableViewController {
++	NSArray *_people;
++	ScummverseCastController *_screen; // Not retained: it presents this list.
++}
++@end
++
++@implementation ScummverseCastPeopleController
++- (id)initWithPeople:(NSArray *)people title:(NSString *)title screen:(ScummverseCastController *)screen {
++	if ((self = [super initWithStyle:UITableViewStylePlain])) { _people = [people copy]; _screen = screen; self.title = title; }
++	return self;
++}
++- (void)dealloc { [_people release]; [super dealloc]; }
++- (void)viewDidLoad {
++	[super viewDidLoad];
++	self.navigationItem.rightBarButtonItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancel)] autorelease];
++}
++- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)_people.count; }
++- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
++	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"person"];
++	if (!cell) cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"person"] autorelease];
++	cell.textLabel.text = _people[indexPath.row][0];
++	return cell;
++}
++- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
++	[_screen play:[_people[indexPath.row][1] intValue]];
++}
++- (void)cancel { [self dismissViewControllerAnimated:YES completion:nil]; }
++@end
++
++@implementation ScummverseCastController
++- (id)init {
++	if ((self = [super init])) self.modalPresentationStyle = UIModalPresentationFullScreen;
++	return self;
++}
++- (UIStatusBarStyle)preferredStatusBarStyle { return UIStatusBarStyleLightContent; }
++- (void)viewDidLoad {
++	[super viewDidLoad];
++	self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.02 blue:0.12 alpha:1];
++	UILabel *title = [[[UILabel alloc] init] autorelease]; title.tag = 100; title.text = @"Who do you want to play?";
++	title.textColor = UIColor.whiteColor; title.font = [UIFont boldSystemFontOfSize:22]; title.adjustsFontSizeToFitWidth = YES; title.minimumScaleFactor = 0.6; [self.view addSubview:title];
++	UILabel *note = [[[UILabel alloc] init] autorelease]; note.tag = 102; note.text = @"Long press a game for everyone in it";
++	note.textColor = [UIColor colorWithWhite:0.8 alpha:1]; note.font = [UIFont systemFontOfSize:14]; note.adjustsFontSizeToFitWidth = YES; note.minimumScaleFactor = 0.6; [self.view addSubview:note];
++	UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; close.tag = 101; [close setTitle:@"Done" forState:UIControlStateNormal];
++	[close addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside]; [self.view addSubview:close];
++	_grid = [[[UIScrollView alloc] init] autorelease]; [self.view addSubview:_grid];
++	for (NSNumber *slot in [scummverseCastTitles.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
++		NSArray *people = scummverseCastPeople[slot];
++		const BOOL here = people.count > 0;
++		UIButton *tile = [UIButton buttonWithType:UIButtonTypeCustom]; tile.tag = slot.intValue + 1;
++		tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1]; tile.layer.cornerRadius = 8; tile.alpha = here ? 1 : 0.45;
++		UIImageView *face = [[[UIImageView alloc] initWithImage:scummverseCastFaces[slot]] autorelease]; face.tag = 200;
++		face.contentMode = UIViewContentModeScaleAspectFit; face.layer.magnificationFilter = kCAFilterNearest; [tile addSubview:face];
++		UILabel *name = [[[UILabel alloc] init] autorelease]; name.tag = 201; name.textAlignment = NSTextAlignmentCenter; name.textColor = UIColor.whiteColor;
++		name.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]; name.adjustsFontSizeToFitWidth = YES; name.minimumScaleFactor = 0.6;
++		name.text = here ? people[0][0] : [NSString stringWithFormat:@"Add Documents/%@", scummverseCastFolders[slot]]; [tile addSubview:name];
++		UILabel *game = [[[UILabel alloc] init] autorelease]; game.tag = 202; game.textAlignment = NSTextAlignmentCenter;
++		game.textColor = [UIColor colorWithWhite:0.75 alpha:1]; game.font = [UIFont systemFontOfSize:11]; game.numberOfLines = 2;
++		game.adjustsFontSizeToFitWidth = YES; game.minimumScaleFactor = 0.6;
++		game.text = scummverseCastTitles[slot]; [tile addSubview:game];
++		tile.accessibilityLabel = here ? [NSString stringWithFormat:@"Play as %@, %@", people[0][0], scummverseCastTitles[slot]] : [NSString stringWithFormat:@"%@, not added", scummverseCastTitles[slot]];
++		tile.accessibilityHint = here ? @"Long press for everyone in this game" : nil;
++		[tile addTarget:self action:@selector(choose:) forControlEvents:UIControlEventTouchUpInside];
++		[tile addTarget:self action:@selector(press:) forControlEvents:UIControlEventTouchDown | UIControlEventTouchDragEnter];
++		[tile addTarget:self action:@selector(unpress:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchDragExit | UIControlEventTouchCancel];
++		UILongPressGestureRecognizer *hold = [[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(hold:)] autorelease];
++		[tile addGestureRecognizer:hold];
++		[_grid addSubview:tile];
++	}
++}
++- (void)viewDidLayoutSubviews {
++	[super viewDidLayoutSubviews];
++	const CGRect safe = UIEdgeInsetsInsetRect(self.view.bounds, self.view.safeAreaInsets);
++	[self.view viewWithTag:100].frame = CGRectMake(safe.origin.x + 12, safe.origin.y + 6, safe.size.width - 86, 32);
++	[self.view viewWithTag:101].frame = CGRectMake(CGRectGetMaxX(safe) - 70, safe.origin.y, 64, 44);
++	[self.view viewWithTag:102].frame = CGRectMake(safe.origin.x + 12, safe.origin.y + 38, safe.size.width - 24, 20);
++	_grid.frame = CGRectMake(safe.origin.x + 6, safe.origin.y + 62, safe.size.width - 12, safe.size.height - 64);
++	// All twelve on one screen: three across in portrait, six in landscape.
++	int count = 0;
++	for (UIView *tile in _grid.subviews) if ([tile isKindOfClass:UIButton.class]) ++count;
++	const int cols = _grid.bounds.size.width > _grid.bounds.size.height ? 6 : 3, rows = MAX(1, (count + cols - 1) / cols);
++	const CGFloat width = floor(_grid.bounds.size.width / cols), height = MAX(100, MIN(190, floor(_grid.bounds.size.height / rows)));
++	int i = 0;
++	for (UIView *tile in _grid.subviews) {
++		if (![tile isKindOfClass:UIButton.class]) continue;
++		tile.frame = CGRectMake(i % cols * width + 3, i / cols * height + 3, width - 6, height - 6);
++		const CGFloat w = width - 6, h = height - 6;
++		[tile viewWithTag:200].frame = CGRectMake(6, 4, w - 12, h - 50);
++		[tile viewWithTag:201].frame = CGRectMake(3, h - 46, w - 6, 18);
++		[tile viewWithTag:202].frame = CGRectMake(3, h - 28, w - 6, 26);
++		++i;
++	}
++	_grid.contentSize = CGSizeMake(_grid.bounds.size.width, rows * height);
++}
++- (void)play:(int)request {
++	scummverseWorldRequest(request);
++	[self done];
++}
++- (void)press:(UIButton *)tile { tile.backgroundColor = [UIColor colorWithRed:0.38 green:0.12 blue:0.50 alpha:1]; }
++- (void)unpress:(UIButton *)tile { tile.backgroundColor = [UIColor colorWithRed:0.22 green:0.05 blue:0.30 alpha:1]; }
++- (void)choose:(UIButton *)tile {
++	if (self.presentedViewController) return;
++	NSNumber *slot = @(tile.tag - 1);
++	NSArray *people = scummverseCastPeople[slot];
++	if (people.count) { [self play:[people[0][1] intValue]]; return; }
++	UIAlertController *alert = [UIAlertController alertControllerWithTitle:scummverseCastTitles[slot]
++		message:[NSString stringWithFormat:@"Copy your own copy of this game into a folder in Documents named \"%@\", then restart the app.", scummverseCastFolders[slot]]
++		preferredStyle:UIAlertControllerStyleAlert];
++	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
++	[self presentViewController:alert animated:YES completion:nil];
++}
++- (void)hold:(UILongPressGestureRecognizer *)hold {
++	if (hold.state != UIGestureRecognizerStateBegan || self.presentedViewController) return;
++	[self unpress:(UIButton *)hold.view];
++	NSNumber *slot = @(hold.view.tag - 1);
++	NSArray *people = scummverseCastPeople[slot];
++	if (!people.count) { [self choose:(UIButton *)hold.view]; return; }
++	ScummverseCastPeopleController *list = [[[ScummverseCastPeopleController alloc] initWithPeople:people title:scummverseCastTitles[slot] screen:self] autorelease];
++	UINavigationController *navigation = [[[UINavigationController alloc] initWithRootViewController:list] autorelease];
++	navigation.modalPresentationStyle = UIModalPresentationFormSheet;
++	[self presentViewController:navigation animated:YES completion:nil];
++}
++// Closes the screen and anything over it (the list).
++- (void)done {
++	UIViewController *below = self.presentingViewController;
++	[(below ? below : self) dismissViewControllerAnimated:NO completion:nil];
++}
++@end
++
++// Filled in order on the main queue (slot 0 starts afresh), then shown.
++void scummverseCastGame(int slot, const char *title, const char *folder, const unsigned char *rgba) {
++	NSString *name = [[NSString alloc] initWithUTF8String:title ? title : ""], *place = [[NSString alloc] initWithUTF8String:folder ? folder : ""];
++	NSData *data = rgba ? [[NSData alloc] initWithBytes:rgba length:64 * 64 * 4] : nil;
++	dispatch_async(dispatch_get_main_queue(), ^{
++		if (!scummverseCastTitles) {
++			scummverseCastTitles = [[NSMutableDictionary alloc] init]; scummverseCastFolders = [[NSMutableDictionary alloc] init];
++			scummverseCastFaces = [[NSMutableDictionary alloc] init]; scummverseCastPeople = [[NSMutableDictionary alloc] init];
++		}
++		if (slot == 0) {
++			[scummverseCastTitles removeAllObjects]; [scummverseCastFolders removeAllObjects];
++			[scummverseCastFaces removeAllObjects]; [scummverseCastPeople removeAllObjects];
++		}
++		if (name) scummverseCastTitles[@(slot)] = name;
++		if (place) scummverseCastFolders[@(slot)] = place;
++		if (data) { UIImage *face = scummverseCastImage(data); if (face) scummverseCastFaces[@(slot)] = face; }
++		scummverseCastPeople[@(slot)] = [NSMutableArray array];
++		[name release]; [place release]; [data release];
++	});
++}
++void scummverseCastMember(int slot, const char *name, int request) {
++	if (!name || !*name) return;
++	NSString *person = [[NSString alloc] initWithUTF8String:name];
++	dispatch_async(dispatch_get_main_queue(), ^{
++		NSMutableArray *people = scummverseCastPeople[@(slot)];
++		if (people && person) [people addObject:@[person, @(request)]];
++		[person release];
++	});
++}
++// Shown over the game; if something else is up (an alert at the start), it
++// is tried again for a few seconds rather than lost.
++static void scummverseCastPresent(int tries) {
++	UIResponder *responder = [iOS7AppDelegate iPhoneView];
++	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
++	UIViewController *controller = (UIViewController *)responder;
++	if (!controller || [controller.presentedViewController isKindOfClass:ScummverseCastController.class]) return;
++	if (controller.presentedViewController) {
++		if (tries > 0) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ scummverseCastPresent(tries - 1); });
++		return;
++	}
++	ScummverseLocalAI::runtime().endTalk(); [[iOS7AppDelegate iPhoneView] endEditing:YES];
++	ScummverseCastController *screen = [[[ScummverseCastController alloc] init] autorelease];
++	[controller presentViewController:screen animated:NO completion:nil];
++}
++void scummverseCastShow() {
++	dispatch_async(dispatch_get_main_queue(), ^{ scummverseCastPresent(10); });
++}
+diff --git a/common/scummverse_ai.h b/common/scummverse_ai.h
+index 1bbc9faf..ef1fd3fb 100644
+--- a/common/scummverse_ai.h
++++ b/common/scummverse_ai.h
+@@ -26,6 +26,13 @@ unsigned scummverseTalkScene(int room, int visitor, unsigned actors, bool canSpe
+ // A sandbox character (1..24) playing a cast member from another game
+ // (catalog appearance key; 0: themselves): chat names and plays them so.
+ void scummverseTalkAppearance(int actor, int key);
++// The character screen: a box per game (slot 0 Maniac Mansion, 1 Zak, then
++// the catalog's games), its lead's face (64x64 RGBA; null when the game is
++// not here) and the folder it goes in; its people (the lead first, each a
++// world request); then shown.
++void scummverseCastGame(int slot, const char *title, const char *folder, const unsigned char *rgba);
++void scummverseCastMember(int slot, const char *name, int request);
++void scummverseCastShow();
+ #else
+ inline bool scummverseTalkPicking() { return false; }
+ inline bool scummverseTalkPick(int) { return false; }
+@@ -46,5 +53,8 @@ inline int scummverseWorldPoll() { return 0; }
+ inline void scummverseWorldReport(const char *) {}
+ inline unsigned scummverseTalkScene(int, int, unsigned, bool, int &speaker, char *, int) { speaker = 0; return 0; }
+ inline void scummverseTalkAppearance(int, int) {}
++inline void scummverseCastGame(int, const char *, const char *, const unsigned char *) {}
++inline void scummverseCastMember(int, const char *, int) {}
++inline void scummverseCastShow() {}
+ #endif
+ #endif
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 66467399..6aebafdb 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -313,6 +313,19 @@ inline const WorldGlider *worldGlider(int game, int costume) {
+ // a cast member by key game * 1024 + costume + 1 (0: themselves). Keys are
+ // saved, and stay valid when the cast is regenerated.
+ inline int worldAppearanceKey(int game, int costume) { return game * 1024 + costume + 1; }
++// The character screen (one box per game): play kWorldCastRequest + an
++// appearance key there (the look, and off to where that character lives),
++// or kWorldCastActorRequest + a Maniac or Zak character (1..24), as
++// themselves.
++static const int kWorldCastRequest = 1 << 26;
++static const int kWorldCastActorRequest = (1 << 26) + (1 << 24);
++// Each catalog game's lead, as the character screen shows it, and the room
++// of the game they are found in (kWorldCast).
++struct WorldLead { short game, costume, room; };
++static const WorldLead kWorldLeads[] = {
++	{0, 1, 33}, {1, 1, 4}, {2, 1, 2}, {3, 2, 6}, {4, 2, 1},
++	{5, 302, 26}, {6, 2, 7}, {7, 12, 6}, {8, 14, 23}, {9, 2, 15},
++};
+ inline int worldAppearanceGame(int key) { return key > 0 ? (key - 1) / 1024 : -1; }
+ inline int worldAppearanceCostume(int key) { return key > 0 ? (key - 1) % 1024 : -1; }
+ inline const WorldGuest *worldAppearance(int key) {
+diff --git a/engines/scumm/script.cpp b/engines/scumm/script.cpp
+index ebe629d2..e99f85c7 100644
+--- a/engines/scumm/script.cpp
++++ b/engines/scumm/script.cpp
+@@ -1543,7 +1543,7 @@ void ScummEngine_v2::runInputScript(int clickArea, int val, int mode) {
+ 	    (_virtualMouse.x < 0 || _virtualMouse.x >= _roomWidth ||
+ 	     _virtualMouse.y < 0 || _virtualMouse.y >= _roomHeight))
+ 		return;
+-	if(_scummverseRoamingReady && clickArea==kVerbClickArea && (val==7 || (val>=20 && val<=22))) { scummverseRosterOffer(); return; }
++	if(_scummverseRoamingReady && clickArea==kVerbClickArea && (val==7 || (val>=20 && val<=22))) { scummverseCastOffer(); return; }
+ 	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseTalkPick(getActorFromPos(_virtualMouse.x, _virtualMouse.y))) return;
+ 	if (_scummverseRoamingReady && clickArea == kSceneClickArea && scummverseVanTap(_virtualMouse.x, _virtualMouse.y)) return;
+ 	if(_scummverseRoamingReady && clickArea==kSceneClickArea && _currentRoom>=56) {
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 9deb5cbc..0e702d08 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -4048,6 +4048,18 @@ void ScummEngine::runBootscript() {
+ 		runScript(9, 0, 0, args);
+ 	else
+ 		runScript(1, 0, 0, args);
++	// The sandbox has no opening (title and credits; the kid picker is filled
++	// in, see readVar): the boot runs on at once, without waits or speech,
++	// to the sandbox, where the character screen shows.
++	if (_scummverseRoaming && _game.id == GID_MANIAC && _game.version <= 1) {
++		for (int n = 0; n < 200 && !_scummverseRoamingReady; ++n) {
++			for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i)
++				if (vm.slot[i].status == ssPaused) { vm.slot[i].delay = 0; vm.slot[i].status = ssRunning; }
++			VAR(VAR_HAVE_MSG) = 0; _talkDelay = 0;
++			runAllScripts(); scummverseUpdateRoaming(4); walkActors(); _sound->processSound();
++		}
++		_sound->stopAllSounds();
++	}
+ }
+ 
+ #ifdef ENABLE_HE
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 73a67728..f3befad4 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1674,6 +1674,7 @@ protected:
+ 	// and characters playing someone else) whenever that set changes.
+ 	void scummverseMountCharacters();
+ 	Common::Array<byte> scummverseCharacterFrames(int game, int costume) const;
++	bool scummverseCharacterInstalled(int game, int costume) const;
+ 	// How a sprite is drawn: hover (float with a bob); glide (the standing
+ 	// pose while moving); dressUp (Ted's contest dress-up); oneWay (every
+ 	// frame looks right: mirrored facing left); hop (a bouncer's place in its
+@@ -1790,6 +1791,9 @@ protected:
+ 	void scummverseAirportOffer();
+ 	void scummverseRosterOffer();
+ 	bool scummverseSwitchActor(int id);
++	void scummverseActorFace(Actor *a, byte *rgba);
++	void scummverseCastOffer();
++	void scummverseCastChoose(int request);
+ 	bool _scummversePortrait=false, _scummverseRosterPending=false;
+ 	void scummverseTeleportOffer();
+ 	void scummverseBoard();
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index 173d6464..56fed798 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -300,9 +300,11 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 	scummverseUpdateNet(delta); // Network play continues through cutscenes.
+ 	if (!_scummverseRoaming || !_scummverseRoamingReady || !_userPut ||
+ 		_currentScript != 0xFF || _currentRoom == 0 || _currentRoom == 45) return;
+-	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseRosterOffer(); }
++	if(_scummverseRosterPending) { _scummverseRosterPending=false; scummverseCastOffer(); }
+ 	int destination = scummverseWorldPoll();
+-	if (destination >= kWorldAppearanceRequest) {
++	if (destination >= kWorldCastRequest) {
++		scummverseCastChoose(destination);
++	} else if (destination >= kWorldAppearanceRequest) {
+ 		scummverseSetAppearance(VAR(VAR_EGO), destination - kWorldAppearanceRequest);
+ 		scummverseWorldReport(_scummverseWorldNotice.c_str());
+ 	} else if (destination >= kWorldVanRequest) {
+@@ -316,6 +318,7 @@ void ScummEngine::scummverseUpdateRoaming(int delta) {
+ 		if (!token || token == _currentRoom * 32 + VAR(VAR_EGO)) {
+ 			int command = destination & 255;
+ 			if(command==63) scummverseRosterOffer();
++			else if(command==61) scummverseCastOffer();
+ 			else if(command>=129 && command<=152) scummverseSwitchActor(command-128);
+ 			else if(command>=160 && command<160+worldSceneTotal()) scummverseTravelLandmark(command-160);
+ 			else if (command >= 65 && command <= 120) scummverseCompanionCommand(command);
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index b4739e16..ed72ea85 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -139,6 +139,12 @@ Common::Array<byte> ScummEngine::scummverseCharacterFrames(int game, int costume
+ 	return data;
+ }
+ 
++// Whether a character's frames are exported, without reading them.
++bool ScummEngine::scummverseCharacterInstalled(int game, int costume) const {
++	if (game < 0 || game >= worldGameCount()) return false;
++	return Common::FSNode(scummverseWorldCache().appendComponent(Common::String::format("%s-c%d.svc", kWorldGames[game].gameid, costume))).exists();
++}
++
+ // The scene's own colors live in palette slots the V1 art never uses.
+ void ScummEngine::scummverseApplyWorldPalette() {
+ 	int source;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 3626ded5..1020349a 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -870,6 +870,39 @@ void ScummEngine::scummverseTeleportOffer() {
+ #endif
+ }
+ 
++// A Maniac or Zak character standing, facing ahead, as 64x64 RGBA (drawn by
++// their own costume renderer; no bundled artwork).
++void ScummEngine::scummverseActorFace(Actor *a, byte *rgba) {
++	VirtScreen canvas = {}; canvas.create(320,128,Graphics::PixelFormat::createFormatCLUT8());
++	memset(canvas.getPixels(0,0),255,canvas.pitch*canvas.h);
++	auto cost=a->_cost; int facing=a->getFacing();
++	a->setFacing(180); _scummversePortrait=true;
++	// V1 frames update only their masked limbs. Build a complete pose from the
++	// costume's own frames (initial, standing, closed-mouth head) so actors
++	// that were never on screen are not drawn without heads.
++	for(int frame : {a->_initFrame,a->_standFrame,a->_talkStopFrame})
++		_costumeLoader->costumeDecodeData(a,frame,(uint)-1);
++	const int overlay=scummverseOverlayFrame(a,a->_standFrame);
++	if(overlay>=0) _costumeLoader->costumeDecodeData(a,overlay,(uint)-1);
++	ClassicCostumeRenderer renderer(this); a->prepareDrawActorCostume(&renderer);
++	renderer._actorX=160; renderer._actorY=112; renderer._zbuf=0;
++	renderer.drawCostume(canvas,40,a,false);
++	_scummversePortrait=false; a->setFacing(facing); a->_cost=cost;
++	int left=320,right=0,top=128,bottom=0;
++	for(int y=0;y<128;++y) for(int x=0;x<320;++x) if(*(byte *)canvas.getBasePtr(x,y)!=255) { left=MIN(left,x);right=MAX(right,x);top=MIN(top,y);bottom=MAX(bottom,y); }
++	memset(rgba,0,64*64*4);
++	if(right>=left && bottom>=top) {
++		const int width=right-left+1, height=bottom-top+1;
++		const auto fit=ScummversePresentation::fitPortrait(width,height,64,2);
++		for(int y=0;y<fit.height;++y) for(int x=0;x<fit.width;++x) {
++			int sx=left+x*width/fit.width, sy=top+y*height/fit.height;
++			byte c=*(byte *)canvas.getBasePtr(sx,sy); if(c==255) continue;
++			int o=((fit.y+y)*64+fit.x+x)*4; memcpy(rgba+o,_currentPalette+3*c,3);rgba[o+3]=255;
++		}
++	}
++	canvas.free();
++}
++
+ void ScummEngine::scummverseRosterOffer() {
+ 	if(!_scummverseRoamingReady || !_userPut) return;
+ 	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"Let's finish this bus ride first."); return; }
+@@ -881,34 +914,7 @@ void ScummEngine::scummverseRosterOffer() {
+ 		mask |= 1u<<id;
+ #ifdef SCUMMVERSE_LOCAL_AI
+ 		{ byte face[64*64*4]; if(scummverseAppearancePortrait(id,face)) { ::scummverseRosterFace(id,face); continue; } }
+-		VirtScreen canvas = {}; canvas.create(320,128,Graphics::PixelFormat::createFormatCLUT8());
+-		memset(canvas.getPixels(0,0),255,canvas.pitch*canvas.h);
+-		auto cost=a->_cost; int facing=a->getFacing();
+-		a->setFacing(180); _scummversePortrait=true;
+-		// V1 frames update only their masked limbs. Build a complete pose from the
+-		// costume's own frames (initial, standing, closed-mouth head) so actors
+-		// that were never on screen are not drawn without heads.
+-		for(int frame : {a->_initFrame,a->_standFrame,a->_talkStopFrame})
+-			_costumeLoader->costumeDecodeData(a,frame,(uint)-1);
+-		const int overlay=scummverseOverlayFrame(a,a->_standFrame);
+-		if(overlay>=0) _costumeLoader->costumeDecodeData(a,overlay,(uint)-1);
+-		ClassicCostumeRenderer renderer(this); a->prepareDrawActorCostume(&renderer);
+-		renderer._actorX=160; renderer._actorY=112; renderer._zbuf=0;
+-		renderer.drawCostume(canvas,40,a,false);
+-		_scummversePortrait=false; a->setFacing(facing); a->_cost=cost;
+-		int left=320,right=0,top=128,bottom=0;
+-		for(int y=0;y<128;++y) for(int x=0;x<320;++x) if(*(byte *)canvas.getBasePtr(x,y)!=255) { left=MIN(left,x);right=MAX(right,x);top=MIN(top,y);bottom=MAX(bottom,y); }
+-		byte rgba[64*64*4]={};
+-		if(right>=left && bottom>=top) {
+-			const int width=right-left+1, height=bottom-top+1;
+-			const auto fit=ScummversePresentation::fitPortrait(width,height,64,2);
+-			for(int y=0;y<fit.height;++y) for(int x=0;x<fit.width;++x) {
+-				int sx=left+x*width/fit.width, sy=top+y*height/fit.height;
+-				byte c=*(byte *)canvas.getBasePtr(sx,sy); if(c==255) continue;
+-				int o=((fit.y+y)*64+fit.x+x)*4; memcpy(rgba+o,_currentPalette+3*c,3);rgba[o+3]=255;
+-			}
+-		}
+-		canvas.free(); ::scummverseRosterFace(id,rgba);
++		byte rgba[64*64*4]; scummverseActorFace(a,rgba); ::scummverseRosterFace(id,rgba);
+ #endif
+ 	}
+ #ifdef SCUMMVERSE_LOCAL_AI
+@@ -921,6 +927,83 @@ void ScummEngine::scummverseRosterOffer() {
+ 	_fullRedraw=true;
+ }
+ 
++// The character screen: a box per game, its lead and everyone in it
++// (Maniac's and Zak's people as themselves, the Maniac looks, the other
++// games' casts as exported here). Shown at the start of a new game and from
++// "Play as someone else". Elsewhere than on the iPhone, the roster.
++void ScummEngine::scummverseCastOffer() {
++#ifdef SCUMMVERSE_LOCAL_AI
++	using namespace ::Scummverse::WorldCatalog;
++	namespace WorldBridge = ::Scummverse::WorldBridge;
++	if(!_scummverseRoamingReady || !_userPut) return;
++	if(scummverseOnBus()) { scummverseSay(VAR(VAR_EGO),"Let's finish this bus ride first."); return; }
++	const bool zak=scummverseMountZak();
++	if(zak) scummverseInitVisitors();
++	// Maniac Mansion (Dave first) and Zak (Zak first): the characters there,
++	// by their own names (not a look they wear).
++	auto ownName=[&](int id) { return (const char *)getResourceAddress(rtActorName,id); };
++	for(int slot=0;slot<2;++slot) {
++		const int lead=slot ? 24 : 3;
++		Actor *first=derefActor(lead,"character screen lead");
++		const bool here=first->_costume && first->_room && (slot==0 || zak) && !scummverseRemoteActor(lead) && ownName(lead);
++		byte face[64*64*4];
++		if(here) scummverseActorFace(first,face);
++		::scummverseCastGame(slot,slot ? "Zak McKracken" : "Maniac Mansion",slot ? "zak" : "maniac",here ? face : nullptr);
++		if(!here) continue;
++		::scummverseCastMember(slot,ownName(lead),kWorldCastActorRequest+lead);
++		for(int id : mansionCast) {
++			const bool zakPerson=id==24 || scummverseZakGuest(id);
++			if(id==lead || zakPerson!=(slot==1) || scummverseRemoteActor(id)) continue;
++			Actor *a=derefActor(id,"character screen");
++			if(!a->_costume || !a->_room || !ownName(id)) continue;
++			::scummverseCastMember(slot,ownName(id),kWorldCastActorRequest+id);
++		}
++		if(slot==0) for(const auto &look : kWorldManiacCast)
++			::scummverseCastMember(slot,look.name,worldAppearanceRequest(worldAppearanceKey(kWorldManiacLooks,look.costume)));
++	}
++	// Every other game: its lead first, then its cast, once each by name.
++	for(int game=0;game<worldGameCount();++game) {
++		const WorldLead *lead=nullptr;
++		for(const auto &l : kWorldLeads) if(l.game==game) lead=&l;
++		byte face[64*64*4];
++		const Common::Array<byte> frames=lead ? scummverseCharacterFrames(game,lead->costume) : Common::Array<byte>();
++		const bool here=!frames.empty() && WorldBridge::spritePortrait(frames.data(),frames.size(),64,face);
++		::scummverseCastGame(2+game,kWorldGames[game].title,kWorldGames[game].folder,here ? face : nullptr);
++		if(!here) continue;
++		Common::Array<Common::String> named;
++		auto add=[&](int costume,const char *name) {
++			for(const auto &n : named) if(n==name) return;
++			if(costume!=lead->costume && !scummverseCharacterInstalled(game,costume)) return;
++			named.push_back(name);
++			::scummverseCastMember(2+game,name,kWorldCastRequest+worldAppearanceKey(game,costume));
++		};
++		for(const auto &cast : kWorldCast) if(cast.game==game && cast.guest.costume==lead->costume) { add(cast.guest.costume,cast.guest.name); break; }
++		for(const auto &cast : kWorldCast) if(cast.game==game) add(cast.guest.costume,cast.guest.name);
++	}
++	::scummverseCastShow();
++#else
++	scummverseRosterOffer();
++#endif
++}
++
++// A choice on the character screen: a Maniac or Zak character as
++// themselves, or someone from another game, met where they live.
++void ScummEngine::scummverseCastChoose(int request) {
++	using namespace ::Scummverse::WorldCatalog;
++	if(request>=kWorldCastActorRequest) {
++		const int id=request-kWorldCastActorRequest;
++		if(id==VAR(VAR_EGO) || scummverseSwitchActor(id)) scummverseSetAppearance(id,0);
++		return;
++	}
++	const int key=request-kWorldCastRequest;
++	if(!worldAppearance(key)) return;
++	const int game=worldAppearanceGame(key), costume=worldAppearanceCostume(key);
++	scummverseSetAppearance(VAR(VAR_EGO),key);
++	for(const auto &cast : kWorldCast)
++		if(cast.game==game && cast.guest.costume==costume) { scummverseTravelPlace(game,cast.room); break; }
++	scummverseWorldReport(_scummverseWorldNotice.c_str());
++}
++
+ bool ScummEngine::scummverseSwitchActor(int id) {
+ 	bool allowed=false; for(int actor : mansionCast) if(id==actor) allowed=true;
+ 	if(!allowed || scummverseRemoteActor(id) || !_userPut || scummverseOnBus() || (id==24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763])) return false;

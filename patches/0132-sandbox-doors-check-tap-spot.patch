@@ -1,0 +1,63 @@
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 38c759ec..938b9d86 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -3861,7 +3861,7 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		// camera on it), walked to, gone through, time passing as in play.
+ 		// Counted: went through to its place (and arrived at its door back),
+ 		// to another door's (under the tap first), stopped short.
+-		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, failed = 0;
++		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, cars = 0, covered = 0, failed = 0;
+ 		double farthest = 0;
+ 		for (int g = 0; g < worldGameCount(); ++g) {
+ 			const WorldMap *map = worldMap(g);
+@@ -3886,8 +3886,34 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 					for (const WorldTramStop &stop : line.ends) car = car || (line.game == g && stop.room == link.room && stop.car == link.object);
+ 				if (car) { ++cars; continue; }
+ 				++tried;
+-				// (Its middle as shown: a door may reach past the scene's edges.)
+-				const double cx = (MAX(0, ox) + MIN(StageBridge::sceneWidth(), ox + w)) / 2.0, cy = (MAX(0, oy) + MIN(StageBridge::sceneHeight(), oy + h)) / 2.0;
++				// (Tapped where a player's tap finds it: of the part the scene
++				// shows, its middle, else the nearest spot that no other door takes,
++				// nor, where a walking tap takes things first (Loom's distaff, a
++				// pointer over the scene), a thing over it.)
++				const int vx0 = MAX(0, ox), vy0 = MAX(0, oy), vx1 = MIN(StageBridge::sceneWidth(), ox + w), vy1 = MIN(StageBridge::sceneHeight(), oy + h);
++				double cx = (vx0 + vx1) / 2.0, cy = (vy0 + vy1) / 2.0;
++				{
++					Common::Array<int> all, over;
++					for (int o = 0; o < StageBridge::objectCount(); ++o) {
++						int id, x_, y_, w_, h_, wx, wy, state;
++						const bool ride = StageBridge::object(o, id, x_, y_, w_, h_, wx, wy, state) && worldRideAt(g, link.room, id);
++						const bool first = isThing(o) && (PanelBridge::distaff() || PanelBridge::over());
++						if (isDoor(o) || ride || first) all.push_back(o);
++						if (o != object && first && !isDoor(o)) over.push_back(o);
++					}
++					auto found = [&](double x, double y) {
++						return StageBridge::objectAt(x, y, all.data(), all.size(), 2) == object && StageBridge::objectAt(x, y, over.data(), over.size(), 2) < 0;
++					};
++					double best = -1, bx = cx, by = cy;
++					for (int across = 0; across <= 8 && vx0 < vx1 && vy0 < vy1; ++across)
++						for (int down = 0; down <= 8; ++down) {
++							const double x = vx0 + (vx1 - vx0 - 1) * across / 8.0, y = vy0 + (vy1 - vy0 - 1) * down / 8.0;
++							const double d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
++							if ((best < 0 || d < best) && found(x, y)) { best = d; bx = x; by = y; }
++						}
++					if (best < 0) ++covered;
++					cx = bx; cy = by;
++				}
+ 				StageBridge::lookAt(cx);
+ 				int sx, sy;
+ 				StageBridge::toScreen(cx, cy, sx, sy);
+@@ -3929,9 +3955,9 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 				}
+ 			}
+ 		}
+-		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d failed",
+-			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, failed);
+-		if (!tried || failed || through + elsewhere < tried * 98 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d tram cars, %d with no spot a tap finds them, %d failed",
++			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, cars, covered, failed);
++		if (!tried || failed || through + elsewhere < tried * 99 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+ 	}

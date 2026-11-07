@@ -1,0 +1,517 @@
+diff --git a/common/scummverse_net.cpp b/common/scummverse_net.cpp
+index 196b0487..7d9f5e18 100644
+--- a/common/scummverse_net.cpp
++++ b/common/scummverse_net.cpp
+@@ -9,6 +9,7 @@
+ 
+ #include <algorithm>
+ #include <arpa/inet.h>
++#include <atomic>
+ #include <cerrno>
+ #include <chrono>
+ #include <cstring>
+@@ -72,6 +73,7 @@ bool encode(const Frame &f, std::string &out) {
+ 		if (!validActor(f.actor) || !validSay(f.text)) return false;
+ 		put8(body, f.actor); body += f.text; break;
+ 	case FrameType::Bye:
++	case FrameType::Ping:
+ 		break;
+ 	default:
+ 		return false;
+@@ -117,6 +119,7 @@ int decode(const char *data, size_t size, Frame &f) {
+ 		if (!validActor(f.actor) || !validSay(f.text)) return -1;
+ 		break;
+ 	case FrameType::Bye:
++	case FrameType::Ping:
+ 		if (n != 0) return -1;
+ 		break;
+ 	default:
+@@ -130,14 +133,21 @@ int decode(const char *data, size_t size, Frame &f) {
+ namespace {
+ typedef std::chrono::steady_clock Clock;
+ const auto kHandshakeTimeout = std::chrono::seconds(5);
++const auto kPingAfter = std::chrono::milliseconds(kPingMs);
++const auto kSilentLimit = std::chrono::milliseconds(kSilentMs);
+ const size_t kMaxBuffered = 64 * 1024;
+ 
++// (Session time: the steady clock, plus whatever tests moved it on.)
++std::atomic<long long> clockShift(0);
++Clock::time_point now() { return Clock::now() + std::chrono::milliseconds(clockShift.load()); }
++
+ struct Link {
+ 	int fd = -1, id = 0, actor = 0;
+ 	bool welcomed = false, closing = false, dead = false, hasAvatar = false;
+ 	std::string in, out;
+ 	Avatar last;
+-	Clock::time_point opened = Clock::now();
++	// (Opened; last heard from, any bytes; last given something to send.)
++	Clock::time_point opened = now(), heard = opened, spoke = opened;
+ };
+ 
+ void quietSocket(int fd) {
+@@ -170,7 +180,7 @@ void receive(Link &l) {
+ 	char buffer[2048];
+ 	while (!l.dead) {
+ 		const ssize_t got = ::recv(l.fd, buffer, sizeof(buffer), 0);
+-		if (got > 0) { l.in.append(buffer, (size_t)got); if (l.in.size() > kMaxBuffered) l.dead = true; continue; }
++		if (got > 0) { l.heard = now(); l.in.append(buffer, (size_t)got); if (l.in.size() > kMaxBuffered) l.dead = true; continue; }
+ 		if (got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
+ 		l.dead = true; // Orderly close or error.
+ 	}
+@@ -179,6 +189,27 @@ void receive(Link &l) {
+ void send(Link &l, const Frame &f) {
+ 	if (l.dead || l.closing) return;
+ 	if (!encode(f, l.out)) return;
++	l.spoke = now();
++}
++
++// (A link quiet a while says something, so the other side hears this one.)
++void keepAlive(Link &l, int peer) {
++	if (!l.welcomed || now() - l.spoke < kPingAfter) return;
++	Frame p; p.type = FrameType::Ping; p.peer = peer; send(l, p);
++}
++
++// A non-blocking listener on all IPv4 interfaces; -1 and why when not.
++int openListener(uint16_t port, std::string &error) {
++	const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) { error = std::strerror(errno); return -1; }
++	int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
++	sockaddr_in address; std::memset(&address, 0, sizeof(address));
++	address.sin_family = AF_INET; address.sin_port = htons(port); address.sin_addr.s_addr = htonl(INADDR_ANY);
++	if (::bind(fd, (sockaddr *)&address, sizeof(address)) < 0 || ::listen(fd, kMaxPeers) < 0) {
++		error = std::strerror(errno); ::close(fd); return -1;
++	}
++	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
++	return fd;
+ }
+ 
+ bool parseAddress(const std::string &text, sockaddr_in &address) {
+@@ -228,7 +259,16 @@ struct Session::Impl {
+ 	void hostPoll(std::vector<Event> &events) {
+ 		for (;;) {
+ 			const int fd = ::accept(listener, nullptr, nullptr);
+-			if (fd < 0) break;
++			if (fd < 0 && errno == EINTR) continue;
++			if (fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
++			if (fd < 0) {
++				// (The listener itself failed, as one can after the app was
++				// away: a new one on the same port; else hosting ends.)
++				std::string why;
++				::close(listener); listener = openListener((uint16_t)port, why);
++				if (listener < 0) { fail(events, "Hosting stopped: " + why); return; }
++				break;
++			}
+ 			quietSocket(fd);
+ 			Link l; l.fd = fd;
+ 			if (links.size() >= (size_t)kMaxPeers + 2) { // Bounded, even before handshakes.
+@@ -247,7 +287,10 @@ struct Session::Impl {
+ 				hostFrame(l, f, events);
+ 				if (l.dead) break;
+ 			}
+-			if (!l.welcomed && !l.closing && Clock::now() - l.opened > kHandshakeTimeout) l.dead = true;
++			if (!l.welcomed && !l.closing && now() - l.opened > kHandshakeTimeout) l.dead = true;
++			// (Gone from the WiFi without a word: silent too long.)
++			if (l.welcomed && now() - l.heard > kSilentLimit) l.dead = true;
++			keepAlive(l, 0);
+ 			flush(l);
+ 		}
+ 		for (size_t i = 0; i < links.size();) {
+@@ -271,6 +314,9 @@ struct Session::Impl {
+ 			if (r.reason) { send(l, r); l.closing = true; return; }
+ 			int id = 1;
+ 			while (id <= kMaxPeers) { bool used = false; for (const auto &o : links) if (o.welcomed && o.id == id) used = true; if (!used) break; ++id; }
++			// (Every id still held: one leaving in this same poll keeps its
++			// own until it is gone.)
++			if (id > kMaxPeers) { r.reason = (int)RejectReason::Full; send(l, r); l.closing = true; return; }
+ 			l.id = id; l.actor = f.actor; l.welcomed = true;
+ 			Frame w; w.type = FrameType::Welcome; w.peer = id; w.actor = f.actor; send(l, w);
+ 			// Bring the newcomer up to date with everyone already here.
+@@ -282,8 +328,12 @@ struct Session::Impl {
+ 		}
+ 		switch (f.type) {
+ 		case FrameType::Avatar: {
+-			// Each device controls one character no one else controls.
+-			if (actorTaken(f.avatar.actor, l.id)) return;
++			// Each device controls one character no one else controls: one
++			// taking a character someone plays is told so and closed (the one
++			// it played is everyone's again).
++			if (actorTaken(f.avatar.actor, l.id)) {
++				Frame r; r.type = FrameType::Reject; r.reason = (int)RejectReason::ActorTaken; send(l, r); l.closing = true; return;
++			}
+ 			l.actor = f.avatar.actor; l.last = f.avatar; l.hasAvatar = true;
+ 			Event e; e.kind = Event::Moved; e.peer = l.id; e.avatar = f.avatar; events.push_back(e);
+ 			Frame a = f; a.peer = l.id; broadcast(a, l.id);
+@@ -296,6 +346,8 @@ struct Session::Impl {
+ 		}
+ 		case FrameType::Bye:
+ 			l.dead = true; break;
++		case FrameType::Ping:
++			break; // (Heard; nothing more.)
+ 		default:
+ 			l.dead = true; break; // Hello twice, or host-only frames from a client.
+ 		}
+@@ -310,7 +362,7 @@ struct Session::Impl {
+ 				getsockopt(l.fd, SOL_SOCKET, SO_ERROR, &error, &size);
+ 				if (error) { fail(events, std::string("Could not reach ") + target + ": " + std::strerror(error)); return; }
+ 				mode = Joined;
+-			} else if (Clock::now() - started > kHandshakeTimeout) {
++			} else if (now() - started > kHandshakeTimeout) {
+ 				fail(events, "No game found at " + target + ". Check the address and that both devices share a WiFi network."); return;
+ 			} else return;
+ 		}
+@@ -344,11 +396,16 @@ struct Session::Impl {
+ 				if (f.peer == 0 || f.peer == welcomedAs) { fail(events, "The host closed the game."); return; }
+ 				{ Event e; e.kind = Event::Left; e.peer = f.peer; e.avatar.actor = remoteActor[f.peer]; events.push_back(e); remoteActor[f.peer] = 0; }
+ 				break;
++			case FrameType::Ping:
++				break; // (Heard; nothing more.)
+ 			default:
+ 				fail(events, "The host sent invalid data."); return;
+ 			}
+ 		}
+-		if (!l.welcomed && Clock::now() - started > kHandshakeTimeout * 2) { fail(events, "The host did not answer."); return; }
++		if (!l.welcomed && now() - started > kHandshakeTimeout * 2) { fail(events, "The host did not answer."); return; }
++		// (Gone from the WiFi without a word: silent too long.)
++		if (l.welcomed && !l.dead && now() - l.heard > kSilentLimit) { fail(events, "The host stopped answering."); return; }
++		keepAlive(l, welcomedAs);
+ 		flush(l);
+ 		if (l.dead) fail(events, "Connection to the host was lost.");
+ 	}
+@@ -358,6 +415,11 @@ struct Session::Impl {
+ 		for (int peer = 0; peer <= kMaxPeers; ++peer) if (remoteActor[peer]) {
+ 			Event e; e.kind = Event::Left; e.peer = peer; e.avatar.actor = remoteActor[peer]; events.push_back(e);
+ 		}
++		// (A host's players: theirs too, and they are told the game is over.)
++		if (mode == Hosting) for (auto &l : links) if (l.welcomed && !l.dead) {
++			Event e; e.kind = Event::Left; e.peer = l.id; e.avatar.actor = l.actor; events.push_back(e);
++			Frame bye; bye.type = FrameType::Bye; send(l, bye); flush(l);
++		}
+ 		Event e; e.kind = Event::Failed; e.text = why; events.push_back(e);
+ 		reset();
+ 	}
+@@ -369,15 +431,8 @@ Session::~Session() { close(); }
+ bool Session::host(uint16_t port, int content, int actor, std::string &error) {
+ 	close();
+ 	Impl &s = *_impl;
+-	const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+-	if (fd < 0) { error = "Networking is unavailable."; return false; }
+-	int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+-	sockaddr_in address; std::memset(&address, 0, sizeof(address));
+-	address.sin_family = AF_INET; address.sin_port = htons(port); address.sin_addr.s_addr = htonl(INADDR_ANY);
+-	if (::bind(fd, (sockaddr *)&address, sizeof(address)) < 0 || ::listen(fd, kMaxPeers) < 0) {
+-		error = std::string("Cannot host: ") + std::strerror(errno); ::close(fd); return false;
+-	}
+-	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
++	const int fd = openListener(port, error);
++	if (fd < 0) { error = "Cannot host: " + error; return false; }
+ 	s.listener = fd; s.mode = Impl::Hosting; s.content = content; s.localActor = actor; s.port = port;
+ 	return true;
+ }
+@@ -398,7 +453,7 @@ bool Session::join(const std::string &text, int content, int actor, std::string
+ 	Frame hello; hello.type = FrameType::Hello; hello.protocol = kProtocol; hello.content = content; hello.actor = actor;
+ 	encode(hello, l.out);
+ 	s.links.push_back(l); s.mode = Impl::Connecting; s.content = content; s.localActor = actor;
+-	s.local = Avatar(); s.local.actor = actor; s.target = text; s.started = Clock::now();
++	s.local = Avatar(); s.local.actor = actor; s.target = text; s.started = now();
+ 	return true;
+ }
+ 
+@@ -476,6 +531,8 @@ std::string localAddresses() {
+ 	return out.empty() ? "this device" : out;
+ }
+ 
++void advanceClockForTests(int milliseconds) { clockShift += milliseconds; }
++
+ // ---- Cross-thread control -------------------------------------------------
+ 
+ namespace {
+diff --git a/common/scummverse_net.h b/common/scummverse_net.h
+index eb467cab..fcde7744 100644
+--- a/common/scummverse_net.h
++++ b/common/scummverse_net.h
+@@ -19,13 +19,17 @@ namespace Scummverse {
+ namespace Net {
+ 
+ const uint16_t kDefaultPort = 47913;
+-const int kProtocol = 2; // 2 (0197): avatars carry the look played
++const int kProtocol = 3; // 2 (0197): avatars carry the look played; 3 (0209): Ping
+ const int kMaxPeers = 4;          // Remote players one host accepts.
+ const size_t kMaxBody = 200;      // Largest valid frame body.
+ const size_t kMaxSay = 160;       // Printable ASCII characters per line.
+ const int kMaxLook = 0xFFFFFF;    // Largest look (catalog appearance key) sent.
++// (0209) A link quiet this long sends a Ping; one silent this long is gone
++// (a device off the WiFi without a word: no close ever comes).
++const int kPingMs = 3000;
++const int kSilentMs = 15000;
+ 
+-enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6 };
++enum class FrameType : uint8_t { Hello = 1, Welcome = 2, Reject = 3, Avatar = 4, Say = 5, Bye = 6, Ping = 7 };
+ enum class RejectReason : uint8_t { Version = 1, Full = 2, ActorTaken = 3 };
+ 
+ // (room: the mansion's own 1..255, or a place in another world,
+@@ -76,7 +80,8 @@ public:
+ 	// The local player's avatar; sent when it changes.
+ 	void setLocal(const Avatar &avatar);
+ 	bool say(const std::string &text);
+-	// Non-blocking: accepts, reads, validates, relays and reports.
++	// Non-blocking: accepts, reads, validates, relays, keeps quiet links
++	// alive and reports.
+ 	void poll(std::vector<Event> &events);
+ 	std::string describe() const;
+ private:
+@@ -89,6 +94,9 @@ private:
+ // IPv4 addresses of this device's network interfaces, for the host to share.
+ std::string localAddresses();
+ 
++// Tests only: session time moves on by this much (silences without waiting).
++void advanceClockForTests(int milliseconds);
++
+ // Cross-thread control: the UI posts requests; the engine applies them and
+ // publishes status. Safe from any thread.
+ struct Request {
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 4fbc784a..65c74b7e 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -493,7 +493,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 
+ 
+ ScummEngine::~ScummEngine() {
++	// (The game closed: WiFi play is over, and the WiFi menu says so.)
+ 	if (_scummverseNetOn) Scummverse::NetBridge::close();
++	Scummverse::NetBridge::publish("Local WiFi play is off", false, 0);
+ 	if (_scummverseStory) scummverseStoryPlaying(-1);
+ 	scummverseSelfieFree();
+ 	Scummverse::Camera::reset();
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 4dc685c0..22cbbad9 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1902,6 +1902,15 @@ protected:
+ 	// were sent to be (a walk a save stopped goes on there).
+ 	int _scummverseRemoteLook[25] = {}, _scummverseRemoteLookTried[25] = {}, _scummverseRemoteLookClock[25] = {}, _scummverseRemoteLookBefore[25] = {};
+ 	Common::Point _scummverseRemoteGoal[25];
++	// (0209) The place each was last sent to be, as sent (0: none yet): a
++	// load puts them back there. Lines waiting until no one else speaks
++	// (five seconds at most): the local player's, to say and send, and
++	// each remote player's, shown while the local player has control.
++	int _scummverseRemoteRoom[25] = {};
++	Common::String _scummverseNetLine, _scummverseNetHeard[25];
++	int _scummverseNetLineWait = 0, _scummverseNetHeardWait[25] = {};
++	void scummverseRemotePlace(int id, bool snap);
++	void scummverseUpdateNetSpeech(int delta);
+ 	bool scummverseQuietAppearance(int id, int key);
+ 	void scummverseApplyRemoteLook(int id);
+ 	void scummverseRemoteLooksSaved(bool saving);
+diff --git a/engines/scumm/scummverse_net.inc b/engines/scumm/scummverse_net.inc
+index 7e6e5374..12960f6e 100644
+--- a/engines/scumm/scummverse_net.inc
++++ b/engines/scumm/scummverse_net.inc
+@@ -10,6 +10,8 @@ namespace NetBridge = ::Scummverse::NetBridge;
+ // Build identity sent in the handshake: devices must share room content and
+ // patch level. Bump the low byte with patches that change shared state.
+ static const int kScummverseNetContent = ((ScummverseContent::kRoomCount & 0xFF) << 8) | 80; // 80: the look played sent too
++// (0209) Ticks a line waits for no one else to speak: five seconds.
++static const int kScummverseNetLineTicks = 300;
+ 
+ int ScummEngine::scummverseNetContent() const { return kScummverseNetContent; }
+ 
+@@ -27,7 +29,8 @@ void ScummEngine::scummverseReleaseRemote(int peer) {
+ 	_scummversePeerActor[peer] = 0;
+ 	if (!scummverseRemoteActor(id)) return;
+ 	_scummverseRemoteMask &= ~(1u << id);
+-	_scummverseRemoteUnshown[id] = 0;
++	_scummverseRemoteUnshown[id] = _scummverseRemoteRoom[id] = 0;
++	_scummverseNetHeard[id].clear();
+ 	// The look the character had before its player came.
+ 	if (_scummverseRemoteLookBefore[id]) {
+ 		const int before = _scummverseRemoteLookBefore[id] - 1;
+@@ -84,7 +87,8 @@ void ScummEngine::scummverseRemoteLooksSaved(bool saving) {
+ }
+ 
+ // A save loaded during a WiFi game: the characters' looks are the save's
+-// own now (kept for their release); their players' looks go back on.
++// own now (kept for their release); their players' looks go back on, and
++// (0209) they stand where their players are, not where the save had them.
+ void ScummEngine::scummverseRemoteLooksLoaded() {
+ 	for (int id = 1; id < 25; ++id) {
+ 		if (!scummverseRemoteActor(id)) continue;
+@@ -95,7 +99,72 @@ void ScummEngine::scummverseRemoteLooksLoaded() {
+ 			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) if (_scummversePeerActor[peer] == id) scummverseReleaseRemote(peer);
+ 			continue;
+ 		}
++		// (People are never the save's companions or passengers either.)
++		_scummVars[770 + id] = 0; _scummVars[766] &= ~(1u << id);
++		_scummverseNpcDestination[id] = 0; _scummverseNpcBoarding[id] = 0;
+ 		scummverseApplyRemoteLook(id);
++		if (_scummverseRemoteRoom[id]) scummverseRemotePlace(id, true);
++	}
++}
++
++// Where a remote player's character goes: the place its player was last
++// sent to be. Walked there within the room shown, else put there; snap
++// (after a load): put there, never walked from where the save had it.
++void ScummEngine::scummverseRemotePlace(int id, bool snap) {
++	Actor *a = derefActor(id, "remote player");
++	const int place = _scummverseRemoteRoom[id], x = _scummverseRemoteGoal[id].x, y = _scummverseRemoteGoal[id].y;
++	// (A place already found not shown here is not looked up again.)
++	if (place == _scummverseRemoteUnshown[id] && !a->_room) return;
++	// A place in another world: where it already is, else this
++	// device's own slot for it, where its scene is installed here.
++	int room = place;
++	if (NetBridge::isWorldPlace(room)) {
++		const int game = NetBridge::worldPlaceGame(room), source = NetBridge::worldPlaceRoom(room);
++		int held;
++		room = scummverseWorldGameOf(a->_room, held) == game && held == source ? a->_room :
++			scummverseWorldSceneInstalled(game, source) ? scummverseWorldRoomFor(game, source) : 0;
++	} else if (!scummverseNetRoom(room) || (room >= 56 && !scummverseMountExtra(room))) room = 0;
++	// Somewhere this device can't show: away from every place here.
++	if (!room) {
++		_scummverseRemoteUnshown[id] = place;
++		if (a->_room) { a->stopActorMoving(); a->putActor(0, 0, 0); }
++		return;
++	}
++	_scummverseRemoteUnshown[id] = 0;
++	if (!scummverseSeated(id)) a->setElevation(0);
++	if (snap || a->_room != room || room != _currentRoom) {
++		const bool arriving = a->_room != room;
++		a->stopActorMoving(); a->putActor(x, y, room);
++		if ((arriving || snap) && room == _currentRoom) a->startAnimActor(a->_standFrame);
++	} else {
++		const Common::Point now = a->getRealPos();
++		if (ABS(now.x - x) > 1 || ABS(now.y - y) > 1) {
++			AdjustBoxResult target = a->adjustXYToBeInBox(x, y);
++			a->startWalkActor(target.x, target.y, -1);
++		}
++	}
++}
++
++// (0209) Lines wait their turn: none is dropped while another shows, and a
++// friend's never cuts into a cutscene's or anyone's line. The latest waits
++// (one each), at most five seconds.
++void ScummEngine::scummverseUpdateNetSpeech(int delta) {
++	const int ego = VAR(VAR_EGO);
++	if (!_scummverseNetLine.empty() && (_scummverseNetLineWait += delta) > kScummverseNetLineTicks) _scummverseNetLine.clear();
++	if (!_scummverseNetLine.empty() && !VAR(VAR_HAVE_MSG) && ego > 0 && ego < 25 && derefActor(ego, "network speaker")->_room == _currentRoom) {
++		scummverseSay(ego, _scummverseNetLine.c_str()); scummverseNetSay(_scummverseNetLine.c_str());
++		_scummverseNetLine.clear();
++	}
++	for (int id = 1; id < 25; ++id) {
++		if (_scummverseNetHeard[id].empty()) continue;
++		// (Its speaker gone from here, or played no more: not heard.)
++		if ((_scummverseNetHeardWait[id] += delta) > kScummverseNetLineTicks || !scummverseRemoteActor(id) ||
++			derefActor(id, "remote speaker")->_room != _currentRoom) {
++			_scummverseNetHeard[id].clear();
++		} else if (_userPut > 0 && !VAR(VAR_HAVE_MSG)) {
++			scummverseSay(id, _scummverseNetHeard[id].c_str());
++			_scummverseNetHeard[id].clear();
++		}
+ 	}
+ }
+ 
+@@ -114,9 +183,8 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 			NetBridge::publish("Local WiFi play is off", false, 0);
+ 			scummverseWorldReport("Left the local WiFi game.");
+ 		} else if (kind == NetBridge::RequestSay) {
+-			if (ego > 0 && ego < 25 && derefActor(ego, "network speaker")->_room == _currentRoom && !VAR(VAR_HAVE_MSG)) {
+-				scummverseSay(ego, text); scummverseNetSay(text);
+-			}
++			// (Said and sent below, once no one else speaks.)
++			_scummverseNetLine = text; _scummverseNetLineWait = 0;
+ 		} else {
+ 			for (int peer = 0; peer <= NetBridge::kMaxPeers; ++peer) scummverseReleaseRemote(peer);
+ 			_scummverseNetOn = kind == NetBridge::RequestHost ?
+@@ -127,7 +195,7 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 			_scummverseNetClock = 0;
+ 		}
+ 	}
+-	if (!_scummverseNetOn) return;
++	if (!_scummverseNetOn) { scummverseUpdateNetSpeech(delta); return; }
+ 
+ 	// The local player's character, at most ten times a second.
+ 	_scummverseNetClock -= delta;
+@@ -150,6 +218,9 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 		if (event.peer < 0 || event.peer > NetBridge::kMaxPeers) continue;
+ 		switch (event.kind) {
+ 		case NetBridge::EventMoved: {
++			// (A player now playing another character gives back the one
++			// they played first, even where the new one is refused here.)
++			if (_scummversePeerActor[event.peer] && _scummversePeerActor[event.peer] != event.actor) scummverseReleaseRemote(event.peer);
+ 			bool cast = false; for (int id : mansionCast) if (id == event.actor) cast = true;
+ 			// Deterministic validation: a cast member this build has, not the
+ 			// local player's, in a room this build can show.
+@@ -168,46 +239,19 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 				_scummverseRemoteLookBefore[event.actor] = scummverseAppearance(event.actor) + 1;
+ 				_scummverseRemoteLookTried[event.actor] = -1; _scummverseRemoteLookClock[event.actor] = 0;
+ 			}
+-			Actor *a = derefActor(event.actor, "remote player");
+ 			_scummverseRemoteGoal[event.actor] = Common::Point(event.x, event.y);
++			_scummverseRemoteRoom[event.actor] = event.room;
+ 			// The look its player plays (tried below, only when it changes).
+ 			_scummverseRemoteLook[event.actor] = event.look;
+-			// (A place already found not shown here is not looked up again.)
+-			if (event.room == _scummverseRemoteUnshown[event.actor] && !a->_room) break;
+-			// A place in another world: where it already is, else this
+-			// device's own slot for it, where its scene is installed here.
+-			int room = event.room;
+-			if (NetBridge::isWorldPlace(room)) {
+-				const int game = NetBridge::worldPlaceGame(room), source = NetBridge::worldPlaceRoom(room);
+-				int held;
+-				room = scummverseWorldGameOf(a->_room, held) == game && held == source ? a->_room :
+-					scummverseWorldSceneInstalled(game, source) ? scummverseWorldRoomFor(game, source) : 0;
+-			} else if (!scummverseNetRoom(room) || (room >= 56 && !scummverseMountExtra(room))) room = 0;
+-			// Somewhere this device can't show: away from every place here.
+-			if (!room) {
+-				_scummverseRemoteUnshown[event.actor] = event.room;
+-				if (a->_room) { a->stopActorMoving(); a->putActor(0, 0, 0); }
+-				break;
+-			}
+-			_scummverseRemoteUnshown[event.actor] = 0;
+-			if (!scummverseSeated(event.actor)) a->setElevation(0);
+-			if (a->_room != room || room != _currentRoom) {
+-				const bool arriving = a->_room != room;
+-				a->stopActorMoving(); a->putActor(event.x, event.y, room);
+-				if (arriving && room == _currentRoom) a->startAnimActor(a->_standFrame);
+-			} else {
+-				const Common::Point now = a->getRealPos();
+-				if (ABS(now.x - event.x) > 1 || ABS(now.y - event.y) > 1) {
+-					AdjustBoxResult target = a->adjustXYToBeInBox(event.x, event.y);
+-					a->startWalkActor(target.x, target.y, -1);
+-				}
+-			}
++			scummverseRemotePlace(event.actor, false);
+ 			break;
+ 		}
+ 		case NetBridge::EventSaid:
++			// (Shown below once no one else speaks; the latest waits.)
+ 			if (_scummversePeerActor[event.peer] == event.actor && scummverseRemoteActor(event.actor) &&
+-				derefActor(event.actor, "remote speaker")->_room == _currentRoom)
+-				scummverseSay(event.actor, event.text);
++				derefActor(event.actor, "remote speaker")->_room == _currentRoom) {
++				_scummverseNetHeard[event.actor] = event.text; _scummverseNetHeardWait[event.actor] = 0;
++			}
+ 			break;
+ 		case NetBridge::EventLeft:
+ 			scummverseReleaseRemote(event.peer);
+@@ -220,6 +264,7 @@ void ScummEngine::scummverseUpdateNet(int delta) {
+ 			break;
+ 		}
+ 	}
++	scummverseUpdateNetSpeech(delta);
+ 	// Looks changed: each tried at most every quarter second (a burst of
+ 	// changes costs one try, of the last).
+ 	for (int id = 1; id < 25; ++id) {
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index e5765d3f..47baafa9 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -922,7 +922,8 @@ void ScummEngine::scummverseUpdateCompanions() {
+ 	bool arrival = _scummverseCompanionRoom > 0 && _scummverseCompanionEgo == ego && _scummverseCompanionRoom != _currentRoom;
+ 	if (arrival) { _scummVars[travellerOriginKey(ego)] = _scummverseCompanionRoom; _scummVars[travellerPartyKey(ego)] = 0; }
+ 	for (int id : mansionCast) {
+-		if (id == ego || _scummVars[770 + id] != ego || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
++		// (Never a character someone plays on another device.)
++		if (id == ego || _scummVars[770 + id] != ego || scummverseRemoteActor(id) || ((id == 24 && !_scummVars[760]) || (scummverseZakGuest(id) && !_scummVars[763]))) continue;
+ 		Actor *a = derefActor(id, "companion");
+ 		// A following relationship is not permission to teleport from anywhere.
+ 		// Only carry actors who shared this leader's actual departure scene.

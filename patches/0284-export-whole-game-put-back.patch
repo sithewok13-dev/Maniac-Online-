@@ -1,0 +1,1207 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index f9f7fa8a..da0dae8e 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -124,12 +124,18 @@ static const int kWorldExportVersion = 25;
+ // its script refuses it, kWorldValueReaders: "maniac-v45"); from 0283 Day
+ // of the Tentacle's again (an answer that takes the one played to another
+ // place recorded with where it takes them, its things file's "SVOA":
+-// "tentacle-v32").
++// "tentacle-v32"); from 0284 every game's but Loom's again (each run of the
++// things export from the game put back whole, so no answer depends on which
++// ran before it; the mansion's films the part of their room their game's
++// camera shows; The Dig's Brink and Maggie given to by their cast's
++// costumes: "maniac-v46", "monkey2-v34", "monkey-v33", "tentacle-v33",
++// "atlantis-v31", "zak-v31", "samnmax-v31", "dig-v31", "ft-v31", "comi-v31",
++// "indy3-v29").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 20 : same(gameid, "monkey2") ? 8 : same(gameid, "monkey") || same(gameid, "tentacle") ? 7 :
+-		same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 5 :
+-		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
++	return kWorldExportVersion + (same(gameid, "maniac") ? 21 : same(gameid, "monkey2") ? 9 : same(gameid, "monkey") || same(gameid, "tentacle") ? 8 :
++		same(gameid, "atlantis") || same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 6 :
++		same(gameid, "indy3") ? 4 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1551,9 +1557,15 @@ inline const WorldOverlay *worldOverlay(int game) {
+ // "SVO9"), by its actor: the costume its cast knows them by, where that is
+ // not the one they wear about the game (Sam & Max's Max, actor 3, wears 5;
+ // the cast's Max is costume 3). Anyone else: the costume they wear there.
++// (From 0284 also whom its export gives to, by the same costume.)
+ struct WorldSpeaker { short game, actor, costume; };
+ static const WorldSpeaker kWorldSpeakers[] = {
+ 	{6, 3, 3}, // Sam & Max: Max
++	// (From 0284 The Dig's Brink and Maggie, in the costumes its start
++	// dresses them in (3, 2) where no place's entry script changes them:
++	// before, the export found them as the places run before had left them.)
++	{8, 5, 15}, // The Dig: Ludger Brink
++	{8, 4, 18}, // The Dig: Maggie Robbins
+ };
+ inline int worldSpeakerCostume(int game, int actor, int wearing) {
+ 	for (const auto &s : kWorldSpeakers) if (s.game == game && s.actor == actor) return s.costume;
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 5d06ef05..ccaf299c 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1688,6 +1688,11 @@ protected:
+ 	Common::Array<int> *_scummverseStatesSet = nullptr; // (Exporting: the objects whose state a script sets.)
+ 	int32 _scummverseStepBudget = -1; // (Exporting: the script steps a pass's run has left, nested scripts' too; -1 none, 0 spent: see executeScript.)
+ 	void scummverseScriptError(const char *format, int a, int b = 0);
++	// (From 0284 the game whole as the export found it, put back before each
++	// of its runs: see scummverse_world_export.inc.)
++	struct ScummverseKept;
++	void scummverseKeep(ScummverseKept &kept);
++	void scummverseRestore(const ScummverseKept &kept);
+ 	void scummverseFreshSlot(int slot);
+ 	void scummverseSkipCutscene();
+ 	bool scummverseGraftGuest(int costume, Common::Array<ScummverseGuestFrame> &frames, Common::String &problem);
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1feb3290..1139a6ae 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -61,6 +61,164 @@ static const int kScummverseHanded = 0x2000;
+ static const int kScummverseGoes = 0x4000, kScummverseGoesY = 0x8000;
+ static bool scummverseGoesPart(int value) { return (value & (kScummverseGoes | kScummverseGoesY)) != 0; } // (a thing given is 0x100: none of these)
+ 
++// From 0284, a check of the export, for the tests and never a player's
++// (scummverse_export_order=reversed): each loop of runs played in the
++// opposite order, the next runs an answer asks for last asked first. Every
++// run starts from the game put back whole, so its records are the same
++// either way (tools/test_world_setup.py compares them).
++static bool scummverseExportReversed() {
++	return ConfMan.hasKey("scummverse_export_order") && ConfMan.get("scummverse_export_order") == "reversed";
++}
++// From 0284, in the mansion's runs, a script its answer starts that then
++// waits a minute or more of its game's clock (its ticks, 60 a second) is its
++// game's timed event, not the answer: left waiting, as the run's other
++// waits are not. The fridge opened first: Ed hungry a minute later, if he is
++// in his room then (script 87); the tap turned on likewise. Before, played
++// out only where the runs before had moved him elsewhere, it was not.
++static const int kScummverseClockWait = 3600;
++// (In a loop of `count` runs, the n-th played: the n-th, or the n-th from
++// the end.)
++static uint scummverseRunAt(uint n, uint count, bool reversed) { return reversed ? count - 1 - n : n; }
++// (What a loop so played added to `list` from `first` on put in the order
++// its runs have played forwards: `order`, each one's place in that.)
++template<class T> static void scummverseRunOrder(Common::Array<T> &list, uint first, const Common::Array<uint32> &order) {
++	Common::Array<uint> at;
++	for (uint i = 0; i < order.size() && first + i < list.size(); ++i) at.push_back(i);
++	Common::sort(at.begin(), at.end(), [&](uint a, uint b) { return order[a] != order[b] ? order[a] < order[b] : a < b; });
++	Common::Array<T> sorted;
++	for (uint i : at) sorted.push_back(list[first + i]);
++	for (uint i = 0; i < sorted.size(); ++i) list[first + i] = sorted[i];
++}
++
++// From 0284, the game as the export found it, put back whole before each
++// of its runs (scummverseRestore). Before, a run's put-back was only the
++// variables, the things' pictures, owners and classes and what was carried
++// (and some arrays and verbs), so a run found the game as the runs before
++// it had left it in everything else, and what it recorded depended on
++// which ran before it: everyone (where they are, their clothes, walk,
++// frames, talk colour and all else a save keeps of them), the code of what
++// is carried, the arrays' and the verbs' contents, the texts' settings, the
++// scale slots, the camera, a cut-scene's way out, the palette, the pointer
++// and the player's hold on the game. (Zak's room 4: every other run there
++// arrived in room 16, its kid where the run before had put him.) What a
++// place's arrival sets up again (its things there, walk boxes and scripts)
++// is its own.
++struct ScummEngine::ScummverseKept {
++	Common::Array<int32> vars, roomVars;
++	Common::Array<byte> bits, states, owners, objectRooms;
++	Common::Array<uint32> classes;
++	Common::Array<uint16> inventory;
++	// (The arrays, the verbs' names and pictures, and the code of what is
++	// carried: each one's bytes, and whether it is made.)
++	Common::Array<Common::Array<byte> > resources[3];
++	Common::Array<bool> made[3];
++	Common::Array<VerbSlot> verbs;
++	// (Everyone as a save keeps them; their colours 6 to 8 apart, which
++	// reading an older edition's save may swap: Actor::saveLoadWithSerializer.)
++	Common::Array<byte> actors;
++	Common::Array<uint16> actorColors;
++	Common::Array<bool> actorRedraws;
++	StringTab strings[6];
++	ScaleSlot scaleSlots[20];
++	CameraData camera;
++	int screenStartStrip = 0, screenEndStrip = 0;
++	byte charsetColor = 0, charsetColorMap[16] = {}, resourceMapper[128] = {}, palette[3 * 256] = {};
++	Common::Array<byte> shadowPalette;
++	byte userPut = 0, cursorState = 0, actorToPrintStrFor = 0, v1TalkingActor = 0, haveMsg = 0; uint16 userState = 0; int16 talkDelay = 0;
++	bool keepText = false, useTalkAnims = false, haveActorSpeechMsg = false;
++};
++// (Any version past the newest save's: everything the newest saves keep.)
++static const Common::Serializer::Version kScummverseKeptVersion = 0xFFFF;
++static const ResType kScummverseKeptResources[3] = {rtString, rtVerb, rtInventory};
++
++void ScummEngine::scummverseKeep(ScummverseKept &k) {
++	k.vars = Common::Array<int32>(_scummVars, _numVariables);
++	k.roomVars = Common::Array<int32>(_roomVars, _roomVars ? _numRoomVariables : 0);
++	k.bits = Common::Array<byte>(_bitVars, _numBitVariables >> 3);
++	k.states = Common::Array<byte>(_objectStateTable, _numGlobalObjects);
++	k.owners = Common::Array<byte>(_objectOwnerTable, _numGlobalObjects);
++	k.objectRooms = Common::Array<byte>(_objectRoomTable, _objectRoomTable ? _numGlobalObjects : 0);
++	k.classes = Common::Array<uint32>(_classData, _numGlobalObjects);
++	k.inventory = Common::Array<uint16>(_inventory, _numInventory);
++	for (int t = 0; t < 3; ++t) {
++		const ResType type = kScummverseKeptResources[t];
++		const int count = _res->_types[type].size();
++		k.resources[t].clear(); k.resources[t].resize(count);
++		k.made[t] = Common::Array<bool>(count, false);
++		for (int i = 0; i < count; ++i)
++			if (_res->isResourceLoaded(type, i)) { k.made[t][i] = true; k.resources[t][i] = Common::Array<byte>(_res->_types[type][i]._address, _res->_types[type][i]._size); }
++	}
++	k.verbs = Common::Array<VerbSlot>(_verbs, _numVerbs);
++	Common::MemoryWriteStreamDynamic out(DisposeAfterUse::YES);
++	Common::Serializer save(nullptr, &out);
++	save.setVersion(kScummverseKeptVersion);
++	k.actorColors.clear(); k.actorRedraws.clear();
++	for (int n = 0; n < _numActors; ++n) {
++		_actors[n]->saveLoadWithSerializer(save);
++		for (int c = 6; c <= 8; ++c) k.actorColors.push_back(_actors[n]->scummversePalette(c));
++		k.actorRedraws.push_back(_actors[n]->_needRedraw);
++	}
++	k.actors = Common::Array<byte>(out.getData(), out.size());
++	for (int i = 0; i < 6; ++i) k.strings[i] = _string[i];
++	for (int i = 0; i < 20; ++i) k.scaleSlots[i] = _scaleSlots[i];
++	k.camera = camera; k.screenStartStrip = _screenStartStrip; k.screenEndStrip = _screenEndStrip;
++	k.charsetColor = _charsetColor;
++	memcpy(k.charsetColorMap, _charsetColorMap, sizeof(k.charsetColorMap));
++	memcpy(k.resourceMapper, _resourceMapper, sizeof(k.resourceMapper));
++	memcpy(k.palette, _currentPalette, sizeof(k.palette));
++	k.shadowPalette = Common::Array<byte>(_shadowPalette, _shadowPalette ? _shadowPaletteSize : 0);
++	k.userPut = _userPut; k.userState = _userState; k.cursorState = _cursor.state;
++	k.actorToPrintStrFor = _actorToPrintStrFor; k.v1TalkingActor = _V1TalkingActor; k.haveMsg = _haveMsg; k.talkDelay = _talkDelay;
++	k.keepText = _keepText; k.useTalkAnims = _useTalkAnims; k.haveActorSpeechMsg = _haveActorSpeechMsg;
++}
++
++void ScummEngine::scummverseRestore(const ScummverseKept &k) {
++	// (Everyone first: an actor read back clears its class, put back below.)
++	Common::MemoryReadStream in(k.actors.data(), k.actors.size());
++	Common::Serializer load(&in, nullptr);
++	load.setVersion(kScummverseKeptVersion);
++	for (int n = 0; n < _numActors && 3 * n + 2 < (int)k.actorColors.size(); ++n) {
++		_actors[n]->saveLoadWithSerializer(load);
++		for (int c = 6; c <= 8; ++c) _actors[n]->setPalette(c, k.actorColors[3 * n + c - 6]);
++		_actors[n]->_needRedraw = k.actorRedraws[n];
++	}
++	// (An empty copy is none: nothing to copy, from 0271 and 0278.)
++	if (!k.vars.empty()) memcpy(_scummVars, k.vars.data(), k.vars.size() * sizeof(int32));
++	if (_roomVars && !k.roomVars.empty()) memcpy(_roomVars, k.roomVars.data(), k.roomVars.size() * sizeof(int32));
++	if (!k.bits.empty()) memcpy(_bitVars, k.bits.data(), k.bits.size());
++	if (!k.states.empty()) memcpy(_objectStateTable, k.states.data(), k.states.size());
++	if (!k.owners.empty()) memcpy(_objectOwnerTable, k.owners.data(), k.owners.size());
++	if (_objectRoomTable && !k.objectRooms.empty()) memcpy(_objectRoomTable, k.objectRooms.data(), k.objectRooms.size());
++	if (!k.classes.empty()) memcpy(_classData, k.classes.data(), k.classes.size() * sizeof(uint32));
++	if (!k.inventory.empty()) memcpy(_inventory, k.inventory.data(), k.inventory.size() * sizeof(uint16));
++	for (int t = 0; t < 3; ++t) {
++		const ResType type = kScummverseKeptResources[t];
++		for (int i = 0; i < (int)_res->_types[type].size() && i < (int)k.made[t].size(); ++i) {
++			const Common::Array<byte> &bytes = k.resources[t][i];
++			if (_res->isResourceLoaded(type, i) && (!k.made[t][i] || _res->_types[type][i]._size != bytes.size())) _res->nukeResource(type, i);
++			if (!k.made[t][i] || bytes.empty()) continue;
++			byte *to = _res->isResourceLoaded(type, i) ? _res->_types[type][i]._address : _res->createResource(type, i, bytes.size());
++			memcpy(to, bytes.data(), bytes.size());
++		}
++	}
++	for (int i = 0; i < _numVerbs && i < (int)k.verbs.size(); ++i) _verbs[i] = k.verbs[i];
++	for (int i = 0; i < 6; ++i) _string[i] = k.strings[i];
++	for (int i = 0; i < 20; ++i) _scaleSlots[i] = k.scaleSlots[i];
++	camera = k.camera; _screenStartStrip = k.screenStartStrip; _screenEndStrip = k.screenEndStrip;
++	_charsetColor = k.charsetColor;
++	memcpy(_charsetColorMap, k.charsetColorMap, sizeof(k.charsetColorMap));
++	memcpy(_resourceMapper, k.resourceMapper, sizeof(k.resourceMapper));
++	memcpy(_currentPalette, k.palette, sizeof(k.palette));
++	if (_shadowPalette && !k.shadowPalette.empty()) memcpy(_shadowPalette, k.shadowPalette.data(), k.shadowPalette.size());
++	// (No cut-scene, and none to leave: a run starts with nothing running,
++	// where its start may have been in one, so its way out is not kept.)
++	vm.cutSceneStackPointer = 0; vm.cutSceneScriptIndex = 0;
++	memset(vm.cutSceneScript, 0, sizeof(vm.cutSceneScript)); memset(vm.cutScenePtr, 0, sizeof(vm.cutScenePtr)); memset(vm.cutSceneData, 0, sizeof(vm.cutSceneData));
++	_userPut = k.userPut; _userState = k.userState; _cursor.state = k.cursorState;
++	_actorToPrintStrFor = k.actorToPrintStrFor; _V1TalkingActor = k.v1TalkingActor; _haveMsg = k.haveMsg; _talkDelay = k.talkDelay;
++	_keepText = k.keepText; _useTalkAnims = k.useTalkAnims; _haveActorSpeechMsg = k.haveActorSpeechMsg;
++}
++
+ // From 0267, an answer's touches settled once every run is done: one set or
+ // cleared as it was kept only for a thing some answer changes (`changed`, by
+ // number; any other's is its start's: nothing to say), the mark of it let
+@@ -312,8 +470,8 @@ bool ScummEngine::scummverseExportScene(int room, const Common::Path &file, Comm
+ 		_currentScript = 0xFF; vm.cutSceneStackPointer = 0;
+ 		stopTalk(); _sound->stopAllSounds();
+ 		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+-		if (_roomVars) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32));
+-		memcpy(_bitVars, bits.data(), bits.size());
++		if (_roomVars && !roomVars.empty()) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32)); // (from 0284: The Curse of Monkey Island has none)
++		if (!bits.empty()) memcpy(_bitVars, bits.data(), bits.size());
+ 		memcpy(_objectStateTable, states.data(), states.size());
+ 		memcpy(_objectOwnerTable, owners.data(), owners.size());
+ 		memcpy(_classData, classes.data(), classes.size() * sizeof(uint32));
+@@ -1739,19 +1897,38 @@ int ScummEngine::scummverseExportWorld(const Common::Path &dir) {
+ // them, and what a script they start does after its waits (its later
+ // steps, with their ticks); see Scummverse::Panel::ValueAnswer.
+ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int> &rooms, const Common::Path &file, Common::String &problem) {
+-	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+-	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects),
+-		owners(_objectOwnerTable, _numGlobalObjects);
+-	const Common::Array<uint32> classes(_classData, _numGlobalObjects);
+-	const Common::Array<uint16> inventory(_inventory, _numInventory);
++	const Common::Array<byte> owners(_objectOwnerTable, _numGlobalObjects);
++	// (From 0284 an actor its game cannot dress as the start leaves it, its
++	// costume's block not where its directory says (Fate of Atlantis's 11,
++	// costume 209, from its title), wears none, as one never shown: put
++	// back so before each run, a place whose entry script puts it there
++	// (room 77) would stop the export. Before, a place found it as the
++	// places before had left it, dressed by one of them. Read, not loaded:
++	// a block whose tag is not a costume's is the engine's error.)
++	bool peeked = false;
++	auto dressable = [&](int c) {
++		if (c >= (int)_res->_types[rtCostume].size()) return false;
++		if (_res->isResourceLoaded(rtCostume, c) || (_game.features & (GF_SMALL_HEADER | GF_OLD_BUNDLE)) || _game.heversion) return true;
++		const uint32 offset = getResourceRoomOffset(rtCostume, c);
++		if (offset == RES_INVALID_OFFSET) return false;
++		const int roomNr = getResourceRoomNr(rtCostume, c);
++		openRoom(roomNr ? roomNr : _roomResource);
++		peeked = true;
++		if (!_fileHandle || !_fileHandle->isOpen()) return false;
++		_fileHandle->seek(offset + _fileOffset, SEEK_SET);
++		return _fileHandle->readUint32BE() == _res->_types[rtCostume]._tag && !_fileHandle->err() && !_fileHandle->eos();
++	};
++	for (int n = 1; n < _numActors; ++n)
++		if (_actors[n]->_costume && !_actors[n]->isInCurrentRoom() && !dressable(_actors[n]->_costume)) {
++			debug(1, "SCUMMVERSE world things: %s actor %d's costume %d not where its game's directory says: none", kWorldGames[gameIndex].gameid, n, _actors[n]->_costume);
++			_actors[n]->_costume = 0;
++		}
++	if (peeked) openRoom(_roomResource);
++	// (From 0284 the game whole: see ScummverseKept.)
++	ScummverseKept start;
++	scummverseKeep(start);
+ 	auto putBack = [&]() {
+-		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+-		if (_roomVars && !roomVars.empty()) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32)); // (from 0271: Loom has none)
+-		memcpy(_bitVars, bits.data(), bits.size());
+-		memcpy(_objectStateTable, states.data(), states.size());
+-		memcpy(_objectOwnerTable, owners.data(), owners.size());
+-		memcpy(_classData, classes.data(), classes.size() * sizeof(uint32));
+-		memcpy(_inventory, inventory.data(), inventory.size() * sizeof(uint16));
++		scummverseRestore(start);
+ 		_sentenceNum = 0; _drawObjectQueNr = 0;
+ 	};
+ 	// (From 0258, for Sam & Max's box: where the export began, everyone where
+@@ -1771,7 +1948,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 	}
+ 	struct Room { int room; Common::Array<int> things; };
+ 	Common::Array<Room> found;
+-	for (int room : rooms) {
++	const bool reversed = scummverseExportReversed(); // (from 0284)
++	for (uint n = 0; n < rooms.size(); ++n) {
++		const int room = rooms[scummverseRunAt(n, rooms.size(), reversed)];
+ 		if (shouldQuit()) break;
+ 		// (A close-up is no place: what its keys do is its own record below.)
+ 		if (worldCloseUpScene(gameIndex, room)) continue;
+@@ -1785,6 +1964,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		if (scummverseExportScene(room, Common::Path(), why, true, nullptr, 0, nullptr, &r.things)) found.push_back(r);
+ 		else warning("SCUMMVERSE world things: %s room %d not set up (%s)", kWorldGames[gameIndex].gameid, room, why.c_str());
+ 	}
++	if (reversed) Common::reverse(found.begin(), found.end());
+ 	putBack();
+ 	for (uint i = 0; i < NUM_SCRIPT_SLOT; ++i) vm.slot[i].status = ssDead;
+ 	_currentScript = 0xFF;
+@@ -1856,6 +2036,24 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			VAR(VAR_ACTOR_RANGE_MIN) = 1; VAR(VAR_ACTOR_RANGE_MAX) = 7; VAR(VAR_HAVE_MSG) = 0; _userPut = 1;
+ 			return _currentRoom == room;
+ 		};
++		// (From 0284 a close-up's or film's place as the player has it when
++		// using its thing: the kid at the thing, where its sentence walks
++		// them, and the camera as entering puts it with the kid there,
++		// following them (as o2_loadRoomWithEgo does); the thing's script
++		// moves it on from there. Before, the camera was where the start or
++		// a run before had left it, its game keeping it from room to room,
++		// and the part of a film's room shown came from that.)
++		auto atThing = [&](int obj) {
++			Actor *kid = _actors[VAR(VAR_EGO)];
++			int x = 0, y = 0, dir = 0;
++			getObjectXYPos(obj, x, y, dir);
++			const AdjustBoxResult r = kid->adjustXYToBeInBox(x, y);
++			kid->putActor(r.x, r.y, _currentRoom);
++			camera._dest.x = camera._cur.x = kid->getPos().x;
++			setCameraAt(kid->getPos().x, kid->getPos().y);
++			setCameraFollows(kid);
++			cameraMoved();
++		};
+ 		// (From 0257 a thing whose picture is a variable of its game's,
+ 		// kWorldVarThings: put in a picture with it, its picture after read
+ 		// from it.)
+@@ -1927,7 +2125,13 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		};
+ 		int pickUpVerb = 0, pickedFirst = 0, putInside = 0;
+ 		for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kWorldVerbPickUp) pickUpVerb = v.verb;
+-		for (const Room &r : found) {
++		// (From 0284 reversed: each answer's place in the runs' order, put so
++		// after.)
++		uint firstOne = effects.size();
++		Common::Array<uint32> runOrder;
++		for (uint rn = 0; rn < found.size(); ++rn) {
++			const uint ri = scummverseRunAt(rn, found.size(), reversed);
++			const Room &r = found[ri];
+ 			// (What answers which verb: the room set up once to look.)
+ 			Common::Array<int> runs;
+ 			putBack();
+@@ -1942,9 +2146,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					if (verb && getVerbEntrypoint(obj, verb)) { runs.push_back(obj); runs.push_back(kind); runs.push_back(verb); }
+ 				}
+ 			}
+-			for (uint k = 0; k + 2 < runs.size() && !shouldQuit(); k += 3) {
++			for (uint kn = 0; kn < runs.size() / 3 && !shouldQuit(); ++kn) {
++				const uint k = 3 * scummverseRunAt(kn, runs.size() / 3, reversed);
+ 				const int obj = runs[k], kind = runs[k + 1], verb = runs[k + 2];
+-				for (int from = 0; from < 2; ++from) {
++				for (int fn = 0; fn < 2; ++fn) {
++					const int from = scummverseRunAt(fn, 2, reversed);
++					const uint32 seq = ri << 20 | k / 3 << 1 | from;
+ 					putBack();
+ 					_rnd.setSeed(0x5C0BE + r.room);
+ 					if (!arrive(r.room) || !getVerbEntrypoint(obj, verb)) break;
+@@ -1960,7 +2167,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 						e.room = r.room; e.id = obj; e.kind = kind; e.from = from; e.after = from; e.taken = false;
+ 						const int picked[] = {r.room, obj, kWorldVerbPickUp | kScummverseHanded, r.room, obj, kind | kScummverseHanded};
+ 						for (int value : picked) e.others.push_back(value);
+-						effects.push_back(e);
++						effects.push_back(e); runOrder.push_back(seq);
+ 						++pickedFirst;
+ 						continue;
+ 					}
+@@ -1975,11 +2182,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					runObjectScript(obj, verb, false, false, nullptr);
+ 					Effect e;
+ 					e.room = r.room; e.id = obj; e.kind = kind; e.from = from;
+-					// (Until it ends: what it starts, waiting or talking, goes on.)
++					// (Until it ends: what it starts, waiting or talking, goes on;
++					// from 0284 not its game's clock, kScummverseClockWait.)
+ 					for (int frame = 0; frame < 120; ++frame) {
+ 						bool running = false;
+ 						for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+-							if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++							if (vm.slot[s].status == ssPaused && vm.slot[s].delay < kScummverseClockWait) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
+ 							running = running || vm.slot[s].status == ssRunning;
+ 						}
+ 						// (Its line: a break in it, a space.)
+@@ -2019,10 +2227,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					// (From 0267 what it makes touchable or untouchable, itself too.)
+ 					touches(e, r.room, obj, Common::Array<int>(), was, set, ownersWere, VAR(VAR_EGO));
+ 					hands(e, r.room, r.things, obj, kind);
+-					effects.push_back(e);
++					effects.push_back(e); runOrder.push_back(seq);
+ 				}
+ 			}
+ 		}
++		if (reversed) scummverseRunOrder(effects, firstOne, runOrder);
+ 		debug(1, "SCUMMVERSE world things: %s %d answers picked up first, %d things put inside another left where they are", kWorldGames[gameIndex].gameid, pickedFirst, putInside);
+ 		// (From 0171 two things, as the mansion's own scripts answer: Use on a
+ 		// thing that can be carried with another (each thing of the places,
+@@ -2038,19 +2247,18 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			for (const WorldVerb &v : kWorldVerbs) if (v.game == gameIndex && v.kind == kind) verb = v.verb;
+ 			return verb;
+ 		};
+-		struct Kept { Common::Array<int32> vars; Common::Array<byte> bits, states, owners; Common::Array<uint32> classes; Common::Array<uint16> inventory; };
++		// (From 0284 the game whole: see ScummverseKept. Put back once
++		// nothing runs: what stopping leaves, put back too.)
++		typedef ScummverseKept Kept;
+ 		auto keep = [&]() {
+ 			Kept k;
+-			k.vars = Common::Array<int32>(_scummVars, _numVariables); k.bits = Common::Array<byte>(_bitVars, _numBitVariables >> 3);
+-			k.states = Common::Array<byte>(_objectStateTable, _numGlobalObjects); k.owners = Common::Array<byte>(_objectOwnerTable, _numGlobalObjects);
+-			k.classes = Common::Array<uint32>(_classData, _numGlobalObjects); k.inventory = Common::Array<uint16>(_inventory, _numInventory);
++			scummverseKeep(k);
+ 			return k;
+ 		};
+ 		auto restore = [&](const Kept &k) {
+-			memcpy(_scummVars, k.vars.data(), k.vars.size() * sizeof(int32)); memcpy(_bitVars, k.bits.data(), k.bits.size());
+-			memcpy(_objectStateTable, k.states.data(), k.states.size()); memcpy(_objectOwnerTable, k.owners.data(), k.owners.size());
+-			memcpy(_classData, k.classes.data(), k.classes.size() * sizeof(uint32)); memcpy(_inventory, k.inventory.data(), k.inventory.size() * sizeof(uint16));
+-			_sentenceNum = 0; quiet(); updateObjectStates();
++			_sentenceNum = 0; quiet();
++			scummverseRestore(k);
++			updateObjectStates();
+ 		};
+ 		struct PairRun { int first, kind, verb, room; Common::Array<int> seconds; };
+ 		Common::Array<PairRun> pairRuns;
+@@ -2074,7 +2282,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 			}
+ 		}
+-		for (const PairRun &p : pairRuns) {
++		firstOne = effects.size();
++		runOrder.clear();
++		for (uint pn = 0; pn < pairRuns.size(); ++pn) {
++			const uint pi = scummverseRunAt(pn, pairRuns.size(), reversed);
++			const PairRun &p = pairRuns[pi];
+ 			if (shouldQuit()) break;
+ 			putBack();
+ 			_rnd.setSeed(0x5C0BE + p.room);
+@@ -2084,10 +2296,14 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			// found there, looked up from its picture 0; one here from each of
+ 			// its pictures, as the things answer one at a time.)
+ 			const bool carriedFirst = carryable.contains(p.first);
+-			for (int from = 0; from < (carriedFirst ? 1 : 2); ++from) {
++			for (int fn = 0; fn < (carriedFirst ? 1 : 2); ++fn) {
++				const int from = carriedFirst ? 0 : scummverseRunAt(fn, 2, reversed);
+ 				Common::Array<Effect> answers;
+ 				Common::Array<Common::String> keys;
+-				for (int second : p.seconds) {
++				Common::Array<uint32> secondOrder;
++				for (uint sn = 0; sn < p.seconds.size(); ++sn) {
++					const uint si = scummverseRunAt(sn, p.seconds.size(), reversed);
++					const int second = p.seconds[si];
+ 					// (Each from the place as arrived: one that left it, back.)
+ 					if (_currentRoom != p.room && !arrive(p.room)) break;
+ 					restore(arrived);
+@@ -2109,7 +2325,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					for (int frame = 0; frame < 120; ++frame) {
+ 						bool running = false;
+ 						for (uint s = 0; s < NUM_SCRIPT_SLOT; ++s) {
+-							if (vm.slot[s].status == ssPaused) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; }
++							if (vm.slot[s].status == ssPaused && vm.slot[s].delay < kScummverseClockWait) { vm.slot[s].delay = 0; vm.slot[s].status = ssRunning; } // (from 0284)
+ 							running = running || vm.slot[s].status == ssRunning;
+ 						}
+ 						if (frame == 1)
+@@ -2160,8 +2376,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 						}
+ 						key += Common::String::format("%d.%d.%d ", e.others[i], e.others[i + 1], value);
+ 					}
+-					answers.push_back(e); keys.push_back(key);
++					answers.push_back(e); keys.push_back(key); secondOrder.push_back(si);
+ 				}
++				if (reversed) { scummverseRunOrder(answers, 0, secondOrder); scummverseRunOrder(keys, 0, secondOrder); }
+ 				// (The usual answer: the one most seconds have; it uses nothing up
+ 				// and gives nothing, those only an own answer does.)
+ 				Common::HashMap<Common::String, int> counts;
+@@ -2171,7 +2388,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				bool usualKept = false;
+ 				for (uint i = 0; i < answers.size(); ++i) {
+ 					if (keys[i] == "left") continue;
+-					if (keys[i] != usual) { effects.push_back(answers[i]); continue; }
++					if (keys[i] != usual) { effects.push_back(answers[i]); runOrder.push_back(pi << 1 | from); continue; }
+ 					if (usualKept) continue;
+ 					usualKept = true;
+ 					Effect e = answers[i];
+@@ -2179,10 +2396,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					Common::Array<int> kept;
+ 					for (uint k = 0; k + 2 < e.others.size(); k += 3) if (e.others[k + 2] != 2) { kept.push_back(e.others[k]); kept.push_back(e.others[k + 1]); kept.push_back(e.others[k + 2]); }
+ 					e.others = kept;
+-					effects.push_back(e);
++					effects.push_back(e); runOrder.push_back(pi << 1 | from);
+ 				}
+ 			}
+ 		}
++		if (reversed) scummverseRunOrder(effects, firstOne, runOrder);
+ 		// (From 0195, "SVO5": the main power turned off by its own script, and
+ 		// the places whose own scripts leave them dark then, lit with it on.)
+ 		// (Only where the lights are a variable putBack keeps: not the C64's.)
+@@ -2212,7 +2430,8 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			const Common::Array<byte> offBits(_bitVars, _numBitVariables >> 3), offStates(_objectStateTable, _numGlobalObjects), offOwners(_objectOwnerTable, _numGlobalObjects);
+ 			const Common::Array<uint32> offClasses(_classData, _numGlobalObjects);
+ 			const Common::Array<uint16> offInventory(_inventory, _numInventory);
+-			for (const Room &r : found) {
++			for (uint rn = 0; rn < found.size(); ++rn) {
++				const Room &r = found[scummverseRunAt(rn, found.size(), reversed)];
+ 				if (shouldQuit()) break;
+ 				putBack();
+ 				_rnd.setSeed(0x5C0BE + r.room);
+@@ -2228,6 +2447,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				_rnd.setSeed(0x5C0BE + r.room);
+ 				if (arrive(r.room) && !isLightOn()) unpowered.push_back(r.room);
+ 			}
++			if (reversed) Common::reverse(unpowered.begin(), unpowered.end());
+ 			// (Not turned off by it, or nowhere dark then: none.)
+ 			if (!powerOff || unpowered.empty()) { powerOff = 0; unpowered.clear(); continue; }
+ 			powerRoom = m.room; powerId = m.object;
+@@ -2299,6 +2519,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				putState(parent, _objs[up].parentstate & kObjectStateIntrinsic ? getState(parent) | kObjectStateIntrinsic : getState(parent) & ~kObjectStateIntrinsic);
+ 			}
+ 			putPicture(c.object, c.from);
++			atThing(c.object); // (from 0284)
+ 			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
+ 			runObjectScript(c.object, verb, false, false, nullptr);
+ 			for (int n = 0; n < 300 && !(_currentRoom == c.closeUp && VAR(c.pressed) == c.idle); ++n) oneFrame();
+@@ -2344,6 +2565,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (!verb || !arrive(c.room) || !getVerbEntrypoint(c.object, verb)) return false;
+ 			VAR(c.turned) = turned;
+ 			if (c.seen && picture >= 0) putState(c.seen, picture ? getState(c.seen) | kObjectStateIntrinsic : getState(c.seen) & ~kObjectStateIntrinsic);
++			atThing(c.object); // (from 0284)
+ 			VAR(VAR_ACTIVE_VERB) = verb; VAR(VAR_ACTIVE_OBJECT1) = c.object; VAR(VAR_ACTIVE_OBJECT2) = 0;
+ 			runObjectScript(c.object, verb, false, false, nullptr);
+ 			for (int n = 0; n < 600 && !shouldQuit(); ++n) {
+@@ -2432,7 +2654,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				stopTalk(); _sound->stopAllSounds();
+ 			}
+ 			int room, left, ticks;
+-			for (int kind : viewKinds) if (viewAt(c, verbOf(kind), u.start, -1, room, left, ticks)) u.kinds |= 1 << kind;
++			for (uint kn = 0; kn < ARRAYSIZE(viewKinds); ++kn) {
++				const int kind = viewKinds[scummverseRunAt(kn, ARRAYSIZE(viewKinds), reversed)];
++				if (viewAt(c, verbOf(kind), u.start, -1, room, left, ticks)) u.kinds |= 1 << kind;
++			}
+ 			int kind = 1;
+ 			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
+ 			if (kind >= 16 || !viewAt(c, verbOf(kind), u.start, -1, u.closeUp, u.left, ticks)) return false;
+@@ -2537,6 +2762,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			if (powerOffFirst) putState(powerId, powerOff ? getState(powerId) | kObjectStateIntrinsic : getState(powerId) & ~kObjectStateIntrinsic);
+ 			// (From 0266 one shown from either picture, `from` -1: from 0.)
+ 			putPicture(c.object, MAX<int>(0, c.from));
++			atThing(c.object); // (from 0284)
+ 			if (c.script) {
+ 				int args[NUM_SCRIPT_LOCAL];
+ 				memset(args, 0, sizeof(args));
+@@ -2551,14 +2777,30 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		};
+ 		auto playFilm = [&](const WorldCloseUp &c, CloseUp &u) {
+ 			static const int filmKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
+-			for (int kind : filmKinds) {
++			for (uint kn = 0; kn < ARRAYSIZE(filmKinds); ++kn) {
++				const int kind = filmKinds[scummverseRunAt(kn, ARRAYSIZE(filmKinds), reversed)];
+ 				if (c.script || !filmStart(c, verbOf(kind), false)) continue;
+ 				for (int n = 0; n < 600 && _currentRoom != c.closeUp; ++n) oneFrame();
+ 				if (_currentRoom == c.closeUp) u.kinds |= 1 << kind;
+ 			}
+ 			int kind = 1;
+ 			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
+-			if ((kind >= 16 && !c.script) || !filmStart(c, c.script ? 0 : verbOf(kind), false)) return false;
++			// (From 0284 one another film's end starts (`then`: the ending, at
++			// the end of Dr Fred's film in his lab): played as its game plays
++			// it, that film played first till its end starts it, the camera as
++			// that one leaves it (its game keeping it from room to room, the
++			// part of the front door shown so). Else, as before, its script
++			// started at its thing.)
++			bool chained = false;
++			for (const WorldCloseUp &k : kWorldCloseUps) {
++				if (chained || !c.script || &k == &c || k.game != c.game || k.room != c.room || k.object != c.object || !worldCloseUpFilm(k) || k.script || k.then != c.script) continue;
++				for (uint kn = 0; kn < ARRAYSIZE(filmKinds) && !chained; ++kn) {
++					if (!filmStart(k, verbOf(filmKinds[kn]), false)) continue;
++					for (int n = 0; n < 60 * 60 && !shouldQuit() && !isScriptRunning(c.script); ++n) { loopStep(); pan(); }
++					chained = isScriptRunning(c.script);
++				}
++			}
++			if (!chained && ((kind >= 16 && !c.script) || !filmStart(c, c.script ? 0 : verbOf(kind), false))) return false;
+ 			const int before = marksNow();
+ 			const int ego = VAR(VAR_EGO);
+ 			int tick = -1, shown = -1, pos = -1;
+@@ -2567,8 +2809,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			for (int n = 0, at = 0; n < 60 * 60 && !shouldQuit(); ++n) {
+ 				at += loopStep();
+ 				// (From 0257 one a keypad's answer starts: its camera panned as
+-				// the game's loop pans it, its script waiting on it.)
+-				if (c.script) pan();
++				// the game's loop pans it, its script waiting on it; from 0284
++				// every film's, as its game's loop moves it each frame: a film
++				// whose script has the camera follow someone shows them.)
++				pan();
+ 				if (_currentRoom != c.closeUp) {
+ 					if (tick >= 0) break;
+ 					continue;
+@@ -2584,8 +2828,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				}
+ 				const int when = MIN(at - tick, 65535);
+ 				// (From 0257 one a keypad's answer starts: the part shown where its
+-				// camera stands as its first line shows, its pan not modelled.)
+-				if (c.script && u.events.empty()) u.left = MAX(0, camera._cur.x - _screenWidth / 2);
++				// camera stands as its first line shows, its pan not modelled. From
++				// 0284 every film's so (its first line or picture changed), its
++				// camera come to where its script puts it: Dr Fred's in his lab
++				// panned to him, following him. Before, one no keypad starts had
++				// the camera where the place's had left it.)
++				if (u.events.empty()) u.left = MAX(0, camera._cur.x - _screenWidth / 2);
+ 				// (Who is there: the first actor of the room's but the kid, once seen.)
+ 				for (int a = 1; !u.costume && a < _numActors; ++a) {
+ 					Actor *who = _actors[a];
+@@ -2731,8 +2979,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					(int)u.turns.size(), (int)u.buttons.size(), (int)u.coins.size() / 2, played ? "played" : "not played");
+ 				continue;
+ 			}
+-			for (int kind : {(int)kWorldVerbOpen, (int)kWorldVerbClose, (int)kWorldVerbPush, (int)kWorldVerbPull, (int)kWorldVerbUse, (int)kWorldVerbTurnOn, (int)kWorldVerbTurnOff})
++			static const int keypadKinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbPush, kWorldVerbPull, kWorldVerbUse, kWorldVerbTurnOn, kWorldVerbTurnOff};
++			for (uint kn = 0; kn < ARRAYSIZE(keypadKinds); ++kn) {
++				const int kind = keypadKinds[scummverseRunAt(kn, ARRAYSIZE(keypadKinds), reversed)];
+ 				if (showCloseUp(c, verbOf(kind))) u.kinds |= 1 << kind;
++			}
+ 			int kind = 1;
+ 			while (kind < 16 && !(u.kinds & 1 << kind)) ++kind;
+ 			if (kind < 16 && showCloseUp(c, verbOf(kind))) {
+@@ -2794,11 +3045,15 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					if ((set & 1 << a) && (set & 1 << b) && !marks[a]->bit && !marks[b]->bit && marks[a]->var == marks[b]->var) return true;
+ 			return false;
+ 		};
+-		for (const WorldMarkReader &m : kWorldMarkReaders) {
++		Common::Array<uint32> markOrder;
++		for (uint mn = 0; mn < ARRAYSIZE(kWorldMarkReaders); ++mn) {
++			const uint mi = scummverseRunAt(mn, ARRAYSIZE(kWorldMarkReaders), reversed);
++			const WorldMarkReader &m = kWorldMarkReaders[mi];
+ 			if (m.game != gameIndex || shouldQuit() || marks.empty()) continue;
+ 			const int verb = verbOf(m.kind), reads = m.reads & ((1 << marks.size()) - 1);
+-			for (int from = 0; from < 2 && verb; ++from)
+-				for (int set = 0; set < 1 << marks.size() && (int)marked.size() < Scummverse::PanelBridge::kMostMarked; ++set) {
++			for (int fn = 0; fn < 2 && verb; ++fn)
++				for (int sn = 0; sn < 1 << marks.size() && (int)marked.size() < Scummverse::PanelBridge::kMostMarked; ++sn) {
++					const int from = scummverseRunAt(fn, 2, reversed), set = scummverseRunAt(sn, 1 << marks.size(), reversed);
+ 					if ((set & ~reads) || clashes(set)) continue;
+ 					if (booted) restore(started); else putBack();
+ 					_rnd.setSeed(0x5C0BE + m.room);
+@@ -2854,7 +3109,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					for (int frame = 0; frame < 120; ++frame) {
+ 						bool running = false;
+ 						for (uint k = 0; k < NUM_SCRIPT_SLOT; ++k) {
+-							if (vm.slot[k].status == ssPaused) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; }
++							if (vm.slot[k].status == ssPaused && vm.slot[k].delay < kScummverseClockWait) { vm.slot[k].delay = 0; vm.slot[k].status = ssRunning; } // (from 0284)
+ 							running = running || vm.slot[k].status == ssRunning;
+ 						}
+ 						if (frame == 1) e.line = lineOf();
+@@ -2884,10 +3139,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					a.sets = marksNow() & ~set;
+ 					stopTalk(); _sound->stopAllSounds();
+ 					// (One that leaves the place or the kid's hands: none.)
+-					if (_currentRoom == m.room && vm.cutSceneStackPointer == 0) marked.push_back(a);
++					if (_currentRoom == m.room && vm.cutSceneStackPointer == 0) { marked.push_back(a); markOrder.push_back(mi << 9 | from << 8 | set); }
+ 				}
+ 			debug(1, "SCUMMVERSE world things: %s answers of room %d object %d by its marks: %d so far", kWorldGames[gameIndex].gameid, m.room, m.object, (int)marked.size());
+ 		}
++		if (reversed) scummverseRunOrder(marked, 0, markOrder);
+ 		// (From 0282, "SVOB": each answer that reads a value kept or leaves one
+ 		// (kWorldValueReaders), from the game's own start as those by the
+ 		// marks, from each picture of its thing, with each value the variable
+@@ -2906,7 +3162,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// ticks since (its later steps); what it says then (a kid under the
+ 		// living room's chandelier as it falls) is not kept.)
+ 		int valuedSteps = 0;
+-		for (const WorldValueReader &v : kWorldValueReaders) {
++		Common::Array<uint32> valuedOrder; // (from 0284, reversed)
++		for (uint vn = 0; vn < ARRAYSIZE(kWorldValueReaders); ++vn) {
++			const uint vi = scummverseRunAt(vn, ARRAYSIZE(kWorldValueReaders), reversed);
++			const WorldValueReader &v = kWorldValueReaders[vi];
+ 			if (v.game != gameIndex || shouldQuit() || !booted) continue;
+ 			const int verb = verbOf(v.kind);
+ 			Common::Array<int> values;
+@@ -2919,8 +3178,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				for (uint k = 0; k < NUM_SCRIPT_SLOT && v.later; ++k) if (vm.slot[k].status != ssDead && vm.slot[k].where == WIO_GLOBAL && vm.slot[k].number == v.later) return (int)k;
+ 				return -1;
+ 			};
+-			for (int from = 0; from < 2 && verb && here; ++from)
+-				for (int value : values) {
++			for (int fn = 0; fn < 2 && verb && here; ++fn)
++				for (uint xn = 0; xn < values.size(); ++xn) {
++					const uint xi = scummverseRunAt(xn, values.size(), reversed);
++					const int from = scummverseRunAt(fn, 2, reversed), value = values[xi];
+ 					restore(started);
+ 					_rnd.setSeed(0x5C0BE + v.room);
+ 					if (!arrive(v.room) || !getVerbEntrypoint(v.object, verb)) break;
+@@ -3012,9 +3273,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					stopTalk(); _sound->stopAllSounds();
+ 					valuedSteps += a.later.size() / 5;
+ 					// (One that leaves the place or the kid's hands: none.)
+-					if (_currentRoom == v.room && vm.cutSceneStackPointer == 0 && (int)valued.size() < Scummverse::PanelBridge::kMostValued) valued.push_back(a);
++					if (_currentRoom == v.room && vm.cutSceneStackPointer == 0 && (int)valued.size() < Scummverse::PanelBridge::kMostValued) { valued.push_back(a); valuedOrder.push_back(vi << 12 | from << 11 | xi); }
+ 				}
+ 		}
++		if (reversed) scummverseRunOrder(valued, 0, valuedOrder);
+ 		debug(1, "SCUMMVERSE world things: %s %d answers played with a value kept, %d later steps", kWorldGames[gameIndex].gameid, (int)valued.size(), valuedSteps);
+ 		// (From 0250: each timed event's first wait (kWorldTimed) as the
+ 		// script that waits it counts, from the game's own start, the place it
+@@ -3235,6 +3497,18 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		// touchable then, as the games of scummverseExportOwnAnswers do (room
+ 		// 20's 210, shown by 206 picked up); before, it had no answers.)
+ 		Common::HashMap<uint32, bool> revealed;
++		// (From 0284 a picture an answer leaves a thing in where that thing
++		// is away and not revealed yet: asked for once an answer reveals it,
++		// whichever runs first, as scummverseExportOwnAnswers' unrevealed.)
++		Common::HashMap<uint32, Common::Array<int> > unrevealed;
++		auto reveal = [&](uint32 at) {
++			if (revealed.contains(at)) return;
++			revealed[at] = true;
++			if (!unrevealed.contains(at)) return;
++			const Common::Array<int> pictures = unrevealed[at];
++			unrevealed.erase(at);
++			for (int picture : pictures) wanted(at >> 16, at & 0xFFFF, picture);
++		};
+ 		auto touches = [&](Effect &e, int room, int self, const Common::Array<bool> &was, const Common::Array<int> &set, const Common::Array<byte> &owned) {
+ 			Common::HashMap<int, bool> classed;
+ 			for (int s : set) if (s < 0) classed[-s] = true;
+@@ -3252,7 +3526,7 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				if (now) ++madeUntouchable; else ++madeTouchable;
+ 				debug(2, "SCUMMVERSE world things: %s room %d: %d made %s by %d's answer%s%s", kWorldGames[gameIndex].gameid, room, o, now ? "untouchable" : "touchable", self,
+ 					o == self ? " (itself)" : merged ? "" : " (only that)", changed ? "" : " (as it was)");
+-				if (!now && changed && o != self) revealed[(uint32)placeOf[o] << 16 | (uint16)o] = true; // (from 0281)
++				if (!now && changed && o != self) reveal((uint32)placeOf[o] << 16 | (uint16)o); // (from 0281)
+ 			}
+ 		};
+ 		// (One run: the verb on the thing from that picture.)
+@@ -3344,34 +3618,42 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					const Room *in = entry >> 16 < found.size() ? &found[entry >> 16] : nullptr;
+ 					// (From 0267 its picture without its touch; from 0281 one away
+ 					// there an answer reveals too.)
+-					if (in && !worldLinkFrom(gameIndex, in->room, other) &&
+-						(!(in->things[(entry & 0xFFFF) + 2] & Scummverse::PanelBridge::kThingAway) || revealed.contains((uint32)in->room << 16 | (uint16)other)))
+-						wanted(in->room, other, e.others[k + 2] & 0xFF);
++					if (in && !worldLinkFrom(gameIndex, in->room, other)) {
++						const uint32 asked = (uint32)in->room << 16 | (uint16)other;
++						if (!(in->things[(entry & 0xFFFF) + 2] & Scummverse::PanelBridge::kThingAway) || revealed.contains(asked)) wanted(in->room, other, e.others[k + 2] & 0xFF);
++						else unrevealed[asked].push_back(e.others[k + 2] & 0xFF); // (from 0284, see reveal)
++					}
+ 				}
+ 		};
+ 		static const int kKinds[] = {kWorldVerbLook, kWorldVerbUse, kWorldVerbTalk, kWorldVerbPickUp};
+ 		// (Each thing from its pictures 0 and 1, as before 0258; then those
+ 		// found in a picture past 1 and the pictures answers leave things in,
+-		// each from that picture.)
+-		for (const Room &r : found)
+-			for (uint i = 0; i + 4 < r.things.size() && !shouldQuit(); i += 5) {
++		// each from that picture. From 0284 reversed: the places, their
++		// things, the verbs and the pictures from the last; the pictures asked
++		// for the last asked first.)
++		for (uint rn = 0; rn < found.size(); ++rn) {
++			const Room &r = found[scummverseRunAt(rn, found.size(), reversed)];
++			for (uint tn = 0; tn < r.things.size() / 5 && !shouldQuit(); ++tn) {
++				const uint i = 5 * scummverseRunAt(tn, r.things.size() / 5, reversed);
+ 				const int obj = r.things[i];
+ 				if (worldLinkFrom(gameIndex, r.room, obj) || (r.things[i + 2] & Scummverse::PanelBridge::kThingAway)) continue;
+ 				if (r.things[i + 1] > 1) { ++beyond; continue; }
+ 				const Common::String key = Common::String::format("%d %d ", r.room, obj);
+ 				tried[key + "0"] = tried[key + "1"] = ran[key + "0"] = ran[key + "1"] = true;
+-				for (int kind : kKinds)
+-					for (int from = 0; from < 2 && !shouldQuit(); ++from) run(r.room, obj, from, kind);
++				for (uint kn = 0; kn < ARRAYSIZE(kKinds); ++kn)
++					for (int fn = 0; fn < 2 && !shouldQuit(); ++fn) run(r.room, obj, scummverseRunAt(fn, 2, reversed), kKinds[scummverseRunAt(kn, ARRAYSIZE(kKinds), reversed)]);
+ 			}
++		}
+ 		for (const Room &r : found)
+ 			for (uint i = 0; i + 4 < r.things.size(); i += 5)
+ 				if (r.things[i + 1] > 1 && !worldLinkFrom(gameIndex, r.room, r.things[i]) && !(r.things[i + 2] & Scummverse::PanelBridge::kThingAway)) {
+ 					wanted(r.room, r.things[i], 0); wanted(r.room, r.things[i], 1); wanted(r.room, r.things[i], r.things[i + 1]);
+ 				}
+-		for (uint next = 0; next < todo.size() && !shouldQuit(); ++next) {
+-			const From f = todo[next];
++		for (uint next = 0; next < todo.size() && !shouldQuit();) {
++			From f = todo[next++];
++			if (reversed) { f = todo.back(); todo.pop_back(); next = 0; }
+ 			if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
+-			for (int kind : kKinds) if (!shouldQuit()) run(f.room, f.obj, f.picture, kind);
++			for (uint kn = 0; kn < ARRAYSIZE(kKinds); ++kn) if (!shouldQuit()) run(f.room, f.obj, f.picture, kKinds[scummverseRunAt(kn, ARRAYSIZE(kKinds), reversed)]);
+ 		}
+ 		debug(1, "SCUMMVERSE world things: %s %d runs, %d answers (%d leaving the place, %d things found in a picture past 1, %d saying and changing nothing; %d others in a picture past 1, %d things given that are in no place; %d first lines of someone not there, %d come round again, %d lines past %d)",
+ 			kWorldGames[gameIndex].gameid, runs, (int)effects.size(), left, beyond, silent, past, away, unshown, rounds, cut, Scummverse::PanelBridge::kMostLines);
+@@ -3435,7 +3717,10 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 		struct HeldOn { int room, id, from, actor; };
+ 		Common::Array<HeldOn> heldOn;
+ 		for (uint k = 0; heldThing && k + 2 < ranThere.size(); k += 3) heldOn.push_back({ranThere[k], ranThere[k + 1], ranThere[k + 2], 0});
+-		for (uint k = 0; heldThing && k < found.size() && !shouldQuit(); ++k) {
++		const uint heldOnBefore = heldOn.size();
++		Common::Array<uint32> heldOnOrder; // (from 0284, reversed)
++		for (uint kn = 0; heldThing && kn < found.size() && !shouldQuit(); ++kn) {
++			const uint k = scummverseRunAt(kn, found.size(), reversed);
+ 			const int room = found[k].room;
+ 			putBack();
+ 			_rnd.setSeed(0x5C0BE + room);
+@@ -3448,10 +3733,11 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == gameIndex && c.guest.costume == costume);
+ 				if ((!b->isInCurrentRoom() && n != with) || !costume || n == ego || !cast || dressed.contains(costume) || kWorldPersonThing + costume >= 0xFFFF) continue;
+ 				dressed[costume] = true;
+-				heldOn.push_back({room, kWorldPersonThing + costume, 0, n});
++				heldOn.push_back({room, kWorldPersonThing + costume, 0, n}); heldOnOrder.push_back(k);
+ 				++people;
+ 			}
+ 		}
++		if (reversed) scummverseRunOrder(heldOn, heldOnBefore, heldOnOrder);
+ 		putBack(); quiet();
+ 		// (One run: the thing held on that one; 0 not run, 1 answered, 2
+ 		// leaving the place.)
+@@ -3535,10 +3821,18 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			return gone ? 2 : 1;
+ 		};
+ 		auto silentOwn = [](const Effect &e) { return e.lines.empty() && e.after == e.from && !e.taken && !e.firstGone && !e.secondGone && e.others.empty(); };
+-		for (uint t = 0; heldThing && t < heldOn.size() && !shouldQuit(); ++t) {
++		// (From 0284 reversed: the ones used on from the last, the things held
++		// from the last; what they answer kept in the forwards order.)
++		const uint heldBefore = effects.size();
++		Common::Array<uint32> heldEffectOrder;
++		for (uint tn = 0; heldThing && tn < heldOn.size() && !shouldQuit(); ++tn) {
++			const uint t = scummverseRunAt(tn, heldOn.size(), reversed);
+ 			Common::Array<Effect> tries;
+ 			Common::Array<Common::String> keys;
+-			for (int first : carriedOnes) {
++			Common::Array<uint32> firstOrder;
++			for (uint cn = 0; cn < carriedOnes.size(); ++cn) {
++				const uint ci = scummverseRunAt(cn, carriedOnes.size(), reversed);
++				const int first = carriedOnes[ci];
+ 				if (first == heldOn[t].id || shouldQuit()) continue;
+ 				Effect e;
+ 				const int result = useHeld(heldOn[t], first, e);
+@@ -3555,8 +3849,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 					}
+ 					key += Common::String::format("%d.%d.%d ", e.others[i], e.others[i + 1], value);
+ 				}
+-				tries.push_back(e); keys.push_back(key);
++				tries.push_back(e); keys.push_back(key); firstOrder.push_back(ci);
+ 			}
++			if (reversed) { scummverseRunOrder(tries, 0, firstOrder); scummverseRunOrder(keys, 0, firstOrder); }
+ 			// (The usual answer: the one most things held have; it uses
+ 			// nothing up and gives nothing, those only an own answer does.)
+ 			Common::HashMap<Common::String, int> counted;
+@@ -3584,7 +3879,9 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 				if (silentOwn(e)) continue;
+ 				effects.push_back(e); ++pairUsual;
+ 			}
++			while (heldBefore + heldEffectOrder.size() < effects.size()) heldEffectOrder.push_back(t);
+ 		}
++		if (reversed) scummverseRunOrder(effects, heldBefore, heldEffectOrder);
+ 		if (heldThing)
+ 			debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d things that can be carried, %d of them from its start, %d not carried; %d used on, %d of them people), %d answers (%d a thing held's own, %d usual; %d leaving the place or running on; %d own saying and changing nothing left out)",
+ 				kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), pairStarted, pairUncarried, (int)heldOn.size(), people, pairOwn + pairUsual, pairOwn, pairUsual, pairLeft, pairSilent);
+@@ -3681,7 +3978,12 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 			Common::Array<int> before, in;
+ 			const bool opened = boxed(0, before);
+ 			int unboxed = 0;
+-			for (uint g = 0; g < given.size() && opened && (int)icons.size() < Scummverse::PanelBridge::kMostIcons && !shouldQuit(); ++g) {
++			// (From 0284 by number: before, in the order the runs above first
++			// gave them, which their order decided.)
++			Common::sort(given.begin(), given.end());
++			Common::Array<uint32> iconOrder; // (from 0284, reversed)
++			for (uint gn = 0; gn < given.size() && opened && (int)icons.size() < Scummverse::PanelBridge::kMostIcons && !shouldQuit(); ++gn) {
++				const uint g = scummverseRunAt(gn, given.size(), reversed);
+ 				const int thing = given[g];
+ 				// (Only a picture new with it: its own.)
+ 				int icon = 0, icons_ = 0;
+@@ -3702,12 +4004,13 @@ bool ScummEngine::scummverseExportThings(int gameIndex, const Common::Array<int>
+ 							any = any || c.mask[k];
+ 							for (int ch = 0; ch < 3; ++ch) c.rgb.push_back(c.mask[k] ? _currentPalette[3 * pixels[k] + ch] : 0);
+ 						}
+-						if (any) icons.push_back(c); else c.id = 0;
++						if (any) { icons.push_back(c); iconOrder.push_back(g); } else c.id = 0;
+ 					}
+ 				}
+ 				if (!c.id) ++unboxed;
+ 				debug(2, "SCUMMVERSE world things: %s thing %d given: icon %d (%d new in the box)", kWorldGames[gameIndex].gameid, thing, c.id ? icon : 0, icons_);
+ 			}
++			if (reversed) scummverseRunOrder(icons, 0, iconOrder);
+ 			_scummverseMusicTimer = -1;
+ 			debug(1, "SCUMMVERSE world things: %s %d things given, %d with their inventory pictures (%d without; the box %s)",
+ 				kWorldGames[gameIndex].gameid, (int)given.size(), (int)icons.size(), unboxed, opened ? "opened" : "never opened");
+@@ -4052,40 +4355,21 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	const bool old = _game.version <= 2;
+ 	auto pictureOf = [&](int obj) { return old ? (_objectStateTable[obj] & kObjectStateIntrinsic ? 1 : 0) : (int)_objectStateTable[obj]; };
+ 	auto showAs = [&](int obj, int picture) { if (old) putState(obj, picture ? getState(obj) | kObjectStateIntrinsic : getState(obj) & ~kObjectStateIntrinsic); else putState(obj, picture); };
+-	const Common::Array<int32> vars(_scummVars, _numVariables), roomVars(_roomVars, _roomVars ? _numRoomVariables : 0);
+-	const Common::Array<byte> bits(_bitVars, _numBitVariables >> 3), states(_objectStateTable, _numGlobalObjects), owners(_objectOwnerTable, _numGlobalObjects);
+-	const Common::Array<uint32> classes(_classData, _numGlobalObjects);
+-	const Common::Array<uint16> inventory(_inventory, _numInventory);
+-	Common::Array<Common::Array<byte> > arrays(MAX(_numArray, 1));
+-	Common::Array<bool> held(MAX(_numArray, 1), false);
+-	for (int i = 1; i < _numArray; ++i)
+-		if (_res->isResourceLoaded(rtString, i)) { held[i] = true; arrays[i] = Common::Array<byte>(_res->_types[rtString][i]._address, _res->_types[rtString][i]._size); }
++	const Common::Array<byte> owners(_objectOwnerTable, _numGlobalObjects);
+ 	const int cursorState = _cursor.state, userPut = _userPut;
+ 	// (Each one played's clothes as its start has them.)
+ 	Common::HashMap<int, int> clothes;
+ 	clothes[startEgo] = _actors[startEgo]->_costume;
+ 	for (const WorldPlayedIn &p : kWorldPlayedIn) if (p.game == gameIndex && p.actor > 0 && p.actor < _numActors) clothes[p.actor] = _actors[p.actor]->_costume;
+-	// (From 0254 the verbs too: a talk stopped half way (Monkey Island's)
+-	// leaves the panel's saved and its answers' made, and they run out.)
+-	const Common::Array<VerbSlot> verbSlots(_verbs, _numVerbs);
++	// (The game whole as it starts here, put back before each run: from
++	// 0284 everything ScummverseKept keeps. Before, its variables, things'
++	// pictures, owners and classes, what was carried, its arrays and, from
++	// 0254, its verbs: a talk stopped half way (Monkey Island's) leaves the
++	// panel's saved and its answers' made, and they run out.)
++	ScummverseKept start;
++	scummverseKeep(start);
+ 	auto putBack = [&]() {
+-		memcpy(_scummVars, vars.data(), vars.size() * sizeof(int32));
+-		if (_roomVars && !roomVars.empty()) memcpy(_roomVars, roomVars.data(), roomVars.size() * sizeof(int32)); // (from 0271: Loom has none)
+-		memcpy(_bitVars, bits.data(), bits.size());
+-		memcpy(_objectStateTable, states.data(), states.size());
+-		memcpy(_objectOwnerTable, owners.data(), owners.size());
+-		memcpy(_classData, classes.data(), classes.size() * sizeof(uint32));
+-		memcpy(_inventory, inventory.data(), inventory.size() * sizeof(uint16));
+-		for (int i = 1; i < _numArray; ++i) {
+-			if (_res->isResourceLoaded(rtString, i) && (!held[i] || _res->_types[rtString][i]._size != arrays[i].size())) _res->nukeResource(rtString, i);
+-			if (!held[i]) continue;
+-			if (!_res->isResourceLoaded(rtString, i)) _res->createResource(rtString, i, arrays[i].size());
+-			memcpy(_res->_types[rtString][i]._address, arrays[i].data(), arrays[i].size());
+-		}
+-		for (int i = 1; i < _numVerbs; ++i) {
+-			if (!verbSlots[i].verbid && _verbs[i].verbid) _res->nukeResource(rtVerb, i);
+-			_verbs[i] = verbSlots[i];
+-		}
++		scummverseRestore(start);
+ 		_sentenceNum = 0; _drawObjectQueNr = 0;
+ 	};
+ 	// (From 0281 the texts queued to be drawn over the scene (the v7 and v8
+@@ -4307,6 +4591,21 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		From f = {room, obj, picture};
+ 		todo.push_back(f);
+ 	};
++	// (From 0284 a picture an answer leaves a thing in where that thing is
++	// away and no answer has revealed it yet: asked for once one does,
++	// whichever runs first. Before, only where the answer that reveals it
++	// had run before (Monkey Island 2's room 92: 870 from its picture 1,
++	// as 869 picked up from its picture 1 leaves it, revealed by 869 opened
++	// from its picture 0).)
++	Common::HashMap<uint32, Common::Array<int> > unrevealed;
++	auto reveal = [&](uint32 at) {
++		if (revealed.contains(at)) return;
++		revealed[at] = true;
++		if (!unrevealed.contains(at)) return;
++		const Common::Array<int> pictures = unrevealed[at];
++		unrevealed.erase(at);
++		for (int picture : pictures) wanted(at >> 16, at & 0xFFFF, picture);
++	};
+ 	// (Each thing's place and entry there.)
+ 	Common::HashMap<int, uint> entryOf;
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+@@ -4352,7 +4651,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (now) ++madeUntouchable; else ++madeTouchable;
+ 			debug(2, "SCUMMVERSE world things: %s room %d: %d made %s by %d's answer%s%s", kWorldGames[gameIndex].gameid, room, o, now ? "untouchable" : "touchable", self,
+ 				o == self ? " (itself)" : merged ? "" : " (only that)", changed ? "" : " (as it was)");
+-			if (!now && changed && o != self) revealed[(uint32)placeIn(o, room) << 16 | (uint16)o] = true;
++			if (!now && changed && o != self) reveal((uint32)placeIn(o, room) << 16 | (uint16)o);
+ 		}
+ 	};
+ 	// (From 0271, Loom's controls as a player uses them, told its input
+@@ -4617,7 +4916,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			listed[other] = true;
+ 			if (pictureOf(other) > 1) ++past;
+ 			e.others.push_back(placeIn(other, room)); e.others.push_back(other); e.others.push_back(pictureOf(other));
+-			if (!untouchable(other)) revealed[(uint32)placeIn(other, room) << 16 | (uint16)other] = true; // (from 0281 Zak's by its state's bit)
++			if (!untouchable(other)) reveal((uint32)placeIn(other, room) << 16 | (uint16)other); // (from 0281 Zak's by its state's bit)
+ 		}
+ 		for (int o = 1; o < (int)owned.size() && (!gone || going) && e.others.size() < most; ++o)
+ 			if (o != obj && owned[o] != ego && getOwner(o) == ego && placeOf.contains(o) && !ridden.contains(o)) { e.others.push_back(placeIn(o, room)); e.others.push_back(o); e.others.push_back(ScummverseAnswer::kGiven); }
+@@ -4647,30 +4946,40 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				const uint32 filed = (uint32)e.others[k] << 16 | (uint16)other;
+ 				const uint entry = entryIn.contains(filed) ? entryIn[filed] : entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
+ 				const uint place = entry >> 16, index = entry & 0xFFFF;
+-				// (From 0267 its picture without its touch.)
+-				if (place < rooms.size() && place < things.size() && !worldLinkFrom(gameIndex, rooms[place], other) &&
+-					(!(things[place][index + 2] & Scummverse::PanelBridge::kThingAway) || revealed.contains((uint32)rooms[place] << 16 | (uint16)other)))
+-					wanted(rooms[place], other, e.others[k + 2] & 0xFF);
++				// (From 0267 its picture without its touch; from 0284 one away
++				// and not revealed yet, once revealed.)
++				if (place < rooms.size() && place < things.size() && !worldLinkFrom(gameIndex, rooms[place], other)) {
++					const uint32 asked = (uint32)rooms[place] << 16 | (uint16)other;
++					if (!(things[place][index + 2] & Scummverse::PanelBridge::kThingAway) || revealed.contains(asked)) wanted(rooms[place], other, e.others[k + 2] & 0xFF);
++					else unrevealed[asked].push_back(e.others[k + 2] & 0xFF);
++				}
+ 			}
+ 	};
+ 	// (Each thing from its pictures 0 and 1, as before 0258; then those found
+ 	// in a picture past 1 and the pictures answers leave things in, each from
+ 	// that picture.)
+-	for (uint k = 0; k < rooms.size() && k < things.size() && !shouldQuit(); ++k) {
++	// (From 0284 reversed (scummverseExportReversed): the places, their
++	// things, the verbs and the pictures from the last; the pictures asked
++	// for the last asked first.)
++	const bool reversed = scummverseExportReversed();
++	const uint placeCount = MIN(rooms.size(), things.size());
++	for (uint kn = 0; kn < placeCount && !shouldQuit(); ++kn) {
++		const uint k = scummverseRunAt(kn, placeCount, reversed);
+ 		const int room = rooms[k];
+ 		const int played = worldPlayedIn(gameIndex, room);
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		// (From 0256, not the inside of a ride (Zak's plane, the Shuttle
+ 		// Bug's): no place, nothing touched there.)
+ 		if (worldRideScene(gameIndex, room)) continue;
+-		for (uint i = 0; i + 4 < things[k].size() && !shouldQuit(); i += 5) {
++		for (uint tn = 0; tn < things[k].size() / 5 && !shouldQuit(); ++tn) {
++			const uint i = 5 * scummverseRunAt(tn, things[k].size() / 5, reversed);
+ 			const int obj = things[k][i];
+ 			if (worldLinkFrom(gameIndex, room, obj) || (things[k][i + 2] & Scummverse::PanelBridge::kThingAway)) continue;
+ 			if (things[k][i + 1] > 1) { ++beyond; continue; }
+ 			const Common::String key = Common::String::format("%d %d ", room, obj);
+ 			tried[key + "0"] = tried[key + "1"] = ran[key + "0"] = ran[key + "1"] = true;
+-			for (uint v = 0; v < kinds.size(); ++v)
+-				for (int from = 0; from < 2 && !shouldQuit(); ++from) run(room, obj, from, v);
++			for (uint vn = 0; vn < kinds.size(); ++vn)
++				for (int fn = 0; fn < 2 && !shouldQuit(); ++fn) run(room, obj, scummverseRunAt(fn, 2, reversed), scummverseRunAt(vn, kinds.size(), reversed));
+ 		}
+ 	}
+ 	for (uint k = 0; k < rooms.size() && k < things.size(); ++k)
+@@ -4678,10 +4987,11 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (things[k][i + 1] > 1 && !worldLinkFrom(gameIndex, rooms[k], things[k][i]) && !(things[k][i + 2] & Scummverse::PanelBridge::kThingAway)) {
+ 				wanted(rooms[k], things[k][i], 0); wanted(rooms[k], things[k][i], 1); wanted(rooms[k], things[k][i], things[k][i + 1]);
+ 			}
+-	for (uint next = 0; next < todo.size() && !shouldQuit(); ++next) {
+-		const From f = todo[next];
++	for (uint next = 0; next < todo.size() && !shouldQuit();) {
++		From f = todo[next++];
++		if (reversed) { f = todo.back(); todo.pop_back(); next = 0; }
+ 		if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
+-		for (uint v = 0; v < kinds.size() && !shouldQuit(); ++v) run(f.room, f.obj, f.picture, v);
++		for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed));
+ 	}
+ 	Common::String counts;
+ 	for (int kind : kinds) counts += Common::String::format(" %d:%d", kind, byKind.contains(kind) ? byKind[kind] : 0);
+@@ -4800,7 +5110,10 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// by costume) in a place exported as its game sets it up on arriving, but
+ 	// its players; one of a costume a place.)
+ 	int people = 0;
+-	for (uint k = 0; !old && ((givesTo && giveVerb) || heldThing) && k < rooms.size() && !shouldQuit(); ++k) {
++	const uint targetsBefore = targets.size();
++	Common::Array<uint32> targetOrder; // (from 0284, reversed: see below)
++	for (uint kn = 0; !old && ((givesTo && giveVerb) || heldThing) && kn < rooms.size() && !shouldQuit(); ++kn) {
++		const uint k = scummverseRunAt(kn, rooms.size(), reversed);
+ 		const int room = rooms[k];
+ 		const int played = worldPlayedIn(gameIndex, room);
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+@@ -4810,14 +5123,18 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		Common::HashMap<int, bool> dressed;
+ 		for (int n = 1; n < _numActors; ++n) {
+ 			const Actor *b = _actors[n];
++			// (From 0284 by the costume its cast knows them by, as Sam & Max's:
++			// kWorldSpeakers.)
++			const int costume = b->_costume ? worldSpeakerCostume(gameIndex, n, b->_costume) : 0;
+ 			bool cast = false;
+-			for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == gameIndex && c.guest.costume == b->_costume);
+-			if (!b->isInCurrentRoom() || !b->_costume || n == ego || player(n) || !cast || dressed.contains(b->_costume) || kWorldPersonThing + b->_costume >= 0xFFFF) continue;
+-			dressed[b->_costume] = true;
+-			targets.push_back({room, kWorldPersonThing + b->_costume, 0, false, n});
++			for (const WorldCastGuest &c : kWorldCast) cast = cast || (c.game == gameIndex && c.guest.costume == costume);
++			if (!b->isInCurrentRoom() || !costume || n == ego || player(n) || !cast || dressed.contains(costume) || kWorldPersonThing + costume >= 0xFFFF) continue;
++			dressed[costume] = true;
++			targets.push_back({room, kWorldPersonThing + costume, 0, false, n}); targetOrder.push_back(k);
+ 			++people;
+ 		}
+ 	}
++	if (reversed) scummverseRunOrder(targets, targetsBefore, targetOrder);
+ 	auto file = [&](const ScummverseAnswer &e, bool carried) {
+ 		if (!carried || !placesOf.contains(e.id)) { answers.push_back(e); return; }
+ 		for (int room : placesOf[e.id]) { ScummverseAnswer copy = e; copy.room = room; answers.push_back(copy); }
+@@ -4829,31 +5146,18 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// part of a run: The Dig's some 160 ms), then for each thing held put back
+ 	// as that arrival left it: the game's variables, states, owners, classes,
+ 	// things carried, arrays and verbs, the place's walk boxes, everyone's
+-	// place, clothes and frames, the random numbers and the steps left;
++	// place, clothes and frames, the random numbers and the steps left (from
++	// 0284 the game whole, ScummverseKept: everyone as a save keeps them);
+ 	// arrived again where a run left the place.)
+ 	struct Arrived {
+-		Common::Array<int32> vars, roomVars; Common::Array<byte> bits, states, owners; Common::Array<uint32> classes; Common::Array<uint16> inventory;
+-		Common::Array<Common::Array<byte> > arrays; Common::Array<bool> made; Common::Array<VerbSlot> verbs;
+-		Common::Array<int> rooms, xs, ys, costumes, elevations; Common::Array<CostumeData> frames;
++		ScummverseKept game; // (from 0284 the game whole: see ScummverseKept)
+ 		Common::Array<byte> boxes[3]; uint16 boxFlags[65];
+ 		uint32 seed = 0; int32 budget = -1; int room = -1;
+ 	};
+ 	Arrived arrival;
+ 	auto keepArrival = [&](int room) {
+ 		Arrived &k = arrival;
+-		k.vars = Common::Array<int32>(_scummVars, _numVariables); k.roomVars = Common::Array<int32>(_roomVars, _roomVars ? _numRoomVariables : 0);
+-		k.bits = Common::Array<byte>(_bitVars, _numBitVariables >> 3); k.states = Common::Array<byte>(_objectStateTable, _numGlobalObjects);
+-		k.owners = Common::Array<byte>(_objectOwnerTable, _numGlobalObjects); k.classes = Common::Array<uint32>(_classData, _numGlobalObjects);
+-		k.inventory = Common::Array<uint16>(_inventory, _numInventory); k.verbs = Common::Array<VerbSlot>(_verbs, _numVerbs);
+-		k.arrays.clear(); k.arrays.resize(MAX(_numArray, 1)); k.made = Common::Array<bool>(MAX(_numArray, 1), false);
+-		for (int i = 1; i < _numArray; ++i)
+-			if (_res->isResourceLoaded(rtString, i)) { k.made[i] = true; k.arrays[i] = Common::Array<byte>(_res->_types[rtString][i]._address, _res->_types[rtString][i]._size); }
+-		k.rooms.clear(); k.xs.clear(); k.ys.clear(); k.costumes.clear(); k.elevations.clear(); k.frames.clear();
+-		for (int n = 0; n < _numActors; ++n) {
+-			const Actor *b = _actors[n];
+-			k.rooms.push_back(b->_room); k.xs.push_back(b->getRealPos().x); k.ys.push_back(b->getRealPos().y); k.costumes.push_back(b->_costume);
+-			k.elevations.push_back(b->getElevation()); k.frames.push_back(b->_cost);
+-		}
++		scummverseKeep(k.game);
+ 		for (int m = 1; m <= 2; ++m) k.boxes[m] = _res->isResourceLoaded(rtMatrix, m) ? Common::Array<byte>(getResourceAddress(rtMatrix, m), getResourceSize(rtMatrix, m)) : Common::Array<byte>();
+ 		memcpy(k.boxFlags, _extraBoxFlags, sizeof(k.boxFlags));
+ 		k.seed = _rnd.getSeed(); k.budget = _scummverseStepBudget; k.room = room;
+@@ -4861,28 +5165,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	auto backToArrival = [&]() {
+ 		const Arrived &k = arrival;
+ 		quiet();
+-		memcpy(_scummVars, k.vars.data(), k.vars.size() * sizeof(int32));
+-		if (_roomVars) memcpy(_roomVars, k.roomVars.data(), k.roomVars.size() * sizeof(int32));
+-		memcpy(_bitVars, k.bits.data(), k.bits.size()); memcpy(_objectStateTable, k.states.data(), k.states.size());
+-		memcpy(_objectOwnerTable, k.owners.data(), k.owners.size()); memcpy(_classData, k.classes.data(), k.classes.size() * sizeof(uint32));
+-		memcpy(_inventory, k.inventory.data(), k.inventory.size() * sizeof(uint16));
+-		for (int i = 1; i < _numArray; ++i) {
+-			if (_res->isResourceLoaded(rtString, i) && (!k.made[i] || _res->_types[rtString][i]._size != k.arrays[i].size())) _res->nukeResource(rtString, i);
+-			if (!k.made[i]) continue;
+-			if (!_res->isResourceLoaded(rtString, i)) _res->createResource(rtString, i, k.arrays[i].size());
+-			memcpy(_res->_types[rtString][i]._address, k.arrays[i].data(), k.arrays[i].size());
+-		}
+-		for (int i = 1; i < _numVerbs; ++i) {
+-			if (!k.verbs[i].verbid && _verbs[i].verbid) _res->nukeResource(rtVerb, i);
+-			_verbs[i] = k.verbs[i];
+-		}
+-		for (int n = 1; n < _numActors && n < (int)k.rooms.size(); ++n) {
+-			Actor *b = _actors[n];
+-			if (b->_costume != k.costumes[n]) b->setActorCostume(k.costumes[n]);
+-			b->stopActorMoving();
+-			if (b->_room != k.rooms[n] || b->getRealPos().x != k.xs[n] || b->getRealPos().y != k.ys[n]) b->putActor(k.xs[n], k.ys[n], k.rooms[n]);
+-			b->setElevation(k.elevations[n]); b->_cost = k.frames[n];
+-		}
++		scummverseRestore(k.game);
+ 		for (int m = 1; m <= 2; ++m) {
+ 			if (k.boxes[m].empty()) { if (_res->isResourceLoaded(rtMatrix, m)) _res->nukeResource(rtMatrix, m); continue; }
+ 			byte *to = _res->isResourceLoaded(rtMatrix, m) && getResourceSize(rtMatrix, m) == (int)k.boxes[m].size() ? getResourceAddress(rtMatrix, m) : _res->createResource(rtMatrix, m, k.boxes[m].size());
+@@ -4895,14 +5178,22 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	};
+ 	Common::Array<ScummverseAnswer> heldTries;
+ 	int heldUsual = 0;
+-	for (uint t = 0; (useVerb || heldThing) && !carriedOnes.empty() && t < targets.size() && !shouldQuit(); ++t) {
++	// (From 0284 reversed: the ones used on from the last, the things carried
++	// from the last; what they answer kept in the forwards order.)
++	const uint answersBefore = answers.size();
++	Common::Array<uint32> answerOrder, heldOrder;
++	for (uint tn = 0; (useVerb || heldThing) && !carriedOnes.empty() && tn < targets.size() && !shouldQuit(); ++tn) {
++		const uint t = scummverseRunAt(tn, targets.size(), reversed);
+ 		const Target &target = targets[t];
+ 		const int played = worldPlayedIn(gameIndex, target.room);
+ 		ego = played > 0 && played < _numActors ? played : startEgo;
+ 		Common::Array<ScummverseAnswer> tries;
+ 		Common::Array<Common::String> keys;
++		Common::Array<uint32> firstOrder;
+ 		arrival.room = -1;
+-		for (int first : carriedOnes) {
++		for (uint cn = 0; cn < carriedOnes.size(); ++cn) {
++			const uint ci = scummverseRunAt(cn, carriedOnes.size(), reversed);
++			const int first = carriedOnes[ci];
+ 			if (first == target.id || shouldQuit()) continue;
+ 			// (From 0260 Day of the Tentacle's Use only with a first its verb
+ 			// script asks "with" for, as a player can make it.)
+@@ -5055,14 +5346,15 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			bool spoken = heldThing || e.lines.size() > 1;
+ 			for (const ScummverseAnswer::Line &l : e.lines) spoken = spoken || l.speaker;
+ 			for (uint i = 0; !gone && !old && spoken && i < e.lines.size(); ++i) key += Common::String::format("|%d.%d.%d.%s", e.lines[i].speaker, e.lines[i].costume, e.lines[i].color, e.lines[i].text.c_str());
+-			tries.push_back(e); keys.push_back(key);
++			tries.push_back(e); keys.push_back(key); firstOrder.push_back(ci);
+ 		}
++		if (reversed) { scummverseRunOrder(tries, 0, firstOrder); scummverseRunOrder(keys, 0, firstOrder); }
+ 		// (From 0269 a game whose thing held is its sentence's first (Full
+ 		// Throttle's, The Curse of Monkey Island's): the thing held's own
+ 		// script answers, mostly whatever it is used on; each one's usual
+ 		// answer filed once, below.)
+ 		if (heldThing && heldThing->heldFirst) {
+-			for (uint i = 0; i < tries.size(); ++i) if (keys[i] != "left") heldTries.push_back(tries[i]);
++			for (uint i = 0; i < tries.size(); ++i) if (keys[i] != "left") { heldTries.push_back(tries[i]); heldOrder.push_back(t); }
+ 			continue;
+ 		}
+ 		// (The usual answer: the one most seconds have; it uses nothing up
+@@ -5088,7 +5380,9 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (e.line.empty() && e.after == e.from && !e.taken && e.others.empty()) continue;
+ 			file(e, target.carried); ++pairAnswers;
+ 		}
++		while (answersBefore + answerOrder.size() < answers.size()) answerOrder.push_back(t);
+ 	}
++	if (reversed) { scummverseRunOrder(answers, answersBefore, answerOrder); scummverseRunOrder(heldTries, 0, heldOrder); }
+ 	// (From 0269, the thing held first's: its usual answer, the one it gives
+ 	// most of what it is used on (its picture after only as it was: unchanged),
+ 	// one for things (Use) and one for someone (Give), filed once in no place
+@@ -5218,10 +5512,11 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 				pairRevealed += todo.size() > before;
+ 			}
+ 		}
+-		for (uint next = todoBefore; next < todo.size() && !shouldQuit(); ++next) {
+-			const From f = todo[next];
++		for (uint next = todoBefore; next < todo.size() && !shouldQuit();) {
++			From f = todo[next++];
++			if (reversed) { f = todo.back(); todo.pop_back(); next = todoBefore; }
+ 			if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
+-			for (uint v = 0; v < kinds.size() && !shouldQuit(); ++v) run(f.room, f.obj, f.picture, v);
++			for (uint vn = 0; vn < kinds.size() && !shouldQuit(); ++vn) run(f.room, f.obj, f.picture, scummverseRunAt(vn, kinds.size(), reversed));
+ 		}
+ 		// (A thing one of these gives listed once, given, as the answers of
+ 		// two had it (from 0260): not also in the picture its game's pick up

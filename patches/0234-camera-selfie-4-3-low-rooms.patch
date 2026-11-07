@@ -1,0 +1,89 @@
+diff --git a/common/scummverse_camera.cpp b/common/scummverse_camera.cpp
+index 37fde689..f55b376f 100644
+--- a/common/scummverse_camera.cpp
++++ b/common/scummverse_camera.cpp
+@@ -9,6 +9,7 @@
+ #include <cmath>
+ #include <cstdio>
+ #include <mutex>
++#include <utility>
+ 
+ namespace Scummverse {
+ namespace Camera {
+@@ -117,13 +118,19 @@ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &
+ 	if (!(rowAspect > 0)) rowAspect = 1.2;
+ 	Rect group = player;
+ 	const int reach = std::max(16, player.h * 3 / 4);
++	// (Those nearby, nearest first: kept whole first should the frame narrow.)
++	std::vector<std::pair<int, int> > nearby;
+ 	for (int i = 0; i < count; ++i) {
+ 		const Rect &o = others[i];
+ 		if (o.empty()) continue;
+ 		const int gap = std::max(o.x - player.right(), player.x - o.right());
+-		if (gap <= reach) group = unite(group, o);
++		if (gap <= reach) {
++			group = unite(group, o);
++			nearby.push_back(std::make_pair(gap, i));
++		}
+ 	}
+ 	if (group.empty()) return intersect(view, view);
++	std::sort(nearby.begin(), nearby.end());
+ 	// Head room above, a little below the feet, some room either side.
+ 	const double h = std::max(group.h, 24);
+ 	double top = group.y - h * 0.22, bottom = group.bottom() + h * 0.08;
+@@ -140,10 +147,37 @@ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &
+ 	Rect r;
+ 	r.x = (int)std::floor(left); r.y = (int)std::floor(top);
+ 	r.w = (int)std::ceil(right) - r.x; r.h = (int)std::ceil(bottom) - r.y;
+-	// Slid back inside the view, then cut to it.
++	// Slid back inside the view; longer than the view, all of its length.
+ 	if (r.w <= view.w) r.x = std::min(std::max(r.x, view.x), view.right() - r.w);
++	else { r.x = view.x; r.w = view.w; }
+ 	if (r.h <= view.h) r.y = std::min(std::max(r.y, view.y), view.bottom() - r.h);
+-	return intersect(r, view);
++	else { r.y = view.y; r.h = view.h; }
++	r = intersect(r, view);
++	// A view too low for that (a wide group in a low room): narrower,
++	// around the player and as many of the nearest as fit whole; too narrow:
++	// lower (the room below the feet first, then the head room). The player
++	// is never cut: wider (or taller) than that only when they alone are.
++	Rect me = intersect(player, r);
++	if (me.empty()) { me.x = r.x + r.w / 2; me.y = r.y + r.h / 2; me.w = me.h = 0; }
++	const int widest = std::max((int)std::floor(r.h * rowAspect * 4 / 3 + 1e-9), me.w);
++	if (r.w > widest) {
++		int from = me.x, to = me.right();
++		for (size_t i = 0; i < nearby.size(); ++i) {
++			const Rect o = intersect(others[nearby[i].second], r);
++			if (o.empty()) continue;
++			const int a = std::min(from, o.x), b = std::max(to, o.right());
++			if (b - a <= widest) { from = a; to = b; }
++		}
++		// (Centred on those kept whole.)
++		r.x = std::min(std::max((from + to - widest) / 2, std::max(r.x, to - widest)), std::min(r.right() - widest, from));
++		r.w = widest;
++	}
++	const int tallest = std::max((int)std::floor(r.w / (rowAspect * 0.8) + 1e-9), me.h);
++	if (r.h > tallest) {
++		r.y = std::max(r.y, me.bottom() - tallest);
++		r.h = tallest;
++	}
++	return r;
+ }
+ 
+ // ---- Poses ----
+diff --git a/common/scummverse_camera_engine.h b/common/scummverse_camera_engine.h
+index 12c28897..8569cbf3 100644
+--- a/common/scummverse_camera_engine.h
++++ b/common/scummverse_camera_engine.h
+@@ -56,7 +56,10 @@ void factors(int width, int height, int &kx, int &ky);
+ // A selfie's frame: the player and whoever stands near them (within three
+ // quarters of the player's height, side to side), with head room, between
+ // 4:5 and 4:3 as shown (rows rowAspect times taller than wide: the games'
+-// 1.2; a picture already shown square, 1), inside the view.
++// 1.2; a picture already shown square, 1), inside the view. A view too low
++// for a wide group at 4:3 gets a narrower frame, around the player and as
++// many of the nearest as fit whole; one too narrow, a lower one. The player
++// is never cut (wider or taller than that only when they alone are).
+ Rect frameSelfie(const Rect &player, const Rect *others, int count, const Rect &view, double rowAspect = 1.2);
+ 
+ // ---- Poses ----

@@ -18,7 +18,7 @@ a=p.parse_args()
 subprocess.run([sys.executable,str(ROOT/'tools/test_temple_reference.py'),str(a.data.resolve().parent/'zak-dos'),'--build',a.build],check=True)
 scenes=json.loads((ROOT/'build/temple-reference.json').read_text())['scenes']
 def sandbox(n):
- return {39:87,130:89,156:88}.get(n,n-58 if 157<=n<=167 else 0)
+ return {39:87,130:89,156:88}.get(n,n if 157<=n<=167 else 0)
 checks=[]
 routes=[]
 exit_pairs={741:2,742:3,743:4,744:0,745:1,746:1,747:5}

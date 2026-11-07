@@ -1,0 +1,1321 @@
+diff --git a/backends/platform/ios7/ios7_video.mm b/backends/platform/ios7/ios7_video.mm
+index c5bb239f..0a0f7383 100644
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -519,14 +519,30 @@ void scummverseAirportOffer(int actor) {
+ #endif
+ 
+ #if defined(SCUMMVERSE_LOCAL_AI) && TARGET_OS_IOS
++// A game the new engine can go to: any of its named places installed (as
++// the engine itself asks: an empty scene is no place).
++static BOOL scummverseSandboxGameInstalled(const Scummverse::WorldCatalog::WorldGame &game) {
++	NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
++	for (int i = 0; i < game.sceneCount; ++i) {
++		NSString *file = [NSString stringWithFormat:@"%@/worlds/%s-%d.svw", documents, game.gameid, game.scenes[i].room];
++		NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:file error:nil];
++		if (attributes && attributes.fileSize > 0) return YES;
++	}
++	return NO;
++}
+ - (void)showScummverseWorlds {
+ 	UIResponder *responder = self;
+ 	while (responder && ![responder isKindOfClass:UIViewController.class]) responder = responder.nextResponder;
+ 	UIViewController *controller = (UIViewController *)responder;
+ 	if (!controller || controller.presentedViewController) return;
+-	// The sandbox engine (preview) running: only the way back for now.
++	// The sandbox engine (preview) running: another game's places, or back.
+ 	if (scummverseSandboxActive()) {
+-		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap where to walk. Doors, everyone out, chat and the rest come next." preferredStyle:UIAlertControllerStyleAlert];
++		UIAlertController *sandbox = [UIAlertController alertControllerWithTitle:@"New engine (preview)" message:@"Full resolution and full colour. Tap to walk, tap a door to go through. Everyone from every game is out somewhere. Chat and the rest come next." preferredStyle:UIAlertControllerStyleAlert];
++		for (int i = 0; i < Scummverse::WorldCatalog::worldGameCount(); ++i) {
++			const Scummverse::WorldCatalog::WorldGame &game = Scummverse::WorldCatalog::kWorldGames[i];
++			if (!scummverseSandboxGameInstalled(game)) continue;
++			[sandbox addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Go to %s", game.title] style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxGameRequest + i); }]];
++		}
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Back to Maniac Mansion" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) { scummverseWorldRequest(Scummverse::WorldCatalog::kWorldSandboxRequest + 1); }]];
+ 		[sandbox addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+ 		[controller presentViewController:sandbox animated:YES completion:nil];
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 7295b3bf..c48f9d2b 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -27,11 +27,13 @@ View View::fit(int sourceWidth, int sourceHeight, double pixelAspect, int gameSc
+ 	return v;
+ }
+ 
+-void View::follow(double sourceX) {
++int View::centred(double sourceX) const {
+ 	const int most = std::max(0, width - screenWidth);
+-	camera = std::max(0, std::min(most, (int)std::lround(sourceX * colScale - screenWidth / 2.0)));
++	return std::max(0, std::min(most, (int)std::lround(sourceX * colScale - screenWidth / 2.0)));
+ }
+ 
++void View::follow(double sourceX) { camera = centred(sourceX); }
++
+ Point View::toScene(int screenX, int screenY) const {
+ 	Point p;
+ 	p.x = colScale > 0 ? (screenX - left + camera) / colScale : 0;
+@@ -96,33 +98,59 @@ static double segmentGap(Point a, Point b, Point c, Point d) {
+ 		std::min(distance(onSegment(a, b, c), c), distance(onSegment(a, b, d), d)));
+ }
+ 
+-bool touching(const Box &a, const Box &b) {
++bool touching(const Box &a, const Box &b, double gap) {
+ 	for (int i = 0; i < 4; ++i) if (strictlyInside(b, a.corner[i]) || strictlyInside(a, b.corner[i])) return true;
+ 	for (int i = 0; i < 4; ++i)
+ 		for (int j = 0; j < 4; ++j)
+-			if (segmentGap(a.corner[i], a.corner[(i + 1) % 4], b.corner[j], b.corner[(j + 1) % 4]) <= 1.0) return true;
++			if (segmentGap(a.corner[i], a.corner[(i + 1) % 4], b.corner[j], b.corner[(j + 1) % 4]) <= gap) return true;
+ 	return false;
+ }
+ 
+-// Where to cross from box `from` into box `into`: a point of `into` within a
+-// pixel of `from`, the best on the way from `at` to `goal`.
++// Where to cross from box `from` into box `into`: a point of `into` within
++// the gap of `from`, the best on the way from `at` to `goal`.
++// (Points along its edges, and where `from`'s corners meet them: a corner
++// touching an edge may fall between the points along it.)
+ static Point crossing(const Box &from, const Box &into, Point at, Point goal) {
+ 	Point best = closest(into, at);
+ 	double score = -1;
+-	for (int i = 0; i < 4; ++i)
+-		for (int k = 0; k <= 32; ++k) {
+-			const Point a = into.corner[i], b = into.corner[(i + 1) % 4];
+-			Point q; q.x = a.x + (b.x - a.x) * k / 32.0; q.y = a.y + (b.y - a.y) * k / 32.0;
+-			if (!inside(from, q, 1.5)) continue;
+-			const double s = distance(at, q) + distance(q, goal);
+-			if (score < 0 || s < score) { score = s; best = q; }
+-		}
++	auto consider = [&](Point q) {
++		if (!inside(from, q, kBoxGap + 0.5)) return;
++		const double s = distance(at, q) + distance(q, goal);
++		if (score < 0 || s < score) { score = s; best = q; }
++	};
++	for (int i = 0; i < 4; ++i) {
++		const Point a = into.corner[i], b = into.corner[(i + 1) % 4];
++		for (int k = 0; k <= 32; ++k) consider(Point(a.x + (b.x - a.x) * k / 32.0, a.y + (b.y - a.y) * k / 32.0));
++		for (int j = 0; j < 4; ++j) consider(onSegment(a, b, from.corner[j]));
++	}
+ 	return best;
+ }
+ 
+-std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to) {
++Links linksOf(const std::vector<Box> &boxes) {
++	Links links;
++	const int n = (int)boxes.size();
++	links.meet.assign((size_t)n * n, 0);
++	links.group.assign(n, -1);
++	for (int a = 0; a < n; ++a)
++		for (int b = a + 1; b < n; ++b)
++			if (touching(boxes[a], boxes[b])) links.meet[(size_t)a * n + b] = links.meet[(size_t)b * n + a] = 1;
++	for (int s = 0, g = 0; s < n; ++s) {
++		if (links.group[s] >= 0) continue;
++		std::vector<int> queue(1, s);
++		links.group[s] = g;
++		for (size_t q = 0; q < queue.size(); ++q)
++			for (int j = 0; j < n; ++j)
++				if (links.group[j] < 0 && links.meet[(size_t)queue[q] * n + j]) { links.group[j] = g; queue.push_back(j); }
++		++g;
++	}
++	return links;
++}
++
++std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to) { return path(boxes, linksOf(boxes), from, to); }
++
++std::vector<Point> path(const std::vector<Box> &boxes, const Links &links, Point from, Point to) {
+ 	std::vector<Point> route;
+-	if (boxes.empty()) return route;
++	if (boxes.empty() || links.group.size() != boxes.size()) return route;
+ 	const int start = boxAt(boxes, from);
+ 	int end = boxAt(boxes, to);
+ 	// Breadth first over boxes that meet.
+@@ -131,7 +159,7 @@ std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to) {
+ 	came[start] = -1;
+ 	for (size_t q = 0; q < queue.size() && came[end] == -2; ++q)
+ 		for (int j = 0; j < n; ++j)
+-			if (came[j] == -2 && touching(boxes[queue[q]], boxes[j])) { came[j] = queue[q]; queue.push_back(j); }
++			if (came[j] == -2 && links.meets(queue[q], j)) { came[j] = queue[q]; queue.push_back(j); }
+ 	// Cut off: as near as they can get, in the box they can reach nearest it.
+ 	if (came[end] == -2)
+ 		for (int b : queue)
+@@ -177,7 +205,7 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
+ 	World::SourceScene source;
+ 	if (!World::parseScene(data, size, source, error)) return false;
+-	_source = source; _boxes = boxesOf(_source); _actors.clear(); _follow = -1;
++	_source = source; _boxes = boxesOf(_source); _links = linksOf(_boxes); _actors.clear(); _follow = -1; _cameraGoal = 0;
+ 	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
+ 	uint32_t colors[256];
+ 	for (int c = 0; c < 256; ++c)
+@@ -197,10 +225,11 @@ int Scene::addActor(const uint8_t *data, size_t size, double height, double pixe
+ 	Actor a;
+ 	if (!World::parseSprite(data, size, a.sprite, error)) return -1;
+ 	a.height = height > 0 ? height : 1; a.pixelAspect = pixelAspect > 0 ? pixelAspect : 1;
++	a.speedX = _speedX; a.speedY = _speedY; a.stepTicks = _stepTicks;
+ 	for (int c = 0; c < 256; ++c)
+ 		a.colors[c] = 0xFF000000u | (uint32_t)a.sprite.palette[c * 3] << 16 | (uint32_t)a.sprite.palette[c * 3 + 1] << 8 | a.sprite.palette[c * 3 + 2];
+ 	if (!_boxes.empty()) a.at = closest(_boxes[boxAt(_boxes, a.at)], a.at);
+-	_actors.push_back(a);
++	_actors.push_back(std::move(a));
+ 	return (int)_actors.size() - 1;
+ }
+ 
+@@ -214,36 +243,68 @@ void Scene::place(int n, Point at) {
+ void Scene::walkTo(int n, Point to) {
+ 	if (n < 0 || n >= (int)_actors.size()) return;
+ 	Actor &a = _actors[n];
+-	a.route = path(_boxes, a.at, to);
++	if (!a.moving) a.stepClock = a.stepTicks; // (the first step at once)
++	a.route = path(_boxes, _links, a.at, to);
+ 	a.moving = !a.route.empty();
+ }
+ 
+-void Scene::follow(int n) { _follow = n; if (n >= 0 && n < (int)_actors.size()) _view.follow(_actors[n].at.x); }
++void Scene::follow(int n) {
++	_follow = n;
++	if (n >= 0 && n < (int)_actors.size()) { _view.follow(_actors[n].at.x); _cameraGoal = _view.camera; }
++}
++
++void Scene::lookAt(double sourceX) { _follow = -1; _view.follow(sourceX); _cameraGoal = _view.camera; }
++
++void Scene::setWalk(double speedX, double speedY, int stepTicks) {
++	_speedX = speedX > 0 ? speedX : 8; _speedY = speedY > 0 ? speedY : 2; _stepTicks = std::max(1, stepTicks);
++	_cameraSpeed = std::max(kCameraSpeed, 1.5 * _speedX / _stepTicks);
++}
++
++// One step along the way: toward its next point, at most `across` and `down`
++// (as the games' own walk moves along the line, clipped by each speed).
++static void stepAlong(Actor &a, double across, double down) {
++	while (!a.route.empty()) {
++		const Point goal = a.route.front();
++		const double dx = goal.x - a.at.x, dy = goal.y - a.at.y;
++		if (std::fabs(dx) < 1e-9 && std::fabs(dy) < 1e-9) { a.route.erase(a.route.begin()); continue; }
++		a.dir = std::fabs(dx) >= std::fabs(dy) * 1.2 ? (dx < 0 ? 0 : 1) : (dy < 0 ? 3 : 2);
++		double t = 1;
++		if (std::fabs(dx) > across) t = std::min(t, across / std::fabs(dx));
++		if (std::fabs(dy) > down) t = std::min(t, down / std::fabs(dy));
++		if (t >= 1) { a.at = goal; a.route.erase(a.route.begin()); }
++		else { a.at.x += dx * t; a.at.y += dy * t; }
++		return;
++	}
++}
+ 
+ void Scene::update(int ticks) {
+ 	for (Actor &a : _actors) {
+ 		a.tick += ticks;
+ 		if (!a.moving) continue;
+-		// Slower where smaller (further away), but never crawling.
+-		double step = kWalkSpeed * ticks * std::max(kSlowest, scaleAt(_boxes, a.at) / 255.0);
+-		while (step > 0 && !a.route.empty()) {
+-			const Point goal = a.route.front();
+-			const double dx = goal.x - a.at.x, dy = goal.y - a.at.y, left = std::hypot(dx, dy);
+-			if (left > 0.01) a.dir = std::fabs(dx) >= std::fabs(dy) * 1.2 ? (dx < 0 ? 0 : 1) : (dy < 0 ? 3 : 2);
+-			if (left <= step) { a.at = goal; a.route.erase(a.route.begin()); step -= left; continue; }
+-			a.at.x += dx / left * step; a.at.y += dy / left * step; step = 0;
++		a.stepClock += ticks;
++		while (a.moving && a.stepClock >= a.stepTicks) {
++			a.stepClock -= a.stepTicks;
++			// Smaller steps where smaller (further away), but never crawling.
++			const double scale = std::max(kSlowest, scaleAt(_boxes, a.at) / 255.0);
++			stepAlong(a, a.speedX * scale, a.speedY * scale);
++			++a.steps;
++			if (a.route.empty()) a.moving = false;
+ 		}
+-		if (a.route.empty()) a.moving = false;
+ 	}
+-	if (_follow >= 0 && _follow < (int)_actors.size()) _view.follow(_actors[_follow].at.x);
++	if (_follow < 0 || _follow >= (int)_actors.size()) return;
++	// Near an edge (or off screen): scroll until they are in the middle.
++	const double x = _actors[_follow].at.x * _view.colScale - _view.camera, edge = _view.screenWidth / 4.0;
++	if (x < edge || x > _view.screenWidth - edge) _cameraGoal = _view.centred(_actors[_follow].at.x);
++	const int scroll = std::max(1, (int)std::lround(_cameraSpeed * _view.colScale * ticks));
++	_view.camera += std::max(-scroll, std::min(scroll, _cameraGoal - _view.camera));
+ }
+ 
+ // The frame to show: that facing, pose and step, else the nearest there is.
+-static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int kind, int tick) {
++static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int kind, int step) {
+ 	int count = 0;
+ 	for (const World::SourceFrame &f : s.frames) count += f.dir == dir && f.kind == kind;
+ 	if (count) {
+-		const int index = kind == 1 ? (tick / 6) % count : 0;
++		const int index = kind == 1 ? step % count : 0;
+ 		int k = 0;
+ 		for (const World::SourceFrame &f : s.frames) if (f.dir == dir && f.kind == kind && k++ == index) return &f;
+ 	}
+@@ -257,7 +318,7 @@ static const World::SourceFrame *pick(const World::SourceSprite &s, int dir, int
+ struct Placement { const World::SourceFrame *frame = nullptr; double x0 = 0, y0 = 0, down = 0, across = 0; };
+ static Placement placeOf(const Actor &a, const View &v, const std::vector<Box> &boxes) {
+ 	Placement p;
+-	p.frame = pick(a.sprite, a.dir, a.moving ? 1 : 0, a.tick);
++	p.frame = pick(a.sprite, a.dir, a.moving ? 1 : 0, a.steps);
+ 	if (!p.frame) return p;
+ 	p.down = v.rowScale * a.height * scaleAt(boxes, a.at) / 255.0;
+ 	p.across = p.down / a.pixelAspect;
+@@ -305,6 +366,33 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	}
+ }
+ 
++int Scene::groupAt(Point p) const {
++	const int b = boxAt(_boxes, p);
++	return b < 0 ? -1 : _links.group[b];
++}
++
++int Scene::objectAt(Point tap, const std::vector<int> &candidates, double slack) const {
++	int best = -1; bool bestUnder = false; long bestArea = 0; double bestAway = 0;
++	for (int i : candidates) {
++		if (i < 0 || i >= (int)_source.objects.size()) continue;
++		const World::SourceObject &o = _source.objects[i];
++		if (o.width <= 0 || o.height <= 0) continue;
++		if (tap.x < o.x - slack || tap.x >= o.x + o.width + slack || tap.y < o.y - slack || tap.y >= o.y + o.height + slack) continue;
++		const bool under = tap.x >= o.x && tap.x < o.x + o.width && tap.y >= o.y && tap.y < o.y + o.height;
++		const long area = (long)o.width * o.height;
++		// (How far outside it the tap is: 0 under it.)
++		const double away = std::hypot(std::max(0.0, std::max(o.x - tap.x, tap.x - (o.x + o.width - 1))),
++			std::max(0.0, std::max(o.y - tap.y, tap.y - (o.y + o.height - 1))));
++		if (best >= 0) {
++			if (bestUnder != under) { if (bestUnder) continue; }
++			else if (!under && away != bestAway) { if (away > bestAway) continue; }
++			else if (area >= bestArea) continue;
++		}
++		best = i; bestUnder = under; bestArea = area; bestAway = away;
++	}
++	return best;
++}
++
+ std::vector<Point> Scene::spots(int n) const {
+ 	std::vector<Point> candidates, chosen;
+ 	for (const Box &b : _boxes)
+@@ -407,6 +495,25 @@ int sceneWidth() { return stage().source().width; }
+ int sceneHeight() { return stage().source().height; }
+ int boxCount() { return (int)stage().boxes().size(); }
+ int camera() { return stage().view().camera; }
++void lookAt(double x) { stage().lookAt(x); }
++void setWalk(double speedX, double speedY, int stepTicks) { stage().setWalk(speedX, speedY, stepTicks); }
++void walkable(double &x, double &y) {
++	const std::vector<Stage::Box> &boxes = stage().boxes();
++	if (boxes.empty()) return;
++	const Stage::Point p = Stage::closest(boxes[Stage::boxAt(boxes, Stage::Point(x, y))], Stage::Point(x, y));
++	x = p.x; y = p.y;
++}
++int group(double x, double y) { return stage().groupAt(Stage::Point(x, y)); }
++int objectCount() { return (int)stage().source().objects.size(); }
++bool object(int index, int &id, int &x, int &y, int &width, int &height, int &walkX, int &walkY, int &state) {
++	if (index < 0 || index >= objectCount()) return false;
++	const World::SourceObject &o = stage().source().objects[index];
++	id = o.id; x = o.x; y = o.y; width = o.width; height = o.height; walkX = o.walkX; walkY = o.walkY; state = o.state;
++	return true;
++}
++int objectAt(double x, double y, const int *candidates, int count, double slack) {
++	return stage().objectAt(Stage::Point(x, y), std::vector<int>(candidates, candidates + std::max(0, count)), slack);
++}
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) { return stage().drawnRect(actor, x0, y0, x1, y1); }
+ } // End of namespace StageBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 4bd46d47..a9da6e84 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -39,7 +39,8 @@ struct View {
+ 	// pixelAspect: a source pixel's height over its width; gameScreenWidth:
+ 	// the width of the game's own screen in source pixels.
+ 	static View fit(int sourceWidth, int sourceHeight, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight);
+-	void follow(double sourceX);           // the camera centred there, within the scene
++	int centred(double sourceX) const;     // the camera centred there, within the scene
++	void follow(double sourceX);           // the camera put there
+ 	Point toScene(int screenX, int screenY) const;
+ 	Point toScreen(double sourceX, double sourceY) const;
+ };
+@@ -54,11 +55,25 @@ bool inside(const Box &box, Point p, double slack = 0.5);
+ Point closest(const Box &box, Point p);
+ // The box a point is in, else the nearest (-1: no boxes).
+ int boxAt(const std::vector<Box> &boxes, Point p);
+-// Boxes that meet (an edge along another's, within a pixel).
+-bool touching(const Box &a, const Box &b);
++// Boxes that meet: an edge along another's, within `gap` pixels (the older
++// games draw neighbouring boxes two pixels apart).
++static const double kBoxGap = 3;
++bool touching(const Box &a, const Box &b, double gap = kBoxGap);
++// Which boxes meet (n by n), and the group each belongs to (boxes reachable
++// from one another share a group).
++struct Links {
++	std::vector<char> meet;
++	std::vector<int> group;
++	bool meets(int a, int b) const {
++		const int n = (int)group.size();
++		return a >= 0 && b >= 0 && a < n && b < n && meet.size() == (size_t)n * n && meet[(size_t)a * n + b];
++	}
++};
++Links linksOf(const std::vector<Box> &boxes);
+ // From `from` to `to` (moved into the nearest box): the points to walk
+ // through, ending at the destination, or as near to it as the boxes that
+ // can be reached allow; empty when there are no boxes.
++std::vector<Point> path(const std::vector<Box> &boxes, const Links &links, Point from, Point to);
+ std::vector<Point> path(const std::vector<Box> &boxes, Point from, Point to);
+ // The game's character scale at a point (1..255; 255 without boxes).
+ int scaleAt(const std::vector<Box> &boxes, Point p);
+@@ -66,7 +81,9 @@ int scaleAt(const std::vector<Box> &boxes, Point p);
+ // some games keep far off at -32000).
+ std::vector<Box> boxesOf(const World::SourceScene &scene);
+ 
+-// A character on stage.
++// A character on stage. They walk as in the original games: a step at a
++// time, each at most speedX across and speedY up or down the scene (the
++// games' own 8 and 2), the legs in step (one walk frame a step).
+ struct Actor {
+ 	World::SourceSprite sprite;
+ 	double height = 1;      // its size against the scene's people (1: as tall as the scene's lead)
+@@ -76,9 +93,18 @@ struct Actor {
+ 	int dir = 2;            // 0 left, 1 right, 2 front, 3 back
+ 	int tick = 0;
+ 	bool moving = false;
++	double speedX = 8, speedY = 2; // source pixels a step at full scale
++	int stepTicks = 6;      // ticks a step
++	int stepClock = 0;
++	int steps = 0;          // steps taken (the walk frame shown)
+ 	uint32_t colors[256] = {}; // its palette as 0xAARRGGBB
+ };
+ 
++// Far away, smaller, slower steps, but never below kSlowest of a full one.
++static const double kSlowest = 0.25;
++// The camera's scroll: source pixels a tick (faster than anyone walks).
++static const double kCameraSpeed = 2;
++
+ // The place on stage: the scene drawn once at the view's size, its people.
+ class Scene {
+ public:
+@@ -87,12 +113,19 @@ public:
+ 	void place(int actor, Point at);
+ 	void walkTo(int actor, Point to);
+ 	void update(int ticks);              // walking and animation (60 ticks a second)
+-	void follow(int actor);              // the camera keeps this one in view
++	// The camera keeps this one in view: centred now, then scrolling only
++	// when they come near an edge (a quarter of the screen), as the games do.
++	void follow(int actor);
++	void lookAt(double sourceX);         // the camera centred there now (following nobody)
++	// How everyone added from now on walks (the scene's game's own pace).
++	void setWalk(double speedX, double speedY, int stepTicks);
+ 	// The screen (0xAARRGGBB, `pitch` pixels a row): the scene and everyone,
+ 	// far ones first.
+ 	void render(uint32_t *pixels, int pitch) const;
+ 	const View &view() const { return _view; }
+ 	const std::vector<Box> &boxes() const { return _boxes; }
++	// The group of boxes a point is in (as boxAt; -1: no boxes).
++	int groupAt(Point p) const;
+ 	const World::SourceScene &source() const { return _source; }
+ 	const Actor &actor(int n) const { return _actors[n]; }
+ 	int actorCount() const { return (int)_actors.size(); }
+@@ -100,20 +133,26 @@ public:
+ 	std::vector<Point> spots(int n) const;
+ 	// The screen rectangle an actor covers (false when off screen).
+ 	bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1) const;
++	// The room object a tap is for, among `candidates` (indices into the
++	// scene's objects): one under the tap beats one only within `slack`
++	// pixels of it (of those, the nearest), then the smallest; -1 when none.
++	int objectAt(Point tap, const std::vector<int> &candidates, double slack = 4) const;
+ 
+ private:
+ 	View _view;
+ 	World::SourceScene _source;
+ 	std::vector<Box> _boxes;
++	Links _links;
+ 	std::vector<uint32_t> _scaled; // the scene at the view's size
+ 	std::vector<Actor> _actors;
+ 	int _follow = -1;
++	int _cameraGoal = 0;
++	double _speedX = 8, _speedY = 2;
++	int _stepTicks = 6;
++	double _cameraSpeed = kCameraSpeed;
+ };
+ 
+-// Walking speed: source pixels a tick for someone at full scale; far away,
+-// smaller, slower, but never below kSlowest of it.
+-static const double kWalkSpeed = 1.6;
+-static const double kSlowest = 0.25;
++
+ 
+ } // End of namespace Stage
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index 136ba31f..ed414b3d 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -39,7 +39,21 @@ int sceneWidth();
+ int sceneHeight();
+ int boxCount();
+ int camera();                                  // the scaled scene's left edge on screen
++void lookAt(double x);                         // the camera centred there (source pixels)
+ bool drawnRect(int actor, int &x0, int &y0, int &x1, int &y1);
++// How everyone added from now on walks: source pixels a step across and up
++// or down at full scale, ticks a step.
++void setWalk(double speedX, double speedY, int stepTicks);
++// The nearest point in the walk boxes (unchanged without boxes).
++void walkable(double &x, double &y);
++// Which group of boxes (reachable from one another) a point is in (-1: none).
++int group(double x, double y);
++// The scene's room objects (source pixels; state 0: switched off).
++int objectCount();
++bool object(int index, int &id, int &x, int &y, int &width, int &height, int &walkX, int &walkY, int &state);
++// Which of `candidates` (object indices) a tap at x, y is for (under it
++// before near it, then the smallest; -1: none).
++int objectAt(double x, double y, const int *candidates, int count, double slack);
+ 
+ } // End of namespace StageBridge
+ } // End of namespace Scummverse
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 954bc659..c4b26f98 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -618,8 +618,10 @@ static const int kWorldVanSiteCount = sizeof(kWorldVanSites) / sizeof(kWorldVanS
+ // place requests, below appearance requests).
+ static const int kWorldVanRequest = (1 << 24) + (1 << 20);
+ // A menu request to open the sandbox engine (engines/scummverse, preview;
+-// above every other request); + 1: back from it to Maniac Mansion.
++// above every other request); + 1: back from it to Maniac Mansion; in it,
++// kWorldSandboxGameRequest + a game: to that game's first named place.
+ static const int kWorldSandboxRequest = 1 << 28;
++static const int kWorldSandboxGameRequest = kWorldSandboxRequest + 16;
+ // Patches 0057..0060 numbered places 200 + catalog position; saves made
+ // there are moved to the same place. Frozen: never edit.
+ struct WorldLegacyPlace { int game, room; };
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e33eec94..527e4266 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -27,12 +27,15 @@
+ #include "common/events.h"
+ #include "common/file.h"
+ #include "common/ptr.h"
++#include "common/savefile.h"
+ #include "common/scummverse_ai.h"
+ #include "common/scummverse_stage_engine.h"
++#include "common/scummverse_wander_engine.h"
+ #include "common/scummverse_world_catalog.h"
+ #include "common/stream.h"
+ #include "common/system.h"
+ #include "common/textconsole.h"
++#include "common/ustr.h"
+ #include "engines/util.h"
+ #include "graphics/blit.h"
+ #include "graphics/surface.h"
+@@ -44,8 +47,25 @@ using namespace WorldCatalog;
+ 
+ // The stage's pixels: 0xAARRGGBB in a native 32-bit word.
+ static const Graphics::PixelFormat kStageFormat(4, 8, 8, 8, 8, 16, 8, 0, 24);
++// Every game an equal share of where the wanderers go (as in Maniac's).
++static const int kGameShare = 100000;
++// How near a door's walk-to point the one played must stop to go through
++// it (source pixels of a 320-wide game).
++static const double kDoorReach = 12;
++// The Worlds menu's requests: back to Maniac, then go to game n.
++static const int kBackRequest = kWorldSandboxRequest + 1;
++static const int kGameRequest = kWorldSandboxGameRequest;
++static const char *const kStateFile = "scummverse-sandbox.state";
+ 
+-SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc) {
++static bool squarePixels(int game) { return kWorldGames[game].version >= 8; }
++static double pixelAspect(int game) { return squarePixels(game) ? 1.0 : 1.2; }
++static int screenWidthOf(int game) { return squarePixels(game) ? 640 : 320; }
++static bool walkable(int game, int room) {
++	const int kind = worldRoomKind(game, room);
++	return kind != kWorldMapRoom && kind != kWorldFloorPlan;
++}
++
++SandboxEngine::SandboxEngine(OSystem *syst, const ADGameDescription *desc) : Engine(syst), _desc(desc), _random("scummverse") {
+ }
+ 
+ SandboxEngine::~SandboxEngine() {
+@@ -64,12 +84,42 @@ bool SandboxEngine::read(const Common::String &name, Common::Array<byte> &data)
+ 	return in->read(data.data(), data.size()) == data.size();
+ }
+ 
++// "<gameid>-<room>.svw" and "<gameid>-c<costume>.svc"; an empty scene is a
++// room a later export found no place in.
++void SandboxEngine::scan() {
++	_rooms.clear(); _characters.clear();
++	Common::FSList files;
++	_folder.getChildren(files, Common::FSNode::kListFilesOnly);
++	for (const Common::FSNode &file : files) {
++		const Common::String name = file.getName();
++		for (int game = 0; game < worldGameCount(); ++game) {
++			const Common::String prefix = Common::String(kWorldGames[game].gameid) + "-";
++			if (!name.hasPrefix(prefix)) continue;
++			const char *rest = name.c_str() + prefix.size();
++			char *end = nullptr;
++			Common::ScopedPtr<Common::SeekableReadStream> in(file.createReadStream());
++			if (!in || in->size() <= 0) continue;
++			if (*rest == 'c' && name.hasSuffix(".svc")) {
++				const long costume = strtol(rest + 1, &end, 10);
++				if (end && !strcmp(end, ".svc") && costume >= 0 && costume < 1024) _characters[worldAppearanceKey(game, (int)costume)] = true;
++			} else if (name.hasSuffix(".svw")) {
++				const long room = strtol(rest, &end, 10);
++				if (end && !strcmp(end, ".svw") && room > 0 && room < 1024) _rooms[game * 1024 + (int)room] = true;
++			}
++		}
++	}
++}
++
+ bool SandboxEngine::installed(int game, int room) const {
+-	if (game < 0 || game >= worldGameCount() || room <= 0) return false;
+-	// (An empty scene is a room a later export found no place in.)
+-	const Common::FSNode node = _folder.getChild(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
+-	Common::ScopedPtr<Common::SeekableReadStream> in(node.exists() ? node.createReadStream() : nullptr);
+-	return in && in->size() > 0;
++	return game >= 0 && game < worldGameCount() && room > 0 && _rooms.contains(game * 1024 + room);
++}
++
++bool SandboxEngine::hasCharacter(int key) const { return key > 0 && _characters.contains(key); }
++
++bool SandboxEngine::firstPlace(int game, int &room) const {
++	for (int i = 0; i < kWorldGames[game].sceneCount; ++i)
++		if (installed(game, room = kWorldGames[game].scenes[i].room)) return true;
++	return false;
+ }
+ 
+ // scummverse_place ("monkey-33"), else the first named place installed.
+@@ -81,47 +131,164 @@ bool SandboxEngine::startPlace(int &game, int &room) const {
+ 	}
+ 	if (!asked.empty()) warning("SCUMMVERSE sandbox: %s is not installed", asked.c_str());
+ 	for (game = 0; game < worldGameCount(); ++game)
+-		for (int i = 0; i < kWorldGames[game].sceneCount; ++i)
+-			if (installed(game, room = kWorldGames[game].scenes[i].room)) return true;
++		if (firstPlace(game, room)) return true;
+ 	return false;
+ }
+ 
+-bool SandboxEngine::enter(int game, int room, Common::String &problem) {
++int SandboxEngine::place(int game, int room) const {
++	return walkable(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
++}
++
++// Everyone out (common/scummverse_wander.h, as Maniac's other-world
++// wanderers): every installed place but maps, the games' doors between
++// them (a door to a map leads on to where the map's doors go), and every
++// installed character but the one played, each game an equal share.
++void SandboxEngine::buildWanderers() {
++	WanderBridge::reset(_random.getRandomNumber(0x7FFFFFFE) + 1);
++	for (int game = 0; game < worldGameCount(); ++game) {
++		const WorldMap *map = worldMap(game);
++		Common::Array<int> places;
++		for (int room = 1; room < 1024; ++room)
++			if (installed(game, room) && place(game, room)) places.push_back(place(game, room));
++		for (int code : places) WanderBridge::addPlace(code, MAX<int>(1, kGameShare / (int)places.size()), 2 + game);
++		for (int i = 0; map && i < map->linkCount; ++i) {
++			const WorldLink &l = map->links[i];
++			if (!place(game, l.room)) continue;
++			if (place(game, l.target)) { WanderBridge::addDoor(place(game, l.room), place(game, l.target)); continue; }
++			for (int j = 0; j < map->linkCount; ++j)
++				if (map->links[j].room == l.target && map->links[j].target != l.room && place(game, map->links[j].target))
++					WanderBridge::addDoor(place(game, l.room), place(game, map->links[j].target));
++		}
++	}
++	int games[64] = {};
++	for (const WorldCastGuest &cast : kWorldCast)
++		if (cast.game < 64 && hasCharacter(worldAppearanceKey(cast.game, cast.guest.costume))) ++games[cast.game];
++	for (const WorldCastGuest &cast : kWorldCast) {
++		const int key = worldAppearanceKey(cast.game, cast.guest.costume);
++		if (cast.game >= 64 || !hasCharacter(key) || key == _playerKey) continue;
++		WanderBridge::addCast(key, place(cast.game, cast.room), 2 + cast.game, MAX(1, kGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
++	}
++	WanderBridge::start();
++}
++
++int SandboxEngine::addPerson(int key) {
++	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
++	if (game < 0 || game >= worldGameCount() || _game < 0 || _broken.contains(key)) return -1;
++	Common::Array<byte> data;
++	if (!read(Common::String::format("%s-c%d.svc", kWorldGames[game].gameid, costume), data)) { _broken[key] = true; return -1; }
++	// As tall as the people here: the scene's lead against the character's
++	// own game's lead; on maps and floor plans, small figures.
++	const double height = CLIP((double)kWorldGames[_game].heroHeight / kWorldGames[game].heroHeight, 0.06, 4.0) * (walkable(_game, _room) ? 1.0 : 0.3);
++	char error[128];
++	const int n = StageBridge::addActor(data.data(), data.size(), height, pixelAspect(game), error, sizeof(error));
++	if (n < 0) { warning("SCUMMVERSE sandbox: %d not shown (%s)", key, error); _broken[key] = true; }
++	return n;
++}
++
++bool SandboxEngine::doorPoint(int object, double &x, double &y) const {
++	int id, ox, oy, w, h, wx, wy, state;
++	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++	const bool walk = wx || wy;
++	x = walk ? wx : ox + w / 2.0; y = walk ? wy : oy + h;
++	return true;
++}
++
++bool SandboxEngine::isDoor(int object) const {
++	int id, ox, oy, w, h, wx, wy, state;
++	if (!StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++	const WorldLink *link = worldLinkFrom(_game, _room, id);
++	return link && (!link->switched || state);
++}
++
++bool SandboxEngine::someoneToPlay(int game) {
++	_playerKey = 0;
++	for (const WorldLead &l : kWorldLeads)
++		if (l.game == game && hasCharacter(worldAppearanceKey(game, l.costume))) _playerKey = worldAppearanceKey(game, l.costume);
++	for (const WorldLead &l : kWorldLeads)
++		if (!_playerKey && hasCharacter(worldAppearanceKey(l.game, l.costume))) _playerKey = worldAppearanceKey(l.game, l.costume);
++	for (const WorldCastGuest &cast : kWorldCast)
++		if (!_playerKey && hasCharacter(worldAppearanceKey(cast.game, cast.guest.costume))) _playerKey = worldAppearanceKey(cast.game, cast.guest.costume);
++	return _playerKey != 0;
++}
++
++bool SandboxEngine::enter(int game, int room, int arrival, Common::String &problem) {
+ 	const WorldGame &g = kWorldGames[game];
+-	// Curse of Monkey Island draws square pixels at 640x480; the others drew
+-	// for 320x200 screens, whose pixels are 1.2 times taller than wide.
+-	const double aspect = g.version >= 8 ? 1.0 : 1.2;
+ 	Common::Array<byte> data;
+ 	char error[128];
++	// (The one played must be there before the stage changes.)
++	const int playerGame = worldAppearanceGame(_playerKey);
++	if (playerGame < 0 || playerGame >= worldGameCount() || _broken.contains(_playerKey) ||
++		!read(Common::String::format("%s-c%d.svc", kWorldGames[playerGame].gameid, worldAppearanceCostume(_playerKey)), data)) {
++		problem = "the one played is not installed"; return false;
++	}
+ 	if (!read(Common::String::format("%s-%d.svw", g.gameid, room), data)) { problem = "not installed"; return false; }
+-	if (!StageBridge::load(data.data(), data.size(), aspect, g.version >= 8 ? 640 : 320, _width, _height, error, sizeof(error))) { problem = error; return false; }
+-	_game = game; _room = room; _player = -1;
+-	// Where the game shows its people as small figures on a map, so here.
+-	const int kind = worldRoomKind(game, room);
+-	const double figure = kind == kWorldMapRoom || kind == kWorldFloorPlan ? 0.3 : 1.0;
+-	const WorldLead *lead = nullptr;
+-	for (const WorldLead &l : kWorldLeads) if (l.game == game) lead = &l;
+-	Common::Array<int> people;
+-	for (const WorldCastGuest &cast : kWorldCast) {
+-		if (cast.game != game || cast.room != room) continue;
+-		if (!read(Common::String::format("%s-c%d.svc", g.gameid, cast.guest.costume), data)) continue;
+-		const int n = StageBridge::addActor(data.data(), data.size(), figure, aspect, error, sizeof(error));
+-		if (n < 0) { warning("SCUMMVERSE sandbox: %s not shown (%s)", cast.guest.name, error); continue; }
+-		if (lead && cast.guest.costume == lead->costume) _player = n;
+-		people.push_back(n);
++	if (!StageBridge::load(data.data(), data.size(), pixelAspect(game), screenWidthOf(game), _width, _height, error, sizeof(error))) { problem = error; return false; }
++	_game = game; _room = room; _player = -1; _door = -1; _onStage.clear();
++	// The games' own walk: 8 across and 2 up or down a step (Curse of
++	// Monkey Island's pixels are half the size).
++	const double unit = screenWidthOf(game) / 320.0;
++	StageBridge::setWalk(8 * unit, 2 * unit, 6);
++	// The one played, then everyone here: the wanderers in this place, else
++	// (wanderers off) the place's own people.
++	_player = addPerson(_playerKey);
++	if (_player < 0) { problem = "the one played is not installed"; return false; }
++	_onStage.push_back(_playerKey);
++	Common::Array<int> keys;
++	if (_wanderers && place(game, room)) {
++		int found[512];
++		const int count = WanderBridge::at(place(game, room), found, ARRAYSIZE(found));
++		for (int i = 0; i < MIN<int>(count, ARRAYSIZE(found)); ++i) keys.push_back(found[i]);
++	} else if (!_wanderers) {
++		for (const WorldCastGuest &cast : kWorldCast)
++			if (cast.game == game && cast.room == room) keys.push_back(worldAppearanceKey(game, cast.guest.costume));
++	}
++	for (int key : keys) {
++		if (key == _playerKey) continue;
++		const int n = addPerson(key);
++		if (n >= 0) _onStage.push_back(key);
+ 	}
+-	if (_player < 0 && lead && read(Common::String::format("%s-c%d.svc", g.gameid, lead->costume), data)) {
+-		_player = StageBridge::addActor(data.data(), data.size(), figure, aspect, error, sizeof(error));
+-		if (_player >= 0) people.push_back(_player);
++	_people = _onStage.size();
++	// Where: the one played at the door they came through, else in the
++	// roomiest spot among the boxes with the most doors in reach (a ledge or
++	// a floor some rooms keep apart is joined by the game's own scripts); the
++	// others spread out, away from them.
++	double x = 0, y = 0;
++	bool atDoor = false;
++	for (int i = 0; arrival && i < StageBridge::objectCount() && !atDoor; ++i) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && id == arrival) atDoor = doorPoint(i, x, y);
+ 	}
+-	// Spread out, the one played in the roomiest spot.
+-	for (uint i = 0; i < people.size(); ++i)
+-		if (people[i] == _player) { people.remove_at(i); people.insert_at(0, _player); break; }
+-	Common::Array<double> xs(people.size()), ys(people.size());
+-	const int spots = people.empty() ? 0 : StageBridge::spots(people.size(), xs.data(), ys.data());
+-	for (int i = 0; i < spots; ++i) StageBridge::place(people[i], xs[i], ys[i]);
+-	_people = people.size();
++	Common::Array<double> xs(_onStage.size() + 1), ys(_onStage.size() + 1);
++	const int spots = StageBridge::spots(_onStage.size() + 1, xs.data(), ys.data());
++	int skip = 0;
++	if (atDoor) {
++		StageBridge::place(_player, x, y);
++		StageBridge::position(_player, x, y);
++		double nearest = -1;
++		for (int i = 0; i < spots; ++i) {
++			const double d = (xs[i] - x) * (xs[i] - x) + (ys[i] - y) * (ys[i] - y);
++			if (nearest < 0 || d < nearest) { nearest = d; skip = i; }
++		}
++	} else if (spots) {
++		int most = -1;
++		for (int i = 0; i < spots; ++i) {
++			const int group = StageBridge::group(xs[i], ys[i]);
++			int doors = 0;
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				double dx, dy;
++				if (!isDoor(o) || !doorPoint(o, dx, dy)) continue;
++				StageBridge::walkable(dx, dy);
++				doors += StageBridge::group(dx, dy) == group;
++			}
++			if (doors > most) { most = doors; skip = i; }
++		}
++		StageBridge::place(_player, xs[skip], ys[skip]);
++	}
++	for (uint n = 1, i = 0; n < _onStage.size() && (int)i < spots; ++i)
++		if ((int)i != skip) StageBridge::place(n++, xs[i], ys[i]);
+ 	StageBridge::follow(_player);
++	_strollClock = 120 + _random.getRandomNumber(240);
++	if (!_testing) saveState();
+ 	return true;
+ }
+ 
+@@ -129,15 +296,134 @@ void SandboxEngine::tap(int screenX, int screenY) {
+ 	if (_player < 0) return;
+ 	double x, y;
+ 	StageBridge::toScene(screenX, screenY, x, y);
++	_door = -1;
++	// A door of this room (shown there) under the tap, else near it.
++	Common::Array<int> candidates;
++	for (int i = 0; i < StageBridge::objectCount(); ++i) if (isDoor(i)) candidates.push_back(i);
++	const int hit = StageBridge::objectAt(x, y, candidates.data(), candidates.size(), 4);
++	if (hit >= 0) {
++		int id, ox, oy, w, h, wx, wy, state;
++		StageBridge::object(hit, id, ox, oy, w, h, wx, wy, state);
++		const WorldMap *map = worldMap(_game);
++		const WorldLink *link = worldLinkFrom(_game, _room, id);
++		const int index = link - map->links;
++		// On a map, a place is a tap away; on foot (floor plans too), they walk
++		// to the door first (its walk-to point, else where it was tapped).
++		if (worldRoomKind(_game, _room) == kWorldMapRoom || !StageBridge::boxCount()) { travel(index); return; }
++		_door = index; _doorTapX = x; _doorTapY = y;
++		if (wx || wy) StageBridge::walkTo(_player, wx, wy);
++		else StageBridge::walkTo(_player, x, y);
++		return;
++	}
+ 	StageBridge::walkTo(_player, x, y);
+ }
+ 
++bool SandboxEngine::travel(int index) {
++	const WorldMap *map = worldMap(_game);
++	if (!map || index < 0 || index >= map->linkCount) return false;
++	const WorldLink link = map->links[index];
++	_door = -1;
++	if (!installed(_game, link.target)) {
++		if (!_testing) g_system->displayMessageOnOSD(Common::U32String("That way isn't installed yet."));
++		return false;
++	}
++	// Arriving at the named object, else at the door back.
++	int arrival = link.arrival;
++	if (!arrival) if (const WorldLink *back = worldLinkTo(_game, link.target, _room)) arrival = back->object;
++	const int game = _game, from = _room;
++	Common::String problem;
++	if (enter(game, link.target, arrival, problem)) return true;
++	warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[game].gameid, (int)link.target, problem.c_str());
++	enter(game, from, 0, problem);
++	return false;
++}
++
++void SandboxEngine::reachDoor() {
++	const WorldMap *map = worldMap(_game);
++	if (_door < 0 || !map || StageBridge::moving(_player)) return;
++	const WorldLink &link = map->links[_door];
++	double x = 0, y = 0, px, py;
++	bool found = false;
++	for (int i = 0; i < StageBridge::objectCount() && !found; ++i) {
++		int id, ox, oy, w, h, wx, wy, state;
++		if (StageBridge::object(i, id, ox, oy, w, h, wx, wy, state) && id == link.object) found = doorPoint(i, x, y);
++	}
++	// There: by its walk-to point, or where it was tapped (each as near as
++	// the walk boxes allow).
++	double tx = _doorTapX, ty = _doorTapY;
++	StageBridge::walkable(x, y);
++	StageBridge::walkable(tx, ty);
++	StageBridge::position(_player, px, py);
++	const double reach = kDoorReach * screenWidthOf(_game) / 320.0;
++	const bool there = (px - x) * (px - x) + (py - y) * (py - y) <= reach * reach || (px - tx) * (px - tx) + (py - ty) * (py - ty) <= reach * reach;
++	if (found && there) travel(_door);
++	else _door = -1;
++}
++
++// Someone the wanderers brought here while the player watches comes in
++// through one of the room's doors (else from the roomiest spot) and walks on.
++void SandboxEngine::arrivals() {
++	if (!_wanderers || !place(_game, _room)) return;
++	int found[512];
++	const int count = MIN<int>(WanderBridge::at(place(_game, _room), found, ARRAYSIZE(found)), ARRAYSIZE(found));
++	for (int i = 0; i < count; ++i) {
++		bool here = false;
++		for (int key : _onStage) here = here || key == found[i];
++		if (here || found[i] == _playerKey || _broken.contains(found[i])) continue;
++		const int n = addPerson(found[i]);
++		if (n < 0) continue;
++		_onStage.push_back(found[i]);
++		Common::Array<int> doors;
++		for (int o = 0; o < StageBridge::objectCount(); ++o) if (isDoor(o)) doors.push_back(o);
++		double xs[12], ys[12], x, y;
++		const int spots = StageBridge::spots(12, xs, ys);
++		if (!doors.empty()) {
++			doorPoint(doors[_random.getRandomNumber(doors.size() - 1)], x, y);
++		} else {
++			x = spots ? xs[0] : 0; y = spots ? ys[0] : 0;
++		}
++		StageBridge::place(n, x, y);
++		if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
++	}
++	_people = _onStage.size();
++}
++
++void SandboxEngine::stroll(int ticks) {
++	if ((_strollClock -= ticks) > 0 || _onStage.size() < 2) return;
++	_strollClock = 180 + _random.getRandomNumber(420);
++	const int n = 1 + _random.getRandomNumber(_onStage.size() - 2);
++	if (n == _player || StageBridge::moving(n)) return;
++	double xs[12], ys[12];
++	const int spots = StageBridge::spots(12, xs, ys);
++	if (spots) { const int to = _random.getRandomNumber(spots - 1); StageBridge::walkTo(n, xs[to], ys[to]); }
++}
++
++void SandboxEngine::step(int ticks) {
++	StageBridge::update(ticks);
++	if (_door >= 0 && !StageBridge::moving(_player)) reachDoor();
++	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
++	stroll(ticks);
++}
++
+ void SandboxEngine::back() {
++	if (!_testing) saveState();
+ 	Common::Event event;
+ 	event.type = Common::EVENT_RETURN_TO_LAUNCHER;
+ 	g_system->getEventManager()->pushEvent(event);
+ }
+ 
++void SandboxEngine::request(int code) {
++	if (code == kBackRequest) { back(); return; }
++	const int game = code - kGameRequest;
++	int room;
++	Common::String problem;
++	if (game < 0 || game >= worldGameCount() || !firstPlace(game, room)) return;
++	const int fromGame = _game, fromRoom = _room;
++	if (enter(game, room, 0, problem)) return;
++	warning("SCUMMVERSE sandbox: %s not shown (%s)", kWorldGames[game].gameid, problem.c_str());
++	if (fromGame >= 0) enter(fromGame, fromRoom, 0, problem);
++}
++
+ void SandboxEngine::present() {
+ 	StageBridge::render(_frame.data(), _width);
+ 	if (_format == kStageFormat) {
+@@ -162,6 +448,45 @@ bool SandboxEngine::shot(const Common::String &name) const {
+ #endif
+ }
+ 
++// "SVS1", the place and the one played, where they stand, then (when the
++// cast is the same) where everyone is.
++void SandboxEngine::saveState() const {
++	if (_game < 0 || _player < 0) return;
++	Common::ScopedPtr<Common::OutSaveFile> out(g_system->getSavefileManager()->openForSaving(kStateFile, false));
++	if (!out) return;
++	double x, y;
++	StageBridge::position(_player, x, y);
++	out->writeUint32BE(MKTAG('S', 'V', 'S', '1'));
++	out->writeSint16LE(_game); out->writeSint16LE(_room); out->writeSint32LE(_playerKey);
++	out->writeSint32LE((int32)(x * 16)); out->writeSint32LE((int32)(y * 16));
++	const int values = _wanderers ? WanderBridge::packedCount() : 0;
++	out->writeUint32LE(_wanderers ? WanderBridge::signature() : 0);
++	out->writeUint16LE(values);
++	for (int i = 0; i < values; ++i) out->writeSint32LE(WanderBridge::packed(i));
++	out->finalize();
++}
++
++bool SandboxEngine::loadState(int &game, int &room, double &x, double &y) {
++	Common::ScopedPtr<Common::InSaveFile> in(g_system->getSavefileManager()->openForLoading(kStateFile));
++	if (!in || in->readUint32BE() != MKTAG('S', 'V', 'S', '1')) return false;
++	game = in->readSint16LE(); room = in->readSint16LE();
++	const int key = in->readSint32LE();
++	x = in->readSint32LE() / 16.0; y = in->readSint32LE() / 16.0;
++	const uint32 signature = in->readUint32LE();
++	const int values = in->readUint16LE();
++	if (in->err() || in->eos() || !installed(game, room) || !hasCharacter(key)) return false;
++	_playerKey = key;
++	if (_wanderers) {
++		buildWanderers(); // (without the one played)
++		if (signature == WanderBridge::signature() && values == WanderBridge::packedCount()) {
++			Common::Array<int32> packed(values);
++			for (int i = 0; i < values; ++i) packed[i] = in->readSint32LE();
++			if (!in->err() && !in->eos()) for (int i = 0; i < values; ++i) WanderBridge::unpack(i, packed[i]);
++		}
++	}
++	return true;
++}
++
+ // The iPhone's Worlds menu knows the sandbox is running while this lives.
+ struct SandboxActive {
+ 	SandboxActive() { scummverseSandboxActive(true); }
+@@ -196,13 +521,27 @@ Common::Error SandboxEngine::run() {
+ 	if (g_system->getScreenFormat() != _format) return Common::Error(Common::kUnsupportedColorMode, "the screen did not take true colour");
+ 	_frame.resize(_width * _height);
+ 	_converted.resize(_width * _height * _format.bytesPerPixel);
++	scan();
++	_wanderers = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
+ 
+-	if (ConfMan.hasKey("scummverse_selftest")) return selfTest(ConfMan.get("scummverse_selftest"));
++	if (ConfMan.hasKey("scummverse_selftest")) {
++		_testing = true;
++		return selfTest(ConfMan.get("scummverse_selftest"));
++	}
+ 
++	// Where the player was last time, else the start place as its lead.
+ 	int game, room;
++	double x = 0, y = 0;
+ 	Common::String problem;
+-	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "no places are installed yet (add your games to Documents)");
+-	if (!enter(game, room, problem)) return Common::Error(Common::kReadingFailed, problem);
++	// (scummverse_place, when set, wins.)
++	const bool resumed = !ConfMan.hasKey("scummverse_place") && loadState(game, room, x, y);
++	if (!resumed) {
++		if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "no places are installed yet (add your games to Documents)");
++		if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "no characters are installed yet");
++		if (_wanderers) buildWanderers();
++	}
++	if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
++	if (resumed) { StageBridge::place(_player, x, y); StageBridge::follow(_player); saveState(); }
+ 	uint32 last = g_system->getMillis();
+ 	int carry = 0;
+ 	bool changed = true;
+@@ -210,14 +549,18 @@ Common::Error SandboxEngine::run() {
+ 		Common::Event event;
+ 		while (g_system->getEventManager()->pollEvent(event))
+ 			if (event.type == Common::EVENT_LBUTTONDOWN) { tap(event.mouse.x, event.mouse.y); changed = true; }
+-		// The Worlds menu (iPhone): Back to Maniac Mansion.
+-		if (scummverseWorldPoll() == kWorldSandboxRequest + 1) back();
++		// The Worlds menu (iPhone): Back to Maniac Mansion, or another game.
++		if (const int code = scummverseWorldPoll()) if (code > kWorldSandboxRequest) { request(code); changed = true; }
+ 		const uint32 now = g_system->getMillis();
+ 		carry += (int)MIN<uint32>(now - last, 500) * 60; last = now;
+ 		if (carry >= 1000) {
+ 			// (Drawn again only while someone walks, and once when they stop.)
++			const int cameraBefore = StageBridge::camera(), roomBefore = _room, peopleBefore = _people;
+ 			changed = changed || StageBridge::busy();
+-			StageBridge::update(carry / 1000);
++			step(carry / 1000);
++			changed = changed || cameraBefore != StageBridge::camera() || roomBefore != _room || peopleBefore != _people;
++			// (Kept every half minute too: iOS may close the app without a word.)
++			if ((_saveClock += carry / 1000) >= 60 * 30) { _saveClock = 0; saveState(); }
+ 			carry %= 1000;
+ 		}
+ 		if (changed) present();
+@@ -225,19 +568,127 @@ Common::Error SandboxEngine::run() {
+ 		g_system->updateScreen();
+ 		g_system->delayMillis(10);
+ 	}
++	saveState();
+ 	return Common::kNoError;
+ }
+ 
+-
+ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+-	Common::Array<Common::String> places;
+ 	int game, room;
++	if (!startPlace(game, room)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nothing installed");
++	if (!someoneToPlay(game)) return Common::Error(Common::kNoGameDataFoundError, "sandbox selftest: nobody to play");
++	if (_wanderers) buildWanderers();
++	Common::String problem;
++	if (mode == "doors") {
++		// Every door of every installed place to an installed one: tapped (the
++		// camera on it), walked to, gone through, time passing as in play.
++		// Counted: went through to its place (and arrived at its door back),
++		// to another door's (under the tap first), stopped short.
++		int tried = 0, through = 0, atDoor = 0, withDoor = 0, elsewhere = 0, short_ = 0, absent = 0, failed = 0;
++		double farthest = 0;
++		for (int g = 0; g < worldGameCount(); ++g) {
++			const WorldMap *map = worldMap(g);
++			for (int i = 0; map && i < map->linkCount; ++i) {
++				const WorldLink &link = map->links[i];
++				if (!installed(g, link.room) || !installed(g, link.target)) continue;
++				if (!_playerKey || !enter(g, link.room, 0, problem)) {
++					// (Played by the game's own lead where the first one is missing.)
++					for (const WorldLead &l : kWorldLeads) if (l.game == g && hasCharacter(worldAppearanceKey(g, l.costume))) _playerKey = worldAppearanceKey(g, l.costume);
++					if (!enter(g, link.room, 0, problem)) { ++failed; warning("SCUMMVERSE sandbox: %s-%d not shown (%s)", kWorldGames[g].gameid, (int)link.room, problem.c_str()); continue; }
++				}
++				int object = -1, ox = 0, oy = 0, w = 0, h = 0;
++				for (int o = 0; o < StageBridge::objectCount() && object < 0; ++o) {
++					int id, wx, wy, state;
++					if (StageBridge::object(o, id, ox, oy, w, h, wx, wy, state) && id == link.object && (!link.switched || state)) object = o;
++				}
++				if (object < 0) { ++absent; continue; }
++				++tried;
++				const double cx = ox + w / 2.0, cy = oy + h / 2.0;
++				StageBridge::lookAt(cx);
++				int sx, sy;
++				StageBridge::toScreen(cx, cy, sx, sy);
++				tap(CLIP(sx, 0, _width - 1), CLIP(sy, 0, _height - 1));
++				StageBridge::follow(_player);
++				const int startRoom = _room;
++				double px = 0, py = 0;
++				for (int t = 0; t < 30000 && _room == startRoom && (_door >= 0 || StageBridge::moving(_player)); ++t) {
++					StageBridge::position(_player, px, py);
++					step(1);
++				}
++				if (_room == link.target) {
++					++through;
++					// Standing at the door back (or the named object), as near as the
++					// walk boxes allow, where there is one.
++					int arrival = link.arrival;
++					if (!arrival) if (const WorldLink *back = worldLinkTo(g, link.target, link.room)) arrival = back->object;
++					for (int o = 0; arrival && o < StageBridge::objectCount(); ++o) {
++						int id, oxx, oyy, ww, hh, wx, wy, state;
++						double dx, dy, ax, ay;
++						if (!StageBridge::object(o, id, oxx, oyy, ww, hh, wx, wy, state) || id != arrival || !doorPoint(o, dx, dy)) continue;
++						++withDoor;
++						StageBridge::walkable(dx, dy);
++						StageBridge::position(_player, ax, ay);
++						atDoor += (ax - dx) * (ax - dx) + (ay - dy) * (ay - dy) < 1;
++						break;
++					}
++				}
++				else if (_room != startRoom) ++elsewhere;
++				else {
++					++short_;
++					int id, wx = 0, wy = 0, state;
++					StageBridge::object(object, id, ox, oy, w, h, wx, wy, state);
++					double x = wx, y = wy;
++					StageBridge::walkable(x, y);
++					const double d = sqrt((px - x) * (px - x) + (py - y) * (py - y));
++					farthest = MAX(farthest, d);
++					debug(1, "SCUMMVERSE sandbox door %s-%d object %d: stopped %.1f from it", kWorldGames[g].gameid, (int)link.room, (int)link.object, d);
++				}
++			}
++		}
++		warning("SCUMMVERSE sandbox selftest doors: %d tried, %d through (%d of %d at the door back), %d elsewhere, %d short (farthest %.0f), %d not shown here, %d failed",
++			tried, through, atDoor, withDoor, elsewhere, short_, farthest, absent, failed);
++		if (!tried || failed || through + elsewhere < tried * 95 / 100 || atDoor < withDoor * 99 / 100) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		warning("SCUMMVERSE sandbox selftest PASS");
++		return Common::kNoError;
++	}
++	if (mode == "wander") {
++		// Everyone out; half an hour in the start place: those coming in are
++		// shown, those here walk about; the state kept and read back.
++		if (!_wanderers) return Common::Error(Common::kUnknownError, "sandbox selftest: wanderers are off");
++		if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
++		const int start = _people;
++		int moves = 0;
++		for (int t = 0; t < 60 * 60 * 30; t += 6) {
++			const int before = StageBridge::busy();
++			step(6);
++			moves += before;
++		}
++		int shown = 0, x0, y0, x1, y1;
++		for (int n = 0; n < StageBridge::actorCount(); ++n) shown += StageBridge::drawnRect(n, x0, y0, x1, y1);
++		const bool aligned = (int)_onStage.size() == StageBridge::actorCount() && _people == StageBridge::actorCount();
++		present();
++		shot("sandbox-wander.png");
++		saveState();
++		Common::Array<int> where;
++		for (const WorldCastGuest &cast : kWorldCast) where.push_back(WanderBridge::where(worldAppearanceKey(cast.game, cast.guest.costume)));
++		double x, y;
++		int g2, r2;
++		const bool read = loadState(g2, r2, x, y);
++		bool same = read && g2 == _game && r2 == _room;
++		for (uint i = 0; i < where.size(); ++i) same = same && WanderBridge::where(worldAppearanceKey(kWorldCast[i].game, kWorldCast[i].guest.costume)) == where[i];
++		g_system->getSavefileManager()->removeSavefile(kStateFile);
++		warning("SCUMMVERSE sandbox selftest wander: %d places, %d out, %d here at first, %d after half an hour, %d on screen, walking %d%% of the time, state %s%s",
++			WanderBridge::places(), WanderBridge::cast(), start, _people, shown, moves * 100 / (60 * 60 * 30 / 6), same ? "kept" : "LOST", aligned ? "" : ", ACTORS OUT OF STEP");
++		if (!WanderBridge::cast() || !same || !aligned || _people <= start || !moves) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		warning("SCUMMVERSE sandbox selftest PASS");
++		return Common::kNoError;
++	}
++	Common::Array<Common::String> places;
+ 	if (mode == "all") {
+ 		Common::FSList files;
+ 		_folder.getChildren(files, Common::FSNode::kListFilesOnly);
+ 		for (const Common::FSNode &file : files) if (file.getName().hasSuffix(".svw")) places.push_back(file.getName());
+ 		Common::sort(places.begin(), places.end());
+-	} else if (startPlace(game, room)) { // "walk", "back"
++	} else { // "walk", "back"
+ 		places.push_back(Common::String::format("%s-%d.svw", kWorldGames[game].gameid, room));
+ 	}
+ 	int shown = 0, skipped = 0, failed = 0, people = 0, arrivedCount = 0, unreached = 0, colors = 0;
+@@ -248,54 +699,52 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 			if (name.hasPrefix(prefix) && (r = atoi(name.c_str() + prefix.size())) > 0) g = i;
+ 		}
+ 		if (g < 0 || !installed(g, r)) { ++skipped; continue; }
+-		Common::String problem;
+-		if (!enter(g, r, problem)) { warning("SCUMMVERSE sandbox: %s not shown (%s)", name.c_str(), problem.c_str()); ++failed; continue; }
++		if (!enter(g, r, 0, problem)) { warning("SCUMMVERSE sandbox: %s not shown (%s)", name.c_str(), problem.c_str()); ++failed; continue; }
+ 		++shown; people += _people;
+ 		present();
+ 		const bool one = places.size() == 1;
+ 		if (one) shot("sandbox-start.png");
+ 		// Walk to the spot farthest away, by tapping the screen there (the
+ 		// camera follows; the spot may be off screen at first: tap toward it).
+-		if (_player >= 0) {
+-			double fromX, fromY, x, y, toX = 0, toY = 0, best = -1;
+-			StageBridge::position(_player, fromX, fromY);
+-			double xs[16], ys[16];
+-			const int n = StageBridge::spots(16, xs, ys);
+-			for (int i = 0; i < n; ++i) {
+-				const double d = (xs[i] - fromX) * (xs[i] - fromX) + (ys[i] - fromY) * (ys[i] - fromY);
+-				if (d > best) { best = d; toX = xs[i]; toY = ys[i]; }
+-			}
+-			// Each tap: they walk all the way to where the boxes let them.
+-			int ticks = 0;
+-			bool stopped = false;
+-			for (int leg = 0; leg < 8 && !stopped; ++leg) {
+-				int sx, sy;
+-				double endX = 0, endY = 0;
+-				StageBridge::toScreen(toX, toY, sx, sy);
+-				tap(CLIP(sx, 0, _width - 1), CLIP(sy, 0, _height - 1));
+-				const bool going = StageBridge::heading(_player, endX, endY);
+-				for (; StageBridge::moving(_player) && ticks < 20000; ++ticks) StageBridge::update(1);
+-				StageBridge::position(_player, x, y);
+-				if (going && (x - endX) * (x - endX) + (y - endY) * (y - endY) > 0.01) {
+-					warning("SCUMMVERSE sandbox: %s: stopped at %.1f,%.1f on the way to %.1f,%.1f", name.c_str(), x, y, endX, endY);
+-					stopped = true;
+-				}
+-				if ((x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25) break;
+-			}
++		double fromX, fromY, x, y, toX = 0, toY = 0, best = -1;
++		StageBridge::position(_player, fromX, fromY);
++		double xs[16], ys[16];
++		const int n = StageBridge::spots(16, xs, ys);
++		for (int i = 0; i < n; ++i) {
++			const double d = (xs[i] - fromX) * (xs[i] - fromX) + (ys[i] - fromY) * (ys[i] - fromY);
++			if (d > best) { best = d; toX = xs[i]; toY = ys[i]; }
++		}
++		// Each tap: they walk all the way to where the boxes let them (not
++		// through doors: this walks within the place).
++		int ticks = 0;
++		bool stopped = false;
++		for (int leg = 0; leg < 8 && !stopped; ++leg) {
++			int sx, sy;
++			double endX = 0, endY = 0;
++			StageBridge::toScreen(toX, toY, sx, sy);
++			double tx, ty;
++			StageBridge::toScene(CLIP(sx, 0, _width - 1), CLIP(sy, 0, _height - 1), tx, ty);
++			StageBridge::walkTo(_player, tx, ty);
++			const bool going = StageBridge::heading(_player, endX, endY);
++			for (; StageBridge::moving(_player) && ticks < 40000; ++ticks) StageBridge::update(1);
+ 			StageBridge::position(_player, x, y);
+-			const bool arrived = (x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25;
+-			arrivedCount += arrived; unreached += !arrived;
+-			failed += stopped;
+-			if (one) {
+-				int x0, y0, x1, y1;
+-				present();
+-				shot("sandbox-walked.png");
+-				warning("SCUMMVERSE sandbox walk: from %.1f,%.1f to %.1f,%.1f (asked %.1f,%.1f) in %d ticks; %s; drawn %s",
+-					fromX, fromY, x, y, toX, toY, ticks, arrived ? "arrived" : "as near as it goes",
+-					StageBridge::drawnRect(_player, x0, y0, x1, y1) ? "on screen" : "off screen");
++			if (going && (x - endX) * (x - endX) + (y - endY) * (y - endY) > 0.01) {
++				warning("SCUMMVERSE sandbox: %s: stopped at %.1f,%.1f on the way to %.1f,%.1f", name.c_str(), x, y, endX, endY);
++				stopped = true;
+ 			}
++			if ((x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25) break;
+ 		}
++		StageBridge::position(_player, x, y);
++		const bool arrived = (x - toX) * (x - toX) + (y - toY) * (y - toY) < 2.25;
++		arrivedCount += arrived; unreached += !arrived;
++		failed += stopped;
+ 		if (one) {
++			int x0, y0, x1, y1;
++			present();
++			shot("sandbox-walked.png");
++			warning("SCUMMVERSE sandbox walk: from %.1f,%.1f to %.1f,%.1f (asked %.1f,%.1f) in %d ticks; %s; drawn %s",
++				fromX, fromY, x, y, toX, toY, ticks, arrived ? "arrived" : "as near as it goes",
++				StageBridge::drawnRect(_player, x0, y0, x1, y1) ? "on screen" : "off screen");
+ 			// Colours on screen (true colour: more than one palette's worth
+ 			// where several characters stand in a scene).
+ 			Common::HashMap<uint32, bool> seen;
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 804e06cd..59786a66 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -26,6 +26,8 @@
+ #include "common/array.h"
+ #include "common/error.h"
+ #include "common/fs.h"
++#include "common/hashmap.h"
++#include "common/random.h"
+ #include "common/str.h"
+ #include "engines/advancedDetector.h"
+ #include "engines/engine.h"
+@@ -33,9 +35,10 @@
+ 
+ namespace Scummverse {
+ 
+-// The sandbox: a place from one of the player's games on the whole screen
+-// in true colour, its own people there, the game's lead walking where the
+-// player taps (common/scummverse_stage.h does the work).
++// The sandbox: the places of the player's games on the whole screen in true
++// colour. The player walks where they tap and through the games' doors;
++// everyone from every game is out somewhere (the wanderers), as many in a
++// place as are there (common/scummverse_stage.h draws and walks them).
+ class SandboxEngine : public Engine {
+ public:
+ 	SandboxEngine(OSystem *syst, const ADGameDescription *desc);
+@@ -47,19 +50,43 @@ public:
+ private:
+ 	// A file of the worlds cache (scenes are gzip-compressed; both read).
+ 	bool read(const Common::String &name, Common::Array<byte> &data) const;
++	void scan(); // the places and characters installed
+ 	bool installed(int game, int room) const;
++	bool hasCharacter(int key) const;
+ 	bool startPlace(int &game, int &room) const;
+-	// Puts a game's room on stage: its people, and the game's lead to play.
+-	bool enter(int game, int room, Common::String &problem);
++	bool firstPlace(int game, int &room) const; // a game's first named place installed
++	void buildWanderers();
++	int place(int game, int room) const; // a room as the wanderers know it (0: a map, not a place)
++	// On stage, as tall as a person here (appearance key): its actor, -1
++	// (and never tried again: a character whose file is damaged).
++	int addPerson(int key);
++	// Where a door (room object) is reached: its walk-to point, else the
++	// bottom middle of its rectangle (the later games keep it in scripts).
++	bool doorPoint(int object, double &x, double &y) const;
++	bool isDoor(int object) const; // a door of this room, shown here
++	bool someoneToPlay(int game); // the game's lead, else anyone installed
++	// Puts a game's room on stage: the one played (at object `arrival`'s
++	// walk-to point, else the roomiest spot) and everyone there.
++	bool enter(int game, int room, int arrival, Common::String &problem);
+ 	void tap(int screenX, int screenY);
++	bool travel(int link); // through a door of this room (its index in the game's map)
++	void reachDoor();      // the one played stopped: through the door walked to, if there
++	void arrivals();       // wanderers coming in while the player watches
++	void stroll(int ticks); // those here walk about now and then
++	void step(int ticks);  // time passing: walking, wanderers, doors
+ 	// Leaves the sandbox: back to the game it was opened from (Maniac, where
+ 	// it was saved), else the app ends as Maniac's own quit does.
+ 	void back();
++	void request(int code); // from the Worlds menu
+ 	void present();
+ 	bool shot(const Common::String &name) const;
++	// Where the player is and where everyone is, kept between visits.
++	void saveState() const;
++	bool loadState(int &game, int &room, double &x, double &y);
+ 	// Checks without anyone at the screen (scummverse_selftest): "walk" in
+ 	// the start place, "all" through every place installed, "back" walks
+-	// then leaves as the menu's Back to Maniac Mansion does.
++	// then leaves as the menu's Back to Maniac Mansion does, "doors" through
++	// every door of every place, "wander" half an hour with everyone out.
+ 	Common::Error selfTest(const Common::String &mode);
+ 
+ 	const ADGameDescription *_desc;
+@@ -68,7 +95,19 @@ private:
+ 	int _width = 1280, _height = 720;
+ 	Common::Array<uint32> _frame;   // the stage, 0xAARRGGBB
+ 	Common::Array<byte> _converted; // the same in the screen's format
++	Common::HashMap<int, bool> _rooms;      // installed: game * 1024 + room
++	Common::HashMap<int, bool> _characters; // installed: appearance key
++	Common::HashMap<int, bool> _broken;     // characters that could not be shown
++	bool _wanderers = false;
++	bool _testing = false;
++	int _playerKey = 0;                     // the one played (appearance key)
+ 	int _game = -1, _room = 0, _player = -1, _people = 0;
++	Common::Array<int> _onStage;            // each actor's appearance key
++	int _door = -1;                         // the door walked to (index in the game's map)
++	double _doorTapX = 0, _doorTapY = 0;    // where it was tapped
++	int _strollClock = 0;
++	int _saveClock = 0;
++	Common::RandomSource _random;
+ };
+ 
+ } // End of namespace Scummverse

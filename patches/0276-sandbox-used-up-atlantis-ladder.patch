@@ -1,0 +1,362 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 2231ed00..6dd2f159 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -102,11 +102,15 @@ static const int kWorldExportVersion = 25;
+ // draft spun on the distaff; its things file "SVOA" as theirs: "loom-v27");
+ // from 0274 the mansion's again (what its one thing's answers give the kid,
+ // the cassette out of a deck among them, and the radio opened carried,
+-// kWorldMarkReaders' `picked`: "maniac-v42").
++// kWorldMarkReaders' `picked`: "maniac-v42"); from 0276 Fate of Atlantis's
++// again (a thing its game starts untouchable that an answer of two reveals
++// played on too, as one an answer of one reveals: room 18's ladder taken
++// back as the ladder: "atlantis-v30").
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+-	return kWorldExportVersion + (same(gameid, "maniac") ? 17 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 : same(gameid, "tentacle") ? 5 :
+-		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") || same(gameid, "atlantis") ? 4 :
++	return kWorldExportVersion + (same(gameid, "maniac") ? 17 : same(gameid, "monkey2") ? 7 : same(gameid, "monkey") ? 6 :
++		same(gameid, "tentacle") || same(gameid, "atlantis") ? 5 :
++		same(gameid, "zak") || same(gameid, "samnmax") || same(gameid, "dig") || same(gameid, "ft") || same(gameid, "comi") ? 4 :
+ 		same(gameid, "indy3") ? 3 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 5a5634aa..bf9d3160 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -4801,6 +4801,57 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	if (pairs && (useVerb || heldThing))
+ 		debug(1, "SCUMMVERSE world things: %s two things: %d runs (%d firsts that can be carried, %d of them from its start; %d used on or given to, %d of them people), %d answers (%d a second's own; %d leaving the place or running on; %d own saying and changing nothing left out; %d a thing held's usual, %d a thing used on's; %d with no picture to carry by left out); %d lines by someone else in its runs, %d first lines of someone not there",
+ 			kWorldGames[gameIndex].gameid, pairRuns, (int)carriedOnes.size(), started, (int)targets.size(), people, pairAnswers, pairOwn, pairLeft, pairSilent, heldUsual, targetUsual, unpictured, pairSpoken, pairUnshown);
++	// (From 0276 Fate of Atlantis's and the Last Crusade's: a thing its game
++	// starts untouchable that an answer of two shows and makes touchable too,
++	// played on from the picture it leaves it in, as one an answer of one
++	// reveals (revealedToo; Fate of Atlantis's ladder used in room 18: 200,
++	// there in its place, picked up gives the ladder back, as its own script
++	// does). Before, it had no answers: the plain rules took it as a thing of
++	// its own, no ladder. Not yet The Curse of Monkey Island's (room 69's
++	// 1164 talked to so fills its engine's queue of texts drawn that the
++	// export stops) nor Loom's (no answers of two).)
++	int pairRevealed = 0;
++	const int runsBefore = runs;
++	if (revealedToo && (_game.id == GID_INDY4 || _game.id == GID_INDY3)) {
++		const uint filed = answers.size(), todoBefore = todo.size();
++		for (uint n = 0; n < filed; ++n) {
++			if (!answers[n].with) continue;
++			for (uint k = 0; k + 2 < answers[n].others.size(); k += 3) {
++				const int value = answers[n].others[k + 2], other = answers[n].others[k + 1];
++				const uint32 at = (uint32)answers[n].others[k] << 16 | (uint16)other;
++				if (value == ScummverseAnswer::kGiven || (value & kScummverseTouchAsWas) || !revealed.contains(at)) continue;
++				const uint entry = entryIn.contains(at) ? entryIn[at] : entryOf.contains(other) ? entryOf[other] : 0xFFFFFFFF;
++				const uint place = entry >> 16;
++				if (place >= rooms.size() || place >= things.size() || worldLinkFrom(gameIndex, rooms[place], other)) continue;
++				const uint before = todo.size();
++				wanted(rooms[place], other, value & 0xFF);
++				pairRevealed += todo.size() > before;
++			}
++		}
++		for (uint next = todoBefore; next < todo.size() && !shouldQuit(); ++next) {
++			const From f = todo[next];
++			if (ran.contains(Common::String::format("%d %d %d", f.room, f.obj, f.picture))) continue;
++			for (uint v = 0; v < kinds.size() && !shouldQuit(); ++v) run(f.room, f.obj, f.picture, v);
++		}
++		// (A thing one of these gives listed once, given, as the answers of
++		// two have it (from 0260): not also in the picture its game's pick up
++		// leaves it in, there (the ladder's in room 48, whose entry script
++		// hides it again; the new engine carries it, its place as it was).)
++		for (uint n = filed; n < answers.size(); ++n) {
++			Common::Array<int> &others = answers[n].others;
++			Common::Array<int> kept;
++			for (uint k = 0; k + 2 < others.size(); k += 3) {
++				bool given = false;
++				for (uint g = 0; g + 2 < others.size() && !given; g += 3)
++					given = g != k && others[g + 2] == ScummverseAnswer::kGiven && others[g] == others[k] && others[g + 1] == others[k + 1];
++				if (given && others[k + 2] != ScummverseAnswer::kGiven && !(others[k + 2] & kScummverseTouchBits)) continue;
++				kept.push_back(others[k]); kept.push_back(others[k + 1]); kept.push_back(others[k + 2]);
++			}
++			others = kept;
++		}
++		debug(1, "SCUMMVERSE world things: %s %d things answers of two reveal played on: %d runs, %d answers in all",
++			kWorldGames[gameIndex].gameid, pairRevealed, runs - runsBefore, (int)answers.size());
++	}
+ 	// (From 0267 every answer's touches settled (scummverseSettleTouches); one
+ 	// left saying and changing nothing then, none.)
+ 	int settled = 0, touching = 0;
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 71697f73..c24e217e 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -897,6 +897,24 @@ void SandboxEngine::touchesAfter(int game, int room, int id, int kind, int from,
+ 	if (self == kTouchedTouchable || self == kTouchedUntouchable) _touched[thingKey(game, room, id)] = self;
+ }
+ 
++// From 0276 a thing carried that an answer uses up stays untouchable where
++// it was taken from, as its game's taking leaves it (its pick up sets its
++// untouchable class, the oldest games' state bit) and its using up does
++// not undo: before, it was a thing there again in the picture without it,
++// and an answer from that picture took it again, a second one (Fate of
++// Atlantis's ladder, room 48, used on the broken stairway, its script making
++// it untouchable). Until an answer makes it touchable or gives it back (the
++// stairway picked up: carried again). Kept, as every touch ("SVS8"). (Its
++// export leaves out of an answer's touches the things carried into it, as
++// their games have them untouchable then.)
++void SandboxEngine::useUp(int item) {
++	if (item < 0 || item >= (int)_carried.size()) return;
++	const Carried &c = _carried[item];
++	if (c.room > 0) _touched[thingKey(c.game, c.room, c.id)] = kTouchedUntouchable;
++	PanelBridge::removeItem(item);
++	_carried.remove_at(item);
++}
++
+ // From 0247, a thing of Sam & Max's as its game's own sentence answers a
+ // verb of its pointer (its things file): from the picture it is in, the
+ // lines said, its picture after, taken (carried, its place as the game
+@@ -1688,14 +1706,15 @@ bool SandboxEngine::pairOwn(const Pair &p) {
+ 			if (StageBridge::objectPictures(t.thing) > 1) { if (StageBridge::objectShown(t.thing) != after) showPicture(t.thing, id, after); }
+ 			else _pictures[thingKey(_game, _room, id)] = after;
+ 		}
+-		// (Used up: no longer carried; the later index first.)
++		// (Used up: no longer carried; the later index first. From 0276
++		// untouchable where it was taken from: useUp.)
+ 		Common::Array<int> gone;
+ 		if ((flags & 4) && t.withItem >= 0) gone.push_back(t.withItem);
+ 		if ((flags & 2) && t.item >= 0) gone.push_back(t.item);
+ 		Common::sort(gone.begin(), gone.end());
+ 		for (int k = (int)gone.size() - 1; k >= 0; --k) {
+ 			if (gone[k] >= (int)_carried.size() || (k + 1 < (int)gone.size() && gone[k + 1] == gone[k])) continue;
+-			PanelBridge::removeItem(gone[k]); _carried.remove_at(gone[k]);
++			useUp(gone[k]);
+ 		}
+ 		for (int k = 0; k < count; ++k) {
+ 			const int r = others[4 * k], o = others[4 * k + 1], picture = others[4 * k + 2];
+@@ -1768,7 +1787,7 @@ bool SandboxEngine::pairPerson(const Pair &p) {
+ 	if (!(flags & 8)) flags &= ~6;
+ 	if (!(flags & 8) && !lines && !count && !touchedCount) return false;
+ 	sayAnswer(_game, room, id, kWorldVerbGive, 0, c.id, lines);
+-	if (flags & 4) { PanelBridge::removeItem(p.item); _carried.remove_at(p.item); }
++	if (flags & 4) useUp(p.item); // (from 0276 untouchable where it was taken from)
+ 	for (int k = 0; k < count; ++k) {
+ 		const int r = others[4 * k], o = others[4 * k + 1], picture = others[4 * k + 2];
+ 		if (isCarried(_game, r, o)) continue;
+@@ -6061,6 +6080,177 @@ SandboxEngine::TouchedDoors SandboxEngine::touchedDoors(bool verbs) {
+ 	return c;
+ }
+ 
++// From 0276 (the "verbs" check): each answer of one thing of its game's
++// things file that gives back a thing of a place (an other given) which an
++// own answer of two in the same place uses up (Use with it), the two in turn
++// a loop: the one using it up leaves the giving one's thing in the picture
++// it gives from, touchable (that thing itself, or one it shows: Fate of
++// Atlantis's broken stairway, room 48, the ladder put on it and taken back;
++// room 18's hole, the ladder put in it, there in its place, taken back), and
++// the giving leaves the one it is used on as that answer begins. Played as
++// a player plays them: the thing taken where it lies, as its own answer
++// takes it (where one does; else carried as found); used up (no longer
++// carried; the giving one's thing in its picture, touchable; no thing where
++// it lay, not taken twice); given back (carried, the giving one's thing in
++// its picture after); used up again; what each makes touchable or
++// untouchable kept so (touchesAfter: room 48's metal door open, shut, open);
++// each step kept through a save and a load. Each as it was again after.
++SandboxEngine::GivenAgain SandboxEngine::givenAgain() {
++	GivenAgain c;
++	Common::String problem;
++	const Common::HashMap<int, int> keptPictures = _pictures, keptTouched = _touched;
++	const int wasGame = _game, wasRoom = _room;
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, w, h, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, w, h, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto carriedAt = [&](int g, int room, int id) {
++		for (uint k = 0; k < _carried.size(); ++k) if (_carried[k].game == g && _carried[k].room == room && _carried[k].id == id) return (int)k;
++		return -1;
++	};
++	auto drop = [&](int g, int room, int id) {
++		const int k = carriedAt(g, room, id);
++		if (k >= 0) { PanelBridge::removeItem(k); _carried.remove_at(k); }
++	};
++	// (At it, as a player reaches it: the verb used there.)
++	auto reach = [&](int o) {
++		double x, y;
++		_speech.clear(); _saying.clear(); _notice.clear(); _noticeClock = 0;
++		if (o < 0 || !doorPoint(o, x, y)) return false;
++		StageBridge::walkable(x, y);
++		StageBridge::place(_player, x, y);
++		return true;
++	};
++	auto doAt = [&](int kind, int o) {
++		if (!reach(o)) return false;
++		_action = kind; _target = o;
++		act();
++		return true;
++	};
++	// (Saved; everything let go; loaded back, its place shown again.)
++	auto reload = [&]() {
++		saveState();
++		_carried.clear(); _carriedAway.clear(); PanelBridge::clearItems(); forgetThings();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy) && enter(sg, sr, 0, problem);
++	};
++	for (int g = 0; g < worldGameCount(); ++g) {
++		if (!ownSentences(g) || !pairsAnswered(g)) continue;
++		loadThings(g);
++		for (int k = 0; k < PanelBridge::effectCount(g); ++k) {
++			int room, id, kind, from, with = 0, after, flags, others[4 * 64], count, lines;
++			if (!PanelBridge::effectAt(g, k, room, id, kind, from, &with) || with || id >= kWorldPersonThing ||
++				!PanelBridge::thingAnswer(g, room, id, kind, from, 0, after, flags, others, count, 64, lines) || (flags & 1)) continue;
++			for (int i = 0; i < count; ++i) {
++				const int r = others[4 * i], t = others[4 * i + 1];
++				if (!others[4 * i + 3] || r <= 0 || (r == room && t == id)) continue;
++				for (int u = 0; u < PanelBridge::effectCount(g); ++u) {
++					int useRoom, on, useKind, useFrom, useWith = 0, useAfter, useFlags, useOthers[4 * 64], useCount, useLines;
++					// (Its own answer, the thing used up, not taken.)
++					if (!PanelBridge::effectAt(g, u, useRoom, on, useKind, useFrom, &useWith) || useRoom != room || useWith != t || useKind != kWorldVerbUse || on >= kWorldPersonThing ||
++						!PanelBridge::thingAnswer(g, room, on, kWorldVerbUse, useFrom, t, useAfter, useFlags, useOthers, useCount, 64, useLines) || (useFlags & 13) != 12) continue;
++					// (The giving one's thing then in the picture it gives from;
++					// the one used on, once given back, as that answer begins.)
++					int shown = on == id ? useAfter : -1, left = on == id ? after : useAfter;
++					for (int q = 0; q < useCount && on != id; ++q) if (useOthers[4 * q] == room && useOthers[4 * q + 1] == id && !useOthers[4 * q + 3]) shown = useOthers[4 * q + 2];
++					for (int q = 0; q < count && on != id; ++q) if (others[4 * q] == room && others[4 * q + 1] == on && !others[4 * q + 3]) left = others[4 * q + 2];
++					if (shown != from || left != useFrom) continue;
++					++c.chains;
++					if (!installed(g, room) || !installed(g, r)) { ++c.away; continue; }
++					_pictures = keptPictures; _touched = keptTouched;
++					forgetThing(thingKey(g, room, id)); forgetThing(thingKey(g, room, on)); forgetThing(thingKey(g, r, t));
++					drop(g, r, t);
++					// (What an answer makes touchable or untouchable, as touchesAfter keeps it.)
++					auto touchedAs = [&](int thing, int aKind, int aFrom, int aWith) {
++						int touched[3 * 64], touchedCount, self;
++						if (!PanelBridge::answerTouches(g, room, thing, aKind, aFrom, aWith, touched, touchedCount, 64, self)) return false;
++						for (int q = 0; q <= touchedCount; ++q) {
++							const int key = q < touchedCount ? thingKey(g, touched[3 * q], touched[3 * q + 1]) : thingKey(g, room, thing), value = q < touchedCount ? touched[3 * q + 2] : self;
++							if ((value == kTouchedTouchable || value == kTouchedUntouchable) && (!_touched.contains(key) || _touched[key] != value)) return false;
++						}
++						return true;
++					};
++					auto here = [&]() { return (_game == g && _room == room) || enter(g, room, 0, problem); };
++					auto shownAs = [&](int thing, int picture) { const int o = here() ? thingIn(thing) : -1; return o >= 0 && pictureNow(o, thing) == picture; };
++					// (Where it lay: no thing there; back here.)
++					auto notThere = [&]() {
++						if ((_game != g || _room != r) && !enter(g, r, 0, problem)) return false;
++						const int at = thingIn(t);
++						return (at < 0 || !isThing(at)) && here();
++					};
++					// (Used up: no longer carried, the one used on in its picture
++					// after, the giving one's thing in the picture it gives from,
++					// a thing there; what it makes touchable or untouchable.)
++					auto usedUp = [&]() {
++						const int giving = here() ? thingIn(id) : -1;
++						return carriedAt(g, r, t) < 0 && shownAs(on, useAfter) && shownAs(id, from) && giving >= 0 && isThing(giving) && touchedAs(on, kWorldVerbUse, useFrom, t) && notThere();
++					};
++					const char *step = "taken where it lies";
++					int found, answers, take = 0;
++					if (!PanelBridge::gameThing(g, r, t, found, answers)) found = 0;
++					for (int q = 0; q < PanelBridge::effectCount(g) && !take; ++q) {
++						int qRoom, qId, qKind, qFrom, qWith = 0, qAfter, qFlags, qOthers[4], qCount, qLines;
++						if (PanelBridge::effectAt(g, q, qRoom, qId, qKind, qFrom, &qWith) && !qWith && qRoom == r && qId == t && qFrom == found &&
++							PanelBridge::thingAnswer(g, r, t, qKind, qFrom, 0, qAfter, qFlags, qOthers, qCount, 1, qLines) && (qFlags & 1)) take = qKind;
++					}
++					bool ok = enter(g, r, 0, problem);
++					const int lies = ok ? thingIn(t) : -1;
++					if (take && lies >= 0 && isThing(lies)) ok = doAt(take, lies) && carriedAt(g, r, t) >= 0;
++					else ok = ok && carry(g, r, t, "", found);
++					// Used up on the one it is used on, from the picture that begins with.
++					auto useIt = [&]() {
++						const int o = here() ? thingIn(on) : -1, item = carriedAt(g, r, t);
++						if (o < 0 || item < 0 || pictureNow(o, on) != useFrom || !reach(o)) return false;
++						Pair p;
++						p.kind = kWorldVerbUse; p.item = item; p.withThing = o;
++						pairUp(p);
++						return usedUp();
++					};
++					if (ok) {
++						step = "used up";
++						const int o = here() ? thingIn(on) : -1;
++						if (o >= 0 && StageBridge::objectPictures(o) > 1) showPicture(o, on, useFrom);
++						else if (o >= 0) _pictures[thingKey(g, room, on)] = useFrom;
++						// (No thing a player can use it on once it is taken (The Curse
++						// of Monkey Island's room 61: taking 974 makes 995 untouchable):
++						// no loop, not played.)
++						if (o >= 0 && !isThing(o)) { ++c.unplayable; drop(g, r, t); _pictures = keptPictures; _touched = keptTouched; continue; }
++						ok = o >= 0 && useIt();
++					}
++					if (ok) { step = "used up, saved and loaded"; ok = reload() && usedUp(); }
++					// Given back.
++					auto backAgain = [&]() { return carriedAt(g, r, t) >= 0 && shownAs(id, after) && shownAs(on, useFrom) && touchedAs(id, kind, from, 0); };
++					if (ok) {
++						step = "given back";
++						const int o = here() ? thingIn(id) : -1;
++						ok = o >= 0 && doAt(kind, o) && backAgain();
++					}
++					if (ok) { step = "given back, saved and loaded"; ok = reload() && backAgain(); }
++					// Used up again.
++					if (ok) { step = "used up again"; ok = useIt(); }
++					if (ok) { step = "used up again, saved and loaded"; ok = reload() && usedUp(); }
++					if (ok) ++c.seen;
++					else {
++						++c.failed;
++						warning("SCUMMVERSE sandbox given back %s-%d object %d (verb %d from %d) giving %d of room %d, used up on %d from %d: not as its game leaves it once %s",
++							kWorldGames[g].gameid, room, id, kind, from, t, r, on, useFrom, step);
++					}
++					_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++					drop(g, r, t);
++					_pictures = keptPictures; _touched = keptTouched;
++				}
++			}
++		}
++	}
++	_pictures = keptPictures; _touched = keptTouched;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // Every game's verb panel: under its first place at the scene's scale, each
+ // verb chosen by a tap (the sentence line naming it) and let go by another;
+ // then, on the things there, by a tap on the verb and one on the thing
+@@ -10829,6 +11019,14 @@ Common::Error SandboxEngine::verbsTest() {
+ 		"%d made touchable again by another answer, a door again; %d made touchable a door then; %d whose games make them so only in a state this engine does not play, doors all the same; %d failed",
+ 		doorsTouched.records, doorsTouched.doors, doorsTouched.blocked, doorsTouched.verbTaps, doorsTouched.kept, doorsTouched.restored, doorsTouched.opened, doorsTouched.apart, doorsTouched.failed);
+ 	failed += doorsTouched.failed;
++	// (From 0276 each answer giving back a thing that an answer of two there
++	// uses up, the two played in turn: givenAgain.)
++	const GivenAgain loops = givenAgain();
++	warning("SCUMMVERSE sandbox selftest given back: %d of %d answers giving back a thing that an answer of two there uses up, played in turn as a player plays them "
++		"(taken where it lay; used up: no longer carried, the giving one's thing touchable, no thing where it lay; given back: carried; used up again; what each makes "
++		"touchable or untouchable kept so; each kept through a save and a load); %d not tried (a place not installed), %d no loop (no thing to use it on once taken); %d failed",
++		loops.seen, loops.chains, loops.away, loops.unplayable, loops.failed);
++	failed += loops.failed;
+ 	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again (%d flashlight, %d pool, %d links), the main power off in %d places and on again, %d doors gone through with a verb chosen on the way, %d padlocked doors opened, %d failed",
+ 		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, flashlit, pools, links, powered, onTheWay, padlocks, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 059a55d3..57a1b777 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -349,6 +349,10 @@ private:
+ 	// 0 none, else that second's own, else its usual one) makes touchable or
+ 	// untouchable, the thing itself too: kept (_touched).
+ 	void touchesAfter(int game, int room, int id, int kind, int from, int with);
++	// From 0276 a thing carried an answer uses up: no longer carried, and
++	// untouchable where it was taken from (_touched), as its game's taking
++	// leaves it.
++	void useUp(int item);
+ 	// Timed events (from 0250; kWorldTimed): what a game's script does a
+ 	// while after the one played leaves a place so (the mansion's package at
+ 	// its front door, its mail's pickup), on this engine's clock as the
+@@ -571,6 +575,12 @@ private:
+ 	// it.)
+ 	struct TouchedDoors { int records = 0, doors = 0, blocked = 0, kept = 0, restored = 0, opened = 0, apart = 0, verbTaps = 0, failed = 0; };
+ 	TouchedDoors touchedDoors(bool verbs);
++	// (From 0276 the "verbs" check's: each answer of one thing that gives
++	// back a thing an answer of two in the same place uses up, the two a
++	// loop, played in turn as a player plays them. Counted; `failed` where
++	// one is not as its game leaves it.)
++	struct GivenAgain { int chains = 0, seen = 0, away = 0, unplayable = 0, failed = 0; };
++	GivenAgain givenAgain();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

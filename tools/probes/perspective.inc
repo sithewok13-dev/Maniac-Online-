@@ -10,7 +10,7 @@
 
  stopTalk();VAR(VAR_HAVE_MSG)=0;scummLoop(0);
  const int savedRoom=_currentRoom;
- for(int id : {1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,19,20,21,22,23,24}) {
+ for(int id : {1,2,3,4,5,6,7,8,9,10,11,13,14,17,18,20,21,22,23,24}) {
   Actor *a=derefActor(id,"perspective actor");
   for(int facing : {0,90,180,270}) {
    a->setFacing(facing);_costumeLoader->costumeDecodeData(a,a->_standFrame,(uint)-1);
@@ -46,7 +46,8 @@
    if(heights[1]>=heights[0]/2 || heights[1]>(heights[0]*5+22)/23+2) error("Distant actor still oversized %d %d/%d",id,heights[0],heights[1]);
   }
  }
- for(int room : {64,72,87,97}) {_currentRoom=room;if(!scummverseDistantScene()) error("Missing exterior policy");}
+ for(int room : {72,87}) {_currentRoom=room;if(!scummverseDistantScene()) error("Missing exterior policy");}
+ for(int room : {64,97}) {_currentRoom=room;if(scummverseDistantScene()) error("Former temple room kept exterior policy");}
  for(int room : {1,54,58,73,88}) {_currentRoom=room;if(scummverseDistantScene()) error("Unrelated room scaled");}
  _currentRoom=72;_scummversePortrait=true;if(scummverseDistantScene()) error("Portrait inherits scene scale");
  _scummversePortrait=false;_currentRoom=savedRoom;

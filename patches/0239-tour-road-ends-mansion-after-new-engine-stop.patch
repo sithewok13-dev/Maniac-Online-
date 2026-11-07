@@ -1,0 +1,87 @@
+diff --git a/base/main.cpp b/base/main.cpp
+index 66f7c433..4aff8ea6 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -1021,6 +1021,19 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			const Common::String slot = resume ? transient->getVal("save_slot") : Common::String();
+ 			*transient = maniacTransient;
+ 			if (resume) transient->setVal("save_slot", slot);
++			// (The app stopped while the new engine was open, and started
++			// again: the mansion where it was saved for it, not afresh.)
++			if (ConfMan.hasKey(Scummverse::kSandboxOpenKey, Common::ConfigManager::kApplicationDomain)) {
++				Common::String home;
++				int homeSlot = -1;
++				if (!transient->contains("save_slot")) scummverseStoryHome(maniacTarget, home, homeSlot);
++				if (homeSlot != -1) {
++					warning("SCUMMVERSE: the mansion where it was when the new engine was opened");
++					ConfMan.setInt("save_slot", homeSlot, Common::ConfigManager::kTransientDomain);
++				}
++				ConfMan.removeKey(Scummverse::kSandboxOpenKey, Common::ConfigManager::kApplicationDomain);
++				ConfMan.flushToDisk();
++			}
+ 			// (No story to go on in at the next start: the mansion is playing.)
+ 			if (ConfMan.hasKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain)) {
+ 				ConfMan.removeKey(Scummverse::kStoryPlayingKey, Common::ConfigManager::kApplicationDomain);
+diff --git a/common/scummverse_story.h b/common/scummverse_story.h
+index d590e2ab..7b7130ea 100644
+--- a/common/scummverse_story.h
++++ b/common/scummverse_story.h
+@@ -175,6 +175,13 @@ inline Common::String storyLacks(const char *gameid, const Common::Path &path) {
+ // cleared when the mansion starts again.
+ static const char *const kStoryPlayingKey = "scummverse_story_playing";
+ 
++// Explore mode's new engine opened from the mansion, the mansion saved for
++// it in its slot 100: set as the mansion leaves for it, cleared when the
++// mansion starts again. Still set at a start (the app stopped while the new
++// engine was open, which writes no restore point for the mansion), the
++// mansion starts from that save, where it was.
++static const char *const kSandboxOpenKey = "scummverse_sandbox_open";
++
+ // The story to go on in at this start: its target, else empty (none, or
+ // its folder or a file it needs is gone).
+ inline Common::String storyToResume() {
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 9af7bac7..45be817a 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -111,6 +111,10 @@ void ScummEngine::scummverseOpenSandbox() {
+ 	ConfMan.set("gameid", "sandbox", kSandboxTarget);
+ 	ConfMan.set("description", "Scummverse sandbox", kSandboxTarget);
+ 	ConfMan.setPath("path", scummverseWorldCache(), kSandboxTarget);
++	// (So a start after the app was stopped in the new engine finds the
++	// mansion here: base/main.cpp.)
++	ConfMan.setBool(::Scummverse::kSandboxOpenKey, true, Common::ConfigManager::kApplicationDomain);
++	ConfMan.flushToDisk();
+ 	ChainedGamesMan.push(kSandboxTarget);
+ 	ChainedGamesMan.push(ConfMan.getActiveDomainName(), 100);
+ 	Common::Event event;
+diff --git a/engines/scumm/scummverse_worlds.inc b/engines/scumm/scummverse_worlds.inc
+index 0bc7f601..6c105c03 100644
+--- a/engines/scumm/scummverse_worlds.inc
++++ b/engines/scumm/scummverse_worlds.inc
+@@ -577,11 +577,22 @@ void ScummEngine::scummverseUpdateTransit(int delta) {
+ 	int x = player->getRealPos().x;
+ 	bool edge = (_currentRoom == 1 && x == 0) || (_currentRoom == 44 && x >= 37) ||
+ 		(_currentRoom == 53 && x <= 1);
+-	if (!edge) _scummverseTransitArmed = true;
+-	if (edge && _scummverseTransitArmed && !player->_moving && !_scummverseTouring) {
++	// (The tour's own walks are not the player's: armed only while the player
++	// has the controls, not touring or the tour paused, once they have stood
++	// off the edge.)
++	if (_scummverseTouring && !_scummverseTourPaused) _scummverseTransitArmed = false;
++	else if (!edge) _scummverseTransitArmed = true;
++	if (edge && _scummverseTransitArmed && !player->_moving) {
+ 		_scummverseTransitArmed = false;
++		// Paused, the player walked off the road's end to the airport: the
++		// tour ends where it is first, as when somewhere else is chosen (the
++		// way back is the stop left from). (At the gate, a flight boarded
++		// paused ends it as any ride does: scummverseUpdateTour.)
+ 		if (_currentRoom == 53) scummverseBoard();
+-		else scummverseTravel(3);
++		else {
++			if (_scummverseTouring && scummverseMountAirport()) scummverseTourEnd(false);
++			scummverseTravel(3);
++		}
+ 	}
+ }
+ 

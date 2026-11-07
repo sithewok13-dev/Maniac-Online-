@@ -1,0 +1,123 @@
+diff --git a/common/scummverse_text.h b/common/scummverse_text.h
+new file mode 100644
+index 00000000..1b7ee63d
+--- /dev/null
++++ b/common/scummverse_text.h
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// Scummverse portable speech wrapping. Breaks between words at most `columns`
++// wide using '\r' (the SCUMM V1 line break); only a word longer than a line
++// is split. Drops bytes >= 128 (V1 fonts are ASCII). Treats '\n'/'\r' as
++// explicit breaks. Always NUL-terminates `out`; returns the number of lines.
++#ifndef COMMON_SCUMMVERSE_TEXT_H
++#define COMMON_SCUMMVERSE_TEXT_H
++namespace Scummverse {
++inline int wrapSpeech(const char *in, char *out, int capacity, int columns) {
++ if (!out || capacity < 1) return 0;
++ out[0] = 0;
++ if (!in || columns < 1) return 0;
++ int length = 0, column = 0, lines = 1;
++ auto put = [&](char c) { if (length < capacity - 1) out[length++] = c; };
++ const char *p = in;
++ while (*p) {
++  const unsigned char c = (unsigned char)*p;
++  if (c == '\n' || c == '\r') { put('\r'); column = 0; ++lines; ++p; continue; }
++  if (c == ' ' || c >= 128) { ++p; continue; }
++  const char *end = p; int word = 0;
++  while (*end && *end != ' ' && *end != '\n' && *end != '\r') { if ((unsigned char)*end < 128) ++word; ++end; }
++  if (column && column + 1 + word > columns) { put('\r'); column = 0; ++lines; }
++  else if (column) { put(' '); ++column; }
++  for (; p < end; ++p) {
++   if ((unsigned char)*p >= 128) continue;
++   if (column == columns) { put('\r'); column = 0; ++lines; }
++   put(*p); ++column;
++  }
++ }
++ out[length] = 0;
++ return lines;
++}
++}
++#endif
+diff --git a/engines/scumm/charset.cpp b/engines/scumm/charset.cpp
+index f459887b..0bc1565b 100644
+--- a/engines/scumm/charset.cpp
++++ b/engines/scumm/charset.cpp
+@@ -748,6 +748,12 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 	byte prevBits = 0;
+ 	bool leftShadePixel = false;
+ 	int savedX = x;
++	// Sandbox speech on phones: fill each glyph cell's empty pixels black so
++	// lines read as a solid subtitle band over any scene. Verbs are unchanged.
++	const bool backdrop = _vm->scummverseSandbox() && &dest == &_vm->_textSurface;
++	// Dark EGA speaker colors become their bright counterparts on the band.
++	if (backdrop && _vm->_game.version <= 2)
++		col = (col >= 1 && col <= 5) ? col + 8 : col == 6 ? 14 : col == 8 ? 7 : col;
+ 
+ 	for (y = 0; y < height && y + drawTop < dest.h; y++) {
+ 		for (x = 0; x < width; x++) {
+@@ -785,6 +791,8 @@ void CharsetRendererPC::drawBits1(Graphics::Surface &dest, int x, int y, const b
+ 
+ 			} else if (!(bits & revBitMask(x % 8))) {
+ 				leftShadePixel = true;
++				if (backdrop && y + drawTop >= 0 && dst[0] == CHARSET_MASK_TRANSPARENCY)
++					dst[0] = _shadowColor;
+ 				if (y < height - 1 && _vm->_useCJKMode && _vm->_game.platform == Common::kPlatformSegaCD)
+ 					dst[0] = 0;
+ 			}
+@@ -885,6 +893,10 @@ void CharsetRendererV3::setColor(byte color, bool shadowModeSpecialFlag) {
+ 		mode = (_color & 0x80) ? kNormalShadowType : kNoShadowType;
+ 		_color &= 0x0f;
+ 	}
++	// Sandbox text is drawn over busy imported scenes on small phone screens:
++	// a black outline keeps every speaker's colored text legible.
++	if (_vm->scummverseSandbox() && _vm->_game.version <= 2 && _color != 0)
++		mode = kOutlineShadowType;
+ 
+ 	setShadowMode(mode);
+ 
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 4ded9aba..85bdaf99 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -4218,6 +4218,7 @@ void ScummEngine::errorString(const char *buf1, char *buf2, int buf2Size) {
+ }
+ 
+ 
++#include "common/scummverse_text.h"
+ #include "scumm/scummverse_worlds.inc"
+ #include "scumm/scummverse_roaming.inc"
+ 
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index dd1957ac..a03cf6c1 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -1367,6 +1367,7 @@ public:
+  void scummverseRestoreSeats();
+  void scummverseRestoreSceneObjects();
+  bool scummverseImportedScene() const { return _scummverseRoaming && ScummverseContent::foreignRoom(_currentRoom); }
++ bool scummverseSandbox() const { return _scummverseRoaming; }
+ 
+ protected:
+ 	void initScreens(int b, int h);
+diff --git a/engines/scumm/scummverse_roaming.inc b/engines/scumm/scummverse_roaming.inc
+index d6b03eb9..4e350b11 100644
+--- a/engines/scumm/scummverse_roaming.inc
++++ b/engines/scumm/scummverse_roaming.inc
+@@ -220,13 +220,10 @@ void ScummEngine::scummverseSay(int actor, const char *line) {
+ 	_string[0].xpos = 0; _string[0].ypos = 0;
+ 	_string[0].right = _screenWidth - 1;
+ 	_string[0].center = false; _string[0].overhead = false;
+-	Common::String text;
+-	int column=0, lines=1;
+-	for(const char *p=line;*p;++p) {
+-		if((unsigned char)*p>=128) continue;
+-		if(column>=28 || *p=='\n' || *p=='\r') { text+='\r'; column=0; ++lines; if(*p==' ' || *p=='\n' || *p=='\r') continue; }
+-		text+=*p; ++column;
+-	}
++	// Word-wrapped at 28 columns (common/scummverse_text.h, unit-tested).
++	char wrapped[600];
++	const int lines=Scummverse::wrapSpeech(line,wrapped,sizeof(wrapped),28);
++	Common::String text(wrapped);
+ 	Actor *speaker=derefActor(actor,"scene speech");
+ 	_string[0].xpos=CLIP(speaker->getPos().x-_virtscr[0].xstart-112,0,MAX(0,_screenWidth-224));
+ 	_string[0].ypos=MAX(16,speaker->getPos().y-82-lines*8+_virtscr[0].topline);

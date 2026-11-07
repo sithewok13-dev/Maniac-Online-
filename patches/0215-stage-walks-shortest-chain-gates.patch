@@ -1,0 +1,138 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index fafadc40..44c7bb23 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -106,24 +106,58 @@ bool touching(const Box &a, const Box &b, double gap) {
+ 	return false;
+ }
+ 
+-// Where to cross from box `from` into box `into`: a point of `into` within
+-// the gap of `from`, the best on the way from `at` to `goal`.
+-// (Points along its edges, and where `from`'s corners meet them: a corner
+-// touching an edge may fall between the points along it.)
+-static Point crossing(const Box &from, const Box &into, Point at, Point goal) {
+-	Point best = closest(into, at);
++// Where the segment from p to q crosses the one from a to b, if it does.
++static bool meeting(Point p, Point q, Point a, Point b, Point &at) {
++	const double sp = cross(a, b, p), sq = cross(a, b, q);
++	if (sp == sq || sp * sq > 0 || cross(p, q, a) * cross(p, q, b) > 0) return false;
++	const double t = sp / (sp - sq);
++	at = Point(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t);
++	return true;
++}
++
++// A gap between boxes the game's table joins (no floor there), counted as
++// four times as far as a walk on the boxes.
++static const double kGapWeight = 4;
++
++// Where to cross from box `from` into box `into` on the way from `at` to
++// `goal`: the points to walk through (one, or two), the last in `into`.
++// Already in it: where they are. Else a point of `into` within the gap of
++// `from`, the best on the way. (Points along its edges, where `from`'s
++// corners meet them, as a corner touching an edge may fall between the
++// points along it, and where the straight way on crosses them.)
++static int crossing(const Box &from, const Box &into, Point at, Point goal, Point step[2]) {
++	step[0] = at;
++	if (inside(into, at)) return 1;
+ 	double score = -1;
+ 	auto consider = [&](Point q) {
+-		if (!inside(from, q, kBoxGap + 0.5)) return;
+ 		const double s = distance(at, q) + distance(q, goal);
+-		if (score < 0 || s < score) { score = s; best = q; }
++		if ((score < 0 || s < score) && inside(from, q, kBoxGap + 0.5)) { score = s; step[0] = q; }
+ 	};
++	Point q;
+ 	for (int i = 0; i < 4; ++i) {
+ 		const Point a = into.corner[i], b = into.corner[(i + 1) % 4];
+ 		for (int k = 0; k <= 32; ++k) consider(Point(a.x + (b.x - a.x) * k / 32.0, a.y + (b.y - a.y) * k / 32.0));
+ 		for (int j = 0; j < 4; ++j) consider(onSegment(a, b, from.corner[j]));
++		if (meeting(at, goal, a, b, q)) consider(q);
+ 	}
+-	return best;
++	if (score >= 0) return 1;
++	// Apart (joined by the game's table): first to the edge of `from` where
++	// it is best left, as the games walk to the gate in their own box, then
++	// across the gap to the nearest point of `into`.
++	auto gate = [&](Point p) {
++		if (score >= 0 && distance(at, p) + distance(p, goal) >= score) return; // (no better, however near)
++		const Point r = closest(into, p);
++		const double s = distance(at, p) + kGapWeight * distance(p, r) + distance(r, goal);
++		if (score < 0 || s < score) { score = s; step[0] = p; step[1] = r; }
++	};
++	for (int i = 0; i < 4; ++i) {
++		const Point a = from.corner[i], b = from.corner[(i + 1) % 4];
++		for (int k = 0; k <= 32; ++k) gate(Point(a.x + (b.x - a.x) * k / 32.0, a.y + (b.y - a.y) * k / 32.0));
++		for (int j = 0; j < 4; ++j) gate(onSegment(a, b, into.corner[j]));
++		gate(onSegment(a, b, at));
++		if (meeting(at, goal, a, b, q)) gate(q);
++	}
++	return 2;
+ }
+ 
+ // The groups of boxes reachable from one another, from which meet.
+@@ -174,24 +208,54 @@ std::vector<Point> path(const std::vector<Box> &boxes, const Links &links, Point
+ 	if (boxes.empty() || links.group.size() != boxes.size()) return route;
+ 	const int start = boxAt(boxes, from);
+ 	int end = boxAt(boxes, to);
+-	// Breadth first over boxes that meet.
++	// The boxes they can reach: breadth first over boxes that meet.
+ 	const int n = (int)boxes.size();
+-	std::vector<int> came(n, -2), queue(1, start);
+-	came[start] = -1;
+-	for (size_t q = 0; q < queue.size() && came[end] == -2; ++q)
++	std::vector<int> queue(1, start);
++	std::vector<char> reached(n, 0);
++	reached[start] = 1;
++	for (size_t q = 0; q < queue.size() && !reached[end]; ++q)
+ 		for (int j = 0; j < n; ++j)
+-			if (came[j] == -2 && links.meets(queue[q], j)) { came[j] = queue[q]; queue.push_back(j); }
++			if (!reached[j] && links.meets(queue[q], j)) { reached[j] = 1; queue.push_back(j); }
+ 	// Cut off: as near as they can get, in the box they can reach nearest it.
+-	if (came[end] == -2)
++	if (!reached[end])
+ 		for (int b : queue)
+-			if (came[end] == -2 || distance(closest(boxes[b], to), to) < distance(closest(boxes[end], to), to)) end = b;
++			if (!reached[end] || distance(closest(boxes[b], to), to) < distance(closest(boxes[end], to), to)) end = b;
+ 	to = closest(boxes[end], to);
++	// How many boxes on to the last from each (breadth first back from it).
++	std::vector<int> left(n, -1);
++	queue.assign(1, end);
++	left[end] = 0;
++	for (size_t q = 0; q < queue.size() && left[start] < 0; ++q)
++		for (int j = 0; j < n; ++j)
++			if (left[j] < 0 && links.meets(j, queue[q])) { left[j] = left[queue[q]] + 1; queue.push_back(j); }
++	// Through the fewest boxes, as the games walk: from each box into those
++	// one nearer the last; into each the best of those ways, by the way walked
++	// to where it is entered (from where the box before was; a gap counted
++	// kGapWeight times) and on straight from there.
++	std::vector<int> came(n, -2);
++	std::vector<double> walked(n, 0);
++	std::vector<Point> gate(n), entry(n);
++	std::vector<char> apart(n, 0);
++	queue.assign(1, start);
++	came[start] = -1; entry[start] = from;
++	for (size_t q = 0; q < queue.size() && queue[q] != end; ++q) {
++		const int u = queue[q];
++		for (int v = 0; v < n; ++v) {
++			if (left[v] != left[u] - 1 || !links.meets(u, v)) continue;
++			Point step[2];
++			const int steps = crossing(boxes[u], boxes[v], entry[u], to, step);
++			const double w = walked[u] + distance(entry[u], step[0]) + kGapWeight * distance(step[0], step[steps - 1]);
++			if (came[v] == -2) queue.push_back(v);
++			else if (w + distance(step[steps - 1], to) >= walked[v] + distance(entry[v], to)) continue;
++			came[v] = u; walked[v] = w;
++			gate[v] = step[0]; entry[v] = step[steps - 1]; apart[v] = steps == 2;
++		}
++	}
+ 	std::vector<int> chain;
+-	for (int b = end; b != -1; b = came[b]) chain.insert(chain.begin(), b);
+-	Point at = from;
++	for (int b = end; b >= 0; b = came[b]) chain.insert(chain.begin(), b);
+ 	for (size_t i = 1; i < chain.size(); ++i) {
+-		at = crossing(boxes[chain[i - 1]], boxes[chain[i]], at, to);
+-		route.push_back(at);
++		if (apart[chain[i]]) route.push_back(gate[chain[i]]);
++		route.push_back(entry[chain[i]]);
+ 	}
+ 	route.push_back(to);
+ 	return route;

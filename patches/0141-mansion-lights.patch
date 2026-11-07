@@ -1,0 +1,302 @@
+diff --git a/common/scummverse_stage.cpp b/common/scummverse_stage.cpp
+index 769397a2..8b057c0c 100644
+--- a/common/scummverse_stage.cpp
++++ b/common/scummverse_stage.cpp
+@@ -227,7 +227,7 @@ std::vector<Box> boxesOf(const World::SourceScene &scene) {
+ bool Scene::load(const uint8_t *data, size_t size, double pixelAspect, int gameScreenWidth, int screenWidth, int screenHeight, std::string &error) {
+ 	World::SourceScene source;
+ 	if (!World::parseScene(data, size, source, error)) return false;
+-	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _props.clear(); _follow = -1; _cameraGoal = 0;
++	_source = std::move(source); _boxes = boxesOf(_source); _actors.clear(); _props.clear(); _follow = -1; _cameraGoal = 0; _dark = false;
+ 	_links = linksOf(_boxes, _source.boxNext, (int)_source.boxes.size());
+ 	_view = View::fit(_source.width, _source.height, pixelAspect, gameScreenWidth, screenWidth, screenHeight);
+ 	for (int c = 0; c < 256; ++c)
+@@ -469,7 +469,7 @@ int Scene::addProp(const uint8_t *pixels, int width, int height, int none, const
+ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	const View &v = _view;
+ 	for (int y = 0; y < v.screenHeight; ++y) std::fill(pixels + (size_t)y * pitch, pixels + (size_t)y * pitch + v.screenWidth, 0xFF000000u);
+-	const int shown = std::min(v.width - v.camera, v.screenWidth - v.left);
++	const int shown = _dark ? 0 : std::min(v.width - v.camera, v.screenWidth - v.left);
+ 	for (int y = 0; y < std::min(v.height, v.screenHeight - v.top) && shown > 0; ++y) {
+ 		const uint8_t *in = &_scaled[(size_t)y * v.width + v.camera];
+ 		uint32_t *out = pixels + (size_t)(y + v.top) * pitch + v.left;
+@@ -484,6 +484,7 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 	std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rowOf(a) < rowOf(b) || (rowOf(a) == rowOf(b) && a >= people && b < people); });
+ 	for (int n : order) {
+ 		const Prop *prop = n < people ? nullptr : &_props[n - people];
++		if (prop && _dark) continue;
+ 		const Placement p = prop ? placeOf(prop->frame, prop->at, prop->rows, prop->pixelAspect, v, _boxes) : placeOf(_actors[n], v, _boxes);
+ 		const uint32_t *colors = prop ? prop->colors : _actors[n].colors;
+ 		int x0, y0, x1, y1;
+@@ -497,7 +498,7 @@ void Scene::render(uint32_t *pixels, int pitch) const {
+ 				const int col = std::min(f.width - 1, (int)((x - p.x0) / p.across));
+ 				if (col < 0) continue;
+ 				const size_t i = (size_t)row * f.width + col;
+-				if (f.mask[i]) out[x] = colors[f.pixels[i]];
++				if (f.mask[i]) out[x] = _dark ? _darkColor : colors[f.pixels[i]];
+ 			}
+ 		}
+ 	}
+@@ -799,6 +800,8 @@ int propCount() { return stage().propCount(); }
+ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1) { return stage().propRect(prop, x0, y0, x1, y1); }
+ bool propHit(int prop, int screenX, int screenY) { return stage().propHit(prop, screenX, screenY); }
+ double depthAt(double x, double y) { return stage().depthAt(Stage::Point(x, y)); }
++void setDark(bool dark) { stage().setDark(dark); }
++bool dark() { return stage().dark(); }
+ bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette) {
+ 	World::SourceScene scene;
+ 	std::string problem;
+diff --git a/common/scummverse_stage.h b/common/scummverse_stage.h
+index 7f8a385d..7bfe2dad 100644
+--- a/common/scummverse_stage.h
++++ b/common/scummverse_stage.h
+@@ -192,6 +192,12 @@ public:
+ 	bool propHit(int prop, int screenX, int screenY) const;            // a pixel of it drawn there (not one left out)
+ 	// How big people are at a point against full size (the boxes' scale).
+ 	double depthAt(Point p) const { return scaleAt(_boxes, p) / 255.0; }
++	// The lights off (the oldest games' dark rooms): the place and its props
++	// not drawn (black), everyone in one colour (0xAARRGGBB). Until another
++	// place is loaded.
++	void setDark(bool dark, uint32_t color = kDarkColor) { _dark = dark; _darkColor = color; }
++	bool dark() const { return _dark; }
++	static const uint32_t kDarkColor = 0xFF555555u; // (the games' dark grey)
+ 
+ private:
+ 	View _view;
+@@ -219,6 +225,8 @@ private:
+ 	std::vector<Prop> _props;
+ 	int _follow = -1;
+ 	int _cameraGoal = 0;
++	bool _dark = false;
++	uint32_t _darkColor = kDarkColor;
+ 	double _speedX = 8, _speedY = 2;
+ 	int _stepTicks = 6;
+ 	double _cameraSpeed = kCameraSpeed;
+diff --git a/common/scummverse_stage_engine.h b/common/scummverse_stage_engine.h
+index ca5203b8..503e20b1 100644
+--- a/common/scummverse_stage_engine.h
++++ b/common/scummverse_stage_engine.h
+@@ -75,6 +75,10 @@ bool propRect(int prop, int &x0, int &y0, int &x1, int &y1); // its screen recta
+ bool propHit(int prop, int screenX, int screenY);             // a pixel of it drawn there (not one left out)
+ // How big people are at a point against full size (the boxes' scale, 0..1).
+ double depthAt(double x, double y);
++// The lights off: the place black, everyone in the games' dark grey (until
++// another place is loaded).
++void setDark(bool dark);
++bool dark();
+ // A scene's colours (bytes of a .svw file; 768 bytes out); false when malformed.
+ bool paletteOf(const unsigned char *data, size_t size, unsigned char *palette);
+ // How everyone added from now on walks: source pixels a step across and up
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index e5686d16..f785d71f 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -85,6 +85,7 @@ static const int kRideAsk = 60 * 60; // (its list of where to unanswered: withdr
+ // Where the van is parked (kept between launches: game * 1024 + room).
+ static const char *const kVanPlaceKey = "scummverse_sandbox_van_place";
+ static const char *const kTramParkedKey = "scummverse_sandbox_tram_parked";
++static const char *const kDarkKey = "scummverse_sandbox_dark"; // (the mansion's places with their lights off)
+ static const char *const kVanXKey = "scummverse_sandbox_van_x", *const kVanYKey = "scummverse_sandbox_van_y";
+ // The van's picture as Maniac takes it at the landing site (its object 454
+ // there; scummverse_van.inc): the people beside it there (the long shot's
+@@ -396,11 +397,58 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 	StageBridge::follow(_player);
+ 	tramShow();
+ 	vanShow();
++	StageBridge::setDark(_dark.contains(game * 1024 + room));
+ 	_strollClock = 120 + _random.getRandomNumber(240);
+ 	if (!_testing) saveState();
+ 	return true;
+ }
+ 
++// The mansion's lights (its lamps, lights and light switches: what its
++// script turns on and off, not a flashlight), as Maniac's own engine: off,
++// the place is dark (black, everyone in grey), until turned on again; kept.
++bool SandboxEngine::isLight(int object) const {
++	int id, ox, oy, w, h, wx, wy, state, picture, answers;
++	char name[80];
++	if (_game < 0 || strcmp(kWorldGames[_game].gameid, "maniac") || !StageBridge::object(object, id, ox, oy, w, h, wx, wy, state)) return false;
++	if (!PanelBridge::gameThing(_game, _room, id, picture, answers) || answers < 0 || !(answers & 1 << kWorldVerbTurnOn) || !(answers & 1 << kWorldVerbTurnOff)) return false;
++	StageBridge::objectName(object, name, sizeof(name));
++	Common::String lower(name);
++	lower.toLowercase();
++	return (lower.contains("lamp") || lower.contains("light")) && !lower.contains("flash");
++}
++
++void SandboxEngine::lights(bool on) {
++	if (_game < 0) return;
++	if (on) _dark.erase(_game * 1024 + _room); else _dark[_game * 1024 + _room] = true;
++	StageBridge::setDark(!on);
++	_dirty = true;
++	if (_testing) return;
++	ConfMan.set(kDarkKey, lightsKept());
++	ConfMan.flushToDisk();
++}
++
++// (Kept as the places' numbers, in order, between commas.)
++Common::String SandboxEngine::lightsKept() const {
++	Common::Array<int> keys;
++	for (Common::HashMap<int, bool>::const_iterator i = _dark.begin(); i != _dark.end(); ++i) keys.push_back(i->_key);
++	Common::sort(keys.begin(), keys.end());
++	Common::String kept;
++	for (uint i = 0; i < keys.size(); ++i) kept += Common::String::format(i ? ",%d" : "%d", keys[i]);
++	return kept;
++}
++
++void SandboxEngine::lightsRead(const Common::String &kept) {
++	_dark.clear();
++	const char *p = kept.c_str();
++	while (*p) {
++		char *end;
++		const long key = strtol(p, &end, 10);
++		if (end == p) break;
++		if (key > 0 && key < 1024 * 1024) _dark[(int)key] = true;
++		p = *end == ',' ? end + 1 : end;
++	}
++}
++
+ void SandboxEngine::tap(int screenX, int screenY) {
+ 	// (Riding out of sight: nobody to walk.)
+ 	if (_player < 0 || _tram.riding || _riding.phase > kRideBoarded) return;
+@@ -974,6 +1022,13 @@ void SandboxEngine::act() {
+ 	if (!PanelBridge::gameThing(_game, _room, id, gamePicture, answers)) answers = -1;
+ 	const int result = PanelBridge::decide(kind, door, pictures, shown, differs, w, h, answers, name, picture, line, sizeof(line), takenShown);
+ 	if (acting && !near && result != 1) { say("I can't reach that."); return; }
++	// (A light of the mansion's: the place dark or lit, its picture as the game's.)
++	if ((kind == kWorldVerbTurnOn || kind == kWorldVerbTurnOff) && isLight(target)) {
++		lights(kind == kWorldVerbTurnOn);
++		if (result == 2) showPicture(target, id, picture);
++		if (!_testing) saveState();
++		return;
++	}
+ 	switch (result) {
+ 	case 1: say(line); break;
+ 	case 2: showPicture(target, id, picture); break;
+@@ -2228,6 +2283,7 @@ Common::Error SandboxEngine::run() {
+ 	Tour::reset();
+ 	_touring.resumePlace = ConfMan.hasKey(kTourResumeKey) ? ConfMan.getInt(kTourResumeKey) : -1;
+ 	if (ConfMan.hasKey(kVanPlaceKey)) _vanPlace = ConfMan.getInt(kVanPlaceKey);
++	if (ConfMan.hasKey(kDarkKey)) lightsRead(ConfMan.get(kDarkKey));
+ 	if (ConfMan.hasKey(kTramParkedKey)) _tram.parked = (unsigned)ConfMan.getInt(kTramParkedKey) & ((1u << (2 * kWorldTramLineCount)) - 1);
+ 	if (ConfMan.hasKey(kVanXKey) && ConfMan.hasKey(kVanYKey)) { _vanX = ConfMan.getInt(kVanXKey); _vanY = ConfMan.getInt(kVanYKey); }
+ 
+@@ -2870,6 +2926,58 @@ Common::Error SandboxEngine::verbsTest() {
+ 		if (known && (pushed == pushedBefore || taken == takenBefore || declined == declinedBefore)) fail("not pushed, taken and declined", g);
+ 		withThings += known;
+ 	}
++	// The mansion's lights, each turned off and on as a player does (its
++	// verb, then a tap on it): off, the place black but for everyone in the
++	// dark grey, again so on coming back, and only there; on, lit again; the
++	// places dark kept as written.
++	int lightsOff = 0, lightsOn = 0;
++	{
++		int maniac = -1;
++		for (int g = 0; g < worldGameCount(); ++g) if (!strcmp(kWorldGames[g].gameid, "maniac")) maniac = g;
++		// (The scene's pixels: those not black, those in the dark grey.)
++		auto seen = [&](int &lit, int &grey) {
++			int left, top, width, height;
++			double rowScale, colScale;
++			StageBridge::view(left, top, width, height, rowScale, colScale);
++			StageBridge::render(_frame.data(), _width);
++			lit = grey = 0;
++			for (int y = MAX(0, top); y < MIN(_height, top + height); ++y)
++				for (int x = MAX(0, left); x < MIN(_width, left + width); ++x) {
++					const uint32 c = _frame[y * _width + x];
++					grey += c == 0xFF555555u; lit += c != 0xFF000000u && c != 0xFF555555u;
++				}
++		};
++		Common::String problem;
++		for (int room = 1; maniac >= 0 && room < 1024; ++room) {
++			if (!installed(maniac, room) || !walkable(maniac, room) || !enter(maniac, room, 0, problem)) continue;
++			for (int o = 0; o < StageBridge::objectCount(); ++o) {
++				if (!isLight(o)) continue;
++				char name[80];
++				StageBridge::objectName(o, name, sizeof(name));
++				const Common::String what = Common::String::format("room %d %s", room, name);
++				int lit, grey;
++				if (!use(kWorldVerbTurnOff, o)) continue; // (out of reach: another)
++				seen(lit, grey);
++				if (!StageBridge::dark() || lit || !grey) { fail(("not dark when turned off: " + what).c_str(), maniac); continue; }
++				// (Elsewhere lit; back here, dark still.)
++				int other = room + 1;
++				while (other < 1024 && (!installed(maniac, other) || !walkable(maniac, other))) ++other;
++				if (other < 1024 && enter(maniac, other, 0, problem) && StageBridge::dark()) fail(("another place dark: " + what).c_str(), maniac);
++				if (!enter(maniac, room, 0, problem) || !StageBridge::dark()) { fail(("lit on coming back: " + what).c_str(), maniac); continue; }
++				if (!lightsOff && ConfMan.hasKey("scummverse_shots")) { present(); shot("lights-off.png"); }
++				++lightsOff;
++				if (lightsKept() != Common::String::format("%d", maniac * 1024 + room)) fail(("not kept as written: " + what).c_str(), maniac);
++				const Common::String kept = lightsKept();
++				lightsRead(kept);
++				if (lightsKept() != kept) fail("not read back as written", maniac);
++				if (!use(kWorldVerbTurnOn, o)) { fail(("not reached to turn on: " + what).c_str(), maniac); continue; }
++				seen(lit, grey);
++				if (StageBridge::dark() || !lit || !lightsKept().empty()) { fail(("not lit when turned on: " + what).c_str(), maniac); continue; }
++				++lightsOn;
++			}
++		}
++		if (maniac >= 0 && installed(maniac, 1) && !lightsOff) fail("no light turned off", maniac);
++	}
+ 	// Kept: the state saved and loaded back.
+ 	if (_game >= 0) {
+ 		const uint carried = _carried.size(), pictures = _pictures.size();
+@@ -2891,8 +2999,8 @@ Common::Error SandboxEngine::verbsTest() {
+ 	g_system->updateScreen();
+ 	// (A coin game's: held, its hand doing something, a thing carried named by its coin.)
+ 	if (coins && (!handed || coinItems != coinCarried)) { ++failed; warning("SCUMMVERSE sandbox verbs: a coin game's hand or things carried not seen"); }
+-	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d failed",
+-		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, failed);
++	warning("SCUMMVERSE sandbox selftest verbs: %d panels, %d verbs (%d chosen), %d looked at (%d lines gone), %d opened, %d closed, %d pushed, %d taken (%d looked at carried), %d refused (doors), %d not taken (their games'), %d out of reach, %d carried, %d coins, %d hands, %d distaffs, %d lights off and %d on again, %d failed",
++		panels, verbs, chosen, looked, gone, opened, closed, pushed, taken, items, refused, declined, unreached, (int)_carried.size(), coins, handed, distaffs, lightsOff, lightsOn, failed);
+ 	// (Each panel looked through; each kind of use seen at least once.)
+ 	if (!panels || failed || looked != panels || chosen != verbs || !opened || closed != opened || !pushed || !taken || items != taken || !refused || !unreached || (withThings && !declined))
+ 		return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+@@ -3265,8 +3373,8 @@ Common::Error SandboxEngine::castTest() {
+ 	_wanderers = false;
+ 	// The custom characters' box last: titled, a face, its people (Crispy
+ 	// first), each carried; each chosen (from the start's lead) played where
+-	// the player is, standing where the one before stood, about a third of a
+-	// person tall.
++	// the player is, standing where the one before stood, as tall against
++	// the lead as drawn to be (Crispy about a third of a person).
+ 	int customs = 0;
+ 	double tall = 0;
+ 	{
+@@ -3298,9 +3406,13 @@ Common::Error SandboxEngine::castTest() {
+ 			StageBridge::position(_player, cx, cy);
+ 			if (fabs(cx - x) > 1 || fabs(cy - y) > 1) { fail("not where the one before stood", m.name.c_str()); continue; }
+ 			if (!StageBridge::drawnRect(_player, cx0, cy0, cx1, cy1)) { fail("not drawn", m.name.c_str()); continue; }
++			// (Its first frame's rows, "SVC1" past the palette, against the
++			// lead's, as drawn to be.)
+ 			const double part = (double)(cy1 - cy0) / (y1 - y0);
+-			if (part < 0.2 || part > 0.45) { fail("not about a third of a person tall", m.name.c_str()); continue; }
+-			tall = MAX(tall, part);
++			Common::Array<byte> data;
++			const double meant = readCharacter(key, data) && data.size() > 788 ? customArt(key)->personPerRow * READ_LE_UINT16(&data[786]) : 0;
++			if (meant <= 0 || part < meant * 0.75 || part > meant * 1.3) { fail("not as tall against a person as drawn to be", m.name.c_str()); continue; }
++			if (!customs) tall = part;
+ 			++customs;
+ 			// (A picture of the first beside the lead, then as they were.)
+ 			if (customs == 1 && ConfMan.hasKey("scummverse_shots")) {
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index dcb869ea..66a5dc68 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -115,6 +115,10 @@ private:
+ 	// The character screen (step 4; the iPhone's, as Maniac offers it): a box
+ 	// per game (the mansion, Zak, then the others) with its lead's face, its
+ 	// people installed (the lead first); a choice plays them where they live.
++	bool isLight(int object) const;         // one of the mansion's lights, turned on and off
++	void lights(bool on);                   // here lit, or dark (kept)
++	Common::String lightsKept() const;
++	void lightsRead(const Common::String &kept);
+ 	void castOffer();
+ 	bool castChoose(int key);
+ 	// Who can be played (installed, shown before, in the cast) and where they
+@@ -315,6 +319,7 @@ private:
+ 		void (*placesHide)();
+ 	};
+ 	Phone _phone;
++	Common::HashMap<int, bool> _dark;       // places with their lights off (game * 1024 + room)
+ 	bool _dirty = false;                    // to be drawn again (a line said or gone, a picture shown)
+ 	int _pointerX = -1, _pointerY = -1;     // over the scene: where the pointer is drawn (the last tap)
+ 	int _placed = 0;                        // objects here shown where their game puts them

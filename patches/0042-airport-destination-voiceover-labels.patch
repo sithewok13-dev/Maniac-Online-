@@ -1,0 +1,56 @@
+diff --git a/backends/platform/ios7/scummverse_airport_ui.inc b/backends/platform/ios7/scummverse_airport_ui.inc
+index 66692146..694deb1e 100644
+--- a/backends/platform/ios7/scummverse_airport_ui.inc
++++ b/backends/platform/ios7/scummverse_airport_ui.inc
+@@ -21,6 +21,9 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ @property(nonatomic) NSInteger page;
+ @property(nonatomic) BOOL teleport;
+ @end
++// One list for drawing and VoiceOver labels, in airport/pad command order.
++static const char *const scummverseFlightNames[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
++static const char *const scummversePadNames[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL","PERU CRYSTAL","MARS PYRAMID","NEPAL SANCTUARY","ZAIRE CRYSTAL"};
+ @implementation ScummverseAirportView
+ - (void)drawRect:(CGRect)rect {
+ 	CGContextRef c = UIGraphicsGetCurrentContext();
+@@ -30,8 +33,7 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	CGContextFillRect(c, CGRectMake(30,20,260,160));
+ 	CGContextFillRect(c, CGRectMake(26,26,268,148));
+ 	scummversePixelText(c,"DESTINATIONS",88,28,2,UIColor.blackColor);
+-	const char *flights[]={"MANIAC MANSION","SAN FRANCISCO","SEATTLE","MIAMI","ZAIRE","KATHMANDU NEPAL","CAIRO","LONDON","MEXICO CITY","LIMA PERU"};
+-	const char *pads[]={"SEATTLE CRYSTAL","MEXICO CRYSTAL","PERU CRYSTAL","MARS PYRAMID","NEPAL SANCTUARY","ZAIRE CRYSTAL"};
++	const char *const *flights=scummverseFlightNames, *const *pads=scummversePadNames;
+ 	const char *codes[]={"MM","SFO","SEA","MIA","FIH","KTM","CAI","LHR","MEX","LIM"};
+ 	int count=_teleport?6:10;
+ 	for (int i=0;i<4;++i) {
+@@ -62,11 +64,21 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	[super viewDidLoad]; self.view.backgroundColor=[UIColor colorWithWhite:0 alpha:0.85];
+ 	_panel=[[[ScummverseAirportView alloc] init] autorelease]; _panel.backgroundColor=UIColor.clearColor; _panel.choice=0; _panel.teleport=_teleport;
+ 	[self.view addSubview:_panel];
+-	NSArray *names=@[@"Maniac Mansion",@"San Francisco",@"Seattle",@"Miami",@"Confirm destination",@"Cancel",@"Previous page",@"Next page"];
++	NSArray *names=@[@"",@"",@"",@"",@"Confirm destination",@"Cancel",@"Previous page",@"Next page"];
+ 	for (int i=0;i<8;++i) {
+ 		UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom]; b.tag=i+1; b.accessibilityLabel=names[i];
+ 		[b addTarget:self action:@selector(choose:) forControlEvents:UIControlEventTouchUpInside]; [_panel addSubview:b];
+ 	}
++	[self labelRows];
++}
++// Row buttons describe the destinations shown on the current page.
++- (void)labelRows {
++	const int count=_panel.teleport?6:10;
++	for (int i=0;i<4;++i) {
++		UIView *row=[_panel viewWithTag:i+1]; const int index=(int)_panel.page*4+i;
++		row.hidden=index>=count;
++		if(index<count) row.accessibilityLabel=[[NSString stringWithUTF8String:(_panel.teleport?scummversePadNames:scummverseFlightNames)[index]] capitalizedString];
++	}
+ }
+ - (void)viewDidLayoutSubviews {
+ 	[super viewDidLayoutSubviews]; CGRect area=UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets);
+@@ -80,7 +92,7 @@ static void scummversePixelText(CGContextRef context, const char *text, int x, i
+ 	int count=_panel.teleport?6:10;
+ 	if(sender.tag==7 || sender.tag==8) {
+ 		_panel.page=(_panel.page+(sender.tag==7?-1:1)+(count+3)/4)%((count+3)/4);
+-		[_panel setNeedsDisplay]; return;
++		[self labelRows]; [_panel setNeedsDisplay]; return;
+ 	}
+ 	if (sender.tag<=4) { int index=(int)_panel.page*4+(int)sender.tag-1; if(index<count) _panel.choice=index; [_panel setNeedsDisplay]; return; }
+ 	if (sender.tag==5) scummverseWorldRequest(_token | ((_panel.teleport?50:40) + (int)_panel.choice));

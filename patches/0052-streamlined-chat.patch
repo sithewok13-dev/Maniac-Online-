@@ -1,0 +1,319 @@
+diff --git a/backends/platform/ios7/scummverse_ai_runtime.inc b/backends/platform/ios7/scummverse_ai_runtime.inc
+index 6de8f5b4..448a59ad 100644
+--- a/backends/platform/ios7/scummverse_ai_runtime.inc
++++ b/backends/platform/ios7/scummverse_ai_runtime.inc
+@@ -303,6 +303,39 @@ public:
+ 		if (!sceneMask || !(sceneMask & (sceneMask - 1))) return false;
+ 		abortGeneration(); result.clear(); resetTalk(); talkActor = -1; conversation.reset(sceneMask); return true;
+ 	}
++	// People chips: tapping someone nearby starts a private conversation,
++	// adds them to the current one, or removes them; removing the last
++	// participant ends the conversation. False when they are not here.
++	bool toggleTalk(int actor) {
++		std::lock_guard<std::mutex> guard(mutex);
++		if (actor <= 0 || actor >= 25 || !(sceneMask & (1u << actor))) return false;
++		pickMode = 0;
++		unsigned mask = conversation.participants();
++		if (!talkActor || !mask) {
++			abortGeneration(); result.clear(); resetTalk(); talkActor = actor; conversation.reset(1u << actor); return true;
++		}
++		mask ^= 1u << actor;
++		if (!mask) { abortGeneration(); result.clear(); resetTalk(); return true; }
++		if (conversation.setParticipants(mask)) { abortGeneration(); chatTicket = 0; }
++		talkActor = (mask & (mask - 1)) ? -2 : __builtin_ctz(mask);
++		return true;
++	}
++	// The composer is always ready: with nobody chosen, a message goes to
++	// everyone nearby (one person directly; several as a group that follows
++	// arrivals and departures). 1 sent, 0 nobody here, -1 rejected (blank,
++	// oversized or three messages already waiting).
++	int sendNearby(const std::string &text) {
++		std::lock_guard<std::mutex> guard(mutex);
++		if (text.empty() || text.size() > Scummverse::Conversation::kMaxText) return -1;
++		if (!conversation.participants()) {
++			if (!sceneMask) return 0;
++			abortGeneration(); result.clear(); resetTalk();
++			talkActor = (sceneMask & (sceneMask - 1)) ? -1 : __builtin_ctz(sceneMask);
++			conversation.reset(sceneMask);
++		}
++		if (!conversation.submit(speechText(text))) return -1;
++		pumpChat(); return 1;
++	}
+ 	void endTalk() {
+ 		std::lock_guard<std::mutex> guard(mutex);
+ 		if (talkActor) abortGeneration();
+diff --git a/backends/platform/ios7/scummverse_talk_ui.inc b/backends/platform/ios7/scummverse_talk_ui.inc
+index fb362218..45e013e4 100644
+--- a/backends/platform/ios7/scummverse_talk_ui.inc
++++ b/backends/platform/ios7/scummverse_talk_ui.inc
+@@ -6,17 +6,18 @@ static BOOL scummverseSystemMenu=NO;
+ 	UIView *_host;
+ 	UITextField *_input;
+ 	UILabel *_status;
+-	UIButton *_recipient, *_send, *_add, *_follow, *_historyButton, *_arrive;
++	UIScrollView *_chips;
++	UIButton *_send, *_follow, *_historyButton, *_close, *_arrive;
+ 	UITextView *_history;
+ 	NSTimer *_timer;
+ 	NSString *_error;
+ 	CGRect _keyboardFrame;
+- CGFloat _keyboard;
+- int _publishedInset;
+-	BOOL _open, _showHistory, _collapsed, _hasTranscript;
+-	unsigned _lastMask;
++	CGFloat _keyboard;
++	int _publishedInset;
++	BOOL _open, _showHistory, _hasTranscript;
++	unsigned _chipScene, _chipMask;
+ 	uint32_t _revision;
+-	int _scene;
++	int _scene, _chipTalk;
+ }
+ - (id)initWithHost:(UIView *)host;
+ - (void)openTalk;
+@@ -31,14 +32,16 @@ static BOOL scummverseSystemMenu=NO;
+ }
+ - (id)initWithHost:(UIView *)host {
+ 	if ((self=[super initWithFrame:CGRectZero])) {
+-		_host=host; _publishedInset=-1; self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
+-		_recipient=[self button:@"Talk" action:@selector(editMessage)];
+-		_add=[self button:@"+" action:@selector(addPerson)]; _add.accessibilityLabel=@"Add a character to this conversation";
++		_host=host; _publishedInset=-1; _chipScene=_chipMask=~0u; _chipTalk=-99;
++		self.backgroundColor=[UIColor colorWithRed:0.10 green:0.02 blue:0.14 alpha:0.94]; self.layer.cornerRadius=8;
++		// Header: one chip per character here (tap to add/remove), then Follow,
++		// transcript toggle (landscape) and close.
++		_chips=[[[UIScrollView alloc] init] autorelease]; _chips.showsHorizontalScrollIndicator=NO; [self addSubview:_chips];
+ 		_follow=[self button:@"Follow" action:@selector(follow)];
+-		_historyButton=[self button:@"History" action:@selector(history)];
+-		[self button:@"Close" action:@selector(close)].tag=19;
+-		_status=[[[UILabel alloc] init] autorelease]; _status.textColor=UIColor.whiteColor; _status.font=[UIFont systemFontOfSize:12]; [self addSubview:_status];
+-		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.placeholder=@"Say something…"; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend;
++		_historyButton=[self button:@"Log" action:@selector(history)]; _historyButton.accessibilityLabel=@"Show conversation";
++		_close=[self button:@"✕" action:@selector(close)]; _close.accessibilityLabel=@"Close conversation";
++		_status=[[[UILabel alloc] init] autorelease]; _status.textColor=[UIColor colorWithWhite:0.8 alpha:1]; _status.font=[UIFont systemFontOfSize:12]; _status.adjustsFontSizeToFitWidth=YES; [self addSubview:_status];
++		_input=[[[UITextField alloc] init] autorelease]; _input.borderStyle=UITextBorderStyleRoundedRect; _input.accessibilityLabel=@"Message"; _input.delegate=self; _input.returnKeyType=UIReturnKeySend;
+ 		// Curly quotes and dashes are not V1 speech-bubble characters.
+ 		_input.smartQuotesType=UITextSmartQuotesTypeNo; _input.smartDashesType=UITextSmartDashesTypeNo; [self addSubview:_input];
+ 		_send=[self button:@"Send" action:@selector(send)];
+@@ -51,13 +54,11 @@ static BOOL scummverseSystemMenu=NO;
+ 	} return self;
+ }
+ - (void)openTalk {
+-	_open=YES; _collapsed=NO; _scene=ScummverseLocalAI::sceneToken();
+-	if (!ScummverseLocalAI::runtime().talkingWith()) { _lastMask=0; ScummverseLocalAI::runtime().armPick(false); }
++	_open=YES; _scene=ScummverseLocalAI::sceneToken(); _showHistory=YES;
+ 	[self refresh];
++	if (ScummverseLocalAI::runtime().actorsInRoom()) [_input becomeFirstResponder];
+ }
+-- (void)addPerson { ScummverseLocalAI::runtime().armPick(true); [self endEditing:YES]; [self refresh]; }
+-- (void)editMessage { if(!ScummverseLocalAI::runtime().talkingWith()) { [self openTalk]; return; } _collapsed=NO; [self layoutBar]; if (ScummverseLocalAI::runtime().talkingWith()) [_input becomeFirstResponder]; }
+-- (void)history { _collapsed=NO; _showHistory=!_showHistory; [self layoutBar]; }
++- (void)history { _showHistory=!_showHistory; [self layoutBar]; }
+ - (void)follow {
+ 	int actor=ScummverseLocalAI::runtime().talkingTo(); if(actor<=0) return;
+ 	scummverseWorldRequest(ScummverseLocalAI::sceneToken() | ((ScummverseLocalAI::follows(actor)?96:64)+actor));
+@@ -67,9 +68,18 @@ static BOOL scummverseSystemMenu=NO;
+ 	[self endEditing:YES]; _open=NO; _showHistory=NO; self.hidden=YES;
+ 	ScummverseLocalAI::runtime().endTalk(); [_error release]; _error=nil;
+ }
++- (void)chip:(UIButton *)chip {
++	auto &r=ScummverseLocalAI::runtime();
++	[_error release]; _error=nil;
++	if (chip.tag==100) {
++		// "Everyone": a group that follows arrivals; tapping again ends it.
++		if (r.talkingTo()==-1) r.endTalk(); else r.beginGroup();
++	} else r.toggleTalk((int)chip.tag);
++	[self refresh];
++}
+ - (void)keyboard:(NSNotification *)note {
+ 	_keyboardFrame=[note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+- [self layoutBar];
++	[self layoutBar];
+ }
+ - (BOOL)textField:(UITextField *)field shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)text {
+ 	NSString *next=[field.text stringByReplacingCharactersInRange:range withString:text]; return next.length<=160 && [next lengthOfBytesUsingEncoding:NSUTF8StringEncoding]<=512;
+@@ -80,17 +90,48 @@ static BOOL scummverseSystemMenu=NO;
+ 	[_error release]; _error=nil;
+ 	auto &r=ScummverseLocalAI::runtime();
+ 	// Messages are accepted while replies are pending; they wait in order.
+-	if(!r.sendTalk(text.UTF8String)) {
+-		_error=[(r.talkingWith() ? @"Not sent: three messages are already waiting. Your draft is kept." : @"Choose someone to talk to first. Your draft is kept.") retain];
++	// With nobody chosen, the message goes to everyone nearby.
++	const int sent=r.talkingWith() ? (r.sendTalk(text.UTF8String) ? 1 : -1) : r.sendNearby(text.UTF8String);
++	if(sent<=0) {
++		_error=[(sent==0 ? @"Nobody is nearby to hear you. Your draft is kept." : @"Not sent: three messages are already waiting. Your draft is kept.") retain];
+ 		[self refresh]; return;
+ 	}
+-	_input.text=@""; _collapsed=_host.bounds.size.width>=_host.bounds.size.height; _showHistory=!_collapsed;
+-	if(_host.bounds.size.width>=_host.bounds.size.height) [self endEditing:YES]; [self refresh];
++	_input.text=@""; _showHistory=YES;
++	if(_host.bounds.size.width>=_host.bounds.size.height) [self endEditing:YES];
++	[self refresh];
+ }
+ static UIColor *scummverseSpeakerColor(int speaker) {
+ 	if(!speaker) return [UIColor colorWithRed:1 green:0.86 blue:0.45 alpha:1];
+ 	return [UIColor colorWithHue:(speaker*37%100)/100.0 saturation:0.45 brightness:1 alpha:1];
+ }
++- (UIButton *)chipNamed:(NSString *)name tag:(NSInteger)tag selected:(BOOL)selected color:(UIColor *)color {
++	UIButton *b=[UIButton buttonWithType:UIButtonTypeSystem];
++	[b setTitle:name forState:UIControlStateNormal]; b.tag=tag; b.titleLabel.font=[UIFont boldSystemFontOfSize:13];
++	b.contentEdgeInsets=UIEdgeInsetsMake(0,10,0,10); b.layer.cornerRadius=13; b.layer.borderWidth=1.5; b.layer.borderColor=color.CGColor;
++	b.backgroundColor=selected ? color : UIColor.clearColor;
++	[b setTitleColor:selected ? UIColor.blackColor : color forState:UIControlStateNormal];
++	b.accessibilityTraits=selected ? (UIAccessibilityTraitButton|UIAccessibilityTraitSelected) : UIAccessibilityTraitButton;
++	b.accessibilityHint=selected ? @"Removes them from the conversation" : @"Adds them to the conversation";
++	[b addTarget:self action:@selector(chip:) forControlEvents:UIControlEventTouchUpInside];
++	return b;
++}
++// Rebuilds the people row only when who is here or who is talking changes.
++- (void)rebuildChips:(unsigned)here talking:(unsigned)mask {
++	const int talk=ScummverseLocalAI::runtime().talkingTo();
++	if (here==_chipScene && mask==_chipMask && talk==_chipTalk) return;
++	_chipScene=here; _chipMask=mask; _chipTalk=talk;
++	for (UIView *v in [[_chips.subviews copy] autorelease]) [v removeFromSuperview];
++	__block CGFloat x=0; const CGFloat h=26;
++	auto place=^(UIButton *b) { [b sizeToFit]; b.frame=CGRectMake(x,3,MAX(44,b.bounds.size.width),h); x+=b.frame.size.width+6; [_chips addSubview:b]; };
++	if (here & (here-1)) place([self chipNamed:@"Everyone" tag:100 selected:talk==-1 color:[UIColor colorWithRed:1 green:0.86 blue:0.45 alpha:1]]);
++	for (int id=1;id<25;++id) if (here & (1u<<id))
++		place([self chipNamed:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)] tag:id selected:(mask & (1u<<id))!=0 && talk!=-1 color:scummverseSpeakerColor(id)]);
++	if (!here) {
++		UILabel *none=[[[UILabel alloc] initWithFrame:CGRectMake(0,3,240,h)] autorelease];
++		none.text=@"Nobody nearby"; none.textColor=[UIColor colorWithWhite:0.7 alpha:1]; none.font=[UIFont italicSystemFontOfSize:13]; [_chips addSubview:none]; x=240;
++	}
++	_chips.contentSize=CGSizeMake(x,32);
++}
+ // One ordered transcript: delivered lines, then waiting messages, then who is replying.
+ - (void)renderLines:(const std::vector<Scummverse::ConversationLine> &)lines queued:(const std::vector<std::string> &)queued replying:(int)replying {
+ 	if(lines.empty() && queued.empty() && !replying && _hasTranscript) return; // Keep the last conversation readable.
+@@ -125,76 +166,80 @@ static UIColor *scummverseSpeakerColor(int speaker) {
+ - (void)refresh {
+ 	auto &r=ScummverseLocalAI::runtime();
+ 	_arrive.hidden=scummverseSystemMenu || ScummverseLocalAI::currentRoom()!=56;
+-	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { [self close]; _scene=ScummverseLocalAI::sceneToken(); }
++	if(_open && _scene!=ScummverseLocalAI::sceneToken()) { _scene=ScummverseLocalAI::sceneToken(); _hasTranscript=NO; }
+ 	self.hidden=scummverseSystemMenu || (!_open && _host.bounds.size.width>=_host.bounds.size.height);
+-	unsigned mask=r.talkingWith(); NSMutableArray *names=[NSMutableArray array];
++	const unsigned here=r.actorsInRoom(), mask=r.talkingWith();
++	[self rebuildChips:here talking:mask];
++	NSMutableArray *names=[NSMutableArray array];
+ 	for(int id=1;id<25;++id) if(mask & (1u<<id)) [names addObject:[NSString stringWithUTF8String:ScummverseLocalAI::actorName(id)]];
+-	[_recipient setTitle:mask ? [names componentsJoinedByString:@", "] : @"Talk" forState:UIControlStateNormal];
+-	_recipient.titleLabel.lineBreakMode=NSLineBreakByTruncatingTail;
+-	BOOL waiting=r.waitingForTalk(), picking=r.picking();
+-	_status.text=_error ? _error : picking ? (mask ? @"Tap another character to add them." : @"Tap a character in the room. Close cancels.") : waiting ? @"Replying… you can keep typing." : mask ? (r.modelReady() ? @"Tap the message field to keep talking." : @"Classic replies. Choose a model in AI for generated dialogue.") : @"Tap Talk to choose someone nearby.";
+-	_input.enabled=mask!=0; _send.enabled=mask && !picking; _add.enabled=mask!=0;
++	_input.placeholder=mask ? [NSString stringWithFormat:@"Message %@…",[names componentsJoinedByString:@", "]] :
++		!here ? @"Nobody nearby to talk to" :
++		(here & (here-1)) ? @"Say something to everyone nearby…" : [NSString stringWithFormat:@"Say something to %@…",[NSString stringWithUTF8String:ScummverseLocalAI::actorName(__builtin_ctz(here))]];
++	_input.enabled=here || mask; _send.enabled=_input.enabled;
++	_status.text=_error ? _error : r.waitingForTalk() ? @"Replying… you can keep typing." :
++		mask && !r.modelReady() ? @"Classic replies. Choose a model in AI for generated dialogue." :
++		!mask && here ? @"Tap a name to talk privately, or just type." : @"";
+ 	int actor=r.talkingTo(); _follow.hidden=actor<=0;
+ 	if(actor>0) [_follow setTitle:ScummverseLocalAI::follows(actor)?@"Unfollow":@"Follow" forState:UIControlStateNormal];
+ 	std::vector<Scummverse::ConversationLine> lines; std::vector<std::string> queued; int replying=0;
+ 	if(r.talkSnapshot(_revision,lines,queued,replying)) [self renderLines:lines queued:queued replying:replying];
+ 	[self layoutBar];
+-	if(_open && !_lastMask && mask && !picking) [_input becomeFirstResponder];
+-	_lastMask=mask;
+ }
+ - (void)layoutBar {
+ 	UIEdgeInsets safe=_host.safeAreaInsets;
+- // Reconvert the screen-space keyboard frame after rotations and safe-area changes.
+- CGRect keyboard=[_host convertRect:_keyboardFrame fromView:nil];
+- CGRect overlap=CGRectIntersection(_host.bounds,keyboard);
+- _keyboard=CGRectIsNull(overlap) || CGRectIsEmpty(overlap) ? 0 :
+-  CGRectGetMaxY(_host.bounds)-CGRectGetMinY(overlap);
+- int inset=(int)(MAX(safe.bottom,_keyboard)*1000);
+- if(inset!=_publishedInset) {
+-  _publishedInset=inset;
+-  [(iPhoneView *)_host addEvent:InternalEvent(kInputChatLayoutChanged,inset,0)];
+- }
+- _recipient.hidden=_add.hidden=_status.hidden=_historyButton.hidden=NO;
+- _follow.hidden=ScummverseLocalAI::runtime().talkingTo()<=0;
++	// Reconvert the screen-space keyboard frame after rotations and safe-area changes.
++	CGRect keyboard=[_host convertRect:_keyboardFrame fromView:nil];
++	CGRect overlap=CGRectIntersection(_host.bounds,keyboard);
++	_keyboard=CGRectIsNull(overlap) || CGRectIsEmpty(overlap) ? 0 :
++		CGRectGetMaxY(_host.bounds)-CGRectGetMinY(overlap);
++	int inset=(int)(MAX(safe.bottom,_keyboard)*1000);
++	if(inset!=_publishedInset) {
++		_publishedInset=inset;
++		[(iPhoneView *)_host addEvent:InternalEvent(kInputChatLayoutChanged,inset,0)];
++	}
++	const BOOL single=ScummverseLocalAI::runtime().talkingTo()>0;
++	_chips.hidden=_status.hidden=NO;
+ 	if(_host.bounds.size.width<_host.bounds.size.height) {
++		// Portrait: people row, status, transcript, composer.
+ 		CGFloat w=_host.bounds.size.width-safe.left-safe.right;
+ 		auto layout=Scummverse::portraitLayout(_host.bounds.size.height,inset/1000.0,_host.bounds.size.width,scummverseGameAspect()/1000.0);
+-  CGFloat top=layout.chatTop, h=layout.chatHeight;
+-  [(iPhoneView *)_host layoutScummverseToolbar:layout.toolbarTop height:layout.toolbarHeight];
++		CGFloat top=layout.chatTop, h=layout.chatHeight;
++		[(iPhoneView *)_host layoutScummverseToolbar:layout.toolbarTop height:layout.toolbarHeight];
+ 		self.frame=CGRectMake(safe.left,top,w,h); self.layer.cornerRadius=0;
+-		_recipient.frame=CGRectMake(8,0,w-60,32); _add.frame=CGRectMake(w-48,0,40,32);
+-		_follow.frame=CGRectMake(8,32,80,30); _historyButton.frame=CGRectMake(96,32,80,30);
+-		[self viewWithTag:19].frame=CGRectMake(w-70,32,62,30);
+-		_status.frame=CGRectMake(8,62,w-16,24); _status.adjustsFontSizeToFitWidth=YES;
+-		_history.hidden=NO; _history.frame=CGRectMake(8,88,w-16,MAX(0,h-138));
+-		_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-46,w-78,40); _send.frame=CGRectMake(w-66,h-46,60,40);
++		_historyButton.hidden=YES; _close.hidden=!_open && !ScummverseLocalAI::runtime().talkingWith();
++		CGFloat right=w-4;
++		_close.frame=CGRectMake(right-40,0,40,32); right-=44;
++		_follow.hidden=!single; if(single) { _follow.frame=CGRectMake(right-72,0,72,32); right-=76; }
++		_chips.frame=CGRectMake(8,0,MAX(0,right-8),32);
++		_status.frame=CGRectMake(8,32,w-16,18);
++		_history.hidden=NO; _history.frame=CGRectMake(8,50,w-16,MAX(0,h-98));
++		_input.hidden=_send.hidden=NO; _input.frame=CGRectMake(8,h-44,w-78,38); _send.frame=CGRectMake(w-66,h-44,60,38);
+ 		_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-78,MAX(0,layout.gameHeight-40),72,36);
+-  if(_keyboard>0 && h>=160) {
+-   // Typing: one header row, so the transcript keeps most of the space.
+-   _follow.hidden=_historyButton.hidden=YES;
+-   _recipient.frame=CGRectMake(8,0,w-128,30); _add.frame=CGRectMake(w-116,0,40,30);
+-   [self viewWithTag:19].frame=CGRectMake(w-70,0,62,30);
+-   _status.frame=CGRectMake(8,30,w-16,18);
+-   _history.frame=CGRectMake(8,48,w-16,MAX(0,h-98));
+-  }
+-  if(h<160) {
+-   // Very small/occluded hosts prioritize sending and dismissing the keyboard.
+-   _recipient.hidden=_add.hidden=_follow.hidden=_historyButton.hidden=_status.hidden=_history.hidden=YES;
+-   [self viewWithTag:19].frame=CGRectMake(w-70,0,62,32);
+-   CGFloat composer=MIN(40,MAX(0,h-38));
+-   _input.frame=CGRectMake(8,MAX(0,h-composer),w-78,composer);
+-   _send.frame=CGRectMake(w-66,MAX(0,h-composer),60,composer);
+-  }
++		if(h<130) {
++			// Very small/occluded hosts keep the people row and the composer.
++			_status.hidden=_history.hidden=YES;
++			CGFloat composer=MIN(38,MAX(0,h-34));
++			_input.frame=CGRectMake(8,MAX(32,h-composer),w-78,composer);
++			_send.frame=CGRectMake(w-66,MAX(32,h-composer),60,composer);
++		}
+ 		return;
+ 	}
++	// Landscape: a compact bar over the bottom of the scene; the transcript
++	// opens above the composer on demand and while not typing.
+ 	CGFloat w=MIN(640,_host.bounds.size.width-safe.left-safe.right-80);
+-	CGFloat h=(_collapsed ? 52:100)+(_showHistory && !_keyboard ? 130:0);
++	const BOOL transcript=_showHistory && !_keyboard;
++	CGFloat h=50+44+(transcript ? 120:0);
+ 	self.frame=CGRectMake(safe.left+8,MAX(safe.top,_host.bounds.size.height-MAX(safe.bottom,_keyboard)-h-4),w,h);
+-	_recipient.frame=CGRectMake(8,0,MAX(80,w-270),32); _add.frame=CGRectMake(w-252,0,38,32); _follow.frame=CGRectMake(w-212,0,72,32); _historyButton.frame=CGRectMake(w-138,0,72,32); [self viewWithTag:19].frame=CGRectMake(w-64,0,60,32);
+-	_status.frame=CGRectMake(8,32,w-16,20); _status.adjustsFontSizeToFitWidth=YES;
+-	_history.hidden=!_showHistory || _keyboard>0; _history.frame=CGRectMake(8,52,w-16,h-100);
+-	_input.hidden=_send.hidden=_collapsed;
+-	_input.frame=CGRectMake(8,h-44,w-78,38); _send.frame=CGRectMake(w-66,h-44,60,38);
++	CGFloat right=w-4;
++	_close.hidden=NO; _close.frame=CGRectMake(right-40,0,40,32); right-=44;
++	_historyButton.hidden=NO; _historyButton.frame=CGRectMake(right-48,0,48,32); right-=52;
++	[_historyButton setTitle:_showHistory ? @"Hide" : @"Log" forState:UIControlStateNormal];
++	_follow.hidden=!single; if(single) { _follow.frame=CGRectMake(right-72,0,72,32); right-=76; }
++	_chips.frame=CGRectMake(8,0,MAX(0,right-8),32);
++	_status.frame=CGRectMake(8,32,w-16,18);
++	_history.hidden=!transcript; _history.frame=CGRectMake(8,50,w-16,MAX(0,h-98));
++	_input.hidden=_send.hidden=NO;
++	_input.frame=CGRectMake(8,h-42,w-78,36); _send.frame=CGRectMake(w-66,h-42,60,36);
+ 	_arrive.frame=CGRectMake(_host.bounds.size.width-safe.right-76,MIN(safe.top+340,_host.bounds.size.height-safe.bottom-48),72,40);
+ }
+ @end

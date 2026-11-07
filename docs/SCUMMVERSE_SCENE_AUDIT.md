@@ -168,3 +168,64 @@ copied proprietary scripts or artwork. Native walking-hotspot tests additionally
 exercise the registered exits. Hostel rooms 180/181, exterior/tram 184/185 and the
 pyramid branch remain separate pending repairs; existing shortcuts there must not
 be treated as canonical geography.
+
+
+## Scene authenticity audit and original airports — patch 0043 (2026-10-16)
+
+`tools/test_scene_authenticity.py` renders every imported sandbox room and the
+candidate original logical scenes (through Zak's own entry handlers, with a
+fixed random seed) and compares the actor-free viewport at the camera minimum
+pixel for pixel, plus camera bounds. Candidates come from the original pseudo-
+room table, read from the supplied data at run time (49.LFL `0xCC` records).
+Captures and reports stay in ignored build/scene-audit.
+
+Source evidence (private descumm of the user's English DOS V1 files):
+- Tickets 659-667 (script 58 names, script 120 targets): London 141, Mexico City
+  142, Miami 143, Seattle 144, San Francisco 145 use big-airport resource 8;
+  Cairo 146, Kinshasa 147, Katmandu 148, Lima 149 use regional resource 9.
+- Airport exits: London -> Stonehenge 133, Mexico City -> jungle 168, Seattle ->
+  forest 12, Cairo -> Sphinx 20, Katmandu -> street 17, Kinshasa -> jungle 170
+  (then village 150 after five scenes), Lima -> jungle 175 (then carving 42).
+  Miami has no exit ("closed for repairs").
+- Jungle resource 37 backs logical 168-175, a random maze; colors depend on
+  region (Zaire 9/7, Peru 9/3, elsewhere 9/13).
+- Crystal map (room 29, objects 480-486, script 60) teleports only to Seattle
+  129, Mexico 130, Peru carving eye 137, Egypt 25 and Mars 193. No Zaire chamber.
+  Spots 483 ("Atlantis") and 485 ("Mars pyramid") have empty scripts; the
+  sandbox (0079) sends them to Fate of Atlantis's city and the pyramid's
+  crystal room.
+- Resource 39 (temple exterior) has no pseudo-rooms: it is Mexico's only.
+- Split scenes: village 150/151, hostel 180/181, Stonehenge 133/134.
+
+Results: before 41/71 rooms exact; after 55/71. Audited rooms all match:
+airports (now original resource and logical setup, incl. SEA-TAC/MIA signs),
+jungles 170/168/175, Seattle chamber 129, village 150, hostel 180, Stonehenge
+133, cabin colors/camera, shuttle colors, and Mexico chamber colors. Explained
+differences: Seattle forest (cave opening shown dug, by design) and machine
+room defaults (covered by the Mars reference test).
+Open (64/65/97/98 retired in patch 0044): sandbox "Cairo"
+(71) is a pyramid-interior passage that matches no original scene; "Mars
+pyramid" (84) shows the left half of resource 15 (original 188 uses the right
+half); village 151, hostel 181 and Stonehenge 134 are not yet imported.
+
+
+## Peru carving interior and bird traversal — patch 0046
+
+Resource 43 is the inside of Peru's giant carving, not Nepal: logical 138 is
+the ledge (camera 480; valley -> carving 42 at object 620), 136/137 the left
+and right eye chambers (camera 160; window -> ledge at the matching eye).
+137's platform 632 is the crystal-map site. In carving 42 the huge carving
+(620) refuses walkers ("It's way across the valley!" / "I don't have wings!");
+only the bird (actor 6, costume 15) enters 138 at (61,51), with entry 627
+swapping ground and aerial box locks. The sandbox has no playable bird, so the
+bird feeder (621) is the explicit traversal; walking boxes stay restricted.
+Sandbox 69/97/98 now hold 138/136/137 (97/98 reuse IDs retired in 0044; saves
+older than schema 2 still migrate their invented-scene occupants). Nepal's
+Guru sanctuary no longer leads into the carving. Audit: 57/71 exact.
+
+## Patch 0050
+
+64 = Kathmandu guard station (18), 65 = phone company (4), 71 = Mars pyramid
+entrance (183); logical scenes 134/135/151/181 mount on their physical rooms
+through the resource mapper with generated original setups. Audit: 64/75 exact,
+no mismatches.

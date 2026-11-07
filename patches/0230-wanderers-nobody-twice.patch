@@ -1,0 +1,776 @@
+diff --git a/common/scummverse_wander.cpp b/common/scummverse_wander.cpp
+index 028b0315..fe39e008 100644
+--- a/common/scummverse_wander.cpp
++++ b/common/scummverse_wander.cpp
+@@ -52,10 +52,40 @@ int Map::pickOutside(int group, Random &random) const {
+ 	return 0;
+ }
+ 
+-void Cast::add(int character, int home, int game, int weight, bool tiny, bool elsewhere) {
++Name::Name(const char *name) {
++	std::string word;
++	for (const char *p = name; p && *p; ++p) {
++		const char c = *p >= 'A' && *p <= 'Z' ? (char)(*p - 'A' + 'a') : *p;
++		if (c == '\'') continue;
++		qualified = qualified || c == '(';
++		if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) { word += c; continue; }
++		if (!word.empty()) words.push_back(word);
++		word.clear();
++	}
++	if (!word.empty()) words.push_back(word);
++	if (words.size() > 1 && words[0] == "the") { words.erase(words.begin()); described = true; }
++}
++
++bool samePerson(const Name &a, const Name &b) {
++	if (a.words.empty() || b.words.empty()) return false;
++	if (a.words == b.words) return true;
++	if (a.described || b.described || a.qualified || b.qualified) return false;
++	const Name &shorter = a.words.size() < b.words.size() ? a : b, &longer = &shorter == &a ? b : a;
++	if (longer.words.size() != shorter.words.size() + 1 || !std::equal(shorter.words.begin(), shorter.words.end(), longer.words.begin())) return false;
++	const std::string &family = longer.words.back();
++	return std::find_if(family.begin(), family.end(), [](char c) { return c < 'a' || c > 'z'; }) == family.end();
++}
++
++bool samePerson(const char *a, const char *b) { return samePerson(Name(a), Name(b)); }
++
++void Cast::add(int character, int home, int game, int weight, bool tiny, bool elsewhere, const char *name) {
+ 	if (character <= 0 || find(character) >= 0) return;
+ 	who.push_back(character); homes.push_back(home); games.push_back(std::max(0, game));
+ 	weights.push_back(std::max(1, weight)); small.push_back(tiny); away.push_back(elsewhere);
++	names.push_back(Name(name)); twins.push_back(std::vector<int>());
++	const int at = (int)who.size() - 1;
++	for (int i = 0; i < at && !tiny; ++i)
++		if (!small[i] && samePerson(names[i], names[at])) { twins[i].push_back(at); twins[at].push_back(i); }
+ }
+ 
+ int Cast::find(int character) const {
+@@ -79,7 +109,26 @@ int Random::below(int n) { return n > 0 ? (int)(next() % (uint32_t)n) : 0; }
+ void Wanderers::start(const Cast &cast, const Map &map, const Rules &rules, Random &random) {
+ 	_where.assign(cast.size(), 0); _clock.assign(cast.size(), -1);
+ 	if (map.places.empty()) return;
+-	for (size_t i = 0; i < cast.size(); ++i) _where[i] = anywhere((int)i, cast, map, rules, random);
++	// (Not where the same person is already: drawn again, a few times.)
++	for (size_t i = 0; i < cast.size(); ++i) {
++		int at = anywhere((int)i, cast, map, rules, random);
++		for (int tries = 0; at && tries < 16 && taken((int)i, at, cast); ++tries) at = anywhere((int)i, cast, map, rules, random);
++		_where[i] = at;
++	}
++}
++
++void Wanderers::stand(const char *name, int place, bool small) {
++	if (small || place <= 0) return;
++	Standing s;
++	s.name = Name(name); s.place = place;
++	if (!s.name.words.empty()) _standing.push_back(s);
++}
++
++bool Wanderers::taken(int index, int place, const Cast &cast) const {
++	if (index < 0 || index >= (int)cast.names.size() || index >= (int)cast.twins.size() || place <= 0 || cast.small[index]) return false;
++	for (int twin : cast.twins[index]) if (twin < (int)_where.size() && _where[twin] == place) return true;
++	for (const Standing &s : _standing) if (s.place == place && samePerson(s.name, cast.names[index])) return true;
++	return false;
+ }
+ 
+ void Wanderers::place(int index, int place) {
+@@ -119,7 +168,8 @@ bool Wanderers::barred(int index, int place, const Cast &cast, const Map &map) c
+ // now and then) anywhere, to where another one is, or toward the player (a
+ // room next to the player's), so they are met wherever the player is; but not
+ // into the player's place once a crowd is there (those there stay while the
+-// player watches, so they would only pile up); a small one always may.
++// player watches, so they would only pile up); a small one always may. Never
++// where the same person is already (taken): they stay where they are.
+ int Wanderers::moveFrom(int index, int player, const Cast &cast, const Map &map, const Rules &rules, Random &random) const {
+ 	const int roll = random.below(1000);
+ 	const int near = map.find(player), here = map.find(_where[index]);
+@@ -133,6 +183,8 @@ int Wanderers::moveFrom(int index, int player, const Cast &cast, const Map &map,
+ 		next = map.places[map.doors[here][random.below((int)map.doors[here].size())]];
+ 	}
+ 	if (!next || barred(index, next, cast, map)) next = anywhere(index, cast, map, rules, random);
++	// (Not where the same person is already: they stay where they are.)
++	if (next != _where[index] && taken(index, next, cast)) return _where[index];
+ 	if (next != player || !player) return next;
+ 	return (index < (int)cast.small.size() && cast.small[index]) || crowdAt(player, cast) < rules.crowd ? next : _where[index];
+ }
+@@ -179,7 +231,7 @@ void reset(unsigned seed) {
+ }
+ void addPlace(int code, int weight, int group) { if (code > 0 && code < 65536) bridge().map.add(code, weight, group); }
+ void addDoor(int from, int to) { bridge().map.link(from, to); }
+-void addCast(int character, int home, int group, int weight, bool small, bool away) { bridge().cast.add(character, home, group, weight, small, away); }
++void addCast(int character, int home, int group, int weight, bool small, bool away, const char *name) { bridge().cast.add(character, home, group, weight, small, away, name); }
+ int places() { return (int)bridge().map.places.size(); }
+ int cast() { return (int)bridge().cast.size(); }
+ void start() {
+@@ -214,6 +266,17 @@ bool send(int character, int place) {
+ 	b.wanderers.place(c, place);
+ 	return true;
+ }
++void clearStanding() { bridge().wanderers.clearStanding(); }
++void stand(const char *name, int place, bool small) { bridge().wanderers.stand(name, place, small); }
++bool twins(int first, int second) {
++	Bridge &b = bridge();
++	const int i = b.cast.find(first), j = b.cast.find(second);
++	return i >= 0 && j >= 0 && std::find(b.cast.twins[i].begin(), b.cast.twins[i].end(), j) != b.cast.twins[i].end();
++}
++bool taken(int character, int place) {
++	Bridge &b = bridge();
++	return b.wanderers.taken(b.cast.find(character), place, b.cast);
++}
+ unsigned signature() { return bridge().cast.signature(); }
+ int packed(int index) {
+ 	Bridge &b = bridge();
+diff --git a/common/scummverse_wander.h b/common/scummverse_wander.h
+index b257c9b8..baa55574 100644
+--- a/common/scummverse_wander.h
++++ b/common/scummverse_wander.h
+@@ -9,7 +9,9 @@
+ // place, sometimes somewhere far away (anywhere, every game an equal share), sometimes to where another one is (so a few gather),
+ // sometimes to a room next to the player's (so they are met wherever the
+ // player goes). Those in the player's place stay while the player watches,
+-// and nobody moves in once a crowd is there (small ones aside). The game
++// and nobody moves in once a crowd is there (small ones aside), nor where
++// the same person is already (another game's of the same name, or someone
++// standing there: never two of anyone). The game
+ // shows those in the viewed place (engines/scumm/scummverse_wander.inc).
+ // Plain types; the same seed moves them the same way.
+ #ifndef COMMON_SCUMMVERSE_WANDER_H
+@@ -19,6 +21,7 @@
+ 
+ #include <cstddef>
+ #include <cstdint>
++#include <string>
+ #include <vector>
+ 
+ namespace Scummverse {
+@@ -51,6 +54,23 @@ struct Map {
+ 	int pickOutside(int group, Random &random) const; // by weight, but none of a game's (0: no others)
+ };
+ 
++// A person's name as people are told apart (samePerson): lower-case words of
++// letters and digits (an apostrophe left out, "Li'l" "lil"; anything else
++// between words), a leading "the" left off (a description: "The Voodoo
++// Lady" is the Voodoo Lady).
++struct Name {
++	std::vector<std::string> words;
++	bool described = false; // began with "the"
++	bool qualified = false; // has a part in brackets ("Cook (SCUMM Bar)")
++	Name() {}
++	explicit Name(const char *name);
++};
++// The same person: the same words; or, neither a description nor
++// qualified, one of them with a family name after (a word of letters, not a
++// number: "Dr Fred" and "Dr. Fred Edison", "Bernard" and "Bernard
++// Bernoulli", not "Suzy" and "Suzy 4"). Nobody without a name.
++bool samePerson(const Name &a, const Name &b);
++
+ // How they move, in game ticks (60 a second); chances in thousandths of a move.
+ struct Rules {
+ 	int hop = 60 * 90;   // each moves on about this often (half as long to half as long again)
+@@ -66,11 +86,16 @@ struct Rules {
+ // game's characters share one game's worth), whether it is small (an
+ // animal or a critter: never part of a crowd) and whether it stays out of
+ // its own game's places (away: the mansion's and Zak's people, whose own
+-// actors are there; with nowhere else to go, nowhere: at home).
++// actors are there; with nowhere else to go, nowhere: at home). Its name
++// tells who is the same person as who (twins: the same name in another
++// game, samePerson; small ones never, an animal or a critter being one of
++// a kind: "Parrot" and "Parrot").
+ struct Cast {
+ 	std::vector<int> who, homes, games, weights;
+ 	std::vector<bool> small, away;
+-	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false, bool elsewhere = false); // once each; nobody 0
++	std::vector<Name> names;
++	std::vector<std::vector<int>> twins; // per index, the others who are the same person
++	void add(int character, int home, int game = 0, int weight = 1, bool tiny = false, bool elsewhere = false, const char *name = nullptr); // once each; nobody 0
+ 	int find(int character) const;     // its index, or -1
+ 	size_t size() const { return who.size(); }
+ 	uint32_t signature() const;        // the same cast in the same order, the same number (never 0)
+@@ -90,12 +115,22 @@ public:
+ 	// Cast indices of those in a place, in order (at most `most`); how many.
+ 	int at(int place, int *indices, int most) const;
+ 	int crowdAt(int place, const Cast &cast) const; // those there but the small ones
++	// Someone standing in a place who is not wandering there (the one played,
++	// those with them, a place's own people): the same person never moves in
++	// (nor sets out) there. A small one stands for nobody.
++	void stand(const char *name, int place, bool small = false);
++	void clearStanding() { _standing.clear(); }
++	// The same person as cast member `index` in a place already (another of
++	// the cast there, or standing there).
++	bool taken(int index, int place, const Cast &cast) const;
+ 
+ private:
+ 	int moveFrom(int index, int player, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
+ 	bool barred(int index, int place, const Cast &cast, const Map &map) const; // an away one's own game's place
+ 	int anywhere(int index, const Cast &cast, const Map &map, const Rules &rules, Random &random) const;
+ 	std::vector<int> _where, _clock; // per cast index: its place; ticks until it moves on (-1: not counted yet)
++	struct Standing { Name name; int place; };
++	std::vector<Standing> _standing;
+ };
+ 
+ } // End of namespace Wander
+diff --git a/common/scummverse_wander_engine.h b/common/scummverse_wander_engine.h
+index 71863187..67eaa163 100644
+--- a/common/scummverse_wander_engine.h
++++ b/common/scummverse_wander_engine.h
+@@ -21,6 +21,12 @@ inline int placeRoom(int code) { return (code - 1) % 1024; }
+ // pixels of its floor's width, fewer for those living there, at most `pool`.
+ int capacity(int floorWidth, int residents, int pool, int spacing = 40);
+ 
++// Whether two names are the same person (Name, samePerson in
++// scummverse_wander.h: case and punctuation aside, a leading "the" left off,
++// one with a family name after the other). The callers leave out small
++// ones (an animal or a critter is one of a kind).
++bool samePerson(const char *a, const char *b);
++
+ } // End of namespace Wander
+ 
+ namespace WanderBridge {
+@@ -35,8 +41,9 @@ void addDoor(int from, int to); // between added places
+ // A character who wanders, living at `home` (0: unknown) in game `group`;
+ // picked `weight` times as often as one of weight 1; a small one (an
+ // animal, a critter) never counts toward a crowd; an away one never goes to
+-// its own game's places.
+-void addCast(int character, int home, int group = 0, int weight = 1, bool small = false, bool away = false);
++// its own game's places; by its name, never where the same person is
++// already (another of the cast, or someone standing there: stand).
++void addCast(int character, int home, int group = 0, int weight = 1, bool small = false, bool away = false, const char *name = nullptr);
+ int places();
+ int cast();
+ // Everyone out afresh (at places by the rules).
+@@ -52,6 +59,16 @@ int where(int character);
+ bool small(int character);
+ // Puts a character somewhere (a test; false when not in the cast or no place).
+ bool send(int character, int place);
++// Who stands where and is no wanderer there (the one played, those with
++// them, a place's own people): nobody of the same name moves in. The list
++// is cleared, then each one stood (a small one stands for nobody).
++void clearStanding();
++void stand(const char *name, int place, bool small = false);
++// Whether two of the cast are the same person (both in it, not small).
++bool twins(int a, int b);
++// Whether the same person as a character of the cast is in a place already
++// (another of the cast there, or someone standing there): it never moves in.
++bool taken(int character, int place);
+ // Saved in the game's variables: the cast's signature (a different cast:
+ // everyone out afresh), then two places to a value.
+ unsigned signature();
+diff --git a/engines/scumm/scummverse_wander.inc b/engines/scumm/scummverse_wander.inc
+index 0600b5b6..627b85f0 100644
+--- a/engines/scumm/scummverse_wander.inc
++++ b/engines/scumm/scummverse_wander.inc
+@@ -10,7 +10,9 @@
+ // to go home. Those in the viewed place are shown here as visitors, as many
+ // as its floor has room for: actors of their own, drawn from their exported
+ // frames, walking about a little and greeting the player once. Meanwhile
+-// they are not at home (never two of anyone).
++// they are not at home (never two of anyone), nor where the same person
++// is already (by name: the same person from another game, or one of this
++// engine's actors, as Day of the Tentacle's Edna and the mansion's).
+ 
+ namespace WanderBridge = ::Scummverse::WanderBridge;
+ namespace Wander = ::Scummverse::Wander;
+@@ -30,6 +32,10 @@ static int wanderSavedVar(int index) {
+ static const int kWanderGameShare = 100000;
+ // A visitor stands at least this far (pixels) from everyone else.
+ static const int kVisitorSpacing = 40;
++// The actors' places, costumes and looks last told the wanderers as who
++// stands where (as WanderBridge, one for the game; 0: none told since it was
++// reset).
++static uint32 wanderStandingSig = 0;
+ 
+ // Zak's rooms a character can stand in (the tour's list): his airport,
+ // apartment and street, the imported places but the plane's cabin and the
+@@ -61,6 +67,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 	_scummverseWanderersOn = !ConfMan.hasKey("scummverse_wanderers") || ConfMan.getBool("scummverse_wanderers");
+ 	if (!_scummverseWanderersOn) return;
+ 	WanderBridge::reset(_rnd.getRandomNumber(0x7FFFFFFE) + 1);
++	wanderStandingSig = 0;
+ 	// One game's places, each weighing an equal share of the game.
+ 	// (Its game: the mansion 0, Zak's world 1, another game 2 + its number.)
+ 	int group = 0;
+@@ -107,7 +114,9 @@ void ScummEngine::scummverseWanderBuild() {
+ 	// mansion's and Zak's own people too (the user: "the mansion's and Zak's
+ 	// own characters in the wanderer pool too"), but never in their own
+ 	// game's places, which this engine plays with their own actors (so never
+-	// two of anyone in view); the mansion's kids, the party, stay home.
++	// two of anyone in view); the mansion's kids, the party, stay home. Each
++	// by name: never where the same person is (Monkey Island's Guybrush and
++	// Monkey Island 2's; one of this engine's actors: scummverseUpdateWanderers).
+ 	auto wanders = [this](int game, int costume) {
+ 		return game < 64 && !worldManiacKid(game, costume) && scummverseCharacterInstalled(game, costume);
+ 	};
+@@ -117,7 +126,7 @@ void ScummEngine::scummverseWanderBuild() {
+ 	for (const auto &cast : kWorldCast)
+ 		if (wanders(cast.game, cast.guest.costume))
+ 			WanderBridge::addCast(worldAppearanceKey(cast.game, cast.guest.costume), Wander::placeCode(Wander::kWorld, cast.game, cast.room),
+-				castGroup(cast.game), MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume), worldHome(cast.game));
++				castGroup(cast.game), MAX(1, kWanderGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume), worldHome(cast.game), cast.guest.name);
+ 	debug(1, "SCUMMVERSE wanderers: %d places, %d characters", WanderBridge::places(), WanderBridge::cast());
+ }
+ 
+@@ -164,6 +173,27 @@ void ScummEngine::scummverseUpdateWanderers(int delta) {
+ 	if (!_scummverseRoaming || !_scummVars || _numVariables <= kWanderSavedFirst[1] + kWanderSavedCount[1]) return;
+ 	scummverseWanderBuild();
+ 	if (!_scummverseWanderersOn) return;
++	// Who stands where besides them: this engine's actors (the one played,
++	// those with them, the mansion's and Zak's own people), by who they are
++	// (scummverseWhoWears); nobody of the same name moves in there. Told
++	// again when anyone's place, costume or look changes (and before they
++	// set out).
++	int standsAt[kScummverseManiacActors] = {};
++	uint32 standing = 2166136261u;
++	for (int id = 1; id < kScummverseManiacActors; ++id) {
++		standsAt[id] = _actors[id]->_room ? scummverseWanderPlace(_actors[id]->_room) : 0;
++		standing = ((standing ^ (uint32)standsAt[id]) * 16777619u ^ (uint32)_actors[id]->_costume) * 16777619u ^ (uint32)scummverseAppearance(id);
++	}
++	standing |= 1;
++	if (standing != wanderStandingSig) {
++		wanderStandingSig = standing;
++		WanderBridge::clearStanding();
++		for (int id = 1; id < kScummverseManiacActors; ++id) {
++			bool small;
++			const WorldGuest *who = standsAt[id] ? scummverseWhoWears(scummverseAppearance(id), _actors[id]->_costume, small) : nullptr;
++			if (who) WanderBridge::stand(who->name, standsAt[id], small);
++		}
++	}
+ 	// Everyone's place, as saved (a game loaded: _scummverseWanderRead
+ 	// cleared); a new game, a save from before 0103 or a different cast
+ 	// (games added since): everyone out afresh.
+diff --git a/engines/scumm/scummverse_world_play.inc b/engines/scumm/scummverse_world_play.inc
+index 66f2bf65..b800d575 100644
+--- a/engines/scumm/scummverse_world_play.inc
++++ b/engines/scumm/scummverse_world_play.inc
+@@ -963,6 +963,33 @@ bool ScummEngine::scummverseAppearancePortrait(int id, byte *rgba) {
+ 	return !data.empty() && WorldBridge::spritePortrait(data.data(), data.size(), 64, rgba);
+ }
+ 
++// Who one of this engine's actors is, by the catalog's names (to tell the
++// same person from another game: Wander::samePerson): the one they play
++// from another game, else by the costume they wear, the mansion's own by
++// its number, Zak's by Zak's own (the mansion's and Zak's own looks wear
++// theirs). Null: nobody known. Small: an animal or a critter, one of a kind.
++static const WorldGuest *scummverseWhoWears(int look, int worn, bool &small) {
++	small = false;
++	if (look && !worldNativeLook(look)) {
++		small = worldSmall(worldAppearanceGame(look), worldAppearanceCostume(look));
++		return worldAppearance(look);
++	}
++	const int imported = worn - ScummEngine::kScummverseFirstZakCostume;
++	const int zak = worn == kZakOwnCostume ? 1 : imported >= 0 && imported < (int)ARRAYSIZE(kZakCastOriginal) ? kZakCastOriginal[imported] : -1;
++	for (int game = 0; game < worldGameCount(); ++game) {
++		if (!worldHome(game) || sameId(kWorldGames[game].gameid, "maniac") == (zak >= 0)) continue;
++		const int costume = zak >= 0 ? zak : worn;
++		small = worldSmall(game, costume);
++		return worldAppearance(worldAppearanceKey(game, costume));
++	}
++	return nullptr;
++}
++
++// The same person (by name), neither of them small: two parrots are two birds.
++static bool scummverseSamePerson(const WorldGuest *a, bool smallA, const WorldGuest *b, bool smallB) {
++	return a && b && !smallA && !smallB && ::Scummverse::Wander::samePerson(a->name, b->name);
++}
++
+ void ScummEngine::scummverseMountCharacters() {
+ 	int source;
+ 	const int gameIndex = scummverseWorldGameOf(_currentRoom, source);
+@@ -981,9 +1008,37 @@ void ScummEngine::scummverseMountCharacters() {
+ 	// theirs): the mansion's by its number, Zak's imported ones by Zak's own
+ 	// (names told Zak's villager look from the shaman visiting in the same
+ 	// costume, and missed Zak's own actors: Zak or Annie beside their twins).
++	// So does anyone who is the same person by name as one of the actors
++	// here (the one played, those with them, the mansion's own: Day of the
++	// Tentacle's Edna beside Maniac's), as a scene's own character at home,
++	// or as a visitor shown already (Monkey Island 2's Guybrush beside
++	// Monkey Island's: one shown before stays); a scene's own character at
++	// home steps aside for the same person among the actors.
++	const WorldGuest *actorWho[kScummverseManiacActors] = {};
++	bool actorSmall[kScummverseManiacActors] = {};
++	for (int id = 1; id < kScummverseManiacActors; ++id)
++		if (_actors[id]->_room == _currentRoom) actorWho[id] = scummverseWhoWears(scummverseAppearance(id), _actors[id]->_costume, actorSmall[id]);
++	auto actorTwin = [&](const WorldGuest *who, bool small) {
++		for (int id = 1; id < kScummverseManiacActors; ++id) if (scummverseSamePerson(who, small, actorWho[id], actorSmall[id])) return true;
++		return false;
++	};
++	bool guestAside[kScummverseGuestSlots] = {};
++	for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
++		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++		guestAside[k] = guest && actorTwin(guest, worldSmall(gameIndex, guest->costume));
++	}
+ 	auto twinHere = [&](int who) {
+ 		const int game = worldAppearanceGame(who), costume = worldAppearanceCostume(who);
+-		if (!worldHome(game) || !worldAppearance(who)) return false;
++		const WorldGuest *visitor = worldAppearance(who);
++		if (!visitor) return false;
++		const bool small = worldSmall(game, costume);
++		if (actorTwin(visitor, small)) return true;
++		for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
++			const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
++			if (guest && !guestAside[k] && !_scummverseGuestData[k].empty() && !scummverseWandering(worldAppearanceKey(gameIndex, guest->costume)) &&
++				scummverseSamePerson(visitor, small, guest, worldSmall(gameIndex, guest->costume))) return true;
++		}
++		if (!worldHome(game)) return false;
+ 		const bool maniac = sameId(kWorldGames[game].gameid, "maniac");
+ 		for (int id = 1; id < kScummverseManiacActors; ++id) {
+ 			if (_actors[id]->_room != _currentRoom) continue;
+@@ -995,12 +1050,25 @@ void ScummEngine::scummverseMountCharacters() {
+ 		}
+ 		return false;
+ 	};
+-	// Wanderers visiting, and the scene's own characters out wandering.
++	// (Those shown before first, so a visitor arriving never takes the place
++	// of the same person shown.)
++	bool aside[kScummverseVisitorSlots] = {}, shown[kScummverseVisitorSlots] = {};
++	for (int pass = 0; pass < 2; ++pass)
++		for (int s = 0; s < kScummverseVisitorSlots; ++s) {
++			const ScummverseVisitor &v = _scummverseVisitors[s];
++			if (!v.who || (pass == 0) != (v.sprite != 0)) continue;
++			aside[s] = twinHere(v.who);
++			for (int t = 0; t < kScummverseVisitorSlots && !aside[s]; ++t) aside[s] = shown[t] && ::Scummverse::WanderBridge::twins(v.who, _scummverseVisitors[t].who);
++			shown[s] = !aside[s] && !v.frames.empty();
++		}
++	// Wanderers visiting, and the scene's own characters out wandering or
++	// stepping aside.
+ 	for (int s = 0; s < kScummverseVisitorSlots; ++s)
+-		if (_scummverseVisitors[s].who) key += Common::String::format(" v%d:%d%s", s, _scummverseVisitors[s].who, twinHere(_scummverseVisitors[s].who) ? "t" : "");
++		if (_scummverseVisitors[s].who) key += Common::String::format(" v%d:%d%s", s, _scummverseVisitors[s].who, aside[s] ? "t" : "");
+ 	for (int k = 0; inWorld && k < kScummverseGuestSlots; ++k) {
+ 		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+ 		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) key += Common::String::format(" out%d", k);
++		if (guestAside[k]) key += Common::String::format(" aside%d", k);
+ 	}
+ 	if (key == _scummverseCharactersKey) return;
+ 	_scummverseCharactersKey = key;
+@@ -1011,9 +1079,10 @@ void ScummEngine::scummverseMountCharacters() {
+ 	for (int k = 0; k < kScummverseGuestSlots; ++k) {
+ 		_scummverseGuestSprite[k] = -1;
+ 		if (!inWorld || _scummverseGuestData[k].empty()) continue;
+-		// Someone here already plays this character: it steps aside.
++		// Someone here already plays this character, or is the same person:
++		// it steps aside.
+ 		const WorldGuest *guest = worldGuestAt(worldPlaceKey(gameIndex, source), k);
+-		if (guest && (key + " ").contains(Common::String::format("=%d ", worldAppearanceKey(gameIndex, guest->costume)))) continue;
++		if (guest && ((key + " ").contains(Common::String::format("=%d ", worldAppearanceKey(gameIndex, guest->costume))) || guestAside[k])) continue;
+ 		// Out wandering: not at home.
+ 		if (guest && scummverseWandering(worldAppearanceKey(gameIndex, guest->costume))) continue;
+ 		_scummverseGuestSprite[k] = count;
+@@ -1039,7 +1108,7 @@ void ScummEngine::scummverseMountCharacters() {
+ 	// someone; one stays away while someone here plays them.
+ 	for (ScummverseVisitor &v : _scummverseVisitors) {
+ 		v.sprite = 0;
+-		if (!v.who || v.frames.empty() || (key + " ").contains(Common::String::format("=%d ", v.who)) || twinHere(v.who)) continue;
++		if (!v.who || v.frames.empty() || (key + " ").contains(Common::String::format("=%d ", v.who)) || aside[&v - _scummverseVisitors]) continue;
+ 		v.sprite = count + 1;
+ 		data[count] = v.frames.data(); sizes[count] = v.frames.size();
+ 		scales[count] = CLIP(person / kWorldGames[worldAppearanceGame(v.who)].heroHeight, 0.06, 4.0);
+@@ -1209,7 +1278,9 @@ void ScummEngine::scummverseUpdateGuests(int delta, uint64 chatting) {
+ 			if (a->_moving) { a->stopActorMoving(); a->startAnimActor(a->_standFrame); }
+ 			continue;
+ 		}
+-		const bool near = player->_room == _currentRoom && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32;
++		// (Not for a player out of sight, aboard Zak's bus or a tram at the
++		// stop: nobody is there to greet.)
++		const bool near = player->_room == _currentRoom && player->_visible && ABS(a->getPos().x - player->getPos().x) < 72 && ABS(a->getPos().y - player->getPos().y) < 32;
+ 		if (near && !_scummverseGuestGreeted[k] && !VAR(VAR_HAVE_MSG) && !_scummverseAIActor && delta) {
+ 			_scummverseGuestGreeted[k] = true;
+ 			a->stopActorMoving();
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 118e817c..3a0b9d28 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -211,10 +211,43 @@ int SandboxEngine::place(int game, int room) const {
+ 	return walkable(game, room) && !worldRideScene(game, room) ? Wander::placeCode(Wander::kWorld, game, room) : 0;
+ }
+ 
++// Small: an animal or a critter, one of a kind (two parrots are two birds,
++// never the same person).
++static bool smallOne(int key) {
++	const int game = worldAppearanceGame(key), costume = worldAppearanceCostume(key);
++	if (game == kWorldCustomLooks)
++		for (const WorldCustomRoamer &r : kWorldCustomRoamers) if (r.costume == costume) return r.small;
++	return worldSmall(game, costume);
++}
++
++// Two characters who are one person by name (another game's of the same
++// name: Monkey Island's Guybrush and Monkey Island 2's; Wander::samePerson),
++// neither small. (One character is not two: a game's two people of one
++// costume, as Loom's Flute and Stopper, both show where they live.)
++static bool samePersonKeys(int a, int b) {
++	const WorldGuest *x = worldAppearance(a), *y = worldAppearance(b);
++	return a > 0 && b > 0 && a != b && x && y && !smallOne(a) && !smallOne(b) && Wander::samePerson(x->name, y->name);
++}
++
++bool SandboxEngine::twinOnStage(int key) const {
++	for (int k : _onStage) if (samePersonKeys(k, key)) return true;
++	return false;
++}
++
++// The one played stands where they are: nobody of the same name wanders in
++// there (those with them are among the wanderers here).
++void SandboxEngine::wanderStanding() {
++	WanderBridge::clearStanding();
++	const WorldGuest *who = worldAppearance(_playerKey);
++	if (who && _game >= 0) WanderBridge::stand(who->name, place(_game, _room), smallOne(_playerKey));
++}
++
+ // Everyone out (common/scummverse_wander.h, as Maniac's other-world
+ // wanderers): every installed place but maps, the games' doors between
+ // them (a door to a map leads on to where the map's doors go), and every
+-// installed character, each game an equal share. (The one played is among
++// installed character, each game an equal share, by name: never where the
++// same person is already (another game's of the same name, or the one
++// played). (The one played is among
+ // them, whoever is played: passed by wherever people come on the stage, and
+ // out again once someone else is played.)
+ void SandboxEngine::buildWanderers() {
+@@ -240,14 +273,16 @@ void SandboxEngine::buildWanderers() {
+ 	for (const WorldCastGuest &cast : kWorldCast) {
+ 		const int key = worldAppearanceKey(cast.game, cast.guest.costume);
+ 		if (cast.game >= 64 || !hasCharacter(key)) continue;
+-		WanderBridge::addCast(key, place(cast.game, cast.room), 2 + cast.game, MAX(1, kGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume));
++		WanderBridge::addCast(key, place(cast.game, cast.room), 2 + cast.game, MAX(1, kGameShare / games[cast.game]), worldSmall(cast.game, cast.guest.costume), false, cast.guest.name);
+ 	}
+ 	// The custom ones who roam (kWorldCustomRoamers): from anywhere, no game
+ 	// of their own.
+ 	for (const WorldCustomRoamer &r : kWorldCustomRoamers) {
+ 		const int key = worldAppearanceKey(kWorldCustomLooks, r.costume);
+-		if (hasCharacter(key)) WanderBridge::addCast(key, 0, 2 + worldGameCount(), kGameShare, r.small);
++		const WorldGuest *who = worldAppearance(key);
++		if (hasCharacter(key)) WanderBridge::addCast(key, 0, 2 + worldGameCount(), kGameShare, r.small, false, who ? who->name : nullptr);
+ 	}
++	wanderStanding();
+ 	WanderBridge::start();
+ }
+ 
+@@ -435,7 +470,8 @@ bool SandboxEngine::enter(int game, int room, int arrival, Common::String &probl
+ 			if (cast.game == game && cast.room == room) keys.push_back(worldAppearanceKey(game, cast.guest.costume));
+ 	}
+ 	for (int key : keys) {
+-		if (key == _playerKey) continue;
++		// (The same person as someone here already, by name: steps aside.)
++		if (key == _playerKey || twinOnStage(key)) continue;
+ 		const int n = addPerson(key);
+ 		if (n >= 0) _onStage.push_back(key);
+ 	}
+@@ -2230,7 +2266,8 @@ void SandboxEngine::arrivals() {
+ 	for (int i = 0; i < count; ++i) {
+ 		bool here = false;
+ 		for (int key : _onStage) here = here || key == found[i];
+-		if (here || found[i] == _playerKey || _broken.contains(found[i])) continue;
++		// (Nor the same person as someone here, by name: steps aside.)
++		if (here || found[i] == _playerKey || _broken.contains(found[i]) || twinOnStage(found[i])) continue;
+ 		const int n = addPerson(found[i]);
+ 		if (n < 0) continue;
+ 		_onStage.push_back(found[i]);
+@@ -2277,6 +2314,7 @@ void SandboxEngine::step(int ticks) {
+ 	if (_noteClock > 0 && (_noteClock -= ticks) <= 0) { PanelBridge::select(-1); _dirty = true; }
+ 	if (_noteGap > 0) _noteGap -= ticks;
+ 	cabinPan(ticks);
++	if (_wanderers) wanderStanding();
+ 	if (_wanderers && WanderBridge::advance(ticks, place(_game, _room))) arrivals();
+ 	stroll(ticks);
+ 	followStep(ticks);
+@@ -3519,7 +3557,8 @@ bool SandboxEngine::move(int actor, int what) {
+ // One with moves, not played, ready for a show: standing near the one
+ // played (half a screen), not following, talking, seated, hidden or busy.
+ int SandboxEngine::showOffActor() const {
+-	if (_player < 0 || _aboard || _selfie.on || _touring.on) return -1;
++	// (Nor beside one riding out of sight: on the way, or hidden at the stop.)
++	if (_player < 0 || _aboard || _tram.riding || _riding.phase > kRideBoarded || StageBridge::hidden(_player) || _selfie.on || _touring.on) return -1;
+ 	double px, py, x, y;
+ 	StageBridge::position(_player, px, py);
+ 	const double near = screenWidthOf(_game) / 2.0;
+@@ -3627,7 +3666,8 @@ void SandboxEngine::showStains() {
+ }
+ 
+ bool SandboxEngine::peeReady(int n) const {
+-	if (_player < 0 || _aboard || _selfie.on || _touring.on || n == _player || !canPee(n) || !readyToMove(n)) return false;
++	// (Nor beside one riding out of sight: on the way, or hidden at the stop.)
++	if (_player < 0 || _aboard || _tram.riding || _riding.phase > kRideBoarded || StageBridge::hidden(_player) || _selfie.on || _touring.on || n == _player || !canPee(n) || !readyToMove(n)) return false;
+ 	return !following(_onStage[n]) && !(actorSlot(n, _player) < kTalkSlots && (_chatting & (1ULL << (kTalkVisitor + actorSlot(n, _player)))));
+ }
+ 
+@@ -7456,7 +7496,8 @@ static bool poll(int &a, int &r, char *text, int capacity) {
+ // the one saying it), written when the model is slow (its late line let go).
+ // Not played, near the one played: a show now and then (the saber taken up,
+ // swung, put away; or lightning), at most every three minutes; none far
+-// away or walking.
++// away or walking, nor beside one riding out of sight (Crispy 2's pee
++// neither).
+ Common::Error SandboxEngine::movesTest() {
+ 	_phone.remark = FakeRemark::remark; _phone.remarkPoll = FakeRemark::poll;
+ 	int failed = 0, waited = 0, keys = 0, stopped = 0, written = 0, answered = 0, ewokese = 0, modelLines = 0, slowLines = 0, shows = 0, saberShows = 0, zapShows = 0, held = 0;
+@@ -7816,6 +7857,44 @@ Common::Error SandboxEngine::movesTest() {
+ 			else ++own;
+ 		}
+ 	}
++	int heldUnseen = 0;
++	// (Someone on the stage beside the one played: the actor, -1 none.)
++	auto besideOne = [&](int key, double dx) {
++		int n = -1;
++		for (int k = 0; k < (int)_onStage.size(); ++k) if (_onStage[k] == key && k != _player) n = k;
++		if (n < 0 && key != _playerKey && (n = addPerson(key)) >= 0) { _onStage.push_back(key); _people = _onStage.size(); }
++		double px, py;
++		StageBridge::position(_player, px, py);
++		if (n >= 0) { StageBridge::stop(n); StageBridge::place(n, px + dx, py); }
++		return n;
++	};
++	// Not played, beside one riding out of sight (on the way on a ride, on
++	// the tram, or hidden at the stop): Sith Ewok 3 is ready for no show,
++	// Crispy 2 for no pee; seen again, both are.
++	if (!castChoose(crispy) || _player < 0) fail("Crispy not played beside them");
++	else {
++		// (A show or a pee of theirs over first; none more meanwhile.)
++		_showOffClock = _peeClock = 1 << 30;
++		int sith = besideOne(ewok, 24), pup = besideOne(crispy2, -24);
++		if (sith >= 0) settle(sith);
++		if (pup >= 0) settle(pup);
++		heckleOver();
++		sith = besideOne(ewok, 24); pup = besideOne(crispy2, -24);
++		_showOff = ShowOff(); _peeWalk = PeeWalk(); _heckle = Heckle();
++		if (sith < 0 || pup < 0 || showOffActor() != sith || !peeReady(pup)) fail("no show or pee due beside the one played");
++		else for (int way = 0; way < 3; ++way) {
++			const Riding riding = _riding;
++			if (way == 0) _riding.phase = kRideBoarded + 1;
++			else if (way == 1) _tram.riding = true;
++			else StageBridge::hide(_player, true);
++			const bool show = showOffActor() >= 0, peeing = peeReady(pup);
++			_riding = riding; _tram.riding = false; StageBridge::hide(_player, false);
++			if (show) fail(way == 0 ? "a show due beside one on the way on a ride" : way == 1 ? "a show due beside one on the tram" : "a show due beside one hidden");
++			else if (peeing) fail(way == 0 ? "a pee due beside one on the way on a ride" : way == 1 ? "a pee due beside one on the tram" : "a pee due beside one hidden");
++			else if (showOffActor() != sith || !peeReady(pup)) fail("no show or pee due once seen again");
++			else ++heldUnseen;
++		}
++	}
+ 	// Out of sight on a ride (Zak's bus and planes, where Zak's places are
+ 	// installed): Crispy 2's pee as the bus leaves ends at the stop, as big as
+ 	// it got (not spreading on unseen); Sith Ewok 3's lightning ends there too
+@@ -7879,7 +7958,31 @@ Common::Error SandboxEngine::movesTest() {
+ 			else if (_room != 141 || StageBridge::lit(_player)) fail("Sith Ewok 2 stepped off the plane lit");
+ 			else ++unseen;
+ 		}
++		// (Crispy riding the bus out of sight: Sith Ewok 3 and Crispy 2 left
++		// beside him at the stop, their whiles run down, start no show and no
++		// pee there.)
++		if (!board(crispy, 3, 142, kRideBoarded - 30)) fail("the bus not waited for");
++		else {
++			_showOffClock = _peeClock = 1 << 30; // (nothing of theirs until it leaves)
++			const int sith = besideOne(ewok, 24), pup = besideOne(crispy2, -24);
++			for (int t = 0; t < 200 && _riding.phase <= kRideBoarded; ++t) step(1);
++			_showOff = ShowOff(); _peeWalk = PeeWalk(); _showOffClock = 1; _peeClock = 1;
++			bool started = false, hidden = true;
++			for (int t = 0; t < 120 && _riding.ride >= 0; ++t) {
++				step(1);
++				if (_riding.ride < 0) break; // (there)
++				hidden = hidden && StageBridge::hidden(_player);
++				started = started || _showOff.actor >= 0 || _peeWalk.actor >= 0 || _peeing.actor >= 0;
++			}
++			_showOffClock = _peeClock = 1 << 30;
++			if (sith < 0 || pup < 0 || !hidden) fail("not out of sight on the bus with them at the stop");
++			else if (started) fail("a show or a pee beside one out of sight on the bus");
++			else ++heldUnseen;
++		}
+ 	}
++	warning("SCUMMVERSE sandbox selftest moves out of sight: %d of %d with no show or pee due beside one out of sight (on the way on a ride, on the tram, hidden%s)",
++		heldUnseen, zakRides ? 4 : 3, zakRides ? "; none started at Zak's bus stop" : "");
++	if (heldUnseen != (zakRides ? 4 : 3)) fail("a show or a pee due beside one out of sight");
+ 	// On a map or a floor plan (no floor there): no pee and no moves, the one
+ 	// played told so, none by those left there. At a place's limit, a pee let
+ 	// go before his leg is up lets no stain go. A save during a pee (the app
+@@ -8441,15 +8544,32 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 	}
+ 	if (mode == "wander") {
+ 		// Everyone out; half an hour in the start place: those coming in are
+-		// shown, those here walk about; the state kept and read back.
++		// shown, those here walk about (nobody of the one played's name comes
++		// in); the state kept and read back. Never two of anyone (by name:
++		// another game's of the same name): in no place, nor on the stage;
++		// two of one person sent here, one shown; the same person as the one
++		// played sent here, not shown.
+ 		if (!_wanderers) return Common::Error(Common::kUnknownError, "sandbox selftest: wanderers are off");
+ 		if (!enter(game, room, 0, problem)) return Common::Error(Common::kReadingFailed, problem);
+-		const int start = _people;
+-		int moves = 0;
++		const int start = _people, here = place(_game, _room);
++		Common::Array<int> keys, twinsOfPlayed, wasAt;
++		for (const WorldCastGuest &cast : kWorldCast) {
++			const int key = worldAppearanceKey(cast.game, cast.guest.costume);
++			if (WanderBridge::where(key) > 0 && Common::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
++		}
++		for (const WorldCustomRoamer &r : kWorldCustomRoamers)
++			if (WanderBridge::where(worldAppearanceKey(kWorldCustomLooks, r.costume)) > 0) keys.push_back(worldAppearanceKey(kWorldCustomLooks, r.costume));
++		for (int key : keys) if (key != _playerKey && samePersonKeys(key, _playerKey)) { twinsOfPlayed.push_back(key); wasAt.push_back(WanderBridge::where(key)); }
++		int moves = 0, twinArrivals = 0;
+ 		for (int t = 0; t < 60 * 60 * 30; t += 6) {
+ 			const int before = StageBridge::busy();
+ 			step(6);
+ 			moves += before;
++			for (uint i = 0; i < twinsOfPlayed.size(); ++i) {
++				const int now = WanderBridge::where(twinsOfPlayed[i]);
++				twinArrivals += now == here && wasAt[i] != here;
++				wasAt[i] = now;
++			}
+ 		}
+ 		int shown = 0, x0, y0, x1, y1;
+ 		for (int n = 0; n < StageBridge::actorCount(); ++n) shown += StageBridge::drawnRect(n, x0, y0, x1, y1);
+@@ -8465,9 +8585,47 @@ Common::Error SandboxEngine::selfTest(const Common::String &mode) {
+ 		bool same = read && g2 == _game && r2 == _room;
+ 		for (uint i = 0; i < where.size(); ++i) same = same && WanderBridge::where(worldAppearanceKey(kWorldCast[i].game, kWorldCast[i].guest.costume)) == where[i];
+ 		g_system->getSavefileManager()->removeSavefile(kStateFile);
++		// (Everyone by place: those in one place compared.)
++		Common::Array<uint32> byPlace;
++		for (uint i = 0; i < keys.size(); ++i) byPlace.push_back((uint32)WanderBridge::where(keys[i]) << 16 | i);
++		Common::sort(byPlace.begin(), byPlace.end());
++		int checked = 0, twice = 0, onStageTwice = 0, sentShown = 0, keptOut = 0;
++		for (int key : twinsOfPlayed) keptOut += WanderBridge::taken(key, here);
++		for (uint i = 0; i < byPlace.size(); ++i) {
++			const uint32 at = byPlace[i] >> 16;
++			if (!i || at != byPlace[i - 1] >> 16) ++checked;
++			const int key = keys[byPlace[i] & 0xFFFF];
++			for (uint j = i + 1; j < byPlace.size() && byPlace[j] >> 16 == at; ++j) twice += samePersonKeys(key, keys[byPlace[j] & 0xFFFF]);
++		}
++		for (uint a = 0; a < _onStage.size(); ++a)
++			for (uint b = 0; b < a; ++b) onStageTwice += samePersonKeys(_onStage[a], _onStage[b]);
++		// (Two of one person, neither the one played nor the same person.)
++		int first = 0, second = 0;
++		for (uint i = 0; i < keys.size() && !first; ++i)
++			for (uint j = i + 1; j < keys.size() && !first; ++j)
++				if (keys[i] != _playerKey && keys[j] != _playerKey && !samePersonKeys(keys[i], _playerKey) && samePersonKeys(keys[i], keys[j])) { first = keys[i]; second = keys[j]; }
++		const int played = _playerKey;
++		if (first && here) {
++			WanderBridge::send(first, here); WanderBridge::send(second, here);
++			enter(_game, _room, 0, problem);
++			int times = 0;
++			for (int k : _onStage) times += k == first || k == second;
++			sentShown += times == 1;
++			_playerKey = first;
++			WanderBridge::send(second, here);
++			enter(_game, _room, 0, problem);
++			times = 0;
++			for (uint n = 0; n < _onStage.size(); ++n) times += (int)n != _player && _onStage[n] == second;
++			sentShown += times == 0 && _player >= 0;
++			_playerKey = played;
++			enter(_game, _room, 0, problem);
++		}
+ 		warning("SCUMMVERSE sandbox selftest wander: %d places, %d out, %d here at first, %d after half an hour, %d on screen, walking %d%% of the time, state %s%s",
+ 			WanderBridge::places(), WanderBridge::cast(), start, _people, shown, moves * 100 / (60 * 60 * 30 / 6), same ? "kept" : "LOST", aligned ? "" : ", ACTORS OUT OF STEP");
+-		if (!WanderBridge::cast() || !same || !aligned || _people <= start || !moves) return Common::Error(Common::kUnknownError, "sandbox selftest failed");
++		warning("SCUMMVERSE sandbox selftest wander: never two of anyone: %d places checked with nobody twice (%d twice), %d on the stage twice, %d of the one played's name came in (%d of %d kept out); %s of games %d and %d sent here: %d of 2 stepped aside (shown once; not shown beside one of them played)",
++			checked, twice, onStageTwice, twinArrivals, keptOut, (int)twinsOfPlayed.size(), first ? worldAppearance(first)->name : "nobody", worldAppearanceGame(first), worldAppearanceGame(second), sentShown);
++		if (!WanderBridge::cast() || !same || !aligned || _people <= start || !moves || twice || onStageTwice || twinArrivals || keptOut != (int)twinsOfPlayed.size() || (first && here && sentShown != 2))
++			return Common::Error(Common::kUnknownError, "sandbox selftest failed");
+ 		warning("SCUMMVERSE sandbox selftest PASS");
+ 		return Common::kNoError;
+ 	}
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 0d7b9892..3a51c3e7 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -62,6 +62,8 @@ private:
+ 	bool startPlace(int &game, int &room) const;
+ 	bool firstPlace(int game, int &room) const; // a game's first named place installed
+ 	void buildWanderers();
++	void wanderStanding(); // the one played, standing where they are: nobody of the same name wanders in
++	bool twinOnStage(int key) const; // the same person (by name) as someone on stage already
+ 	int place(int game, int room) const; // a room as the wanderers know it (0: a map, not a place)
+ 	// On stage, as tall as a person here (appearance key): its actor, -1
+ 	// (and never tried again: a character whose file is damaged).
