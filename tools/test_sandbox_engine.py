@@ -1137,6 +1137,26 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: the Last Crusade\'s records with its wine bottle not replayed\n' + output[-2000:])
         print(f'PASS: {ih.group(1)} of the Last Crusade\'s things shown by what its game keeps played as a player plays them (Henry\'s house\'s table cloth by its plant, '
               f'the small key made at the office\'s jar, the chest unlocked and opened, its old book taken; Venice\'s wine bottle given once looked at), {ih.group(3)} kept')
+        # (From 0306) Sam & Max's Max as a player plays him, where its export
+        # is 0306's (samnmax-v32): Max, whom its start gives Sam in room 1,
+        # which no place exports, carried by his name once, the first time one
+        # of its places is shown (none while the other checks run), his
+        # picture in its box drawn as the pointer when held; held from the box
+        # through its own controls and used on the dead guy of its street
+        # (room 9), his answer's lines said in turn, the carnival tickets
+        # carried, Max kept, not twice; through saves and loads. Before, Max
+        # was never carried, and none of his uses could be played.
+        sm = re.search(r"selftest Sam & Max's things: (\d+) of (\d+) played as a player plays them .*?, (\d+) lines said in turn, (\d+) kept through saves and loads; (\d+) failed", output)
+        snmCases = 2 if exported_since(worlds, 'samnmax', 32) and all((worlds/f'samnmax-{room}.svw').exists() for room in (7, 9, 15)) else 0
+        if not sm or sm.group(5) != '0' or sm.group(1) != sm.group(2) or sm.group(4) != sm.group(1) or int(sm.group(2)) < snmCases or (snmCases and int(sm.group(3)) < 2):
+            raise SystemExit('FAIL: Sam & Max\'s Max as a player plays him (export Sam & Max again: tools/export_worlds.py)\n' + output[-2000:])
+        # (And its replay of two things carries Max into the records that use
+        # him, each through its own controls as recorded: 15 at least.)
+        snmHeld = re.search(r"selftest Sam & Max Hit the Road two things held from its start: (\d+) records of two things with one its start gives held, (\d+) of them through its own controls", output)
+        if snmCases and (not snmHeld or int(snmHeld.group(1)) < 15 or snmHeld.group(2) != snmHeld.group(1)):
+            raise SystemExit('FAIL: Sam & Max\'s records with Max held not replayed through its own controls\n' + output[-2000:])
+        print(f'PASS: {sm.group(1)} of Sam & Max\'s things played as a player plays them (Max from its start carried, his picture in its box, held from it and used on the '
+              f'dead guy of the street, the carnival tickets carried), {sm.group(3)} lines said in turn, {sm.group(4)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

@@ -2648,6 +2648,23 @@ int main() {
 		assert(worldValueArrival(0, 28) && !worldValueArrival(0, 28)->need && worldExportVersion("tentacle") >= 36);
 	}
 	std::puts("PASS: what a game's start gives its players from a room no place exports (its rows, the value kept given; Day of the Tentacle's kids' own), a place arrived at with a thing of it in its picture 1 too, Day of the Tentacle's time capsule and vinegar in the catalog");
+	// (From 0306) Sam & Max's Max, whom its start gives Sam in room 1 (no
+	// place of its exports): a row of kWorldStartThings of a game whose box
+	// holds a thing as the pointer (kWorldHeldThings), so carried in its
+	// answers of two as held, given by the value its start's things are kept
+	// by; its export's version 32 on. One row of his alone, none of another
+	// game's object 35.
+	{
+		using namespace WorldCatalog;
+		const int games = (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0]));
+		int snm = -1, rows = 0;
+		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "samnmax")) snm = g;
+		for (const WorldStartThing &s : kWorldStartThings) rows += s.game == snm;
+		assert(snm >= 0 && rows == 1 && worldStartThing(snm, 35) && worldStartThing(snm, 35)->room == 1 && worldHeldThing(snm) && !worldHeldThing(snm)->heldFirst);
+		assert(worldStartGivenValue(snm, kWorldStartGiven) && !worldKeptValue(snm, kWorldStartGiven) && worldExportVersion("samnmax") >= 32);
+		for (int g = 0; g < games; ++g) assert(g == snm || !worldStartThing(g, 35));
+	}
+	std::puts("PASS: Sam & Max's Max from its start (room 1) in the catalog, a thing its box holds");
 	// (From 0304) Monkey Island 2's money's way in: the rat trapped in the
 	// laundry's box and put in the Bloody Lip's soup. A thing put back where
 	// its game lays it (kWorldPutBacks) is a thing of its place; one carried

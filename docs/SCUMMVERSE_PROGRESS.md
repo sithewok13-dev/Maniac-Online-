@@ -9777,3 +9777,131 @@ and reviewed in this order:
 - Monkey Island after its three trials (planned 0309): in progress, cut off.
 - Next: when the limit resets, resume those agents, review 0306-0308 and
   integrate them one by one.
+
+## Patch 0306 — Sam & Max's Max from its start carried in the new engine, held from its box and used as a player uses him (the dead guy of the street turned inside out for the carnival tickets among his uses); its opening surveyed (samnmax export version 32)
+
+From the coordinator's ask (a survey of Sam & Max's opening in the new
+engine), against the original's scripts (read with descumm, nothing
+copied).
+- Survey. The things its scripts ever carry (its pick-up scripts, global
+  scripts 54 and 55, and pickupObject) in the places of its opening (rooms 7
+  to 26: the office, the hallway, the street, the travel map, Snuckey's, the
+  carnival's entrance, freak show and midway, the trailer, the Tunnel of
+  Love, the swan ride, Doug's lair, Gator Golf) against its things file as
+  exported (0284's, "samnmax-v31"): 63, 126, 135, 150, 152, 178 and 242 taken
+  and 70, 209 and 259 given could be had; 35, 95, 127, 151, 176, 179, 210,
+  221, 230, 269 and 272 were dead ends. Its places are no dead end: the map
+  (room 10) is a door to every place its game ever shows on it, its doors
+  open whatever its scripts bar (the midway's gate, 15's 140; the trailer's
+  lock, 17's 171 and 172), and the swan ride (22), which no door reaches, is
+  a story area of its game's list.
+- What the original does. Its boot script (global script 1) picks up Max
+  (35, his code in room 1, which no place exports) for Sam (actor 2): he
+  lies in its box, drawn after its five verbs in their row above its cells
+  (his picture its icon object 1008, by his verb 91: variable 182), and is
+  used on things and people as any thing held (its pick up verb, 3, with
+  variable 181 the thing held). The street's dead guy (room 9, actor 4, his
+  cast's costume 51: set up by the street's entry while 95 has class 6, his
+  verb script its local script 205): Max used on him turns him inside out
+  and gives the carnival tickets (95, by global script 54; its class 6
+  cleared, the dead guy gone for good). The tickets given to the carnival's
+  doorman (room 15, actor 4, costume 67: local script 208) open its way to
+  the midway (140's class 6 cleared) and take the one played into the freak
+  show (room 16, by its door 148).
+- New engine, before. Max was never carried: the export carries what lies
+  in a place exported, and room 1 is none. None of his uses was ever
+  played, the tickets never had.
+- Now kWorldStartThings has Sam & Max's row (game 6, room 1, 35; in its own
+  line). Its export (scummverseExportThings' Sam & Max part) carries him in
+  its answers of two as its box holds a thing (0269's), checked against its
+  start (Sam's then, in his hands, his code in room 1, which is none of the
+  places, lying in none; else told: tools/export_worlds.py fails); his
+  picture in the box as its start shows it, the picture its box has with him
+  and not with him let go (as its game lets a thing go: its box script, 53,
+  drops him), looked for in the row of its verbs too: a things file icon
+  (else told). The new engine carries him as 0303 carries Day of the
+  Tentacle's kids' own things: by his name and that picture, the first time
+  one of its places is shown, once (kWorldStartGiven); held from the box as
+  the pointer and tapped on a thing or someone, his answers. The verbs
+  self-test's replay of two things carries him into the records that use
+  him (as 0303's replay of one thing).
+- Results: Sam & Max's things file (still "SVOA"): 2021 answers (was 2006:
+  15 answers of two with Max held: the dead guy's, five lines and the
+  tickets given; the doorman's; room 12's 137, 15's 144, 28's 285, 35's
+  324 and the person of room 30 in costume 158, their lines; room 7's 65 in
+  its picture 1, untouchable then; room 59's 566, room 58's 991 in its
+  picture 1), 7 icons (was 5: Max's and the tickets'); 8930 runs of two
+  (was 8482); 47 own
+  answers saying and changing nothing left out (was 5: Max on Max himself
+  in each of 40 places and on 35's 323); its scenes, characters and verb
+  panel byte for byte as before; every other file of every game byte for
+  byte as base+0304 (1139 files exported from nothing, the mansion's
+  included); two exports identical; the reversed order the same answers.
+  Now 9 of the 11 are dead ends: Max and the tickets can be had.
+- Not done (traced, by number). Things: the free ride pass (151) is given
+  by the freak show's entry the first time (bit 32 clear: global script 72,
+  a cut-scene), which no answer records; so the Cone of Tragedy (room 17,
+  its operator, costume 81: the pass given, local scripts 201 and 202, the
+  magnet 176 given and all but Max taken to the lost and found, owner 14)
+  and the swan (21's 214, owned) are not played (the ride's cut-scene also
+  runs past a run's 600 frames); the claim ticket (179) is given by the
+  operator's talk (global script 76) and taken back at the lost and found
+  (15's 142, local 207); the toy flashlight (221) is the Wak-A-Rat's prize
+  (169: its pick up loads room 18, its minigame, not exported; won, its
+  state 1, its Use gives 221) and the black light (63) used on it is a thing
+  held used on another carried, which Sam & Max's export does not play
+  (0269), nor the magnet, the cup (135) or the hand (152) on the ball
+  retriever (242); the trailer key (230) is given by global script 120, Doug
+  (room 23, costume 102) given the treat (126), a cut-scene that shows room
+  76 a while and comes back (a run leaving the place: not recorded; the
+  trailer is open anyway); 127 by global script 27, a talk Snuckey's
+  clerk's (room 11, costume 63, global script 67) leads to; the golf card
+  (20's 210, made touchable by the closet, 206) and the snow globe (26's
+  272, made touchable by the hatch, 270; needed later, rooms 40 and 54) are
+  taken by answers that put a place on the travel map (global scripts 45
+  and 24: a temporary save, the map room shown, a load), recorded as
+  leaving the place; the golf mange (269) by the dunk booth's door (26's
+  273) while bit 67 is set (its local script 201). Talks: Sam & Max's are
+  menus of icons (global scripts 9 to 16: the icons of array 190, drawn in
+  a strip at its bottom,
+  a tap there setting variable 171), not verbs; 0302's talks export reads a
+  menu of verbs (kWorldTalkChoices) and its file and the new engine's choice
+  list hold texts, so none is played (the operator's, Doug's, the clerk's,
+  the freaks', costume 78, local 204). Fidelity: the dead guy stays in the
+  street once turned inside out (gone for good in the original: his entry
+  reads 95's class 6, which starts set and which no value kept can say yet);
+  used on him again, his lines again, the tickets not carried twice; the
+  swan ride's fusebox (22's 220, Max used on it during the ride, script 200)
+  not played. Not tested on an iPhone.
+- Tests: a new verbs self-test line "Sam & Max's things" (2 of 2: Max given
+  at 2 from a damaged state let go, none given while self-testing, carried
+  by his name once on showing a place, held from the box through its own
+  controls and drawn as the pointer by his picture, through a save and a
+  load, not again on showing another nor once gone; Max held from the box
+  and tapped on the dead guy in the street, its five lines said in turn as
+  recorded, the tickets carried, Max kept, through a save and a load, again:
+  not carried twice) and a "two things held from its start" line after Sam &
+  Max's replay of two things (15 of 15 records with Max held through its own
+  controls as recorded), and tools/test_sandbox_engine.py's check of them,
+  gated on samnmax-v32; test_panel (a new case: Max's row, a game whose box
+  holds things, the version) and test_world under ASan/UBSan; every other
+  verbs line as before but Sam & Max's replay of two things (560 of 565, was
+  545 of 550: the same 5 away there; 20 lines by someone else over them, was
+  13) and, as the random draws before them go, the sword fighting's fights
+  (23, 10 won; was 38, 20 won) and The Curse of Monkey Island's held things
+  where no tap finds them (12, was 0; its check passing as before); the Last
+  Crusade's line (0305's) 2 of 2 as before; the all, doors and keep then
+  resume self-tests as before (each line the same, all passing). 9 mutations
+  caught: 5 of the export's (Max not carried in its answers of two: the new
+  check, no case played; his row not as its start has him, the row above the
+  box's cells not looked in, Max not let go for the box without him: each
+  the warning tools/export_worlds.py fails on; his icon not written: the new
+  line, Max never carried), 2 of the new engine's (the replay without him:
+  the held-from-start line, none of 15 seen; a thing an answer gives carried
+  twice: the new line), 2 of the catalog's (his row, the version:
+  test_panel); the python check run on the verbs output as it is and changed
+  nine ways (a failure, a case fewer, fewer lines, fewer kept, no line, no
+  held-from-start line, fewer records, fewer seen, the output of the engine
+  before it): each caught (on 0304 as integrated). Built on that and the Last
+  Crusade's 0305, its line passing with it; test_startup, test_world_setup
+  and the full data suite. Not tested on an iPhone.
