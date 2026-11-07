@@ -9453,3 +9453,173 @@ pushed; the engine tree is exactly 0001-0303.
 - Next: the five suites above on 0303; review and integrate 0304 (or redo
   it from its doc if the scratch is gone); then the 0303 review fixes and
   Monkey Island after its trials again.
+
+## Patch 0304 — Monkey Island 2's money earned as a player earns it in the new engine: the rat trapped in the laundry's box and put in the Bloody Lip's soup, its bartender's talk by the values it reads, the cook fired, the job taken and its wages paid, the one played sent into the kitchen; the saw bought with them (monkey2 export version 40)
+
+From 0302's "not done", against the original's scripts (read with
+descumm, nothing copied).
+- What the original does. The money (305, the pieces of eight, 76) is 0
+  from the export's start (only the start's test shortcuts, global script
+  1, set it). Its early ways in and out: the Bloody Lip's job (room 9, its
+  bartender 73: his local scripts 213 then 202; 420 by local 204's first
+  choice); polishing a peg leg in the laundry (room 14, its actor 12: local
+  212 and a choice of 209, one at a time while below 19, 5912 once bit 321
+  is set), with polish the woodsmith sells for one (room 15, 148, while bit
+  356); the bartender's drinks (local 220: one each, the eleventh on him,
+  variable 504), offered only once a library card (306) is shown, never
+  from the start; Captain Dread's charter (room 22: 20, with more than that
+  carried); the antique dealer's sale (room 48: the saw at 25) and the later
+  islands' (rooms 33, 46 and 48). The job: the bartender offers the
+  stew (choice 120) only with the rat in the soup (bit 74). The rat (room 14,
+  135; its actor 4, the cast's costume 73) is trapped in the laundry's box
+  (131): opened (its local 213: picture 2), the stick (133, given by room
+  4's 26) used on it lays it there propping it (local 215: its owner the
+  place, picture 1, touchable), the cheese (132, given by room 12's bowl 106,
+  which 105 used with the kitchen's knife 99 reveals) used on it lays it in
+  the box (local 216), the string (134, given by room 21's 216) used with the
+  stick lying there is tied to it (the stick's Use: laid there too); the rat
+  comes to the cheese 2 to 4 seconds after it lies in the open box and stays
+  while the one played keeps 30 away (local 218 sets 165, 219 clears it);
+  the string pulled (local 217) shuts the box, gives back the stick and the
+  string and, with 165 set, traps the rat (135 given class 6, its actor
+  gone, the cheese gone: owner 14); opened again the box shows the rat,
+  touchable, and its Pick up takes it (class 6 let go). The rat used with the
+  kitchen's soup (room 11, 96: 135's Use hands on to 96's) sets 74 and is
+  gone. Asked about the stew, the bartender tastes it, fires his cook (bit
+  71; local 201 walks the cook out of the bar) and offers the job (bit 94,
+  local 203, then 204's choices): the first takes it (bit 77), pays a week
+  in advance (420, the money's thing named by 76's verb 250) and sends the
+  one played into the kitchen (204's loadRoomWithEgo, by its door 91); with
+  71 and not 77 the job is asked about again (choice 120: 204's choices).
+  The kitchen's entry leaves the cook out once 94 is set. Bit 567, which
+  0302's notes took for the cook fired, is the game's easy mode (global
+  script 131, chosen at its title; 0 as the export starts it): with it the
+  cook is gone from the start and the job is in the talk at once.
+- New engine, before. None of it was played. The cheese, given only by an
+  answer the export plays after its answers of two (106, which only an
+  answer of two reveals), was never used with anything; the box's answers
+  of two were played only shut; the stick and the string were never laid
+  there, the rat was untouchable as its game starts it and never carried, so
+  74 was never set; the bartender's talk was none ("Hello."), the job never
+  offered. In play the saw could never be afforded (0302's check gave the
+  wages directly). Nor was an answer of two on a thing in a picture past 1
+  (the box opened) ever looked up.
+- Now the talks file is "SVQ2" (common/scummverse_talks.{h,cpp}; "SVQ1" is
+  none now, the version moved on): a talk may read further values kept
+  (kWorldTalks' `also`, at most 3), its ways of beginning by them all; a step
+  may take the one played to another place (its room, spot and way; the talk
+  over there). The export plays a talk with every combination of the values
+  it reads (each at 0 and at each kWorldKeptValues lists), a way whose graph
+  is an earlier way's sharing its menus; a cut-scene that shows another
+  room a while, the one played still in the talk's place (its caption:
+  the bartender's talk of business, Largo come in, global script 70, room 10)
+  played on there; a step that takes the one played to another place
+  exported played on until it settles, the talk's end there (else, as
+  before, a mismatch). The things export: rows of kWorldValueReaders on a
+  thing of kWorldPastPictures played from that picture too (the box's 2);
+  their thing or `need`, where one of kWorldPutBacks, lying there (its owner
+  the place, touchable); the one used, put back there, listed in its place
+  as 0300's answers of two list one (and counted for 0300's check, now made
+  after these); a value of kWorldLyingValues set while its thing lies so
+  (165 with the cheese in the box: the rat's walk not waited); the things
+  of kWorldLateCarried carried in the answers of two and these rows though
+  no answer before them gives them (the cheese and the rat). The new engine:
+  an answer of two on a thing in a picture past 1 where a value reader
+  answers it so; a talk begun by every value it reads; a step's way taken
+  once its lines are said, as an answer's way (goThere: arrived at by a way
+  of its game, its entry values so). Catalog (Monkey Island 2's): the rat
+  trapped kept as 135's class 6 (kWorldKeptClasses' third row), bits 74, 71,
+  94, 77 kept; nine rows of kWorldValueReaders (the stick and the cheese
+  into the box opened, the box shut with the stick there (its line), the
+  string tied to the stick, the string pulled with the cheese there and
+  without, the box opened and the rat picked up by the rat trapped, the rat
+  into the soup); the stick, string and cheese put back in room 14; the box's
+  picture 2; 165 while the cheese lies in its picture 1; the cheese and the
+  rat carried late; the bartender's talk (room 9, 73, Talk, costume 17) by
+  74, 71 and 77; the cook (costume 29) gone once fired, the rat (73) gone
+  trapped, once in the soup and while carried or shown in the box
+  (kWorldCastThings); the kitchen arrived at with 94 (98 untouchable).
+- Results: Monkey Island 2's things file: 100 answers by a value kept (was
+  72), 8362 answers of two (was 8326: the cheese and the rat used with
+  others), two places arrived at with a value (the kitchen too); its talks
+  file 5 talks, 58 menus, 148 choices, 598 runs, 42824 bytes (was 4, 34,
+  70, 186, 7436; the bartender's 24 menus, three graphs for his eight ways
+  of beginning); its scenes and characters byte for byte as 0302 left them;
+  every other file of every game byte for byte as before (1139 files, the
+  mansion's included, against 0303's tree and against 0302's: Monkey Island
+  2's own files the same on both); two exports identical; the reversed order
+  the same answers (its talks file identical). tools/export_worlds.py also
+  fails now where a game's talks file is not written at all ("talks
+  skipped": ways of beginning by several values that overlap, not a whole
+  file).
+- Not done: the rat's walk to the cheese and away from the one played (165
+  taken as set while the cheese lies in the open box), the box shutting as
+  the one played walks away unless propped (213: the cheese laid before the
+  stick is laid as with the stick there, where its game shuts the box over
+  it; the box shut with the cheese in it leaves it touchable unseen), a
+  trapped rat let out by the box left open on coming back (202), the rat
+  still shown in the laundry once trapped until it is entered again (gone
+  at once when picked up), the
+  string's Pick up and Use (which pull it too), the stick taken back out of
+  the box as recorded (the box shut, the cheese hidden; the bowl gives
+  another, where the original says none is needed); the other money (the
+  polish and the polishing, the drinks, Dread's charter: the new engine's
+  sea map needs none; the later islands'); the kitchen's door to the bar not
+  barred while the job is held (91's refusal), the soup's new names, Largo's
+  business bit (72) and the talk's other asked-once bits not kept between
+  plays; Mad Marty's talk (more menus than a file holds) and the bra's way:
+  not reached. Not tested on an iPhone.
+- From the review of 0304: the string used with the stick while both were
+  carried tied itself (the export lays a put-back row's thing in the box
+  for every run, so its tied answer was filed from picture 0 too, and a
+  carried thing reads as in picture 0): the string left the inventory and
+  showed tied in room 14 with the box shut. A value reader of a put-back
+  thing is not read while it is carried (its plain answer: the refusal,
+  the string kept). The cook fired by the stew asked about stayed in the
+  bar until it was entered again: one of the cast a talk's value takes
+  away (castGone) is now off the stage at once. The saw's check earns the
+  wages only with every place of their way installed (else given, as
+  before). A comment's facing order corrected (0 left, 1 right, 2 down, 3
+  up), the cut-scene's caption no longer quoted, and tools/export_worlds.py
+  keeps its executable bit.
+- Tests: the verbs self-test line "Monkey Island 2's conversations" (5 of
+  5, was 4 of 4: 26 choices tapped, 4 kept through saves and loads, 420
+  pieces of eight earned in play; the saw bought with them, no money given):
+  the knife taken, used on 105, the bowl picked up (the cheese); the stick
+  and the string picked up; the box opened, the stick and the cheese laid
+  in it, the string tied to the stick, through a save and a load; the string
+  pulled (the rat trapped, the stick and the string carried again, the cheese
+  gone); the box opened, the rat picked up, off the laundry's stage through a
+  save and a load; put in the soup (74); the bartender talked to, the stew
+  asked about (71, 94), the job taken (77, 420, the one played in the
+  kitchen), through a save and a load, the cook gone from the bar; talked to
+  again, no job among his choices; tools/test_sandbox_engine.py's check of it
+  gated on monkey2-v40 (five cases, 26 choices, 4 kept, 420 earned, its
+  talks file wanted). Every other
+  verbs line as before but Monkey Island 2's counts of its answers (above:
+  its two things 8327 of 8362, 7 more not tried as answered now by a value
+  kept; its one thing 5975 records, 7 away, the rat's from its picture 1; its
+  speakers 122; its unanswered 2370 records; given through 102 and 48) and,
+  as the random draws before them go, the sword fighting's fights (40, 24
+  won; was 30, 16 won); the all, doors and keep then resume self-tests as
+  before (each on 0303's tree and on 0302's); test_talks (ASan/UBSan, TSan: a
+  talk by three values, a step's way, damaged further values and ways
+  refused), test_panel (a new case: the rows above), test_world and
+  test_stage. 23 mutations caught: 5 of the module's (by test_talks: the
+  further values not read, a step's way not written, a way going on to a
+  menu accepted, a begin's further values dropped, ways by other values
+  taken as overlapping), 9 of the export's (the further values not set, the
+  caption not played on, a step's way not filed, the one used not put
+  back, nothing laid, the rat's value not set, the box's picture 2 not
+  played, the cheese and the rat not carried: each by the export's own
+  check or the verbs line; the combinations' index not moved on: no talks
+  file, caught by tools/export_worlds.py's new check and the python gate), 6
+  of the catalog's (the rat not taken off the stage while carried, the cook
+  not gone once fired, the bartender's further values, the string pulled
+  with the cheese there, the stick not put back, bit 74 not kept) and 3 of the
+  new engine's (an answer of two from a picture past 1 not looked up, a talk
+  begun by its first value alone, a step's way not taken); the python check
+  run on the verbs output as it is and changed seven ways (none earned, a
+  case fewer, one kept fewer, another sum, a failure, no cases, fewer
+  choices): each caught; test_startup, test_world_setup and the full data
+  suite. Not tested on an iPhone.

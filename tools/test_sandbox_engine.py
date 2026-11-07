@@ -1071,12 +1071,23 @@ if __name__ == '__main__':
         # the fifteenth time, or at once the other way) and filled with mud;
         # choices tapped as a player taps them, through saves and loads.
         # Before, each was its talk's first line and nothing more.
-        mc = re.search(r"selftest Monkey Island 2's conversations: (\d+) of (\d+) played as a player plays them .*?, (\d+) choices tapped, (\d+) kept through saves and loads; (\d+) failed", output)
+        # (From 0304) where its export is 0304's (monkey2-v40, its talks file
+        # "SVQ2"), the money for the saw earned as a player earns it, none
+        # given: the cheese, the stick and the string got, the laundry's box
+        # opened and the trap laid, the string pulled, the rat trapped and
+        # taken, put in the Bloody Lip's soup, its bartender talked to, the
+        # cook fired, the job taken, 420 pieces of eight paid, the one played
+        # in the kitchen; through saves and loads. Before, the wages were
+        # given directly: in play the saw was never afforded.
+        mc = re.search(r"selftest Monkey Island 2's conversations: (\d+) of (\d+) played as a player plays them .*?, (\d+) choices tapped, (\d+) kept through saves and loads, (\d+) pieces of eight earned in play; (\d+) failed", output)
         talks39 = exported_since(worlds, 'monkey2', 39) and (worlds/'monkey2-talks.svq').exists()
-        mi2Talks = sum(talks39 and (worlds/f'monkey2-{room}.svw').exists() for room in (48, 14))
-        if not mc or mc.group(5) != '0' or mc.group(1) != mc.group(2) or int(mc.group(2)) < mi2Talks or (talks39 and int(mc.group(3)) < 20):
+        talks40 = exported_since(worlds, 'monkey2', 40) and all((worlds/f'monkey2-{room}.svw').exists() for room in (48, 11, 12, 4, 21, 14, 9))  # (its talks file wanted)
+        mi2Talks = sum(talks39 and (worlds/f'monkey2-{room}.svw').exists() for room in (48, 14)) + (1 if talks40 else 0)
+        if not mc or mc.group(6) != '0' or mc.group(1) != mc.group(2) or int(mc.group(2)) < mi2Talks or (talks39 and int(mc.group(3)) < 20) or \
+                (talks40 and (int(mc.group(2)) < 5 or int(mc.group(3)) < 26 or int(mc.group(4)) < 4 or mc.group(5) != '420')):
             raise SystemExit('FAIL: Monkey Island 2\'s conversations not as its game plays them (export Monkey Island 2 again: tools/export_worlds.py)\n' + output[-2000:])
         print(f'PASS: {mc.group(1)} of Monkey Island 2\'s conversations played as a player plays them (the antique dealer\'s sale of the saw by the money carried, '
+              f'{mc.group(5)} pieces of eight earned for it in play: the rat trapped and put in the Bloody Lip\'s soup, its bartender\'s job taken; '
               f'the woodsmith called away, the dealer talked to, the laundry\'s bucket), {mc.group(3)} choices tapped, {mc.group(4)} kept')
         # (From 0303) Day of the Tentacle's things as a player plays them,
         # where its export is 0303's (tentacle-v36): the kids' own things its

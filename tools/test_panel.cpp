@@ -2648,5 +2648,72 @@ int main() {
 		assert(worldValueArrival(0, 28) && !worldValueArrival(0, 28)->need && worldExportVersion("tentacle") >= 36);
 	}
 	std::puts("PASS: what a game's start gives its players from a room no place exports (its rows, the value kept given; Day of the Tentacle's kids' own), a place arrived at with a thing of it in its picture 1 too, Day of the Tentacle's time capsule and vinegar in the catalog");
+	// (From 0304) Monkey Island 2's money's way in: the rat trapped in the
+	// laundry's box and put in the Bloody Lip's soup. A thing put back where
+	// its game lays it (kWorldPutBacks) is a thing of its place; one carried
+	// though only an answer after its answers of two gives it
+	// (kWorldLateCarried) once each, of a later game; a picture past 1 its
+	// rows are played from too (kWorldPastPictures) past 1, a thing once,
+	// with a row of it; a value a place holds while a thing lies there
+	// (kWorldLyingValues) no value kept, its thing one put back there. Monkey
+	// Island 2's rows: the box (131) from its picture 2, the stick, string
+	// and cheese laid there, the string pulled with the cheese there (the rat
+	// at it, 165) and without, the box opened and the rat picked up by the
+	// rat trapped (135's class 6, kept), the rat in the soup (bit 74); the
+	// rat and the cook gone so, the rat while carried; the kitchen arrived at
+	// with the job offered (bit 94).
+	{
+		using namespace WorldCatalog;
+		const int games = (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0]));
+		for (const WorldLateCarried &l : kWorldLateCarried) {
+			assert(l.game >= 0 && l.game < games && !worldHome(l.game) && l.thing > 0 && l.thing < kWorldPersonThing);
+			int same = 0;
+			for (const WorldLateCarried &o : kWorldLateCarried) same += o.game == l.game && o.thing == l.thing;
+			assert(same == 1);
+		}
+		for (const WorldPastPicture &p : kWorldPastPictures) {
+			assert(p.game >= 0 && p.game < games && !worldHome(p.game) && p.picture > 1 && p.picture < 256 && worldPastPicture(p.game, p.room, p.object) == p.picture);
+			int rows = 0;
+			for (const WorldValueReader &v : kWorldValueReaders) rows += v.game == p.game && v.room == p.room && v.object == p.object;
+			assert(rows > 0);
+		}
+		assert(!worldPastPicture(1, 14, 130) && !worldPastPicture(0, 14, 131));
+		for (const WorldLyingValue &l : kWorldLyingValues)
+			assert(l.game >= 0 && l.game < games && !worldHome(l.game) && worldPutBack(l.game, l.room, l.object) && l.var > 0 && !worldKeptValue(l.game, l.var) && l.value && l.picture >= 0);
+		auto row = [](int room, int object, int kind, int with, int need, int reads) {
+			int n = 0;
+			for (const WorldValueReader &v : kWorldValueReaders)
+				n += v.game == 1 && v.room == room && v.object == object && v.kind == kind && v.with == with && v.need == need && v.reads == reads && !v.bare && !v.later;
+			return n;
+		};
+		const int trapped = kWorldClassValue + 2;
+		const WorldKeptClass *rat = worldKeptClass(1, trapped);
+		assert(rat && rat->object == 135 && rat->cls == 6 && worldKeptValue(1, trapped) && worldKeptValueAs(1, trapped, 1) == 1 && worldKeptValueAs(1, trapped, 2) == -1);
+		assert(row(14, 131, kWorldVerbUse, 133, 0, 0) == 1 && row(14, 131, kWorldVerbUse, 132, 0, 0) == 1 && row(14, 131, kWorldVerbClose, 0, 133, 0) == 1 && row(14, 133, kWorldVerbUse, 134, 0, 0) == 1);
+		assert(row(14, 134, kWorldVerbPull, 0, 132, 0) == 1 && row(14, 134, kWorldVerbPull, 0, 0, 0) == 1 && row(14, 131, kWorldVerbOpen, 0, 0, trapped) == 1 && row(14, 135, kWorldVerbPickUp, 0, 0, trapped) == 1);
+		assert(row(11, 96, kWorldVerbUse, 135, 0, 0x8000 + 74) == 1 && worldKeptValue(1, 0x8000 + 74) && !worldKeptValue(0, 0x8000 + 74));
+		// (The string pulled with the cheese there first, as its rows are looked
+		// up in turn: the rat at it.)
+		int withCheese = -1, without = -1, n = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (v.game == 1 && v.room == 14 && v.object == 134 && v.kind == kWorldVerbPull) { if (v.need == 132) withCheese = n; else without = n; }
+			++n;
+		}
+		assert(withCheese >= 0 && without > withCheese);
+		assert(worldPastPicture(1, 14, 131) == 2 && worldPutBack(1, 14, 132) && worldPutBack(1, 14, 133) && worldPutBack(1, 14, 134) && !worldPutBack(1, 14, 135) && worldPutBack(0, 41, 331));
+		bool cheese = false, ratCarried = false, lying = false;
+		for (const WorldLateCarried &l : kWorldLateCarried) { cheese = cheese || (l.game == 1 && l.thing == 132); ratCarried = ratCarried || (l.game == 1 && l.thing == 135); }
+		for (const WorldLyingValue &l : kWorldLyingValues) lying = lying || (l.game == 1 && l.room == 14 && l.object == 132 && l.picture == 1 && l.var == 165 && l.value == 1);
+		assert(cheese && ratCarried && lying);
+		int gone = 0, posted = 0;
+		for (const WorldCastGone &c : kWorldCastGones) gone += c.game == 1 && ((c.costume == 73 && (c.var == trapped || c.var == 0x8000 + 74)) || (c.costume == 29 && c.var == 0x8000 + 71));
+		for (const WorldCastThing &c : kWorldCastThings) posted += c.game == 1 && c.costume == 73 && c.room == 14 && c.object == 135;
+		bool ratCast = false, cook = false;
+		for (const WorldCastGuest &c : kWorldCast) { ratCast = ratCast || (c.game == 1 && c.room == 14 && c.guest.costume == 73); cook = cook || (c.game == 1 && c.room == 9 && c.guest.costume == 29); }
+		assert(gone == 3 && posted == 1 && ratCast && cook);
+		const WorldValueArrival *kitchen = worldValueArrival(1, 11);
+		assert(kitchen && kitchen->var == 0x8000 + 94 && kitchen->first == 1 && kitchen->last == 1 && !kitchen->need && worldKeptValue(1, 0x8000 + 94) && worldExportVersion("monkey2") >= 40);
+	}
+	std::puts("PASS: things put back where their game lays them, carried though given late, played from a picture past 1, a place's value while a thing lies there (Monkey Island 2's rat trap and soup in the catalog)");
 	return 0;
 }

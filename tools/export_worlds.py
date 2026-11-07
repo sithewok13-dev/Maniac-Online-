@@ -83,6 +83,10 @@ def main():
         # not as its scripts play it, told by the export: an unbounded talk, a
         # choice a tap does not take, money not told apart at one count.)
         talked = [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world talks' in line and 'not as its scripts' in line]
+        # (From 0304 also a game's talks file not written at all: its ways of
+        # beginning by several values, as its export files them, not a whole
+        # file.)
+        talked += [line.strip() for line in log.splitlines() if line.startswith('WARNING') and 'world export' in line and 'talks skipped' in line and '(stopped)' not in line]
         if talked:
             print('\n'.join(talked) + '\nFAIL: a conversation not as its scripts play it (common/scummverse_world_catalog.h, kWorldTalks, kWorldMoneys, '
                   'kWorldDoorValues, kWorldEntryValues)')
