@@ -9434,7 +9434,8 @@ pushed; the engine tree is exactly 0001-0303.
 - 0303's data suite was stopped after 45 of 50 had passed (the sandbox
   test among them, and the bootstrap check): test_story_engine,
   test_story_differential, test_playthrough_engine, test_playthrough_zak and
-  test_scene_authenticity were not run on it.
+  test_scene_authenticity were not run on it. Resumed: those five then
+  passed on 0303 too, so 0303 has passed all 50.
 - Ready but not integrated (in the session's scratch folder only, not
   kept if the machine is reclaimed): 0304, Monkey Island 2's money earned
   in play (the rat trapped in room 14's box and put in the kitchen's soup,
