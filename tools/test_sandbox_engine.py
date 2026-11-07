@@ -1115,6 +1115,28 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Day of the Tentacle\'s records with the kids\' own things not replayed\n' + output[-2000:])
         print(f'PASS: {dt.group(1)} of Day of the Tentacle\'s things played as a player plays them (the kids\' own things from its start carried, the dentures by '
               f'the textbook, Oozo\'s box by the scalpel, the time capsule\'s vinegar by the wine put in, either order), {dt.group(3)} kept')
+        # (From 0305) The Last Crusade's things shown by what its game keeps,
+        # as a player plays them, where its export is 0305's (indy3-v32):
+        # Henry's house's table cloth pulled (or picked up) off once its plant
+        # is moved, the chest under it found; the sticky tape from behind the
+        # bookcase made the small key at Indy's office's jar, the chest
+        # unlocked with it and opened, shut and opened again, its old book
+        # taken; Venice's wine bottle refused until looked at, then given and
+        # used with the fountain; through saves and loads. Before, the cloth
+        # never came off, the chest was never unlocked, the old book never
+        # taken and the bottle refused for good.
+        ih = re.search(r"selftest the Last Crusade's things: (\d+) of (\d+) played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        indyCases = (1 if exported_since(worlds, 'indy3', 32) and all((worlds/f'indy3-{room}.svw').exists() for room in (7, 2)) else 0) + \
+            (1 if exported_since(worlds, 'indy3', 32) and (worlds/'indy3-15.svw').exists() else 0)
+        if not ih or ih.group(4) != '0' or ih.group(1) != ih.group(2) or ih.group(3) != ih.group(1) or int(ih.group(2)) < indyCases:
+            raise SystemExit('FAIL: the Last Crusade\'s things shown by what its game keeps, as a player plays them (export the Last Crusade again: tools/export_worlds.py)\n' + output[-2000:])
+        # (And its replays carry the bottle into the records that use it: its
+        # records of two tried but one in fifty at most.)
+        itwo = re.search(r"selftest Indiana Jones and the Last Crusade two things: (\d+) of (\d+) records of two things as its own sentences answer \((\d+) not tried", output)
+        if indyCases and (not itwo or 50 * int(itwo.group(3)) > int(itwo.group(2))):
+            raise SystemExit('FAIL: the Last Crusade\'s records with its wine bottle not replayed\n' + output[-2000:])
+        print(f'PASS: {ih.group(1)} of the Last Crusade\'s things shown by what its game keeps played as a player plays them (Henry\'s house\'s table cloth by its plant, '
+              f'the small key made at the office\'s jar, the chest unlocked and opened, its old book taken; Venice\'s wine bottle given once looked at), {ih.group(3)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

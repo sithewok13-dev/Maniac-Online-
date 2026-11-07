@@ -1,0 +1,397 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index 7b2e7880..e3834fa5 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -216,12 +216,19 @@ static const int kWorldExportVersion = 25;
+ // played from the box opened; the bartender's talk, room 9, by the values
+ // it reads, the cook fired, the job offered and taken, 420 pieces of eight
+ // paid, the one played sent into the kitchen; its talks file "SVQ2"):
+-// "monkey2-v40".
++// "monkey2-v40"; from 0305 the Last Crusade's again (its things shown by
++// what its game keeps: Henry's house's table cloth pulled by its plant's
++// picture, the sticky tape made the small key at Indy's office's jar and
++// the chest under the cloth unlocked with it and opened, its old book taken,
++// kWorldKeptClasses (one kept by the class its game starts it with taken);
++// Venice's wine bottle given once looked at, carried in its answers of two,
++// kWorldLateCarried): "indy3-v32".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 15 : same(gameid, "tentacle") ? 11 :
+ 		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
+-		same(gameid, "samnmax") || same(gameid, "indy3") ? 6 : same(gameid, "loom") ? 2 : 0);
++		same(gameid, "indy3") ? 7 : // (from 0305)
++		same(gameid, "samnmax") ? 6 : same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+ // that started; after this many without a finished marker it is skipped.
+@@ -1592,9 +1599,12 @@ inline bool worldPutBack(int game, int room, int thing) {
+ // same where it lies in a place exported, and in its rows of
+ // kWorldValueReaders. Monkey Island 2's cheese (room 14, 132: given by room
+ // 12's 106, which 105 used with the knife reveals) and rat (135: picked up
+-// once trapped). Before, neither was ever used with anything.
++// once trapped). Before, neither was ever used with anything. From 0305
++// the Last Crusade's wine bottle (room 15, 203: its Pick up refused until it
++// is looked at, kWorldValueReaders), never carried in them before.
+ struct WorldLateCarried { short game; int thing; };
+-static const WorldLateCarried kWorldLateCarried[] = {{1, 132}, {1, 135}};
++static const WorldLateCarried kWorldLateCarried[] = {{1, 132}, {1, 135},
++	{3, 203}}; // (from 0305)
+ // From 0304 a thing of a later game's place that its answers leave in a
+ // picture past 1, whose rows of kWorldValueReaders are played from it too
+ // (else from its pictures 0 and 1), as the new engine answers them from it:
+@@ -1841,14 +1851,27 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // class with the value it plays; here no variable goes with it, the class
+ // is the value, and the export reads it back after each answer to file what
+ // that answer leaves.)
++// From 0305 a class given as its negative: one its game starts the thing
++// with, which its scripts take, kept as 1 while the thing is without it, so
++// that the value is 0 while the thing is as its game starts it, as every
++// value kept is before an answer leaves one (worldKeptClassHas). The Last
++// Crusade's (see kWorldValueReaders): its sticky tape made the small key
++// (room 7, 133, given class 6), its chest unlocked (135, its class 6 taken)
++// and its wine bottle looked at (room 15, 203, given class 6).
+ struct WorldKeptClass { short game; int object; short cls; };
+-static const WorldKeptClass kWorldKeptClasses[] = {{1, 864, 19}, {1, 130, 6}, {1, 135, 6}}; // (from 0302 the peg leg sawn; from 0304 the rat trapped)
++static const WorldKeptClass kWorldKeptClasses[] = {{1, 864, 19}, {1, 130, 6}, {1, 135, 6}, // (from 0302 the peg leg sawn; from 0304 the rat trapped)
++	{3, 133, 6}, {3, 135, -6}, {3, 203, 6}}; // (from 0305)
+ static const int kWorldClassValue = 0x5000;
+ inline const WorldKeptClass *worldKeptClass(int game, int var) {
+ 	const int k = var - kWorldClassValue;
+ 	if (k < 0 || k >= (int)(sizeof(kWorldKeptClasses) / sizeof(kWorldKeptClasses[0]))) return nullptr;
+ 	return kWorldKeptClasses[k].game == game ? &kWorldKeptClasses[k] : nullptr;
+ }
++// (From 0305 a row's class, whether the thing has it at a value kept, and
++// the value kept by whether it has it: see the negative above.)
++inline int worldKeptClassNumber(const WorldKeptClass &c) { return c.cls < 0 ? -c.cls : c.cls; }
++inline bool worldKeptClassHas(const WorldKeptClass &c, int value) { return (value != 0) != (c.cls < 0); }
++inline int worldKeptClassValue(const WorldKeptClass &c, bool has) { return has != (c.cls < 0) ? 1 : 0; }
+ // From 0303 Day of the Tentacle's wine put in the time capsule (bit 6: see
+ // kWorldValueReaders).
+ // From 0301 Monkey Island 2's (its scripts read with descumm, nothing
+@@ -1872,7 +1895,8 @@ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {
+ 	{1, kWorldClassValue + 1, {1, 0, 0, 0}}, {1, 166, {1, 0, 0, 0}}, {1, 0x8000 + 367, {1, 0, 0, 0}}, // (from 0302)
+ 	{5, 0x8000 + 6, {1, 0, 0, 0}}, // (from 0303)
+ 	{1, kWorldClassValue + 2, {1, 0, 0, 0}}, {1, 0x8000 + 74, {1, 0, 0, 0}}, {1, 0x8000 + 71, {1, 0, 0, 0}}, {1, 0x8000 + 94, {1, 0, 0, 0}},
+-	{1, 0x8000 + 77, {1, 0, 0, 0}}}; // (from 0304)
++	{1, 0x8000 + 77, {1, 0, 0, 0}}, // (from 0304)
++	{3, kWorldClassValue + 3, {1, 0, 0, 0}}, {3, kWorldClassValue + 4, {1, 0, 0, 0}}, {3, kWorldClassValue + 5, {1, 0, 0, 0}}}; // (from 0305)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -2074,7 +2098,16 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	{1, 14, 131, kWorldVerbClose, 0, 133, 0, 0, 0, 0, 0, 0}, {1, 14, 133, kWorldVerbUse, 134, 0, 0, 0, 0, 0, 0, 0},
+ 	{1, 14, 134, kWorldVerbPull, 0, 132, 0, 0, 0, 0, 0, 0}, {1, 14, 134, kWorldVerbPull, 0, 0, 0, 0, 0, 0, 0, 0},
+ 	{1, 14, 131, kWorldVerbOpen, 0, 0, 0, 0, kWorldClassValue + 2, 0, 0, 0}, {1, 14, 135, kWorldVerbPickUp, 0, 0, 0, 0, kWorldClassValue + 2, 0, 0, 0},
+-	{1, 11, 96, kWorldVerbUse, 135, 0, 0, 0, 0x8000 + 74, 0, 0, 0}};
++	{1, 11, 96, kWorldVerbUse, 135, 0, 0, 0, 0x8000 + 74, 0, 0, 0},
++	// (From 0305 the Last Crusade's Henry's house and Venice's wine bottle: see below.)
++	{3, 7, 134, kWorldVerbPull, 0, 131, 0, 0, 0, 0, 0, 0}, {3, 7, 134, kWorldVerbPickUp, 0, 131, 0, 0, 0, 0, 0, 0},
++	{3, 2, 71, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0}, {3, 7, 135, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0},
++	{3, 7, 135, kWorldVerbOpen, 0, 0, 0, 0, kWorldClassValue + 4, 0, 0, 0},
++	{3, 15, 203, kWorldVerbLook, 0, 0, 0, 0, kWorldClassValue + 5, 0, 0, 0}, {3, 15, 203, kWorldVerbPickUp, 0, 0, 0, 0, kWorldClassValue + 5, 0, 0, 0},
++	// (From the review of 0305 the tape or the key used at a fountain (global
++	// script 127 reads 133's class 6: room 15's 204, room 1's 24, room 55's 707).)
++	{3, 15, 204, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0}, {3, 1, 24, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0},
++	{3, 55, 707, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -2184,6 +2217,33 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // nor the box opened with the rat trapped and left so letting it out again
+ // on coming back (local 202); the string's Pick up and Use, which pull it
+ // too.)
++// From 0305 the Last Crusade's Henry's house (rooms 7 and 2) and Venice's
++// wine bottle (room 15), read with descumm, nothing copied. The table cloth
++// (134), pulled or picked up, reads its plant's picture (131): in its
++// picture 0 the one played's line, nothing moved; moved (the plant's Pick
++// up: its picture 1, untouchable) the cloth pulled off (its picture 1,
++// untouchable), the chest under it (135, shown while 134 is in its picture
++// 1) there. The sticky tape (133, behind the bookcase, 129, pushed) used
++// with the jar of Indy's office (room 2, 71; the tape's Use hands on to the
++// jar's) while without class 6: the cut-scene that makes it the small key
++// (named anew, given class 6: kWorldKeptClasses' fourth row); with it, their
++// line. The chest, locked while it has its class 6 (as its game starts it:
++// kept as the fifth row, a class taken), opened: locked, the one played's
++// line; unlocked, opened (its global script 26: its picture 1, the old book
++// in it, 136, shown); used with 133 as the small key, unlocked (its class 6
++// taken) and opened so; as the tape, their line. The bottle (203), on its
++// café patron's table: looked at while it lies there, his local script 210
++// gives it class 6 (the one played's line and his; the sixth row); picked
++// up, his 209: with class 6 given to the one played (his line), without it
++// his refusal. Before, the export played each from the game's start (the
++// plant in place, the tape still tape, the chest locked, the bottle not yet
++// looked at), so the cloth never came off, the chest was never found,
++// unlocked or opened, the old book (offered in the diary's place in a later
++// scene, global script 104) could never be taken, and the bottle was refused
++// for good, never carried. (Not played: the new names their scripts give
++// the tape and the package, 133 and 68; the bottle's water, class 10, from
++// the fountains, rooms 15 and 1, read by the catacombs' torch, room 51, 669,
++// whose way on is a door here.)
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 8beaa8f1..db3627cd 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -5383,13 +5383,14 @@ bool ScummEngine::scummverseExportTalks(int gameIndex, const Common::Path &file,
+ 		convertMessageToString(n, shown, sizeof(shown) - 1);
+ 		return printable(shown, sizeof(shown));
+ 	};
+-	// (A value kept that is a thing's class, as the things export reads it.)
++	// (A value kept that is a thing's class, as the things export reads it;
++	// from 0305 one given as its negative so too.)
+ 	auto keptRead = [&](int var) {
+ 		const WorldKeptClass *c = worldKeptClass(gameIndex, var);
+-		return c ? (getClass(c->object, c->cls) ? 1 : 0) : readVar(var);
++		return c ? worldKeptClassValue(*c, getClass(c->object, worldKeptClassNumber(*c))) : readVar(var);
+ 	};
+ 	auto keptWrite = [&](int var, int value) {
+-		if (const WorldKeptClass *c = worldKeptClass(gameIndex, var)) putClass(c->object, c->cls, value != 0);
++		if (const WorldKeptClass *c = worldKeptClass(gameIndex, var)) putClass(c->object, worldKeptClassNumber(*c), worldKeptClassHas(*c, value));
+ 		else writeVar(var, value);
+ 	};
+ 	auto verbOf = [&](int kind) {
+@@ -6125,13 +6126,14 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 	// (From 0301 a value kept that is a thing's class, kWorldKeptClasses:
+ 	// read and written as that class, 1 while the thing has it, as its game's
+ 	// scripts give and take it; any other, as its variable. Its value
+-	// readers', arrivals' and holders' runs all read it so.)
++	// readers', arrivals' and holders' runs all read it so. From 0305 one
++	// given as its negative, 1 while the thing is without it: worldKeptClassHas.)
+ 	auto keptRead = [&](int var) {
+ 		const WorldKeptClass *c = worldKeptClass(gameIndex, var);
+-		return c ? (getClass(c->object, c->cls) ? 1 : 0) : readVar(var);
++		return c ? worldKeptClassValue(*c, getClass(c->object, worldKeptClassNumber(*c))) : readVar(var);
+ 	};
+ 	auto keptWrite = [&](int var, int value) {
+-		if (const WorldKeptClass *c = worldKeptClass(gameIndex, var)) putClass(c->object, c->cls, value != 0);
++		if (const WorldKeptClass *c = worldKeptClass(gameIndex, var)) putClass(c->object, worldKeptClassNumber(*c), worldKeptClassHas(*c, value));
+ 		else writeVar(var, value);
+ 	};
+ 	// (From 0285 `at`, a thing of the place (0: none): the one played
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index 37beee3f..31f5ccc6 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -9545,6 +9545,153 @@ SandboxEngine::TentacleThings SandboxEngine::tentacleThingsPlayed() {
+ 	return c;
+ }
+ 
++// From 0305 the "verbs" check's (see verbsTest): the Last Crusade's things
++// its game shows by what it keeps, as a player plays them, as its things
++// file has them (kWorldValueReaders' rows of rooms 7, 2 and 15). Henry's
++// house: the table cloth (room 7, 134) pulled with the plant (131) in place:
++// the one played's line, nothing moved, the chest under it (135) not there;
++// the plant picked up (its picture 1, untouchable), the cloth pulled off (its
++// picture 1, untouchable), the chest there; opened, locked (its line, shut);
++// the bookcase (129) pushed, the sticky tape (133) behind it taken; used
++// with the chest as tape, their line, nothing; at Indy's office (room 2) used
++// with its jar (71): the small key (kWorldKeptClasses' fourth row at 1);
++// again, their line, still the key; with it the chest unlocked (the fifth
++// row at 1, a class taken) and opened (its picture 1, the old book, 136, in
++// it); shut and opened again, opened (no longer locked); the old book taken;
++// each kept through saves and loads, a damaged state's key and chest at 2
++// let go first; the cloth picked up off once the plant is moved, too.
++// Before, the cloth never came off, nor was the tape made the key, nor the
++// chest unlocked: the old book could never be taken. Venice's wine bottle
++// (room 15, 203): picked up, its patron's refusal; looked at, his line and
++// its class 6 (the sixth row at 1); picked up again, carried; used with the
++// piazza's fountain (204), its line (carried in the answers of two,
++// kWorldLateCarried); kept through saves and loads, a damaged state's at 2
++// let go. Before, it was refused for good.
++SandboxEngine::Indy3Things SandboxEngine::indy3ThingsPlayed() {
++	Indy3Things c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "indy3")) g = k;
++	if (g < 0) return c;
++	loadThings(g);
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto there = [&](int id) { const int o = thingIn(id); return o >= 0 && isThing(o); };
++	auto picture = [&](int id) { return pictureIn(_game, _room, id); };
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox the Last Crusade's things: %s: %s", what, how); }
++		return ok;
++	};
++	// (The last line said that of its answer in its things file: by a value
++	// kept, `need` and `value` its key, else (`value` -1) its plain one.)
++	auto spoke = [&](int room, int id, int kind, int from, int with, int need, int value) {
++		int after, flags, others[4 * 64], count, lines, speaker, costume, color;
++		char text[256];
++		const int key[2] = {need, value};
++		const int *valued = value >= 0 ? key : nullptr;
++		if (!PanelBridge::thingAnswer(g, room, id, kind, from, with, after, flags, others, count, 64, lines, valued) || lines <= 0 ||
++			!PanelBridge::answerLine(g, room, id, kind, from, with, lines - 1, speaker, costume, color, text, sizeof(text), valued)) return false;
++		return (!_speech.empty() ? _speech : _notice) == text;
++	};
++	auto quiet = [&]() { _speech.clear(); _notice.clear(); _saying.clear(); _speechClock = _noticeClock = 0; };
++	auto tap = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		quiet();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto useWith = [&](int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0 || !isThing(o)) return false;
++		Pair p;
++		p.kind = kWorldVerbUse; p.item = item;
++		_holding = p;
++		quiet();
++		useOn(kWorldVerbUse, -1, o);
++		settle();
++		return true;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	const int key = kWorldClassValue + 3, unlocked = kWorldClassValue + 4, bottle = kWorldClassValue + 5;
++	// (Henry's house and Indy's office.)
++	if (installed(g, 7) && installed(g, 2) && PanelBridge::valueAnswered(g, 7, 135, kWorldVerbUse, 0, 133, 0, 1) && PanelBridge::valueAnswered(g, 7, 134, kWorldVerbPull, 0, 0, 131, 0)) {
++		what = "the table cloth, the small key and the chest (rooms 7 and 2)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + key] = 2; _kept[g * 65536 + unlocked] = 2; // (as a damaged state has them: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + key) && !_kept.contains(g * 65536 + unlocked), "the small key or the chest at 2 kept from a damaged state");
++		ok = ok && check(enter(g, 7, 0, problem) && there(134) && there(131) && there(129) && !there(135) && !there(136), "Henry's house not as its game starts it (the cloth and the plant there, the chest hidden under the cloth)") &&
++			check(tap(kWorldVerbPull, 134) && spoke(7, 134, kWorldVerbPull, 0, 0, 0, -1) && picture(134) == 0 && there(134) && !there(135), "the cloth pulled with the plant in place: not its line alone") &&
++			check(tap(kWorldVerbPickUp, 131) && picture(131) == 1 && !there(131), "the plant not moved (its picture 1, untouchable)");
++		ok = ok && check(saved() && enter(g, 7, 0, problem) && picture(131) == 1, "the plant moved not kept through a save and a load") &&
++			check(tap(kWorldVerbPull, 134) && picture(134) == 1 && !there(134) && there(135) && picture(135) == 0, "the cloth not pulled off with the plant moved, or the chest not there under it") &&
++			check(tap(kWorldVerbOpen, 135) && spoke(7, 135, kWorldVerbOpen, 0, 0, 0, 0) && picture(135) == 0 && !there(136), "the chest opened while locked") &&
++			check(tap(kWorldVerbPush, 129) && there(133) && tap(kWorldVerbPickUp, 133) && carriedAt(7, 133) >= 0, "the sticky tape not found behind the bookcase, or not taken") &&
++			check(useWith(carriedAt(7, 133), 135) && spoke(7, 135, kWorldVerbUse, 0, 133, 0, 0) && picture(135) == 0 && keptValue(g, key) == 0 && keptValue(g, unlocked) == 0, "the chest unlocked with the tape still tape");
++		ok = ok && check(enter(g, 2, 0, problem) && there(71) && useWith(carriedAt(7, 133), 71) && spoke(2, 71, kWorldVerbUse, 0, 133, 0, 0) && keptValue(g, key) == 1 && carriedAt(7, 133) >= 0, "the tape not made the small key at the jar") &&
++			check(useWith(carriedAt(7, 133), 71) && spoke(2, 71, kWorldVerbUse, 0, 133, 0, 1) && keptValue(g, key) == 1 && carriedAt(7, 133) >= 0, "the small key at the jar again: not their line alone");
++		ok = ok && check(saved() && keptValue(g, key) == 1 && carriedAt(7, 133) >= 0, "the small key not kept through a save and a load") &&
++			check(enter(g, 7, 0, problem) && picture(134) == 1 && there(135) && useWith(carriedAt(7, 133), 135) && picture(135) == 1 && keptValue(g, unlocked) == 1 && there(136), "the chest not unlocked and opened with the small key, or the old book not in it") &&
++			check(tap(kWorldVerbClose, 135) && picture(135) == 0 && !there(136) && tap(kWorldVerbOpen, 135) && picture(135) == 1 && there(136), "the chest shut, then opened: not opened (locked again)") &&
++			check(tap(kWorldVerbPickUp, 136) && carriedAt(7, 136) >= 0 && !there(136), "the old book not taken");
++		ok = ok && check(saved() && keptValue(g, unlocked) == 1 && carriedAt(7, 136) >= 0 && enter(g, 7, 0, problem) && picture(135) == 1 && tap(kWorldVerbClose, 135) && tap(kWorldVerbOpen, 135) && picture(135) == 1,
++			"the chest unlocked, or the old book, not kept through a save and a load");
++		// (The cloth picked up, not pulled, once the plant is moved.)
++		fresh();
++		ok = ok && check(enter(g, 7, 0, problem) && tap(kWorldVerbPickUp, 134) && picture(134) == 0 && !there(135) && tap(kWorldVerbPickUp, 131) && tap(kWorldVerbPickUp, 134) && picture(134) == 1 && there(135),
++			"the cloth picked up: not as pulled, by its plant");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (Venice's wine bottle: refused until looked at.)
++	if (installed(g, 15) && PanelBridge::valueAnswered(g, 15, 203, kWorldVerbPickUp, 0, 0, 0, 1)) {
++		what = "Venice's wine bottle (room 15)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + bottle] = 2; // (as a damaged state has it: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + bottle), "the bottle's class at 2 kept from a damaged state");
++		ok = ok && check(enter(g, 15, 0, problem) && there(203) && there(204), "the piazza not shown, or its bottle or fountain not there") &&
++			check(tap(kWorldVerbPickUp, 203) && spoke(15, 203, kWorldVerbPickUp, 0, 0, 0, 0) && carriedAt(15, 203) < 0 && there(203) && keptValue(g, bottle) == 0, "the bottle picked up before it is looked at: not refused") &&
++			check(tap(kWorldVerbLook, 203) && spoke(15, 203, kWorldVerbLook, 0, 0, 0, 0) && keptValue(g, bottle) == 1 && carriedAt(15, 203) < 0, "the bottle looked at: not its class 6 given (its patron's line)");
++		ok = ok && check(saved() && keptValue(g, bottle) == 1 && enter(g, 15, 0, problem) && there(203), "the bottle looked at not kept through a save and a load") &&
++			check(tap(kWorldVerbPickUp, 203) && spoke(15, 203, kWorldVerbPickUp, 0, 0, 0, 1) && carriedAt(15, 203) >= 0 && !there(203), "the bottle not given once looked at") &&
++			check(useWith(carriedAt(15, 203), 204) && spoke(15, 204, kWorldVerbUse, 0, 203, 0, -1) && carriedAt(15, 203) >= 0, "the bottle used with the fountain: not its line (not carried in the answers of two)");
++		ok = ok && check(saved() && carriedAt(15, 203) >= 0 && enter(g, 15, 0, problem) && !there(203), "the bottle not kept through a save and a load, or shown again");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0302 the "verbs" check's (see verbsTest): Monkey Island 2's
+ // conversations as a player plays them (kWorldTalks; its talks file), each
+ // choice tapped where its list shows it, and what they lead to. The antique
+@@ -16512,6 +16659,17 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// given by the first verb on it) put back first.)
+ 			for (const WorldValueReader &v : kWorldValueReaders)
+ 				if (v.game == g && v.room == room && v.object == id && v.kind == kind && !v.with && v.reads) _kept.erase(g * 65536 + v.reads);
++			// (From 0305 a thing of the place they want in its picture 1 first
++			// (`need`) in the picture its game starts it in likewise: one an
++			// earlier record left so (the Last Crusade's plant of Henry's house,
++			// room 7, 131, moved by its own Pick up) put back first.)
++			for (const WorldValueReader &v : kWorldValueReaders) {
++				int found = -1, answers = 0;
++				const int n = v.game == g && v.room == room && v.object == id && v.kind == kind && !v.with && v.need > 0 && !worldValueNeedsPerson(v) ? thingIn(v.need) : -1;
++				if (n < 0 || !PanelBridge::gameThing(g, room, v.need, found, answers) || pictureIn(g, room, v.need) == found) continue;
++				if (StageBridge::objectPictures(n) > 1) showPicture(n, v.need, found);
++				else _pictures[thingKey(g, room, v.need)] = found;
++			}
+ 			// (From 0261 one Fate of Atlantis or the Last Crusade starts
+ 			// untouchable, answered once another's answer shows it: in the
+ 			// picture it is answered from first, a thing then (else away). From
+@@ -16657,6 +16815,17 @@ Common::Error SandboxEngine::verbsTest() {
+ 			// Tentacle's kids' own, kWorldStartThings, where its records use it.)
+ 			for (const WorldStartThing &s : kWorldStartThings)
+ 				if (s.game == g && !carryable.contains(s.object) && startUsed(g, s.object)) { carryable[s.object] = s.room; carriedOnes.push_back(s.object); }
++			// (From 0305 what its game gives only by an answer played after
++			// these, kWorldLateCarried, as its export carries it into these, from
++			// the place it lies in: the Last Crusade's wine bottle, given once
++			// looked at.)
++			for (const WorldLateCarried &l : kWorldLateCarried) {
++				if (l.game != g || carryable.contains(l.thing)) continue;
++				for (int k = 0; k < c->count; ++k) {
++					int room, id, kind, from, with = 0;
++					if (PanelBridge::effectAt(g, k, room, id, kind, from, &with) && !with && id == l.thing) { carryable[id] = room; carriedOnes.push_back(id); break; }
++				}
++			}
+ 			for (int k = 0; k < c->count; ++k) {
+ 				const TouchedKept touchedKept{_touched, _touched}; // (from 0267)
+ 				int room, id, kind, from, with = 0;
+@@ -17633,6 +17802,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Day of the Tentacle's things: %d of %d played as a player plays them (the kids' own things from its start carried, the horse's dentures by the textbook, Oozo's box by the scalpel, the vinegar of the future's time capsule by the wine put in the past's, either order), %d kept through saves and loads; %d failed",
+ 		dott.played, dott.cases, dott.kept, dott.failed);
+ 	failed += dott.failed;
++	// (From 0305) The Last Crusade's things shown by what its game keeps, as
++	// a player plays them: see indy3ThingsPlayed.
++	const Indy3Things house = indy3ThingsPlayed();
++	warning("SCUMMVERSE sandbox selftest the Last Crusade's things: %d of %d played as a player plays them (Henry's house: the table cloth pulled by its plant moved, the sticky tape made the small key at Indy's office's jar, the chest under the cloth unlocked with it and opened, the old book in it taken; Venice's wine bottle given once looked at, used with the fountain), %d kept through saves and loads; %d failed",
++		house.played, house.cases, house.kept, house.failed);
++	failed += house.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 2c76a18a..ceacdd20 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -822,6 +822,13 @@ private:
+ 	// things file has it.)
+ 	struct TentacleThings { int cases = 0, played = 0, kept = 0, failed = 0; };
+ 	TentacleThings tentacleThingsPlayed();
++	// (From 0305 the "verbs" check's: the Last Crusade's things shown by what
++	// its game keeps, as a player plays them (Henry's house: the table cloth
++	// by its plant, the small key made at the office's jar, the chest
++	// unlocked and opened, the old book taken; Venice's wine bottle given once
++	// looked at). Counted; `failed` where one is not as its things file has it.)
++	struct Indy3Things { int cases = 0, played = 0, kept = 0, failed = 0; };
++	Indy3Things indy3ThingsPlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

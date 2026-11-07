@@ -2569,7 +2569,7 @@ int main() {
 		const int classes = (int)(sizeof(kWorldKeptClasses) / sizeof(kWorldKeptClasses[0]));
 		for (int k = 0; k < classes; ++k) {
 			const WorldKeptClass &c = kWorldKeptClasses[k];
-			assert(c.game >= 0 && c.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && !worldHome(c.game) && c.object > 0 && c.cls >= 1 && c.cls <= 32);
+			assert(c.game >= 0 && c.game < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])) && !worldHome(c.game) && c.object > 0 && worldKeptClassNumber(c) >= 1 && worldKeptClassNumber(c) <= 32); // (from 0305 one given as its negative too)
 			assert(worldKeptClass(c.game, kWorldClassValue + k) == &c && worldKeptValue(c.game, kWorldClassValue + k) && !worldKeptClass(c.game + 1, kWorldClassValue + k));
 		}
 		assert(!worldKeptClass(1, kWorldClassValue - 1) && !worldKeptClass(1, kWorldClassValue + classes) && !worldKeptClass(1, 0x8000 + 361));
@@ -2715,5 +2715,48 @@ int main() {
 		assert(kitchen && kitchen->var == 0x8000 + 94 && kitchen->first == 1 && kitchen->last == 1 && !kitchen->need && worldKeptValue(1, 0x8000 + 94) && worldExportVersion("monkey2") >= 40);
 	}
 	std::puts("PASS: things put back where their game lays them, carried though given late, played from a picture past 1, a place's value while a thing lies there (Monkey Island 2's rat trap and soup in the catalog)");
+	// (From 0305) A class kept as its negative (kWorldKeptClasses): one its
+	// game starts the thing with, kept as 1 while the thing is without it, so
+	// that 0 is the thing as its game starts it; a class given as itself kept
+	// as 1 while the thing has it, as before. The Last Crusade's rows: Henry's
+	// house's table cloth (room 7, 134) pulled or picked up with its plant
+	// (131) moved, the sticky tape (133) made the small key at Indy's
+	// office's jar (room 2, 71) and the chest (135) unlocked with it by the
+	// tape's class 6, the chest opened by its own class 6 taken (kept as its
+	// negative), Venice's wine bottle (room 15, 203) looked at and picked up
+	// by its class 6, carried late; its export's version 32 on.
+	{
+		using namespace WorldCatalog;
+		int indy3 = -1;
+		for (int g = 0; g < (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0])); ++g) if (sameId(kWorldGames[g].gameid, "indy3")) indy3 = g;
+		assert(indy3 >= 0);
+		const int key = kWorldClassValue + 3, unlocked = kWorldClassValue + 4, bottle = kWorldClassValue + 5;
+		const WorldKeptClass *tape = worldKeptClass(indy3, key), *chest = worldKeptClass(indy3, unlocked), *wine = worldKeptClass(indy3, bottle);
+		assert(tape && tape->object == 133 && tape->cls == 6 && chest && chest->object == 135 && chest->cls == -6 && wine && wine->object == 203 && wine->cls == 6);
+		assert(worldKeptClassNumber(*tape) == 6 && worldKeptClassNumber(*chest) == 6 && !worldKeptClass(1, key) && !worldKeptClass(indy3, kWorldClassValue + 2));
+		// (Read and written so: as itself, 1 while it has it; as its negative, 1
+		// while it is without it; either way back as it was.)
+		assert(worldKeptClassHas(*tape, 1) && !worldKeptClassHas(*tape, 0) && worldKeptClassValue(*tape, true) == 1 && worldKeptClassValue(*tape, false) == 0);
+		assert(!worldKeptClassHas(*chest, 1) && worldKeptClassHas(*chest, 0) && worldKeptClassValue(*chest, true) == 0 && worldKeptClassValue(*chest, false) == 1);
+		for (const WorldKeptClass &c : kWorldKeptClasses)
+			for (int value = 0; value < 2; ++value) assert(worldKeptClassValue(c, worldKeptClassHas(c, value)) == value);
+		for (int var : {key, unlocked, bottle}) assert(worldKeptValue(indy3, var) && worldKeptValueAs(indy3, var, 1) == 1 && worldKeptValueAs(indy3, var, 0) == 0 && worldKeptValueAs(indy3, var, 2) == -1);
+		auto row = [&](int room, int object, int kind, int with, int need, int reads) {
+			int n = 0;
+			for (const WorldValueReader &v : kWorldValueReaders)
+				n += v.game == indy3 && v.room == room && v.object == object && v.kind == kind && v.with == with && v.need == need && v.reads == reads && !v.bare && !v.later && !v.powered && !v.kids && !v.marks;
+			return n;
+		};
+		assert(row(7, 134, kWorldVerbPull, 0, 131, 0) == 1 && row(7, 134, kWorldVerbPickUp, 0, 131, 0) == 1);
+		assert(row(2, 71, kWorldVerbUse, 133, 0, key) == 1 && row(7, 135, kWorldVerbUse, 133, 0, key) == 1 && row(7, 135, kWorldVerbOpen, 0, 0, unlocked) == 1);
+		assert(row(15, 203, kWorldVerbLook, 0, 0, bottle) == 1 && row(15, 203, kWorldVerbPickUp, 0, 0, bottle) == 1);
+		assert(row(15, 204, kWorldVerbUse, 133, 0, key) == 1 && row(1, 24, kWorldVerbUse, 133, 0, key) == 1 && row(55, 707, kWorldVerbUse, 133, 0, key) == 1);
+		int rows = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) rows += v.game == indy3;
+		bool carried = false;
+		for (const WorldLateCarried &l : kWorldLateCarried) carried = carried || (l.game == indy3 && l.thing == 203);
+		assert(rows == 10 && carried && worldExportVersion("indy3") >= 32);
+	}
+	std::puts("PASS: a class kept as its negative (one its game starts the thing with, taken), the Last Crusade's Henry's house and wine bottle in the catalog");
 	return 0;
 }

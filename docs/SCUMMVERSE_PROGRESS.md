@@ -9623,3 +9623,135 @@ descumm, nothing copied).
   case fewer, one kept fewer, another sum, a failure, no cases, fewer
   choices): each caught; test_startup, test_world_setup and the full data
   suite. Not tested on an iPhone.
+
+## Patch 0305 — the Last Crusade's opening as a player plays it in the new engine: Henry's house's table cloth off by its plant moved, the sticky tape made the small key at Indy's office's jar, the chest under the cloth unlocked with it and opened, its old book taken; Venice's wine bottle given once looked at (indy3 export version 32)
+
+A survey of the opening (Barnett College, Henry's house, then Venice and
+its catacombs) against the original's scripts (read with descumm, nothing
+copied), for the steps a player needs that the new engine could not play.
+- What the original does. Indy's office (room 2): the package (68) picked
+  up by its local script 201 (the junk mail, 65 to 67, gone), opened (bit
+  1503, named anew as the diary). Henry's house (room 7, its menu's area):
+  the table cloth (134), pulled or picked up, is pulled off only with the
+  plant (131) moved first (its Pick up: its picture 1, untouchable); else
+  the one played's line. The chest (135) is shown while the cloth is in its
+  picture 1 (its parent), the old book (136) while the chest is (opened),
+  the sticky tape (133) while the bookcase (129) is (pushed). The chest
+  starts with class 6, locked: opened, its line; used with 133 while 133
+  has class 6, unlocked (its class 6 taken) and opened (global script 26),
+  else their line. The tape has no class 6 from its start: used with the
+  jar of Indy's office (room 2, 71; the tape's Use hands on to the jar's),
+  a cut-scene names it the small key and gives it class 6; with class 6,
+  their line. The old book is offered in the diary's place in a later
+  scene (global script 104). Venice's piazza (room 15): the wine bottle
+  (203) on its café patron's table, looked at while it lies there, his
+  local script 210 gives it class 6 (the one played's line and his);
+  picked up, his 209: with class 6 given (his line), without it his
+  refusal. Filled at a fountain (room 15, 204; room 1, 24: global script
+  127, class 10), it puts out the catacombs' torch (room 51, 669), whose
+  pull opens the way to room 60.
+- New engine, before. The export played each of these from the game's
+  start: the plant in place, the tape still tape, the chest locked, the
+  bottle not yet looked at. So the cloth never came off and the chest was
+  never found, the tape never became the key, the chest was never
+  unlocked or opened, the old book could never be taken, and the bottle
+  was refused for good, never carried nor used with anything (its answers
+  of two none).
+- Now. kWorldValueReaders' rows of a later game read the plant's picture
+  (the cloth's Pull and Pick up, `need` 131), the tape's class (the jar's
+  and the chest's Use with 133), the chest's (its Open) and the bottle's
+  (its Look and Pick up), each played by the export at each value, its
+  answer and what it leaves filed, the new engine answering by the value
+  kept now. kWorldKeptClasses (0301's) takes a class given as its negative:
+  one its game starts the thing with, which its scripts take (the chest's
+  6), kept as 1 while the thing is without it, so that 0 is the thing as
+  its game starts it as every value kept is before an answer leaves one
+  (worldKeptClassNumber, worldKeptClassHas, worldKeptClassValue: the
+  export's runs read and write it so). The bottle is carried in the answers
+  of two (kWorldLateCarried, 0304's), and in the "verbs" check's replay of
+  them likewise from the place it lies in. The "verbs" check's replay of a
+  thing's own records puts a thing its rows want in its picture 1 (`need`)
+  back in the picture its game starts it in first, as 0301's puts a value
+  kept back (the plant moved by its own record, before the cloth's).
+- Results: the Last Crusade's things file: 23 answers by a value kept (was
+  none), 10185 answers in all (was 9599: 592 of the bottle used with
+  others; 6 of it used on from its picture 1, which no thing carried
+  lies in, not now), its answers of two 3865 (was 3324: 29 things carried,
+  was 28); its scenes and characters byte for byte as before; every other
+  file of every game byte for byte as base+0304 (the mansion's included);
+  two exports identical; the reversed order the same answers.
+- Dead ends found and not fixed here (by number): the whip (room 15, 202),
+  which the piazza's entry gives the one played, never carried (no answer
+  takes it; its uses: the catacombs' wooden plug, room 61, 749, the
+  castle's brick, room 13, 164, and the Grail, room 93, 945); the
+  library's slabs (rooms 179 to 183, 253 to 261) all doors to room 19,
+  which has no door out (its hole overhead, 278, runs global script 53
+  back to the room it came from), where the original takes the one played
+  there only with the metal post (272) used on a wrong slab and the diary
+  carried (local 204), and to room 50 for the one slab its global script
+  119 chose at random (local 201): the door maps' (tools/world_maps.py);
+  the bottle's water (class 10) and the torch: the torch a door here; the
+  new names the tape and the package take (133, 68); the chest opened again
+  while open and unlocked, the plain answer (its locked line), as a run
+  that says and changes nothing is filed for none. Conversations: the
+  opening's only menus are travel (room 6's local 200, room 15's local
+  204: verbs 90 to 92 by a local verb script setting variable 114); the
+  castle's guards' talks are v3 menus of verbs 120 to 125 by global verb
+  script 18 into 114 (global scripts 70, 71, 86, 103), which
+  kWorldTalkChoices could take as {3, 114, 120, 125}: not tried. No IQ or
+  fight scene in the opening blocks the way (the gym's boxing, room 73,
+  is apart from it).
+- From the review of 0305: the small key used at a fountain still said the
+  tape's line (global script 127 reads 133's class 6 for room 15's 204,
+  room 1's 24 and room 55's 707; their records of two were filed from the
+  game's start): three value-reader rows for them, reading the tape's kept
+  class. An unused helper of the self-test let go (a compiler warning).
+- Tests: a new verbs self-test line "the Last Crusade's things" (2 of 2, 2
+  kept through saves and loads): Henry's house as its game starts it (the
+  cloth and the plant there, the chest hidden); the cloth pulled with the
+  plant in place, its line alone; the plant picked up (its picture 1,
+  untouchable), through a save and a load; the cloth pulled off, the chest
+  there, opened: locked (its line); the bookcase pushed, the tape behind
+  it taken; used with the chest as tape, their line; at Indy's office used
+  with the jar: the key (kept), again: their line, still the key, through
+  a save and a load; the chest unlocked and opened with it, the old book
+  in it; shut and opened again, opened; the old book taken, through a save
+  and a load; the cloth picked up, not pulled, once the plant is moved;
+  the bottle picked up before it is looked at: refused; looked at: its
+  class kept, through a save and a load; picked up: carried; used with the
+  piazza's fountain: its line; through a save and a load, not shown again;
+  each line the one its things file has for that value; a damaged state's
+  key, chest and bottle at 2 let go. tools/test_sandbox_engine.py's check
+  of it gated on indy3-v32 (two cases: rooms 7 and 2, room 15), with its
+  records of two tried but one in fifty at most (the bottle's replayed);
+  passes with the export before (0 of 0). Every other verbs line as before
+  but the Last Crusade's records of two (4105 of 4168, 63 not tried; was
+  3531 of 3582, 51: the bottle's), and, as the random draws before it go,
+  Monkey Island's sword fighting's fights (38, 20 won; was 40, 24 won);
+  the one thing records of the Last Crusade as before (the plant put back
+  first); the all, doors and keep then resume self-tests as before.
+  test_panel (a new case: the negative class's reading and writing both
+  ways, every row read back as written, the Last Crusade's rows, the
+  bottle carried late, the version; ASan/UBSan), test_world and test_stage
+  (ASan/UBSan). Two exports identical; the reversed order the same answers
+  (its things file in another order); every other file of every game byte
+  for byte (1139 files against base+0304, the mansion's included). 13
+  mutations caught: 6 of the catalog's (the cloth's Pull row dropped: its
+  case not counted, caught by the python gate; the chest's class not
+  negative; the bottle not carried late; the jar's row reading nothing;
+  the bottle's class another; the chest's Open row dropped), 2 of the
+  export's (a class written, or read, as itself whatever its sign), 2 of
+  the new engine's (the plant not put back before the cloth's records:
+  four records not as recorded; the bottle not carried in the replay of
+  the records of two: the python gate) and 3 of test_panel's (the negative
+  ignored, the bottle not carried late, the bottle's Look row dropped);
+  two of them (the bottle not carried late, the jar's row reading nothing)
+  passed the verbs line's first form, whose checks of a line said are now
+  each against its things file's line for that value. The python check run
+  on the verbs output as it is and changed six ways (one failed, a case
+  fewer, cases fewer in all, one kept fewer, no line, the records of two
+  not tried): each caught. Built and checked on base+0304 as staged, then
+  rebased onto the tree with 0304 applied (its review's changes
+  elsewhere): there too the Last Crusade's export the same and the verbs
+  self-test as above against that tree's own; test_startup,
+  test_world_setup and the full data suite. Not tested on an iPhone.
