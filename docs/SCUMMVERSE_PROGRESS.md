@@ -9905,3 +9905,159 @@ copied).
   before it): each caught (on 0304 as integrated). Built on that and the Last
   Crusade's 0305, its line passing with it; test_startup, test_world_setup
   and the full data suite. Not tested on an iPhone.
+
+## Patch 0307 — Fate of Atlantis's Tikal temple as a player plays it in the new engine: the kerosene lamp lit carried, the spiral design loosened with it and taken, set in the animal head, the elephant's nose pulled, the tomb opened; its start's scroll script let go (atlantis export version 34)
+
+From the task's survey of Fate of Atlantis's opening (Barnett College, New
+York, Iceland, the Azores, Tikal) and 0302's "not done", against the
+original's scripts (read with descumm, nothing copied).
+- Survey. The things the opening's scripts take or need, against its things
+  file as exported ("atlantis-v33", base and 0304): Barnett College's jar
+  (room 1, 22: the ice box's Open makes it touchable), coal and rag (room 3,
+  53, 54), arrowhead (room 5, 88) and gum (room 6, 102: the desk looked at
+  makes it touchable), New York's newspaper (room 10, 141) and Tikal's lamp
+  (room 76, 1050) could be had; the dead ends are below. The one on the
+  main path that existing mechanisms reach is Tikal's temple: this patch.
+- What the original does (rooms 76 and 77). The kerosene lamp (1050) starts
+  with class 6 (not lit); its Open, only while it is carried, clears it and
+  names it anew (its Close gives it back; where it lies, both say it is not
+  carried), then its place's local script 201. The temple's spiral design
+  (1056) starts with class 6 (stuck): Pick up and Pull say so and stop; the
+  lamp used on it while it is stuck clears the spiral's 6 if the lamp is lit
+  (its keeper's line, local 201), else the one played's line; loose, Pick up
+  and Pull take it. The
+  spiral's own Use hands on to the animal head (1053) only while it is loose:
+  the head's Use with it sets it in (the spiral's owner 0), draws the
+  elephant (1059) in its picture 1, makes its nose (1054) touchable and
+  changes the walk boxes; the nose pulled opens the tomb (1058), the keeper's
+  way in (local 200: bit 174, the disk 1055 taken, the keeper gone in).
+- New engine, before. The lamp could be taken, but no verb on a carried
+  thing of a later game had an answer, so it was never lit; the spiral's
+  answers were all as its game starts them (stuck), so it was never taken;
+  the head's answer with it was the stuck spiral's usual line, and the nose,
+  untouchable from the start, had no answers at all. The tomb never opened.
+- Now (common/scummverse_world_catalog.h): the lamp's and the spiral's class
+  6 kept as classes their game starts them with, taken (kWorldKeptClasses'
+  negatives, 0305's: {4, 1050, -6} and {4, 1056, -6}, kept 1 once taken
+  away), as kWorldClassValue + 6 and + 7 (after 0305's three). New
+  kWorldCarriedNeed, a row's `need`: its
+  verb used on its thing while the one played carries it, played so by the
+  export (the thing carried from its place, from its picture 1 alone, as its
+  pick up leaves it) and answered so by the new engine only while it is
+  carried (valueReader; carriedAnswer for a later game's carried thing, its
+  rows of kWorldCarriedNeed only, as valueCarried answers the mansion's).
+  Rows: the lamp's Open and Close carried; the spiral used with the lamp
+  (reading the lamp); the spiral's Pick up and Pull and the head used with
+  the spiral (reading the spiral); the spiral carried late
+  (kWorldLateCarried, 0304's). The nose, made touchable by the head's answer,
+  is played on as revealed (0281), its Pull answered as its game opens the
+  tomb.
+- kWorldScrollStarts (0302) now has Fate of Atlantis too: its start's own
+  scroll script (216, a local script of whichever place it is in: in the
+  market of Algiers, room 29, a cut-scene that took the runs elsewhere) let
+  go elsewhere. Give to the grocer and the knife-thrower there (costumes 67
+  and 68, through 305 and 306) answered as their scripts answer it; the sub
+  (room 66) arrived at by the plain runs, its own controls still without
+  answers, nor any Give there (from the review of 0307, below).
+- From the review of 0307: letting the scroll script go took the export's
+  people of each place (who can be given to) into the sub too, where its
+  entry makes the sub (actor 11, costume 80) the one played among sea
+  creatures in the cast's costume 99 (the crab's): 14 Give answers filed
+  there under costume 99, the sub's refusals, which
+  tools/test_sandbox_engine.py's check_arrivals refuses (none of the sub's
+  answers a player's), and which the new engine gave the crab, wandering
+  outside its rooms, given any of those things (its answers looked up in
+  another room of its game). Now the export's people loop leaves out a
+  place whose entry hands the one played to someone else (VAR_EGO not the
+  one it set), in any game: no Give in the sub; every other file of every
+  game byte for byte as before.
+- Results: Fate of Atlantis's things file: 20 answers by a value kept (was
+  none: the lamp's Open and Close carried 4, the spiral used with the lamp 4,
+  its Pick up 4 and Pull 4, the head used with it 4), 6453 others (was 6363:
+  the nose's 16 from its two pictures, the tomb's 6 from its picture 1, 72 of
+  things used with the spiral carried, Give in Algiers 2;
+  6 fewer: the spiral's five from its picture 1 with a thing carried, now
+  carried itself, and one with the lamp filed again with its keeper's other
+  background line); 11 things answers of two reveal played on (was 10). Its
+  scenes, characters and verb panel byte for byte as before; every other
+  file of every game byte for byte as before (1137 files exported from
+  nothing, the mansion's included, against 0306's tree: the Last Crusade's
+  and Sam & Max's files as 0305 and 0306 export them); two exports
+  identical; the reversed order the same answers.
+- Not done (traced, by number): the orichalcum beads (room 68's 933, counted
+  by 229 through its verb 250; room 68 is no place): never carried, so the
+  temple's shiny bead (1063, shown by the nose's Pull only with beads
+  carried, its Pick up local 207 giving one) is never shown, Iceland's
+  figurine (room 26, 277: drawn in its picture 2 by the entry and freed by a
+  bead used on it only with 229 above 0, local 200 then 201, state 3, then
+  taken) is never had, and the Azores' Costa (room 19, given it: owner 7)
+  never given it; the keeper after the tomb (bit 174 not kept: still in 76
+  and 77; the disk shown in its picture 1); the lamp's new name; the lamp on
+  a spiral already loose answered as on one stuck (its row reads the lamp's
+  value only); the lamp (76, 1050) taken in front of its keeper: its Pick up
+  while he (actor 11, costume 62) is in room 76 plays his cut-scene and
+  takes nothing, but the export records it with him away, as its arrival
+  there has him, and the new engine stands him in 76, his cast place
+  (nothing here takes him into the temple, as his game's entries and bits
+  167 and 174 do), so gating the Pick up by his presence (a row whose need
+  is one of the cast) would refuse the lamp whenever he stands there, a
+  dead end again; New York's backstage (room 12): the stagehand (159, costume
+  37) given the newspaper or the magazine plays his own answer (bits 37 + 9,
+  37 + 10, local scripts 201, 205, 210), recorded only as his usual line; the
+  magazine (room 1, 23) given only by the office's cut-scene (local 205),
+  never carried; the light button (149, by its class 6, local 211) not
+  played; room 4's urn (68, taken only once 65's Open clears 65's class 6,
+  local 202) never taken; the wax cat (room 7, 112: a local script's pick
+  up) and the cat figurines (116 to 119, doors of the map) not traced; the
+  talks with Atlantis's own choice verbs (120 on, the choice in variable
+  165: Sophia's in room 76, its local scripts 211 to 213; those of rooms 13
+  and 26) not rows, not traced further; the temple's entrance (76, 1049) a
+  door of the map, whatever its keeper there gates not traced; the three
+  stones (room 68: 934, 935, 936) and the sub's controls (66) as before.
+- Merging: the new kWorldKeptClasses rows are numbered by their place in
+  the table (kWorldClassValue + 6, + 7 after 0305's three): a patch adding
+  rows before them moves them (renumber the rows' `reads`, the self-test's
+  and test_panel's).
+- Tests: a new verbs self-test line "Fate of Atlantis's temple" (2 of 2:
+  the lamp's and the spiral's values at 2 from a damaged state let go; the
+  lamp opened where it lies, not lit; taken, opened carried, lit; opened
+  again, its line; closed, put out; lit again, through a save and a load;
+  the spiral picked up and pulled while stuck, not taken; the lamp put out
+  used on it, not loosened; lit, loosened; picked up, carried, through a save
+  and a load, not shown again; set in the animal head (used up, the elephant
+  in its picture 1, its nose touchable); the nose pulled, the tomb open and
+  touchable, through a save and a load; the other way: lit before the
+  temple, the spiral loosened, the lamp on it again, pulled, set in the
+  head) and tools/test_sandbox_engine.py's check of it, gated on
+  atlantis-v34; test_panel (a new case: the carried need, the rows, the
+  classes as their negatives), test_world and test_talks (ASan/UBSan;
+  test_talks TSan too; its 0302 check of the starts' scroll scripts now
+  wants Fate of Atlantis's listed); against 0306's tree, every other verbs
+  line as before (the Last Crusade's things and Sam & Max's things, 2 of 2
+  each, among them) but Fate of Atlantis's counts of its answers (one thing
+  3716 of 3759 records, was 3662 of 3737; two things 2678 of 2694, 16 not
+  tried, was 2603 of 2626; touches 97, was 76; revealed 25 things, 159
+  answers, was 22, 137; unanswered 6 verbs, 1593 records) and, as the
+  random draws before them go, the sword fighting's fights (24, 11 won; was
+  23, 10 won); the all, doors and keep then resume self-tests as before,
+  line for line; 6 mutations caught (the lamp's and the spiral's classes not as
+  their negatives, the head's row reading the lamp, the spiral not carried
+  late, the lamp not carried by the export, the later games' carried answer
+  not looked up: each by the verbs line or, where no case is played, the
+  python check; the catalog's by test_panel too). Before the rebase onto
+  0305 (its own `cleared` then, since dropped for 0305's negatives), with
+  0304's worlds every verbs line as before but the new one, 0 of 0, and 13
+  mutations caught (Fate of Atlantis's scroll start left out by test_talks;
+  the export's answers from picture 0, the engine's from picture 0, the
+  carried need never matched, the spiral's Use reading its own value, the
+  lamp's rows without the carried need: the verbs line or the python
+  check), one equivalent set aside (a carried need matched where its thing
+  lies: its answers are filed from picture 1, it lies in its picture 0); the
+  python check run on the verbs output as it is and changed six ways (a
+  failure, fewer cases, fewer played, fewer kept, no cases, no line): each
+  caught, and passing with no cases on a v33 export; from the review of
+  0307, tools/test_sandbox_engine.py's checks of the worlds alone
+  (check_cycles, check_things, check_arrivals, check_herring,
+  check_given_through, check_lit_people) on the export: each passes
+  (check_arrivals failed before the fix: Give in the sub); test_startup,
+  test_world_setup and the full data suite. Not tested on an iPhone.

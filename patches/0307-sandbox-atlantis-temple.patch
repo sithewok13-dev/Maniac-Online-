@@ -1,0 +1,433 @@
+diff --git a/common/scummverse_world_catalog.h b/common/scummverse_world_catalog.h
+index b9ded73d..415efcec 100644
+--- a/common/scummverse_world_catalog.h
++++ b/common/scummverse_world_catalog.h
+@@ -226,13 +226,21 @@ static const int kWorldExportVersion = 25;
+ // its start gives Sam in room 1, which no place exports, carried in its
+ // answers of two, kWorldStartThings, his picture in its box its things file's
+ // icon: the dead guy of room 9 turned inside out for the carnival tickets
+-// among his uses): "samnmax-v32".
++// among his uses): "samnmax-v32"; from 0307 Fate of Atlantis's again (its
++// Tikal temple, room 77, as its game plays it: the kerosene lamp lit
++// carried, kWorldCarriedNeed; its spiral design loosened with it and taken,
++// the lamp's and the spiral's class 6 kept as classes its game starts them
++// with taken, kWorldKeptClasses' negatives; the spiral carried in its answers
++// of two, kWorldLateCarried, set in the animal head; its start's scroll
++// script let go elsewhere, kWorldScrollStarts: Give to two of Algiers'
++// people answered): "atlantis-v34".
+ inline int worldExportVersion(const char *gameid) {
+ 	auto same = [](const char *a, const char *b) { while (*a && *a == *b) { ++a; ++b; } return *a == *b; };
+ 	return kWorldExportVersion + (same(gameid, "maniac") ? 26 : same(gameid, "monkey") ? 16 : same(gameid, "monkey2") ? 15 : same(gameid, "tentacle") ? 11 :
+-		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") || same(gameid, "atlantis") ? 8 : same(gameid, "comi") ? 7 :
++		same(gameid, "ft") ? 9 : same(gameid, "zak") || same(gameid, "dig") ? 8 : same(gameid, "comi") ? 7 :
+ 		same(gameid, "indy3") ? 7 : // (from 0305)
+ 		same(gameid, "samnmax") ? 7 : // (from 0306)
++		same(gameid, "atlantis") ? 9 : // (from 0307)
+ 		same(gameid, "loom") ? 2 : 0);
+ }
+ // "<gameid>-v<version>.try" (u8 count after "SVT1") counts exports of a game
+@@ -1615,10 +1623,13 @@ inline bool worldPutBack(int game, int room, int thing) {
+ // 12's 106, which 105 used with the knife reveals) and rat (135: picked up
+ // once trapped). Before, neither was ever used with anything. From 0305
+ // the Last Crusade's wine bottle (room 15, 203: its Pick up refused until it
+-// is looked at, kWorldValueReaders), never carried in them before.
++// is looked at, kWorldValueReaders), never carried in them before. From 0307
++// Fate of Atlantis's spiral design (room 77, 1056: taken only by its rows of
++// kWorldValueReaders, once loosened).
+ struct WorldLateCarried { short game; int thing; };
+ static const WorldLateCarried kWorldLateCarried[] = {{1, 132}, {1, 135},
+-	{3, 203}}; // (from 0305)
++	{3, 203}, // (from 0305)
++	{4, 1056}}; // (from 0307)
+ // From 0304 a thing of a later game's place that its answers leave in a
+ // picture past 1, whose rows of kWorldValueReaders are played from it too
+ // (else from its pictures 0 and 1), as the new engine answers them from it:
+@@ -1871,10 +1882,18 @@ inline const WorldMarkReader *worldMarkReader(int game, int room, int object, in
+ // value kept is before an answer leaves one (worldKeptClassHas). The Last
+ // Crusade's (see kWorldValueReaders): its sticky tape made the small key
+ // (room 7, 133, given class 6), its chest unlocked (135, its class 6 taken)
+-// and its wine bottle looked at (room 15, 203, given class 6).
++// and its wine bottle looked at (room 15, 203, given class 6). From 0307
++// Fate of Atlantis's Tikal (rooms 76 and 77, read with descumm, nothing
++// copied), two given as their negatives: its kerosene lamp (room 76, 1050)
++// starts with class 6 (not lit), which its Open clears only while it is
++// carried (its Close gives it again), and its temple's spiral design (room
++// 77, 1056) with class 6 (stuck in the wall), which the lamp lit used on it
++// clears: kept as kWorldClassValue + 6 (the lamp lit) and + 7 (the spiral
++// loose).
+ struct WorldKeptClass { short game; int object; short cls; };
+ static const WorldKeptClass kWorldKeptClasses[] = {{1, 864, 19}, {1, 130, 6}, {1, 135, 6}, // (from 0302 the peg leg sawn; from 0304 the rat trapped)
+-	{3, 133, 6}, {3, 135, -6}, {3, 203, 6}}; // (from 0305)
++	{3, 133, 6}, {3, 135, -6}, {3, 203, 6}, // (from 0305)
++	{4, 1050, -6}, {4, 1056, -6}}; // (from 0307)
+ static const int kWorldClassValue = 0x5000;
+ inline const WorldKeptClass *worldKeptClass(int game, int var) {
+ 	const int k = var - kWorldClassValue;
+@@ -1910,7 +1929,8 @@ static const WorldKeptValue kWorldKeptValues[] = {{10, 157, {25, 44, 50, 55}}, {
+ 	{5, 0x8000 + 6, {1, 0, 0, 0}}, // (from 0303)
+ 	{1, kWorldClassValue + 2, {1, 0, 0, 0}}, {1, 0x8000 + 74, {1, 0, 0, 0}}, {1, 0x8000 + 71, {1, 0, 0, 0}}, {1, 0x8000 + 94, {1, 0, 0, 0}},
+ 	{1, 0x8000 + 77, {1, 0, 0, 0}}, // (from 0304)
+-	{3, kWorldClassValue + 3, {1, 0, 0, 0}}, {3, kWorldClassValue + 4, {1, 0, 0, 0}}, {3, kWorldClassValue + 5, {1, 0, 0, 0}}}; // (from 0305)
++	{3, kWorldClassValue + 3, {1, 0, 0, 0}}, {3, kWorldClassValue + 4, {1, 0, 0, 0}}, {3, kWorldClassValue + 5, {1, 0, 0, 0}}, // (from 0305)
++	{4, kWorldClassValue + 6, {1, 0, 0, 0}}, {4, kWorldClassValue + 7, {1, 0, 0, 0}}}; // (from 0307)
+ inline bool worldKeptValue(int game, int var) {
+ 	for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == game && k.var == var) return true;
+ 	return false;
+@@ -2053,6 +2073,13 @@ inline int worldKeptValueAs(int game, int var, int value) {
+ // its suit not modelled, as deaths are not); the meteor used with the
+ // Edsel's trunk (16, 151), open or shut as its script takes it: in the trunk
+ // (268 shown and touchable, the meteor used up, 162 at 2).
++// From 0307 a later game's row whose `need` is kWorldCarriedNeed: its verb
++// used on its thing while the one played carries it (its game's script
++// answers it so only then: Fate of Atlantis's kerosene lamp lit and put
++// out), played so by the export (the thing carried from its place) and
++// filed under it; the new engine answers it so only while the thing is
++// carried, never where it lies (there, its usual answer).
++static const int kWorldCarriedNeed = 0x7FF0;
+ struct WorldValueReader { short game, room; int object; short kind, with; int need; short bare, powered; int reads; short later, kids, marks; }; // (from 0296 `reads` an int, as kWorldKeptValues' `var`)
+ static const WorldValueReader kWorldValueReaders[] = {
+ 	{10, 17, 366, kWorldVerbUse, 32, 30, 0, 0, 0, 0, 0, 0}, {10, 17, 366, kWorldVerbUse, 188, 30, 0, 0, 0, 0, 0, 0},
+@@ -2121,7 +2148,12 @@ static const WorldValueReader kWorldValueReaders[] = {
+ 	// (From the review of 0305 the tape or the key used at a fountain (global
+ 	// script 127 reads 133's class 6: room 15's 204, room 1's 24, room 55's 707).)
+ 	{3, 15, 204, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0}, {3, 1, 24, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0},
+-	{3, 55, 707, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0}};
++	{3, 55, 707, kWorldVerbUse, 133, 0, 0, 0, kWorldClassValue + 3, 0, 0, 0},
++	// (From 0307 Fate of Atlantis's Tikal temple: see below.)
++	{4, 76, 1050, kWorldVerbOpen, 0, kWorldCarriedNeed, 0, 0, kWorldClassValue + 6, 0, 0, 0}, {4, 76, 1050, kWorldVerbClose, 0, kWorldCarriedNeed, 0, 0, kWorldClassValue + 6, 0, 0, 0},
++	{4, 77, 1056, kWorldVerbUse, 1050, 0, 0, 0, kWorldClassValue + 6, 0, 0, 0},
++	{4, 77, 1056, kWorldVerbPickUp, 0, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0}, {4, 77, 1056, kWorldVerbPull, 0, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0},
++	{4, 77, 1053, kWorldVerbUse, 1056, 0, 0, 0, kWorldClassValue + 7, 0, 0, 0}};
+ // From 0296 a later game's rows too (a thing of its place, no `kids`,
+ // `marks`, `powered` or `later`): the export plays each as it plays an answer
+ // of two (or of one, no `with`) with the value it reads at each it can hold,
+@@ -2258,6 +2290,25 @@ static const WorldValueReader kWorldValueReaders[] = {
+ // the tape and the package, 133 and 68; the bottle's water, class 10, from
+ // the fountains, rooms 15 and 1, read by the catacombs' torch, room 51, 669,
+ // whose way on is a door here.)
++// From 0307 Fate of Atlantis's Tikal temple (rooms 76 and 77, read with
++// descumm, nothing copied), the lamp's and the spiral's class 6 kept
++// (kWorldKeptClasses, as their negatives). Its kerosene lamp (1050), carried,
++// opened: at 0 (its class 6 on) lit (6 cleared, named anew; then its place's
++// local script 201, its keeper's comment); at 1 the one played's line;
++// closed: at 1 put out (6 again), at 0 the line (kWorldCarriedNeed; where it
++// lies, its line that it is not carried, as before). The lamp used on the
++// spiral design (1056) while it is stuck: at 0 the one played's line (not
++// lit), at 1 the spiral loosened (its class 6 cleared, kept: + 7), the
++// keeper's line and room 77's local 201; the spiral picked up or pulled: at
++// 0 its line that it is stuck, at 1 taken (carried for these rows,
++// kWorldLateCarried). The spiral used on the animal head (1053): its own Use
++// hands on to the head's only while it is loose, as it is once taken (its
++// stuck one says its usual line): at 1 set in it (gone), the elephant (1059)
++// in its picture 1, its nose (1054) touchable, whose Pull opens the tomb, the
++// keeper's way in (local 200), played on as revealed. Before, the lamp could
++// never be lit nor the spiral taken: the tomb never opened. (The lamp on a
++// spiral already loose answers as on one still stuck, its row reading the
++// lamp's value only.)
+ // (From 0286 a row's `need`, a thing or one of its game's cast.)
+ inline bool worldValueNeedsPerson(const WorldValueReader &v) { return v.need >= kWorldPersonThing; }
+ // (From 0288 what a row's answer is filed under besides its thing: its
+@@ -2615,11 +2666,17 @@ inline bool worldMoneyValue(int game, int var) { const WorldMoney *m = worldMone
+ // arrives anywhere else, where a script of that number is that place's own.
+ // Monkey Island 2's (room 7's 207; in room 48 its 207 is the figurehead's
+ // trade: every answer there moving the camera gave the map piece, 519).
+-// (Fate of Atlantis's start keeps one too, as 0293 found: not listed, its
+-// export as before; let go, it has 15 more answers of Give, in rooms 29 and
+-// 66, not checked here.)
++// (Fate of Atlantis's start keeps one too, as 0293 found: until 0307 not
++// listed, its export as before.)
++// From 0307 Fate of Atlantis's (its start's own, 216, a local script of
++// whichever place it is in: in Algiers' market, room 29, a cut-scene that
++// left the runs elsewhere): let go, Give to the grocer and the
++// knife-thrower there (costumes 67 and 68, through 305 and 306) answered as
++// their scripts answer it; the sub (room 66) arrived at by the plain runs,
++// its own controls still without answers, nor Give there (from the review of
++// 0307: its entry makes the sub, actor 11, the one played; none given to).
+ struct WorldScrollStart { short game; };
+-static const WorldScrollStart kWorldScrollStarts[] = {{1}};
++static const WorldScrollStart kWorldScrollStarts[] = {{1}, {4}}; // (from 0307 Fate of Atlantis's)
+ inline bool worldScrollStart(int game) {
+ 	for (const WorldScrollStart &w : kWorldScrollStarts) if (w.game == game) return true;
+ 	return false;
+diff --git a/engines/scumm/scummverse_world_export.inc b/engines/scumm/scummverse_world_export.inc
+index 1e379053..565f5621 100644
+--- a/engines/scumm/scummverse_world_export.inc
++++ b/engines/scumm/scummverse_world_export.inc
+@@ -7318,6 +7318,12 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 		putBack();
+ 		_rnd.setSeed(0x5C0BE + room);
+ 		if (worldRideScene(gameIndex, room) || !arrive(room, 0)) continue;
++		// (From the review of 0307 not a place whose entry hands the one
++		// played to someone else: who is there then is no one a player gives
++		// to, and what is said is the one played then's (Fate of Atlantis's
++		// sub, room 66: its entry makes its actor 11 the one played, among
++		// sea creatures in the cast's costume 99, the crab's).)
++		if (VAR_EGO != 0xFF && VAR(VAR_EGO) != ego) continue;
+ 		Common::HashMap<int, bool> dressed;
+ 		// (From 0294 the things of the place its game gives to by their own
+ 		// entry (kWorldGivesThrough), named, of its class where it asks one:
+@@ -7858,24 +7864,28 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 			if (v.game != gameIndex || worldValueNeedsPerson(v) || v.object >= kWorldPersonThing || v.kids || v.marks || v.later) continue;
+ 			int verb = v.kind == kWorldVerbUse && v.with ? useVerb : v.kind == kWorldVerbGive ? giveVerb : 0;
+ 			for (uint k = 0; !verb && k < kinds.size(); ++k) if (kinds[k] == v.kind) verb = verbs[k];
+-			if (!verb || (v.with && !carryable.contains(v.with))) {
+-				warning("SCUMMVERSE world things: %s room %d: %d's verb %d with %d not played with a value kept (no such verb, or %d never carried)", kWorldGames[gameIndex].gameid, v.room, v.object, v.kind, v.with, v.with);
++			// (From 0307 a row of kWorldCarriedNeed: its thing itself carried, as
++			// its pick up leaves it (its picture 1, from which the new engine
++			// answers it carried), never where it lies.)
++			const bool carriedThing = v.need == kWorldCarriedNeed;
++			if (!verb || (v.with && !carryable.contains(v.with)) || (carriedThing && !carryable.contains(v.object))) {
++				warning("SCUMMVERSE world things: %s room %d: %d's verb %d with %d not played with a value kept (no such verb, or %d never carried)", kWorldGames[gameIndex].gameid, v.room, v.object, v.kind, v.with, carriedThing ? v.object : v.with);
+ 				continue;
+ 			}
+ 			Common::Array<int> values(1, 0);
+ 			for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex && v.reads && k.var == v.reads) for (short x : k.values) if (x) values.push_back(x);
+ 			// (From 0304 from a picture past 1 too where its game's answers leave
+ 			// the thing so, kWorldPastPictures: Monkey Island 2's box opened.)
+-			const int pastOne = worldPastPicture(gameIndex, v.room, v.object), froms = pastOne > 1 ? 3 : 2;
++			const int pastOne = worldPastPicture(gameIndex, v.room, v.object), froms = carriedThing ? 1 : pastOne > 1 ? 3 : 2;
+ 			for (int fn = 0; fn < froms; ++fn)
+ 				for (uint xn = 0; xn < values.size() && !shouldQuit(); ++xn) {
+-					const int fromAt = scummverseRunAt(fn, froms, reversed), from = fromAt < 2 ? fromAt : pastOne, x = values[scummverseRunAt(xn, values.size(), reversed)];
++					const int fromAt = carriedThing ? 1 : scummverseRunAt(fn, froms, reversed), from = fromAt < 2 ? fromAt : pastOne, x = values[scummverseRunAt(xn, values.size(), reversed)];
+ 					putBack();
+ 					const int played = worldPlayedIn(gameIndex, v.room);
+ 					ego = played > 0 && played < _numActors ? played : startEgo;
+ 					_rnd.setSeed(0x5C0BE + v.room);
+ 					_scummverseStepBudget = kRunSteps;
+-					valueSet.var = v.reads; valueSet.value = x; valueSet.need = v.need;
++					valueSet.var = v.reads; valueSet.value = x; valueSet.need = carriedThing ? 0 : v.need;
+ 					const bool there = arrive(v.room, v.object) && getObjectIndex(v.object) > 0;
+ 					valueSet = ValueSet();
+ 					if (!there) { _scummverseStepBudget = -1; ++valuedMissed; continue; }
+@@ -7898,6 +7908,7 @@ void ScummEngine::scummverseExportOwnAnswers(int gameIndex, const Common::Array<
+ 					getObjectXYPos(v.object, ox, oy, dir);
+ 					Actor *a = _actors[ego];
+ 					a->putActor(ox, oy, shownRoom);
++					if (carriedThing) carry(v.object, ego);
+ 					Common::Array<int> varsWere;
+ 					for (const WorldKeptValue &k : kWorldKeptValues) if (k.game == gameIndex) varsWere.push_back(keptRead(k.var));
+ 					const Common::Array<byte> owned(_objectOwnerTable, _numGlobalObjects);
+diff --git a/engines/scummverse/sandbox.cpp b/engines/scummverse/sandbox.cpp
+index ad069884..dd7e29ea 100644
+--- a/engines/scummverse/sandbox.cpp
++++ b/engines/scummverse/sandbox.cpp
+@@ -1438,6 +1438,18 @@ bool SandboxEngine::carriedAnswer(int item, int kind) {
+ 	static const int kinds[] = {kWorldVerbOpen, kWorldVerbClose, kWorldVerbTurnOn, kWorldVerbTurnOff, kWorldVerbPush, kWorldVerbPull};
+ 	if (item < 0 || item >= (int)_carried.size() || Common::find(kinds, kinds + ARRAYSIZE(kinds), kind) == kinds + ARRAYSIZE(kinds)) return false;
+ 	const Carried c = _carried[item];
++	// (From 0307 a later game's, where its script answers that verb on it
++	// carried by a value kept (a row of kWorldCarriedNeed: Fate of Atlantis's
++	// kerosene lamp lit and put out), from the picture its pick up leaves it
++	// in, as its things file has it so.)
++	if (c.game >= 0 && c.game < worldGameCount() && !worldHome(c.game)) {
++		bool carriedRow = false;
++		for (const WorldValueReader &v : kWorldValueReaders)
++			carriedRow = carriedRow || (v.game == c.game && v.room == c.room && v.object == c.id && v.kind == kind && !v.with && v.need == kWorldCarriedNeed);
++		if (!carriedRow) return false;
++		loadThings(c.game);
++		return valueCarried(item, kind, 1);
++	}
+ 	if (c.game < 0 || c.game >= worldGameCount() || strcmp(kWorldGames[c.game].gameid, "maniac")) return false;
+ 	loadThings(c.game);
+ 	// (From 0286 as its script answers by a value kept, where it reads one:
+@@ -4328,7 +4340,10 @@ const WorldValueReader *SandboxEngine::valueReader(int game, int room, int id, i
+ 		// carried, its plain answer (Monkey Island 2's string used with the stick
+ 		// carried: its refusal, the string kept).)
+ 		if (worldPutBack(game, room, v.object) && isCarried(game, room, v.object)) continue;
+-		if (worldValueNeedsPerson(v) ? !personHere(game, room, v.need - kWorldPersonThing) : v.need && pictureIn(game, room, v.need) != 1) continue;
++		// (From 0307 one of kWorldCarriedNeed only while its thing is carried:
++		// Fate of Atlantis's kerosene lamp.)
++		if (v.need == kWorldCarriedNeed ? !isCarried(game, room, id) :
++			worldValueNeedsPerson(v) ? !personHere(game, room, v.need - kWorldPersonThing) : v.need && pictureIn(game, room, v.need) != 1) continue;
+ 		if (v.kids && !(v.kids & 1 << playedKid(game))) continue;
+ 		// (From 0288 filed under its kids where it has no `need`: worldValueNeed.)
+ 		valued[0] = worldValueNeed(v); valued[1] = (v.reads ? keptValue(game, v.reads) & 0xFF : 0) | (marksNow(game) & v.marks & 0xFF) << 8;
+@@ -9871,6 +9886,145 @@ SandboxEngine::SamnmaxThings SandboxEngine::samnmaxThingsPlayed() {
+ 	return c;
+ }
+ 
++// From 0307 the "verbs" check's (see verbsTest): Fate of Atlantis's Tikal
++// temple as a player plays it, as its things file has it (rooms 76 and 77:
++// kWorldKeptClasses' negatives, kWorldCarriedNeed, kWorldLateCarried). A
++// damaged state's lamp's and spiral's values at 2 let go first. The kerosene
++// lamp (room 76, 1050) opened where it lies: not lit (its line that it is
++// not carried); picked up, carried; opened carried: lit (kept), closed: put
++// out, opened again: lit, through a save and a load. In the temple (room
++// 77) the spiral design (1056) stuck: picked up and pulled, not taken; the
++// lamp put out used on it: not loosened; lit: loosened (kept); picked up:
++// carried, through a save and a load; used on the animal head (1053): set in
++// it (no longer carried), the elephant (1059) in its picture 1, its nose
++// (1054) touchable; the nose pulled: the tomb (1058) open and touchable, the
++// nose no longer; kept through a save and a load. The other way: the lamp
++// lit before the temple is entered, the spiral loosened and pulled, carried,
++// set in the head. Before, the lamp could never be lit nor the spiral taken:
++// the tomb never opened.
++SandboxEngine::AtlantisTemple SandboxEngine::atlantisTemplePlayed() {
++	AtlantisTemple c;
++	const Common::HashMap<int, int> picturesKept = _pictures, touchedKept = _touched, keptKept = _kept;
++	const Common::Array<Carried> carriedKept = _carried;
++	const int wasGame = _game, wasRoom = _room;
++	Common::String problem;
++	int g = -1;
++	for (int k = 0; k < worldGameCount(); ++k) if (sameId(kWorldGames[k].gameid, "atlantis")) g = k;
++	if (g >= 0) loadThings(g);
++	auto fresh = [&]() {
++		_carried.clear(); PanelBridge::clearItems(); forgetThings(); _going = Going(); _holding = Pair(); _pairing = Pair();
++		_saying.clear(); _speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0; _kept.clear();
++	};
++	auto thingIn = [&](int id) {
++		for (int o = 0; o < StageBridge::objectCount(); ++o) {
++			int oid, ox, oy, ow, oh, wx, wy, state;
++			if (StageBridge::object(o, oid, ox, oy, ow, oh, wx, wy, state) && oid == id) return o;
++		}
++		return -1;
++	};
++	auto shown = [&](int id) { const int o = thingIn(id); return o >= 0 && isThing(o); };
++	auto pictureHere = [&](int id) { return pictureIn(_game, _room, id); };
++	auto settle = [&]() { for (int t = 0; t < 4000 && (StageBridge::moving(_player) || _action || !_saying.empty() || _going.room); ++t) step(1); };
++	const char *what = "";
++	auto check = [&](bool ok, const char *how) {
++		if (!ok) { ++c.failed; warning("SCUMMVERSE sandbox Fate of Atlantis's temple: %s: %s", what, how); }
++		return ok;
++	};
++	auto said = [&]() { return !(_speech.empty() && _notice.empty() && _saying.empty()); };
++	auto tap = [&](int kind, int id) {
++		const int o = thingIn(id);
++		if (o < 0 || !isThing(o)) return false;
++		_holding = Pair(); _pairing = Pair();
++		_speech.clear(); _notice.clear(); _speechClock = _noticeClock = 0;
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	auto carriedAt = [&](int room, int id) {
++		for (uint n = 0; n < _carried.size(); ++n) if (_carried[n].game == g && _carried[n].room == room && _carried[n].id == id) return (int)n;
++		return -1;
++	};
++	auto carriedCount = [&](int room, int id) {
++		int n = 0;
++		for (const Carried &k : _carried) n += k.game == g && k.room == room && k.id == id;
++		return n;
++	};
++	auto useWith = [&](int kind, int item, int id) {
++		const int o = thingIn(id);
++		if (item < 0 || o < 0 || !isThing(o)) return false;
++		Pair p;
++		p.kind = kind; p.item = item;
++		_holding = p;
++		_speech.clear(); _notice.clear(); _saying.clear();
++		useOn(kind, -1, o);
++		settle();
++		return true;
++	};
++	// (A verb on the lamp carried, as a player uses it in the box.)
++	auto useCarried = [&](int kind) {
++		const int item = carriedAt(76, 1050);
++		if (item < 0) return false;
++		_speech.clear(); _notice.clear(); _saying.clear();
++		useItem(item, kind);
++		settle();
++		return true;
++	};
++	auto saved = [&]() {
++		saveState();
++		fresh();
++		int sg, sr;
++		double sx, sy;
++		return loadState(sg, sr, sx, sy);
++	};
++	const int lamp = kWorldClassValue + 6, spiral = kWorldClassValue + 7;
++	const bool exported = g >= 0 && installed(g, 76) && installed(g, 77) && worldKeptClass(g, lamp) && worldKeptClass(g, lamp)->object == 1050 &&
++		worldKeptClass(g, spiral) && worldKeptClass(g, spiral)->object == 1056 &&
++		PanelBridge::valueAnswered(g, 76, 1050, kWorldVerbOpen, 1, 0, kWorldCarriedNeed, 0) && PanelBridge::valueAnswered(g, 77, 1053, kWorldVerbUse, 0, 1056, 0, 1);
++	// (The lamp lit carried, the spiral loosened and picked up, set in the
++	// head, the nose pulled.)
++	if (exported) {
++		what = "the lamp lit, the spiral loosened and picked up, set in the animal head, the nose pulled (rooms 76 and 77)";
++		++c.cases;
++		fresh();
++		_kept[g * 65536 + lamp] = 2; _kept[g * 65536 + spiral] = 2; // (as a damaged state has them: let go)
++		bool ok = check(saved() && !_kept.contains(g * 65536 + lamp) && !_kept.contains(g * 65536 + spiral), "the lamp's or the spiral's value at 2 kept from a damaged state");
++		ok = ok && check(enter(g, 76, 0, problem) && shown(1050) && tap(kWorldVerbOpen, 1050) && said() && keptValue(g, lamp) == 0 && !carriedCount(76, 1050), "the lamp lit where it lies, or not there") &&
++			check(tap(kWorldVerbPickUp, 1050) && carriedCount(76, 1050) == 1 && !shown(1050), "the lamp not taken");
++		ok = ok && check(useCarried(kWorldVerbOpen) && keptValue(g, lamp) == 1, "the lamp not lit opened carried") &&
++			check(useCarried(kWorldVerbOpen) && keptValue(g, lamp) == 1 && said(), "the lamp opened again, lit, not its line") &&
++			check(useCarried(kWorldVerbClose) && keptValue(g, lamp) == 0, "the lamp not put out closed carried") &&
++			check(useCarried(kWorldVerbOpen) && keptValue(g, lamp) == 1, "the lamp not lit again");
++		ok = ok && check(saved() && keptValue(g, lamp) == 1 && carriedCount(76, 1050) == 1, "the lamp, lit, not kept through a save and a load");
++		ok = ok && check(enter(g, 77, 0, problem) && shown(1056) && shown(1053) && !shown(1054) && pictureHere(1059) == 0, "the temple not as its game starts it (the spiral and the head there, the nose untouchable)") &&
++			check(tap(kWorldVerbPickUp, 1056) && !carriedCount(77, 1056) && tap(kWorldVerbPull, 1056) && !carriedCount(77, 1056) && keptValue(g, spiral) == 0, "the spiral taken while stuck") &&
++			check(useCarried(kWorldVerbClose) && keptValue(g, lamp) == 0 && useWith(kWorldVerbUse, carriedAt(76, 1050), 1056) && keptValue(g, spiral) == 0 && said(), "the spiral loosened with the lamp put out") &&
++			check(useCarried(kWorldVerbOpen) && useWith(kWorldVerbUse, carriedAt(76, 1050), 1056) && keptValue(g, spiral) == 1 && carriedCount(76, 1050) == 1, "the spiral not loosened with the lamp lit (kept)") &&
++			check(tap(kWorldVerbPickUp, 1056) && carriedCount(77, 1056) == 1 && !shown(1056), "the spiral not taken once loose");
++		ok = ok && check(saved() && carriedCount(77, 1056) == 1 && keptValue(g, spiral) == 1 && enter(g, 77, 0, problem) && !shown(1056), "the spiral, or its value, not kept through a save and a load, or shown again");
++		ok = ok && check(useWith(kWorldVerbUse, carriedAt(77, 1056), 1053) && !carriedCount(77, 1056) && pictureHere(1059) == 1 && shown(1054), "the spiral not set in the animal head as its game sets it (used up, the elephant so, its nose touchable)") &&
++			check(tap(kWorldVerbPull, 1054) && pictureHere(1058) == 1 && shown(1058) && !shown(1054), "the nose pulled not opening the tomb as its game opens it");
++		ok = ok && check(saved() && enter(g, 77, 0, problem) && pictureHere(1059) != 0 && pictureHere(1058) == 1 && shown(1058) && !shown(1054) && !carriedCount(77, 1056), "the temple, its tomb open, not kept through a save and a load");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	// (The other way: lit before the temple, the spiral pulled once loose.)
++	if (exported) {
++		what = "the lamp lit before the temple, the spiral loosened and pulled (rooms 76 and 77)";
++		++c.cases;
++		fresh();
++		bool ok = check(enter(g, 76, 0, problem) && tap(kWorldVerbPickUp, 1050) && useCarried(kWorldVerbOpen) && keptValue(g, lamp) == 1, "the lamp not taken and lit");
++		ok = ok && check(enter(g, 77, 0, problem) && useWith(kWorldVerbUse, carriedAt(76, 1050), 1056) && keptValue(g, spiral) == 1, "the spiral not loosened with the lamp lit") &&
++			check(useWith(kWorldVerbUse, carriedAt(76, 1050), 1056) && keptValue(g, spiral) == 1 && carriedCount(76, 1050) == 1, "the lamp on the spiral loose not as on one stuck (its row reads the lamp's value only)") &&
++			check(tap(kWorldVerbPull, 1056) && carriedCount(77, 1056) == 1, "the spiral not taken by its Pull once loose") &&
++			check(useWith(kWorldVerbUse, carriedAt(77, 1056), 1053) && !carriedCount(77, 1056) && pictureHere(1059) == 1 && shown(1054), "the spiral pulled out not set in the animal head");
++		if (ok) { ++c.played; ++c.kept; }
++	}
++	fresh();
++	for (const Carried &k : carriedKept) carry(k.game, k.room, k.id, k.name, k.picture, false);
++	_pictures = picturesKept; _touched = touchedKept; _kept = keptKept;
++	if (wasGame >= 0) enter(wasGame, wasRoom, 0, problem);
++	return c;
++}
++
+ // From 0302 the "verbs" check's (see verbsTest): Monkey Island 2's
+ // conversations as a player plays them (kWorldTalks; its talks file), each
+ // choice tapped where its list shows it, and what they lead to. The antique
+@@ -18009,6 +18163,12 @@ Common::Error SandboxEngine::verbsTest() {
+ 	warning("SCUMMVERSE sandbox selftest Sam & Max's things: %d of %d played as a player plays them (Max from its start carried, his picture in its box, held from it and used on the dead guy of the street, the carnival tickets carried), %d lines said in turn, %d kept through saves and loads; %d failed",
+ 		snmThings.played, snmThings.cases, snmThings.said, snmThings.kept, snmThings.failed);
+ 	failed += snmThings.failed;
++	// (From 0307) Fate of Atlantis's Tikal temple as a player plays it: see
++	// atlantisTemplePlayed.
++	const AtlantisTemple temple = atlantisTemplePlayed();
++	warning("SCUMMVERSE sandbox selftest Fate of Atlantis's temple: %d of %d played as a player plays them (the kerosene lamp lit carried, the spiral design loosened with it and taken, set in the animal head, the elephant's nose pulled, the tomb opened), %d kept through saves and loads; %d failed",
++		temple.played, temple.cases, temple.kept, temple.failed);
++	failed += temple.failed;
+ 	// (From 0283) Each answer of one thing that takes the one played to
+ 	// another place of its game (its things file's "SVOA", answerGoes),
+ 	// played as a player plays it: in its place as its game starts it,
+diff --git a/engines/scummverse/sandbox.h b/engines/scummverse/sandbox.h
+index 2ed769dc..9b797987 100644
+--- a/engines/scummverse/sandbox.h
++++ b/engines/scummverse/sandbox.h
+@@ -376,7 +376,9 @@ private:
+ 	int _handing = 0;
+ 	// From 0278 a thing of the mansion's carried, with a verb of one thing
+ 	// but read: as its script answers it carried (its record from picture 1,
+-	// by the marks where it reads them); false: none (the plain rules).
++	// by the marks where it reads them); false: none (the plain rules). From
++	// 0307 a later game's too, where a row of kWorldCarriedNeed answers it
++	// carried by a value kept (Fate of Atlantis's kerosene lamp lit).
+ 	bool carriedAnswer(int item, int kind);
+ 	bool valueCarried(int item, int kind, int from); // (from 0286: by a value kept, kWorldValueReaders)
+ 	bool pairPersonValued(const Pair &p); // (from 0286: the mansion's, given to one of its cast, by a value kept)
+@@ -836,6 +838,13 @@ private:
+ 	// lines said in turn.)
+ 	struct SamnmaxThings { int cases = 0, played = 0, kept = 0, failed = 0, said = 0; };
+ 	SamnmaxThings samnmaxThingsPlayed();
++	// (From 0307 the "verbs" check's: Fate of Atlantis's Tikal temple as a
++	// player plays it: the kerosene lamp lit carried, the spiral design
++	// loosened with it and taken, set in the animal head, the elephant's nose
++	// pulled, the tomb opened. Counted; `failed` where one is not as its
++	// things file has it.)
++	struct AtlantisTemple { int cases = 0, played = 0, kept = 0, failed = 0; };
++	AtlantisTemple atlantisTemplePlayed();
+ 
+ 	const ADGameDescription *_desc;
+ 	Common::FSNode _folder;

@@ -1157,6 +1157,19 @@ if __name__ == '__main__':
             raise SystemExit('FAIL: Sam & Max\'s records with Max held not replayed through its own controls\n' + output[-2000:])
         print(f'PASS: {sm.group(1)} of Sam & Max\'s things played as a player plays them (Max from its start carried, his picture in its box, held from it and used on the '
               f'dead guy of the street, the carnival tickets carried), {sm.group(3)} lines said in turn, {sm.group(4)} kept')
+        # (From 0307) Fate of Atlantis's Tikal temple as a player plays it,
+        # where its export is 0307's (atlantis-v34): the kerosene lamp lit
+        # carried (opened, closed, opened again), the spiral design stuck
+        # until the lamp lit is used on it, then taken (picked up, or pulled),
+        # set in the animal head, the elephant's nose pulled, the tomb opened;
+        # through saves and loads. Before, the lamp could never be lit nor the
+        # spiral taken: the tomb never opened.
+        at = re.search(r"selftest Fate of Atlantis's temple: (\d+) of (\d+) played as a player plays them .*?, (\d+) kept through saves and loads; (\d+) failed", output)
+        templeCases = 2 if exported_since(worlds, 'atlantis', 34) and all((worlds/f'atlantis-{room}.svw').exists() for room in (76, 77)) else 0
+        if not at or at.group(4) != '0' or at.group(1) != at.group(2) or at.group(3) != at.group(1) or int(at.group(2)) < templeCases:
+            raise SystemExit('FAIL: Fate of Atlantis\'s temple as a player plays it (export Fate of Atlantis again: tools/export_worlds.py)\n' + output[-2000:])
+        print(f'PASS: {at.group(1)} of Fate of Atlantis\'s temple played as a player plays it (the kerosene lamp lit carried, the spiral design loosened and taken, '
+              f'set in the animal head, the nose pulled, the tomb opened), {at.group(3)} kept')
         zp = re.search(r'selftest Zak McKracken given and placed: (\d+) of (\d+) answers .*?; (\d+) living room', output)
         zak33 = (worlds/'zak-v33.svx').exists()
         if not zp or zp.group(1) != zp.group(2) or (zak33 and (worlds/'zak-1.svw').exists() and zp.group(1) == '0') or \

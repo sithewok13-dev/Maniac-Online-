@@ -2775,5 +2775,49 @@ int main() {
 		assert(rows == 10 && carried && worldExportVersion("indy3") >= 32);
 	}
 	std::puts("PASS: a class kept as its negative (one its game starts the thing with, taken), the Last Crusade's Henry's house and wine bottle in the catalog");
+	// (From 0307) Fate of Atlantis's Tikal temple. A row of kWorldCarriedNeed
+	// (its thing carried) a later game's, a verb of one thing reading a value
+	// kept, its need none of the others (one of the cast, its kids, an
+	// arrival's or a holder's answer, a class kept, its start's given value).
+	// Fate of Atlantis's rows: the kerosene lamp's (room 76, 1050) class 6
+	// kept as its negative (lit), read by its Open and Close carried and by
+	// the spiral design (room 77, 1056) used with it; the spiral's class 6
+	// kept as its negative (loose), read by its Pick up and Pull and by the
+	// animal head (1053) used with it, the spiral carried late
+	// (kWorldLateCarried); its export's version 34 on.
+	{
+		using namespace WorldCatalog;
+		const int games = (int)(sizeof(kWorldGames) / sizeof(kWorldGames[0]));
+		assert(kWorldCarriedNeed < kWorldPersonThing && (kWorldCarriedNeed < kWorldKidsNeed || kWorldCarriedNeed > kWorldKidsNeed + 0xFF) && kWorldCarriedNeed != kWorldArrivalAnswer && kWorldCarriedNeed != kWorldHolderAnswer);
+		assert(kWorldCarriedNeed > kWorldClassValue + (int)(sizeof(kWorldKeptClasses) / sizeof(kWorldKeptClasses[0])) && kWorldCarriedNeed > kWorldStartGiven);
+		int carried = 0;
+		for (const WorldValueReader &v : kWorldValueReaders) {
+			if (v.need != kWorldCarriedNeed) continue;
+			assert(v.game >= 0 && v.game < games && !worldHome(v.game) && !v.with && v.object > 0 && v.object < kWorldPersonThing && v.reads && worldKeptValue(v.game, v.reads) && !v.kids && !v.marks && !v.later && !v.bare);
+			assert(worldValueNeed(v) == kWorldCarriedNeed && !worldValueNeedsPerson(v));
+			++carried;
+		}
+		int atlantis = -1;
+		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "atlantis")) atlantis = g;
+		assert(atlantis == 4);
+		const int lampLit = kWorldClassValue + 6, spiralLoose = kWorldClassValue + 7;
+		const WorldKeptClass *lamp = worldKeptClass(atlantis, lampLit), *spiral = worldKeptClass(atlantis, spiralLoose);
+		assert(lamp && lamp->object == 1050 && lamp->cls == -6 && spiral && spiral->object == 1056 && spiral->cls == -6);
+		assert(worldKeptClassNumber(*lamp) == 6 && worldKeptClassHas(*lamp, 0) && !worldKeptClassHas(*lamp, 1) && worldKeptClassValue(*spiral, false) == 1);
+		assert(worldKeptValue(atlantis, lampLit) && worldKeptValue(atlantis, spiralLoose) && !worldKeptValue(1, lampLit) && worldKeptValueAs(atlantis, lampLit, 1) == 1 && worldKeptValueAs(atlantis, spiralLoose, 2) == -1);
+		auto row = [&](int room, int object, int kind, int with, int need, int reads) {
+			int n = 0;
+			for (const WorldValueReader &v : kWorldValueReaders)
+				n += v.game == atlantis && v.room == room && v.object == object && v.kind == kind && v.with == with && v.need == need && v.reads == reads && !v.bare && !v.later && !v.kids && !v.marks;
+			return n;
+		};
+		assert(row(76, 1050, kWorldVerbOpen, 0, kWorldCarriedNeed, lampLit) == 1 && row(76, 1050, kWorldVerbClose, 0, kWorldCarriedNeed, lampLit) == 1 && carried == 2);
+		assert(row(77, 1056, kWorldVerbUse, 1050, 0, lampLit) == 1 && row(77, 1056, kWorldVerbPickUp, 0, 0, spiralLoose) == 1 && row(77, 1056, kWorldVerbPull, 0, 0, spiralLoose) == 1);
+		assert(row(77, 1053, kWorldVerbUse, 1056, 0, spiralLoose) == 1 && row(76, 1050, kWorldVerbOpen, 0, 0, lampLit) == 0);
+		bool late = false;
+		for (const WorldLateCarried &l : kWorldLateCarried) late = late || (l.game == atlantis && l.thing == 1056);
+		assert(late && worldExportVersion("atlantis") >= 34);
+	}
+	std::puts("PASS: a value reader answered with its thing carried, Fate of Atlantis's Tikal temple in the catalog (its classes kept as their negatives)");
 	return 0;
 }

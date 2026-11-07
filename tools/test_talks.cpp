@@ -472,10 +472,11 @@ int main() {
 		for (const WorldEntryValue &v : kWorldEntryValues) cleared = cleared || (v.game == mi2 && v.room == 14 && v.var == 166 && v.value == 0);
 		assert(away && cleared);
 		// (Its start's scroll script let go elsewhere; Fate of Atlantis's left as
-		// it is, its export as before.)
+		// it is, its export as before; from 0307 Fate of Atlantis's let go too,
+		// its export version 34 on.)
 		int atlantis = -1;
 		for (int g = 0; g < games; ++g) if (sameId(kWorldGames[g].gameid, "atlantis")) atlantis = g;
-		assert(worldScrollStart(mi2) && atlantis >= 0 && !worldScrollStart(atlantis) && !worldScrollStart(0));
+		assert(worldScrollStart(mi2) && atlantis >= 0 && worldScrollStart(atlantis) && worldExportVersion("atlantis") >= 34 && !worldScrollStart(0));
 	}
 	std::puts("PASS: the catalog's talks, money, doors' and entries' values (Monkey Island 2's sale of the saw, its bucket, its antique dealer, from 0304 its bartender by three values, its pieces of eight, its peg leg sawn and its way out)");
 	return 0;
